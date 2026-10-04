@@ -1,26 +1,35 @@
 import { idFactory, type Principal, type ReduceContext, MemoryRows } from "@cmux/ownership"
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it } from "vitest"
 import { checkCron, nextFire } from "../src/cron.ts"
 import { dispatchable, dueFires, matchingEventTriggers, MAX_FINISHED_RUNS, schedulerDomain, type SchedulerState } from "../src/domains/scheduler.ts"
+import { automationRowOf, keptRuns, runRowOf } from "../src/domains/scheduler-rows.ts"
 
 const user: Principal = { identity: "session:user_aaaaaaaaaaaaaaaaaaaa", kind: "session", user: "user_aaaaaaaaaaaaaaaaaaaa", team: "team_aaaaaaaaaaaaaaaaaaaa" }
 const system: Principal = { identity: "system:scheduler", kind: "system" }
 const other: Principal = { identity: "session:user_bbbbbbbbbbbbbbbbbbbb", kind: "session", user: "user_bbbbbbbbbbbbbbbbbbbb", team: "team_bbbbbbbbbbbbbbbbbbbb" }
 
 let txn = 0
+/** The owner's rows ((g1)): automations, runs and bodies; one store per test. */
+let rows = new MemoryRows()
+beforeEach(() => {
+  rows = new MemoryRows()
+})
 const ctx = (principal: Principal, now: number): ReduceContext => {
   const tx = `tx${txn++}`
-  return { principal, now, tx, newId: idFactory(tx), rows: new MemoryRows() }
+  return { principal, now, tx, newId: idFactory(tx), rows }
 }
 
-/** Applies one op like the engine: authorize, then reduce. Throws on reject. */
+/** Applies one op like the engine: authorize, then reduce, then commit the row writes. Throws on reject. */
 const apply = (s: SchedulerState, p: Principal, op: string, params: unknown, now: number) => {
   const denied = schedulerDomain.authorize!(s, op, params, p)
   if (denied) throw Object.assign(new Error(denied.message), { code: denied.code })
   const r = schedulerDomain.reduce(s, op, params, ctx(p, now))
   if (!r.ok) throw Object.assign(new Error(r.message), { code: r.code })
+  rows.apply(r.writes ?? [])
   return r
 }
+const automationOf = (id: string) => automationRowOf(rows, id)!
+const runOf = (id: string) => runRowOf(rows, id)
 
 const T0 = Date.UTC(2026, 9, 2, 12, 0, 30) // 12:00:30 UTC
 const steps = { type: "steps", steps: [{ type: "note", text: "hi" }] }
@@ -65,11 +74,11 @@ describe("SchedulerDO reducer", () => {
   it("a fire creates one run and advances the schedule; the same slot again is stale", () => {
     const { state, a } = created()
     const slot = a.next_run_at as number
-    expect(dueFires(state, slot)).toEqual([{ automation: a.id, trigger: a.triggers[0].id, scheduled_at: slot }])
+    expect(dueFires(rows, slot)).toEqual([{ automation: a.id, trigger: a.triggers[0].id, scheduled_at: slot }])
     const r1 = apply(state, system, "automation.fire", { automation: a.id, trigger: a.triggers[0].id, scheduled_at: slot }, slot + 5)
     expect((r1.value as any).state).toBe("queued")
-    expect(Object.keys(r1.state.runs)).toHaveLength(1)
-    expect(r1.state.automations[a.id]!.next_run_at).toBe(slot + 3600_000)
+    expect(keptRuns(rows)).toHaveLength(1)
+    expect(automationOf(a.id).next_run_at).toBe(slot + 3600_000)
     const r2 = apply(r1.state, system, "automation.fire", { automation: a.id, trigger: a.triggers[0].id, scheduled_at: slot }, slot + 6)
     expect(r2.changed).toBe(false)
     expect(r2.value).toEqual({ stale: true })
@@ -80,21 +89,21 @@ describe("SchedulerDO reducer", () => {
     const slot = a.next_run_at as number
     const late = slot + 5 * 3600_000 + 10
     const r = apply(state, system, "automation.fire", { automation: a.id, trigger: a.triggers[0].id, scheduled_at: slot }, late)
-    expect(Object.keys(r.state.runs)).toHaveLength(1)
-    expect(r.state.automations[a.id]!.next_run_at).toBe(slot + 6 * 3600_000)
+    expect(keptRuns(rows)).toHaveLength(1)
+    expect(automationOf(a.id).next_run_at).toBe(slot + 6 * 3600_000)
   })
 
   it("concurrency queues by default and dispatches one at a time; skip records a visible skipped run", () => {
     let { state, a } = created()
     state = apply(state, user, "automation.run", { automation: a.id }, T0 + 1).state
     state = apply(state, user, "automation.run", { automation: a.id }, T0 + 2).state
-    expect(dispatchable(state)).toHaveLength(1)
-    const first = dispatchable(state)[0]!
+    expect(dispatchable(state, rows)).toHaveLength(1)
+    const first = dispatchable(state, rows)[0]!
     state = apply(state, system, "run.dispatched", { run: first.id }, T0 + 3).state
-    expect(dispatchable(state)).toHaveLength(0)
+    expect(dispatchable(state, rows)).toHaveLength(0)
     state = apply(state, system, "run.report", { run: first.id, state: "succeeded", step: 0 }, T0 + 4).state
-    expect(dispatchable(state).map((r) => r.id)).not.toContain(first.id)
-    expect(dispatchable(state)).toHaveLength(1)
+    expect(dispatchable(state, rows).map((r) => r.id)).not.toContain(first.id)
+    expect(dispatchable(state, rows)).toHaveLength(1)
 
     state = apply(state, user, "automation.update", { automation: a.id, concurrency: { max: 1, on_limit: "skip" } }, T0 + 5).state
     const skipped = apply(state, user, "automation.run", { automation: a.id }, T0 + 6)
@@ -110,7 +119,7 @@ describe("SchedulerDO reducer", () => {
     state = apply(state, system, "run.report", { run: id, state: "failed", step: -1, error: { code: "x", message: "y" } }, T0 + 2).state
     const late = apply(state, system, "run.report", { run: id, state: "running", step: 3 }, T0 + 3)
     expect(late.changed).toBe(false)
-    expect(late.state.runs[id]!.state).toBe("failed")
+    expect(runOf(id)!.state).toBe("failed")
   })
 
   it("update keeps unchanged trigger ids, bumps version, and a no-op update changes nothing", () => {
@@ -128,10 +137,10 @@ describe("SchedulerDO reducer", () => {
   it("disable stops fires; enable reschedules from now instead of firing missed slots", () => {
     const { state, a } = created()
     const off = apply(state, user, "automation.update", { automation: a.id, enabled: false }, T0 + 1).state
-    expect(dueFires(off, T0 + 10 * 3600_000)).toEqual([])
+    expect(dueFires(rows, T0 + 10 * 3600_000)).toEqual([])
     const later = T0 + 10 * 3600_000
     const on = apply(off, user, "automation.update", { automation: a.id, enabled: true }, later).state
-    expect(on.automations[a.id]!.next_run_at).toBe(Date.UTC(2026, 9, 2, 23, 0, 0))
+    expect(automationOf(a.id).next_run_at).toBe(Date.UTC(2026, 9, 2, 23, 0, 0))
   })
 
   it("continue schedules the next run after the cooldown until the goal is met or max_runs", () => {
@@ -142,21 +151,21 @@ describe("SchedulerDO reducer", () => {
     const cont = a.triggers[1].id
     let run = apply(state, user, "automation.run", { automation: a.id }, T0 + 1)
     state = apply(run.state, system, "run.report", { run: (run.value as any).id, state: "succeeded", step: 0 }, T0 + 2).state
-    expect(state.automations[a.id]!.next_run_at).toBe(T0 + 2 + 60_000)
+    expect(automationOf(a.id).next_run_at).toBe(T0 + 2 + 60_000)
     // Continue fires until max_runs (3 chained runs after the manual one).
     for (let i = 1; i <= 3; i++) {
-      const slot = state.automations[a.id]!.next_run_at!
+      const slot = automationOf(a.id).next_run_at!
+      expect(automationOf(a.id).triggers[1]!.next_at).toBe(slot)
       run = apply(state, system, "automation.fire", { automation: a.id, trigger: cont, scheduled_at: slot }, slot)
-      expect(state.automations[a.id]!.triggers[1]!.next_at).toBe(slot)
       state = apply(run.state, system, "run.report", { run: (run.value as any).id, state: "succeeded", step: 0 }, slot + 10).state
     }
     expect(state.chains[cont]).toBe(3)
-    expect(state.automations[a.id]!.next_run_at).toBeNull()
+    expect(automationOf(a.id).next_run_at).toBeNull()
 
     // A new manual run starts a new chain; goal_met stops it.
     run = apply(state, user, "automation.run", { automation: a.id }, T0 + 9_000_000)
     state = apply(run.state, system, "run.report", { run: (run.value as any).id, state: "succeeded", step: 0, outcome: { goal_met: true } }, T0 + 9_000_001).state
-    expect(state.automations[a.id]!.next_run_at).toBeNull()
+    expect(automationOf(a.id).next_run_at).toBeNull()
   })
 
   it("disabling or deleting cancels queued runs that have no Workflow yet", () => {
@@ -166,11 +175,11 @@ describe("SchedulerDO reducer", () => {
     state = apply(r1.state, system, "run.dispatched", { run: (r1.value as any).id }, T0 + 2).state
     const r2 = apply(state, user, "automation.run", { automation: a.id }, T0 + 3)
     state = apply(r2.state, user, "automation.update", { automation: a.id, enabled: false }, T0 + 4).state
-    expect(state.runs[(r2.value as any).id]!.state).toBe("cancelled")
-    expect(state.runs[(r1.value as any).id]!.state).toBe("queued")
+    expect(runOf((r2.value as any).id)!.state).toBe("cancelled")
+    expect(runOf((r1.value as any).id)!.state).toBe("queued")
     const r3 = apply(state, user, "automation.run", { automation: a.id }, T0 + 5)
     state = apply(r3.state, user, "automation.delete", { automation: a.id }, T0 + 6).state
-    expect(state.runs[(r3.value as any).id]!).toMatchObject({ state: "cancelled", error: { code: "automation.stopped" } })
+    expect(runOf((r3.value as any).id)!).toMatchObject({ state: "cancelled", error: { code: "automation.stopped" } })
   })
 
   it("integration events match connection, pattern and filters, and private connections only start their creator's automations", () => {
@@ -181,11 +190,11 @@ describe("SchedulerDO reducer", () => {
       body: steps
     }, T0)
     const ev = (event: string, repo: string, sharing: "private" | "team", created_by: string) => ({ connection: conn, event, payload: { repository: { full_name: repo } }, sharing, created_by })
-    expect(matchingEventTriggers(r.state, ev("pull_request.opened", "manaflow-ai/cmux", "private", user.user!))).toHaveLength(1)
-    expect(matchingEventTriggers(r.state, ev("push", "manaflow-ai/cmux", "private", user.user!))).toHaveLength(0)
-    expect(matchingEventTriggers(r.state, ev("pull_request.opened", "other/repo", "private", user.user!))).toHaveLength(0)
-    expect(matchingEventTriggers(r.state, ev("pull_request.opened", "manaflow-ai/cmux", "private", "user_bbbbbbbbbbbbbbbbbbbb"))).toHaveLength(0)
-    expect(matchingEventTriggers(r.state, ev("pull_request.opened", "manaflow-ai/cmux", "team", "user_bbbbbbbbbbbbbbbbbbbb"))).toHaveLength(1)
+    expect(matchingEventTriggers(rows, ev("pull_request.opened", "manaflow-ai/cmux", "private", user.user!))).toHaveLength(1)
+    expect(matchingEventTriggers(rows, ev("push", "manaflow-ai/cmux", "private", user.user!))).toHaveLength(0)
+    expect(matchingEventTriggers(rows, ev("pull_request.opened", "other/repo", "private", user.user!))).toHaveLength(0)
+    expect(matchingEventTriggers(rows, ev("pull_request.opened", "manaflow-ai/cmux", "private", "user_bbbbbbbbbbbbbbbbbbbb"))).toHaveLength(0)
+    expect(matchingEventTriggers(rows, ev("pull_request.opened", "manaflow-ai/cmux", "team", "user_bbbbbbbbbbbbbbbbbbbb"))).toHaveLength(1)
     // Without a connection an integration event trigger is stored but not fired.
     const loose = apply(r.state, user, "automation.create", { name: "x", triggers: [{ type: "event", source: "integration", event: "push" }], body: steps }, T0)
     expect((loose.value as any).triggers[0].status).toBe("not_yet_supported")
@@ -196,10 +205,10 @@ describe("SchedulerDO reducer", () => {
     const r = apply(state, user, "automation.run", { automation: a.id }, T0)
     const id = (r.value as any).id
     state = apply(r.state, system, "run.report", { run: id, state: "running", step: -1 }, T0 + 10).state
-    expect(state.runs[id]!.deadline_at).toBe(T0 + 10 + 60 * 60_000)
+    expect(runOf(id)!.deadline_at).toBe(T0 + 10 + 60 * 60_000)
     const late = apply(state, system, "run.dispatched", { run: id }, T0 + 20)
     expect(late.changed).toBe(false)
-    expect(late.state.runs[id]!.deadline_at).toBe(T0 + 10 + 60 * 60_000)
+    expect(runOf(id)!.deadline_at).toBe(T0 + 10 + 60 * 60_000)
   })
 
   it("keeps every active run and only the newest finished runs", () => {
@@ -212,8 +221,8 @@ describe("SchedulerDO reducer", () => {
       const r = apply(state, user, "automation.run", { automation: a.id }, T0 + 1 + i * 200)
       state = apply(r.state, system, "run.report", { run: (r.value as any).id, state: "succeeded", step: 0 }, T0 + 1 + i * 200).state
     }
-    const runs = Object.values(state.runs)
+    const runs = keptRuns(rows)
     expect(runs.filter((r) => r.state === "succeeded")).toHaveLength(MAX_FINISHED_RUNS)
-    expect(state.runs[(active.value as any).id]).toBeDefined()
+    expect(runOf((active.value as any).id)!).toBeDefined()
   })
 })

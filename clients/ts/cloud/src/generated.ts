@@ -651,6 +651,33 @@ export type RunId = string
 
 export type RunState = "queued" | "running" | "sleeping" | "waiting" | "succeeded" | "failed" | "cancelled" | "skipped" | "dead"
 
+export type RunWithBody = {
+  readonly id: RunId
+  readonly automation: AutomationId
+  readonly automation_version: number
+  readonly owner: TeamId
+  readonly trigger: {
+    readonly id: TriggerId | null
+    readonly type: string
+    readonly scheduled_at?: number
+    readonly delivery_id?: string
+    readonly parent_run?: RunId
+    readonly root_run?: RunId
+    readonly depth?: number
+  }
+  readonly state: RunState
+  readonly step: number
+  readonly created_at: number
+  readonly started_at: number | null
+  readonly finished_at: number | null
+  readonly error: RunError | null
+  readonly outcome: {
+    readonly goal_met: boolean
+    readonly summary?: string
+  } | null
+  readonly body: Body
+}
+
 /** `human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28). */
 export type SshCertClass = "human" | "agent"
 
@@ -1016,12 +1043,17 @@ export interface CloudOps {
     }
     readonly result: Automation
   }
-  /** List the automations of the caller's team. */
+  /** List the automations of the caller's team, oldest first, with their bodies. Without params the first page holds every automation (at most 100); page with limit and cursor (keyset: pass next_cursor). */
   readonly "automation.list": {
-    readonly params: Readonly<Record<string, never>>
+    readonly params: {
+      readonly cursor?: string
+      readonly limit?: number
+    }
     readonly result: {
       readonly owner: TeamId | null
       readonly automations: ReadonlyArray<Automation>
+      readonly automation_count: number | "Infinity" | "-Infinity" | "NaN"
+      readonly next_cursor: string | null
       readonly revision: string
     }
   }
@@ -2104,6 +2136,27 @@ export interface CloudOps {
     }
     readonly result: HomeConversationCommit
   }
+  /** Read one kept run with the body of the automation version that fired it. */
+  readonly "run.get": {
+    readonly params: {
+      readonly run: RunId
+    }
+    readonly result: RunWithBody
+  }
+  /** Page the kept runs newest first (every active run and the last 200 finished ones), optionally of one automation and one state (keyset: pass next_cursor as cursor; new runs never shift later pages). */
+  readonly "run.list": {
+    readonly params: {
+      readonly automation?: AutomationId
+      readonly state?: RunState
+      readonly cursor?: string
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly runs: ReadonlyArray<Run>
+      readonly next_cursor: string | null
+      readonly revision: string
+    }
+  }
   /** Approve a pairing code: register the server's install key under you and add the server to the team directory. */
   readonly "server.pair.approve": {
     readonly params: {
@@ -2711,6 +2764,8 @@ export const cloudOpMeta = {
   "reaction.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "reaction.remove": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "read_cursor.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "run.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
+  "run.list": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
   "server.pair.approve": { class: "mutation", owner: "cloud:PairingDO", risk: "mutate-shared" },
   "server.pair.preview": { class: "read", owner: "cloud:PairingDO", risk: "read" },
   "server.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },

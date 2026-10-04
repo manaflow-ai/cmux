@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto"
 import type { OpFrame, OwnerFrame, Principal, RejectFrame, ResultFrame } from "@cmux/ownership"
 import type { Body, Run } from "@cmux/protocol"
-import { deadlineOf, dispatchable, dueFires, matchingEventTriggers, publicRun, schedulerDomain, TERMINAL, type SchedulerState } from "./domains/scheduler.ts"
+import { deadlineOf, dispatchable, dueFires, matchingEventTriggers, schedulerDomain, TERMINAL, type SchedulerState } from "./domains/scheduler.ts"
 import { afterCreate } from "./domains/scheduler-policy.ts"
+import { allAutomations, automationOf, isLegacyHead, openRuns, runBody, runRowOf, SCHEDULER_PRIVATE_TABLES, TABLE_RUN } from "./domains/scheduler-rows.ts"
+import { schedulerRead } from "./scheduler-reads.ts"
 import { codeRefOf, precheckCodeOp } from "./code-check.ts"
 import type { CodeStorageError } from "./code-storage.ts"
 import type { Env } from "./env.ts"
@@ -61,7 +63,11 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       ...(p.display_name ? { display_name: p.display_name } : {}),
       // Automation principals: mirrors replay automation.run with the same chain rules (review P2).
       ...(p.kind === "agent" && p.identity.startsWith("automation:") ? { agent: p.agent, run: p.run } : {})
-    }))
+    }), {
+      // Automations, runs and bodies are private rows ((g1)): events and snapshots carry the head only.
+      rowMode: { snapshotTable: TABLE_RUN, snapshotTail: 0 },
+      redact: { privateTables: SCHEDULER_PRIVATE_TABLES }
+    })
     // Trigger payloads wait here between the delivery and the Workflow start. They are
     // inputs, not entity state: never in events, snapshots or the ledger.
     // Backoff for failed fires, dispatches and deadline checks: persisted, so a restarted object
@@ -78,37 +84,28 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
   }
 
   protected read(state: SchedulerState, op: string, params: unknown, principal: Principal): ReadResult {
-    if (!principal.team || (state.owner !== null && state.owner !== principal.team)) return { ok: false, code: "auth.forbidden", message: "not this team's scheduler" }
-    const p = (params ?? {}) as { automation?: unknown; limit?: unknown }
-    switch (op) {
-      case "automation.list":
-        return { ok: true, value: { owner: state.owner, automations: Object.values(state.automations).sort((a, b) => a.created_at - b.created_at) }, revision: "" }
-      case "automation.get": {
-        const a = typeof p.automation === "string" ? state.automations[p.automation] : undefined
-        return a ? { ok: true, value: a, revision: "" } : { ok: false, code: "selector.not_found", message: "automation not found" }
-      }
-      case "automation.runs.list": {
-        const limit = typeof p.limit === "number" && Number.isInteger(p.limit) ? Math.min(200, Math.max(1, p.limit)) : 50
-        const runs = Object.values(state.runs)
-          .filter((r) => typeof p.automation !== "string" || r.automation === p.automation)
-          .sort((a, b) => b.created_at - a.created_at || (a.id < b.id ? 1 : -1))
-          .slice(0, limit)
-          .map(publicRun)
-        return { ok: true, value: { runs }, revision: "" }
-      }
-      case "automation.settings.get":
-        return { ok: true, value: state.settings ?? { agent_run_default_seconds: null }, revision: "" }
-      case "automation.webhook.get": {
-        const params2 = (params ?? {}) as { automation?: unknown; trigger?: unknown }
-        const a = typeof params2.automation === "string" ? state.automations[params2.automation] : undefined
-        const t = a?.triggers.find((x) => x.id === params2.trigger)
-        if (!a || !t || t.spec.type !== "webhook") return { ok: false, code: "selector.not_found", message: "webhook trigger not found" }
-        // The Worker adds the path and the derived secret; the DO only proves the trigger exists in this team.
-        return { ok: true, value: { owner: a.owner, automation: a.id, trigger: t.id }, revision: "" }
-      }
-      default:
-        return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
-    }
+    return schedulerRead(state, op, params, principal, this.rows)
+  }
+
+  private get rows() {
+    return this.boundEngine?.rows
+  }
+
+  /** Automations, runs and bodies are rows ((g1)); an old head moves its maps there on the first bind. */
+  protected override bind(entity: string) {
+    const engine = super.bind(entity)
+    this.migrateLegacyHead()
+    return engine
+  }
+
+  /**
+   * One commit moves an old head's maps to rows. The key carries the head seq: a later head that
+   * again holds maps (a rollback build refilled them) migrates again. Also called from the alarm,
+   * whose engine opens without a bind.
+   */
+  private migrateLegacyHead() {
+    const engine = this.boundEngine
+    if (engine && isLegacyHead(engine.currentState)) this.submitSystem("scheduler.rows_migrate", {}, `rows-migrate:${engine.currentSeq}`)
   }
 
   protected maySubscribe(state: SchedulerState, principal: Principal): boolean {
@@ -200,9 +197,11 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
 
   /** Inputs of runs that are gone or finished, and stale backoff rows, leave with the replay window. */
   protected override onPrune(before: number): void {
-    const runs = this.boundEngine?.currentState.runs ?? {}
+    // The alarm prunes before its wake: an old head moves to rows first, so no queued run's input looks orphaned.
+    this.migrateLegacyHead()
+    if (!this.boundEngine || isLegacyHead(this.boundEngine.currentState)) return
     for (const row of this.ctx.storage.sql.exec<{ run: string }>(`SELECT run FROM run_inputs WHERE created_at < ?`, before).toArray()) {
-      const r = runs[row.run]
+      const r = runRowOf(this.rows, row.run)
       // A queued run may wait for weeks behind a long one; its input stays until it ends.
       if (!r || TERMINAL.has(r.state)) this.ctx.storage.sql.exec(`DELETE FROM run_inputs WHERE run = ?`, row.run)
     }
@@ -211,26 +210,31 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
   }
 
   protected override nextWakeAt(state: SchedulerState, now: number): number | null {
+    // An old head migrates in the next wake (the alarm's engine opens without a bind).
+    if (isLegacyHead(state)) return now
+    const rows = this.rows
+    // One read of the open runs (at most MAX_OPEN_RUNS_PER_TEAM) serves dispatch and deadlines.
+    const open = openRuns(state, rows)
     let at: number | null = null
     const take = (t: number) => {
       if (at === null || t < at) at = t
     }
-    for (const a of Object.values(state.automations)) {
+    for (const a of allAutomations(rows)) {
       if (!a.enabled) continue
       for (const t of a.triggers) {
         if (t.status !== "active" || t.next_at === null) continue
         take(t.next_at > now ? t.next_at : (this.retryAt(fireKey(a.id, t.id, t.next_at)) ?? t.next_at))
       }
     }
-    for (const r of dispatchable(state)) take(this.retryAt(dispatchKey(r.id)) ?? now)
+    for (const r of dispatchable(state, rows, open)) take(this.retryAt(dispatchKey(r.id)) ?? now)
     const deferred = this.ctx.storage.sql.exec<{ at: number | null }>(`SELECT MIN(at) AS at FROM deferred_deliveries`).toArray()[0]?.at
     if (deferred !== null && deferred !== undefined) take(Number(deferred))
     const oldestSeen = this.ctx.storage.sql.exec<{ at: number | null }>(`SELECT MIN(at) AS at FROM seen_deliveries`).toArray()[0]?.at
     if (oldestSeen !== null && oldestSeen !== undefined) take(Number(oldestSeen) + DELIVERY_RETENTION_MS)
     // One wake per open run at its deadline; a run that reports its end never causes it.
-    for (const r of Object.values(state.runs)) {
-      const deadline = deadlineOf(r)
-      if (deadline !== undefined && !TERMINAL.has(r.state)) take(this.retryAt(deadlineKey(r.id)) ?? deadline)
+    for (const r of open) {
+      const deadline = deadlineOf(r, () => runBody(rows, r))
+      if (deadline !== undefined) take(this.retryAt(deadlineKey(r.id)) ?? deadline)
     }
     return at
   }
@@ -243,9 +247,9 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
   private async enforceDeadlines(now: number) {
     const engine = this.boundEngine!
     // Runs in backoff are filtered before the batch cap, so the rest always get their check.
-    const due = Object.values(engine.currentState.runs).filter((r) => {
-      const deadline = deadlineOf(r)
-      return deadline !== undefined && deadline <= now && !TERMINAL.has(r.state) && (this.retryAt(deadlineKey(r.id)) ?? 0) <= now
+    const due = openRuns(engine.currentState, engine.rows).filter((r) => {
+      const deadline = deadlineOf(r, () => runBody(engine.rows, r))
+      return deadline !== undefined && deadline <= now && (this.retryAt(deadlineKey(r.id)) ?? 0) <= now
     })
     for (const r of due.slice(0, 20)) {
       const key = deadlineKey(r.id)
@@ -276,11 +280,12 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
   }
 
   protected override async onWake(now: number): Promise<void> {
+    this.migrateLegacyHead()
     const engine = this.boundEngine
-    if (!engine) return
+    if (!engine || isLegacyHead(engine.currentState)) return
     await this.enforceDeadlines(now)
     await this.ensureRunPolicy(engine.currentState.owner ?? engine.stream.slice("scheduler:".length))
-    for (const f of dueFires(engine.currentState, now)) {
+    for (const f of dueFires(engine.rows, now)) {
       const key = fireKey(f.automation, f.trigger, f.scheduled_at)
       if ((this.retryAt(key) ?? 0) > now) continue
       const r = rejected(this.submitSystem("automation.fire", f, key))
@@ -290,7 +295,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       else this.succeeded(key)
     }
     this.retryDeferred(now)
-    for (const run of dispatchable(engine.currentState)) {
+    for (const run of dispatchable(engine.currentState, engine.rows)) {
       const key = dispatchKey(run.id)
       if ((this.retryAt(key) ?? 0) > now) continue
       const stored = this.ctx.storage.sql.exec<{ json: string }>(`SELECT json FROM run_inputs WHERE run = ?`, run.id).toArray()[0]
@@ -300,7 +305,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
         automation: run.automation,
         automation_version: run.automation_version,
         trigger: run.trigger,
-        body: run.body,
+        body: runBody(engine.rows, run),
         ...(stored ? { input: JSON.parse(stored.json) as unknown } : {})
       }
       try {
@@ -313,7 +318,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       }
       // The create awaited: a policy deny, disable or delete may have cancelled the run meanwhile.
       // Its Workflow must not run on: terminate it now (run.report also stops it, see reportRun).
-      if (afterCreate(engine.currentState, run.id) === "terminate") {
+      if (afterCreate(engine.rows, run.id) === "terminate") {
         await this.terminateInstance(run.id)
         this.succeeded(key)
         continue
@@ -336,7 +341,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     const bound = this.boundRow()
     if (!bound || bound.entity !== entity) return { status: "unknown" }
     const engine = this.bind(entity)
-    const a = Object.values(engine.currentState.automations).find((x) => x.triggers.some((t) => t.id === trigger && t.spec.type === "webhook"))
+    const a = allAutomations(engine.rows).find((x) => x.triggers.some((t) => t.id === trigger && t.spec.type === "webhook"))
     if (!a) return { status: "unknown" }
     const key = deliverKey(a.id, trigger, delivery)
     const prior = this.seen(key)
@@ -375,7 +380,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     const text = JSON.stringify({ provider: ev.provider, event: ev.event, delivery_id: ev.delivery_id, body: ev.payload })
     const input = new TextEncoder().encode(text).byteLength <= MAX_INPUT_BYTES ? text : JSON.stringify({ provider: ev.provider, event: ev.event, delivery_id: ev.delivery_id, truncated: true })
     const now = Date.now()
-    for (const { automation, trigger } of matchingEventTriggers(engine.currentState, ev)) {
+    for (const { automation, trigger } of matchingEventTriggers(engine.rows, ev)) {
       const delivery = `${ev.connection}:${ev.delivery_id}`
       const r = this.deliverOne(automation, trigger, delivery, input)
       if (r === "started") runs++
@@ -396,12 +401,12 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     const engine = this.bind(entity)
     if (codeRefOf(frame.op, frame.params) && engine.gate(principal, frame) === undefined) {
       const pathOf = (id: string) => {
-        const b = engine.currentState.automations[id]?.body
+        const b = automationOf(engine.rows, id)?.body
         return b?.type === "code" ? b.ref.path : undefined
       }
       const id = (frame.params as { automation?: unknown } | null)?.automation
       const before = typeof id === "string" ? pathOf(id) : undefined
-      const refusal = await precheckCodeOp(this.env, entity, frame.op, frame.params, async (a) => engine.currentState.automations[a])
+      const refusal = await precheckCodeOp(this.env, entity, frame.op, frame.params, async (a) => automationOf(engine.rows, a))
       // The await lets other requests in: a same-key twin may have committed meanwhile; then replay it.
       if (refusal && engine.gate(principal, frame) !== "replay") return { refusal }
       if (typeof id === "string" && pathOf(id) !== before) return { refusal: { code: "code.unavailable", message: "the automation changed during the code check; retry", retryable: true } }
@@ -420,7 +425,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
   async reportRun(entity: string, report: RunReport): Promise<{ ok: boolean; code?: string; stopped?: boolean }> {
     const engine = this.bind(entity)
     // A run that ended here (cancelled by a policy deny, disable or delete) stops its Workflow.
-    const before = engine.currentState.runs[report.run]
+    const before = runRowOf(engine.rows, report.run)
     if (before && TERMINAL.has(before.state) && !TERMINAL.has(report.state)) return { ok: true, stopped: true }
     const r = rejected(this.submitSystem("run.report", report, `report:${report.run}:${report.state}:${report.step}`))
     return r ? { ok: false, code: r.code } : { ok: true }

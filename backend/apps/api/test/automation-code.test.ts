@@ -2,7 +2,7 @@ import { env, exports } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
 import { idFactory, MemoryRows, type Principal, type ReduceContext } from "@cmux/ownership"
 import { decodeJwt, decodeProtectedHeader, exportPKCS8, generateKeyPair, importJWK, SignJWT, type JWK } from "jose"
-import { beforeAll, describe, expect, it } from "vitest"
+import { beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { precheckCodeOp } from "../src/code-check.ts"
 import { CodeStorage, teamRepoName, type CodeStorageEnv } from "../src/code-storage.ts"
 import { MAX_DEPLOYS_PER_DAY } from "../src/domains/scheduler-code.ts"
@@ -12,14 +12,21 @@ import { schedulerDomain, type SchedulerState } from "../src/domains/scheduler.t
 
 const user: Principal = { identity: "session:user_aaaaaaaaaaaaaaaaaaaa", kind: "session", user: "user_aaaaaaaaaaaaaaaaaaaa", team: "team_aaaaaaaaaaaaaaaaaaaa" }
 let txn = 0
+/** The owner's rows ((g1)); one store per test. */
+let rows = new MemoryRows()
+beforeEach(() => {
+  rows = new MemoryRows()
+})
 const ctx = (now: number): ReduceContext => {
   const tx = `tx${txn++}`
-  return { principal: user, now, tx, newId: idFactory(tx), rows: new MemoryRows() }
+  return { principal: user, now, tx, newId: idFactory(tx), rows }
 }
 const apply = (s: SchedulerState, op: string, params: unknown, now: number) => {
   const denied = schedulerDomain.authorize!(s, op, params, user)
   if (denied) return { ok: false as const, code: denied.code }
-  return schedulerDomain.reduce(s, op, params, ctx(now))
+  const r = schedulerDomain.reduce(s, op, params, ctx(now))
+  if (r.ok) rows.apply(r.writes ?? [])
+  return r
 }
 const ok = (r: ReturnType<typeof apply>) => {
   if (!r.ok) throw new Error(`refused: ${r.code}`)
@@ -63,8 +70,9 @@ describe("code bodies in the SchedulerDO reducer", () => {
   })
 
   it("limits code changes per team per UTC day, counting create, update and deploy, and resets the next day", () => {
-    let s = ok(apply(schedulerDomain.initial(), "automation.create", { name: "digest", triggers: [{ type: "manual" }], body: codeBody(sha(1)) }, T0)).state
-    const id = Object.keys(s.automations)[0]!
+    const first = ok(apply(schedulerDomain.initial(), "automation.create", { name: "digest", triggers: [{ type: "manual" }], body: codeBody(sha(1)) }, T0))
+    let s = first.state
+    const id = (first.value as { id: string }).id
     // An update that changes the ref counts like a deploy.
     s = ok(apply(s, "automation.update", { automation: id, body: codeBody(sha(2)) }, T0)).state
     // A change that does not touch the code counts nothing.

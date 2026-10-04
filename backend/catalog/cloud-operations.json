@@ -3696,6 +3696,183 @@
         "dead"
       ]
     },
+    "RunWithBody": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "RunId"
+          }
+        },
+        "automation": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AutomationId"
+          }
+        },
+        "automation_version": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "owner": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TeamId"
+          }
+        },
+        "trigger": {
+          "required": true,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "id": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "ref",
+                    "name": "TriggerId"
+                  }
+                }
+              },
+              "type": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "scheduled_at": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "delivery_id": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "parent_run": {
+                "required": false,
+                "type": {
+                  "kind": "ref",
+                  "name": "RunId"
+                }
+              },
+              "root_run": {
+                "required": false,
+                "type": {
+                  "kind": "ref",
+                  "name": "RunId"
+                }
+              },
+              "depth": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              }
+            }
+          }
+        },
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "RunState"
+          }
+        },
+        "step": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "created_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "started_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "finished_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "error": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "RunError"
+            }
+          }
+        },
+        "outcome": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "object",
+              "fields": {
+                "goal_met": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "boolean"
+                  }
+                },
+                "summary": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "max_length": 2000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "body": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "Body"
+          }
+        }
+      }
+    },
     "SshCertClass": {
       "kind": "enum",
       "values": [
@@ -8921,7 +9098,23 @@
       ],
       "params": {
         "selectors": {},
-        "fields": {},
+        "fields": {
+          "cursor": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 32
+            }
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
         "extra": false
       },
       "result": {
@@ -8944,6 +9137,36 @@
               "items": {
                 "kind": "ref",
                 "name": "Automation"
+              }
+            }
+          },
+          "automation_count": {
+            "required": true,
+            "type": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          },
+          "next_cursor": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string"
               }
             }
           },
@@ -8983,12 +9206,22 @@
         "expose": "default",
         "group": "automation"
       },
-      "docs": "List the automations of the caller's team.",
+      "docs": "List the automations of the caller's team, oldest first, with their bodies. Without params the first page holds every automation (at most 100); page with limit and cursor (keyset: pass next_cursor).",
       "since": "cloud-1",
       "input_json_schema": {
-        "not": {
-          "type": "null"
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
         },
+        "additionalProperties": true,
         "$defs": {}
       },
       "output_json_schema": {
@@ -9010,6 +9243,31 @@
               "$ref": "#/$defs/Automation"
             }
           },
+          "automation_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "revision": {
             "type": "string"
           }
@@ -9017,6 +9275,8 @@
         "required": [
           "owner",
           "automations",
+          "automation_count",
+          "next_cursor",
           "revision"
         ],
         "additionalProperties": true,
@@ -36431,6 +36691,858 @@
             ],
             "additionalProperties": true,
             "description": "rev after the op; seq and message_id for a new message; change is the committed Change."
+          }
+        }
+      }
+    },
+    "run.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "run",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "run": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "RunId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "RunWithBody"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "selector.not_found"
+      ],
+      "owner": "cloud:SchedulerDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "run get",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "automation"
+      },
+      "docs": "Read one kept run with the body of the automation version that fired it.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "run": {
+            "$ref": "#/$defs/RunId"
+          }
+        },
+        "required": [
+          "run"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "RunId": {
+            "type": "string",
+            "pattern": "^run_[a-z0-9]{20}$",
+            "description": "One automation run; also its Workflow instance id."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/RunWithBody",
+        "$defs": {
+          "RunId": {
+            "type": "string",
+            "pattern": "^run_[a-z0-9]{20}$",
+            "description": "One automation run; also its Workflow instance id."
+          },
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "TriggerId": {
+            "type": "string",
+            "pattern": "^trg_[a-z0-9]{20}$",
+            "description": "One trigger of an automation; assigned by the owner."
+          },
+          "RunState": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "sleeping",
+              "waiting",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "skipped",
+              "dead"
+            ]
+          },
+          "RunError": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": true
+          },
+          "Step": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "sleep"
+                    ]
+                  },
+                  "seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31536000
+                  }
+                },
+                "required": [
+                  "type",
+                  "seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "note"
+                    ]
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 2000
+                  }
+                },
+                "required": [
+                  "type",
+                  "text"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "op"
+                    ]
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "automation.list",
+                      "automation.get",
+                      "automation.runs.list",
+                      "automation.run",
+                      "usage.summary"
+                    ]
+                  },
+                  "params": {}
+                },
+                "required": [
+                  "type",
+                  "op",
+                  "params"
+                ],
+                "additionalProperties": true
+              }
+            ]
+          },
+          "CommitSha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "CodeRef": {
+            "type": "object",
+            "properties": {
+              "commit": {
+                "$ref": "#/$defs/CommitSha"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^automations\\/[a-z0-9][a-z0-9-]{0,62}$"
+              },
+              "export": {
+                "type": "string",
+                "pattern": "^[A-Za-z_$][A-Za-z0-9_$]{0,63}$"
+              }
+            },
+            "required": [
+              "commit",
+              "path"
+            ],
+            "additionalProperties": true
+          },
+          "EgressHost": {
+            "type": "string",
+            "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$",
+            "maxLength": 253
+          },
+          "Body": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "agent_prompt"
+                    ]
+                  },
+                  "instructions": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20000
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "effort": {
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high",
+                      "xhigh"
+                    ]
+                  },
+                  "workspace": {
+                    "type": "object",
+                    "properties": {
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "fresh_worktree",
+                          "repo"
+                        ]
+                      },
+                      "repo": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 300
+                      },
+                      "ref": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      }
+                    },
+                    "required": [
+                      "mode"
+                    ],
+                    "additionalProperties": true
+                  },
+                  "conversation": {
+                    "type": "string",
+                    "enum": [
+                      "fresh",
+                      "continue"
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "instructions",
+                  "workspace",
+                  "conversation"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "steps"
+                    ]
+                  },
+                  "steps": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/Step"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  }
+                },
+                "required": [
+                  "type",
+                  "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "code"
+                    ]
+                  },
+                  "ref": {
+                    "$ref": "#/$defs/CodeRef"
+                  },
+                  "egress": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/EgressHost"
+                    },
+                    "maxItems": 20
+                  }
+                },
+                "required": [
+                  "type",
+                  "ref"
+                ],
+                "additionalProperties": true
+              }
+            ]
+          },
+          "RunWithBody": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/RunId"
+              },
+              "automation": {
+                "$ref": "#/$defs/AutomationId"
+              },
+              "automation_version": {
+                "type": "integer"
+              },
+              "owner": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "trigger": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/TriggerId"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "scheduled_at": {
+                    "type": "integer"
+                  },
+                  "delivery_id": {
+                    "type": "string"
+                  },
+                  "parent_run": {
+                    "$ref": "#/$defs/RunId"
+                  },
+                  "root_run": {
+                    "$ref": "#/$defs/RunId"
+                  },
+                  "depth": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "type"
+                ],
+                "additionalProperties": true
+              },
+              "state": {
+                "$ref": "#/$defs/RunState"
+              },
+              "step": {
+                "type": "integer"
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "started_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "finished_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "error": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/RunError"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "outcome": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "goal_met": {
+                        "type": "boolean"
+                      },
+                      "summary": {
+                        "type": "string",
+                        "maxLength": 2000
+                      }
+                    },
+                    "required": [
+                      "goal_met"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "body": {
+                "$ref": "#/$defs/Body"
+              }
+            },
+            "required": [
+              "id",
+              "automation",
+              "automation_version",
+              "owner",
+              "trigger",
+              "state",
+              "step",
+              "created_at",
+              "started_at",
+              "finished_at",
+              "error",
+              "outcome",
+              "body"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "run.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "run",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "automation": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "AutomationId"
+            }
+          },
+          "state": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "RunState"
+            }
+          },
+          "cursor": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 32
+            }
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "runs": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "Run"
+              }
+            }
+          },
+          "next_cursor": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:SchedulerDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "run list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "automation"
+      },
+      "docs": "Page the kept runs newest first (every active run and the last 200 finished ones), optionally of one automation and one state (keyset: pass next_cursor as cursor; new runs never shift later pages).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "automation": {
+            "$ref": "#/$defs/AutomationId"
+          },
+          "state": {
+            "$ref": "#/$defs/RunState"
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          },
+          "RunState": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "sleeping",
+              "waiting",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "skipped",
+              "dead"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "runs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Run"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "runs",
+          "next_cursor",
+          "revision"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "RunId": {
+            "type": "string",
+            "pattern": "^run_[a-z0-9]{20}$",
+            "description": "One automation run; also its Workflow instance id."
+          },
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "TriggerId": {
+            "type": "string",
+            "pattern": "^trg_[a-z0-9]{20}$",
+            "description": "One trigger of an automation; assigned by the owner."
+          },
+          "RunState": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "sleeping",
+              "waiting",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "skipped",
+              "dead"
+            ]
+          },
+          "RunError": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": true
+          },
+          "Run": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/RunId"
+              },
+              "automation": {
+                "$ref": "#/$defs/AutomationId"
+              },
+              "automation_version": {
+                "type": "integer"
+              },
+              "owner": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "trigger": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/TriggerId"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "scheduled_at": {
+                    "type": "integer"
+                  },
+                  "delivery_id": {
+                    "type": "string"
+                  },
+                  "parent_run": {
+                    "$ref": "#/$defs/RunId"
+                  },
+                  "root_run": {
+                    "$ref": "#/$defs/RunId"
+                  },
+                  "depth": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "type"
+                ],
+                "additionalProperties": true
+              },
+              "state": {
+                "$ref": "#/$defs/RunState"
+              },
+              "step": {
+                "type": "integer"
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "started_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "finished_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "error": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/RunError"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "outcome": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "goal_met": {
+                        "type": "boolean"
+                      },
+                      "summary": {
+                        "type": "string",
+                        "maxLength": 2000
+                      }
+                    },
+                    "required": [
+                      "goal_met"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "automation",
+              "automation_version",
+              "owner",
+              "trigger",
+              "state",
+              "step",
+              "created_at",
+              "started_at",
+              "finished_at",
+              "error",
+              "outcome"
+            ],
+            "additionalProperties": true
           }
         }
       }

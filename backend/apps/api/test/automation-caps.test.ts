@@ -1,12 +1,13 @@
 import { env, exports } from "cloudflare:workers"
 import { introspectWorkflowInstance, runInDurableObject } from "cloudflare:test"
-import type { Principal } from "@cmux/ownership"
+import { MemoryRows, type Principal } from "@cmux/ownership"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { egressTest, hostAllowed } from "../src/automation-egress.ts"
 import { testBundles } from "../src/code-run.ts"
 import { EGRESS_PER_MINUTE } from "../src/usage-meter-do.ts"
 import { automationTrigger, MAX_TREE_RUNS } from "../src/domains/scheduler-chain.ts"
+import { keptRuns, TABLE_RUN } from "../src/domains/scheduler-rows.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /** Slice 4 (plans/cmux-next/automations-plan.md): env.cmux, the egress gateway and the op step type. */
@@ -86,25 +87,31 @@ describe("egress allowlist (pure)", () => {
 describe("automation run trees (pure)", () => {
   it("caps each tree, keeps depth, and drops counters of trees with no run left", () => {
     const run = (id: string, automation: string, trigger: Record<string, unknown>) => ({ id, automation, state: "running", trigger: { id: null, ...trigger } })
+    /** A hand-built head's runs as rows ((g1): runs live in rows, not in the head). */
+    const trigger = (st: any, principal: any, target: any) => {
+      const rows = new MemoryRows()
+      rows.apply(Object.values(st.runs ?? {}).map((r: any, i) => ({ table: "run", op: "upsert" as const, key: r.id, n: i + 1, row: r })))
+      return automationTrigger(st, rows, principal, target)
+    }
     const target = { body: { type: "steps" } } as any
     const p = { kind: "agent", identity: "automation:auto_a", agent: "auto_a", run: "run_root", team: "t" } as any
     const state: any = { runs: { run_root: run("run_root", "auto_a", { type: "manual" }) }, automation_trees: { run_root: MAX_TREE_RUNS - 1, run_gone: 3 } }
-    const ok = automationTrigger(state, p, target) as any
+    const ok = trigger(state, p, target) as any
     expect(ok.trigger).toMatchObject({ type: "automation", parent_run: "run_root", root_run: "run_root", depth: 1 })
     expect(ok.trees).toEqual({ run_root: MAX_TREE_RUNS })
-    expect(automationTrigger({ ...state, automation_trees: ok.trees }, p, target)).toMatchObject({ ok: false, code: "automation.fanout" })
+    expect(trigger({ ...state, automation_trees: ok.trees }, p, target)).toMatchObject({ ok: false, code: "automation.fanout" })
     // A run reached through leaked capabilities still counts against its own tree.
     const deep: any = { runs: { run_c: run("run_c", "auto_a", { type: "automation", parent_run: "run_root", root_run: "run_root", depth: 3 }) }, automation_trees: {} }
-    expect(automationTrigger(deep, { ...p, run: "run_c" }, target)).toMatchObject({ ok: false, code: "automation.depth" })
-    expect(automationTrigger(state, { ...p, agent: "auto_b" }, target)).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(trigger(deep, { ...p, run: "run_c" }, target)).toMatchObject({ ok: false, code: "automation.depth" })
+    expect(trigger(state, { ...p, agent: "auto_b" }, target)).toMatchObject({ ok: false, code: "auth.forbidden" })
     // A pruned root keeps its counter while a child of its tree is still in state.
     const child = run("run_c", "auto_a", { type: "automation", parent_run: "run_root", root_run: "run_root", depth: 1 })
-    const kept = automationTrigger({ runs: { run_c: child }, automation_trees: { run_root: MAX_TREE_RUNS } } as any, { ...p, run: "run_c" }, target)
+    const kept = trigger({ runs: { run_c: child }, automation_trees: { run_root: MAX_TREE_RUNS } } as any, { ...p, run: "run_c" }, target)
     expect(kept).toMatchObject({ ok: false, code: "automation.fanout" })
     // An old chained record without root_run, and a finished caller, are refused.
     const old = run("run_o", "auto_a", { type: "automation", parent_run: "run_x", depth: 1 })
-    expect(automationTrigger({ runs: { run_o: old } } as any, { ...p, run: "run_o" }, target)).toMatchObject({ ok: false, code: "automation.fanout" })
-    expect(automationTrigger({ runs: { run_root: { ...state.runs.run_root, state: "succeeded" } } } as any, p, target)).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(trigger({ runs: { run_o: old } } as any, { ...p, run: "run_o" }, target)).toMatchObject({ ok: false, code: "automation.fanout" })
+    expect(trigger({ runs: { run_root: { ...state.runs.run_root, state: "succeeded" } } } as any, p, target)).toMatchObject({ ok: false, code: "auth.forbidden" })
   })
 })
 
@@ -214,15 +221,15 @@ describe("slice 4 capabilities (workerd)", { timeout: 60_000 }, () => {
     const scheduler = testEnv.SCHEDULER_DO.get(testEnv.SCHEDULER_DO.idFromName(s.team))
     let depths: Array<number> = []
     await inDO(scheduler, async (d) => {
-      const runs = Object.values(d.boundEngine.currentState.runs) as Array<{ trigger: { type: string; depth?: number } }>
+      const runs = keptRuns(d.boundEngine.rows)
       depths = runs.filter((r) => r.trigger.type === "automation").map((r) => r.trigger.depth!).sort()
     })
     expect(depths).toEqual([1])
     // Direct reducer path for deeper levels: an automation principal of a depth-3 run is refused.
     await inDO(scheduler, async (d) => {
-      const state = d.boundEngine.currentState
-      const child = Object.values(state.runs).find((r: any) => r.trigger.type === "automation") as { id: string }
-      state.runs[child.id] = { ...state.runs[child.id], state: "running", trigger: { ...state.runs[child.id].trigger, depth: 3 } }
+      const child = keptRuns(d.boundEngine.rows).find((r) => r.trigger.type === "automation")!
+      const stored = d.boundEngine.rows.get(TABLE_RUN, child.id)
+      d.boundEngine.rows.apply([{ table: TABLE_RUN, op: "upsert", key: child.id, n: stored.n, row: { ...child, state: "running", trigger: { ...child.trigger, depth: 3 } } }])
       const principal = { kind: "agent", identity: `automation:${self}`, agent: self, run: child.id, team: s.team, grant_classes: ["read", "execute"] }
       const r = await d.submit(s.team, principal, { t: "op", op: "automation.run", params: { automation: self }, idempotency_key: "deep", origin: "script" })
       expect(r.frames.find((f: { t: string }) => f.t === "reject")).toMatchObject({ code: "automation.depth" })

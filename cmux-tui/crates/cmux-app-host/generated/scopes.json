@@ -1069,6 +1069,14 @@
       "scope": "room:write",
       "class": "mutation"
     },
+    "run.get": {
+      "scope": "run:read",
+      "class": "read"
+    },
+    "run.list": {
+      "scope": "run:read",
+      "class": "read"
+    },
     "saved_tab_group.delete": {
       "scope": "saved_tab_group:write",
       "class": "mutation"
