@@ -37,6 +37,13 @@ def has_tool_result(body):
     return False
 
 
+def tool_result_text(body):
+    messages = body.get("messages") or []
+    if not messages or not isinstance(messages[-1].get("content"), list):
+        return ""
+    return json.dumps([b.get("content") for b in messages[-1]["content"] if b.get("type") == "tool_result"])[:800]
+
+
 def offers(body, name):
     return any(t.get("name") == name for t in body.get("tools") or [])
 
@@ -87,6 +94,7 @@ class Handler(BaseHTTPRequestHandler):
                 log.write(json.dumps({"path": self.path, "tools": [t.get("name") for t in body.get("tools") or []],
                                       "tool_result": has_tool_result(body),
                                       "secret_seen": bool(SECRET) and SECRET in json.dumps(body),
+                                      "tool_result_text": tool_result_text(body),
                                       "sentinels": [x for x in SENTINELS if x in json.dumps(body)]}) + "\n")
         if "count_tokens" in self.path:
             self._json(200, {"input_tokens": 1})

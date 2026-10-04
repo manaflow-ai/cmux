@@ -186,6 +186,28 @@ def scenarios(root):
         ("ctl-tmp-write-no-sandbox", "INFO", "Bash", {"sandbox": True, "sandbox_off": True, "macos": True,
                                                       "allow_tools": ["Bash"], "args": ["--setting-sources", ""],
                                                       "effects": ["{tmpdir}/ok"], "input": {"command": "touch {tmpdir}/ok"}}),
+        # Rule 2 path tricks through the Claude Read tool (deny rules) and Bash (sandbox denyRead).
+        ("path-symlink-to-state", "FLOOR", "Read", {"inject": remote_settings(ask=["*"]), "args": ["--setting-sources", ""],
+                                                    "secret": "state/session.json", "symlinks": [("notes/link", "state/session.json")],
+                                                    "allow_tools": ["Read"], "input": {"file_path": "{project}/notes/link"}}),
+        ("path-dotdot-to-state", "FLOOR", "Read", {"inject": remote_settings(ask=["*"]), "args": ["--setting-sources", ""],
+                                                   "secret": "state/session.json", "allow_tools": ["Read"],
+                                                   "input": {"file_path": "{project}/notes/../state/session.json"}}),
+        ("path-upper-env", "FLOOR", "Read", {"inject": remote_settings(ask=["*"]), "args": ["--setting-sources", ""],
+                                             "secret": ".ENV", "allow_tools": ["Read"],
+                                             "input": {"file_path": "{project}/.ENV"}}),
+        ("path-var-alias", "FLOOR", "Read", {"inject": remote_settings(ask=["*"]), "args": ["--setting-sources", ""],
+                                             "secret": "state/session.json", "allow_tools": ["Read"], "macos": True,
+                                             "input": {"file_path": "{project_var}/state/session.json"}}),
+        ("sb-grep-read-root", "FLOOR-ASK", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"],
+                                                    "secret": "state/session.json", "args": ["--setting-sources", ""],
+                                                    "input": {"command": "grep -r probe-secret {project}"}}),
+        ("sb-symlink-to-state", "FLOOR", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"],
+                                                  "secret": "state/session.json", "symlinks": [("notes/link", "state/session.json")],
+                                                  "args": ["--setting-sources", ""], "input": {"command": "cat {project}/notes/link"}}),
+        ("sb-write-map", "INFO", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"], "show_output": True,
+                                          "args": ["--setting-sources", ""],
+                                          "input": {"command": "echo TMPDIR=$TMPDIR; for d in \"$TMPDIR\" {project} {scratch} /tmp {home}; do touch \"$d/w\" 2>/dev/null && echo \"W $d\" || echo \"- $d\"; done"}}),
         ("sb-read-acpmux-home", "FLOOR", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"],
                                                   "args": ["--setting-sources", ""],
                                                   "input": {"command": "cat {acpmux}/agent.token"}}),
@@ -426,7 +448,8 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90, real_url=None):
     fill = {"marker": marker, "scratch": scratch, "project": project, "home": home, "acpmux": acpmux_home,
             "sock": listeners[0] if listeners else "", "port": str(listeners[1]) if listeners else "0",
             "label": f"com.cmux.probe.{os.getpid()}.{name}",
-            "tmpdir": tempfile.mkdtemp(prefix="rft-", dir="/tmp")}
+            "tmpdir": tempfile.mkdtemp(prefix="rft-", dir="/tmp"),
+            "project_var": project[len("/private"):] if project.startswith("/private/") else project}
     if opts.get("sandbox"):
         opts = dict(opts)
         inject = json.loads(json.dumps(opts.get("inject") or remote_settings(ask=["*"])))
@@ -451,6 +474,10 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90, real_url=None):
     args += opts.get("args", [])
     if opts.get("definitions"):
         plant_user_definitions(home, project, marker)
+    for link, target in opts.get("symlinks", []):
+        link_path = os.path.join(project, link)
+        os.makedirs(os.path.dirname(link_path), exist_ok=True)
+        os.symlink(os.path.join(project, target), link_path)
     secret_path = None
     if "secret" in opts:
         secret_path = os.path.join(project, opts["secret"])
@@ -590,12 +617,20 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90, real_url=None):
     result["secret_seen"] = any(c.get("secret_seen") for c in calls) or any(SECRET in t for t in result_texts)
     result["sentinels"] = sorted({x for c in calls for x in c.get("sentinels", [])})
     result["offered"] = calls[0].get("tools", []) if calls else []
+    result["tool_output"] = " ".join(c.get("tool_result_text", "") for c in calls if c.get("tool_result_text"))
     result["holds"] = (not result["ran"] and not result["secret_seen"] and not result["sentinels"]
                        and not result["side_effects"])
     if kind == "FLOOR-ASK":
         expected = opts.get("expect_ask", tool)
         result["holds"] = result["holds"] and expected in result.get("asked_tools", [])
     return result
+
+
+SCENARIO_OPTS = {}
+
+
+def opts_of(name):
+    return SCENARIO_OPTS.get(name, {})
 
 
 def main():
@@ -614,6 +649,7 @@ def main():
     print(f"claude {version}; work dir {root}; model {ns.real_model or 'fake'}")
     results, failed = [], False
     for name, kind, tool, opts in scenarios(root):
+        SCENARIO_OPTS[name] = opts
         if ns.only and name not in ns.only.split(","):
             continue
         if opts.get("macos") and sys.platform != "darwin":
@@ -635,6 +671,7 @@ def main():
               + (f" offered={','.join(r['offered'])}" if name == "tools-closed-list" else "")
               + (f" managed_hook_ran={r['managed_hook_ran']}" if "managed_hook_ran" in r else "")
               + (f" side_effects={','.join(r['side_effects'])}" if r["side_effects"] else "")
+              + (f"\n      output: {r['tool_output'][:600]}" if opts_of(name).get("show_output") else "")
               + (f" set_mode={r['set_mode_reply']}" if r["set_mode_reply"] else ""))
         for line in r["plugin_log"]:
             print("      " + line)
