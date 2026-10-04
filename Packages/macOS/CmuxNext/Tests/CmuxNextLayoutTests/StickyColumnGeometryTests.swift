@@ -99,16 +99,18 @@ import Testing
 
     @Test func stickyWidthIsCappedSoTheStripKeepsRoom() {
         let wide = geometry(columns(StickyColumn(edge: .right), stickyIndex: 2, widths: [0.5, 0.5, 1.0]))
-        #expect(wide.sticky.first?.frame.width == 750)
+        // The 75% cap, then the minimum strip (400 pt of 1000) wins: 1000 - 400 - 6.
+        #expect(wide.sticky.first?.frame.width == 594)
         let both = ScreenLayout.columns([
             LayoutColumn(id: "l", width: 1.0, root: .leaf("pl"), sticky: StickyColumn(edge: .left)),
             LayoutColumn(id: "m", width: 0.5, root: .leaf("pm")),
             LayoutColumn(id: "r", width: 1.0, root: .leaf("pr"), sticky: StickyColumn(edge: .right)),
         ])
         let g = geometry(both)
-        #expect(g.sticky.map(\.frame.width) == [400, 400])
-        #expect(g.stripMinX == 406)
-        #expect(g.stripWidth == 188)
+        // Two 40% docks shrink alike so the strip keeps 400 pt: (1000 - 400 - 12) / 2.
+        #expect(g.sticky.map(\.frame.width) == [294, 294])
+        #expect(g.stripMinX == 300)
+        #expect(g.stripWidth == 400)
     }
 
     @Test func aStickyColumnsResizeHandleIsOnItsInnerEdge() {
