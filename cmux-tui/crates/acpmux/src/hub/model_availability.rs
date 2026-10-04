@@ -42,7 +42,9 @@ impl Hub {
     /// refused request as the agent's message) counts as that refusal too.
     pub(super) fn note_reply_refusal(&self, session: &Session) {
         let reply = session.stream.lock().unwrap().trailing_text.clone();
-        if reply.trim_start().starts_with("{\"type\":\"error\"") {
+        let is_error_object = serde_json::from_str::<Value>(reply.trim())
+            .is_ok_and(|value| value.get("type").and_then(Value::as_str) == Some("error"));
+        if is_error_object {
             self.note_model_refusal(session, &reply);
         }
     }
@@ -54,6 +56,12 @@ impl Hub {
         let Some(model) = current_model(&meta) else { return };
         self.refused_models.lock().unwrap().insert((meta.harness.clone(), model), reason);
     }
+}
+
+/// Test support: pins a session's current model as a `${model}` request would.
+#[cfg(test)]
+pub(crate) fn set_model_for_test(session: &Session, model: &str) {
+    session.meta.lock().unwrap().model_request = Some(model.to_owned());
 }
 
 #[cfg(test)]

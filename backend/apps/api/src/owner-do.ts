@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers"
-import { EVENT_RETENTION_MS, LEDGER_RETENTION_MS, OwnerEngine, type Domain, type EngineOptions, type EventFrame, type OpFrame, type OutboxFailure, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
+import { LEDGER_RETENTION_MS, OwnerEngine, type Domain, type EngineOptions, type EventFrame, type OpFrame, type OutboxFailure, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { groupTargets, type DeliverResult, type TargetItem } from "./do-outbox.ts"
 import { DEAD_REPLAY_MS, drainOutboxChannels } from "./owner-outbox.ts"
@@ -22,7 +22,7 @@ export interface Attachment {
 }
 
 /** Engine options a subclass may set: row mode and redaction (row-backed domains). */
-export type OwnerEngineOptions = Pick<EngineOptions, "rowMode" | "redact" | "eventsNotReplayed">
+export type OwnerEngineOptions = Pick<EngineOptions, "rowMode" | "redact" | "eventsNotReplayed" | "eventWindow">
 
 export interface SubmitResult {
   readonly frames: ReadonlyArray<OwnerFrame>
@@ -246,8 +246,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     const oldest = this.engine.oldestLedgerAt()
     // One hour of slack so one wake prunes a batch instead of one wake per expiring key.
     const prune = oldest === null ? null : oldest + LEDGER_RETENTION_MS + PRUNE_SLACK_MS
-    const events = this.engine.nextEventPruneAt()
-    const eventPrune = events === null ? null : events + PRUNE_SLACK_MS
+    // Past the count or byte cap prunes now; otherwise the time window (event-window.ts).
+    const eventPrune = this.engine.eventWindowDue(now) ? now : ((e) => (e === null ? null : e + PRUNE_SLACK_MS))(this.engine.nextEventPruneAt())
     // Dead outbox items come back once a day by themselves (a fix deployed since then drains them).
     const replay = ((d) => (d === null ? null : d + DEAD_REPLAY_MS))(this.engine.outbox.oldestDeadAt())
     const sockets = this.gate.nextExpiry()
@@ -470,7 +470,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     this.gate.sweep(Date.now())
     if (!this.engine) return
     await drainOutboxChannels(this.engine, this.env, (c) => this.targetNamespace(c))
-    this.engine.pruneEvents(Date.now() - EVENT_RETENTION_MS)
+    this.engine.pruneEventWindow(Date.now())
     // Bounded prune; if more remain, the oldest is still past the window and the alarm comes back at once.
     this.engine.pruneLedger(Date.now() - LEDGER_RETENTION_MS)
     this.onPrune(Date.now() - LEDGER_RETENTION_MS)

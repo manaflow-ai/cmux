@@ -10,6 +10,9 @@ nonisolated struct FocusTopology: Hashable, Sendable, Codable {
         case agent
         /// An internal page tab (Settings, Debug Settings): a native view.
         case page
+        /// A conversation tab (Home): the native transcript; its message box
+        /// is the primary input (spec/app-screens.md section 3).
+        case conversation
         /// A tab kind the app shows no content for.
         case other
     }

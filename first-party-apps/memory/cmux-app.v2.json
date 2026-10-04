@@ -17,6 +17,7 @@
   "engines": { "cmux": "^2.0" },
   "runtime": { "main": "dist/main.js" },
   "catalog": "catalog/memory-catalog.json",
+  "cli": { "name": "memory" },
   "implements": {
     "cmux.section/1": { "export": "renderSection", "title": { "en": "Memory", "ja": "メモリ" }, "symbol": "brain", "options": { "defaultRegion": "bottom" } },
     "cmux.pane/1": { "export": "renderPane", "title": { "en": "Agent Memory", "ja": "エージェントメモリ" }, "symbol": "brain" }

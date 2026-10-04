@@ -92,8 +92,9 @@ struct AppManifestTests {
         let root = AppPlatformResources.firstParty
         let names = try FileManager.default.contentsOfDirectory(atPath: root.path).filter { !$0.hasPrefix(".") }
         #expect(names.contains("coderouter"))
-        for name in names {
-            #expect(throws: Never.self, "\(name)") { _ = try AppManifest.decode(Data(contentsOf: root.appending(path: "\(name)/cmux-app.json"))) }
-        }
+        #expect(names.contains("home") && names.contains("app-store"))
+        let scan = AppBundleScanner.scan(root, source: .firstParty)
+        #expect(scan.problems.isEmpty, "\(scan.problems)")
+        #expect(Set(scan.bundles.map { $0.directory.lastPathComponent }) == Set(names))
     }
 }

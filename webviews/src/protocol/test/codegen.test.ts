@@ -16,12 +16,12 @@ import {
 import { Session } from "../session";
 
 const protocolRoot = path.resolve(import.meta.dir, "..");
-const seedPath = path.join(protocolRoot, "ir/pane-protocol.seed.json");
-const seed: unknown = JSON.parse(readFileSync(seedPath, "utf8"));
+const irPath = path.join(protocolRoot, "ir/pane-protocol.json");
+const committedIr: unknown = JSON.parse(readFileSync(irPath, "utf8"));
 
-describe("codegen against the seed IR", () => {
+describe("codegen against the committed Rust IR", () => {
   test("committed generated files match a fresh generation (the --check contract)", () => {
-    const files = generate(seed, { source: "webviews/src/protocol/ir/pane-protocol.seed.json" });
+    const files = generate(committedIr, { source: "webviews/src/protocol/ir/pane-protocol.json" });
     for (const [name, content] of Object.entries(files)) {
       expect(readFileSync(path.join(protocolRoot, "generated", name), "utf8")).toBe(content);
     }
@@ -35,7 +35,20 @@ describe("codegen against the seed IR", () => {
     expect(typeof client.com.example.hello.greet.say).toBe("function");
     expect(typeof client.cmux.git.events.statusChanged).toBe("function");
     expect(IR_VERSION).toBe("0.1.0");
-    expect(OPS.map((op) => op.name)).toEqual(["cmux.git.status", "cmux.git.diff", "com.example.hello.greet.say"]);
+    expect(typeof client.cmux.router.resolve).toBe("function");
+    // A nested verb nests in the client: cmux.router.token.refresh.
+    expect(typeof client.cmux.router.token.refresh).toBe("function");
+    expect(typeof client.com.example.hello.greet.events.ticks).toBe("function");
+    expect(OPS.map((op) => op.name)).toEqual([
+      "cmux.git.status",
+      "cmux.git.diff",
+      "cmux.router.hello",
+      "cmux.router.resolve",
+      "cmux.router.token.refresh",
+      "cmux.router.interfaces.list",
+      "cmux.router.pages.list",
+      "com.example.hello.greet.say",
+    ]);
   });
 
   test("generated client + schema over a session: valid result passes, invalid result is refused", async () => {
@@ -116,7 +129,7 @@ describe("generated validators", () => {
   });
 });
 
-describe("JSON Schema subset beyond the seed", () => {
+describe("JSON Schema subset beyond the committed IR", () => {
   const ir = {
     version: "9.9.9",
     namespaces: [{ name: "cmux", owner: "first-party" }],

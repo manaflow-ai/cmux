@@ -17,7 +17,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/usage show",
+        "path": "show",
         "visible": true
       },
       "mcp": {
@@ -46,7 +46,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/usage refresh",
+        "path": "refresh",
         "visible": true
       },
       "mcp": {
@@ -88,7 +88,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/usage status",
+        "path": "status",
         "visible": true
       },
       "mcp": {
@@ -114,7 +114,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/usage cycle-variant",
+        "path": "cycle-variant",
         "visible": false
       },
       "mcp": {

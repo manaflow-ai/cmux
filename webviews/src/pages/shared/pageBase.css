@@ -1,0 +1,88 @@
+/* Shared base of every React page. Colors come only from the shared web theme (`--cmux-*`,
+   WebTheme.swift); the fallbacks are system colors for the plain-browser dev loop. One background:
+   html paints `--cmux-surface-background` (transparent over a see-through window), body and every
+   block are transparent; groups are separated by spacing and `--cmux-separator` hairlines only.
+   No blue: selection and hover are the foreground at low alpha. */
+:root {
+  color-scheme: light dark;
+  --page-text: var(--cmux-text, CanvasText);
+  --page-text-2: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 70%, transparent));
+  --page-text-3: var(--cmux-text-tertiary, color-mix(in srgb, CanvasText 50%, transparent));
+  --page-separator: var(--cmux-separator, color-mix(in srgb, CanvasText 8%, transparent));
+  --page-hover: var(--cmux-hover, color-mix(in srgb, CanvasText 6%, transparent));
+  --page-selection: var(--cmux-selection, color-mix(in srgb, CanvasText 10%, transparent));
+  --page-elevated: var(--cmux-elevated-background, Canvas);
+}
+
+html {
+  background: var(--cmux-surface-background, transparent);
+}
+
+body {
+  margin: 0;
+  background: transparent;
+  color: var(--page-text);
+  font: 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+.page-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+}
+
+.page-menu {
+  position: fixed;
+  min-width: 180px;
+  max-width: 280px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--page-elevated);
+  border: 1px solid var(--page-separator);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+  outline: none;
+}
+
+.page-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 3px 10px;
+  border-radius: 5px;
+  cursor: default;
+}
+
+.page-menu-item.active:not(:disabled) {
+  background: var(--page-selection);
+}
+
+.page-menu-item:disabled {
+  color: var(--page-text-3);
+}
+
+.page-menu-separator {
+  border: 0;
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--page-separator);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto !important;
+  }
+}

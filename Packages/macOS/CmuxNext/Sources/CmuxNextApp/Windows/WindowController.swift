@@ -43,6 +43,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let sidebar = SidebarBridge(services: services, state: state)
         self.sidebar = sidebar
         root = WindowRootView(sidebar: sidebar.container)
+        // The static toggle runs the same action as the shortcut, palette and menu (R68).
+        root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
+            _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
+        }
+        root.toolbarBand.describeToggle(title: services.registry.descriptor(for: "toggleSidebar")?.title ?? "",
+                                        shortcut: services.registry.shortcutDisplay(for: "toggleSidebar"))
         let window = ShellWindow(
             contentRect: frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -308,7 +314,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting {
     /// The incognito badge in the top row while the sidebar is hidden.
-    var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarBadgeFrame }
+    var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryFrame }
 
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?

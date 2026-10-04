@@ -1,0 +1,23 @@
+{
+  "$comment": "Shape recorded from web/app/api/vm/[id]/resize/route.ts (no customer data).",
+  "request": {
+    "method": "POST",
+    "path": "/api/vm/vm-alpha01/resize"
+  },
+  "status": 200,
+  "body": {
+    "state": "awake",
+    "sampledAt": "2026-10-03T00:00:00.000Z",
+    "cpus": 8,
+    "cpuPercent": 12.5,
+    "loadAverage1m": 0.4,
+    "memoryTotalMb": 8192,
+    "memoryUsedMb": 2048,
+    "diskTotalMb": 65536,
+    "diskUsedMb": 10240,
+    "id": "vm-alpha01",
+    "maxDiskMb": 262144,
+    "maxMemoryMb": 16384,
+    "maxVcpus": 8
+  }
+}

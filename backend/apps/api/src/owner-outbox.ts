@@ -23,7 +23,13 @@ export const outboxFailure = (channel: string, e: unknown): OutboxFailure => {
  * One alarm's outbox work for an owner: each due channel (PlanetScale projections, or one target
  * object) is drained, fails and backs off on its own; dead items older than DEAD_REPLAY_MS replay.
  */
-export const drainOutboxChannels = async <S>(engine: OwnerEngine<S>, env: Env, targetNamespace: (className: string) => DurableObjectNamespace | undefined): Promise<void> => {
+export const drainOutboxChannels = async <S>(
+  engine: OwnerEngine<S>,
+  env: Env,
+  targetNamespace: (className: string) => DurableObjectNamespace | undefined,
+  /** The PlanetScale projector (a fake in tests). */
+  project: typeof drainOutbox = drainOutbox
+): Promise<void> => {
     const outbox = engine.outbox
     // Each channel (PlanetScale projections, or one target object) reads, fails and backs off on
     // its own, so a dead target cannot stop projections or healthy targets.
@@ -33,13 +39,14 @@ export const drainOutboxChannels = async <S>(engine: OwnerEngine<S>, env: Env, t
       if (rows.length === 0) continue
       try {
         if (channel === "") {
-          const res = await drainOutbox(env, engine.stream, rows)
-          outbox.markSent(res.sent, Date.now())
+          const res = await project(env, engine.stream, rows)
           // Only the bad row leaves the queue; the rest of the batch committed (home-scale review P1).
+          // Dead first: a later sent row for the same key then supersedes (deletes) the dead one.
           for (const d of res.dead) {
             outbox.deadLetter(d.id, Date.now())
             console.error(JSON.stringify({ msg: "outbox row dead-lettered", stream: engine.stream, channel: "planetscale", dead_letter: d.id, error: d.error }))
           }
+          outbox.markSent(res.sent, Date.now())
         } else {
           const batch = groupTargets(rows)[0]!
           outbox.markSent(batch.superseded, Date.now())
@@ -56,6 +63,8 @@ export const drainOutboxChannels = async <S>(engine: OwnerEngine<S>, env: Env, t
         console.error(JSON.stringify({ msg: "outbox delivery failed", stream: engine.stream, channel: channel || "planetscale", error: String(e), ...(dead === null ? {} : { dead_letter: dead }) }))
       }
     }
-    const replayed = outbox.replayDead(Date.now(), { deadBefore: Date.now() - DEAD_REPLAY_MS })
-    if (replayed > 0) console.warn(JSON.stringify({ msg: "outbox dead letters replayed", stream: engine.stream, count: replayed }))
+  // Rows an older build marked sent instead of deleting go away a batch per alarm.
+  outbox.pruneSent(1000)
+  const replayed = outbox.replayDead(Date.now(), { deadBefore: Date.now() - DEAD_REPLAY_MS })
+  if (replayed > 0) console.warn(JSON.stringify({ msg: "outbox dead letters replayed", stream: engine.stream, count: replayed }))
 }

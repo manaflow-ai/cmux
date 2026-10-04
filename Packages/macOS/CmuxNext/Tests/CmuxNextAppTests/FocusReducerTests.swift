@@ -118,6 +118,17 @@ struct FocusReducerTests {
         #expect(effects.contains(.moveResponder(.agentPage(pane: "c", tab: "local-agent:x"))))
     }
 
+    /// R65: the Home conversation tab resolved as an empty pane, and the
+    /// applier then took the responder away from its message box, so typing
+    /// went nowhere. Its primary input takes the keyboard.
+    @Test func aHomeConversationTabTakesTheKeyboardForItsMessageBox() {
+        var topology = Self.topology()
+        topology.panes[2] = Pane(id: "c", tabs: [Tab(id: "home-tab", surface: "s-home", kind: .conversation)], selected: "home-tab")
+        let (state, effects) = Self.run([.topology(topology), .focusPane("c", source: .mouse)], from: Self.loaded())
+        #expect(state.resolved == .conversation(pane: "c", tab: "home-tab"))
+        #expect(effects.contains(.moveResponder(.conversation(pane: "c", tab: "home-tab"))))
+    }
+
     @Test func closingTheSelectedTabMovesFocusToTheNewSelection() {
         var topology = Self.topology()
         topology.panes[0] = Pane(id: "a", tabs: [Self.terminal("t2")], selected: "t2")

@@ -17302,6 +17302,29 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "history open",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "history.open",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open History Entry",
+      "title_key" : "action.history.open",
+      "title_table" : "HistoryActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "history clear",
       "context_menu" : "noObject",
       "context_menus" : [

@@ -752,14 +752,14 @@ mod prompt_tests {
     use std::collections::BTreeMap;
 
     /// A hub with the fake agent behind a real Unix socket, and a client.
-    async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, std::path::PathBuf) {
+    async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestDir) {
         daemon_with_env(BTreeMap::new()).await
     }
 
     /// `daemon` with extra environment for the fake agent.
     async fn daemon_with_env(
         env: BTreeMap<String, String>,
-    ) -> (Arc<crate::hub::Hub>, Arc<Client>, std::path::PathBuf) {
+    ) -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestDir) {
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
         let mut harnesses = BTreeMap::new();
         harnesses.insert(
@@ -783,12 +783,10 @@ mod prompt_tests {
         cfg.permission_policy = PermissionPolicy::ApproveAll;
         let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
         let hub = crate::hub::Hub::new(cfg, store);
-        // A Unix socket path must fit sun_path (104 bytes on macOS); the per-user temp
-        // dir there is already about 50, so the socket lives under /tmp.
-        let dir = std::path::PathBuf::from("/tmp")
-            .join(format!("acpmux-q-{}", &uuid::Uuid::now_v7().simple().to_string()[20..]));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("d.sock");
+        // The shared helper keeps the socket path under sun_path whatever
+        // $TMPDIR is (104 bytes on macOS).
+        let dir = cmux_unix_socket::short_test_dir("acpmux-q");
+        let path = dir.path().join("d.sock");
         let listener = crate::server::bind_unix(&path).await.unwrap();
         tokio::spawn(crate::server::serve_unix(hub.clone(), listener));
         let client = Client::connect(&path).await.unwrap();
@@ -842,7 +840,7 @@ mod prompt_tests {
         let user_messages =
             hub.events(&id, 0, 1000).unwrap().iter().filter(|e| e.kind == "user_message").count();
         assert_eq!(user_messages, 1);
-        let _ = std::fs::remove_dir_all(dir);
+        drop(dir);
     }
 
     /// A prompt to a session whose agent must start again (it died, or the daemon restarted)
@@ -885,6 +883,40 @@ mod prompt_tests {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
         let _ = std::fs::remove_file(&gate);
+        drop(dir);
+    }
+
+    /// A turn whose backend refuses the model (unsupported_parameter, streamed as the reply)
+    /// makes `_acpmux/models` report that model unavailable with the backend's message.
+    #[tokio::test]
+    async fn a_refused_model_is_reported_unavailable_in_the_model_catalog() {
+        let (hub, client, dir) = daemon().await;
+        hub.config.write().await.harnesses.get_mut("fake").unwrap().models =
+            vec![crate::config::DeclaredModel::Id("m-refused".into())];
+        let s = client
+            .request(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+            .await
+            .unwrap();
+        let id = s["sessionId"].as_str().unwrap().to_owned();
+        let session = hub.resolve(&id).unwrap();
+        crate::hub::model_availability::set_model_for_test(&session, "m-refused");
+        client
+            .request(
+                method::SESSION_PROMPT,
+                json!({"sessionId": id, "prompt": [{"type": "text", "text": "refuse"}]}),
+            )
+            .await
+            .unwrap();
+        let catalog = client.request("_acpmux/models", json!({})).await.unwrap();
+        let fake = catalog["harnesses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|h| h["harness"] == "fake")
+            .unwrap();
+        let model =
+            fake["models"].as_array().unwrap().iter().find(|m| m["id"] == "m-refused").unwrap();
+        assert_eq!(model["unavailable"], "Image web search is not supported by the backend.");
         let _ = std::fs::remove_dir_all(dir);
     }
 }

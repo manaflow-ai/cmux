@@ -44,7 +44,13 @@ export const feedLedgerReply: LedgerReplyRedaction = {
   }
 }
 
-export const FEED_ENGINE_OPTIONS = { eventsNotReplayed: true, redact: { params: redactFeedParams }, ledgerReply: feedLedgerReply }
+export const FEED_ENGINE_OPTIONS = {
+  eventsNotReplayed: true,
+  redact: { params: redactFeedParams },
+  ledgerReply: feedLedgerReply,
+  // DO audit F-3: events carry items (up to 24 KB): 7 days, 10,000 events, 64 MB, floor 1,000.
+  eventWindow: { retentionMs: 7 * 24 * 3600_000, maxEvents: 10_000, maxBytes: 64 * 1024 * 1024, floor: 1_000 }
+}
 
 /**
  * Text written without the redaction (before it existed, or by a stale deploy) is scrubbed on

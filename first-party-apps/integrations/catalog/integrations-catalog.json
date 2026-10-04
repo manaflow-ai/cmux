@@ -22,7 +22,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/integrations open",
+        "path": "open",
         "visible": true
       },
       "mcp": {
@@ -63,7 +63,7 @@
         ]
       },
       "cli": {
-        "path": "apps run cmux/integrations connect",
+        "path": "connect",
         "visible": true
       },
       "mcp": {
@@ -99,7 +99,7 @@
         ]
       },
       "cli": {
-        "path": "apps run cmux/integrations import-api",
+        "path": "import-api",
         "visible": true
       },
       "mcp": {
@@ -128,7 +128,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/integrations cycle-variant",
+        "path": "cycle-variant",
         "visible": false
       },
       "mcp": {

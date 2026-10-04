@@ -77,6 +77,19 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
                 arguments: [ActionArgument(name: "id", title: t("argument.history.closedItem", "Closed Item ID"), kind: .string, isRequired: false)],
                 cliName: "history reopen"
             ),
+            // Runs one entry's restore action by id (open the page, go to the location, reopen,
+            // resume the agent session, run the command again). The History page's rows and
+            // `cmux history open` run it; the entry's facts come from its owner, never the caller.
+            ActionDescriptor(
+                id: "history.open", title: t("action.history.open", "Open History Entry"),
+                keywords: ["history", "open", "reopen", "resume", "run again", "go to"], category: .window,
+                symbol: "clock.arrow.circlepath", surfaces: [.palette, .keyboard],
+                arguments: [
+                    ActionArgument(name: "id", title: t("argument.history.entry", "History Entry ID"), kind: .string, isRequired: true),
+                    ActionArgument(name: "new_tab", title: t("argument.history.newTab", "In New Tab"), kind: .bool, isRequired: false),
+                ],
+                cliName: "history open"
+            ),
             ActionDescriptor(
                 id: "history.clear", title: t("action.history.clear", "Clear History…"),
                 keywords: ["history", "privacy", "delete", "forget", "clear"], category: .window, symbol: "clock.badge.xmark",

@@ -34,11 +34,13 @@ pub fn validate_catalog(manifest: &Value, catalog: &Value) -> Vec<Issue> {
     let owner = format!("app:{}", manifest["id"].as_str().unwrap_or_default());
     let family = catalog["family"].as_str().unwrap_or_default();
     let has_main = manifest.pointer("/runtime/main").is_some();
+    crate::toolbar::check_ops(manifest, catalog, &mut out);
     if catalog.get("owner").and_then(Value::as_str).is_some_and(|o| o != owner) {
         out.push(Issue::error("/catalog/owner", "catalog.owner", format!("owner must be {owner}")));
     }
     let mut names = HashSet::new();
     let mut keys = HashSet::new();
+    let mut seen = crate::cli::Seen::default();
     for (i, op) in catalog["operations"].as_array().into_iter().flatten().enumerate() {
         let at = format!("/catalog/operations/{i}");
         let name = op["name"].as_str().unwrap_or_default();
@@ -99,6 +101,7 @@ pub fn validate_catalog(manifest: &Value, catalog: &Value) -> Vec<Issue> {
                 ));
             }
         }
+        out.extend(crate::cli::check_op(&at, op, &mut seen));
     }
     out
 }

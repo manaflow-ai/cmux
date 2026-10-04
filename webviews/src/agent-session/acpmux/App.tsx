@@ -17,6 +17,8 @@ import {
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { postNative } from "./native";
 import { NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
+import { NewTabScreen } from "./newtab/NewTabScreen";
+import { newTabScreenActions } from "./newtab/screenActions";
 import { projectLabel } from "./sessionList";
 import { composerDraft } from "./composerDraft";
 import { paneContext } from "./paneContext";
@@ -1636,7 +1638,23 @@ function AcpmuxPane() {
           />
         )}
         <div className="acpmux-main" data-new-chat={freshChat && !showNewTab ? "" : undefined}>
-          {showNewTab ? (
+          {showNewTab && newTab.layout === "b" ? (
+            <NewTabScreen
+              snapshot={composerSnapshot}
+              omnibar={newTab.omnibar}
+              location={newTab.location}
+              mode={newTab.mode}
+              lastAgent={newTab.lastAgent}
+              home={newTab.home}
+              {...newTabScreenActions({
+                callNative,
+                cwd: newTab.cwd,
+                leave: () => setNewTab(undefined),
+                selectSession,
+                showAllChats: () => setSidebar("open"),
+              })}
+            />
+          ) : showNewTab ? (
             <NewTabPage
               snapshot={composerSnapshot}
               hotkeys={newTab.hotkeys}

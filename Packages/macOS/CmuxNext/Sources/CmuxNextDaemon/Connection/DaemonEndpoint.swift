@@ -39,6 +39,9 @@ public struct DaemonCapabilities: Sendable {
     /// stored opaque and outside the journal (`set-`/`get-frontend-browser-history`).
     public let frontendBrowserHistory = "frontend-browser-history-v1"
     public let tabDrag = "tab-drag-v1"
+    /// `name` on `move-tab-to-new-workspace`: the new workspace takes the
+    /// moved tab's name in the same commit (else the app renames after).
+    public let tabWorkspaceName = "tab-workspace-name-v1"
     public let notificationAck = "notification-ack-v1"
     public let tabGroups = "tab-groups-v1"
     public let savedTabGroups = "saved-tab-groups-v1"
@@ -173,7 +176,8 @@ public struct DaemonCapabilities: Sendable {
                                             terminalCommandJournal, stickyColumns, edgeDocks, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, conversationTabs, conversationSearch] }
+                                            workspaceKind, conversationTabs, conversationSearch,
+                                            tabWorkspaceName] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

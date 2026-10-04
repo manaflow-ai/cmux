@@ -66,15 +66,15 @@ pub mod transport {
         }
 
         pub(super) fn listen(path: &Path) -> io::Result<Listener> {
-            UnixListener::bind(path).map(|inner| Listener { inner })
+            cmux_unix_socket::bind(path).map(|inner| Listener { inner })
         }
 
         pub(super) fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
-            Ok(Box::new(UnixStream::connect(path)?))
+            Ok(Box::new(cmux_unix_socket::connect(path)?))
         }
 
         pub(super) fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
-            let stream = UnixStream::connect(path)?;
+            let stream = cmux_unix_socket::connect(path)?;
             crate::platform::require_unix_peer_uid(&stream, crate::platform::effective_uid())?;
             Ok(Box::new(stream))
         }

@@ -190,6 +190,12 @@ export function viewedScopeKey(scope: ViewedScope | null): string {
   return scope == null ? "" : `${scope.repoRoot}\n${scope.source}`;
 }
 
+/** The repository root a `viewedScopeKey` was built from ("" for no scope). */
+export function viewedScopeKeyRepoRoot(scopeKey: string): string {
+  const newline = scopeKey.indexOf("\n");
+  return newline < 0 ? scopeKey : scopeKey.slice(0, newline);
+}
+
 function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null;
 }

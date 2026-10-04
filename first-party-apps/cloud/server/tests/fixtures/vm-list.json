@@ -1,0 +1,140 @@
+{
+  "$comment": "Shape recorded from web/app/api/vm/route.ts GET (no customer data). createdAt is an ISO string: a drizzle timestamp serialized by JSON.stringify.",
+  "request": {
+    "method": "GET",
+    "path": "/api/vm"
+  },
+  "status": 200,
+  "body": {
+    "vms": [
+      {
+        "id": "vm-alpha01",
+        "provider": "freestyle",
+        "status": "running",
+        "image": "cmux-base",
+        "imageVersion": "20260902e",
+        "kind": "terminal",
+        "capabilities": {
+          "snapshot": true,
+          "restore": true,
+          "fork": true,
+          "exec": true,
+          "stats": true,
+          "ports": true,
+          "desktop": false,
+          "sizing": true,
+          "persistentHome": false,
+          "attachTransports": [
+            "cmux-remote"
+          ]
+        },
+        "createdAt": "2026-09-21T14:13:20.000Z",
+        "displayName": "build box",
+        "slug": "build-box",
+        "createdBy": {
+          "userId": "user-test-1",
+          "displayName": "Test User"
+        },
+        "address": {
+          "ipv4": "10.200.0.2",
+          "ipv6": null
+        },
+        "freeAccessExpiresAt": null
+      },
+      {
+        "id": "vm-beta02",
+        "provider": "freestyle",
+        "status": "paused",
+        "image": "cmux-base",
+        "imageVersion": "20260902e",
+        "kind": "terminal",
+        "capabilities": {
+          "snapshot": true,
+          "restore": true,
+          "fork": true,
+          "exec": true,
+          "stats": true,
+          "ports": true,
+          "desktop": false,
+          "sizing": true,
+          "persistentHome": false,
+          "attachTransports": [
+            "cmux-remote"
+          ]
+        },
+        "createdAt": "2026-09-21T14:15:00.000Z",
+        "displayName": null,
+        "slug": "quiet-otter",
+        "createdBy": null,
+        "address": {
+          "ipv4": null,
+          "ipv6": null
+        },
+        "freeAccessExpiresAt": null
+      },
+      {
+        "id": "vm-gone03",
+        "provider": "freestyle",
+        "status": "destroyed",
+        "image": "cmux-base",
+        "imageVersion": "20260902e",
+        "kind": "terminal",
+        "capabilities": {
+          "snapshot": true,
+          "restore": true,
+          "fork": true,
+          "exec": true,
+          "stats": true,
+          "ports": true,
+          "desktop": false,
+          "sizing": true,
+          "persistentHome": false,
+          "attachTransports": [
+            "cmux-remote"
+          ]
+        },
+        "createdAt": "2026-09-21T14:13:20.000Z",
+        "displayName": null,
+        "slug": "gone",
+        "createdBy": {
+          "userId": "user-test-1",
+          "displayName": "Test User"
+        },
+        "address": {
+          "ipv4": "10.200.0.2",
+          "ipv6": null
+        },
+        "freeAccessExpiresAt": null
+      }
+    ],
+    "limits": {
+      "maxActiveVms": 3,
+      "activeVmCount": 1,
+      "planId": "go",
+      "freeAccessWindowDays": 0,
+      "vmHoursIncluded": 40,
+      "vmHoursUsed": 12.5,
+      "savedVmLimit": 5,
+      "freeAccessExpiresAt": null,
+      "memoryOptionsMb": [
+        4096,
+        8192
+      ],
+      "lockedMemoryOptionsMb": [
+        16384,
+        32768
+      ],
+      "memoryUpgradePlanId": "pro",
+      "memoryUpgradePlansByMb": {
+        "16384": "pro",
+        "32768": "pro"
+      },
+      "imageKinds": [
+        {
+          "kind": "terminal",
+          "image": "cmux-base"
+        }
+      ]
+    }
+  }
+}

@@ -58,6 +58,24 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `focusRing.color` | string |  |  | Color |
 | `focusRing.width` | real | `1` | 0.5 to 8 | Width |
 | `focusRing.showWhenSinglePane` | boolean | `false` |  | Show With One Pane |
+| `appearance.surfaces.sidebar.color` | string |  |  | Sidebar Color |
+| `appearance.surfaces.sidebar.opacity` | real |  | 0 to 1 | Sidebar Opacity |
+| `appearance.surfaces.tabBar.color` | string |  |  | Tab Bar Color |
+| `appearance.surfaces.tabBar.opacity` | real |  | 0 to 1 | Tab Bar Opacity |
+| `appearance.surfaces.terminal.color` | string |  |  | Terminal Color |
+| `appearance.surfaces.terminal.opacity` | real |  | 0 to 1 | Terminal Opacity |
+| `appearance.surfaces.agentPane.color` | string |  |  | Agent Chat Color |
+| `appearance.surfaces.agentPane.opacity` | real |  | 0 to 1 | Agent Chat Opacity |
+| `appearance.surfaces.settings.color` | string |  |  | Settings Color |
+| `appearance.surfaces.settings.opacity` | real |  | 0 to 1 | Settings Opacity |
+| `appearance.surfaces.newTabPage.color` | string |  |  | New Tab Page Color |
+| `appearance.surfaces.newTabPage.opacity` | real |  | 0 to 1 | New Tab Page Opacity |
+| `appearance.surfaces.home.color` | string |  |  | Home Color |
+| `appearance.surfaces.home.opacity` | real |  | 0 to 1 | Home Opacity |
+| `appearance.surfaces.browserChrome.color` | string |  |  | Browser Toolbar Color |
+| `appearance.surfaces.browserChrome.opacity` | real |  | 0 to 1 | Browser Toolbar Opacity |
+| `appearance.surfaces.docks.color` | string |  |  | Docked Columns Color |
+| `appearance.surfaces.docks.opacity` | real |  | 0 to 1 | Docked Columns Opacity |
 | `appearance.statusIndicator.style` | string | `"arc"` | `arc`, `native`, `dot`, `braille`, `none` | Style. How sidebar rows, tabs and panes show work in progress. |
 | `appearance.statusIndicator.size` | real | `1` | 0.5 to 1.5 | Size |
 | `appearance.statusIndicator.thickness` | real | `1.5` | 0.5 to 4 | Line Width |

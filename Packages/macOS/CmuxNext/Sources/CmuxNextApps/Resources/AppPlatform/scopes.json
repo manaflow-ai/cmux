@@ -201,6 +201,82 @@
       "scope": "closed:write",
       "class": "mutation"
     },
+    "cloud.auth.status": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.machine.connect": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.create": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.disconnect": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.get": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.machine.idle_policy.set": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.machine.pause": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.rename": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.resize": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.start": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.stats": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.plan.get": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.rescue.open": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.snapshot.create": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.snapshot.fork": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.snapshot.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.snapshot.restore": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.usage.get": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
     "codemirror.cycle_variant": {
       "scope": "codemirror:write",
       "class": "mutation"
@@ -1508,6 +1584,8 @@
     "client.metadata.update",
     "client.sizing.release",
     "client.sizing.set",
+    "cloud.machine.delete",
+    "cloud.snapshot.delete",
     "domain.release",
     "firewall.delete",
     "frontend_projection.get",

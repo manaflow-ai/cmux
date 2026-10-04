@@ -46,6 +46,23 @@ final class SettingsPaneHostingView: NSHostingView<SettingsRootView> {
         self.model = model
         super.init(rootView: SettingsRootView(model: model))
         setAccessibilityIdentifier("cmux.settings.pane")
+        wantsLayer = true
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applySurfaceFill()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applySurfaceFill()
+    }
+
+    /// Clear over the window's backdrop, or the user's Settings background
+    /// (`appearance.surfaces.settings`); cards stay a tint over it.
+    private func applySurfaceFill() {
+        layer?.backgroundColor = performWithTheme { Palette.surfaceOverride(.settings)?.cgColor }
     }
 
     @available(*, unavailable)
