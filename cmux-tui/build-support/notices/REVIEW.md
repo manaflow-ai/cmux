@@ -1,0 +1,60 @@
+# License review list for rust_notices.py data
+
+Owned by the license review. Every row is a choice that the tool cannot make from crate metadata.
+The files are verbatim; nobody edited a license text. Regenerate the sha256 values from the named source when a version changes.
+
+## Extra license files inside a crate (`extra_license_files`)
+
+| Crate | File in the .crate | Source | SHA-256 | Reason |
+| --- | --- | --- | --- | --- |
+| r-efi 5.3.0 | `AUTHORS` | https://crates.io/api/v1/crates/r-efi/5.3.0/download | `ff92bed461f50338dd703a9ba9aee496a425957873df1d91192776e4bdf5dda7` | AUTHORS holds the MIT text and the copyright holders; the README points there. |
+| r-efi 6.0.0 | `AUTHORS` | https://crates.io/api/v1/crates/r-efi/6.0.0/download | `d027e91dbc9cdbb2f1190068e498bd6b61cff022b6a032b191021ba658d96111` | AUTHORS holds the MIT text and the copyright holders; the README points there. |
+| regex-syntax 0.8.11 | `src/unicode_tables/LICENSE-UNICODE` | https://crates.io/api/v1/crates/regex-syntax/0.8.11/download | `74db5baf44a41b1000312c673544b3374e4198af5605c7f9080a402cec42cfa3` | The Unicode tables are derived from Unicode data under the Unicode license. |
+| ring 0.17.14 | `src/polyfill/once_cell/LICENSE-APACHE` | https://crates.io/api/v1/crates/ring/0.17.14/download | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` | Bundled code under its own terms: the once_cell polyfill (MIT and Apache-2.0 texts) and fiat-crypto output (Apache-2.0, the fiat-crypto authors). |
+| ring 0.17.14 | `src/polyfill/once_cell/LICENSE-MIT` | https://crates.io/api/v1/crates/ring/0.17.14/download | `6ee2ed6c77710de911761acd5fc1ad1da00f476beb1a7ef27e78c2d1858deafc` | Bundled code under its own terms: the once_cell polyfill (MIT and Apache-2.0 texts) and fiat-crypto output (Apache-2.0, the fiat-crypto authors). |
+| ring 0.17.14 | `third_party/fiat/LICENSE` | https://crates.io/api/v1/crates/ring/0.17.14/download | `9eacbcb81be660840c714a560a9d65ba07913db98dd4baf969f78dd499fdd60f` | Bundled code under its own terms: the once_cell polyfill (MIT and Apache-2.0 texts) and fiat-crypto output (Apache-2.0, the fiat-crypto authors). |
+| rquickjs-sys 0.14.0 | `quickjs/LICENSE` | https://crates.io/api/v1/crates/rquickjs-sys/0.14.0/download | `96f73f9d2a16c21a36b418f06073be26e7d6d5e7c1bc99756b21a4f2c74ef171` | Bundles the QuickJS C engine, which is compiled into the binary. |
+| terminput 0.5.11 | `src/parser/LICENSE` | https://crates.io/api/v1/crates/terminput/0.5.11/download | `3fea97e00df9a8e30027f4298d6941b6970c542ffd49de68b4a2bcafedcbfe02` | The parser module carries its own MIT text (copyright 2019 Timon). |
+| tracing-core 0.1.36 | `src/spin/LICENSE` | https://crates.io/api/v1/crates/tracing-core/0.1.36/download | `58545fed1565e42d687aecec6897d35c6d37ccb71479a137c0deb2203e125c79` | The vendored spin module carries the spin crate's MIT text (copyright 2014 Mathijs van de Nes). |
+
+## Elections (`elections`)
+
+| Crate | Declared | Concluded | Reason |
+| --- | --- | --- | --- |
+| r-efi | MIT OR Apache-2.0 OR LGPL-2.1-or-later | MIT | r-efi offers MIT OR Apache-2.0 OR LGPL-2.1-or-later; its AUTHORS file holds the MIT text and the copyright holders, so MIT is the elected license (UEFI targets only). |
+
+## Reviewed texts for crates that ship no license file (`license_texts`)
+
+| Crate | Stored file | Source | SHA-256 |
+| --- | --- | --- | --- |
+| block2 0.6.2 | `texts/madsmtm-objc2-b4167b582b2f/LICENSE.md` | https://raw.githubusercontent.com/madsmtm/objc2/b4167b582b2f75f9a1be75495c41b765344fd03c/LICENSE.md | `7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54` |
+| boringtun 0.7.1 | `texts/cloudflare-boringtun-051c9d47dc9c/LICENSE.md` | https://raw.githubusercontent.com/cloudflare/boringtun/051c9d47dc9c5cb36e461b7d36dcd673820dc98b/LICENSE.md | `6dbef24708bad8c727bd80cca58ba8aa1637cdcb2cc6e9a31ea49235717e9391` |
+| dispatch2 0.3.1 | `texts/madsmtm-objc2-8852b424193c/LICENSE.md` | https://raw.githubusercontent.com/madsmtm/objc2/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md | `7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54` |
+| iroh-base 1.0.3 | `texts/n0-computer-iroh-e5c710a29fbd/LICENSE-MIT` | https://raw.githubusercontent.com/n0-computer/iroh/e5c710a29fbd06bdce35fd23ad94d04a62acf15a/LICENSE-MIT | `f169adb8124d3b005416d8485d00777c9a7bdd9099982c52a4493f9732e6d050` |
+| iroh-base 1.0.3 | `texts/n0-computer-iroh-e5c710a29fbd/LICENSE-APACHE` | https://raw.githubusercontent.com/n0-computer/iroh/e5c710a29fbd06bdce35fd23ad94d04a62acf15a/LICENSE-APACHE | `903131e2786f073a942fbf8fae122d9e576e4dad758c6da7f9f2ba58fd8611ab` |
+| iroh-dns 1.0.3 | `texts/n0-computer-iroh-e5c710a29fbd/LICENSE-MIT` | https://raw.githubusercontent.com/n0-computer/iroh/e5c710a29fbd06bdce35fd23ad94d04a62acf15a/LICENSE-MIT | `f169adb8124d3b005416d8485d00777c9a7bdd9099982c52a4493f9732e6d050` |
+| iroh-dns 1.0.3 | `texts/n0-computer-iroh-e5c710a29fbd/LICENSE-APACHE` | https://raw.githubusercontent.com/n0-computer/iroh/e5c710a29fbd06bdce35fd23ad94d04a62acf15a/LICENSE-APACHE | `903131e2786f073a942fbf8fae122d9e576e4dad758c6da7f9f2ba58fd8611ab` |
+| jni 0.22.4 | `texts/jni-rs-jni-rs-5ae9458a4ec4/LICENSE-MIT` | https://raw.githubusercontent.com/jni-rs/jni-rs/5ae9458a4ec44c5318f37ddc7569c1d4ae8a69e7/LICENSE-MIT | `fea1d5bf3dd71605ce5d7d2ff695c1837e914c77195e523a86b5391716477960` |
+| jni 0.22.4 | `texts/jni-rs-jni-rs-5ae9458a4ec4/LICENSE-APACHE` | https://raw.githubusercontent.com/jni-rs/jni-rs/5ae9458a4ec44c5318f37ddc7569c1d4ae8a69e7/LICENSE-APACHE | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+| netwatch 0.19.1 | `texts/n0-computer-net-tools-051ab8761006/LICENSE-MIT` | https://raw.githubusercontent.com/n0-computer/net-tools/051ab8761006d7f2155e34a49f6bb881b582d5ab/LICENSE-MIT | `33616ec4c88b6e00de66e6c06f1a55d80bb32a9d7939f3aa83d28e673a1adcae` |
+| netwatch 0.19.1 | `texts/n0-computer-net-tools-051ab8761006/LICENSE-APACHE` | https://raw.githubusercontent.com/n0-computer/net-tools/051ab8761006d7f2155e34a49f6bb881b582d5ab/LICENSE-APACHE | `7986218ec4ea89de3511a843ae27fea2584a525036c220ff7b26589179f07888` |
+| objc2 0.6.4 | `texts/madsmtm-objc2-8852b424193c/LICENSE.md` | https://raw.githubusercontent.com/madsmtm/objc2/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md | `7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54` |
+| objc2-core-foundation 0.3.2 | `texts/madsmtm-objc2-7b1abfd750a2/LICENSE.md` | https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md | `7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54` |
+| objc2-core-wlan 0.3.2 | `texts/madsmtm-objc2-7b1abfd750a2/LICENSE.md` | https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md | `7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54` |
+| objc2-encode 4.1.0 | `texts/madsmtm-objc2-8d214f547736/LICENSE.md` | https://raw.githubusercontent.com/madsmtm/objc2/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md | `7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54` |
+| objc2-foundation 0.3.2 | `texts/madsmtm-objc2-7b1abfd750a2/LICENSE.md` | https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md | `7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54` |
+| objc2-security 0.3.2 | `texts/madsmtm-objc2-7b1abfd750a2/LICENSE.md` | https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md | `7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54` |
+| objc2-security-foundation 0.3.2 | `texts/madsmtm-objc2-7b1abfd750a2/LICENSE.md` | https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md | `7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54` |
+| objc2-system-configuration 0.3.2 | `texts/madsmtm-objc2-7b1abfd750a2/LICENSE.md` | https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md | `7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54` |
+| portmapper 0.19.1 | `texts/n0-computer-net-tools-051ab8761006/LICENSE-MIT` | https://raw.githubusercontent.com/n0-computer/net-tools/051ab8761006d7f2155e34a49f6bb881b582d5ab/LICENSE-MIT | `33616ec4c88b6e00de66e6c06f1a55d80bb32a9d7939f3aa83d28e673a1adcae` |
+| portmapper 0.19.1 | `texts/n0-computer-net-tools-051ab8761006/LICENSE-APACHE` | https://raw.githubusercontent.com/n0-computer/net-tools/051ab8761006d7f2155e34a49f6bb881b582d5ab/LICENSE-APACHE | `7986218ec4ea89de3511a843ae27fea2584a525036c220ff7b26589179f07888` |
+| ratatui-termina 0.1.0 | `texts/ratatui-ratatui-e665c36cb147/LICENSE` | https://raw.githubusercontent.com/ratatui/ratatui/e665c36cb14752a61cd777fbd06dbef8474f2add/LICENSE | `50eb43e8d742c9c61a9391e42b2184fce54dbd1893a1bb1c85b8c9ee217ab1f5` |
+| rquickjs-core 0.14.0 | `texts/DelSkayn-rquickjs-d7ef5eeae702/LICENSE` | https://raw.githubusercontent.com/DelSkayn/rquickjs/d7ef5eeae702fea24c03643064de454f1c1dd4b0/LICENSE | `976ad3d07927343ab99b31510625acba89eac8e0e517c712925620ddeda91b70` |
+| rquickjs-sys 0.14.0 | `texts/DelSkayn-rquickjs-d7ef5eeae702/LICENSE` | https://raw.githubusercontent.com/DelSkayn/rquickjs/d7ef5eeae702fea24c03643064de454f1c1dd4b0/LICENSE | `976ad3d07927343ab99b31510625acba89eac8e0e517c712925620ddeda91b70` |
+| uuid-simd 0.8.0 | `texts/Nugine-simd-d74c030d9dc4/LICENSE` | https://raw.githubusercontent.com/Nugine/simd/d74c030d9dc4f3cae02146d1f497ff62726ef09a/LICENSE | `71674605ec4c087fe9eb534e3e4f9e26eb2e4aabcd76a29fd156c6a844d44b3d` |
+| valuable 0.1.1 | `texts/tokio-rs-valuable-9efc29b6e58c/LICENSE` | https://raw.githubusercontent.com/tokio-rs/valuable/9efc29b6e58cef28f6566a47aa7e142a55fead77/LICENSE | `ed60d479b8fd1f64e9cbc3de449a16a53ac1b3d1b6aeb9bf9d190a8e93061b44` |
+| vsimd 0.8.0 | `texts/Nugine-simd-d74c030d9dc4/LICENSE` | https://raw.githubusercontent.com/Nugine/simd/d74c030d9dc4f3cae02146d1f497ff62726ef09a/LICENSE | `71674605ec4c087fe9eb534e3e4f9e26eb2e4aabcd76a29fd156c6a844d44b3d` |
+| vtparse 0.6.2 | `texts/wez-wezterm-edeae72b5fc5/LICENSE.md` | https://raw.githubusercontent.com/wez/wezterm/edeae72b5fc55c7fa4aa1d08bbefd08c5493f757/LICENSE.md | `37db33bbbd7348969eda397b89a16f252d56c1ca7481b6ccaf56ccdcbab5dcca` |
+| wezterm-input-types 0.1.0 | `texts/wez-wezterm-d5ca5509b95e/LICENSE.md` | https://raw.githubusercontent.com/wez/wezterm/d5ca5509b95edc31291ba29bd1fcbf3f0b12c92d/LICENSE.md | `37db33bbbd7348969eda397b89a16f252d56c1ca7481b6ccaf56ccdcbab5dcca` |
+
+Reason for every row in this table: the .crate ships no license file; the text is the repository's file at the commit that the crate's `.cargo_vcs_info.json` records for the release.
