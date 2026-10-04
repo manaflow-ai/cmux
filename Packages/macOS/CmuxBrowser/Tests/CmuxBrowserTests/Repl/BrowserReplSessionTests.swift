@@ -304,6 +304,34 @@ struct BrowserReplSessionTests {
         #expect(FileManager.default.contents(atPath: firstTemporary + "/output-1.txt") == Data("hi".utf8))
     }
 
+    @Test("A session without a cwd gets a working directory only its user can open, under a private parent")
+    func sessionWithoutWorkingDirectoryIsPrivate() throws {
+        let fileManager = FileManager.default
+        for preexisting in [false, true] {
+            let base = fileManager.temporaryDirectory.appendingPathComponent("cmux-repl-session-\(UUID().uuidString)")
+            try fileManager.createDirectory(at: base, withIntermediateDirectories: true)
+            defer { try? fileManager.removeItem(at: base) }
+            let parent = BrowserReplFileSandbox.canonicalize(base.path) + "/cmux-browser-repl"
+            if preexisting {
+                // A parent an earlier version created world-readable is narrowed.
+                try fileManager.createDirectory(atPath: parent, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o755])
+            }
+            let session = BrowserReplSession(
+                id: "private",
+                cwd: nil,
+                bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "stub.js", source: stubRuntime)], agentScripts: []),
+                driver: RecordingReplDriver(),
+                temporaryDirectory: base.path
+            )
+            defer { session.close() }
+
+            for path in [session.cwd, parent] {
+                let mode = try fileManager.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber
+                #expect(mode?.intValue == 0o700, "\(path), parent existed: \(preexisting)")
+            }
+        }
+    }
+
     @Test("The injected home directory is the one refused")
     func injectedHomeDirectoryIsRefused() async throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-home-\(UUID().uuidString)")
