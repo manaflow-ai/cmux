@@ -26,6 +26,8 @@ pub enum LinkProcessEvent {
     Line { tag: LinkTag, line: String },
     /// The process ended (`None`: killed by a signal).
     Exited { tag: LinkTag, code: Option<i32> },
+    /// The link's ready deadline passed (sent by the supervisor's clock).
+    Deadline { tag: LinkTag },
 }
 
 /// Wakes the owner of the link state (the serve loop) after an event was

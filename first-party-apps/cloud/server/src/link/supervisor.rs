@@ -1,13 +1,16 @@
 //! [`LinkSupervisor`]: the only writer of link state on this install. At
 //! most one link per machine. States move only on calls and on link process
-//! events (stdout lines, exit); there is no timer and no polling. A link
+//! events (stdout lines, exit, and the ready deadline that the injected
+//! [`crate::clock::Clock`] sends); no polling. A link
 //! that goes down stays down until the next `connect` call (nothing
 //! reconnects by itself, nothing queues).
 
 use super::argv::{LinkCommand, LinkLine, parse_line};
 use super::spawner::{LinkEvents, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag, LinkWake};
+use crate::clock::{Clock, SystemClock, Timer};
 use crate::connector::iface::{Carrier, CarrierEvent, channel_id};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
@@ -25,6 +28,9 @@ struct Link {
     generation: u64,
     state: LinkState,
     process: Option<Box<dyn LinkProcess>>,
+    /// The ready deadline of a connecting link; dropped (cancelled) when
+    /// the link is up or ended.
+    deadline: Option<Timer>,
 }
 
 /// Why a connect did not give a carrier.
@@ -46,6 +52,7 @@ pub struct LinkSupervisor {
     events: Vec<CarrierEvent>,
     spawns: u64,
     ready_deadline: Duration,
+    clock: Arc<dyn Clock>,
 }
 
 /// The Swift link's bound on the first `connection-snapshot` line.
@@ -64,7 +71,14 @@ impl LinkSupervisor {
             events: Vec::new(),
             spawns: 0,
             ready_deadline: READY_DEADLINE,
+            clock: Arc::new(SystemClock),
         }
+    }
+
+    /// The clock of the ready deadline (tests fire it by hand).
+    pub fn with_clock(mut self, clock: Arc<dyn Clock>) -> Self {
+        self.clock = clock;
+        self
     }
 
     /// Wakes `wake` after each event of every link spawned from now on. The
@@ -110,28 +124,62 @@ impl LinkSupervisor {
     }
 
     /// Starts the link process and blocks until its first
-    /// `connection-snapshot` line or its exit. The link's own
-    /// `--connect-timeout-seconds` bounds the wait.
+    /// `connection-snapshot` line, its exit or its ready deadline. A link
+    /// that already connects is waited for, not replaced.
     pub fn spawn_and_wait(
         &mut self,
         machine: &str,
         command: &LinkCommand,
     ) -> Result<Carrier, LinkFailure> {
-        if let Some(LinkState::Revoked { reason }) = self.state(machine) {
-            return Err(LinkFailure::Revoked(reason.clone()));
-        }
         if let Some(carrier) = self.carrier(machine) {
             return Ok(carrier.clone());
         }
-        // A link that already connects (a respawn) is waited for, not
-        // replaced.
-        let generation = match self.links.get(machine) {
-            Some(Link { state: LinkState::Connecting, process: Some(_), generation }) => {
-                *generation
-            }
-            _ => self.start(machine, command)?,
+        let generation = match self.connecting(machine) {
+            Some(generation) => generation,
+            None => self.begin(machine, command)?,
         };
         self.wait_ready(machine, generation)
+    }
+
+    /// The generation of the link of `machine` while it connects (its
+    /// process runs and it has no ready line yet).
+    pub fn connecting(&self, machine: &str) -> Option<u64> {
+        match self.links.get(machine) {
+            Some(Link { state: LinkState::Connecting, process: Some(_), generation, .. }) => {
+                Some(*generation)
+            }
+            _ => None,
+        }
+    }
+
+    /// Starts a new link generation and returns at once (state
+    /// `Connecting`); `up` or `down` follows as an event. Refused for a
+    /// revoked machine.
+    pub fn begin(&mut self, machine: &str, command: &LinkCommand) -> Result<u64, LinkFailure> {
+        if let Some(LinkState::Revoked { reason }) = self.state(machine) {
+            return Err(LinkFailure::Revoked(reason.clone()));
+        }
+        self.start(machine, command)
+    }
+
+    /// How link `generation` of `machine` ended its connect: `None` while it
+    /// still connects. A link that was replaced or forgotten is down.
+    pub fn outcome(&self, machine: &str, generation: u64) -> Option<Result<Carrier, LinkFailure>> {
+        let replaced = || Err(LinkFailure::Down { retryable: true, reason: "replaced".into() });
+        let Some(link) = self.links.get(machine) else {
+            return Some(Err(LinkFailure::Down { retryable: true, reason: "disconnected".into() }));
+        };
+        if link.generation != generation {
+            return Some(replaced());
+        }
+        Some(match &link.state {
+            LinkState::Connecting => return None,
+            LinkState::Up(carrier) => Ok(carrier.clone()),
+            LinkState::Down { retryable, reason } => {
+                Err(LinkFailure::Down { retryable: *retryable, reason: reason.clone() })
+            }
+            LinkState::Revoked { reason } => Err(LinkFailure::Revoked(reason.clone())),
+        })
     }
 
     /// Ends the live (up or connecting) link of `machine` and starts a new
@@ -177,60 +225,49 @@ impl LinkSupervisor {
             .spawn(tag.clone(), command, LinkEvents::new(self.sender.clone(), self.wake.clone()))
             .map_err(|e| LinkFailure::Spawn(e.to_string()))?;
         self.spawns += 1;
+        // The bound on the first ready line: the clock sends a deadline
+        // event unless the link is up or ended first (its timer drops).
+        let events = LinkEvents::new(self.sender.clone(), self.wake.clone());
+        let deadline_tag = tag.clone();
+        let deadline = self.clock.after(
+            self.ready_deadline,
+            Box::new(move || {
+                let _ = events.send(LinkProcessEvent::Deadline { tag: deadline_tag });
+            }),
+        );
         self.links.insert(
             machine.to_owned(),
             Link {
                 generation: tag.generation,
                 state: LinkState::Connecting,
                 process: Some(process),
+                deadline: Some(deadline),
             },
         );
         Ok(tag.generation)
     }
 
-    /// Blocks until link `generation` of `machine` is up or ended.
+    /// Blocks until link `generation` of `machine` is up or ended (the
+    /// synchronous connect of direct callers; the serve loop never waits).
+    pub fn wait_connect(&mut self, machine: &str, generation: u64) -> Result<Carrier, LinkFailure> {
+        self.wait_ready(machine, generation)
+    }
+
+    /// Blocks until link `generation` of `machine` is up or ended. The
+    /// link's exit or its ready deadline (the clock) always ends the wait.
     fn wait_ready(&mut self, machine: &str, generation: u64) -> Result<Carrier, LinkFailure> {
-        let tag = LinkTag { machine: machine.to_owned(), generation };
         loop {
-            match self.links.get(machine) {
-                Some(link) if link.generation == tag.generation => match &link.state {
-                    LinkState::Connecting => {}
-                    LinkState::Up(carrier) => return Ok(carrier.clone()),
-                    LinkState::Down { retryable, reason } => {
-                        return Err(LinkFailure::Down {
-                            retryable: *retryable,
-                            reason: reason.clone(),
-                        });
-                    }
-                    LinkState::Revoked { reason } => {
-                        return Err(LinkFailure::Revoked(reason.clone()));
-                    }
-                },
-                _ => return Err(LinkFailure::Down { retryable: true, reason: "replaced".into() }),
+            if let Some(outcome) = self.outcome(machine, generation) {
+                return outcome;
             }
-            // The supervisor holds a sender, so this never disconnects; the
-            // spawner always ends with an `Exited` event.
-            match self.receiver.recv_timeout(self.ready_deadline) {
+            // The supervisor holds a sender, so this never disconnects.
+            match self.receiver.recv() {
                 Ok(event) => self.apply(event),
                 Err(_) => {
-                    // No ready line in time (version skew, a stopped process,
-                    // stdout held open): end the link, report it down.
-                    let reason = format!(
-                        "the link process gave no connection within {} s",
-                        self.ready_deadline.as_secs()
-                    );
-                    self.stop_process(machine);
-                    if let Some(link) = self.links.get_mut(machine) {
-                        link.state = LinkState::Down { retryable: true, reason: reason.clone() };
-                    }
-                    self.events.push(CarrierEvent::Down {
-                        target: machine.to_owned(),
-                        generation: tag.generation,
+                    return Err(LinkFailure::Down {
                         retryable: true,
-                        reason: reason.clone(),
-                        opened: false,
+                        reason: "the link events stopped".into(),
                     });
-                    return Err(LinkFailure::Down { retryable: true, reason });
                 }
             }
         }
@@ -238,7 +275,9 @@ impl LinkSupervisor {
 
     fn apply(&mut self, event: LinkProcessEvent) {
         let tag = match &event {
-            LinkProcessEvent::Line { tag, .. } | LinkProcessEvent::Exited { tag, .. } => tag,
+            LinkProcessEvent::Line { tag, .. }
+            | LinkProcessEvent::Exited { tag, .. }
+            | LinkProcessEvent::Deadline { tag } => tag,
         };
         let Some(link) = self.links.get_mut(&tag.machine) else { return };
         if link.generation != tag.generation {
@@ -257,11 +296,13 @@ impl LinkSupervisor {
                         socket: local_socket,
                     };
                     link.state = LinkState::Up(carrier.clone());
+                    link.deadline = None;
                     self.events.push(CarrierEvent::Up { carrier });
                 }
             }
             LinkProcessEvent::Exited { tag, code } => {
                 link.process = None;
+                link.deadline = None;
                 if matches!(link.state, LinkState::Connecting | LinkState::Up(_)) {
                     let opened = matches!(link.state, LinkState::Up(_));
                     let reason = match code {
@@ -277,6 +318,29 @@ impl LinkSupervisor {
                         opened,
                     });
                 }
+            }
+            LinkProcessEvent::Deadline { tag } => {
+                if link.state != LinkState::Connecting {
+                    return;
+                }
+                // No ready line in time (version skew, a stopped process,
+                // stdout held open): end the link, report it down.
+                let reason = format!(
+                    "the link process gave no connection within {} s",
+                    self.ready_deadline.as_secs()
+                );
+                link.deadline = None;
+                if let Some(mut process) = link.process.take() {
+                    process.terminate();
+                }
+                link.state = LinkState::Down { retryable: true, reason: reason.clone() };
+                self.events.push(CarrierEvent::Down {
+                    target: tag.machine,
+                    generation: tag.generation,
+                    retryable: true,
+                    reason,
+                    opened: false,
+                });
             }
         }
     }
@@ -318,6 +382,7 @@ impl LinkSupervisor {
                 generation,
                 state: LinkState::Revoked { reason: reason.to_owned() },
                 process: None,
+                deadline: None,
             },
         );
         if !already {

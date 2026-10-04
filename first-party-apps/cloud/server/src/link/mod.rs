@@ -56,6 +56,8 @@ pub struct Attach {
     host_link_events: VecDeque<CarrierEvent>,
     /// `end` events for the connector, not taken yet.
     connector_events: VecDeque<ConnectorEvent>,
+    /// Connects of the serve loop whose link still connects (bounded).
+    pub(crate) pending_connects: Vec<ops::PendingConnect>,
     next_terminal: u64,
     next_attempt: u64,
 }
@@ -84,6 +86,7 @@ impl Attach {
             connector_kinds: kinds,
             host_link_events: VecDeque::new(),
             connector_events: VecDeque::new(),
+            pending_connects: Vec::new(),
             next_terminal: 0,
             next_attempt: 0,
         }

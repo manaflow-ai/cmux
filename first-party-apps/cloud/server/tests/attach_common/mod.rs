@@ -231,3 +231,41 @@ pub fn attach(spawner: &FakeSpawner, transport: &FakeTransport) -> Attach {
     Attach::new(Box::new(spawner.clone()), Some(paths()), Box::new(transport.clone()))
         .with_env(test_env())
 }
+
+/// A clock the test fires by hand: `after` records the callback, a dropped
+/// timer marks it cancelled.
+#[derive(Clone, Default)]
+pub struct ManualClock(Arc<Mutex<Vec<(Arc<std::sync::atomic::AtomicBool>, ManualFire)>>>);
+
+type ManualFire = Option<Box<dyn FnOnce() + Send>>;
+
+impl ManualClock {
+    /// Fires every timer that was not cancelled; returns how many fired.
+    pub fn fire_all(&self) -> usize {
+        let timers: Vec<_> = std::mem::take(&mut *self.0.lock().unwrap());
+        let mut fired = 0;
+        for (live, fire) in timers {
+            if live.load(std::sync::atomic::Ordering::SeqCst)
+                && let Some(fire) = fire
+            {
+                fire();
+                fired += 1;
+            }
+        }
+        fired
+    }
+}
+
+impl cmux_cloud::clock::Clock for ManualClock {
+    fn after(
+        &self,
+        _delay: std::time::Duration,
+        fire: Box<dyn FnOnce() + Send>,
+    ) -> cmux_cloud::clock::Timer {
+        let live = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        self.0.lock().unwrap().push((Arc::clone(&live), Some(fire)));
+        cmux_cloud::clock::Timer::new(Box::new(move || {
+            live.store(false, std::sync::atomic::Ordering::SeqCst);
+        }))
+    }
+}
