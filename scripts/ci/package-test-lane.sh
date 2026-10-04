@@ -154,7 +154,20 @@ select_packages() {
     fi
   done < "$selected"
   output "needs_ghosttykit=$needs_ghosttykit"
+  write_package_input_keys
   echo "Selected $count of ${#PACKAGES[@]} Swift packages."
+}
+
+write_package_input_keys() {
+  [ -f "${selected:-}" ] || return 0
+  local receipt_file="$work/package-input-keys.json" receipt
+  python3 scripts/ci/package_input_key.py --root . --packages-file "$selected" --output "$receipt_file"
+  receipt="$(tr -d "\n" < "$receipt_file")"
+  output "package_input_keys=$receipt"
+  # Fleet steps do not receive GITHUB_OUTPUT; this marker is copied back by the
+  # workflow wrapper alongside the interface-fingerprint receipt.
+  printf 'CMUX_PACKAGE_INPUT_KEYS=%s\n' "$receipt"
+  PACKAGE_INPUT_KEYS_FILE="$receipt_file"
 }
 
 # The workflow's "Select Xcode" step already exported DEVELOPER_DIR through
