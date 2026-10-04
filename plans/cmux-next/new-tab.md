@@ -192,6 +192,10 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
   this lane.
 - Pool size: measure the spare memory in N4 before the pool size is final.
 - N7 owner: the ACP UI lead (agent pane host migration).
+- R86 (Lawrence, 2026-10-04): no Search/Ask mode. One input: `!` is a terminal, an address opens,
+  any other text is a prompt for the chosen agent; a web search is only the explicit row under the
+  field (and `newTab.submit --arg search=true`). The mode memory, the Tab toggle and the `mode`
+  argument are removed; only the last agent is remembered.
 
 ### Status (2026-10-04)
 
