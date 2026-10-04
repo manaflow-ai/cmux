@@ -161,7 +161,6 @@ enum SettingsSearchIndex {
         setting(.customSidebars, "renderer", String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), "renderer in-process in app remote worker isolated process hover focus typing input"),
         setting(.betaFeatures, "feed", String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), "feed right sidebar agent decisions permissions questions"),
         setting(.betaFeatures, "dock", String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"), "dock right sidebar terminal controls tui"),
-        setting(.betaFeatures, "cloudMachines", String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"), "cloud machines vm right sidebar beta virtual machine persistent computer"),
         setting(.betaFeatures, "workspace-todo-controls", String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"), "workspace todo todos task status checklist add item controls beta"),
         setting(.betaFeatures, "workspace-todos-checklist-style", String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"), "workspace todo todos task status checklist popover inline presentation style beta"),
         setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
@@ -192,6 +191,7 @@ enum SettingsSearchIndex {
                 String(localized: "settings.automation.agentAutoResume.subtitle", defaultValue: "Send “continue” when an agent's turn ends on a retryable error such as model capacity or a dropped connection.")
             ].joined(separator: " ")
         ),
+        setting(.automation, "agent-messages", String(localized: "settings.automation.agentMessages", defaultValue: "Agent Messages"), "agentMessages.enabled agent message inbox communication mute disable off send deliver"),
         setting(.automation, "canonical-agent-scratch", String(localized: "settings.automation.canonicalAgentScratch", defaultValue: "Canonical Agent Scratch"), "agent artifacts temporary files cleanup retention claude codex opencode storage"),
         setting(.automation, "cursor", String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), "agent hooks notifications"),
         setting(.automation, "gemini", String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"), "agent hooks notifications"),
@@ -366,6 +366,7 @@ enum SettingsSearchIndex {
         "automation.ripgrepBinaryPath": settingID(for: .automation, idSuffix: "ripgrep-path"),
         "automation.suppressSubagentNotifications": settingID(for: .automation, idSuffix: "subagent-notifications"),
         "automation.agentAutoResume": settingID(for: .automation, idSuffix: "agent-error-auto-resume"),
+        "agentMessages.enabled": settingID(for: .automation, idSuffix: "agent-messages"),
         "automation.cursorIntegration": settingID(for: .automation, idSuffix: "cursor"),
         "automation.geminiIntegration": settingID(for: .automation, idSuffix: "gemini"),
         "automation.kiroIntegration": settingID(for: .automation, idSuffix: "kiro"),

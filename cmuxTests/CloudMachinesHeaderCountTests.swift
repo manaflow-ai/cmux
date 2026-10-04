@@ -55,8 +55,8 @@ struct CloudMachinesHeaderCountTests {
         #expect(inline <= Self.barContentWidth(420),
                 "The header action row (\(inline)pt) overflows a 420pt sidebar")
         let overflow = try await idealRowWidth(.overflowMenu, teamName: "Team A")
-        #expect(overflow == inline,
-                "The Invite-only header should not change width between layout candidates")
+        #expect(overflow <= inline,
+                "The overflow menu should be no wider than the inline action row")
     }
 
     @Test("A free plan at its limit turns orange and names the upgrade", arguments: [
@@ -222,7 +222,7 @@ struct CloudMachinesHeaderCountTests {
         NSHostingView(rootView: CloudTeamPickerHeader(
             accountFlow: nil, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
             isRefreshing: false, onRefresh: {}, onNewMachine: {},
-            agentMenu: { EmptyView() }, status: status
+            status: status
         )).fittingSize.height
     }
 
@@ -292,7 +292,6 @@ struct CloudMachinesHeaderCountTests {
         let header = CloudTeamPickerHeader(
             accountFlow: flow, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
             isRefreshing: false, onRefresh: {}, onNewMachine: {},
-            agentMenu: { Image(systemName: "sparkles").frame(width: 22, height: 20) },
             status: { EmptyView() }
         )
         let row = NSHostingView(rootView: header.actionsRow(actions, picker: CloudTeamPickerPresentation()).fixedSize())

@@ -16,16 +16,28 @@ struct CloudSidebarOrganizationDrop {
         state: CloudSidebarOrganizationState,
         proposedItem: CloudTreeNode?,
         proposedChildIndex: Int,
-        dropAfterItem: Bool
+        dropAfterItem: Bool,
+        machineSlot: Int? = nil
     ) {
-        if nodes.contains(where: { $0.id == sourceID && $0.canReorderMachine }) {
-            guard let drop = CloudMachineReorderDrop(
-                sourceID: sourceID, nodes: nodes, proposedItem: proposedItem,
-                proposedChildIndex: proposedChildIndex, dropAfterItem: dropAfterItem
-            ) else { return nil }
+        if let scope = CloudMachineReorderScope(machineNodeID: sourceID, roots: nodes) {
+            let drop: CloudMachineReorderDrop?
+            if let machineSlot {
+                // A lifted drag drops where it shows the machine, not where
+                // AppKit's row proposal happens to point.
+                drop = CloudMachineReorderDrop(sourceID: sourceID, nodes: scope.siblings, slot: machineSlot)
+            } else {
+                // Between two machines in the section, AppKit proposes the
+                // section itself with a child index.
+                let item = proposedItem === scope.parent ? nil : proposedItem
+                drop = CloudMachineReorderDrop(
+                    sourceID: sourceID, nodes: scope.siblings, proposedItem: item,
+                    proposedChildIndex: proposedChildIndex, dropAfterItem: dropAfterItem
+                )
+            }
+            guard let drop else { return nil }
             self.sourceID = sourceID
-            parent = nil
-            children = nodes
+            parent = scope.parent
+            children = scope.siblings
             childIndex = drop.childIndex
             operation = .machine(drop.machineID, drop.move)
             return
@@ -48,19 +60,20 @@ struct CloudSidebarOrganizationDrop {
             let onSibling = sibling.id == proposedItem.id && proposedChildIndex == NSOutlineViewDropOnItemIndex
             index = siblingIndex + (onSibling && !dropAfterItem ? 0 : 1)
         }
-        let pinned = state.isPinned(sourceID, parent: parent.id)
+        let group = parent.organizationGroupID
+        let pinned = state.isPinned(sourceID, parent: group)
         let before = parent.children.prefix(index).last { $0.canOrganize && $0.id != sourceID }
         let after = parent.children.dropFirst(index).first { $0.canOrganize && $0.id != sourceID }
         let action: CloudSidebarOrganizationAction
-        if let after, state.isPinned(after.id, parent: parent.id) == pinned {
+        if let after, state.isPinned(after.id, parent: group) == pinned {
             action = .before(after.id)
-        } else if let before, state.isPinned(before.id, parent: parent.id) == pinned {
+        } else if let before, state.isPinned(before.id, parent: group) == pinned {
             action = .after(before.id)
         } else { return nil }
         let siblings = parent.children.filter(\.canOrganize).map(\.id)
         var preview = state
-        guard preview.apply(action, id: sourceID, siblings: siblings, parent: parent.id),
-              preview.ordered(siblings, parent: parent.id) != state.ordered(siblings, parent: parent.id) else { return nil }
+        guard preview.apply(action, id: sourceID, siblings: siblings, parent: group),
+              preview.ordered(siblings, parent: group) != state.ordered(siblings, parent: group) else { return nil }
         self.sourceID = sourceID
         self.parent = parent
         children = parent.children

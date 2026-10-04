@@ -3,9 +3,22 @@ import CmuxMobileShellModel
 import SwiftUI
 
 /// The Feed tab's visible filter: everything, or only rows awaiting input.
-enum AgentFeedFilter: Hashable {
+enum AgentFeedFilter: Hashable, Sendable {
     case all
     case needsInput
+}
+
+struct AgentFeedItemsRevision: Equatable, Sendable {
+    let sourceRevision: UInt64
+    let scopeRevision: AgentFeedScopeRevision?
+
+    init(
+        sourceRevision: UInt64,
+        scopeRevision: AgentFeedScopeRevision? = nil
+    ) {
+        self.sourceRevision = sourceRevision
+        self.scopeRevision = scopeRevision
+    }
 }
 
 /// The store-free Feed presentation: an X-style full-width timeline of agent
@@ -13,6 +26,7 @@ enum AgentFeedFilter: Hashable {
 /// the Notifications tab, which stays a read/unread notification list.
 struct AgentFeedView: View {
     let items: [MobileAgentFeedItem]
+    let itemsRevision: AgentFeedItemsRevision
     let status: MobileNotificationFeedStatus
     let pendingReplyRequestIDs: Set<String>
     let pendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>
@@ -22,14 +36,14 @@ struct AgentFeedView: View {
     let actions: AgentFeedActions
     var searchText: String = ""
     @Environment(MobileDisplaySettings.self) private var displaySettings
-    @State private var filter: AgentFeedFilter = .all
-    @State private var preparedRows: [AgentFeedRowModel]
+    @State private var projection: AgentFeedProjection
     @State private var now = Date()
     @State private var composeContext: AgentFeedComposeContext?
     @State private var readingItem: MobileAgentFeedItem?
 
     init(
         items: [MobileAgentFeedItem],
+        itemsRevision: AgentFeedItemsRevision = AgentFeedItemsRevision(sourceRevision: 0),
         status: MobileNotificationFeedStatus,
         pendingReplyRequestIDs: Set<String>,
         pendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>,
@@ -40,6 +54,7 @@ struct AgentFeedView: View {
         searchText: String = ""
     ) {
         self.items = items
+        self.itemsRevision = itemsRevision
         self.status = status
         self.pendingReplyRequestIDs = pendingReplyRequestIDs
         self.pendingTerminalReplyItemIDs = pendingTerminalReplyItemIDs
@@ -48,7 +63,11 @@ struct AgentFeedView: View {
         self.isActive = isActive
         self.actions = actions
         self.searchText = searchText
-        _preparedRows = State(initialValue: items.map(AgentFeedRowModel.init))
+        _projection = State(initialValue: AgentFeedProjection(
+            items: items,
+            itemsRevision: itemsRevision,
+            searchText: searchText
+        ))
     }
 
     /// Row actions with the composer hook bound to this view's sheet state.
@@ -62,50 +81,6 @@ struct AgentFeedView: View {
         }
         rowActions.viewFullText = { readingItem = $0 }
         return rowActions
-    }
-
-    private var visibleRows: [AgentFeedRowModel] {
-        // The Feed is a decision surface: routine tool churn and the user's
-        // own prompts stay out even when an older Mac still sends them (a
-        // prompt shows as the quoted context line under agent rows instead);
-        // failed tool results are notable and stay visible.
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let notable = preparedRows.compactMap { model -> AgentFeedRowModel? in
-            let item = model.item
-            // Notification history belongs to the Notifications tab. Keep
-            // this client-side guard for snapshots produced by older Macs.
-            guard item.source.trimmingCharacters(in: .whitespacesAndNewlines)
-                .caseInsensitiveCompare("notification") != .orderedSame else {
-                return nil
-            }
-            guard query.isEmpty || item.matchesFeedSearch(query) else { return nil }
-            switch item.kind {
-            case .toolUse, .userPrompt:
-                return nil
-            case .toolResult:
-                guard item.toolResultIsError else { return nil }
-            case .permissionRequest, .exitPlan, .question,
-                 .assistantMessage, .stop, .todos, .unsupported:
-                break
-            }
-            return model.hasVisibleContent ? model : nil
-        }
-        switch filter {
-        case .all:
-            return notable
-        case .needsInput:
-            return notable.filter { $0.item.effectiveNeedsInput }
-        }
-    }
-
-    private var needsInputCount: Int {
-        preparedRows.lazy
-            .filter { model in
-                model.item.source.trimmingCharacters(in: .whitespacesAndNewlines)
-                    .caseInsensitiveCompare("notification") != .orderedSame
-            }
-            .filter { $0.item.effectiveNeedsInput }
-            .count
     }
 
     var body: some View {
@@ -127,11 +102,11 @@ struct AgentFeedView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 AgentFeedFilterMenu(
-                    filter: filter,
-                    needsInputCount: needsInputCount,
-                    setFilter: {
-                        filter = $0
-                        actions.filterChanged($0)
+                    filter: projection.filter,
+                    needsInputCount: visibleNeedsInputCount,
+                    setFilter: { newFilter in
+                        projection.filter = newFilter
+                        actions.filterChanged(newFilter)
                     }
                 )
             }
@@ -153,9 +128,24 @@ struct AgentFeedView: View {
             now = Date()
             await actions.refresh()
         }
-        .onChange(of: items) { _, newItems in
-            preparedRows = newItems.map(AgentFeedRowModel.init)
+        .onChange(of: itemsRevision) { oldRevision, newRevision in
+            if oldRevision.scopeRevision != newRevision.scopeRevision {
+                composeContext = nil
+                readingItem = nil
+            }
+            projection.update(items: items, itemsRevision: itemsRevision)
         }
+        .onChange(of: searchText) { _, newSearchText in
+            projection.searchText = newSearchText
+        }
+    }
+
+    private var visibleRows: [AgentFeedRowModel] {
+        projection.rows(for: itemsRevision)
+    }
+
+    private var visibleNeedsInputCount: Int {
+        projection.needsInputCount(for: itemsRevision)
     }
 
     private var feedList: some View {
@@ -171,7 +161,7 @@ struct AgentFeedView: View {
                         ContentUnavailableView.search(text: searchText)
                             .listRowSeparator(.hidden)
                     } else {
-                        AgentFeedEmptyView(filter: filter)
+                        AgentFeedEmptyView(filter: projection.filter)
                             .listRowSeparator(.hidden)
                     }
                 } else {
@@ -187,6 +177,7 @@ struct AgentFeedView: View {
                             failedReply: failedTerminalReplies[item.id],
                             actions: rowActions
                         )
+                        .equatable()
                         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                         // X-style: hairlines run BETWEEN posts only — no
                         // divider above the first row.
@@ -230,6 +221,7 @@ struct AgentFeedView: View {
             }
         }
         .listStyle(.plain)
+        .accessibilityIdentifier("AgentFeedScrollContainer")
         // Swiping the feed lowers the keyboard, so an abandoned inline reply
         // never pins it over the timeline.
         .scrollDismissesKeyboard(.interactively)

@@ -64,7 +64,13 @@ mock.module("@/services/coderouter/organizationScope", () => ({
   },
 }));
 
-const { useDashboardTeamScope, parseTeamCatalog, selectedTeam, permittedTeams } = await import(
+const {
+  useDashboardTeamScope,
+  isCurrentRefreshGeneration,
+  parseTeamCatalog,
+  selectedTeam,
+  permittedTeams,
+} = await import(
   "../dashboard-app/shell/dashboard-team-scope"
 );
 
@@ -190,6 +196,14 @@ describe("dashboard team scope", () => {
     expect(selectedTeam(teams, null, null).id).toBe("user-1");
   });
 
+  test("ignores an older refresh completion when refreshes overlap", () => {
+    const firstRefresh = 1;
+    const retryRefresh = 2;
+
+    expect(isCurrentRefreshGeneration(retryRefresh, firstRefresh)).toBe(false);
+    expect(isCurrentRefreshGeneration(retryRefresh, retryRefresh)).toBe(true);
+  });
+
   test("rejects malformed catalogs instead of rendering them", () => {
     expect(parseTeamCatalog({ selectedTeamId: null, teams: [] })).toEqual({
       selectedTeamId: null,
@@ -260,6 +274,38 @@ describe("dashboard team scope", () => {
       expect(routerRefresh).toHaveBeenCalledTimes(1);
     } finally {
       globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("does not keep the team switch pending while the route refreshes", async () => {
+    let resolveRefresh: (() => void) | undefined;
+    let signalRefreshStarted: (() => void) | undefined;
+    const refreshStarted = new Promise<void>((resolve) => {
+      signalRefreshStarted = resolve;
+    });
+    routerRefresh.mockImplementation(() => new Promise<undefined>((resolve) => {
+      signalRefreshStarted!();
+      resolveRefresh = () => resolve(undefined);
+    }));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => Response.json({ json: { selectedTeamId: "confirmed" } })) as typeof fetch;
+    try {
+      const scope = renderReadyScope();
+      const switching = scope.switchTeam(twoTeams.teams[0]!);
+
+      await refreshStarted;
+      expect(resolveRefresh).toBeDefined();
+      let completed = false;
+      void switching.then(() => { completed = true; });
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+      expect(completed).toBe(true);
+      expect(routerRefresh).toHaveBeenCalledTimes(1);
+      resolveRefresh!();
+      await switching;
+    } finally {
+      globalThis.fetch = originalFetch;
+      routerRefresh.mockImplementation(async () => undefined);
     }
   });
 

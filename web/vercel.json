@@ -54,6 +54,10 @@
     {
       "path": "/api/cron/team-seats",
       "schedule": "11,41 * * * *"
+    },
+    {
+      "path": "/api/cron/apple-notifications",
+      "schedule": "17,47 * * * *"
     }
   ]
 }

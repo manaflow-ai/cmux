@@ -261,6 +261,14 @@ cmux_computer_use_resolve_client() {
     # unless it is the exact app-installed cmux-cua helper selected by cmux.
     local installed_client client_real
     installed_client="${CMUX_CUA_CLIENT_PATH:-}"
+    # Older app launches and CI-hosted wrapper invocations may not inherit the
+    # app's exported client path. Reconstruct the same app-owned location from
+    # the runtime scope, then apply the identical canonicalization and trust
+    # checks below. Never fall back to an untrusted PATH lookup.
+    if [[ -z "$installed_client" && "${HOME:-}" = /* ]]; then
+        local runtime_scope="${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}"
+        installed_client="${HOME}/Library/Application Support/cmux/cmux-cua/helper/${runtime_scope}/cmux Computer Use.app/Contents/MacOS/cmux-cua"
+    fi
     [[ -n "$installed_client" ]] || return 1
     client_real="$(cmux_computer_use_canonical_executable "$installed_client")" || return 1
     cmux_computer_use_trusted_client_path "$client_real" || return 1

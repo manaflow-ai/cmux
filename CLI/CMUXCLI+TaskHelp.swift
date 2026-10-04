@@ -195,6 +195,7 @@ extension CMUXCLI {
         new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
         local-tmux <start|attach|list|status|detach|close|cleanup> [session] [options]
         tmux attach [session] [options]                         (local-tmux alias)
+        local-zellij <start|attach|list|status|close> [session] [options]
         surface resume <set|show|get|clear> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
         """
     }
@@ -204,6 +205,7 @@ extension CMUXCLI {
         \(String(localized: "cli.help.agents.message", defaultValue: "agent message <target> [--from <name>] <text|->"))
         \(String(localized: "cli.help.agents.reply", defaultValue: "agent message --reply-to <id> [--from <name>] <text|->"))
         \(String(localized: "cli.help.agents.inbox", defaultValue: "agent inbox [--surface <target>] [--state <state>] [--mark-read]"))
+        \(String(localized: "cli.help.agents.messages", defaultValue: "agent messages [on|off|status] [<target>] [--workspace]"))
         agent-hibernation <on|off>
         agent-hibernation <hibernate|wake> <surface>
         claude-teams [claude-args...]
@@ -394,7 +396,7 @@ extension CMUXCLI {
         return """
         auth <status|login|logout|team>
         login | logout                                      (aliases for auth login/logout)
-        vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud)
+        vm <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud)
         remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
         \(simulatorCommandUsageLine)
         \(iosCommandUsageLine)

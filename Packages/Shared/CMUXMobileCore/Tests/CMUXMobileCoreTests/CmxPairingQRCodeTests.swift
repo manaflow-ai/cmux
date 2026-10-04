@@ -87,7 +87,7 @@ import Testing
 
     @Test func roundTripsMagicDNSPlusIPRoutes() throws {
         let routes = [
-            try tailscaleRoute(index: 0, host: "lawrences-mac.tail1234.ts.net"),
+            try tailscaleRoute(index: 0, host: "my-mac.tail1234.ts.net"),
             try tailscaleRoute(index: 1, host: "100.64.0.5"),
         ]
         let ticket = try pairingTicket(routes: routes)
@@ -128,7 +128,7 @@ import Testing
         #expect(url.contains("ub=user_mac_123"))
         #expect(url.contains("pc=1"))
         #expect(!url.contains("Lawrence@Example.com"))
-        #expect(!url.lowercased().contains("lawrence@example.com"))
+        #expect(!url.lowercased().contains("user@example.com"))
         #expect(!url.contains("av="))
         #expect(!url.contains("ab="))
 
@@ -378,7 +378,7 @@ import Testing
             try tailscaleRoute(index: 0, host: "100.64.0.5"),
         ])
         let twoRoutes = try pairingTicket(routes: [
-            try tailscaleRoute(index: 0, host: "lawrences-mac.tail1234.ts.net"),
+            try tailscaleRoute(index: 0, host: "my-mac.tail1234.ts.net"),
             try tailscaleRoute(index: 1, host: "100.64.0.5"),
         ])
 

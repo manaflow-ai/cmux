@@ -31,14 +31,14 @@ describe("Max as a personal plan", () => {
     for (const options of [{}, { requestedBillingTeamId: "team-1" }]) {
       const result = resolveVmEntitlements(user, {}, options);
       expect(result.planId).toBe("max");
-      expect(result.maxActiveVms).toBe(150);
+      expect(result.maxActiveVms).toBe(15);
       expect(result.billingTeamId).toBe("team-1");
     }
   });
 
   test("legacy memory overrides cannot sell Max sizes to Pro", () => {
-    expect(maxMemoryMbForPlan("pro", { CMUX_VM_PAID_MAX_MEMORY_MB: "65536" })).toBe(24576);
-    expect(maxMemoryMbForPlan("pro", { CMUX_VM_PLAN_PRO_MAX_MEMORY_MB: "65536" })).toBe(24576);
+    expect(maxMemoryMbForPlan("pro", { CMUX_VM_PAID_MAX_MEMORY_MB: "65536" })).toBe(8192);
+    expect(maxMemoryMbForPlan("pro", { CMUX_VM_PLAN_PRO_MAX_MEMORY_MB: "65536" })).toBe(8192);
   });
   test("max is paid, personal, and outranks pro", () => {
     expect(isPaidPlanId("max")).toBe(true);

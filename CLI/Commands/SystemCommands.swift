@@ -532,6 +532,68 @@ struct LocalTmuxCleanupCommand: SharedLegacyFacadeCommand {
     static let configuration = CommandConfiguration(commandName: "cleanup", helpNames: [], aliases: ["prune"])
 }
 
+/// Mirrors `local-tmux` (see its comment for why `list` is the default), minus
+/// `detach` and `cleanup`, which `LocalZellijInvocation` does not accept.
+struct LocalZellijCommand: SharedLegacyFacadeCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "local-zellij",
+        subcommands: [
+            LocalZellijStartCommand.self,
+            LocalZellijAttachCommand.self,
+            LocalZellijListCommand.self,
+            LocalZellijStatusCommand.self,
+            LocalZellijCloseCommand.self,
+        ],
+        defaultSubcommand: LocalZellijListCommand.self,
+        helpNames: []
+    )
+}
+
+struct LocalZellijStartCommand: SharedLegacyFacadeCommand {
+    @Option(name: [.customLong("name"), .customLong("session")]) var name: String?
+    @Option(name: .customLong("cwd"), completion: .directory) var cwd: String?
+    @Option(name: .customLong("command")) var command: String?
+    @Flag(name: [.customLong("detached"), .customLong("no-attach")]) var detached = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "start", helpNames: [], aliases: ["create"])
+}
+
+struct LocalZellijAttachCommand: SharedLegacyFacadeCommand {
+    @Option(name: [.customLong("name"), .customLong("session")]) var name: String?
+    @Option(name: .customLong("id")) var id: String?
+    @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
+    @Option(name: .customLong("surface"), completion: surfaceCompletion) var surfaceID: String?
+    @Option(name: .customLong("pane"), completion: paneCompletion) var paneID: String?
+    @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?
+    @Option(name: .customLong("focus")) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
+    @Flag(name: .customLong("headless")) var headless = false
+    @Flag(name: .customLong("new-client")) var newClient = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "attach", helpNames: [], aliases: ["open"])
+}
+
+struct LocalZellijListCommand: SharedLegacyFacadeCommand {
+    @Flag(name: .customLong("json")) var json = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "list", helpNames: [], aliases: ["ls"])
+}
+
+struct LocalZellijStatusCommand: SharedLegacyFacadeCommand {
+    @Option(name: [.customLong("name"), .customLong("session")]) var name: String?
+    @Option(name: .customLong("id")) var id: String?
+    @Flag(name: .customLong("json")) var json = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "status", helpNames: [], aliases: ["info"])
+}
+
+struct LocalZellijCloseCommand: SharedLegacyFacadeCommand {
+    @Option(name: [.customLong("name"), .customLong("session")]) var name: String?
+    @Option(name: .customLong("id")) var id: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "close", helpNames: [], aliases: ["kill", "delete"])
+}
+
 struct SSHSessionListCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
     @Flag(name: .customLong("all-workspaces")) var allWorkspaces = false

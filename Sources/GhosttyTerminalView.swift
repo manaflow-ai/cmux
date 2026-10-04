@@ -1301,7 +1301,12 @@ class GhosttyApp {
         #else
         loadRealUserGhosttyConfig(config, preferredColorScheme: preferredColorScheme, themeColorScheme: themeColorScheme)
         #endif
-        loadCJKFontFallbackIfNeeded(config)
+        // Both fallback loaders scan the same config files (including
+        // recursive `config-file` includes); resolve the scan paths once so
+        // that work isn't repeated for each loader.
+        let fontFallbackConfigPaths = Self.configDiscovery.loadedCJKScanPaths()
+        loadCJKFontFallbackIfNeeded(config, configPaths: fontFallbackConfigPaths)
+        loadSymbolFontFallbackIfNeeded(config, configPaths: fontFallbackConfigPaths)
         let renderingModeChanged = setUsesHostLayerBackground(
             true,
             source: "loadDefaultConfigFilesWithLegacyFallback"
@@ -1386,9 +1391,47 @@ class GhosttyApp {
     /// the affected CJK ranges.
     ///
     /// See: https://github.com/manaflow-ai/cmux/pull/1017
-    private func loadCJKFontFallbackIfNeeded(_ config: ghostty_config_t) {
-        guard let mappings = Self.autoInjectedCJKFontMappings() else { return }
+    private func loadCJKFontFallbackIfNeeded(_ config: ghostty_config_t, configPaths: [String]) {
+        guard let mappings = Self.autoInjectedCJKFontMappings(configPaths: configPaths) else { return }
+        loadInjectedFontCodepointMap(
+            mappings,
+            into: config,
+            prefix: "cmux-cjk-font-fallback",
+            logLabel: "CJK font fallback"
+        )
+    }
 
+    /// When the user has not configured `font-codepoint-map` for pictographic
+    /// symbol ranges and has not already provided an explicit multi-entry
+    /// `font-family` fallback chain, Ghostty's `CTFontCollection` scoring may
+    /// pick an unpredictable "monospace" fallback font for glyphs like the
+    /// hexagon ⬡ (U+2B21) or the ▰/▱ gauge characters used by status-line
+    /// tools such as coralline, rather than the narrower substitute
+    /// CoreText's own cascade would choose. This injects Apple Symbols
+    /// (macOS's own symbol font) as a stable default, without overriding
+    /// user-managed fallback chains or configured fonts that already cover
+    /// the affected ranges.
+    ///
+    /// See: https://github.com/Nanako0129/coralline/issues/47
+    private func loadSymbolFontFallbackIfNeeded(_ config: ghostty_config_t, configPaths: [String]) {
+        guard let mappings = Self.autoInjectedSymbolFontMappings(configPaths: configPaths) else { return }
+        loadInjectedFontCodepointMap(
+            mappings,
+            into: config,
+            prefix: "cmux-symbol-font-fallback",
+            logLabel: "symbol font fallback"
+        )
+    }
+
+    /// Emits cmux's managed `font-codepoint-map` directives for one fallback
+    /// family. The CJK and symbol loaders share this so the injection format
+    /// and font-name resolution stay identical between them.
+    private func loadInjectedFontCodepointMap(
+        _ mappings: [(String, String)],
+        into config: ghostty_config_t,
+        prefix: String,
+        logLabel: String
+    ) {
         var resolvedFonts: [String: String] = [:]
         let lines = mappings.map { range, font in
             let resolvedFont = resolvedFonts[font] ?? {
@@ -1401,8 +1444,32 @@ class GhosttyApp {
         loadInlineGhosttyConfig(
             lines,
             into: config,
-            prefix: "cmux-cjk-font-fallback",
-            logLabel: "CJK font fallback"
+            prefix: prefix,
+            logLabel: logLabel
+        )
+    }
+
+    /// Returns only the symbol mappings cmux should auto-inject. Forwards to
+    /// ``GhosttyConfigDiscovery``.
+    static func autoInjectedSymbolFontMappings(
+        configPaths: [String]? = nil,
+        codepointCoverageProbe: ((String, UInt32) -> Bool)? = nil
+    ) -> [(String, String)]? {
+        configDiscovery.autoInjectedSymbolFontMappings(
+            configPaths: configPaths,
+            codepointCoverageProbe: codepointCoverageProbe
+        )
+    }
+
+    /// Whether cmux should inject its managed symbol-glyph fallback.
+    /// Forwards to ``GhosttyConfigDiscovery``.
+    static func shouldInjectSymbolFontFallback(
+        configPaths: [String]? = nil,
+        codepointCoverageProbe: ((String, UInt32) -> Bool)? = nil
+    ) -> Bool {
+        configDiscovery.shouldInjectSymbolFontFallback(
+            configPaths: configPaths,
+            codepointCoverageProbe: codepointCoverageProbe
         )
     }
 
@@ -5297,8 +5364,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             queue: .main
         ) { [weak self] notification in
             guard let occludedWindow = notification.object as? NSWindow else { return }
-            // Delivered on the main queue (`queue: .main`), which is the main actor.
-            MainActor.assumeIsolated {
+            // NotificationCenter's `queue: .main` selects the main operation
+            // queue, but it does not establish Swift concurrency's main-actor
+            // executor. AppKit can also post this notification during window
+            // teardown from a non-actor callback. Hop explicitly instead of
+            // assuming the executor, which otherwise traps with EXC_BAD_ACCESS
+            // while a terminal view is being detached.
+            Task { @MainActor [weak self] in
                 self?.applyRendererWindowVisibility(for: occludedWindow)
             }
         }
@@ -5312,7 +5384,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 queue: .main
             ) { [weak self] notification in
                 guard let keyWindow = notification.object as? NSWindow else { return }
-                MainActor.assumeIsolated {
+                Task { @MainActor [weak self] in
                     self?.applyRendererWindowVisibility(for: keyWindow)
                 }
             })
@@ -9840,6 +9912,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// occlusion `.visible` bit is remembered per window so the rule can tell a
     /// trustworthy occlusion verdict from a virtual display that never sets it.
     private func applyRendererWindowVisibility(for window: NSWindow) {
+        guard let currentWindow = self.window, currentWindow === window else { return }
         let occlusionVisible = window.occlusionState.contains(.visible)
         if occlusionVisible {
             Self.windowsThatReportedVisible.add(window)
