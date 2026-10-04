@@ -92,6 +92,8 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// fs calls go there whatever happens to its path.
     private let privateTemporaryDescriptor: BrowserReplDescriptor?
     private let homeDirectory: String
+    /// What the session's fs, and its output spill files, may still write.
+    private let writeBudget: BrowserReplWriteBudget
 
     // JS-thread state.
     private var context: JSContext?
@@ -132,7 +134,9 @@ public final class BrowserReplSession: @unchecked Sendable {
     ///
     /// Past `maxRetainedOutputBytes` of output, whatever reaches the native
     /// print (the runtime's own gate stops well before that), the rest goes
-    /// to `<tmpdir>/output-<id>.txt` instead of memory.
+    /// to `<tmpdir>/output-<id>.txt` instead of memory, at most
+    /// `maxSpilledOutputBytes` of it and only while the session's fs budget
+    /// lasts; output past that is dropped.
     private final class EvalState: @unchecked Sendable {
         let id: Int
         let start = ContinuousClock.now
@@ -148,14 +152,24 @@ public final class BrowserReplSession: @unchecked Sendable {
         private var spillPath: String?
         private var retainedBytes = 0
         private var spilledBytes = 0
+        /// Bytes written to the spill file.
+        private var writtenBytes = 0
         private var spill: FileHandle?
         private var spilling = false
+        /// What spill writes take from: the session's fs budget.
+        private let spillBudget: BrowserReplWriteBudget
 
         /// - Parameter spillDirectory: The session's temporary directory,
         ///   held open (nil when it could not be made: output past the
         ///   ceiling is then dropped), with its path when it was made.
-        init(id: Int, spillDirectory: (path: String, descriptor: BrowserReplDescriptor?), continuation: CheckedContinuation<BrowserReplEvalResult, Never>) {
+        init(
+            id: Int,
+            spillDirectory: (path: String, descriptor: BrowserReplDescriptor?),
+            spillBudget: BrowserReplWriteBudget,
+            continuation: CheckedContinuation<BrowserReplEvalResult, Never>
+        ) {
             self.id = id
+            self.spillBudget = spillBudget
             self.spillDirectory = spillDirectory.descriptor
             self.spillDirectoryPath = spillDirectory.path
             self.spillName = "output-\(id).txt"
@@ -206,7 +220,21 @@ public final class BrowserReplSession: @unchecked Sendable {
                     ))
                 }
                 spilledBytes += size
-                try? spill?.write(contentsOf: Data((line.text + "\n").utf8))
+                guard let file = spill else { return }
+                // Past the ceiling, or the session's fs budget, the rest is
+                // dropped: the spill file never fills the disk.
+                guard writtenBytes + size <= BrowserReplSession.maxSpilledOutputBytes,
+                      (try? spillBudget.take(size, syscall: "write", display: spillName, callBytes: 0)) != nil else {
+                    try? file.close()
+                    spill = nil
+                    lines.append(BrowserReplOutputLine(
+                        level: "info",
+                        text: "# output past \(writtenBytes) bytes in \(spillPath ?? spillName) was dropped: a cell spills at most \(BrowserReplSession.maxSpilledOutputBytes >> 20) MiB, within the session's fs budget"
+                    ))
+                    return
+                }
+                writtenBytes += size
+                try? file.write(contentsOf: Data((line.text + "\n").utf8))
             }
         }
 
@@ -216,7 +244,8 @@ public final class BrowserReplSession: @unchecked Sendable {
             try? spill?.close()
             spill = nil
             let total = retainedBytes + spilledBytes
-            let destination = spillPath.map { "full output: \($0)" } ?? "the rest was dropped"
+            let complete = writtenBytes == spilledBytes
+            let destination = spillPath.map { complete ? "full output: \($0)" : "its first \(writtenBytes) bytes past that: \($0)" } ?? "the rest was dropped"
             return BrowserReplOutputLine(
                 level: "info",
                 text: "# output truncated: \(retainedBytes) of \(total) bytes shown; \(destination)"
@@ -290,6 +319,10 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// The most output, in UTF-8 bytes, one evaluation keeps in memory; the
     /// rest goes to a file in the session's temporary directory.
     static let maxRetainedOutputBytes = 16 << 20
+
+    /// The most output, in UTF-8 bytes, one evaluation writes to its spill
+    /// file; the rest is dropped.
+    static let maxSpilledOutputBytes = 64 << 20
 
     /// A tracked task, and the evaluation that was running when it started.
     private struct InFlightWork {
@@ -396,12 +429,14 @@ public final class BrowserReplSession: @unchecked Sendable {
         let watchdog = BrowserReplWatchdog(callbackTimeLimit: callbackTimeLimit, supported: executionTimeLimitSupported)
         self.watchdog = watchdog
         self.fetcher = BrowserReplFetcher(driver: driver)
+        let writeBudget = BrowserReplWriteBudget()
+        self.writeBudget = writeBudget
         self.fileSystem = BrowserReplFileSystem(
             sandbox: BrowserReplFileSandbox(root: resolvedCwd),
             temporaryDirectory: privateTemporaryDirectory,
             rootDescriptor: cwdDescriptor,
             temporaryDescriptor: privateTemporaryDescriptor,
-            writeBudget: BrowserReplWriteBudget(),
+            writeBudget: writeBudget,
             // A cell's timeout and close() ask the watchdog to stop the
             // running script; a long fs write or copy stops with it.
             isCancelled: { watchdog.isTerminationRequested }
@@ -531,6 +566,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             let state = EvalState(
                 id: nextEvalID,
                 spillDirectory: (privateTemporaryDirectory, privateTemporaryDescriptor),
+                spillBudget: writeBudget,
                 continuation: continuation
             )
             currentEval = state

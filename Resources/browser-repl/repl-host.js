@@ -367,14 +367,17 @@
   // `evaluate(code, { maxOutput })` caps what one call prints (above).
   function createBrowserRepl({ host, driver }) {
     const core = ns.core;
-    const session = new core.Session({ driver, host });
     let gate = null;
-    // Everything the runtime prints goes through the current call's gate.
-    // The native session masks registered secrets in output, files and
-    // errors (BrowserReplBoundary).
+    // Everything the runtime prints goes through the current call's gate,
+    // its own error reports (an event listener that threw) too. The native
+    // session masks registered secrets in output, files and errors
+    // (BrowserReplBoundary) and bounds what reaches it past the gate.
+    const gatedPrint = (level, text) => (gate ? gate.print(level, text) : host.print(level, text));
     const gatedHost = Object.create(host, {
-      print: { value: (level, text) => (gate ? gate.print(level, text) : host.print(level, text)) },
+      print: { value: gatedPrint },
+      console: { value: Object.freeze({ error: (text) => gatedPrint("error", text) }) },
     });
+    const session = new core.Session({ driver, host: gatedHost });
     const api = ns.api.createGlobals(session, gatedHost);
     const repl = createReplSession({ host: gatedHost, globals: [timerGlobals(gatedHost, api.importModule), api.globals] });
     return {
