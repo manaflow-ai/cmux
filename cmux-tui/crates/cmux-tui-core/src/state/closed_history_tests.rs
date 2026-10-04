@@ -158,10 +158,12 @@ fn a_group_of_a_live_window_is_never_reopened_from_another_window() {
 
     let other = send(&mux, "closed.reopen", json!({"window": "install_a/win_1"}), Some("w1"));
     assert_eq!(error_code(other), "resource.not_found");
-    assert!(read(&mux, "closed.list", json!({"window": "install_a/win_1"}))
-        .as_array()
-        .unwrap()
-        .is_empty());
+    assert!(
+        read(&mux, "closed.list", json!({"window": "install_a/win_1"}))
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(read(&mux, "closed.list", json!({}))[0]["id"], group);
     assert_eq!(pane_tab_ids(&mux, second[0]).len(), 1);
 
