@@ -168,14 +168,24 @@ function isNotFound(error: unknown): boolean {
 
 /**
  * The Cloud API has no route for `op` yet: a 404 with no code (Next.js answers a missing route with
- * a bare 404), or with a code that is not the op kind's own not-found code. Production has no
+ * a bare 404), or with a code that is none of the Cloud API's not-found codes (NOT_FOUND_CODES). Production has no
  * `/api/vm/:id/fs/*`, firewall, network or tunnel routes today. The page shows "Not available yet",
  * never "gone". A `not_found` without details counts as bare: the page cannot tell more.
  */
 export function isRouteMissing(op: string, error: unknown): boolean {
   if (!isNotFound(error)) return false;
   const { code } = upstreamOf(error);
-  return code === undefined || code !== notFoundCode(op);
+  // Any of the Cloud API's resource codes (`vm_not_found` for the machine of a sub-resource op, for
+  // example) means the route answered: that is an error to show, not a missing route.
+  return code === undefined || (code !== notFoundCode(op) && !RESOURCE_CODES.has(code));
+}
+
+const RESOURCE_CODES = new Set(Object.values(NOT_FOUND_CODES));
+
+/** The host forwarded none of the server's error details: the page cannot tell gone from missing. */
+export function hasNoDetails(error: unknown): boolean {
+  const details = (error as { details?: unknown } | null)?.details;
+  return !details || typeof details !== "object";
 }
 
 /** The route answered that the item of `op` is not there (its kind's own 404 code): it is gone. */
