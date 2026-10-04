@@ -182,7 +182,8 @@ pub(super) async fn serve_cloud_dial<C, O, S>(
         // change cannot be left behind (it bounds its own tunnel start).
         let configured = overlay.set_cloud_peer(host, resolved.key, &resolved.info).await;
         if configured.is_ok()
-            && let Ok(Ok(stream)) = tokio::time::timeout(DIAL_TIMEOUT, overlay.connect(remote)).await
+            && let Ok(Ok(stream)) =
+                tokio::time::timeout(DIAL_TIMEOUT, overlay.connect(remote)).await
         {
             break (resolved, stream);
         }

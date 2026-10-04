@@ -60,9 +60,7 @@ fn plain_field(value: &str) -> bool {
 /// wg-quick parser so every field gets the same checks as the hub's config.
 pub(super) fn gateway_config(gateway: &Gateway, private_key: &[u8; 32]) -> io::Result<WgConfig> {
     let fields = [&gateway.client_address, &gateway.endpoint];
-    let key_ok = STANDARD
-        .decode(&gateway.server_public_key)
-        .is_ok_and(|bytes| bytes.len() == 32);
+    let key_ok = STANDARD.decode(&gateway.server_public_key).is_ok_and(|bytes| bytes.len() == 32);
     if !key_ok || !fields.into_iter().chain(&gateway.allowed_ips).all(|value| plain_field(value)) {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "a tunnel field is not valid"));
     }

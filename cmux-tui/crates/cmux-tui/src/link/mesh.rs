@@ -188,9 +188,12 @@ impl MeshOverlay {
         if let Some((id, _)) = self.gateways.lock().unwrap().get(gateway) {
             return Ok(*id);
         }
-        let started = tokio::time::timeout(GATEWAY_START_TIMEOUT, start_gateway(gateway, &self.private_key))
-            .await
-            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "the tunnel did not start"))??;
+        let started =
+            tokio::time::timeout(GATEWAY_START_TIMEOUT, start_gateway(gateway, &self.private_key))
+                .await
+                .map_err(|_| {
+                    io::Error::new(io::ErrorKind::TimedOut, "the tunnel did not start")
+                })??;
         let (net, socket) = started;
         let id = self.mesh.add_gateway(socket).await.map_err(io::Error::other)?;
         self.gateways.lock().unwrap().insert(gateway.clone(), (id, net));
