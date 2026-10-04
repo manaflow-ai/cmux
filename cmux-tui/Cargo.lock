@@ -986,6 +986,7 @@ dependencies = [
 name = "cmux-server"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "cmux-server-core",
  "flate2",
  "getrandom 0.3.4",
@@ -993,11 +994,14 @@ dependencies = [
  "reqwest",
  "ring",
  "rustls",
+ "rustls-platform-verifier",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "tar",
  "tempfile",
+ "tungstenite",
+ "x25519-dalek",
 ]
 
 [[package]]

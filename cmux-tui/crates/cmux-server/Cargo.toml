@@ -15,6 +15,7 @@ name = "cmux-server"
 path = "src/main.rs"
 
 [dependencies]
+base64.workspace = true
 cmux-server-core = { path = "../cmux-server-core" }
 flate2.workspace = true
 getrandom.workspace = true
@@ -22,12 +23,20 @@ libc.workspace = true
 # Blocking HTTPS for package downloads. reqwest's blocking client runs a
 # private tokio runtime on its own thread; the crate itself stays sync.
 reqwest = { workspace = true, features = ["blocking"] }
+# The install key (ES256, server.md 6.1) for `cmux server pair`.
+ring.workspace = true
 rustls.workspace = true
+# The pair wait socket's TLS trust: the same platform verifier reqwest uses,
+# already in the lock file through reqwest.
+rustls-platform-verifier = "0.7"
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tar = { version = "0.4", default-features = false }
+# The blocking `/v1/pair/wait` WebSocket client.
+tungstenite.workspace = true
+# The server's WireGuard key (server.md 6.1).
+x25519-dalek.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
-ring.workspace = true

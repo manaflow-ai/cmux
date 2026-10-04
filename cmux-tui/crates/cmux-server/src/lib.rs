@@ -11,6 +11,8 @@
 //! - [`health`]: probes, the reducer driver and the logind inhibitors.
 //! - [`cli`]: the `cmux server …` verbs (`cli::run`), also the standalone
 //!   `cmux-server` binary.
+//! - [`pair`]: `cmux server pair`, the server side of pairing (install
+//!   identity, begin, the wait socket, stored credentials).
 //! - [`exec`]: the one re-exec into a newer staged `cmux` (decision SV-R2).
 //!
 //! No async runtime of its own: reqwest's blocking client (package
@@ -27,6 +29,7 @@ pub mod fsx;
 pub mod health;
 pub mod host;
 pub mod keys;
+pub mod pair;
 pub mod pg;
 pub mod process;
 pub mod service;
