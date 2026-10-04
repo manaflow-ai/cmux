@@ -179,24 +179,32 @@ export class FakeCloudDriver implements RawCloudDriver {
   }
 }
 
-/** The deployment's Cloud config: plan (stub outside production), name prefix and image, only when the provider is usable. */
+/** The deployment's Cloud config: plan (stub outside production), name prefix (only with a usable provider) and image. */
 export const cloudConfig = (env: Env): CloudConfig => {
-  const ready = cloudRawDriverReady(env)
-  return { plan: planFor(env.ENVIRONMENT), prefix: ready ? env.CLOUD_NAME_PREFIX! : null, image: ready ? (env.CLOUD_FREESTYLE_SNAPSHOT ?? "fake-image") : null }
+  const want = ENV_PREFIX[env.ENVIRONMENT]
+  const prefixOk = Boolean(want) && env.CLOUD_NAME_PREFIX === want
+  const keyOk = fake(env) || Boolean(env.CLOUD_FREESTYLE_API_KEY)
+  const snapshot = imageOf(env)
+  // CLOUD-DEV-SNAPSHOT: only this environment's image lane snapshot (its name carries the prefix); no fallback.
+  const imageProblem = !snapshot ? "missing" : prefixOk && snapshot.startsWith(env.CLOUD_NAME_PREFIX!) ? undefined : "foreign"
+  return {
+    plan: planFor(env.ENVIRONMENT),
+    prefix: prefixOk && keyOk ? env.CLOUD_NAME_PREFIX! : null,
+    image: prefixOk && keyOk && !imageProblem ? snapshot! : null,
+    ...(imageProblem ? { imageProblem } : {})
+  }
 }
 
 const fake = (env: Env) => env.ENVIRONMENT === "test" && env.CLOUD_DRIVER === "fake"
+/** The configured snapshot; the test fake boots a named image under the test prefix unless a test sets one. */
+const imageOf = (env: Env): string | undefined => env.CLOUD_FREESTYLE_SNAPSHOT || (fake(env) && env.CLOUD_NAME_PREFIX ? `${env.CLOUD_NAME_PREFIX}vmimg-fake` : undefined)
 
-/** The prefix must be exactly this environment's (state-placement.md 5.3); a real provider also needs the key and the image. */
-const cloudRawDriverReady = (env: Env): boolean => {
-  const want = ENV_PREFIX[env.ENVIRONMENT]
-  if (!want || env.CLOUD_NAME_PREFIX !== want) return false
-  return fake(env) || (Boolean(env.CLOUD_FREESTYLE_API_KEY) && Boolean(env.CLOUD_FREESTYLE_SNAPSHOT))
-}
+/** A usable provider: this environment's exact prefix, a key (or the test fake) and this environment's snapshot. */
+const cloudRawDriverReady = (env: Env): boolean => cloudConfig(env).image !== null
 
 /** The guarded driver, or null when this deployment has no usable provider. */
 export const cloudDriver = (env: Env, sql: SqlStore): GuardedCloudDriver | null => {
   if (!cloudRawDriverReady(env)) return null
-  const raw = fake(env) ? new FakeCloudDriver(sql) : new FreestyleCloudDriver(env.CLOUD_FREESTYLE_API_KEY!, env.CLOUD_FREESTYLE_API_URL || "https://api.freestyle.sh", env.CLOUD_FREESTYLE_SNAPSHOT!)
+  const raw = fake(env) ? new FakeCloudDriver(sql) : new FreestyleCloudDriver(env.CLOUD_FREESTYLE_API_KEY!, env.CLOUD_FREESTYLE_API_URL || "https://api.freestyle.sh", imageOf(env)!)
   return new GuardedCloudDriver(raw, env.CLOUD_NAME_PREFIX!)
 }

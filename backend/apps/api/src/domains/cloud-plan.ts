@@ -32,8 +32,10 @@ export interface CloudConfig {
   readonly plan: PlanLimits | null
   /** This environment's provider name prefix (cmuxnp-dev-, cmuxnp-stg-, cmuxnp-prod-); null = no provider. */
   readonly prefix: string | null
-  /** The image every machine boots from; null = no provider. */
+  /** The image every machine boots from; null = no provider, or no usable snapshot (see imageProblem). */
   readonly image: string | null
+  /** Why there is no image: no snapshot configured, or one without this environment's prefix (CLOUD-DEV-SNAPSHOT). */
+  readonly imageProblem?: "missing" | "foreign"
 }
 
 export const planFor = (environment: string): PlanLimits | null => (environment === "production" ? null : STUB_PLAN)
@@ -67,3 +69,17 @@ export const planView = (plan: PlanLimits | null, usage: { active: number; saved
 })
 
 export type CloudMachineView = typeof CloudMachine.Type
+
+/**
+ * Why this deployment cannot create a machine, or undefined. No provider (key or prefix) is a retryable
+ * cloud.provider.unavailable; no usable snapshot is cloud.no_snapshot_configured, not retryable and with
+ * no fallback image (CLOUD-DEV-SNAPSHOT: only the image lane's snapshot for this environment).
+ */
+export const createConfigProblem = (config: CloudConfig): { code: string; message: string; retryable: boolean } | undefined => {
+  if (!config.prefix) return { code: "cloud.provider.unavailable", message: "Cloud machines are not configured on this deployment", retryable: true }
+  if (!config.image) {
+    const why = config.imageProblem === "foreign" ? "the configured snapshot is not this environment's image" : "no image snapshot is configured for this environment yet"
+    return { code: "cloud.no_snapshot_configured", message: why, retryable: false }
+  }
+  return undefined
+}
