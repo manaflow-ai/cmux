@@ -146,8 +146,43 @@ export const TeamDirectory = def({
   params: Schema.Struct({ team: Schema.optionalKey(TeamId) }),
   result: Schema.Struct({ team: TeamId, members: Schema.Array(TeamMember), hosts: Schema.Array(Host), revision: Schema.String }),
   errors: ["auth.unauthenticated", "auth.forbidden"],
-  docs: "Read a team's directory: members and enrolled hosts (U2).",
+  docs: "Read a team's directory: the first 200 members and hosts (U2). Page larger teams with team.members.list and team.hosts.list.",
   cli: { path: "team directory", visible: true },
+  mcp: { expose: "default", group: "team" }
+})
+
+const PageParams = {
+  cursor: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(128))),
+  limit: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(200)))
+}
+
+export const TeamMembersList = def({
+  name: "team.members.list",
+  owner: "cloud:TeamDO",
+  class: "read",
+  risk: "read",
+  target: "team",
+  principals: ["session", "install"],
+  params: Schema.Struct({ team: Schema.optionalKey(TeamId), ...PageParams, role: Schema.optionalKey(Schema.Literals(["owner", "admin", "member"])) }),
+  result: Schema.Struct({ team: TeamId, members: Schema.Array(TeamMember), member_count: Schema.Number, next_cursor: Schema.NullOr(Schema.String), revision: Schema.String }),
+  errors: ["auth.unauthenticated", "auth.forbidden"],
+  docs: "Page a team's members by user id (keyset: pass next_cursor as cursor), optionally one role.",
+  cli: { path: "team members", visible: true },
+  mcp: { expose: "default", group: "team" }
+})
+
+export const TeamHostsList = def({
+  name: "team.hosts.list",
+  owner: "cloud:TeamDO",
+  class: "read",
+  risk: "read",
+  target: "team",
+  principals: ["session", "install"],
+  params: Schema.Struct({ team: Schema.optionalKey(TeamId), ...PageParams }),
+  result: Schema.Struct({ team: TeamId, hosts: Schema.Array(Host), host_count: Schema.Number, next_cursor: Schema.NullOr(Schema.String), revision: Schema.String }),
+  errors: ["auth.unauthenticated", "auth.forbidden"],
+  docs: "Page a team's enrolled hosts by host id (keyset: pass next_cursor as cursor).",
+  cli: { path: "team hosts", visible: true },
   mcp: { expose: "default", group: "team" }
 })
 
@@ -189,6 +224,8 @@ export const cloudOps = [
   InstallSignOut,
   InstallList,
   TeamDirectory,
+  TeamMembersList,
+  TeamHostsList,
   HostEnroll,
   HostRemove,
   ...automationOps,
