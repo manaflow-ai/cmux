@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentBrands
 import CmuxNextDesign
 import QuartzCore
 
@@ -9,6 +10,10 @@ final class WorkspaceRowView: SidebarRowView {
     let title = MarqueeLabel()
     private let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     private let activity = StatusIndicatorView()
+    /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
+    private let agentMark = NSImageView()
+    private var agentMarkVariant = SidebarAgentMarkVariant.off
+    private var activityState = StatusIndicatorState.idle
     private let badge = UnreadBadgeView()
     /// A single colored segment connects grouped workspace rows.
     private let groupRail = CALayer()
@@ -39,7 +44,9 @@ final class WorkspaceRowView: SidebarRowView {
     required init(key: SidebarRowKey) {
         super.init(key: key)
         title.font = SidebarStyle.titleFont
-        [icon, title, subtitle, activity, badge, closeButton, placeholderBar].forEach(addSubview)
+        agentMark.imageScaling = .scaleProportionallyDown
+        agentMark.isHidden = true
+        [icon, title, subtitle, activity, agentMark, badge, closeButton, placeholderBar].forEach(addSubview)
         progressTrack.addSublayer(progressFill)
         progressTrack.isHidden = true
         layer?.addSublayer(progressTrack)
@@ -67,12 +74,14 @@ final class WorkspaceRowView: SidebarRowView {
         var groupColor: GroupColor?
         var fontSize: CGFloat
         var iconSize: CGFloat
+        var agentMark: SidebarAgentMarkVariant
     }
 
     func configure(_ ws: SidebarWorkspace, row: SidebarRow) {
         let content = Content(
             ws: ws, group: row.group, groupColor: row.groupColor,
-            fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize
+            fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
+            agentMark: SidebarTunables.agentMark.value
         )
         guard needsConfigure(content) else { return }
         grouped = row.group != nil
@@ -88,6 +97,12 @@ final class WorkspaceRowView: SidebarRowView {
         subtitle.stringValue = ws.liveDetail ?? ""
         hasSubtitle = ws.liveDetail != nil
         activity.configure(ws.activity, style: ws.activityStyle)
+        activityState = ws.activity
+        agentMarkVariant = content.agentMark
+        let markImage = agentMarkVariant == .off || isShowingPlaceholder ? nil
+            : ws.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: SidebarStyle.indicatorSize) }
+        agentMark.image = markImage
+        agentMark.isHidden = markImage == nil
         badge.configure(ws.unread)
         progress = ws.progress
         // The workspace hover card shows the cwd (and CPU and memory).
@@ -147,6 +162,7 @@ final class WorkspaceRowView: SidebarRowView {
         performWithTheme {
             title.textColor = Palette.textPrimary
             subtitle.textColor = Palette.textSecondary
+            agentMark.contentTintColor = activityState == .waiting ? Palette.attention : Palette.textSecondary
             // Fills only, no borders: drop target, multi-selection, hover.
             paintFill(isDropTarget ? Palette.selectionFill
                 : isSecondarySelected ? Palette.secondarySelectionFill
@@ -206,13 +222,22 @@ final class WorkspaceRowView: SidebarRowView {
             badge.frame = NSRect(x: trailing - w - (badge.state == .dot ? Metrics.space2 : 0), y: (b.height - h) / 2, width: w, height: h)
             trailing = badge.frame.minX - Metrics.space2
         }
-        if activity.showsGlyph {
-            let ind = SidebarStyle.indicatorSize
+        let ind = SidebarStyle.indicatorSize
+        let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
+        activity.isHidden = markReplacesStatus
+        if markReplacesStatus {
+            agentMark.frame = NSRect(x: trailing - ind, y: (b.height - ind) / 2, width: ind, height: ind)
+            trailing -= ind + Metrics.space2
+        } else if activity.showsGlyph {
             activity.frame = NSRect(x: trailing - ind, y: (b.height - ind) / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2
         }
 
-        let textX = side > 0 ? icon.frame.maxX + Metrics.space3 : leading
+        var textX = side > 0 ? icon.frame.maxX + Metrics.space3 : leading
+        if !agentMark.isHidden && agentMarkVariant == .besideTitle {
+            agentMark.frame = NSRect(x: textX + Self.labelInset, y: (b.height - ind) / 2, width: ind, height: ind)
+            textX = agentMark.frame.maxX + Metrics.space1
+        }
         let textW = max(0, trailing - textX)
         title.isHidden = renaming || isShowingPlaceholder
         placeholderBar.isHidden = !isShowingPlaceholder

@@ -24,6 +24,8 @@ export default defineConfig({
       "src/agent-session/acpmux/icons/cmuxIcons.json",
       // scripts/agent-icons/generate.py --check owns these bytes.
       "src/agent-session/shared/agentBrands.generated.ts",
+      // scripts/icon-picker/gen-emoji-data.mjs --check owns these bytes.
+      "src/icon-picker/generated/**",
       // The markdown round-trip corpus: real files whose exact bytes the editor must preserve.
       "test/fixtures/markdown-roundtrip/**",
     ],
