@@ -28,11 +28,15 @@ mod grants;
 #[cfg(unix)]
 mod host;
 #[cfg(unix)]
+mod host_ops;
+#[cfg(unix)]
 mod hosts;
 #[cfg(unix)]
 mod mirror;
 #[cfg(all(test, unix))]
 mod mirror_tests;
+#[cfg(unix)]
+mod open_tokens;
 #[cfg(unix)]
 mod provider;
 #[cfg(unix)]

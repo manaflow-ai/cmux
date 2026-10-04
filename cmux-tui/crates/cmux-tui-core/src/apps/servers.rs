@@ -25,31 +25,9 @@
 //!   or `{"type":"result","id":"s1","ok":false,"error":{"code","message"}}`.
 //!   Server events `{"type":"event","event","data"}` are broadcast to apps
 //!   clients as `apps-server-event {app, name, data}`.
-//! - Host-only ops (one shape for every op the host answers), server ->
-//!   supervisor `{"t":"host.request","id":1,"op":"cmux.host.…","params":{}}`;
-//!   supervisor -> server `{"t":"host.result","id":1,"value":{}}` or
-//!   `{"t":"host.error","id":1,"code","message","retryable"}`. Host events,
-//!   supervisor -> server: `{"t":"host.event","op":"cmux.host.…","data":{}}`.
-//!   The id is the server's own (any JSON value), echoed back.
-//!   - `cmux.host.link.get {}` -> `{binary, hub_socket, state_dir,
-//!     socket_dir, device_name}` from the daemon's own values (see
-//!     [`Supervisor::host_link`]; `hub_socket` is `null` until the link
-//!     lane's registration exists); event `cmux.host.link.changed` with the
-//!     same value. Needs server scope `op:cmux.host.link.get` and a
-//!     first-party app, else `host.error` `apps.scope_missing`.
-//!   - `cmux.credential.relay` answers `host.error` `unavailable` until the
-//!     Mac provider side exists (APP-R1): the supervisor will forward the
-//!     request params over the provider channel and the Mac app answers
-//!     through its host capabilities; no user credential enters the daemon.
-//!   - Any other `cmux.host.*` op answers `host.error` `apps.op.unknown`.
+//! - Host-only ops (`host.request` frames) are answered in `host_ops.rs`.
 //!
-//! Open tokens: the op line of a user run (origin user, admitted by the A2
-//! gate) carries a top-level `"open_token"`, a fresh 128-bit hex token,
-//! single use, bound to {app, op, idempotency_key} and valid for 60 s. No
-//! other origin gets one, and a client's `open_token` (top level of the
-//! request or of `args`) never reaches the server. The host side of a
-//! connect checks a token the server passes on with
-//! [`Supervisor::consume_open_token`].
+//! Open tokens for user runs are minted in `open_tokens.rs`.
 //!
 //! Environment: an allowlist only. `CMUX_APP_ID`, `CMUX_APP_DATA_DIR` (the
 //! app's data directory; one subdirectory per `server.data` entry, the
@@ -167,56 +145,6 @@ pub(super) struct Server {
     /// Asked to exit (idle, disable, uninstall); the exit is expected.
     pub stopping: bool,
     pub kill: Option<TimerId>,
-}
-
-/// How long a stamped open token stays valid.
-const OPEN_TOKEN_TTL: Duration = Duration::from_secs(60);
-/// Open tokens kept at once; past it the one closest to expiry goes.
-const MAX_OPEN_TOKENS: usize = 1024;
-
-/// A minted open token: single use, for one app, op and idempotency key.
-pub(super) struct OpenToken {
-    app: String,
-    op: String,
-    idempotency_key: Option<String>,
-    expires: Instant,
-}
-
-/// What a consumed open token was minted for, so the caller can check the op.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OpenTokenUse {
-    pub op: String,
-    pub idempotency_key: Option<String>,
-}
-
-/// Mints a fresh 128-bit open token for one user run of `op`.
-fn mint_open_token(
-    inner: &mut Inner,
-    app: &str,
-    op: &str,
-    idempotency_key: Option<String>,
-    now: Instant,
-) -> String {
-    inner.open_tokens.retain(|_, t| t.expires > now);
-    if inner.open_tokens.len() >= MAX_OPEN_TOKENS
-        && let Some(oldest) =
-            inner.open_tokens.iter().min_by_key(|(_, t)| t.expires).map(|(k, _)| k.clone())
-    {
-        inner.open_tokens.remove(&oldest);
-    }
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).expect("the OS random source");
-    let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    inner.open_tokens.insert(
-        token.clone(),
-        OpenToken {
-            app: app.to_string(),
-            op: op.to_string(),
-            idempotency_key,
-            expires: now + OPEN_TOKEN_TTL,
-        },
-    );
-    token
 }
 
 /// Restart spacing of crashed `always` servers, per app.
@@ -380,7 +308,7 @@ pub(super) fn op_scope(family: &str, entry: &Value) -> Option<String> {
     Some(format!("{family}:{verb}"))
 }
 
-fn line(value: &Value) -> Vec<u8> {
+pub(super) fn line(value: &Value) -> Vec<u8> {
     let mut line = serde_json::to_vec(value).unwrap_or_default();
     line.push(b'\n');
     line
@@ -457,8 +385,15 @@ impl Supervisor {
         if let Some(fields) = args.as_object_mut() {
             fields.remove("open_token");
         }
-        let open_token = (origin == Origin::User)
-            .then(|| mint_open_token(inner, app, op, idempotency_key.clone(), Instant::now()));
+        let open_token = (origin == Origin::User).then(|| {
+            super::open_tokens::mint_open_token(
+                inner,
+                app,
+                op,
+                idempotency_key.clone(),
+                Instant::now(),
+            )
+        });
         let server = inner.servers.get_mut(app).expect("started");
         if let Some(timer) = server.idle.take() {
             self.timers.cancel(timer);
@@ -821,7 +756,7 @@ impl Supervisor {
 impl Supervisor {
     /// The data and temporary directories of `app`'s server:
     /// `<state>/apps-data/<namespace>` and `<state>/apps-tmp/<namespace>`.
-    fn server_dirs(&self, app: &str) -> (PathBuf, PathBuf) {
+    pub(super) fn server_dirs(&self, app: &str) -> (PathBuf, PathBuf) {
         let base =
             self.config.state_dir.clone().unwrap_or_else(|| std::env::temp_dir().join("cmux-apps"));
         let namespace = cmux_app_manifest::app_namespace(app);
@@ -887,116 +822,5 @@ impl Supervisor {
         let (data, tmp) = self.server_dirs(app);
         let _ = std::fs::remove_dir_all(data);
         let _ = std::fs::remove_dir_all(tmp);
-    }
-
-    /// `cmux.host.link.get` for `app`: the daemon executable, the WireGuard
-    /// hub socket, a link state directory in the app's data directory, the
-    /// app's temporary directory for link sockets, and this machine's name.
-    ///
-    /// `hub_socket` is always `null` for now. The link lane (lane 12: the
-    /// WireGuard engine and the `cmux link` agent) owns that socket; the
-    /// daemon neither spawns it nor reads it from its launch environment. It
-    /// will come from the link agent's registration file at a well-known
-    /// path under the daemon state directory, which lane 12 defines. Until
-    /// then the Cloud server answers `link_unavailable`.
-    pub(super) fn host_link(&self, app: &str) -> Value {
-        let (data, tmp) = self.server_dirs(app);
-        let state_dir = data.join("link");
-        let _ = std::fs::create_dir_all(&state_dir);
-        json!({
-            "binary": std::env::current_exe().ok(),
-            "hub_socket": Value::Null,
-            "state_dir": state_dir,
-            "socket_dir": tmp,
-            "device_name": device_name(),
-        })
-    }
-
-    /// Whether `app` may call the host op `op`: a first-party app whose
-    /// manifest declares the server scope `op:<op>`.
-    fn host_op_allowed(inner: &Inner, app: &str, op: &str) -> bool {
-        inner.catalog.packages.get(app).is_some_and(|package| {
-            package.tier == Tier::FirstParty
-                && package
-                    .manifest
-                    .pointer("/server/scopes")
-                    .and_then(Value::as_object)
-                    .is_some_and(|scopes| scopes.contains_key(&format!("op:{op}")))
-        })
-    }
-
-    /// Answers one `host.request` frame of `app`'s server.
-    fn host_request_locked(&self, inner: &Inner, app: &str, request: &Value) -> Value {
-        let id = request.get("id").cloned().unwrap_or(Value::Null);
-        let error = |code: &str, message: &str, retryable: bool| json!({ "t": "host.error", "id": id, "code": code, "message": message, "retryable": retryable });
-        match request["op"].as_str().unwrap_or_default() {
-            op @ "cmux.host.link.get" => {
-                if Self::host_op_allowed(inner, app, op) {
-                    json!({ "t": "host.result", "id": id, "value": self.host_link(app) })
-                } else {
-                    error(
-                        "apps.scope_missing",
-                        "the server does not declare op:cmux.host.link.get",
-                        false,
-                    )
-                }
-            }
-            "cmux.credential.relay" => {
-                error("unavailable", "the cmux credential relay is not available yet", true)
-            }
-            op => error("apps.op.unknown", &format!("the host has no op {op}"), false),
-        }
-    }
-
-    /// Sends `cmux.host.link.changed` to every running server that may read
-    /// the link. Nothing changes the daemon's link values during its life
-    /// yet; the daemon calls this when the link agent's registration (lane
-    /// 12) appears or changes.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(super) fn host_link_changed(&self) {
-        let inner = self.inner.lock().unwrap();
-        for (app, server) in &inner.servers {
-            if !server.stopping && Self::host_op_allowed(&inner, app, "cmux.host.link.get") {
-                server.process.send(line(&json!({
-                    "t": "host.event", "op": "cmux.host.link.changed", "data": self.host_link(app),
-                })));
-            }
-        }
-    }
-}
-
-/// This machine's name, or `cmux`.
-fn device_name() -> String {
-    let mut buf = [0u8; 256];
-    // SAFETY: gethostname writes at most buf.len() bytes into our buffer.
-    let ok = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0;
-    let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
-    let name = if ok { String::from_utf8_lossy(&buf[..end]).into_owned() } else { String::new() };
-    if name.is_empty() || name.chars().any(char::is_control) { "cmux".into() } else { name }
-}
-
-impl Supervisor {
-    /// Verifies an open token a server passed on (the host side of the
-    /// terminal connector and backend calls this in its connect path). A
-    /// token works once, for the app it was minted for, within 60 s of its
-    /// run; any lookup consumes it, so a wrong app's attempt burns it too.
-    /// Answers what the token was minted for, so the caller can check the op.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn consume_open_token(&self, token: &str, app: &str) -> Option<OpenTokenUse> {
-        self.consume_open_token_at(token, app, Instant::now())
-    }
-
-    /// [`Self::consume_open_token`] at `now` (tests of callers inject the clock).
-    pub(crate) fn consume_open_token_at(
-        &self,
-        token: &str,
-        app: &str,
-        now: Instant,
-    ) -> Option<OpenTokenUse> {
-        let mut inner = self.inner.lock().unwrap();
-        let minted = inner.open_tokens.remove(token)?;
-        inner.open_tokens.retain(|_, t| t.expires > now);
-        (minted.app == app && minted.expires > now)
-            .then_some(OpenTokenUse { op: minted.op, idempotency_key: minted.idempotency_key })
     }
 }
