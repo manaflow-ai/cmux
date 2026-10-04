@@ -233,7 +233,8 @@ fn a_remote_client_keeps_its_peer_user_until_it_disconnects() {
     // disconnect_client removes the registry record, then the peer record:
     // wait for both, so the test does not race the cleanup between them.
     let deadline = Instant::now() + Duration::from_secs(5);
-    let cleaned = |mux: &Mux| remote_clients(mux).is_empty() && mux.remote_relay().peer(client).is_none();
+    let cleaned =
+        |mux: &Mux| remote_clients(mux).is_empty() && mux.remote_relay().peer(client).is_none();
     while !cleaned(&entry.mux) && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(10));
     }

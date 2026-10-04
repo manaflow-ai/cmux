@@ -809,7 +809,12 @@ fn an_unregistered_client_id_fails_closed() {
     for transport in [ClientTransport::Unix, ClientTransport::WebSocket] {
         let reply = connection_frame(&fixture.mux, stray, transport, r#"{"id":1,"cmd":"ping"}"#);
         assert_code(&reply, "remote_denied");
-        let list = connection_frame(&fixture.mux, stray, transport, r#"{"id":2,"cmd":"conversation-list"}"#);
+        let list = connection_frame(
+            &fixture.mux,
+            stray,
+            transport,
+            r#"{"id":2,"cmd":"conversation-list"}"#,
+        );
         assert_code(&list, "remote_denied");
     }
 }
@@ -824,5 +829,8 @@ fn a_remote_entry_connection_keeps_the_remote_path_after_disconnect() {
     let reply = connection_frame(&fixture.mux, client, ClientTransport::Remote, frame);
     assert_code(&reply, "remote_denied");
     let bad = r#"{"id":2,"cmd":"conversation-snapshot","conversation":"conv_01ARZ3NDEKTSV4RRFFQ69G5FAV","tail":"x"}"#;
-    assert_code(&connection_frame(&fixture.mux, client, ClientTransport::Remote, bad), "remote_error");
+    assert_code(
+        &connection_frame(&fixture.mux, client, ClientTransport::Remote, bad),
+        "remote_error",
+    );
 }
