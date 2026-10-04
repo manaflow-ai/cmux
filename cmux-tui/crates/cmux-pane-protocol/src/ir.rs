@@ -38,6 +38,15 @@ pub struct OpDecl {
     pub params: Value,
     pub result: Value,
     pub errors: Vec<String>,
+    /// What the op does (decision 27).
+    pub risk: crate::op::Risk,
+    /// Whether a call needs a user gesture token.
+    pub gesture: bool,
+    /// Derived from scope-classes.json: standard, sensitive or restricted.
+    pub scope_class: String,
+    /// Derived: the scope's rule is server-only.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub server_only: bool,
     /// Params that name filesystem paths; every provider confines them to
     /// the token's roots (decisions 20, 22). Empty when none.
     pub paths: Vec<String>,
@@ -138,6 +147,12 @@ impl CatalogBuilder {
         let mut ops = self.ops;
         for op in &mut ops {
             op.secret_output = secret_output(&op.result, &types);
+            // An unclassified scope leaves "" here; emit-ir's merge check
+            // then refuses the IR.
+            if let Ok((class, server_only)) = crate::scope_class::classify(&op.scope) {
+                op.scope_class = class;
+                op.server_only = server_only;
+            }
         }
         Catalog {
             types,
@@ -169,6 +184,10 @@ impl CatalogBuilder {
             params,
             result,
             errors: O::ERRORS.iter().map(|code| (*code).to_owned()).collect(),
+            risk: O::RISK,
+            gesture: O::GESTURE,
+            scope_class: String::new(),
+            server_only: false,
             paths: O::PATH_PARAMS.iter().map(|name| (*name).to_owned()).collect(),
             mcp: McpDecl {
                 expose: O::MCP.expose,
@@ -306,7 +325,7 @@ pub use crate::ir_merge::{
     ANNOTATION_KEYWORDS, FragmentValidator, MergeError, SUPPORTED_KEYWORDS, ShapeValidator, merge,
     schema_keywords_supported,
 };
-pub use crate::ir_merge::{mcp_tool_name, secret_output, valid_cli_path};
+pub use crate::ir_merge::{mcp_tool_name, secret_output, strip_derived, valid_cli_path};
 
 /// A JSON Schema validator for one schema of an IR document (an op's
 /// `params` or `result`, or `{"$ref": "#/types/<Name>"}`), resolving refs

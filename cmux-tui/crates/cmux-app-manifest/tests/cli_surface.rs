@@ -1,3 +1,4 @@
+//! (First-party test app: a third-party catalog would use its namespace family, app-platform.md 18.)
 //! App CLI commands and MCP tools (plans/cmux-next/app-commands-codemode.md
 //! sections 1 and 2): the manifest `cli.name`, app-relative `cli.path`,
 //! `cli.positional`, reserved names, and MCP tool names derived from op names.
@@ -6,7 +7,7 @@ use cmux_app_manifest::{Issue, Severity, validate_catalog, validate_manifest};
 use serde_json::{Value, json};
 
 fn manifest(extra: Value) -> Value {
-    let mut m = json!({ "manifestVersion": 2, "id": "local/x", "name": "X", "version": "1.0.0", "description": "d", "engines": { "cmux": "^2.0" }, "icon": "assets/icon.png" });
+    let mut m = json!({ "manifestVersion": 2, "id": "cmux/notes", "repository": "https://github.com/manaflow-ai/cmux", "name": "X", "version": "1.0.0", "description": "d", "engines": { "cmux": "^2.0" }, "icon": "assets/icon.png" });
     for (k, v) in extra.as_object().expect("object") {
         m[k] = v.clone();
     }
@@ -14,7 +15,7 @@ fn manifest(extra: Value) -> Value {
 }
 
 fn op(name: &str, extra: Value) -> Value {
-    let mut o = json!({ "name": name, "owner": "app:local/x", "class": "mutation", "risk": "mutate-own",
+    let mut o = json!({ "name": name, "owner": "app:cmux/notes", "class": "mutation", "risk": "mutate-own",
         "idempotency": "required",
         "input": { "type": "object", "properties": {
             "text": { "type": "string" }, "tag": { "type": "string" }, "count": { "type": "integer" },

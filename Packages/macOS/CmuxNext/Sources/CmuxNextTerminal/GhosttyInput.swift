@@ -1,6 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
-import GhosttyKit
+import GhosttyNextKit
 
 /// NSEvent -> `ghostty_input_key_s` translation (ghostty.h:300-308).
 nonisolated enum GhosttyInput {

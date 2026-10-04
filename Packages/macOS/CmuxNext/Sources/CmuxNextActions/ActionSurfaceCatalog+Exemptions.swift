@@ -123,6 +123,10 @@ nonisolated extension ActionSurfaceCatalog {
         .duplicateOfDefault: [
             "openBrowser.chromium",
         ],
+        // A row of the titlebar Back / Forward list: the click on the row is the gesture.
+        .focusMove: [
+            "history.goTo",
+        ],
     ]
 
     static let cliExemption: [ActionID: SurfaceExemption] = byReason(cliExemptionsByReason)
@@ -202,6 +206,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.attemptUpdate",
         ],
         .focusMove: [
+            "history.goTo",
             "home.show",
             "showHideAllWindows", "goToWorkspace", "showMainWindow", "nextSidebarTab", "prevSidebarTab",
             "nextSidebarTabInGroup", "prevSidebarTabInGroup", "nextWorkspaceGroup", "prevWorkspaceGroup",

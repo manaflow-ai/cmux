@@ -13,7 +13,7 @@ export const closeQuietly = (ws: WebSocket, code: number, reason: string) => {
   } catch {}
 }
 
-type InstallRef = { install: string; grant: string | undefined }
+type InstallRef = { install: string; grant: string | undefined; agent?: string }
 
 /** The refusal for a frame whose install could not be checked; it names the frame's idempotency key. */
 const unreachable = (ws: WebSocket, message: string | ArrayBuffer) => {
@@ -46,12 +46,37 @@ export class SocketGate {
     private readonly resync: (ws: WebSocket, a: Attachment) => void
   ) {}
 
-  private key = (p: Principal) => `${p.user}\u0000${p.install}\u0000${p.grant ?? ""}`
+  private key = (p: Principal) => `${p.user}\u0000${p.install}\u0000${p.grant ?? ""}\u0000${p.agent ?? ""}`
   private watched = (p: Principal) => this.enabled() && p.kind === "install" && !!p.install && !!p.user
 
-  /** The Worker checked this install when it opened the socket. */
-  seed(p: Principal): void {
-    if (this.watched(p)) this.checks.set(this.key(p), { active: true, at: Date.now() })
+  /**
+   * The Worker checked this install when it opened the socket. The socket is also registered in
+   * the user's UserDO, so a revoke closes it at once (socket-registry.ts); a refused registration
+   * (revoked in between) closes it now.
+   */
+  seed(ws: WebSocket, p: Principal, owner: { cls: string; name: string }): void {
+    if (!this.watched(p)) return
+    this.checks.set(this.key(p), { active: true, at: Date.now() })
+    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user!)) as unknown as {
+      registerSocket(entity: string, install: string, grant: string | undefined, cls: string, name: string, expiresAt: number, agent?: string): Promise<boolean>
+    }
+    const expires = p.expires_at ?? Date.now() + 3600_000
+    this.ctx.waitUntil(
+      stub.registerSocket(p.user!, p.install!, p.grant, owner.cls, owner.name, expires, p.agent).then(
+        (ok) => {
+          if (ok) return
+          this.revoked(p.install!)
+          closeQuietly(ws, 4401, "install revoked")
+        },
+        // UserDO unreachable: the socket stays, and the 60 s check closes it if the install is revoked.
+        () => undefined
+      )
+    )
+  }
+
+  /** The install was revoked (UserDO push): every cached status of it becomes inactive. */
+  revoked(install: string): void {
+    for (const k of [...this.checks.keys()]) if (k.split("\u0000")[1] === install) this.checks.set(k, { active: false, at: Date.now() })
   }
 
   closed(ws: WebSocket): void {
@@ -127,7 +152,7 @@ export class SocketGate {
     const key = this.key(p)
     let c = this.checks.get(key)
     if (!c || Date.now() - c.at > INSTALL_CHECK_MS) {
-      const status = await this.ask(p.user!, [{ install: p.install!, grant: p.grant }])
+      const status = await this.ask(p.user!, [{ install: p.install!, grant: p.grant, ...(p.agent ? { agent: p.agent } : {}) }])
       if (!status) return "unreachable"
       c = { active: status[0] === true, at: Date.now() }
       this.checks.set(key, c)
@@ -176,7 +201,7 @@ export class SocketGate {
           const p = (ws.deserializeAttachment() as Attachment | null)?.principal
           if (!p?.user || !p.install) continue
           const m = byUser.get(p.user) ?? new Map<string, InstallRef>()
-          m.set(this.key(p), { install: p.install, grant: p.grant })
+          m.set(this.key(p), { install: p.install, grant: p.grant, ...(p.agent ? { agent: p.agent } : {}) })
           byUser.set(p.user, m)
         }
         const now = Date.now()

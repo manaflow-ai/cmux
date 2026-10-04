@@ -8,12 +8,12 @@ import {
   workerHighlighterOptions,
 } from "../src/pierre-options";
 
-test("code view CSS paints Pierre surfaces with the one viewer background", () => {
+test("code view CSS keeps code rows clear over the one page backdrop", () => {
   const css = codeViewUnsafeCSS();
 
-  expect(css).toContain("--diffs-light-bg: var(--cmux-diff-viewer-bg)");
-  expect(css).toContain("--diffs-dark-bg: var(--cmux-diff-viewer-bg)");
-  expect(css).toContain("--diffs-bg-separator-override: var(--cmux-diff-viewer-bg)");
+  expect(css).toContain("--diffs-light-bg: transparent");
+  expect(css).toContain("--diffs-dark-bg: transparent");
+  expect(css).toContain("--diffs-bg-separator-override: transparent");
   expect(css).toContain("--diffs-bg-buffer-override: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent)");
   expect(css).toContain("--diffs-bg-context-override: transparent");
   expect(css).toContain("--diffs-bg-context-gutter-override: transparent");
@@ -28,7 +28,7 @@ test("file headers are opaque and sized to the virtualizer's header metric", () 
   const css = codeViewUnsafeCSS();
   const header = css.match(/\[data-diffs-header\] \{(?<body>[^}]*)\}/)?.groups?.body ?? "";
 
-  expect(header).toContain("background-color: var(--cmux-diff-viewer-bg)");
+  expect(header).toContain("background-color: var(--cmux-diff-solid-bg)");
   expect(header).toContain(`height: var(--cmux-diff-file-header-height, ${DIFF_FILE_HEADER_HEIGHT}px)`);
   expect(css).not.toContain("backdrop-filter");
   expect(css).not.toContain("--cmux-diff-header-bg");
@@ -48,12 +48,12 @@ test("file headers are opaque and sized to the virtualizer's header metric", () 
   expect(options.itemMetrics?.diffHeaderHeight).toBe(DIFF_FILE_HEADER_HEIGHT);
 });
 
-test("file tree surfaces use the viewer background and keep counts tabular", () => {
+test("file tree surfaces use the solid backdrop color and keep counts tabular", () => {
   const css = fileTreeUnsafeCSS();
 
-  expect(css).toContain("background-color: var(--cmux-diff-viewer-bg)");
+  expect(css).toContain("background-color: var(--cmux-diff-solid-bg)");
   expect(css).toContain("[data-file-tree-sticky-overlay-content]");
-  expect(css).toContain("background-color: var(--cmux-diff-viewer-bg) !important");
+  expect(css).toContain("background-color: var(--cmux-diff-solid-bg) !important");
   expect(css).toContain("font-variant-numeric: tabular-nums");
   expect(css).not.toContain("font-weight");
 });

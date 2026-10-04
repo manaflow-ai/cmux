@@ -26,6 +26,6 @@ if (resolveWebviewKind() === "agent-session") {
   });
 } else {
   void import("./surfaces/diffSurface").then((surface) => {
-    surface.mountDiffSurface(rootElement);
+    void surface.mountDiffSurface(rootElement);
   });
 }

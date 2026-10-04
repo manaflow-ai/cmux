@@ -20,7 +20,7 @@
         "result": "ok"
       }
     ],
-    "router_ir_sha256": "ee9e9d8e3022cbc58a4361141a3f344055edcf828c9b517ad743ffdd5a7ffe07",
+    "router_ir_sha256": "799583cb88d70602efe4f5bd10115887380c31edaca71fdec7d2be466bb7673a",
     "rule": "ir_sha256 \"router\" stands for router_ir_sha256"
   },
   "fragments": [
@@ -36,6 +36,7 @@
         "ops": [
           {
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "name": "octo.diff_tools.diff.list",
             "owner": "app:octo.diff_tools",
@@ -48,7 +49,8 @@
               },
               "type": "array"
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
           }
         ],
         "types": {
@@ -74,6 +76,7 @@
         "ops": [
           {
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "name": "octo.diff_tools.diff.list",
             "owner": "app:octo.diff_tools",
@@ -86,7 +89,8 @@
               },
               "type": "array"
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
           }
         ],
         "types": {
@@ -113,6 +117,7 @@
         "ops": [
           {
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "name": "cmux.git.steal",
             "owner": "app:octo.diff_tools",
@@ -125,7 +130,8 @@
               },
               "type": "array"
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
           }
         ],
         "types": {
@@ -154,6 +160,7 @@
               "difftools.list"
             ],
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "name": "octo.diff_tools.diff.list",
             "owner": "app:octo.diff_tools",
@@ -166,7 +173,8 @@
               },
               "type": "array"
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
           }
         ],
         "types": {
@@ -189,6 +197,7 @@
               "workspace.list"
             ],
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "name": "cmux.workspace.list",
             "owner": "first-party",
@@ -198,6 +207,7 @@
             "result": {
               "type": "object"
             },
+            "risk": "read",
             "scope": "workspace:read"
           }
         ]
@@ -214,6 +224,7 @@
               "cmux.git.status"
             ],
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "name": "cmux.workspace.list",
             "owner": "first-party",
@@ -223,6 +234,7 @@
             "result": {
               "type": "object"
             },
+            "risk": "read",
             "scope": "workspace:read"
           }
         ]
@@ -242,6 +254,7 @@
         "ops": [
           {
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "name": "octo.diff_tools.diff.list",
             "owner": "app:octo.diff_tools",
@@ -254,7 +267,8 @@
               },
               "type": "array"
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
           }
         ],
         "types": {
@@ -285,6 +299,7 @@
         "ops": [
           {
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "name": "octo.diff_tools.diff.list",
             "owner": "app:octo.diff_tools",
@@ -297,7 +312,8 @@
               },
               "type": "array"
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
           }
         ],
         "types": {
@@ -328,6 +344,7 @@
         "ops": [
           {
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "name": "octo.diff_tools.diff.list",
             "owner": "app:octo.diff_tools",
@@ -340,7 +357,8 @@
               },
               "type": "array"
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
           }
         ],
         "types": {
@@ -371,6 +389,7 @@
         "ops": [
           {
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "name": "octo.diff_tools.diff.list",
             "owner": "app:octo.diff_tools",
@@ -387,7 +406,8 @@
                 }
               ]
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
           }
         ],
         "types": {
@@ -428,6 +448,7 @@
               "visible": true
             },
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "mcp": {
               "expose": "opt_in",
@@ -441,7 +462,8 @@
             "result": {
               "type": "string"
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
           }
         ],
         "types": {
@@ -490,6 +512,7 @@
         "ops": [
           {
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "mcp": {
               "expose": "always"
@@ -502,7 +525,8 @@
             "result": {
               "type": "string"
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
           }
         ],
         "types": {
@@ -555,6 +579,7 @@
               "visible": true
             },
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "name": "octo.diff_tools.diff.get",
             "owner": "app:octo.diff_tools",
@@ -564,7 +589,8 @@
             "result": {
               "type": "string"
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
           }
         ],
         "types": {
@@ -613,11 +639,12 @@
         "ops": [
           {
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "mcp": {
               "expose": "default"
             },
-            "name": "octo.diff_tools.diff.get",
+            "name": "octo.diff_tools.diff-x.get",
             "owner": "app:octo.diff_tools",
             "params": {
               "$ref": "#/types/OctoGetParams"
@@ -625,15 +652,17 @@
             "result": {
               "type": "string"
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
           },
           {
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "mcp": {
               "expose": "default"
             },
-            "name": "octo.diff_tools.diff-get",
+            "name": "octo.diff_tools.diff.x-get",
             "owner": "app:octo.diff_tools",
             "params": {
               "$ref": "#/types/OctoGetParams"
@@ -641,7 +670,8 @@
             "result": {
               "type": "string"
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
           }
         ],
         "types": {
@@ -694,6 +724,7 @@
         "ops": [
           {
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "mcp": {
               "expose": "default"
@@ -715,7 +746,8 @@
               ],
               "type": "object"
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
           }
         ],
         "types": {
@@ -772,6 +804,7 @@
         "ops": [
           {
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "name": "octo.diff_tools.diff.get",
             "owner": "app:octo.diff_tools",
@@ -781,7 +814,8 @@
             "result": {
               "type": "string"
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
           }
         ],
         "types": {
@@ -836,6 +870,7 @@
         "ops": [
           {
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "name": "octo.diff_tools.file.get",
             "owner": "app:octo.diff_tools",
@@ -848,7 +883,8 @@
             "result": {
               "type": "string"
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
           }
         ],
         "types": {
@@ -897,6 +933,7 @@
         "ops": [
           {
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "name": "octo.diff_tools.file.get",
             "owner": "app:octo.diff_tools",
@@ -909,7 +946,8 @@
             "result": {
               "type": "string"
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
           }
         ],
         "types": {
@@ -958,6 +996,7 @@
         "ops": [
           {
             "errors": [],
+            "gesture": false,
             "kind": "read",
             "name": "octo.diff_tools.file.get",
             "owner": "app:octo.diff_tools",
@@ -970,7 +1009,8 @@
             "result": {
               "type": "string"
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
           }
         ],
         "types": {
@@ -1008,7 +1048,207 @@
       "valid": false
     },
     {
-      "decision": 23,
+      "decision": 27,
+      "expect": {
+        "gesture": false,
+        "op": "octo.diff_tools.risk.send_external",
+        "risk": "send-external"
+      },
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "gesture": false,
+            "kind": "read",
+            "name": "octo.diff_tools.risk.read",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "risk": "read",
+            "scope": "diff:write"
+          },
+          {
+            "errors": [],
+            "gesture": false,
+            "kind": "read",
+            "name": "octo.diff_tools.risk.mutate_own",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "risk": "mutate-own",
+            "scope": "diff:write"
+          },
+          {
+            "errors": [],
+            "gesture": false,
+            "kind": "read",
+            "name": "octo.diff_tools.risk.mutate_shared",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "risk": "mutate-shared",
+            "scope": "diff:write"
+          },
+          {
+            "errors": [],
+            "gesture": false,
+            "kind": "read",
+            "name": "octo.diff_tools.risk.execute",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "risk": "execute",
+            "scope": "diff:write"
+          },
+          {
+            "errors": [],
+            "gesture": false,
+            "kind": "read",
+            "name": "octo.diff_tools.risk.send_external",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "risk": "send-external",
+            "scope": "diff:write"
+          },
+          {
+            "errors": [],
+            "gesture": false,
+            "kind": "read",
+            "name": "octo.diff_tools.risk.destructive",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "risk": "destructive",
+            "scope": "diff:write"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "an op of each risk",
+      "valid": true
+    },
+    {
+      "decision": 27,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "gesture": false,
+            "kind": "read",
+            "name": "octo.diff_tools.diff.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "risk": "money",
+            "scope": "diff:read"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "risk outside the enum",
+      "valid": false
+    },
+    {
+      "decision": 27,
       "fragment": {
         "namespaces": [
           {
@@ -1028,12 +1268,63 @@
             "result": {
               "type": "string"
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
           },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "gesture missing",
+      "valid": false
+    },
+    {
+      "decision": 27,
+      "expect": {
+        "op": "octo.diff_tools.diff.get",
+        "scope_class": "standard"
+      },
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
           {
             "errors": [],
+            "gesture": false,
             "kind": "read",
-            "name": "octo.diff_tools.diff-get",
+            "name": "octo.diff_tools.diff.get",
             "owner": "app:octo.diff_tools",
             "params": {
               "$ref": "#/types/OctoGetParams"
@@ -1041,7 +1332,457 @@
             "result": {
               "type": "string"
             },
-            "scope": "octo.diff_tools:use"
+            "risk": "read",
+            "scope": "diff:read"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "standard scope",
+      "valid": true
+    },
+    {
+      "decision": 27,
+      "expect": {
+        "op": "octo.diff_tools.diff.get",
+        "scope_class": "sensitive"
+      },
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "gesture": false,
+            "kind": "read",
+            "name": "octo.diff_tools.diff.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "risk": "read",
+            "scope": "diff:write"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "sensitive scope",
+      "valid": true
+    },
+    {
+      "decision": 27,
+      "expect": {
+        "op": "octo.diff_tools.diff.get",
+        "scope_class": "restricted"
+      },
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "gesture": false,
+            "kind": "read",
+            "name": "octo.diff_tools.diff.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "risk": "read",
+            "scope": "fs:write"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "restricted scope",
+      "valid": true
+    },
+    {
+      "decision": 27,
+      "expect": {
+        "op": "octo.diff_tools.diff.get",
+        "scope_class": "restricted",
+        "server_only": true
+      },
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "gesture": false,
+            "kind": "read",
+            "name": "octo.diff_tools.diff.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "risk": "read",
+            "scope": "process:spawn:git"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "server-only rule",
+      "valid": true
+    },
+    {
+      "decision": 27,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "gesture": false,
+            "kind": "read",
+            "name": "octo.diff_tools.diff.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "risk": "read",
+            "scope": "diff:use"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "scope that matches no rule",
+      "valid": false
+    },
+    {
+      "decision": 27,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "gesture": false,
+            "kind": "read",
+            "name": "octo.diff_tools.diff.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "risk": "read",
+            "scope": "diff:read",
+            "scope_class": "standard"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "fragment declares scope_class",
+      "valid": false
+    },
+    {
+      "decision": 26,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "gesture": false,
+            "kind": "read",
+            "name": "octo.diff_tools.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "risk": "read",
+            "scope": "diff:read"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "op name with only a verb below its namespace",
+      "valid": false
+    },
+    {
+      "decision": 23,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "gesture": false,
+            "kind": "read",
+            "name": "octo.diff_tools.diff-x.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "risk": "read",
+            "scope": "diff:read"
+          },
+          {
+            "errors": [],
+            "gesture": false,
+            "kind": "read",
+            "name": "octo.diff_tools.diff.x-get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "risk": "read",
+            "scope": "diff:read"
           }
         ],
         "types": {
@@ -1269,7 +2010,7 @@
       ],
       "name": "auth ack, then a call",
       "send": [
-        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImNvbS5leGFtcGxlLmhlbGxvOnVzZSJdLCJhdWQiOiJjb20uZXhhbXBsZS5oZWxsbyIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.Lj1PYSUXoJGSDbzAeyfwrr4EnJ7aeWq7ZFt79gaqW9rzOCWWk_AHQYyhwhVTcmbXG6P6ynko7J1NGqBr1ReYBw\"}",
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiXSwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJleHAiOjQxMDI0NDQ4MDAsImlhdCI6MTcwMDAwMDAwMH0.W9jo-7-h0DhYz89rrQ3_WVmWU7QlEoIOJDn2Ai1dBSO-DYgN-pqwvEXhmWy_baMklZSOBSjNIPtU2mLtLtjfDA\"}",
         "{\"t\":\"call\",\"id\":1,\"op\":\"com.example.hello.greet.say\",\"params\":{\"name\":\"v\"}}"
       ]
     },
@@ -1288,7 +2029,7 @@
       ],
       "name": "invalid params",
       "send": [
-        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImNvbS5leGFtcGxlLmhlbGxvOnVzZSJdLCJhdWQiOiJjb20uZXhhbXBsZS5oZWxsbyIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.Lj1PYSUXoJGSDbzAeyfwrr4EnJ7aeWq7ZFt79gaqW9rzOCWWk_AHQYyhwhVTcmbXG6P6ynko7J1NGqBr1ReYBw\"}",
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiXSwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJleHAiOjQxMDI0NDQ4MDAsImlhdCI6MTcwMDAwMDAwMH0.W9jo-7-h0DhYz89rrQ3_WVmWU7QlEoIOJDn2Ai1dBSO-DYgN-pqwvEXhmWy_baMklZSOBSjNIPtU2mLtLtjfDA\"}",
         "{\"t\":\"call\",\"id\":1,\"op\":\"com.example.hello.greet.say\",\"params\":{\"name\":1}}"
       ]
     },
@@ -1307,7 +2048,7 @@
       ],
       "name": "an op not in the IR",
       "send": [
-        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImNvbS5leGFtcGxlLmhlbGxvOnVzZSJdLCJhdWQiOiJjb20uZXhhbXBsZS5oZWxsbyIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.Lj1PYSUXoJGSDbzAeyfwrr4EnJ7aeWq7ZFt79gaqW9rzOCWWk_AHQYyhwhVTcmbXG6P6ynko7J1NGqBr1ReYBw\"}",
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiXSwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJleHAiOjQxMDI0NDQ4MDAsImlhdCI6MTcwMDAwMDAwMH0.W9jo-7-h0DhYz89rrQ3_WVmWU7QlEoIOJDn2Ai1dBSO-DYgN-pqwvEXhmWy_baMklZSOBSjNIPtU2mLtLtjfDA\"}",
         "{\"t\":\"call\",\"id\":1,\"op\":\"com.example.hello.greet.shout\",\"params\":{}}"
       ]
     },
@@ -1326,7 +2067,7 @@
       ],
       "name": "an event stream not in the IR",
       "send": [
-        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImNvbS5leGFtcGxlLmhlbGxvOnVzZSJdLCJhdWQiOiJjb20uZXhhbXBsZS5oZWxsbyIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.Lj1PYSUXoJGSDbzAeyfwrr4EnJ7aeWq7ZFt79gaqW9rzOCWWk_AHQYyhwhVTcmbXG6P6ynko7J1NGqBr1ReYBw\"}",
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiXSwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJleHAiOjQxMDI0NDQ4MDAsImlhdCI6MTcwMDAwMDAwMH0.W9jo-7-h0DhYz89rrQ3_WVmWU7QlEoIOJDn2Ai1dBSO-DYgN-pqwvEXhmWy_baMklZSOBSjNIPtU2mLtLtjfDA\"}",
         "{\"t\":\"sub\",\"id\":1,\"stream\":\"com.example.hello.greet.nope\"}"
       ]
     },
@@ -1365,7 +2106,7 @@
       ],
       "name": "seq starts at 1",
       "send": [
-        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImNvbS5leGFtcGxlLmhlbGxvOnVzZSJdLCJhdWQiOiJjb20uZXhhbXBsZS5oZWxsbyIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.Lj1PYSUXoJGSDbzAeyfwrr4EnJ7aeWq7ZFt79gaqW9rzOCWWk_AHQYyhwhVTcmbXG6P6ynko7J1NGqBr1ReYBw\"}",
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiXSwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJleHAiOjQxMDI0NDQ4MDAsImlhdCI6MTcwMDAwMDAwMH0.W9jo-7-h0DhYz89rrQ3_WVmWU7QlEoIOJDn2Ai1dBSO-DYgN-pqwvEXhmWy_baMklZSOBSjNIPtU2mLtLtjfDA\"}",
         "{\"t\":\"sub\",\"id\":1,\"stream\":\"com.example.hello.greet.ticks\"}"
       ]
     },
@@ -1384,7 +2125,7 @@
       ],
       "name": "the connecting side may not open an even stream id",
       "send": [
-        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImNvbS5leGFtcGxlLmhlbGxvOnVzZSJdLCJhdWQiOiJjb20uZXhhbXBsZS5oZWxsbyIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.Lj1PYSUXoJGSDbzAeyfwrr4EnJ7aeWq7ZFt79gaqW9rzOCWWk_AHQYyhwhVTcmbXG6P6ynko7J1NGqBr1ReYBw\"}",
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiXSwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJleHAiOjQxMDI0NDQ4MDAsImlhdCI6MTcwMDAwMDAwMH0.W9jo-7-h0DhYz89rrQ3_WVmWU7QlEoIOJDn2Ai1dBSO-DYgN-pqwvEXhmWy_baMklZSOBSjNIPtU2mLtLtjfDA\"}",
         "{\"t\":\"open\",\"id\":1,\"stream\":2,\"op\":\"com.example.hello.greet.say\"}"
       ]
     },
@@ -1403,7 +2144,7 @@
       ],
       "name": "open of an op that is not a stream op",
       "send": [
-        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImNvbS5leGFtcGxlLmhlbGxvOnVzZSJdLCJhdWQiOiJjb20uZXhhbXBsZS5oZWxsbyIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.Lj1PYSUXoJGSDbzAeyfwrr4EnJ7aeWq7ZFt79gaqW9rzOCWWk_AHQYyhwhVTcmbXG6P6ynko7J1NGqBr1ReYBw\"}",
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiXSwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJleHAiOjQxMDI0NDQ4MDAsImlhdCI6MTcwMDAwMDAwMH0.W9jo-7-h0DhYz89rrQ3_WVmWU7QlEoIOJDn2Ai1dBSO-DYgN-pqwvEXhmWy_baMklZSOBSjNIPtU2mLtLtjfDA\"}",
         "{\"t\":\"open\",\"id\":1,\"stream\":1,\"op\":\"com.example.hello.greet.say\"}"
       ]
     },
@@ -1422,7 +2163,7 @@
       ],
       "name": "an id above 2^53-1 is a bad message",
       "send": [
-        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImNvbS5leGFtcGxlLmhlbGxvOnVzZSJdLCJhdWQiOiJjb20uZXhhbXBsZS5oZWxsbyIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.Lj1PYSUXoJGSDbzAeyfwrr4EnJ7aeWq7ZFt79gaqW9rzOCWWk_AHQYyhwhVTcmbXG6P6ynko7J1NGqBr1ReYBw\"}",
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiXSwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJleHAiOjQxMDI0NDQ4MDAsImlhdCI6MTcwMDAwMDAwMH0.W9jo-7-h0DhYz89rrQ3_WVmWU7QlEoIOJDn2Ai1dBSO-DYgN-pqwvEXhmWy_baMklZSOBSjNIPtU2mLtLtjfDA\"}",
         "{\"t\":\"call\",\"id\":9007199254740992,\"op\":\"com.example.hello.greet.say\",\"params\":{\"name\":\"x\"}}"
       ]
     }
@@ -2230,7 +2971,7 @@
           {
             "kind": "read",
             "name": "com.example.hello.greet.say",
-            "scope": "com.example.hello:use"
+            "scope": "hello:read"
           }
         ],
         "proto": "cmux.pane/0"
@@ -2289,7 +3030,7 @@
           {
             "kind": "read",
             "name": "com.example.hello.greet.say",
-            "scope": "com.example.hello:use"
+            "scope": "hello:read"
           }
         ],
         "proto": "cmux.pane/0"

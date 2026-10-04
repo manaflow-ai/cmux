@@ -8,11 +8,16 @@ use serde_json::Value;
 /// Publishers reserved for first-party apps.
 const FIRST_PARTY: &[&str] = &["cmux", "manaflow-ai"];
 
+/// Whether `publisher` is reserved for first-party apps.
+pub(crate) fn is_first_party(publisher: &str) -> bool {
+    FIRST_PARTY.contains(&publisher)
+}
+
 pub(crate) fn check(m: &Value) -> Vec<Issue> {
     let mut out = crate::cli::check_manifest(m);
     let id = m["id"].as_str().unwrap_or_default();
     let publisher = id.split('/').next().unwrap_or_default();
-    let first_party = FIRST_PARTY.contains(&publisher);
+    let first_party = is_first_party(publisher);
     let repository = m["repository"].as_str();
 
     match (publisher, repository) {
@@ -144,12 +149,30 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
             "give the app an image icon: symbol icons render only on Mac hosts; other clients show a generic glyph",
         ));
     }
-    if m.pointer("/server/kind").and_then(Value::as_str) == Some("native") && !first_party {
-        out.push(Issue::error(
-            "/server/kind",
-            "tier.native",
-            "native servers are allowed only for first-party apps",
-        ));
+    if m.pointer("/server/kind").and_then(Value::as_str) == Some("native") {
+        // First-party servers ship inside cmux (binaries); every other native
+        // server is a signed download (artifacts) that needs a Verified review.
+        if first_party && m.pointer("/server/artifacts").is_some() {
+            out.push(Issue::error(
+                "/server/artifacts",
+                "tier.native",
+                "first-party native servers ship with cmux: use binaries",
+            ));
+        }
+        if !first_party && m.pointer("/server/binaries").is_some() {
+            out.push(Issue::error(
+                "/server/binaries",
+                "tier.native",
+                "only first-party servers ship with cmux: give signed artifacts",
+            ));
+        }
+        if !first_party {
+            out.push(Issue::warning(
+                "/server/kind",
+                "tier.nativeReview",
+                "a native server runs only for Verified apps; unverified apps use kind js or external",
+            ));
+        }
     }
     if let Some(variants) = m["variants"].as_array() {
         for (i, v) in variants.iter().enumerate() {
@@ -198,6 +221,13 @@ fn check_scopes(m: &Value, first_party: bool, out: &mut Vec<Issue>) {
                     at.clone(),
                     "scope.processSpawn",
                     "process:spawn needs a native server that ships with cmux",
+                ));
+            }
+            if info.class == ScopeClass::Elevated && field == "/scopes" {
+                out.push(Issue::error(
+                    at.clone(),
+                    "scope.elevatedOptional",
+                    format!("{scope} is never granted at install: declare it in optionalScopes"),
                 ));
             }
             if info.class == ScopeClass::Restricted && !first_party {

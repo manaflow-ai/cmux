@@ -57,10 +57,16 @@ function key(target: HTMLElement, keyName: string, init: KeyboardEventInit = {})
   target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: keyName, bubbles: true, ...init }));
 }
 
+/**
+ * Sets a field's value and calls its React `onChange`. A dispatched `input` event does not reach
+ * React's change plugin in this jsdom setup (the acpmux page tests use the same helper).
+ */
 function typeInto(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
   setter.call(input, value);
-  input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  const key = Object.keys(input).find((name) => name.startsWith("__reactProps$"));
+  const props = key ? (input as unknown as Record<string, { onChange?: (event: unknown) => void }>)[key] : undefined;
+  props?.onChange?.({ target: input, currentTarget: input });
 }
 
 describe("CloudPage", () => {
@@ -203,8 +209,9 @@ describe("CloudPage", () => {
     expect($(".cloud-detail")).not.toBeNull();
     expect($(".cloud-size-spec")?.textContent).toBe("4 CPU · 8 GB memory · 64 GB disk");
     expect($$(".cloud-meter").length).toBe(3);
-    // Publications, domains, network and firewall are not served by the Cloud app server yet.
-    expect($$(".cloud-detail .cloud-unavailable").length).toBe(4);
+    // The Cloud app server serves publications, domains, network and firewall (R71 C6).
+    expect($$(".cloud-detail .cloud-unavailable").length).toBe(0);
+    expect($$(".cloud-domain-hostname").map((node) => node.textContent)).toEqual(["example.test"]);
     expect($(".cloud-error")).toBeNull();
     expect($$(".cloud-snapshot").length).toBeGreaterThan(0);
   });
@@ -221,5 +228,88 @@ describe("CloudPage", () => {
     expect(provider.calls.some((call) => call.op === ACTION_RUN)).toBe(false);
     expect(provider.calls.filter((call) => call.op === CloudOps.snapshotRestore).length).toBe(1);
     expect($$(".cloud-machine").length).toBe(before + 1);
+  });
+
+  test("the publication form shows the access mode that will apply and sends it through the native action", async () => {
+    // The Cloud API's default for a team machine is team access; the form starts there.
+    const provider = new MockCloudProvider();
+    await render(provider);
+    await act(async () => $$(".cloud-machine")[0].click());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const access = $(".cloud-publication-access") as HTMLSelectElement;
+    expect(access.value).toBe("team");
+    expect(access.selectedOptions[0].textContent).toBe("Team");
+    await act(async () => typeInto($(".cloud-publication-port") as HTMLInputElement, "5173"));
+    await act(async () => $(".cloud-publication-add")!.click());
+    expect(provider.calls.some((call) => call.op === CloudOps.publicationCreate)).toBe(false);
+    expect(provider.calls.filter((call) => call.op === ACTION_RUN).at(-1)?.params).toEqual({
+      action: CloudOps.publicationCreate,
+      args: { machine: sampleMachines()[0].id, port: 5173, accessMode: "team", idempotency_key: "k1" },
+    });
+  });
+
+  test("a port forward shows its 127.0.0.1 local port", async () => {
+    const provider = new MockCloudProvider();
+    await render(provider);
+    await act(async () => $$(".cloud-machine")[0].click());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => typeInto($(".cloud-forward-port") as HTMLInputElement, "3000"));
+    await act(async () => $(".cloud-forward-add")!.click());
+    const forward = provider.forwards[0];
+    expect($(".cloud-forward-local")?.textContent).toBe(`127.0.0.1:${forward.localPort}`);
+  });
+
+  test("files: browse a folder and preview a small text file", async () => {
+    const provider = new MockCloudProvider();
+    await render(provider);
+    await act(async () => $$(".cloud-machine")[0].click());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => $(".cloud-files-browse")!.click());
+    const names = $$(".cloud-file-name").map((node) => node.textContent);
+    expect(names).toEqual(["notes.txt", "src", "big.bin", "latest"]);
+    await act(async () => $$(".cloud-file-name")[0].click());
+    expect($(".cloud-file-preview")?.textContent).toBe("hello cloud\n");
+    expect(provider.calls.some((call) => call.op === CloudOps.fsRemove)).toBe(false);
+  });
+
+  test("a typed refusal of the proxied browser tab shows the localized message once", async () => {
+    const provider = new MockCloudProvider({ unsupported: [] });
+    provider.tabError = "cmux.browser.engine_unavailable";
+    await render(provider);
+    await act(async () => $$(".cloud-machine")[0].click());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => typeInto($(".cloud-forward-port") as HTMLInputElement, "3000"));
+    await act(async () => $(".cloud-forward-add")!.click());
+    await act(async () => $(".cloud-forward-browser")!.click());
+    expect($(".cloud-browser-refused")?.textContent).toBe(
+      "The browser cannot open this machine's page: it needs the Chromium engine with the machine's proxy. Nothing was opened.",
+    );
+    const tabCalls = provider.calls.filter(
+      (call) => call.op === ACTION_RUN && (call.params as { action: string }).action === "browser.tab.open",
+    );
+    expect(tabCalls.length).toBe(1);
+    expect((tabCalls[0].params as { args: { engine: string } }).args.engine).toBe("cef");
+    expect($(".cloud-error")).toBeNull();
+  });
+
+  test("without a team the publication form offers no team access", async () => {
+    const provider = new MockCloudProvider();
+    provider.account.team = "";
+    await render(provider);
+    await act(async () => $$(".cloud-machine")[0].click());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const access = $(".cloud-publication-access") as HTMLSelectElement;
+    expect(access.value).toBe("personal");
+    expect([...access.options].map((option) => option.value)).toEqual(["personal", "public"]);
   });
 });

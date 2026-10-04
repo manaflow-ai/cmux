@@ -72,7 +72,7 @@ fn native_code_is_first_party_only() {
     let third = manifest(json!({ "id": "octo/x", "repository": "https://github.com/octo/x",
         "server": { "kind": "native", "binaries": { "linux-x64": "x" }, "instances": "user", "hosts": ["local"] },
         "implements": { "cmux.pane/1": { "native": "x.view" } } }));
-    assert_eq!(codes(&third), vec!["tier.native", "tier.native"]);
+    assert_eq!(codes(&third), vec!["tier.native", "tier.native", "tier.nativeReview"]);
     let first = manifest(
         json!({ "id": "cmux/x", "repository": "https://github.com/manaflow-ai/cmux",
         "server": { "kind": "native", "binaries": { "linux-x64": "x" }, "instances": "user", "hosts": ["local"] },

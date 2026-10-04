@@ -17331,6 +17331,29 @@
       "title_table" : "HistoryActions"
     },
     {
+      "cli" : "focusMove",
+      "cli_name" : "action history-go-to",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "history.goTo",
+      "mcp" : "focusMove",
+      "palette" : "focusMove",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Go to Location",
+      "title_key" : "action.history.goTo",
+      "title_table" : "HistoryActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "history open",
       "context_menu" : "noObject",

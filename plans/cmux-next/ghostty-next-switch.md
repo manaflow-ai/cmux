@@ -269,6 +269,20 @@ pub trait HostLink: Send {
   the trait is proven by the existing tests before any app backend exists.
   The link to a remote cmux-tui becomes the first connector.
 
+Data plane (2026-10-04, from the SSH sample): bytes never move as op
+calls. Every channel (a terminal's output and input, a host SSH channel, a
+connector link) carries ordered `data {channel, offset, bytes}`, `credit
+{channel, direction, bytes}` and one final `end {channel, exit? | lost?}`
+frames. The receiver grants credit; the sender never sends past it (a
+violation ends the channel with `lost {reason: "credit"}`). Windows start at
+`window_bytes` from the open answer (64 KiB to 1 MiB, default 256 KiB). The
+session host grants a backend output credit only while viewers and the
+journal keep up, and a backend grants host-channel credit only from that, so
+a slow viewer stops the far end instead of growing a buffer. In Rust the
+`events()` stream and `write` above map onto these frames in the app host
+bridge. The session host picks the terminal id (`open {terminal, ...}`); a
+kind outside `options.kinds` fails with `denied`.
+
 ### 3.4 App-provided backends and connectors (manifest v2)
 
 - Ownership: the ghostty-next lead owns both interface schemas

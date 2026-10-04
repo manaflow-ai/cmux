@@ -143,6 +143,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var terminalFontSize: Double?
     /// `history.terminalCommands` (opt-in terminal command history).
     public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
+    /// `navigation.historyScope`: what Back and Forward walk (`workspace`, `window`, `surface`).
+    public var navigationHistoryScope: String = NavigationHistoryScopeSetting.fallback
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
     /// `feed.github`: this Mac's opt-in GitHub inbox connection.
@@ -253,6 +255,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (recordsCommands, commandsDiagnostic) = TerminalCommandHistorySetting.parse(root)
         snapshot.recordsTerminalCommands = recordsCommands
         if let commandsDiagnostic { snapshot.diagnostics.append(commandsDiagnostic) }
+        let (historyScope, historyScopeDiagnostic) = NavigationHistoryScopeSetting.parse(root)
+        snapshot.navigationHistoryScope = historyScope
+        if let historyScopeDiagnostic { snapshot.diagnostics.append(historyScopeDiagnostic) }
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.feedGitHub = FeedGitHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
         let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)

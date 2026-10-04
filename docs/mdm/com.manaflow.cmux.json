@@ -205,6 +205,18 @@
       "title" : "Browser Toolbar Opacity",
       "type" : "number"
     },
+    "appearance.surfaces.diff.color" : {
+      "description" : "appearance.surfaces.diff.color",
+      "title" : "Diff Viewer Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.diff.opacity" : {
+      "description" : "appearance.surfaces.diff.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Diff Viewer Opacity",
+      "type" : "number"
+    },
     "appearance.surfaces.docks.color" : {
       "description" : "appearance.surfaces.docks.color",
       "title" : "Docked Columns Color",
@@ -637,6 +649,17 @@
     "MinimumVersion" : {
       "description" : "Oldest cmux version allowed to sign in, for example 1.2.0.",
       "title" : "MinimumVersion",
+      "type" : "string"
+    },
+    "navigation.historyScope" : {
+      "default" : "workspace",
+      "description" : "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history.",
+      "enum" : [
+        "workspace",
+        "window",
+        "surface"
+      ],
+      "title" : "Back and Forward",
       "type" : "string"
     },
     "newTerminal.opensWorkspace" : {

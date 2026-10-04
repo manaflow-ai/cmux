@@ -41,6 +41,12 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
     /// The workspace store's keep-layout record of a dead kept tab
     /// (`end-terminals-keep-layout-v1`).
     public var relaunch: TabRelaunch?
+    /// Whether the terminal's shell runs (R41); nil for browsers and older daemons.
+    public var terminalState: TerminalTabState?
+    /// How a dead terminal ended (R41); nil while it runs and on older daemons.
+    public var end: TerminalTabEnd?
+    /// The record version of an unadoptable host (`terminalState == .unadoptable`).
+    public var hostRecordVersion: Int?
 
     public init(
         surface: SurfaceID,
@@ -102,7 +108,9 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case surface, kind, name, title, size, dead, notification, url, pinned, cwd, remote, relaunch, conversation
+        case surface, kind, name, title, size, dead, notification, url, pinned, cwd, remote, relaunch, conversation, end
+        case terminalState = "terminal_state"
+        case hostRecordVersion = "host_record_version"
         case tabResourceID = "tab_resource_id"
         case contentResourceID = "content_resource_id"
         case terminalID = "terminal_id"
@@ -154,5 +162,9 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         remote = kind == .remoteTerminal ? try? c.decodeIfPresent(RemoteTerminalRef.self, forKey: .remote) : nil
         relaunch = try c.decodeIfPresent(TabRelaunch.self, forKey: .relaunch)
         conversation = kind == .conversation ? try? c.decodeIfPresent(ConversationTabRef.self, forKey: .conversation) : nil
+        // Unknown future states and ends must not fail the whole tree decode.
+        terminalState = try? c.decodeIfPresent(TerminalTabState.self, forKey: .terminalState)
+        end = try? c.decodeIfPresent(TerminalTabEnd.self, forKey: .end)
+        hostRecordVersion = try c.decodeIfPresent(Int.self, forKey: .hostRecordVersion)
     }
 }
