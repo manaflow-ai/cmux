@@ -35,7 +35,7 @@ struct BrowserReplSessionLifecycleTests {
     ) -> BrowserReplSession {
         BrowserReplSession(
             id: "lifecycle-\(UUID().uuidString)",
-            cwd: FileManager.default.temporaryDirectory.path,
+            cwd: browserReplTestWorkingDirectory,
             bundle: bundle ?? BrowserReplRuntimeBundle(
                 replScripts: [.init(name: "lifecycle.js", source: lifecycleRuntime)],
                 agentScripts: []
@@ -331,7 +331,7 @@ struct BrowserReplSessionWatchdogTests {
     ) throws -> BrowserReplSession {
         BrowserReplSession(
             id: "watchdog-\(UUID().uuidString)",
-            cwd: FileManager.default.temporaryDirectory.path,
+            cwd: browserReplTestWorkingDirectory,
             bundle: try browserReplRepositoryBundle(),
             driver: RecordingReplDriver(),
             sleeper: sleeper,

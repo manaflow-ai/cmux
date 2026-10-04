@@ -11,7 +11,7 @@ struct BrowserReplSessionRegistryTests {
     private func makeSession(_ name: String) -> BrowserReplSession {
         BrowserReplSession(
             id: name,
-            cwd: FileManager.default.temporaryDirectory.path,
+            cwd: browserReplTestWorkingDirectory,
             bundle: BrowserReplRuntimeBundle(replScripts: [], agentScripts: []),
             driver: RecordingReplDriver()
         )

@@ -12,7 +12,7 @@ struct BrowserReplSecretRedactionTests {
     /// RFC 6238's test key, base32.
     private static let totpSeed = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
 
-    private func makeSession(_ driver: any BrowserReplDriver, cwd: String = FileManager.default.temporaryDirectory.path) -> BrowserReplSession? {
+    private func makeSession(_ driver: any BrowserReplDriver, cwd: String = browserReplTestWorkingDirectory) -> BrowserReplSession? {
         guard let bundle = try? browserReplRepositoryBundle() else { return nil }
         return BrowserReplSession(id: "redaction-\(UUID().uuidString)", cwd: cwd, bundle: bundle, driver: driver)
     }

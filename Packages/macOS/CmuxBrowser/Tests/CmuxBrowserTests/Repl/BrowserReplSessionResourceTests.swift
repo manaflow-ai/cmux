@@ -160,7 +160,7 @@ struct BrowserReplSessionResourceTests {
     private func makeSession(_ driver: any BrowserReplDriver) -> BrowserReplSession {
         BrowserReplSession(
             id: "resources-\(UUID().uuidString)",
-            cwd: FileManager.default.temporaryDirectory.path,
+            cwd: browserReplTestWorkingDirectory,
             bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "resources.js", source: resourceRuntime)], agentScripts: []),
             driver: driver
         )
@@ -175,7 +175,7 @@ struct BrowserReplSessionResourceTests {
         let cap = 100
         let session = BrowserReplSession(
             id: "timers-\(UUID().uuidString)",
-            cwd: FileManager.default.temporaryDirectory.path,
+            cwd: browserReplTestWorkingDirectory,
             bundle: try browserReplRepositoryBundle(),
             driver: HeldCookiesDriver(),
             maxPendingTimers: cap
@@ -290,7 +290,7 @@ struct BrowserReplSessionResourceTests {
         """#
         let session = BrowserReplSession(
             id: "events-\(UUID().uuidString)",
-            cwd: FileManager.default.temporaryDirectory.path,
+            cwd: browserReplTestWorkingDirectory,
             bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "events.js", source: runtime)], agentScripts: []),
             driver: driver
         )
