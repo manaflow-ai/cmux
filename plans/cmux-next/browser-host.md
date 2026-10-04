@@ -199,6 +199,20 @@ Gate for shipping the host in NIGHTLY (the in-app runtime is not ported): `gate.
 
 Order change (binding surfaces above): the REPL session ops (`browser.repl.open/eval/close/list/reset`) and their three surfaces move forward. Step b lands them on the host listener together with the VM, and the CLI and MCP clients for them land right after b (CLI through session feat-cmux-next-99, MCP through the `cmux mcp` owner), before c. The discrete ops follow in e.
 
+### 6c. Step c slices (browser lead, 2026-10-04)
+
+State at 109d9c613f8: the host has the frame codec, `accept` and `ProviderDriver` (provider.rs, provider_link.rs), but `server.rs` binds only the agent listener, `engines.rs` answers `cef` and `webkit` with `engine_unavailable`, the daemon does not start the host, and the app has no bridge. The shim relay pieces exist (`cmux_shim_devtools_send`, `CEFShimEvent.devToolsMessage`, raw ids from 2^30).
+
+Threat that sets the secret path: a same-uid process (an agent in a terminal) must not be able to pose as the app, because the app's `tab.access` carries the person's per-tab override. Peer uid alone does not stop it, and a secret in a file, an argv or an environment variable is readable by the same uid. So the daemon mints the secret, passes it to the host on an inherited pipe (never argv or env), and gives it to the app only over the app's own daemon connection (app origin).
+
+| Slice | Content | Where | Gate |
+| --- | --- | --- | --- |
+| c1 | Host: provider listener (`browser-host-provider.sock` in the same 0700 dir, peer uid check, `accept`, one provider per `install_id`); secret read from an inherited fd (`--provider-secret-fd N`); engine routing: `webkit` tabs through `ProviderDriver` calls, `cef` tabs through `CdpDriver` on a relay transport (`cdp.attach`/`cdp`/`cdp.detach` frames on the provider connection) with the `tab.access` gate at that transport; `tab.gone` and provider disconnect fail pending calls `closed` | cmux-browser-host (crate slot) | hosted focused + a fake-provider integration test |
+| c2 | Daemon: start and supervise the host (`Backoff`), mint the secret, pass the fd, app-origin op `browser.host.provider` -> `{socket, secret}`; refused for every other origin | cmux-tui (window) | hosted focused; origin refusal test |
+| c3 | App: `CmuxNextBrowserHost` bridge: fetch `browser.host.provider` on daemon connect, dial, `hello` with every tab (`TabAnnounce`), `tab.announced`/`tab.navigated`/`tab.gone` events, WebKit `call` -> `WebKitDriver`, CEF `cdp.attach` -> raw relay via the shim, `tab.access` (`extension_host_access = !AgentExtensionAccess.fromDisk.blockers(store.extensions, url: tab.state.url).isEmpty`, `user_override = TabContentCache.agentMayUseExtensionTab(key)`, resent on URL change and extension store change), lease badge, `user.input`, `markAgentDriven` + password fill off on lease; reconnect after a host restart | CmuxNext (Swift) | module tests with a fake host; live check on cmux-lawrence-2: an agent opens, navigates, snapshots, clicks and types in a visible CEF tab through `browser.repl.eval` |
+
+Order: c1 and c3 in parallel (c3 against a fake host), then c2, then the live check. relay-ext (the `tab.access` rule) lands before c1.
+
 ## 7. Prototype switches (DEV and NIGHTLY)
 
 - `CMUX_BROWSER_SNAPSHOT_CORE=js|rust`: snapshot.js in the VM versus the Rust port; both must print byte-identical goldens.
