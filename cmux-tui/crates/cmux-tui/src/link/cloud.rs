@@ -19,6 +19,7 @@ use cmux_link::dial::{
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use super::dial::{DIAL_TIMEOUT, Overlay, reply};
+use super::locked;
 
 /// Where connect_info and link tokens come from: the host credential relay
 /// in the product, a fake in tests.
@@ -84,15 +85,14 @@ impl<S: ConnectInfoSource> CloudResolver<S> {
         host: &str,
         refresh: bool,
     ) -> Result<Resolved, ConnectInfoError> {
-        let cached = (!refresh)
-            .then(|| self.cache.lock().unwrap().get(host, Instant::now()).cloned())
-            .flatten();
+        let cached =
+            (!refresh).then(|| locked(&self.cache).get(host, Instant::now()).cloned()).flatten();
         let info = match cached {
             Some(info) => info,
             None => {
                 let fetched = within(self.source.fetch(host)).await?;
                 // Only a real fetch refreshes the entry (the 300 s limit).
-                self.cache.lock().unwrap().insert(fetched, Instant::now())
+                locked(&self.cache).insert(fetched, Instant::now())
             }
         };
         let key = info.validate(host).map_err(ConnectInfoError::Invalid)?;
@@ -114,12 +114,12 @@ impl<S: ConnectInfoSource> CloudResolver<S> {
 
     /// `cloud.machine.removed`: drop the record at once.
     pub(super) fn forget(&self, host: &str) -> bool {
-        self.cache.lock().unwrap().remove(host)
+        locked(&self.cache).remove(host)
     }
 
     /// `cloud.machine.upsert` with `revision`: drop an older record.
     pub(super) fn observe_revision(&self, host: &str, revision: u64) -> bool {
-        self.cache.lock().unwrap().observe_revision(host, revision)
+        locked(&self.cache).observe_revision(host, revision)
     }
 }
 

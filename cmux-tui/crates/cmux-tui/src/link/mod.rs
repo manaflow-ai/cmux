@@ -45,6 +45,13 @@ use self::mesh::MeshOverlay;
 use self::state::{LINK_MTU, LinkConfig, LinkState};
 use crate::localization::catalog;
 
+/// The data behind `mutex`, also after a panic in another holder. The link's
+/// maps (peers, Cloud records, gateways) are consistent after every single
+/// step, so a poisoned lock is safe to keep using; the link never panics on it.
+fn locked<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// Start the session daemon's remote entry next to `session_socket` when
 /// `enabled` (`--link-entry`): only the link may connect, and every frame is
 /// denied until lane 10's conversation gate replaces [`DenyAllGate`].
