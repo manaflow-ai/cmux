@@ -12,8 +12,9 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
@@ -31,13 +32,22 @@ pub enum RpcError {
     Remote { code: Option<i64>, message: String },
     /// The connection is gone; nothing was or will be answered.
     Closed,
+    /// No answer within the deadline (a later answer is dropped).
+    Timeout(Duration),
 }
+
+/// How long a control request (everything but a prompt) may take. acpmux's
+/// `session/new` spawns and initializes the harness with no deadline of its
+/// own, so a harness that never answers would otherwise hang the caller,
+/// and with it the turn and every message after it.
+pub const CONTROL_DEADLINE: Duration = Duration::from_secs(60);
 
 impl std::fmt::Display for RpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RpcError::Remote { message, .. } => f.write_str(message),
             RpcError::Closed => f.write_str("connection closed"),
+            RpcError::Timeout(d) => write!(f, "no answer within {} s", d.as_secs()),
         }
     }
 }
@@ -112,15 +122,20 @@ impl RpcClient {
             .shutdown(std::net::Shutdown::Both);
     }
 
-    /// Sends a request; the receiver gets its one answer.
+    /// Sends a request; the receiver gets its one answer. No deadline: for
+    /// prompts, whose answer comes when the turn ends.
     pub fn start(&self, method: &str, params: Value) -> Receiver<Result<Value, RpcError>> {
+        self.send(method, params).1
+    }
+
+    fn send(&self, method: &str, params: Value) -> (u64, Receiver<Result<Value, RpcError>>) {
         let (tx, rx) = channel();
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         {
             let mut waiters = self.waiters.lock().expect("waiters");
             let Some(map) = waiters.as_mut() else {
                 let _ = tx.send(Err(RpcError::Closed));
-                return rx;
+                return (id, rx);
             };
             map.insert(id, tx.clone());
         }
@@ -139,14 +154,32 @@ impl RpcClient {
         {
             let _ = tx.send(Err(RpcError::Closed));
         }
-        rx
+        (id, rx)
     }
 
-    /// Sends a request and waits for its answer.
+    /// Sends a control request and waits for its answer, at most `CONTROL_DEADLINE`.
     pub fn request(&self, method: &str, params: Value) -> Result<Value, RpcError> {
-        self.start(method, params)
-            .recv()
-            .unwrap_or(Err(RpcError::Closed))
+        self.request_within(method, params, CONTROL_DEADLINE)
+    }
+
+    /// Sends a request and waits for its answer, at most `deadline`.
+    pub fn request_within(
+        &self,
+        method: &str,
+        params: Value,
+        deadline: Duration,
+    ) -> Result<Value, RpcError> {
+        let (id, rx) = self.send(method, params);
+        match rx.recv_timeout(deadline) {
+            Ok(answer) => answer,
+            Err(RecvTimeoutError::Disconnected) => Err(RpcError::Closed),
+            Err(RecvTimeoutError::Timeout) => {
+                if let Some(map) = self.waiters.lock().expect("waiters").as_mut() {
+                    map.remove(&id);
+                }
+                Err(RpcError::Timeout(deadline))
+            }
+        }
     }
 }
 
@@ -246,5 +279,29 @@ mod tests {
             }
         }
         assert_eq!(client.request("x", json!(1)), Err(RpcError::Closed));
+    }
+
+    /// Audit round 2: a server that never answers (a harness that never
+    /// initializes) must not hang the caller forever.
+    #[test]
+    fn a_request_without_an_answer_times_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            for line in BufReader::new(stream).lines() {
+                if line.is_err() {
+                    return;
+                }
+            }
+        });
+        let client = RpcClient::connect(&path, |_| {}).unwrap();
+        let deadline = Duration::from_millis(200);
+        assert_eq!(
+            client.request_within("session/new", json!({}), deadline),
+            Err(RpcError::Timeout(deadline))
+        );
+        client.close();
     }
 }

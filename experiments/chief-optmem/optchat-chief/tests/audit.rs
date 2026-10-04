@@ -269,6 +269,7 @@ fn crashed_while_logging(logged: bool) -> Harness {
                 session: "optchat-0".into(),
                 first_id: Some(0),
                 seqs: vec![Some(1)],
+                ..Default::default()
             }),
             ..Default::default()
         })

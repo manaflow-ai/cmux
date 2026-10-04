@@ -3,39 +3,42 @@
 //! queue of new messages and runs the turn loop of section 7:
 //!
 //! ```text
-//! on message: queue.push(text); if idle: turn()
+//! on message: if a call is running: deliver it between tool calls
+//!             else: queue.push(text); if idle: turn()
 //! turn: settle (worker) -> take the queue -> render the view -> log the
-//!       messages as `user` -> fresh session (worker) -> post the reply
+//!       messages as `user` -> fresh call (worker) -> post the reply
 //! ```
 //!
-//! Messages that arrive while a turn runs wait in the queue for the next
-//! turn: acpmux can steer a running session only when its agent reports
-//! steering support, and the Claude Code harness (claude-sr) reports none,
-//! so "delivered between tool calls" (section 7) is not available here.
-//! MASTER still says so, verbatim; the README lists this deviation. There is
-//! no user cancel either (the brain-host contract has no cancel action); a
-//! turn that hangs is stopped by `Settings::turn_limit`.
+//! Delivery between tool calls depends on the engine. The native engine
+//! (`Engine::Native`, the host's own Messages API loop) asks the brain for
+//! queued messages at every tool boundary, so MASTER's "messages the user
+//! sends while you work reach you between tool calls" holds. The acpmux
+//! engine cannot: claude-sr reports no steering. There a human message
+//! stops the running turn (`session/cancel`; its steps are already in the
+//! log) and the next fresh turn takes the message with the view of
+//! everything the stopped turn did. A turn that hangs is stopped by
+//! `Settings::turn_limit`.
 
 mod children;
 mod inbox;
 mod outbox;
+mod recover;
+mod turns;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 use cmux_chief::acp::SessionSummary;
 use cmux_conversation::{Op, Part, Summary};
-use optchat_core::Kind;
 use optchat_host::OptChat;
 
-use crate::acpmux::{AgentEvent, AgentPort, SessionSpec};
+use crate::acpmux::{AgentEvent, AgentPort};
 use crate::daemon::{ConversationPort, DaemonEvent};
-use crate::prompt::turn_blocks;
-use crate::state::{ChildStatus, HostState, OutboxEntry, PendingTurn, StateFile};
-use crate::turn::{self, TurnOutcome, TurnStart};
+use crate::state::{HostState, OutboxEntry, StateFile};
+use crate::turn::{TurnOutcome, TurnStart};
 
 /// Everything the brain reacts to.
 pub enum Input {
@@ -48,6 +51,18 @@ pub enum Input {
     /// A turn worker has waited for the compactor for a while and a node keeps
     /// failing: what to tell the conversation (once per wait).
     Stalled(String),
+    /// An acpmux turn's session and how far its events are folded.
+    TurnProgress {
+        key: String,
+        session_id: String,
+        after: u64,
+    },
+    /// A native turn is between tool calls: the brain logs what is queued
+    /// and answers with the texts to deliver (section 7).
+    Boundary {
+        key: String,
+        reply: Sender<Vec<String>>,
+    },
     TurnEnded {
         key: String,
         outcome: TurnOutcome,
@@ -63,6 +78,24 @@ impl From<DaemonEvent> for Input {
 impl From<AgentEvent> for Input {
     fn from(event: AgentEvent) -> Input {
         Input::Agents(Box::new(event))
+    }
+}
+
+/// What runs a turn.
+#[derive(Clone)]
+pub enum Engine {
+    /// A fresh acpmux session per turn (claude-sr, codex, ...).
+    Acpmux,
+    /// The host's own Messages API loop (sections 7 and 8 in full).
+    Native(Arc<crate::native::Native>),
+}
+
+impl std::fmt::Debug for Engine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Engine::Acpmux => f.write_str("Acpmux"),
+            Engine::Native(_) => f.write_str("Native"),
+        }
     }
 }
 
@@ -82,6 +115,7 @@ pub struct Settings {
     pub agent_gap: Duration,
     /// Longest a turn may run (None: no limit).
     pub turn_limit: Option<Duration>,
+    pub engine: Engine,
 }
 
 /// How long a turn waits for the compactor before it tells the conversation
@@ -128,6 +162,9 @@ enum Phase {
 
 pub type Log = Arc<dyn Fn(&str) + Send + Sync>;
 
+/// Runs after every turn with its key (persist and back up, section 10).
+pub type TurnHook = Arc<dyn Fn(&str) + Send + Sync>;
+
 pub struct Brain {
     chat: Arc<OptChat>,
     agents: Arc<dyn AgentPort>,
@@ -147,10 +184,16 @@ pub struct Brain {
     phase: Phase,
     agents_up: bool,
     sessions: HashMap<String, SessionSummary>,
-    /// Turn sessions left by a host that stopped mid-turn, removed once acpmux is up.
+    /// Turn sessions left by a host that stopped mid-turn before it knew
+    /// their id, removed by name once acpmux is up.
     stale_sessions: Vec<String>,
     outbox_timer: Option<Instant>,
     fatal: Option<String>,
+    /// A human message arrived while an acpmux turn ran: stop that turn.
+    stop_wanted: bool,
+    /// The stop was sent to acpmux.
+    stop_sent: bool,
+    after_turn: Option<TurnHook>,
 }
 
 impl Brain {
@@ -163,43 +206,8 @@ impl Brain {
         log: Log,
     ) -> Brain {
         let mut state = file.load();
-        let mut stale_sessions = Vec::new();
-        if let Some(turn) = state.turn.take() {
-            // The host stopped during this turn. How many of its messages
-            // reached the log: all of them once the key is set; while it was
-            // still logging, the log's length tells (a crash between the
-            // append and the save must not log a message twice).
-            let logged = match turn.first_id {
-                _ if !turn.key.is_empty() => turn.seqs.len().max(1),
-                Some(first) => {
-                    let n = chat.status().messages.saturating_sub(first) as usize;
-                    n.min(turn.seqs.len())
-                }
-                None => turn.seqs.len().max(1),
-            };
-            if let Some(seq) = turn.seqs[..logged.min(turn.seqs.len())]
-                .iter()
-                .flatten()
-                .max()
-            {
-                state.logged_seq = state.logged_seq.max(*seq);
-            }
-            let key = if !turn.key.is_empty() {
-                Some(turn.key.clone())
-            } else if logged > 0 {
-                turn.first_id.map(|first| reply_key(&chat, first))
-            } else {
-                None
-            };
-            // Messages in the log stay there, unanswered (section 7); the
-            // conversation hears why, once. Messages that never reached it
-            // are caught up again from the cursor and answered normally.
-            if let (Some(conversation), Some(key)) = (turn.conversation, key) {
-                let text = "(interrupted: the Chief stopped during this turn. Your message is in its memory; send it again for an answer.)";
-                state.outbox.push(reply_entry(conversation, &key, text));
-            }
-            stale_sessions.push(turn.session);
-        }
+        let acpmux = matches!(settings.engine, Engine::Acpmux);
+        let stale_sessions = recover::recover(&chat, &mut state, acpmux);
         let handled = state.logged_seq;
         let brain = Brain {
             chat,
@@ -221,9 +229,18 @@ impl Brain {
             stale_sessions,
             outbox_timer: None,
             fatal: None,
+            stop_wanted: false,
+            stop_sent: false,
+            after_turn: None,
         };
         brain.save();
         brain
+    }
+
+    /// Runs `hook` after every turn (the host snapshots the memory there).
+    pub fn on_turn_end(mut self, hook: TurnHook) -> Brain {
+        self.after_turn = Some(hook);
+        self
     }
 
     pub fn state(&self) -> &HostState {
@@ -273,10 +290,7 @@ impl Brain {
             Input::Daemon(event) => self.on_daemon(*event),
             Input::Agents(event) => self.on_agents(*event),
             Input::Settled(reply) => {
-                let start = self.take_turn();
-                if start.is_none() && self.phase == Phase::Settling {
-                    self.phase = Phase::Idle;
-                }
+                let start = self.settled();
                 let _ = reply.send(start);
             }
             Input::SettleFailed => {
@@ -287,8 +301,24 @@ impl Brain {
                 }
             }
             Input::Stalled(text) => self.stalled(&text),
+            Input::TurnProgress {
+                key,
+                session_id,
+                after,
+            } => self.progress(&key, session_id, after),
+            Input::Boundary { key, reply } => {
+                let texts = self.boundary(&key);
+                let _ = reply.send(texts);
+            }
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, outcome),
         }
+    }
+
+    /// Whether a turn can start now: the memory writes, and the engine's
+    /// owner is connected (the native engine needs no acpmux).
+    fn ready(&self) -> bool {
+        self.fatal.is_none()
+            && (self.agents_up || matches!(self.settings.engine, Engine::Native(_)))
     }
 
     /// Tells the conversation, once per wait, that its message waits on a
@@ -325,194 +355,11 @@ impl Brain {
     }
 
     fn queue(&mut self, text: String, source: Source) {
+        let human = matches!(source, Source::Message { .. });
         self.queue.push_back(Queued { text, source });
-        self.maybe_start_turn();
-    }
-
-    /// Starts a turn worker when idle with something queued.
-    fn maybe_start_turn(&mut self) {
-        if self.phase != Phase::Idle
-            || self.queue.is_empty()
-            || !self.agents_up
-            || self.fatal.is_some()
-        {
-            return;
+        if human {
+            self.stop_for_newer();
         }
-        self.phase = Phase::Settling;
-        let (chat, agents, tx, log) = (
-            self.chat.clone(),
-            self.agents.clone(),
-            self.tx.clone(),
-            self.log.clone(),
-        );
-        let spawned = std::thread::Builder::new()
-            .name("turn".into())
-            .spawn(move || {
-                // Section 6: no turn starts before every view line is a summary.
-                // The wait has no deadline; a line each minute says what it
-                // waits on, and the first one with a failing node also goes to
-                // the conversation, so the user is not left without a word.
-                let mut told = false;
-                while !chat.settle(None, Some(STALL_NOTICE)) {
-                    let status = chat.status();
-                    if status.closed || status.fatal.is_some() {
-                        let _ = tx.send(Input::SettleFailed);
-                        return;
-                    }
-                    let failing: Vec<String> = status
-                        .failures
-                        .iter()
-                        .map(|f| format!("{}: {}", f.node.name(), f.error))
-                        .collect();
-                    log(&format!(
-                        "turn waits for the compactor: {} view lines unbuilt; failing: {}",
-                        status.unbuilt,
-                        if failing.is_empty() {
-                            "none".to_owned()
-                        } else {
-                            failing.join("; ")
-                        }
-                    ));
-                    if !told && let Some(first) = status.failures.first() {
-                        told = true;
-                        let _ = tx.send(Input::Stalled(format!(
-                            "(waiting: the Chief's memory cannot summarize line {} yet, so your message waits. First error: {}. It is retried every 10 s.)",
-                            first.node.name(),
-                            first.error
-                        )));
-                    }
-                }
-                let (reply, start) = channel();
-                if tx.send(Input::Settled(reply)).is_err() {
-                    return;
-                }
-                let Ok(Some(start)) = start.recv() else {
-                    return;
-                };
-                let outcome = turn::run(&*agents, &chat, &start, &*log);
-                let _ = tx.send(Input::TurnEnded {
-                    key: start.key,
-                    outcome,
-                });
-            });
-        if let Err(e) = spawned {
-            (self.log)(&format!("starting a turn failed: {e}"));
-            self.phase = Phase::Idle;
-        }
-    }
-
-    /// Section 7 after `settle`: take every queued message, render the view
-    /// BEFORE logging them, then log each as `user`.
-    fn take_turn(&mut self) -> Option<TurnStart> {
-        if self.queue.is_empty() {
-            return None;
-        }
-        let items: Vec<Queued> = self.queue.drain(..).collect();
-        let view = self.chat.render_view();
-        // Saved before the first append: a crash between an append and the
-        // next save must not log a message twice at restart (Brain::new).
-        let first_id = self.chat.status().messages;
-        self.state.turn = Some(PendingTurn {
-            key: String::new(),
-            conversation: self.state.conversation.clone(),
-            session: format!("optchat-{first_id}"),
-            first_id: Some(first_id),
-            seqs: items
-                .iter()
-                .map(|i| match i.source {
-                    Source::Message { seq } => Some(seq),
-                    _ => None,
-                })
-                .collect(),
-        });
-        self.save();
-        let mut first = None;
-        for item in &items {
-            match self.chat.append(Kind::User, &item.text) {
-                Ok(id) => {
-                    first.get_or_insert(id);
-                }
-                Err(e) => {
-                    // Nothing is posted for a turn whose messages could not be
-                    // logged; the conversation's cursor stays before them.
-                    (self.log)(&format!("logging a message failed: {e}"));
-                    self.fatal = Some(format!("the memory stopped writing: {e}"));
-                    self.phase = Phase::Idle;
-                    return None;
-                }
-            }
-        }
-        let first = first.expect("a non-empty queue logs a message");
-        for item in &items {
-            if let Source::Child { session_id, floor } = &item.source
-                && let Some(record) = self.state.children.get_mut(session_id)
-            {
-                record.status = ChildStatus::Reported;
-                record.floor = *floor;
-            }
-        }
-        // The queue is empty now, so every handled seq is logged or needed no log.
-        self.state.logged_seq = self.handled;
-        let key = reply_key(&self.chat, first);
-        let name = format!("optchat-{first}");
-        if let Some(turn) = self.state.turn.as_mut() {
-            turn.key = key.clone();
-            turn.session = name.clone();
-        }
-        self.save();
-        self.set_cursor(self.handled);
-        self.set_typing(true);
-        self.phase = Phase::Running;
-        let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
-        Some(TurnStart {
-            prompt_id: format!("optchat:{first}"),
-            session: SessionSpec {
-                name,
-                cwd: self.settings.session_dir.clone(),
-                harness: self.settings.harness.clone(),
-                policy: self.settings.policy.clone(),
-                model: self.settings.model.clone(),
-            },
-            blocks: turn_blocks(&view.text, &texts),
-            key,
-            limit: self.settings.turn_limit,
-        })
-    }
-
-    fn turn_ended(&mut self, key: &str, outcome: TurnOutcome) {
-        let conversation = self
-            .state
-            .turn
-            .as_ref()
-            .filter(|t| t.key == key)
-            .and_then(|t| t.conversation.clone());
-        // A turn that failed after it said something posts both: its last
-        // words alone (often "Let me check.") would read as the answer.
-        let text = match (outcome.reply, outcome.error) {
-            (Some(reply), Some(error)) => format!("{reply}\n\n(turn failed: {error})"),
-            (Some(reply), None) => reply,
-            (None, Some(error)) => format!("(turn failed: {error})"),
-            (None, None) => String::new(),
-        };
-        if let Some(orphan) = outcome.orphan {
-            self.state.orphans.push(orphan);
-        }
-        match conversation {
-            Some(conversation) if !text.is_empty() => {
-                self.state
-                    .outbox
-                    .push(reply_entry(conversation, key, &text));
-            }
-            Some(_) => {}
-            None => (self.log)(&format!(
-                "turn {key} ended with no conversation to answer in"
-            )),
-        }
-        self.state.turn = None;
-        self.save();
-        self.flush_outbox();
-        self.set_typing(false);
-        self.phase = Phase::Idle;
         self.maybe_start_turn();
     }
 }

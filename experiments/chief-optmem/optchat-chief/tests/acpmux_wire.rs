@@ -175,7 +175,7 @@ fn a_turn_over_the_acpmux_wire() {
         blocks: turn_blocks("<chat>\n</chat>", &["what is x?".into()]),
         limit: None,
     };
-    let outcome = turn::run(&*acpmux, &chat, &start, &|_| {});
+    let outcome = turn::run(&*acpmux, &chat, &start, &|_| {}, &|_, _| {});
     assert_eq!(outcome.reply.as_deref(), Some("x is 1."));
     assert_eq!(outcome.error, None);
     let log: Vec<(String, String)> = (0..chat.status().messages)

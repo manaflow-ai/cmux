@@ -123,7 +123,8 @@ impl Brain {
 
     /// Turn sessions whose connection was lost: fold what they did since into
     /// the log, then remove them. One that cannot be read stays for the next
-    /// connect.
+    /// connect, unless acpmux no longer knows it (a daemon restart purged it):
+    /// then nothing more can be read and it is dropped.
     fn adopt_orphans(&mut self) {
         if self.state.orphans.is_empty() {
             return;
@@ -132,6 +133,10 @@ impl Brain {
         for orphan in orphans {
             match crate::turn::adopt_orphan(&*self.agents, &self.chat, &orphan, &*self.log) {
                 Ok(()) => (self.log)(&format!("folded orphan turn session {}", orphan.session)),
+                Err(e) if e.contains("no session matches") => (self.log)(&format!(
+                    "orphan turn session {} is gone from acpmux; dropped ({e})",
+                    orphan.session
+                )),
                 Err(e) => {
                     (self.log)(&format!("orphan turn session {}: {e}", orphan.session));
                     self.state.orphans.push(orphan);
@@ -222,8 +227,7 @@ impl Brain {
         );
         let (text, next_floor) = match self.agents.events(id, floor) {
             Ok(events) => {
-                let top = events.iter().map(|e| e.seq).max().unwrap_or(floor);
-                let mut replies = ended_replies(&events);
+                let (mut replies, last_end) = ended_replies(&events);
                 if replies.is_empty() {
                     replies.push("(no reply text)".to_owned());
                 }
@@ -232,7 +236,10 @@ impl Brain {
                     .map(|r| format!("[{}] {r}", session.name))
                     .collect::<Vec<_>>()
                     .join("\n\n");
-                (text, session.last_seq.unwrap_or(top).max(top))
+                // The floor is the last folded turn end, not the session's
+                // last seq: that can already be inside the next turn, whose
+                // `turn_started` the next fold would then never see.
+                (text, last_end.unwrap_or(floor))
             }
             Err(e) if queued.is_some() => {
                 // Keep what is queued; the next turn end reads it again.
@@ -262,21 +269,29 @@ impl Brain {
     }
 }
 
-/// The final reply of every turn that ended in `events`, oldest first.
-fn ended_replies(events: &[AcpmuxEvent]) -> Vec<String> {
+/// The final reply of every turn that ended in `events`, oldest first (a
+/// failed turn's error included), and the seq of the last turn end.
+fn ended_replies(events: &[AcpmuxEvent]) -> (Vec<String>, Option<u64>) {
     let mut folder = TurnFolder::default();
     let mut replies = Vec::new();
+    let mut last_end = None;
     for event in events {
         for output in folder.apply(event) {
-            if let TurnOutput::Ended { turn, .. } = output {
+            if let TurnOutput::Ended { turn, seq, error } = output {
+                last_end = Some(seq);
                 let text = turn.text.trim();
-                if !text.is_empty() {
-                    replies.push(text.to_owned());
+                let reply = match error {
+                    Some(error) if text.is_empty() => format!("(turn failed: {error})"),
+                    Some(error) => format!("{text}\n\n(turn failed: {error})"),
+                    None => text.to_owned(),
+                };
+                if !reply.is_empty() {
+                    replies.push(reply);
                 }
             }
         }
     }
-    replies
+    (replies, last_end)
 }
 
 /// A child's permission request as a message to the Chief.

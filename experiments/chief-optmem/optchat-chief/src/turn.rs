@@ -11,7 +11,7 @@ use optchat_host::OptChat;
 use serde_json::Value;
 
 use crate::acpmux::{AgentPort, SessionSpec, TurnSignal};
-use crate::fold::{Entry, TurnFold, Usage};
+use crate::fold::{Entry, TurnFold, Usage, is_cancelled, stop_error};
 
 /// Everything a turn needs, decided by the brain.
 #[derive(Clone, Debug, PartialEq)]
@@ -45,16 +45,23 @@ pub struct TurnOutcome {
     pub reply: Option<String>,
     pub error: Option<String>,
     pub orphan: Option<Orphan>,
+    /// The turn ended with stop reason `cancelled` (stopped for a newer message).
+    pub cancelled: bool,
 }
 
 /// Runs the turn to its end; never panics on a port failure (it becomes the
-/// outcome's error, and the brain posts it).
+/// outcome's error, and the brain posts it). `progress` hears the session id
+/// once it exists and the fold position after each fetch that moved it.
 pub fn run(
     agents: &dyn AgentPort,
     chat: &OptChat,
     start: &TurnStart,
     log: &dyn Fn(&str),
+    progress: &dyn Fn(&str, u64),
 ) -> TurnOutcome {
+    // The limit covers the session's start too: a harness that never
+    // initializes must not hold the turn (and every later message) forever.
+    let deadline = start.limit.map(|limit| Instant::now() + limit);
     let mut fold = TurnFold::new();
     let append = |entries: Vec<Entry>| {
         for entry in entries {
@@ -79,6 +86,7 @@ pub fn run(
             };
         }
     };
+    progress(&session, 0);
     let (tx, rx) = channel();
     if let Err(e) = agents.start_prompt(&session, start.blocks.clone(), &start.prompt_id, tx) {
         let _ = agents.end_session(&session);
@@ -88,12 +96,15 @@ pub fn run(
         };
     }
     let fetch = |fold: &mut TurnFold| -> Result<(), String> {
+        let before = fold.seq();
         for event in agents.events(&session, fold.seq())? {
             append(fold.apply(&event));
         }
+        if fold.seq() != before {
+            progress(&session, fold.seq());
+        }
         Ok(())
     };
-    let deadline = start.limit.map(|limit| Instant::now() + limit);
     let mut orphan = None;
     let mut totals = None;
     loop {
@@ -146,8 +157,14 @@ pub fn run(
                     .ok()
                     .and_then(|v| v.pointer("/_meta/claude/usage"))
                     .and_then(Usage::parse);
+                let stopped = answer
+                    .as_ref()
+                    .ok()
+                    .and_then(|v| v.get("stopReason"))
+                    .and_then(Value::as_str)
+                    .and_then(stop_error);
                 let fetched = fetch(&mut fold);
-                let error = answer.err().or_else(|| fetched.err());
+                let error = answer.err().or_else(|| fetched.err()).or(stopped);
                 append(fold.finish(error));
                 break;
             }
@@ -174,10 +191,11 @@ pub fn run(
     {
         log(&format!("ending turn session {}: {e}", start.session.name));
     }
-    let ended = fold.ended().cloned();
+    let error = fold.ended().and_then(|e| e.error.clone());
     TurnOutcome {
         reply: fold.final_text().map(str::to_owned),
-        error: ended.and_then(|e| e.error),
+        cancelled: is_cancelled(error.as_deref()),
+        error,
         orphan,
     }
 }

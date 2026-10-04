@@ -64,11 +64,12 @@ fn daemon_up(h: &mut Harness) {
     let owner = h.owner.clone();
     let summary = owner.lock().unwrap().summary.clone().unwrap();
     let reconnects = owner.clone();
-    h.brain.step(Input::from(optchat_chief::daemon::DaemonEvent::Up {
-        port: Box::new(FakeDaemon(owner)),
-        conversation: summary,
-        reconnect: Box::new(move || reconnects.lock().unwrap().reconnects += 1),
-    }));
+    h.brain
+        .step(Input::from(optchat_chief::daemon::DaemonEvent::Up {
+            port: Box::new(FakeDaemon(owner)),
+            conversation: summary,
+            reconnect: Box::new(move || reconnects.lock().unwrap().reconnects += 1),
+        }));
 }
 
 /// A compactor that waits while `hold` is set.
@@ -174,10 +175,11 @@ fn a_turn_is_not_taken_while_acpmux_is_down() {
         owner.messages.push(m.clone());
         m
     };
-    h.brain.step(Input::from(optchat_chief::daemon::DaemonEvent::Changed {
-        conversation: CONV.into(),
-        change: cmux_conversation::Change::Message { message: m },
-    }));
+    h.brain
+        .step(Input::from(optchat_chief::daemon::DaemonEvent::Changed {
+            conversation: CONV.into(),
+            change: cmux_conversation::Change::Message { message: m },
+        }));
     let settled = h.rx.recv_timeout(WAIT).unwrap();
     h.brain.step(Input::from(AgentEvent::Down));
     h.brain.step(settled);
@@ -185,7 +187,10 @@ fn a_turn_is_not_taken_while_acpmux_is_down() {
         h.agents.inner.lock().unwrap().prompts.is_empty(),
         "no turn starts while acpmux is down"
     );
-    assert!(h.log().is_empty(), "the message waits in the queue, unlogged");
+    assert!(
+        h.log().is_empty(),
+        "the message waits in the queue, unlogged"
+    );
     h.brain.step(Input::from(AgentEvent::Up(Vec::new())));
     h.settle();
     assert_eq!(new_messages(&h), vec!["hello"]);
@@ -239,7 +244,10 @@ fn a_crash_after_logging_a_child_report_logs_it_once_and_posts_no_notice() {
     daemon_up(&mut h);
     h.settle();
     let log = h.log();
-    let n = log.iter().filter(|(_, t)| t == "[worker] report one").count();
+    let n = log
+        .iter()
+        .filter(|(_, t)| t == "[worker] report one")
+        .count();
     assert_eq!(n, 1, "{log:?}");
     let sends = h.owner.lock().unwrap().sends();
     assert!(
@@ -327,10 +335,12 @@ fn an_orphan_whose_session_is_gone_is_dropped() {
         ..Owner::default()
     }));
     let mut h = Harness::in_dir(dir, default_script(), owner);
-    h.agents.inner.lock().unwrap().events_error =
-        Some("events: no session matches \"s9\"".into());
+    h.agents.inner.lock().unwrap().events_error = Some("events: no session matches \"s9\"".into());
     h.connect();
-    assert!(h.brain.state().orphans.is_empty(), "dropped, not retried at every connect");
+    assert!(
+        h.brain.state().orphans.is_empty(),
+        "dropped, not retried at every connect"
+    );
 }
 
 #[test]
@@ -374,4 +384,105 @@ fn a_lost_binding_on_a_cursor_write_reconnects() {
         .push_back(Some("actor_mismatch".into()));
     h.say("agent_mux", "a message of mine");
     assert_eq!(h.owner.lock().unwrap().reconnects, 1);
+}
+
+#[test]
+fn a_human_message_stops_a_running_acpmux_turn_and_the_next_turn_answers() {
+    let mut h = Harness::new(talk_only());
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "edit repo A");
+    h.step(); // settled: the turn starts
+    h.step(); // the turn's session exists
+    h.agents.wait_prompts(1);
+    h.say("user_local", "stop, wrong repo");
+    // The stop reaches acpmux (off the brain thread) and ends turn 1.
+    {
+        let deadline = std::time::Instant::now() + WAIT;
+        let mut inner = h.agents.inner.lock().unwrap();
+        while inner.cancels.is_empty() {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(!left.is_zero(), "the running turn was never stopped");
+            inner = h.agents.changed.wait_timeout(inner, left).unwrap().0;
+        }
+    }
+    // The next turn runs with the new message.
+    h.agents.release();
+    h.settle();
+    assert_eq!(h.agents.inner.lock().unwrap().cancels, vec!["s1"]);
+    assert_eq!(new_messages(&h), vec!["edit repo A", "stop, wrong repo"]);
+    let prompts = h.agents.inner.lock().unwrap().prompts.clone();
+    let view = prompts[1][0]["text"].as_str().unwrap();
+    assert!(
+        view.contains("Let me check."),
+        "the stopped turn's steps are in the view: {view}"
+    );
+    let sends = h.owner.lock().unwrap().sends();
+    assert_eq!(sends.len(), 1, "the stopped turn posts nothing: {sends:?}");
+    assert!(!sends[0].1.contains("turn failed"), "{sends:?}");
+}
+
+#[test]
+fn a_host_stopped_mid_turn_folds_what_its_session_did_since() {
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let chat = open_chat(&dir.path().join("chat"));
+        chat.append(Kind::User, "push it").unwrap();
+        chat.append(Kind::Talk, "Pushing.").unwrap();
+        chat.append(Kind::Tool, "Bash {\"command\":\"git push\"}")
+            .unwrap();
+        chat.shutdown();
+    }
+    let pending: optchat_chief::state::PendingTurn = serde_json::from_value(json!({
+        "key": "turn:optchat:0:1", "conversation": CONV, "session": "optchat-0",
+        "session_id": "s7", "after": 3, "first_id": 0, "items": [{"seq": 1}]
+    }))
+    .unwrap();
+    StateFile::new(&dir.path().join("host.json"))
+        .save(&HostState {
+            conversation: Some(CONV.into()),
+            logged_seq: 1,
+            turn: Some(pending),
+            ..Default::default()
+        })
+        .unwrap();
+    let owner = Arc::new(Mutex::new(Owner {
+        summary: Some(summary()),
+        messages: vec![message(1, "user_local", "push it")],
+        ..Owner::default()
+    }));
+    let mut h = Harness::in_dir(dir, default_script(), owner);
+    h.agents.set_events(
+        "s7",
+        vec![
+            json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+            update("agent_message_chunk", json!({"content": {"type": "text", "text": "Pushing."}})),
+            update(
+                "tool_call",
+                json!({"toolCallId": "t1", "rawInput": {"command": "git push"}, "_meta": {"claude": {"tool": "Bash"}}}),
+            ),
+            update(
+                "tool_call_update",
+                json!({"toolCallId": "t1", "status": "completed", "rawOutput": "pushed main"}),
+            ),
+            update("agent_message_chunk", json!({"content": {"type": "text", "text": "Pushed."}})),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
+        ],
+    );
+    h.connect();
+    h.settle();
+    let log = h.log();
+    let kinds: Vec<(&str, &str)> = log.iter().map(|(k, t)| (k.as_str(), t.as_str())).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            ("user", "push it"),
+            ("talk", "Pushing."),
+            ("tool", "Bash {\"command\":\"git push\"}"),
+            ("echo", "pushed main"),
+            ("talk", "Pushed."),
+        ],
+        "the push's result and the reply reach the log"
+    );
+    assert_eq!(h.agents.inner.lock().unwrap().ended, vec!["s7"]);
 }

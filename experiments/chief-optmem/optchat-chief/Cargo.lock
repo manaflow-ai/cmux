@@ -484,6 +484,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "ureq",
 ]
 
 [[package]]
@@ -495,6 +496,7 @@ name = "optchat-host"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "libc",
  "optchat-core",
  "serde",
  "serde_json",

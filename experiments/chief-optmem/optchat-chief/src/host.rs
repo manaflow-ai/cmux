@@ -12,11 +12,12 @@ use optchat_host::{Config, OptChat, Report};
 
 use crate::acpmux::Acpmux;
 use crate::acpmux::Preset;
-use crate::brain::{Brain, Input, Settings, parent_tag};
+use crate::brain::{Brain, Engine, Input, Settings, parent_tag};
 use crate::cli::{Flags, env};
 use crate::daemon::{self, LinkConfig};
 use crate::lock::{HostLock, LockError};
 use crate::log::log;
+use crate::native::{HttpModel, Native, NativeConfig};
 use crate::paths::{Paths, mux_home};
 use crate::session_dir::{self, SessionSetup};
 use crate::state::StateFile;
@@ -34,6 +35,21 @@ const PASSTHROUGH: [&str; 5] = [
 /// 0 for none). Long enough for a big refactor, short enough that a hung
 /// harness does not silence the Chief for a day.
 const DEFAULT_TURN_LIMIT_MIN: u64 = 180;
+
+/// The native engine's model and effort (`OPTCHAT_CHIEF_MODEL`,
+/// `OPTCHAT_CHIEF_EFFORT`): the Chief is long-horizon agentic work, which
+/// repays more effort than Claude Opus 5.5's default (medium).
+const NATIVE_MODEL: &str = "claude-opus-5-5";
+const NATIVE_EFFORT: &str = "high";
+/// Longest one bash command of the native engine may run.
+const BASH_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// The commit this binary was built from (`OPTCHAT_BUILD_COMMIT` at build
+/// time), so host.log shows which code a dogfood run is.
+const BUILD: &str = match option_env!("OPTCHAT_BUILD_COMMIT") {
+    Some(commit) => commit,
+    None => "unknown",
+};
 
 /// Runs the host; returns the exit code.
 pub fn run(flags: &Flags, started_ms: u64) -> i32 {
@@ -116,10 +132,12 @@ fn start(
         "PATH".to_owned(),
         env("PATH").unwrap_or_else(|| "/usr/bin:/bin".into()),
     );
+    let instructions = crate::prompt::user_instructions(&paths.instructions);
     let setup = SessionSetup {
         exe: exe.display().to_string(),
         cmux_mcp: env("CMUX_MCP_COMMAND"),
         env: session_env,
+        instructions: instructions.clone(),
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
 
@@ -128,7 +146,13 @@ fn start(
         reporter: Arc::new(|r: &Report| log(format!("memory: {r}"))),
         ..Config::default()
     };
-    log(format!("compactor {} at {}", config.model, config.base_url));
+    log(format!(
+        "optchat-chief {} (build {BUILD}); compactor {} at {}",
+        env!("CARGO_PKG_VERSION"),
+        config.model,
+        config.base_url
+    ));
+    let (base_url, api_key) = (config.base_url.clone(), config.api_key.clone());
     let chat = Arc::new(
         OptChat::open(&paths.chat, config).map_err(|e| format!("opening the memory: {e}"))?,
     );
@@ -147,6 +171,39 @@ fn start(
         chat.render_view().text
     ));
 
+    let engine = match env("OPTCHAT_CHIEF_ENGINE").as_deref() {
+        None | Some("native") => {
+            let native_config = NativeConfig {
+                model: env("OPTCHAT_CHIEF_MODEL").unwrap_or_else(|| NATIVE_MODEL.into()),
+                effort: Some(env("OPTCHAT_CHIEF_EFFORT").unwrap_or_else(|| NATIVE_EFFORT.into())),
+                max_tokens: 64_000,
+                server_fallback: env("OPTCHAT_CHIEF_SERVER_FALLBACK").as_deref() == Some("1"),
+                system: crate::prompt::claude_md(instructions.as_deref()),
+                cwd: paths.session.clone(),
+                env: native_env(&setup, paths),
+                bash_timeout: BASH_TIMEOUT,
+                pwd_file: paths.root.join("bash.pwd"),
+            };
+            log(format!(
+                "turns: native engine, {} at effort {} via {}",
+                native_config.model,
+                native_config.effort.as_deref().unwrap_or("default"),
+                base_url
+            ));
+            let model = HttpModel::new(&base_url, api_key, native_config.server_fallback);
+            Engine::Native(Arc::new(Native::new(
+                native_config,
+                Arc::new(model),
+                optchat_host::RETRY,
+            )))
+        }
+        Some("acpmux") => Engine::Acpmux,
+        Some(other) => {
+            return Err(format!(
+                "OPTCHAT_CHIEF_ENGINE={other}: use native or acpmux"
+            ));
+        }
+    };
     let (tx, rx) = channel();
     let harness = env("MUX_HARNESS").unwrap_or_else(|| "claude-sr".into());
     // Turn sessions get their own Claude Code configuration (section 7: a
@@ -169,8 +226,12 @@ fn start(
         parent: parent_tag(home),
         agent_gap: Duration::from_millis(cmux_chief::rules::AGENT_GAP_RETRY_MS),
         turn_limit: (turn_limit > 0).then(|| Duration::from_secs(turn_limit * 60)),
+        engine,
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
+    // Section 10: persist after each turn.
+    let persister = crate::persist::Persister::start(paths.chat.clone(), brain_log.clone())
+        .map_err(|e| format!("starting the persister: {e}"))?;
     let brain = Brain::new(
         chat.clone(),
         agents.clone(),
@@ -178,7 +239,8 @@ fn start(
         StateFile::new(&paths.state),
         tx.clone(),
         brain_log.clone(),
-    );
+    )
+    .on_turn_end(Arc::new(move |key: &str| persister.turn_ended(key)));
     let daemon_tx = tx.clone();
     daemon::spawn_link(
         LinkConfig {
@@ -200,4 +262,16 @@ fn start(
     let fatal = brain.run(rx);
     chat.shutdown();
     Ok(fatal)
+}
+
+/// The native bash tool's env: the turn session's, with the `chief`
+/// launcher first on PATH (as `session_dir::settings_json` gives Claude Code).
+fn native_env(setup: &SessionSetup, paths: &Paths) -> BTreeMap<String, String> {
+    let mut env = setup.env.clone();
+    let path = env
+        .get("PATH")
+        .cloned()
+        .unwrap_or_else(|| "/usr/bin:/bin".into());
+    env.insert("PATH".into(), format!("{}:{path}", paths.bin.display()));
+    env
 }

@@ -72,6 +72,11 @@ pub trait AgentPort: Send + Sync {
     fn session(&self, _id: &str) -> Result<Option<SessionSummary>, String> {
         Ok(None)
     }
+    /// Stops the session's running turn (`session/cancel`; Claude Code gets an
+    /// interrupt). The turn then ends with stop reason `cancelled`.
+    fn cancel(&self, _session: &str) -> Result<(), String> {
+        Err("cancel is not supported".into())
+    }
 }
 
 /// Event kinds that never change the log by themselves; a turn fetches
@@ -369,7 +374,7 @@ impl AgentPort for Acpmux {
                 let done = match answer.recv() {
                     Ok(Ok(value)) => TurnSignal::Done(Ok(value)),
                     Ok(Err(RpcError::Remote { message, .. })) => TurnSignal::Done(Err(message)),
-                    Ok(Err(RpcError::Closed)) | Err(_) => TurnSignal::Lost,
+                    Ok(Err(RpcError::Closed | RpcError::Timeout(_))) | Err(_) => TurnSignal::Lost,
                 };
                 let _ = signals.send(done);
             })
@@ -400,5 +405,12 @@ impl AgentPort for Acpmux {
         Ok(sessions(&*self.client()?)?
             .into_iter()
             .find(|s| s.session_id == id))
+    }
+
+    fn cancel(&self, session: &str) -> Result<(), String> {
+        self.client()?
+            .request("session/cancel", json!({"sessionId": session}))
+            .map(|_| ())
+            .map_err(|e| format!("cancel: {e}"))
     }
 }

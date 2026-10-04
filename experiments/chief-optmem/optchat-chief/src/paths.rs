@@ -49,6 +49,9 @@ pub struct Paths {
     /// The turn sessions' own Claude Code configuration (`CLAUDE_CONFIG_DIR`):
     /// no user CLAUDE.md, settings, hooks or auto-memory reach a turn.
     pub claude_config: PathBuf,
+    /// The user's own instructions file, the end of every turn's system
+    /// prompt (section 7.2); read once per host start.
+    pub instructions: PathBuf,
 }
 
 impl Paths {
@@ -63,6 +66,7 @@ impl Paths {
             tools_socket: root.join("tools.sock"),
             bin: root.join("bin"),
             claude_config: root.join("claude"),
+            instructions: root.join("AGENTS.md"),
             root,
         }
     }

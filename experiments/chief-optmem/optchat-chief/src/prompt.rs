@@ -69,9 +69,22 @@ cmux Home, and your final reply of each turn is posted there.
   or outward-facing). Start agents only this way: only these report back.
 - The tools `zoom` and `date` (MCP server `optchat`) read your memory.";
 
-/// The session's CLAUDE.md: MASTER, VIEW_DOC, then the instructions.
-pub fn claude_md() -> String {
-    format!("{MASTER}\n\n{VIEW_DOC}\n\n{CMUX_INSTRUCTIONS}\n")
+/// The system prompt (the session's CLAUDE.md): MASTER, VIEW_DOC, the cmux
+/// section, then the user's own instructions file (section 7.2), read once
+/// per host start so every turn's prompt stays byte-identical.
+pub fn claude_md(user: Option<&str>) -> String {
+    match user.map(str::trim).filter(|u| !u.is_empty()) {
+        Some(user) => format!("{MASTER}\n\n{VIEW_DOC}\n\n{CMUX_INSTRUCTIONS}\n\n{user}\n"),
+        None => format!("{MASTER}\n\n{VIEW_DOC}\n\n{CMUX_INSTRUCTIONS}\n"),
+    }
+}
+
+/// The user's instructions file, `$MUX_HOME/optchat/AGENTS.md` (None when
+/// missing or empty).
+pub fn user_instructions(path: &std::path::Path) -> Option<String> {
+    std::fs::read_to_string(path)
+        .ok()
+        .filter(|t| !t.trim().is_empty())
 }
 
 /// Tool descriptions, verbatim from section 7.1.
@@ -104,13 +117,22 @@ mod tests {
 
     #[test]
     fn claude_md_is_byte_stable_and_names_no_user() {
-        assert_eq!(claude_md(), claude_md());
-        let text = claude_md();
+        assert_eq!(claude_md(None), claude_md(None));
+        let text = claude_md(None);
         assert!(!text.contains("OptChat"), "the agent is renamed");
         assert!(text.starts_with("You are Chief, an AI agent"));
         assert!(text.contains("\n\nThe view: the whole chat between Chief and the user"));
         assert!(text.contains("before\nyou act, guess or ask."));
         assert!(text.ends_with("read your memory.\n"));
+    }
+
+    /// Audit round 2: the user's own instructions file comes last (section 7.2).
+    #[test]
+    fn the_users_instructions_come_last() {
+        let text = claude_md(Some("I keep worktrees under ~/w.\n"));
+        assert!(text.starts_with("You are Chief"));
+        assert!(text.ends_with("read your memory.\n\nI keep worktrees under ~/w.\n"));
+        assert_eq!(claude_md(Some("  \n")), claude_md(None));
     }
 
     #[test]

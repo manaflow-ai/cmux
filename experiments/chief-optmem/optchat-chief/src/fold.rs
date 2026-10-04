@@ -71,6 +71,10 @@ pub struct TurnFold {
     /// The last finished reply: what the turn posts.
     last_talk: Option<String>,
     ended: Option<Ended>,
+    /// The last raw Claude Code line came from one of its own subagents
+    /// (Task/Agent): the translated updates that follow it are that
+    /// subagent's steps, which stay out of the log (section 9).
+    in_subagent: bool,
 }
 
 impl TurnFold {
@@ -121,15 +125,30 @@ impl TurnFold {
             return out;
         }
         let update = event.msg.get("params").and_then(|p| p.get("update"));
-        match (event.dir.as_str(), event.kind.as_str()) {
-            // Claude Code's raw stream-json line of a model response.
-            (_, "claude.assistant") if self.first_usage.is_none() => {
+        if event.kind.starts_with("claude.") {
+            // Claude Code's raw stream-json line; acpmux records it just before
+            // the updates it translates into, and its translator ignores
+            // `parent_tool_use_id`, so this is where a subagent's steps show.
+            self.in_subagent =
+                matches!(event.msg.get("parent_tool_use_id"), Some(Value::String(_)));
+            if event.kind == "claude.assistant" && !self.in_subagent && self.first_usage.is_none() {
                 self.first_usage = event
                     .msg
                     .get("message")
                     .and_then(|m| m.get("usage"))
                     .and_then(Usage::parse);
             }
+            return out;
+        }
+        if self.in_subagent
+            && matches!(
+                event.kind.as_str(),
+                "agent_message_chunk" | "agent_thought_chunk" | "tool_call" | "tool_call_update"
+            )
+        {
+            return out;
+        }
+        match (event.dir.as_str(), event.kind.as_str()) {
             (_, "agent_message_chunk") => {
                 if let Some(content) = update.and_then(|u| u.get("content"))
                     && content.get("type").and_then(Value::as_str) == Some("text")
@@ -151,11 +170,19 @@ impl TurnFold {
             }
             ("mux", kind @ ("turn_end" | "turn_error")) => {
                 self.finish_talk(&mut out);
-                let error = (kind == "turn_error").then(|| match event.msg.get("error") {
-                    Some(Value::String(text)) => text.clone(),
-                    Some(Value::Null) | None => Value::Object(event.msg.clone()).to_string(),
-                    Some(other) => other.to_string(),
-                });
+                let error = if kind == "turn_error" {
+                    Some(match event.msg.get("error") {
+                        Some(Value::String(text)) => text.clone(),
+                        Some(Value::Null) | None => Value::Object(event.msg.clone()).to_string(),
+                        Some(other) => other.to_string(),
+                    })
+                } else {
+                    event
+                        .msg
+                        .get("stopReason")
+                        .and_then(Value::as_str)
+                        .and_then(stop_error)
+                };
                 self.ended = Some(Ended { error });
             }
             _ => {}
@@ -202,7 +229,14 @@ impl TurnFold {
 
     fn tool_update(&mut self, update: &Value, out: &mut Vec<Entry>) {
         let Some(id) = tool_id(update) else { return };
+        let unknown = !self.tools.contains_key(&id);
         let tool = self.tools.entry(id).or_default();
+        if unknown && tool_name(update).is_none() && !update.get("rawInput").is_some_and(has_input)
+        {
+            // A call folded before this fold began (an orphan's rest): its
+            // `tool` entry is in the log already; only its result is new.
+            tool.logged = true;
+        }
         if tool.name.is_empty()
             && let Some(name) = tool_name(update)
         {
@@ -230,6 +264,21 @@ impl TurnFold {
             });
         }
     }
+}
+
+/// Why a turn that ended with `reason` stopped early; None for a normal end.
+/// A turn that stops for a refusal or `max_tokens` before it says anything
+/// would otherwise post nothing at all.
+pub fn stop_error(reason: &str) -> Option<String> {
+    match reason {
+        "end_turn" | "" => None,
+        other => Some(format!("the turn stopped early ({other})")),
+    }
+}
+
+/// The turn was cancelled (the Chief stopped it for a newer message).
+pub fn is_cancelled(error: Option<&str>) -> bool {
+    error == stop_error("cancelled").as_deref()
 }
 
 fn log_tool(tool: &mut Tool, out: &mut Vec<Entry>) {
@@ -518,7 +567,10 @@ mod tests {
         let mut fold = TurnFold::new();
         fold.apply(&ev(1, "mux", "turn_end", json!({"stopReason": "refusal"})));
         let error = fold.ended().unwrap().error.clone();
-        assert!(error.as_deref().is_some_and(|e| e.contains("refusal")), "{error:?}");
+        assert!(
+            error.as_deref().is_some_and(|e| e.contains("refusal")),
+            "{error:?}"
+        );
         let mut fold = TurnFold::new();
         fold.apply(&ev(1, "mux", "turn_end", json!({"stopReason": "end_turn"})));
         assert_eq!(fold.ended(), Some(&Ended { error: None }));

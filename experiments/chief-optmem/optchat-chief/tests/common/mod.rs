@@ -11,7 +11,7 @@ use std::time::Duration;
 use cmux_chief::acp::AcpmuxEvent;
 use cmux_conversation::{Change, Message, Op, Part, Summary};
 use optchat_chief::acpmux::{AgentEvent, AgentPort, SessionSpec, TurnSignal};
-use optchat_chief::brain::{Brain, Input, PARENT, Settings};
+use optchat_chief::brain::{Brain, Engine, Input, PARENT, Settings};
 use optchat_chief::daemon::{ConversationPort, DaemonEvent, OpError, participants};
 use optchat_chief::state::StateFile;
 use optchat_host::{
@@ -246,7 +246,9 @@ pub struct Agents {
     pub lose: bool,
     /// `events` fails with this error while set.
     pub events_error: Option<String>,
-    /// The prompt's answer (default `{"stopReason": "end_turn"}`).
+    /// Sessions whose turn was cancelled, in order.
+    pub cancels: Vec<String>,
+    /// The next prompt's answer (default `{"stopReason": "end_turn"}`), used once.
     pub answer: Option<Value>,
 }
 
@@ -333,7 +335,7 @@ impl AgentPort for FakeAgents {
             }
             let (lose, answer) = {
                 let mut inner = me.inner.lock().unwrap();
-                (std::mem::take(&mut inner.lose), inner.answer.clone())
+                (std::mem::take(&mut inner.lose), inner.answer.take())
             };
             let _ = signals.send(TurnSignal::Changed);
             if lose {
@@ -369,6 +371,18 @@ impl AgentPort for FakeAgents {
     fn find(&self, _: &str) -> Result<Option<String>, String> {
         Ok(None)
     }
+
+    /// Ends the held turn with stop reason `cancelled`, as acpmux answers a
+    /// prompt that `session/cancel` interrupted.
+    fn cancel(&self, session: &str) -> Result<(), String> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.cancels.push(session.to_owned());
+        inner.answer = Some(json!({"stopReason": "cancelled"}));
+        inner.released += 1;
+        drop(inner);
+        self.changed.notify_all();
+        Ok(())
+    }
 }
 
 pub struct Harness {
@@ -389,6 +403,7 @@ pub fn settings(dir: &Path) -> Settings {
         parent: PARENT.into(),
         agent_gap: Duration::from_millis(30),
         turn_limit: None,
+        engine: Engine::Acpmux,
     }
 }
 
@@ -407,13 +422,35 @@ impl Harness {
 
     /// A brain over an existing directory and owner (a restart).
     pub fn in_dir(dir: tempfile::TempDir, script: Script, owner: Arc<Mutex<Owner>>) -> Harness {
+        Harness::in_dir_with(dir, script, owner, Engine::Acpmux)
+    }
+
+    /// A brain whose turns run on `engine`.
+    pub fn with_engine(engine: Engine) -> Harness {
+        let dir = tempfile::tempdir().unwrap();
+        let owner = Arc::new(Mutex::new(Owner {
+            summary: Some(summary()),
+            ..Owner::default()
+        }));
+        Harness::in_dir_with(dir, default_script(), owner, engine)
+    }
+
+    pub fn in_dir_with(
+        dir: tempfile::TempDir,
+        script: Script,
+        owner: Arc<Mutex<Owner>>,
+        engine: Engine,
+    ) -> Harness {
         let chat = open_chat(&dir.path().join("chat"));
         let agents = FakeAgents::new(script);
         let (tx, rx) = channel();
         let brain = Brain::new(
             chat.clone(),
             agents.clone(),
-            settings(dir.path()),
+            Settings {
+                engine,
+                ..settings(dir.path())
+            },
             StateFile::new(&dir.path().join("host.json")),
             tx,
             Arc::new(|_: &str| {}),

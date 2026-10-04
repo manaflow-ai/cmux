@@ -203,6 +203,11 @@ impl Brain {
                 }
             }
             Err(OpError::Rejected(reason)) if reason.contains("cursor_regression") => {}
+            Err(OpError::Rejected(reason)) if reason.contains("actor_mismatch") => {
+                // The app replaced the token: bind again now, not at the next reply.
+                (self.log)(&format!("read cursor {seq}: binding lost; reconnecting"));
+                self.drop_daemon();
+            }
             Err(OpError::Rejected(reason)) => {
                 (self.log)(&format!("read cursor {seq} refused: {reason}"))
             }
@@ -222,6 +227,10 @@ impl Brain {
         };
         match daemon.typing(&conversation, on) {
             Ok(()) => {}
+            Err(OpError::Rejected(reason)) if reason.contains("actor_mismatch") => {
+                (self.log)(&format!("typing {on}: binding lost; reconnecting"));
+                self.drop_daemon();
+            }
             Err(OpError::Rejected(reason)) => (self.log)(&format!("typing {on} refused: {reason}")),
             Err(OpError::Transport(e)) => {
                 (self.log)(&format!("typing {on}: {e}"));

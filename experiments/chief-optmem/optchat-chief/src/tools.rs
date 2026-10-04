@@ -17,6 +17,10 @@ use serde_json::{Value, json};
 pub trait Memory: Send + Sync {
     fn zoom(&self, id: u64, n: u64) -> String;
     fn date(&self, id: u64) -> String;
+    /// The whole memory as one HTML page (`optchat-chief browse`).
+    fn browse(&self) -> String {
+        "browsing is not available".to_owned()
+    }
 }
 
 impl Memory for OptChat {
@@ -27,6 +31,10 @@ impl Memory for OptChat {
 
     fn date(&self, id: u64) -> String {
         OptChat::date(self, id).unwrap_or_else(|| format!("No message {id}."))
+    }
+
+    fn browse(&self) -> String {
+        crate::browse::html(self)
     }
 }
 
@@ -100,6 +108,14 @@ fn connection(conn: UnixStream, memory: &dyn Memory) {
         let answer = match serde_json::from_str::<Value>(&line) {
             Ok(req) => {
                 let tool = req.get("tool").and_then(Value::as_str).unwrap_or("");
+                // Not a model tool: the `browse` command asks the live host.
+                if tool == "browse" {
+                    let answer = json!({"text": memory.browse()});
+                    if writeln!(out, "{answer}").is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 match Call::parse(tool, &req) {
                     Ok(call) => json!({"text": call.answer(memory)}),
                     Err(e) => json!({"error": e}),
@@ -115,11 +131,20 @@ fn connection(conn: UnixStream, memory: &dyn Memory) {
 
 /// Asks the host on `path`; Err when it does not answer.
 pub fn ask(path: &Path, call: Call) -> Result<String, String> {
+    ask_json(path, &call.to_json())
+}
+
+/// The browse page from the live host; Err when no host answers on `path`.
+pub fn ask_browse(path: &Path) -> Result<String, String> {
+    ask_json(path, &json!({"tool": "browse"}))
+}
+
+fn ask_json(path: &Path, request: &Value) -> Result<String, String> {
     let mut conn = UnixStream::connect(path)
         .map_err(|e| format!("the Chief host is not running ({}: {e})", path.display()))?;
     conn.set_read_timeout(Some(Duration::from_secs(30)))
         .map_err(|e| e.to_string())?;
-    writeln!(conn, "{}", call.to_json()).map_err(|e| e.to_string())?;
+    writeln!(conn, "{request}").map_err(|e| e.to_string())?;
     let mut line = String::new();
     BufReader::new(conn)
         .read_line(&mut line)

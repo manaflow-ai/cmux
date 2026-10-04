@@ -49,7 +49,7 @@ pub struct OutboxEntry {
     pub not_before: Option<u64>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingTurn {
     /// The reply's idempotency key and client_msg_id. Empty while the turn's
     /// messages are being logged (the key needs the first one's stamp).
@@ -57,15 +57,78 @@ pub struct PendingTurn {
     pub conversation: Option<String>,
     /// The turn's acpmux session name.
     pub session: String,
+    /// The turn's acpmux session id, once the worker created it: a host that
+    /// stops mid-turn folds what the session did since `after` at the next
+    /// start (section 7: everything the agent does is logged), instead of
+    /// killing it unread.
+    #[serde(default)]
+    pub session_id: Option<String>,
+    /// The last event seq of the session already folded into the log.
+    #[serde(default)]
+    pub after: u64,
     /// The log length before the turn's messages were appended. Saved before
     /// the first append, so a restart can tell which of them reached the log
     /// and never logs one twice.
     #[serde(default)]
     pub first_id: Option<u64>,
-    /// The conversation seq of each queued item, in log order (None for a
-    /// child's report or a note).
-    #[serde(default)]
+    /// Hosts before audit round 2 saved only each item's conversation seq;
+    /// read when `items` is empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub seqs: Vec<Option<u64>>,
+    /// Where each item the turn started with came from, in log order.
+    #[serde(default)]
+    pub items: Vec<Item>,
+    /// Items delivered between tool calls (section 7), each batch logged at
+    /// its own position.
+    #[serde(default)]
+    pub mid: Vec<Batch>,
+}
+
+impl PendingTurn {
+    /// The items the turn started with (the old `seqs` form included).
+    pub fn opening(&self) -> Vec<Item> {
+        if !self.items.is_empty() {
+            return self.items.clone();
+        }
+        self.seqs
+            .iter()
+            .map(|seq| Item {
+                seq: *seq,
+                child: None,
+            })
+            .collect()
+    }
+}
+
+/// One logged item's source, so a restart can finish its bookkeeping: a
+/// human message moves the read cursor, a child's report marks the child
+/// reported (else reconcile would queue the same report again).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Item {
+    /// The conversation seq of a human message.
+    #[serde(default)]
+    pub seq: Option<u64>,
+    /// A child's report.
+    #[serde(default)]
+    pub child: Option<ChildRef>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChildRef {
+    pub session_id: String,
+    /// The child's floor once this report is logged.
+    pub floor: u64,
+}
+
+/// Items logged together between two tool calls of a running turn.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Batch {
+    /// The log length before the batch's first append.
+    pub at: u64,
+    pub items: Vec<Item>,
+    /// Every item is in the log.
+    #[serde(default)]
+    pub done: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

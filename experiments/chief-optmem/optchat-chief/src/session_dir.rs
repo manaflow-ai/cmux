@@ -35,6 +35,8 @@ pub struct SessionSetup {
     pub cmux_mcp: Option<String>,
     /// Env the turn's tools see (MUX_HOME, CMUX_SOCKET_PATH, ACPMUX_*, PATH).
     pub env: BTreeMap<String, String>,
+    /// The user's instructions file, read at host start (section 7.2).
+    pub instructions: Option<String>,
 }
 
 pub fn shell_quote(value: &str) -> String {
@@ -65,8 +67,8 @@ pub fn mcp_json(setup: &SessionSetup, paths: &Paths) -> Value {
     json!({"mcpServers": servers})
 }
 
-/// The project settings: the MCP servers above enabled, and the tools' env
-/// with the launcher directory first on PATH.
+/// The project settings: the MCP servers above enabled, the tools' env with
+/// the launcher directory first on PATH, and Claude Code's subagents denied.
 pub fn settings_json(setup: &SessionSetup, paths: &Paths) -> Value {
     let mut names = vec!["optchat"];
     if setup.cmux_mcp.is_some() {
@@ -85,7 +87,17 @@ pub fn settings_json(setup: &SessionSetup, paths: &Paths) -> Value {
         "PATH".into(),
         Value::String(format!("{}:{path}", paths.bin.display())),
     );
-    json!({"enableAllProjectMcpServers": true, "enabledMcpjsonServers": names, "env": env})
+    // Claude Code's own subagents (Task/Agent) stream their steps through the
+    // same session as the turn, and acpmux's translator cannot tell them
+    // apart, so they would land in the log as the Chief's own (section 9:
+    // a subagent's tool calls stay in its own session). The Chief starts
+    // agents with `chief agents`, whose reports come back as `[name]` messages.
+    json!({
+        "enableAllProjectMcpServers": true,
+        "enabledMcpjsonServers": names,
+        "env": env,
+        "permissions": {"deny": ["Task", "Agent"]},
+    })
 }
 
 /// `bin/chief`: runs this executable with the host's env baked in, because
@@ -122,7 +134,10 @@ pub fn isolation_env(paths: &Paths) -> BTreeMap<String, String> {
 pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     std::fs::create_dir_all(paths.session.join(".claude"))?;
     std::fs::create_dir_all(&paths.bin)?;
-    write_if_changed(&paths.session.join("CLAUDE.md"), claude_md().as_bytes())?;
+    write_if_changed(
+        &paths.session.join("CLAUDE.md"),
+        claude_md(setup.instructions.as_deref()).as_bytes(),
+    )?;
     let pretty = |v: &Value| format!("{}\n", serde_json::to_string_pretty(v).expect("json"));
     write_if_changed(
         &paths.session.join(".mcp.json"),
@@ -172,6 +187,7 @@ mod tests {
             exe: "/x/optchat-chief".into(),
             cmux_mcp: Some("/x/cmux".into()),
             env,
+            instructions: None,
         }
     }
 
@@ -199,7 +215,7 @@ mod tests {
             modified,
             "an unchanged file is not rewritten"
         );
-        assert_eq!(first, claude_md().as_bytes());
+        assert_eq!(first, claude_md(None).as_bytes());
         let mcp: Value =
             serde_json::from_slice(&std::fs::read(paths.session.join(".mcp.json")).unwrap())
                 .unwrap();

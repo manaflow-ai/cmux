@@ -11,6 +11,8 @@ const USAGE: &str = "optchat-chief host --daemon-socket PATH [--mux-home DIR]   
 optchat-chief mcp [--socket PATH | --mux-home DIR]           stdio MCP server with zoom and date
 optchat-chief agents spawn --name N --cwd DIR [--harness H] [--policy P] \"task\"
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
+optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
+optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?} (host stopped)
 Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_AGENT_TOKEN_FILE, MUX_HARNESS (claude-sr),
      MUX_POLICY (approve-all), OPTCHAT_CHIEF_MODEL, ACPMUX_SOCKET / ACPMUX_HOME / ACPMUX_BIN,
      CMUX_SOCKET_PATH, CMUX_MCP_COMMAND, OPTCHAT_ANTHROPIC_BASE_URL (compactor; the team subrouter)";
@@ -49,6 +51,49 @@ fn main() {
                 1
             }
         },
+        Some("browse") => {
+            let paths = Paths::new(&home(&flags));
+            let page = optchat_chief::tools::ask_browse(&paths.tools_socket).or_else(|_| {
+                let chat = optchat_chief::browse::open_offline(&paths.chat)?;
+                let page = optchat_chief::browse::html(&chat);
+                chat.shutdown();
+                Ok::<_, String>(page)
+            });
+            let out = flags
+                .value("out")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| paths.root.join("memory.html"));
+            match page.and_then(|p| std::fs::write(&out, p).map_err(|e| e.to_string())) {
+                Ok(()) => {
+                    println!("{}", out.display());
+                    0
+                }
+                Err(e) => {
+                    eprintln!("optchat-chief browse: {e}");
+                    1
+                }
+            }
+        }
+        Some("import") => {
+            let paths = Paths::new(&home(&flags));
+            let result = flags
+                .words
+                .get(1)
+                .ok_or_else(|| USAGE.to_owned())
+                .and_then(|file| std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}")))
+                .and_then(|text| optchat_chief::browse::parse_import(&text))
+                .and_then(|items| optchat_chief::browse::import(&paths.chat, &items));
+            match result {
+                Ok(n) => {
+                    println!("imported {n} messages");
+                    0
+                }
+                Err(e) => {
+                    eprintln!("optchat-chief import: {e}");
+                    1
+                }
+            }
+        }
         Some("help") | Some("--help") => {
             println!("{USAGE}");
             0
@@ -59,4 +104,11 @@ fn main() {
         }
     };
     std::process::exit(code);
+}
+
+fn home(flags: &Flags) -> PathBuf {
+    flags
+        .value("mux-home")
+        .map(PathBuf::from)
+        .unwrap_or_else(mux_home)
 }

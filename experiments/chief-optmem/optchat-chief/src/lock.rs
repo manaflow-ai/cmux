@@ -107,7 +107,8 @@ pub fn older_host(text: &str, mtime_ms: i64, me: i32, probe: &dyn ProcessProbe) 
     if pid <= 0 || pid == me || !probe.alive(pid) {
         return None;
     }
-    let recorded = match lines.get(1) {
+    // lock.ts falls back to the mtime for an empty line as for a missing one.
+    let recorded = match lines.get(1).filter(|l| !l.trim().is_empty()) {
         Some(line) => line.trim().parse::<f64>().ok().filter(|v| v.is_finite())? as i64,
         None => mtime_ms,
     };
@@ -207,7 +208,7 @@ mod tests {
         );
         // An empty second line is a missing one, as lock.ts reads it.
         assert_eq!(
-            older_host("42\n\n", 9_000, 1, &Probe(true, Some(8_000))),
+            older_host("42\n\nnote\n", 9_000, 1, &Probe(true, Some(8_000))),
             Some(42)
         );
         // Dead, our own pid, or garbage.
