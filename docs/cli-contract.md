@@ -419,12 +419,19 @@ cmux action list [--category <c>] [--noun <n>] [--available]
 cmux action describe <id>
 cmux action run <id> [--target <id>] [--<arg> <value>] [--arg name=value] [--wait] [--interactive]
 cmux settings get [<path>]
-cmux settings set <path> <value>
-cmux settings unset <path>
+cmux settings set <path> <value> [--confirm]
+cmux settings reset <path> [--confirm]
+cmux settings unset <path> [--confirm]
 cmux events [--after <seq>] [--name <n>]... [--category <c>]... [--no-heartbeats]
 ```
 
 `settings set` parses the value as JSON when it parses, else as a string.
+The CLI is never the user, so the app refuses a user-only key with
+`setting_user_only`; the CLI then says to run the command again with
+`--confirm`. `--confirm` sends `confirm: true`: the app shows a native sheet
+naming the key and value, writes only after you approve it there (the CLI
+waits up to 125 s), and a declined sheet exits 1 with "the setting was not
+changed".
 `events` streams JSON lines until interrupted.
 
 Browser page commands address a browser tab the app hosts, by `tab_…` id or

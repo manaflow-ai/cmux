@@ -218,3 +218,24 @@ fn errors_the_cli_meets_by_design_say_what_to_do() {
     assert!(stderr.contains(messages().gesture_required), "{stderr}");
     assert!(stderr.contains("cloud.machine.delete"), "{stderr}");
 }
+
+/// The run's cancelled answer may arrive before the {} reply to
+/// cancel-request: replies match by id, so the CLI reports one cancel and
+/// does not wait for the other line (regression guard, not a red test).
+#[tokio::test]
+async fn a_cancelled_answer_before_the_cancel_reply_is_one_cancel() {
+    let (run, mut daemon, press) = start();
+    daemon.handshake(true).await;
+    let request = daemon.read().await;
+    press.send(()).unwrap();
+    let cancel = daemon.read().await;
+    daemon
+        .write(json!({"id": request["id"], "ok": false, "error": "cancelled",
+            "error_code": "cmux.op.cancelled", "retryable": false}))
+        .await;
+    let outcome = run.await.unwrap();
+    assert_eq!(outcome, Outcome::Cancelled { confirmed: true });
+    // The late {} reply finds a closed connection; nothing is reported twice.
+    let _ = daemon.writer.write_all(format!("{}\n", json!({"id": cancel["id"], "ok": true, "data": {}})).as_bytes()).await;
+    assert_eq!(report(&outcome, OutputMode::Human).2, EXIT_CANCELLED);
+}
