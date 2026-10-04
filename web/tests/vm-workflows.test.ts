@@ -8898,3 +8898,155 @@ describe("team tunnel cron reconciliation", () => {
     expect(afters).toEqual([undefined, { teamId: "team-page-1", provider: "freestyle" }, { teamId: "team-page-2", provider: "freestyle" }]);
   });
 });
+
+describe("Cloud snapshot idempotency", () => {
+  type SnapshotRequest = { name: string | null; status: "pending" | "succeeded"; snapshot?: { id: string; createdAt: number; name?: string } };
+
+  function snapshotSource(id: string) {
+    return testCloudVmRow({
+      id,
+      userId: `user-${id}`,
+      billingTeamId: `team-${id}`,
+      billingPlanId: "pro",
+      providerVmId: `provider-${id}`,
+      status: "running",
+      providerMetadata: {},
+    });
+  }
+
+  /** In-memory request ledger with the repository's semantics. */
+  function snapshotRequestRepo(source: CloudVmRow, usageEvents: RecordedUsageEvent[], requests: Map<string, SnapshotRequest>): VmRepositoryShape {
+    return {
+      ...testWorkflowRepo({ vm: source, usageEvents }),
+      beginSnapshotRequest: ({ vmId, idempotencyKey, name }) => Effect.sync(() => {
+        const key = `${vmId}/${idempotencyKey}`;
+        const existing = requests.get(key);
+        if (!existing) {
+          requests.set(key, { name, status: "pending" });
+          return { kind: "started" as const };
+        }
+        if (existing.name !== name) return { kind: "conflict" as const };
+        if (existing.status === "succeeded" && existing.snapshot) return { kind: "succeeded" as const, snapshot: existing.snapshot };
+        return { kind: "in_progress" as const };
+      }),
+      finishSnapshotRequest: ({ vmId, idempotencyKey, outcome }) => Effect.sync(() => {
+        const key = `${vmId}/${idempotencyKey}`;
+        if (outcome.kind === "failed") {
+          requests.delete(key);
+          return;
+        }
+        const existing = requests.get(key);
+        if (existing) requests.set(key, { ...existing, status: "succeeded", snapshot: outcome.snapshot });
+      }),
+    };
+  }
+
+  test("a retry with the same key returns the first snapshot and takes no second one", async () => {
+    const source = snapshotSource("00000000-0000-4000-8000-000000000171");
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = snapshotRequestRepo(source, usageEvents, new Map());
+    let providerCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      snapshot: () => Effect.sync(() => {
+        providerCalls += 1;
+        return { id: `snap-${providerCalls}`, createdAt: 1_000 + providerCalls, name: "nightly" };
+      }),
+    };
+    const run = () => Effect.runPromise(snapshotVm({
+      userId: source.userId,
+      teamIds: [source.billingTeamId!],
+      providerVmId: source.providerVmId!,
+      name: "nightly",
+      idempotencyKey: "snap-key-1",
+    }).pipe(Effect.provide(workflowLayer(repo, provider))));
+    const first = await run();
+    const second = await run();
+    expect(second).toEqual(first);
+    expect(providerCalls).toBe(1);
+    expect(usageEvents.filter((event) => event.eventType === "vm.snapshot.created")).toHaveLength(1);
+  });
+
+  test("a retry while the first snapshot runs is refused as in progress", async () => {
+    const source = snapshotSource("00000000-0000-4000-8000-000000000172");
+    const requests = new Map<string, SnapshotRequest>([[`${source.id}/snap-key-2`, { name: null, status: "pending" }]]);
+    const repo = snapshotRequestRepo(source, [], requests);
+    let providerCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      snapshot: () => Effect.sync(() => {
+        providerCalls += 1;
+        return { id: "never", createdAt: 1 };
+      }),
+    };
+    const error = await Effect.runPromise(snapshotVm({
+      userId: source.userId,
+      teamIds: [source.billingTeamId!],
+      providerVmId: source.providerVmId!,
+      idempotencyKey: "snap-key-2",
+    }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))));
+    expect(error._tag).toBe("VmSnapshotInProgressError");
+    expect(providerCalls).toBe(0);
+  });
+
+  test("the same key with another name is a conflict", async () => {
+    const source = snapshotSource("00000000-0000-4000-8000-000000000173");
+    const requests = new Map<string, SnapshotRequest>([[`${source.id}/snap-key-3`, {
+      name: "first", status: "succeeded", snapshot: { id: "snap-first", createdAt: 1, name: "first" },
+    }]]);
+    const repo = snapshotRequestRepo(source, [], requests);
+    const error = await Effect.runPromise(snapshotVm({
+      userId: source.userId,
+      teamIds: [source.billingTeamId!],
+      providerVmId: source.providerVmId!,
+      name: "second",
+      idempotencyKey: "snap-key-3",
+    }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, unusedProviderGateway()))));
+    expect(error._tag).toBe("VmSnapshotIdempotencyConflictError");
+  });
+
+  test("a failed attempt frees the key so a retry takes the snapshot", async () => {
+    const source = snapshotSource("00000000-0000-4000-8000-000000000174");
+    const requests = new Map<string, SnapshotRequest>();
+    const repo = snapshotRequestRepo(source, [], requests);
+    let providerCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      snapshot: () => {
+        providerCalls += 1;
+        return providerCalls === 1
+          ? Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "snapshot", cause: new Error("boom") }))
+          : Effect.succeed({ id: "snap-after-retry", createdAt: 2 });
+      },
+    };
+    const run = () => Effect.runPromise(snapshotVm({
+      userId: source.userId,
+      teamIds: [source.billingTeamId!],
+      providerVmId: source.providerVmId!,
+      idempotencyKey: "snap-key-4",
+    }).pipe(Effect.either, Effect.provide(workflowLayer(repo, provider))));
+    const first = await run();
+    expect(first._tag).toBe("Left");
+    expect(requests.size).toBe(0);
+    const second = await run();
+    expect(second._tag).toBe("Right");
+    expect(providerCalls).toBe(2);
+  });
+
+  test("a snapshot without a key keeps the old behavior and stores no request", async () => {
+    const source = snapshotSource("00000000-0000-4000-8000-000000000175");
+    const requests = new Map<string, SnapshotRequest>();
+    const repo = snapshotRequestRepo(source, [], requests);
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      snapshot: () => Effect.succeed({ id: "snap-no-key", createdAt: 3 }),
+    };
+    const result = await Effect.runPromise(snapshotVm({
+      userId: source.userId,
+      teamIds: [source.billingTeamId!],
+      providerVmId: source.providerVmId!,
+    }).pipe(Effect.provide(workflowLayer(repo, provider))));
+    expect(result.id).toBe("snap-no-key");
+    expect(requests.size).toBe(0);
+  });
+});
