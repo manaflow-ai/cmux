@@ -13,7 +13,9 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     capabilities
 }
 
-pub(super) fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
+pub(super) fn advertised_capabilities(
+    bounded_clear_history_fallback_writes: bool,
+) -> Vec<&'static str> {
     let mut capabilities = vec![
         ATTACH_INITIAL_SIZE_CAPABILITY,
         "attach-identity-v1",

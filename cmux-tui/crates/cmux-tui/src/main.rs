@@ -81,10 +81,10 @@ mod test_wait;
 mod ui;
 
 use headless::run_headless;
-use loopback_policy::loopback_forward_policy;
+pub(crate) use headless::wake_headless;
 #[cfg(unix)]
 use loopback_policy::deny_daemon_listener_ports;
-pub(crate) use headless::wake_headless;
+use loopback_policy::loopback_forward_policy;
 
 #[cfg(target_os = "linux")]
 use std::ffi::CStr;

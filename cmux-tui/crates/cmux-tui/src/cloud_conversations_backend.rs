@@ -11,10 +11,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use cmux_tui_core::Mux;
 use cmux_tui_core::cloud_conversations::{
     CloudBackend, CloudWire, ConnectError, HttpReply, TransportError, WireRecv,
 };
-use cmux_tui_core::Mux;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use tokio::net::TcpStream;
