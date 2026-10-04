@@ -6,7 +6,7 @@ import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
 import { admit } from "./domains/common.ts"
 import { chiefActive, grantFor, installActive, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmView } from "./domains/user-confirm.ts"
-import { chiefList } from "./domains/user-chief.ts"
+import { CHIEF_AGENT_CLASS, chiefList } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
 import { CLOSE_RETRY_MS, flushInstallCloses, markAgentClosing, markInstallClosing, nextCloseAt, registerSocketOwner } from "./socket-registry.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
@@ -247,12 +247,14 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /**
-   * RPC for the Worker's reach check of a chief caller (CHIEF-DONE autonomy rule): when `agent`
-   * is one of this user's active chiefs, the user's DM with each target from the inbox `peer`
-   * index (the chief acts under its owner's reach); null when it is not, or when this object
-   * never served the user. Never creates storage.
+   * RPC for the Worker's reach check of a chief caller (CHIEF-DONE autonomy rule): when the
+   * caller's agent class is `mux` and `agent` is one of this user's active chiefs, the user's DM
+   * with each target from the inbox `peer` index (the chief acts under its owner's reach); null
+   * for any other class (an automation run that carries a chief's id), an unknown or archived
+   * chief, or an object that never served the user. Never creates storage.
    */
-  async homeChiefDms(entity: string, agent: string, targets: ReadonlyArray<string>): Promise<Array<string | null> | null> {
+  async homeChiefDms(entity: string, agent: string, agentClass: string, targets: ReadonlyArray<string>): Promise<Array<string | null> | null> {
+    if (agentClass !== CHIEF_AGENT_CLASS) return null
     if (this.boundEntity() !== entity) return null
     const record = this.bind(entity).currentState.chiefs?.[agent]
     if (!record || record.archived_at !== null || record.owner_user !== entity) return null

@@ -1,6 +1,7 @@
 import { conversation as homeConversation } from "@cmux/home-core"
 import type { Principal } from "@cmux/ownership"
 import { personalTeamIdFor } from "./domains/user.ts"
+import { CHIEF_AGENT_CLASS } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
 
 /**
@@ -21,9 +22,10 @@ import type { Env } from "./env.ts"
  * - blocked: not resolved; the pair state (16.6) does not exist yet.
  *
  * A chief (an agent principal of class mux) acts under its owner's reach (CHIEF-DONE autonomy
- * rule): when the owner's UserDO confirms the agent is one of the owner's active chiefs, the
- * facts are the owner's (the owner's teams, the owner's DMs, the target's setting checked
- * against the owner). Any other agent principal gets no facts but an empty list, so a cloud
+ * rule): when the caller's class is mux and the owner's UserDO confirms the agent is one of the
+ * owner's active chiefs, the facts are the owner's (the owner's teams, the owner's DMs, the
+ * target's setting checked against the owner). Any other agent principal (an automation run
+ * with a chief's id too) gets no facts but an empty list, so a cloud
  * owner refuses every human who is not a current participant, also a departed one.
  *
  * A target with no link gets no entry, which the reducer refuses with the same code as a
@@ -40,7 +42,7 @@ interface TeamReachStub {
 interface UserReachStub {
   readInbox(entity: string, principal: Principal, op: string, params: Record<string, unknown>): Promise<{ ok: boolean; value?: { conversation?: string | null } }>
   homeAllowRequestsFrom(entity: string): Promise<homeConversation.AllowRequestsFrom>
-  homeChiefDms(entity: string, agent: string, targets: ReadonlyArray<string>): Promise<Array<string | null> | null>
+  homeChiefDms(entity: string, agent: string, agentClass: string, targets: ReadonlyArray<string>): Promise<Array<string | null> | null>
 }
 interface ConversationReachStub {
   homeDmLink(entity: string, adder: string, target: string): Promise<{ peer: string | null; consented: boolean } | null>
@@ -74,6 +76,13 @@ const dmLink = async (env: Env, id: string | null | undefined, adder: string, ta
   return link ? { id, ...link } : null
 }
 
+/**
+ * The agent class of an agent principal: an automation run (automation-caps.ts: identity
+ * `automation:<id>` and a `run`) is never a chief; every other agent principal claims the chief
+ * class, which the owner's UserDO checks against its chief records (homeChiefDms).
+ */
+const agentClassOf = (principal: Principal): string => (principal.run !== undefined || principal.identity.startsWith("automation:") ? "automation" : CHIEF_AGENT_CLASS)
+
 /** A signed-in human caller's DM ids, through its own inbox read. */
 const ownDmIds = (env: Env, principal: Principal, adder: string, targets: ReadonlyArray<string>) =>
   Promise.all(
@@ -98,7 +107,7 @@ export const resolveHumanReach = async (env: Env, principal: Principal, targets:
   if (principal.agent) {
     const owner = principal.user ? (principal.user.startsWith("user_") ? principal.user : `user_${principal.user}`) : undefined
     if (!owner || !actor.startsWith("agent_")) return none
-    const dms = targets.length === 0 ? [] : await userStub(env, owner).homeChiefDms(owner, actor, targets)
+    const dms = targets.length === 0 ? [] : await userStub(env, owner).homeChiefDms(owner, actor, agentClassOf(principal), targets)
     if (dms === null) return none
     adder = owner
     dmIds = dms
