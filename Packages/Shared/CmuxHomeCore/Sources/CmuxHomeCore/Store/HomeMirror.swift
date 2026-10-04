@@ -110,6 +110,15 @@ public struct HomeMirror: Hashable, Sendable {
             return outcome
         case .message(let message, let rev):
             return apply(message: message, rev: rev)
+        case .conversationPage(let page):
+            let id = page.conversation.id
+            if windows[id] != nil { return apply(page: page) }
+            let stream = HomeStream.conversation(id)
+            if let known = revisions[stream], known > page.conversation.rev { return .ignoredStale }
+            conversations[id] = mergedSummary(page.conversation, fromInbox: false)
+            revisions[stream] = page.conversation.rev
+            stale.remove(stream)
+            return .applied
         }
     }
 

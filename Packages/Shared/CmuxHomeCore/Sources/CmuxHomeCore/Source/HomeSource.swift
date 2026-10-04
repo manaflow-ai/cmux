@@ -29,6 +29,11 @@ public enum HomeEvent: Hashable, Sendable {
     case conversationRemoved(ConversationID, inboxRev: Revision)
     /// A message was committed (new) or updated (edit, retract, reaction).
     case message(Message, rev: Revision)
+    /// The owner's current summary and newest messages of one conversation,
+    /// pushed after a resubscribe or a gap the owner detected. Applied like
+    /// a fetched `snapshot(of:tail:)` page; a conversation that is not open
+    /// takes only the summary.
+    case conversationPage(ConversationPage)
     /// Ephemeral, never stored.
     case typing(ConversationID, ParticipantID, on: Bool)
 }

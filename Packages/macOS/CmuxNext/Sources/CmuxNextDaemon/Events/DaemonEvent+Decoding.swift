@@ -65,6 +65,11 @@ extension DaemonEvent {
                 return .bookmarksChanged(browserProfileID: e.browserProfileID, revision: e.revision ?? 0)
             case "conversation-changed": return .conversationChanged(try d(ConversationEvent.self))
             case "conversation-typing": return .conversationTyping(try d(ConversationTyping.self))
+            case _ where CloudConversationsEvent.eventNames.contains(name):
+                guard let event = try CloudConversationsEvent.decode(name: name, line: line, decoder: decoder) else {
+                    return .unknown(name: name, payload: payload())
+                }
+                return .cloudConversations(event)
             case "client-attached", "client-changed", "client-detached", "client-list-invalidated":
                 return .client(name: name, payload: payload())
             case "overflow": return .overflow(try d(EventPayload.OverflowEvent.self).error ?? "overflow")

@@ -57,6 +57,9 @@ public enum DaemonEvent: Sendable, Hashable {
     case conversationChanged(ConversationEvent)
     /// A participant started or stopped typing (ephemeral).
     case conversationTyping(ConversationTyping)
+    /// A `cloud-*` event of `cloud-conversations-v1` (cloud conversations,
+    /// the account inbox, socket states and lease requests).
+    case cloudConversations(CloudConversationsEvent)
     /// `client-attached/changed/detached/list-invalidated`.
     case client(name: String, payload: JSONValue)
     /// The subscription ended because this client fell behind. The connection

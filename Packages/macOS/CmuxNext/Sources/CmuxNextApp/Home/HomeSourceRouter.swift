@@ -1,0 +1,226 @@
+import CmuxHomeCore
+import Foundation
+import Synchronization
+
+/// One Home inbox over two owners: the local daemon's conversations and the
+/// cloud's (`ConversationSummary.owner`). It routes each read and op to the
+/// owner of its conversation and leaves every value as that owner sent it;
+/// conversation streams pass through unchanged.
+///
+/// The two owners' inbox streams are separate logs with unrelated
+/// revisions, so the merged `.inbox` stream gets its own: one per inbox
+/// event this router publishes (the store only needs them dense and
+/// increasing). The connection is the local daemon's, which carries both.
+nonisolated final class HomeSourceRouter: HomeSource {
+    private struct State {
+        var continuations: [UUID: AsyncStream<HomeEvent>.Continuation] = [:]
+        var lastConnection: HomeEvent?
+        var lastInbox: HomeEvent?
+        /// The owner of every conversation either source reported.
+        var owners: [ConversationID: ConversationSummary.Owner] = [:]
+        /// Cloud conversations in the merged inbox now.
+        var cloudListed: Set<ConversationID> = []
+        var inboxRev: Revision = 0
+        var started = false
+    }
+
+    private let state = Mutex(State())
+    private static let eventBuffer = 1024
+    let local: any HomeSource
+    let cloud: CloudHomeSource
+    // task-owner: one consumer per child stream, cancelled with the router
+    private let consumers = Mutex<[Task<Void, Never>]>([])
+
+    init(local: any HomeSource, cloud: CloudHomeSource) {
+        self.local = local
+        self.cloud = cloud
+    }
+
+    deinit {
+        for task in consumers.withLock({ $0 }) { task.cancel() }
+    }
+
+    // MARK: HomeSource
+
+    func events() async -> AsyncStream<HomeEvent> {
+        let id = UUID()
+        let (stream, continuation) = AsyncStream<HomeEvent>.makeStream(bufferingPolicy: .bufferingNewest(Self.eventBuffer))
+        let start = state.withLock { state -> Bool in
+            state.continuations[id] = continuation
+            let replay = [state.lastConnection ?? .connection(.connecting)] + (state.lastInbox.map { [$0] } ?? [])
+            for event in replay { continuation.yield(event) }
+            defer { state.started = true }
+            return !state.started
+        }
+        continuation.onTermination = { [weak self] _ in
+            self?.state.withLock { _ = $0.continuations.removeValue(forKey: id) }
+        }
+        if start { await startConsuming() }
+        return stream
+    }
+
+    func inbox() async throws -> InboxSnapshot {
+        let localInbox = try await local.inbox()
+        // A cloud failure must not hide local conversations: use what the cloud source knows.
+        let cloudInbox = (try? await cloud.inbox()) ?? cloud.currentInbox()
+        return state.withLock { merged(local: localInbox, cloud: cloudInbox.conversations, &$0) }
+    }
+
+    func snapshot(of conversation: ConversationID, tail: Int) async throws -> ConversationPage {
+        let page = try await source(for: conversation).snapshot(of: conversation, tail: tail)
+        state.withLock { $0.owners[conversation] = page.conversation.owner }
+        return page
+    }
+
+    func history(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> [Message] {
+        try await source(for: conversation).history(of: conversation, before: beforeSeq, limit: limit)
+    }
+
+    /// Ops on a conversation go to its owner. Ops that create or invite name
+    /// no conversation and only the cloud has them; `createChief` stays with
+    /// the local owner, which refuses it as before.
+    func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
+        let toCloud: Bool
+        switch intent.op {
+        case .createGroup, .startConversation, .invite: toCloud = true
+        case .createChief: toCloud = false
+        default: toCloud = intent.op.conversation.map(isCloud) ?? false
+        }
+        guard toCloud else { return try await local.submit(intent) }
+        let result = try await cloud.submit(intent)
+        if let created = result.conversation { state.withLock { $0.owners[created] = .cloud } }
+        return result
+    }
+
+    /// Home search is local only until the cloud has `home.search`.
+    func search(_ query: String, limit: Int) async throws -> [HomeSearchHit] {
+        try await local.search(query, limit: limit)
+    }
+
+    func resolve(_ contact: ContactAddress) async throws -> ContactResolution {
+        try await cloud.resolve(contact)
+    }
+
+    // MARK: Routing
+
+    /// The owner that reported `conversation`; an unknown one is local, as before the cloud existed.
+    func source(for conversation: ConversationID) -> any HomeSource {
+        isCloud(conversation) ? cloud : local
+    }
+
+    func isCloud(_ conversation: ConversationID) -> Bool {
+        state.withLock { $0.owners[conversation] } == .cloud
+    }
+
+    private func startConsuming() async {
+        let localStream = await local.events()
+        let cloudStream = await cloud.events()
+        let tasks = [
+            Task { [weak self] in
+                for await event in localStream {
+                    guard let self else { return }
+                    forwardLocal(event)
+                }
+            },
+            Task { [weak self] in
+                for await event in cloudStream {
+                    guard let self else { return }
+                    forwardCloud(event)
+                }
+            },
+        ]
+        consumers.withLock { $0 = tasks }
+    }
+
+    private func forwardLocal(_ event: HomeEvent) {
+        publish { state in
+            switch event {
+            case .connection:
+                state.lastConnection = event
+                return event
+            case .inbox(let snapshot):
+                return .inbox(merged(local: snapshot, cloud: cloud.currentInbox().conversations, &state))
+            case .conversationChanged(let summary, _, _):
+                state.owners[summary.id] = summary.owner
+                return event
+            default:
+                return event
+            }
+        }
+    }
+
+    /// Cloud inbox events are restamped into the merged inbox stream; a
+    /// cloud snapshot becomes a diff, so local summaries are never resent
+    /// from a stale copy.
+    private func forwardCloud(_ event: HomeEvent) {
+        switch event {
+        case .connection:
+            // The local daemon's connection is the merged one; the cloud's sockets report per target.
+            return
+        case .inbox(let snapshot):
+            let listed = Set(snapshot.conversations.map(\.id))
+            let removed = state.withLock { $0.cloudListed.subtracting(listed) }
+            for id in removed.sorted(by: { $0.rawValue < $1.rawValue }) {
+                publish { state in
+                    state.cloudListed.remove(id)
+                    state.owners[id] = nil
+                    state.inboxRev += 1
+                    return .conversationRemoved(id, inboxRev: state.inboxRev)
+                }
+            }
+            for summary in snapshot.conversations {
+                publish { state in
+                    state.cloudListed.insert(summary.id)
+                    state.owners[summary.id] = .cloud
+                    state.inboxRev += 1
+                    return .conversationChanged(summary, stream: .inbox, rev: state.inboxRev)
+                }
+            }
+        case .conversationChanged(let summary, .inbox, _):
+            publish { state in
+                state.cloudListed.insert(summary.id)
+                state.owners[summary.id] = .cloud
+                state.inboxRev += 1
+                return .conversationChanged(summary, stream: .inbox, rev: state.inboxRev)
+            }
+        case .conversationRemoved(let id, _):
+            publish { state in
+                state.cloudListed.remove(id)
+                state.inboxRev += 1
+                return .conversationRemoved(id, inboxRev: state.inboxRev)
+            }
+        case .conversationChanged(let summary, _, _):
+            publish { state in
+                state.owners[summary.id] = .cloud
+                return event
+            }
+        case .conversationPage(let page):
+            publish { state in
+                state.owners[page.conversation.id] = .cloud
+                return event
+            }
+        default:
+            publish { _ in event }
+        }
+    }
+
+    /// Call with the lock held.
+    private func merged(local: InboxSnapshot, cloud: [ConversationSummary], _ state: inout State) -> InboxSnapshot {
+        for summary in local.conversations { state.owners[summary.id] = .local }
+        for summary in cloud { state.owners[summary.id] = .cloud }
+        state.cloudListed = Set(cloud.map(\.id))
+        state.inboxRev += 1
+        let snapshot = InboxSnapshot(me: local.me, conversations: local.conversations + cloud, rev: state.inboxRev)
+        return snapshot
+    }
+
+    /// Builds and yields one event under the lock, so restamped revisions
+    /// reach subscribers in order.
+    private func publish(_ build: (inout State) -> HomeEvent?) {
+        state.withLock { state in
+            guard let event = build(&state) else { return }
+            if case .inbox = event { state.lastInbox = event }
+            for continuation in state.continuations.values { continuation.yield(event) }
+        }
+    }
+}

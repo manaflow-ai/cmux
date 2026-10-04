@@ -233,6 +233,8 @@ public final class HomeStore {
                 log.dropIntents(outside: Set(mirror.conversations.keys))
             case .message(let message, _):
                 bumpTranscript(message.conversation)
+            case .conversationPage(let page):
+                bumpTranscript(page.conversation.id)
             default:
                 break
             }
