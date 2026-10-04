@@ -5,8 +5,10 @@ use super::*;
 
 impl Hub {
     /// The coming shutdown ends hosted agents too (the app's Quit
-    /// Everything); without it a shutdown detaches them.
-    pub fn end_agents_at_shutdown(&self) {
+    /// Everything), except those of the sessions in `keep` (the app's Home
+    /// Chief), which detach; without it a shutdown detaches every one.
+    pub fn end_agents_at_shutdown(&self, keep: std::collections::HashSet<String>) {
+        *self.keep_on_shutdown.lock().unwrap() = keep;
         self.end_agents_on_shutdown.store(true, Ordering::SeqCst);
     }
 
@@ -19,6 +21,7 @@ impl Hub {
     pub async fn shutdown_all(&self) {
         const LOCK: std::time::Duration = std::time::Duration::from_millis(200);
         let end_agents = self.end_agents_on_shutdown.load(Ordering::SeqCst);
+        let keep = self.keep_on_shutdown.lock().unwrap().clone();
         let sessions = self.sessions();
         let mut children = Vec::new();
         let mut hosted = Vec::new();
@@ -26,7 +29,7 @@ impl Hub {
             // An agent under a host keeps running, with its turn and its
             // permission prompts, for the next daemon to adopt.
             let mut slot = tokio::time::timeout(LOCK, s.child.lock()).await.ok();
-            if !end_agents
+            if (!end_agents || keep.contains(&s.id))
                 && let Some(child) =
                     slot.as_ref().and_then(|g| g.as_ref()).filter(|c| c.host_record().is_some())
             {

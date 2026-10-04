@@ -391,3 +391,31 @@ async fn shutdown_without_end_agents_keeps_hosted_agents_running() {
         "a plain shutdown cancelled the turn"
     );
 }
+
+/// Quit Everything keeps the Home Chief: `keepSessions` names sessions whose
+/// hosted agents detach and keep running while every other agent ends.
+#[tokio::test]
+async fn shutdown_with_end_agents_keeps_the_named_sessions_running() {
+    let mut daemon = Daemon::new("keepn", "approve-all");
+    let (chief, chief_host, chief_client) = gated_turn(&daemon).await;
+    let (other, other_host, other_client) = gated_turn(&daemon).await;
+
+    let reply = daemon
+        .rpc()
+        .await
+        .call("_acpmux/shutdown", json!({"endAgents": true, "keepSessions": [chief]}))
+        .await;
+    assert_eq!(reply["keptSessions"], 1, "{reply}");
+    daemon.wait_exit();
+    drop((chief_client, other_client));
+    assert!(alive(chief_host["harness_pid"].as_i64().unwrap()), "the kept session's agent ended");
+    assert!(
+        gone_within(other_host["harness_pid"].as_i64().unwrap(), Duration::from_secs(10)),
+        "the other agent outlived Quit Everything"
+    );
+    assert!(
+        !daemon.events(&chief).iter().any(|e| e["kind"] == "turn_cancelled"),
+        "the kept session's turn was cancelled"
+    );
+    assert!(daemon.events(&other).iter().any(|e| e["kind"] == "turn_cancelled"));
+}
