@@ -18,6 +18,13 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 targets: [.pane], cliName: "tab new-page"
             ),
             ActionDescriptor(
+                id: "newTab.submit",
+                title: String(localized: "action.newTab.submit", defaultValue: "New Tab from Text", table: "NewTabActions", bundle: .module),
+                keywords: ["tab", "url", "search", "ask", "agent", "command", "new tab page"],
+                category: .tab, symbol: "text.cursor", surfaces: [.palette],
+                arguments: newTabSubmitArguments, targets: [.pane], cliName: "tab new-from-text"
+            ),
+            ActionDescriptor(
                 id: "focusLocation",
                 title: String(localized: "action.focusLocation", defaultValue: "Focus Location Bar", bundle: .module),
                 keywords: ["location", "address", "url", "omnibox", "run", "command", "new tab page"],

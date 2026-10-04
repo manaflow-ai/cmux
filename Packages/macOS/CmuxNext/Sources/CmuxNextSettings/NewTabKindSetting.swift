@@ -14,11 +14,12 @@ public nonisolated enum NewTabDefaultKind: String, Sendable, Hashable, CaseItera
     case auto
 }
 
-/// `tabs.newTabKind` in cmux.json: "same-kind" (default), "terminal",
-/// "browser", "agent", "page" or "auto".
+/// `tabs.newTabKind` in cmux.json: "page" (default, the new tab screen,
+/// plans/cmux-next/new-tab.md decision Q1), "same-kind", "terminal",
+/// "browser", "agent" or "auto".
 nonisolated extension NewTabDefaultKind {
     public static let configPath = ["tabs", "newTabKind"]
-    public static let fallback: NewTabDefaultKind = .sameKind
+    public static let fallback: NewTabDefaultKind = .page
 
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.
