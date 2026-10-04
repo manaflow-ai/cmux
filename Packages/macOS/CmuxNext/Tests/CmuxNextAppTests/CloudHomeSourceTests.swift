@@ -98,6 +98,7 @@ import Testing
         }))
         @Sendable func recoveries(_ events: [HomeEvent]) -> Int { events.filter { $0 == .ownerRecovered }.count }
         #expect(await tape.wait { $0.contains { if case .inbox = $0 { true } else { false } } })
+        _ = try await source.snapshot(of: ConversationID(dm), tail: 10)
         let before = recoveries(tape.all)
         let send = HomeIntent(key: IdempotencyKey("cmk_l"), op: .sendMessage(conversation: ConversationID(dm), parts: [.text("x")]))
         await #expect(throws: HomeRejection.ownerUnreachable) { try await source.submit(send) }
@@ -459,6 +460,63 @@ import Testing
         try await reopen.value
         #expect(await daemon.wait { $0.contains(.unsubscribe(dm)) })
         #expect(daemon.subscribed.contains(dm), "B's subscription ended: \(daemon.calls)")
+    }
+
+    func event(_ name: String, _ json: String) -> CloudConversationsEvent? {
+        if case .cloudConversations(let event) = DaemonEvent.decode(name: name, line: Data(json.utf8)) { event } else { nil }
+    }
+
+    /// An edit goes out only while its conversation's socket is `live`
+    /// (home-cloud-proxy.md section 5): before that it waits
+    /// (`ownerUnreachable`) and the store resends it once the socket is live.
+    @Test func editsWaitUntilTheConversationIsLive() async throws {
+        let other = "conv_dm_01J0000000000000000000000D"
+        let (source, daemon, _) = await configured(.init(heads: [dm: F.head(dm), other: F.head(other)], subscribeState: "connecting"))
+        _ = try await source.snapshot(of: ConversationID(dm), tail: 10)
+        let send = HomeIntent(key: IdempotencyKey("cmk_c"), op: .sendMessage(conversation: ConversationID(dm), parts: [.text("x")]))
+        await #expect(throws: HomeRejection.ownerUnreachable) { try await source.submit(send) }
+        #expect(daemon.opRequests.isEmpty)
+        source.handle(.subscriptionState(CloudSubscriptionState(scope: "conversation", conversation: dm, state: "live")))
+        _ = try await source.submit(send)
+        #expect(daemon.opRequests.map(\.idempotencyKey) == ["cmk_c"])
+
+        // A conversation without a subscription subscribes, and its edit waits for it.
+        let unopened = HomeIntent(key: IdempotencyKey("cmk_u"), op: .sendMessage(conversation: ConversationID(other), parts: [.text("y")]))
+        await #expect(throws: HomeRejection.ownerUnreachable) { try await source.submit(unopened) }
+        #expect(await daemon.wait { $0.contains(.subscribe(other)) })
+        #expect(daemon.opRequests.map(\.idempotencyKey) == ["cmk_c"])
+    }
+
+    /// A subscribe reply or a socket state the daemon names for another
+    /// account (a socket still on the previous lease) does not make the
+    /// conversation live for this one; an inbox reset for another account
+    /// lists nothing again.
+    @Test func socketStatesAndResetsForAnotherAccountAreIgnored() async throws {
+        let (source, daemon, tape) = await configured(.init(heads: [dm: F.head(dm)], subscribeAccount: "user_stack-other"))
+        #expect(await signedIn(tape))
+        _ = try await source.snapshot(of: ConversationID(dm), tail: 10)
+        let send = HomeIntent(key: IdempotencyKey("cmk_s"), op: .sendMessage(conversation: ConversationID(dm), parts: [.text("x")]))
+        await #expect(throws: HomeRejection.ownerUnreachable) { try await source.submit(send) }
+        let liveForOther = try #require(event("cloud-subscription-state", #"""
+        {"event":"cloud-subscription-state","scope":"conversation","conversation":"\#(dm)","state":"live","account":"user_stack-other"}
+        """#))
+        source.handle(liveForOther)
+        await #expect(throws: HomeRejection.ownerUnreachable) { try await source.submit(send) }
+        #expect(daemon.opRequests.isEmpty)
+        let liveForMe = try #require(event("cloud-subscription-state", #"""
+        {"event":"cloud-subscription-state","scope":"conversation","conversation":"\#(dm)","state":"live","account":"user_stack-me"}
+        """#))
+        source.handle(liveForMe)
+        _ = try await source.submit(send)
+        #expect(daemon.opRequests.map(\.idempotencyKey) == ["cmk_s"])
+
+        @Sendable func lists(_ calls: [FakeCloudDaemon.Call]) -> Int { calls.filter { $0 == .inboxList }.count }
+        let before = lists(daemon.calls)
+        source.handle(try #require(event("cloud-inbox-reset", #"{"event":"cloud-inbox-reset","seq":3,"account":"user_stack-other"}"#)))
+        source.handle(try #require(event("cloud-inbox-reset", #"{"event":"cloud-inbox-reset","seq":4}"#)))
+        #expect(await daemon.wait { lists($0) >= before + 1 })
+        for _ in 0..<2_000 { await Task.yield() }
+        #expect(lists(daemon.calls) == before + 1, "an inbox reset for another account listed the inbox")
     }
 
     func listed(_ source: CloudHomeSource, _ id: String) -> Bool {

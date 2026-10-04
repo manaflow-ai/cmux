@@ -132,6 +132,7 @@ nonisolated final class FakeLocalHomeSource: HomeSource {
         let store = HomeStore(source: router)
         store.start()
         for await shown in Observations({ store.rows.count == 2 }) where shown { break }
+        _ = try await router.snapshot(of: ConversationID(dm), tail: 10)
         let send = HomeOp.sendMessage(conversation: ConversationID(dm), parts: [.text("x")])
         await #expect(throws: HomeSendState.pendingResend) { try await store.perform(send, key: IdempotencyKey("cmk_r")) }
         // The store resends once at once; that fails too.
@@ -229,7 +230,8 @@ nonisolated final class FakeLocalHomeSource: HomeSource {
         let send = HomeIntent(key: IdempotencyKey("cmk_d"), op: .sendMessage(conversation: ConversationID(dm), parts: [.text("x")]))
         _ = try? await router.submit(send)
         #expect(local.intents.isEmpty, "a cloud conversation's send reached the local daemon")
-        #expect(daemon.opRequests.map(\.idempotencyKey) == ["cmk_d"])
+        // The cloud subscribes it; the edit waits for the socket.
+        #expect(await daemon.wait { $0.contains(.subscribe(dm)) })
     }
 
     /// Yields until `condition` holds; the suite's time limit bounds it.
@@ -253,8 +255,9 @@ nonisolated final class FakeLocalHomeSource: HomeSource {
         let page = try await router.snapshot(of: ConversationID(dm), tail: 10)
         #expect(page.conversation.owner == .cloud)
         let send = HomeIntent(key: IdempotencyKey("cmk_u"), op: .sendMessage(conversation: ConversationID(other), parts: [.text("x")]))
-        _ = try await router.submit(send)
-        #expect(daemon.opRequests.map(\.idempotencyKey) == ["cmk_u"])
+        // Not open yet: the cloud subscribes it, and the edit waits until its socket is live.
+        await #expect(throws: HomeRejection.ownerUnreachable) { try await router.submit(send) }
+        #expect(await daemon.wait { $0.contains(.subscribe(other)) })
         #expect(local.intents.isEmpty)
     }
 }

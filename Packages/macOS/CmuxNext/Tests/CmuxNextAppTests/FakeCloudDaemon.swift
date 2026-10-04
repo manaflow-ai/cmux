@@ -30,7 +30,10 @@ nonisolated final class FakeCloudDaemon: CloudConversationCommands, CloudLeaseSe
         var entries: [CloudInboxEntry] = []
         var heads: [String: CmuxNextDaemon.ConversationSummary] = [:]
         var messages: [String: [ConversationMessage]] = [:]
-        var subscribeState = "connecting"
+        /// The subscribe reply's state: the shared socket's true state.
+        var subscribeState = "live"
+        /// The subscribe reply's `account` (the lease's `sub`), when set.
+        var subscribeAccount: String?
         /// Answers ops by kind; default: a committed op at rev 2.
         var op: @Sendable (CloudConversationOpRequest) throws -> CloudConversationOpResult = { _ in CloudConversationOpResult(rev: 2) }
         var inboxError: DaemonError?
@@ -161,7 +164,10 @@ nonisolated final class FakeCloudDaemon: CloudConversationCommands, CloudLeaseSe
     func subscribe(_ conversation: String) async throws -> CloudSubscription {
         record(.subscribe(conversation))
         daemon.withLock { _ = $0.subscribed.insert(conversation) }
-        return CloudSubscription(conversation: conversation, state: script.withLock { $0.subscribeState })
+        let (state, account) = script.withLock { ($0.subscribeState, $0.subscribeAccount) }
+        let accountField = account.map { #","account":"\#($0)""# } ?? ""
+        let reply = #"{"conversation":"\#(conversation)","state":"\#(state)"\#(accountField)}"#
+        return try JSONDecoder().decode(CloudSubscription.self, from: Data(reply.utf8))
     }
 
     func unsubscribe(_ conversation: String) async throws {
