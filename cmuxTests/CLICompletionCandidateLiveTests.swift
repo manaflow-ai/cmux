@@ -272,6 +272,100 @@ struct CLICompletionCandidateLiveTests {
         }
     }
 
+    @Test("completion connects to the --socket and --password typed before the command")
+    func completionHonorsExplicitSocketAndPassword() throws {
+        // CMUX_SOCKET_PATH names instance A, but the line targets B with root
+        // options. The command will run against B, so its suggestions must come
+        // from B; reading A offers workspaces the command cannot select. Driven
+        // through `---completion`, the path the generated shell scripts take,
+        // which hands the callback every shell word starting with `cmux`.
+        let cases: [(label: String, line: [String], password: String?, expected: [String])] = [
+            ("--socket <path>", ["--socket", "<B>"], nil, ["workspace:B"]),
+            ("--socket=<path>", ["--socket=<B>"], nil, ["workspace:B"]),
+            // Bash splits `--socket=<path>` at the `=` in COMP_WORDS.
+            ("bash-split --socket = <path>", ["--socket", "=", "<B>"], nil, ["workspace:B"]),
+            ("--socket with --password", ["--socket", "<B>", "--password", "s3cret"], "s3cret", ["workspace:B"]),
+            ("--password=<value>", ["--socket=<B>", "--password=s3cret"], "s3cret", ["workspace:B"]),
+            ("no root options", [], nil, ["workspace:A"]),
+        ]
+
+        for entry in cases {
+            let socketA = Self.socketPath()
+            let socketB = Self.socketPath()
+            let listenerA = try Self.bindSocket(at: socketA)
+            let listenerB = try Self.bindSocket(at: socketB)
+            let authLines = CompletionAuthLineRecorder()
+            _ = Self.startMockServer(listenerFD: listenerA, response: { request in
+                Self.successResponse(
+                    id: request["id"] as? String ?? "unknown",
+                    result: ["workspaces": [["ref": "workspace:A"]]]
+                )
+            })
+            let handledB = Self.startRawMockServer(listenerFD: listenerB) { line in
+                if line.hasPrefix("auth ") {
+                    authLines.append(line)
+                    return "OK"
+                }
+                guard let request = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else {
+                    return Self.errorResponse(id: "unknown", code: "malformed_request")
+                }
+                return Self.successResponse(
+                    id: request["id"] as? String ?? "unknown",
+                    result: ["workspaces": [["ref": "workspace:B"]]]
+                )
+            }
+            defer {
+                for (listenerFD, path) in [(listenerA, socketA), (listenerB, socketB)] {
+                    CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
+                    shutdown(listenerFD, SHUT_RDWR)
+                    Darwin.close(listenerFD)
+                    unlink(path)
+                }
+            }
+
+            let rootOptions = entry.line.map { $0.replacingOccurrences(of: "<B>", with: socketB) }
+            let words = ["cmux"] + rootOptions + ["select-workspace", "--workspace", ""]
+            let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+            let result = try runCLI(
+                cliPath,
+                arguments: ["---completion", "select-workspace", "--", "--workspace"] + words,
+                environment: ["CMUX_SOCKET_PATH": socketA]
+            )
+
+            if entry.expected == ["workspace:B"] {
+                #expect(handledB.wait(timeout: .now() + 5) == .success, "\(entry.label): B was never contacted")
+            }
+            #expect(result.exitCode == 0, "\(entry.label): completion must not fail the shell")
+            #expect(
+                result.stdout.split(separator: "\n").map(String.init) == entry.expected,
+                "\(entry.label): candidates must come from the socket the command will use"
+            )
+            #expect(
+                authLines.lines == (entry.password.map { ["auth \($0)"] } ?? []),
+                "\(entry.label): a typed --password must authenticate the completion connection"
+            )
+        }
+    }
+
+    /// Like `startMockServer`, but hands over every raw line, so a test can see
+    /// the non-JSON `auth <password>` line that precedes the v2 request.
+    private static func startRawMockServer(
+        listenerFD: Int32,
+        respond: @escaping @Sendable (String) -> String
+    ) -> DispatchSemaphore {
+        let handled = DispatchSemaphore(value: 0)
+        CLIMockAcceptLoopRegistry.shared.start(
+            listenerFD: listenerFD,
+            onConnection: { clientFD in
+                defer { handled.signal() }
+                defer { Darwin.close(clientFD) }
+                cliMockServeLineFramedConnection(clientFD: clientFD, respond: respond)
+            },
+            onListenerClosed: {}
+        )
+        return handled
+    }
+
     private static func startMockServer(
         listenerFD: Int32,
         response: @escaping @Sendable ([String: Any]) -> String
@@ -345,5 +439,23 @@ struct CLICompletionCandidateLiveTests {
             throw NSError(domain: NSPOSIXErrorDomain, code: code)
         }
         return fd
+    }
+}
+
+/// Collects the `auth` lines a mock socket receives, from its accept-loop thread.
+private final class CompletionAuthLineRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+
+    func append(_ line: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        recorded.append(line)
+    }
+
+    var lines: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
     }
 }
