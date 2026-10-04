@@ -63,6 +63,28 @@ class ClientTransport(str, Enum):
     UNIX = 'unix'
     WS = 'ws'
 
+class ConversationAgentClass(str, Enum):
+    MUX = 'mux'
+    AGENT = 'agent'
+
+class ConversationParticipantKind(str, Enum):
+    HUMAN = 'human'
+    AGENT = 'agent'
+
+class ConversationTapback(str, Enum):
+    LOVE = 'love'
+    LIKE = 'like'
+    DISLIKE = 'dislike'
+    LAUGH = 'laugh'
+    EMPHASIZE = 'emphasize'
+    QUESTION = 'question'
+
+class ConversationWorkStatus(str, Enum):
+    RUNNING = 'running'
+    DONE = 'done'
+    FAILED = 'failed'
+    WAITING = 'waiting'
+
 class CursorStyle(str, Enum):
     BLOCK = 'block'
     UNDERLINE = 'underline'
@@ -412,6 +434,150 @@ class ColumnPin:
     __cmux_schema_path__: ClassVar[str] = 'types/ColumnPin'
     edge: str
     mode: str
+
+
+@dataclass(frozen=True)
+class ConversationChangeConversation:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationChange/variants/conversation'
+    conversation: ConversationSummary
+    kind: Literal['conversation']
+
+
+@dataclass(frozen=True)
+class ConversationChangeMessage:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationChange/variants/message'
+    kind: Literal['message']
+    message: ConversationMessage
+
+
+@dataclass(frozen=True)
+class ConversationChangeMessageUpdated:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationChange/variants/message-updated'
+    kind: Literal['message-updated']
+    message: ConversationMessage
+
+
+@dataclass(frozen=True)
+class ConversationChangeReadCursor:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationChange/variants/read-cursor'
+    kind: Literal['read-cursor']
+    participant: str
+    seq: int
+
+
+@dataclass(frozen=True)
+class ConversationEmojiReaction:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationEmojiReaction'
+    emoji: str
+
+
+@dataclass(frozen=True)
+class ConversationMessage:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationMessage'
+    author: str
+    client_msg_id: str
+    conversation: str
+    created_at: str
+    id: str
+    parts: List[ConversationPart]
+    reactions: List[ConversationReaction]
+    seq: int
+    edited_at: Union[str, MissingType] = field(default=MISSING)
+    reply_to: Union[ConversationPartRef, MissingType] = field(default=MISSING)
+    retracted_at: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationPartText:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationPart/variants/text'
+    text: str
+    type: Literal['text']
+    runs: Union[List[ConversationTextRun], MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationPartWork:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationPart/variants/work'
+    session: str
+    status: ConversationWorkStatus
+    type: Literal['work']
+    host: Union[str, MissingType] = field(default=MISSING)
+    preview: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationPartRef:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationPartRef'
+    message_id: str
+    part_index: int
+
+
+@dataclass(frozen=True)
+class ConversationParticipant:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationParticipant'
+    display_name: str
+    id: str
+    kind: ConversationParticipantKind
+    acp_session: Union[str, MissingType] = field(default=MISSING)
+    agent_class: Union[ConversationAgentClass, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationReaction:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationReaction'
+    at: str
+    author: str
+    kind: ConversationReactionKind
+    part_index: int
+
+
+@dataclass(frozen=True)
+class ConversationSearchHit:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationSearchHit'
+    author: str
+    conversation: str
+    created_at: str
+    message_id: str
+    seq: int
+    snippet: str
+    title: str
+
+
+@dataclass(frozen=True)
+class ConversationSummary:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationSummary'
+    created_at: str
+    id: str
+    last_seq: int
+    owner: str
+    participants: List[ConversationParticipant]
+    read_cursors: Dict[str, int]
+    rev: int
+    title: str
+    updated_at: str
+    last_message: Union[ConversationMessage, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationTabRecord:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationTabRecord'
+    conversation: str
+    owner: str
+
+
+@dataclass(frozen=True)
+class ConversationTapbackReaction:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationTapbackReaction'
+    tapback: ConversationTapback
+
+
+@dataclass(frozen=True)
+class ConversationTextRun:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationTextRun'
+    length: int
+    start: int
+    link: Union[str, MissingType] = field(default=MISSING)
+    mention: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1803,10 +1969,23 @@ class ConversationAgentTokenRequest:
 
 
 @dataclass(frozen=True)
+class ConversationAgentTokenResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-agent-token/result'
+    participant: str
+    token: str
+
+
+@dataclass(frozen=True)
 class ConversationBindRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-bind/request'
     participant: str
     token: str
+
+
+@dataclass(frozen=True)
+class ConversationBindResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-bind/result'
+    participant: str
 
 
 @dataclass(frozen=True)
@@ -1819,6 +1998,13 @@ class ConversationCreateRequest:
 
 
 @dataclass(frozen=True)
+class ConversationCreateResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-create/result'
+    conversation: ConversationSummary
+    replayed: bool
+
+
+@dataclass(frozen=True)
 class ConversationHistoryRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-history/request'
     before_seq: int
@@ -1827,9 +2013,21 @@ class ConversationHistoryRequest:
 
 
 @dataclass(frozen=True)
+class ConversationHistoryResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-history/result'
+    messages: List[ConversationMessage]
+
+
+@dataclass(frozen=True)
 class ConversationListRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-list/request'
     pass
+
+
+@dataclass(frozen=True)
+class ConversationListResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-list/result'
+    conversations: List[ConversationSummary]
 
 
 @dataclass(frozen=True)
@@ -1843,6 +2041,16 @@ class ConversationOpRequest:
 
 
 @dataclass(frozen=True)
+class ConversationOpResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-op/result'
+    change: ConversationChange
+    replayed: bool
+    rev: int
+    seq: Union[int, MissingType] = field(default=MISSING)
+    transaction: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ConversationSearchRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-search/request'
     limit: int
@@ -1850,10 +2058,23 @@ class ConversationSearchRequest:
 
 
 @dataclass(frozen=True)
+class ConversationSearchResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-search/result'
+    hits: List[ConversationSearchHit]
+
+
+@dataclass(frozen=True)
 class ConversationSnapshotRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-snapshot/request'
     conversation: str
     tail: int
+
+
+@dataclass(frozen=True)
+class ConversationSnapshotResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-snapshot/result'
+    conversation: ConversationSummary
+    messages: List[ConversationMessage]
 
 
 @dataclass(frozen=True)
@@ -2470,6 +2691,16 @@ class NewConversationTabRequest:
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class NewConversationTabResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/new-conversation-tab/result'
+    surface: Id
+    content_resource_id: Union[str, None]
+    conversation: ConversationTabRecord
+    replayed: bool
+    tab_resource_id: Union[str, None]
 
 
 @dataclass(frozen=True)
@@ -4024,6 +4255,9 @@ class WorkspaceRenamedEvent(EventBase):
 # Named protocol aliases.
 Base64 = str
 ColorHex = str
+ConversationChange = Union[ConversationChangeConversation, ConversationChangeMessage, ConversationChangeMessageUpdated, ConversationChangeReadCursor]
+ConversationPart = Union[ConversationPartText, ConversationPartWork]
+ConversationReactionKind = Union[ConversationTapbackReaction, ConversationEmojiReaction]
 DeclarativeLayout = Union[DeclarativeLayoutLeaf, DeclarativeLayoutSplit, DeclarativeLayoutStack]
 DetachClientTarget = Any
 FrontendJournalEvent = Union[FrontendJournalEventFocus, FrontendJournalEventResize, FrontendJournalEventViewport]
@@ -4051,6 +4285,10 @@ __all__ = [
     'AgentState',
     'BrowserProviderAuthentication',
     'ClientTransport',
+    'ConversationAgentClass',
+    'ConversationParticipantKind',
+    'ConversationTapback',
+    'ConversationWorkStatus',
     'CursorStyle',
     'DetachReason',
     'FrontendFocusTarget',
@@ -4084,6 +4322,22 @@ __all__ = [
     'ClientSize',
     'CloseTerminalResult',
     'ColumnPin',
+    'ConversationChangeConversation',
+    'ConversationChangeMessage',
+    'ConversationChangeMessageUpdated',
+    'ConversationChangeReadCursor',
+    'ConversationEmojiReaction',
+    'ConversationMessage',
+    'ConversationPartText',
+    'ConversationPartWork',
+    'ConversationPartRef',
+    'ConversationParticipant',
+    'ConversationReaction',
+    'ConversationSearchHit',
+    'ConversationSummary',
+    'ConversationTabRecord',
+    'ConversationTapbackReaction',
+    'ConversationTextRun',
     'CopyResult',
     'DeadPane',
     'DeclarativeLayoutLeaf',
@@ -4231,13 +4485,21 @@ __all__ = [
     'CloseTerminalRequest',
     'CloseWorkspaceRequest',
     'ConversationAgentTokenRequest',
+    'ConversationAgentTokenResult',
     'ConversationBindRequest',
+    'ConversationBindResult',
     'ConversationCreateRequest',
+    'ConversationCreateResult',
     'ConversationHistoryRequest',
+    'ConversationHistoryResult',
     'ConversationListRequest',
+    'ConversationListResult',
     'ConversationOpRequest',
+    'ConversationOpResult',
     'ConversationSearchRequest',
+    'ConversationSearchResult',
     'ConversationSnapshotRequest',
+    'ConversationSnapshotResult',
     'ConversationTypingRequest',
     'CopyRequest',
     'CreateBookmarkRequest',
@@ -4311,6 +4573,7 @@ __all__ = [
     'MoveWorkspaceToGroupRequest',
     'NewBrowserTabRequest',
     'NewConversationTabRequest',
+    'NewConversationTabResult',
     'NewFrontendBrowserTabRequest',
     'NewPaneRequest',
     'NewPaneRightRequest',
@@ -4476,6 +4739,9 @@ __all__ = [
     'WorkspaceRenamedEvent',
     'Base64',
     'ColorHex',
+    'ConversationChange',
+    'ConversationPart',
+    'ConversationReactionKind',
     'DeclarativeLayout',
     'DetachClientTarget',
     'FrontendJournalEvent',

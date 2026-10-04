@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0edc0a3c7e51c1f0843d49e78b98ef01dea251fb14beeda82935fcf345a138a1. */
+/* cmux-tui mux protocol 12, IR 6e41cec831ffb93327a004dac892e0cc173eedbbba6fe1c1926b2b91e2a7db55. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -126,6 +126,120 @@ export type ColumnPin = {
   "edge": string;
   "mode": string;
 };
+
+export type ConversationAgentClass = "mux" | "agent";
+
+export type ConversationChange = ({ "kind": "conversation" } & {
+  "conversation": ConversationSummary;
+  "kind": "conversation";
+}) | ({ "kind": "message" } & {
+  "kind": "message";
+  "message": ConversationMessage;
+}) | ({ "kind": "message-updated" } & {
+  "kind": "message-updated";
+  "message": ConversationMessage;
+}) | ({ "kind": "read-cursor" } & {
+  "kind": "read-cursor";
+  "participant": string;
+  "seq": bigint;
+});
+
+export type ConversationEmojiReaction = {
+  "emoji": string;
+};
+
+export type ConversationMessage = {
+  "author": string;
+  "client_msg_id": string;
+  "conversation": string;
+  "created_at": string;
+  "edited_at"?: string;
+  "id": string;
+  "parts": Array<ConversationPart>;
+  "reactions": Array<ConversationReaction>;
+  "reply_to"?: ConversationPartRef;
+  "retracted_at"?: string;
+  "seq": bigint;
+};
+
+export type ConversationPart = ({ "type": "text" } & {
+  "runs"?: Array<ConversationTextRun>;
+  "text": string;
+  "type": "text";
+}) | ({ "type": "work" } & {
+  "host"?: string;
+  "preview"?: string;
+  "session": string;
+  "status": ConversationWorkStatus;
+  "type": "work";
+});
+
+export type ConversationPartRef = {
+  "message_id": string;
+  "part_index": number;
+};
+
+export type ConversationParticipant = {
+  "acp_session"?: string;
+  "agent_class"?: ConversationAgentClass;
+  "display_name": string;
+  "id": string;
+  "kind": ConversationParticipantKind;
+};
+
+export type ConversationParticipantKind = "human" | "agent";
+
+export type ConversationReaction = {
+  "at": string;
+  "author": string;
+  "kind": ConversationReactionKind;
+  "part_index": number;
+};
+
+export type ConversationReactionKind = (ConversationTapbackReaction) | (ConversationEmojiReaction);
+
+export type ConversationSearchHit = {
+  "author": string;
+  "conversation": string;
+  "created_at": string;
+  "message_id": string;
+  "seq": bigint;
+  "snippet": string;
+  "title": string;
+};
+
+export type ConversationSummary = {
+  "created_at": string;
+  "id": string;
+  "last_message"?: ConversationMessage;
+  "last_seq": bigint;
+  "owner": string;
+  "participants": Array<ConversationParticipant>;
+  "read_cursors": Record<string, bigint>;
+  "rev": bigint;
+  "title": string;
+  "updated_at": string;
+};
+
+export type ConversationTabRecord = {
+  "conversation": string;
+  "owner": string;
+};
+
+export type ConversationTapback = "love" | "like" | "dislike" | "laugh" | "emphasize" | "question";
+
+export type ConversationTapbackReaction = {
+  "tapback": ConversationTapback;
+};
+
+export type ConversationTextRun = {
+  "length": number;
+  "link"?: string;
+  "mention"?: string;
+  "start": number;
+};
+
+export type ConversationWorkStatus = "running" | "done" | "failed" | "waiting";
 
 export type CopyResult = {
   "mode": "screen" | "selection" | "scrollback";

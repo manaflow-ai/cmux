@@ -6,7 +6,7 @@ rust-file	cmux-tui/bindings/examples/rust-agent-screen-detection/src/process.rs	
 rust-file	cmux-tui/bindings/rust/src/client.rs	1106	70
 rust-file	cmux-tui/bindings/rust/src/resource/client.rs	1142	52
 rust-file	cmux-tui/bindings/rust/src/resource/handles.rs	2708	278
-rust-file	cmux-tui/bindings/rust/src/resource/model.rs	1705	54
+rust-file	cmux-tui/bindings/rust/src/resource/model.rs	1640	53
 rust-file	cmux-tui/bindings/rust/src/resource/typed_stream.rs	1465	77
 rust-file	cmux-tui/bindings/rust/src/resource/wire.rs	797	63
 rust-file	cmux-tui/bindings/rust/tests/mock_server.rs	2863	55
