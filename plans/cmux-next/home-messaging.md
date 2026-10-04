@@ -34,7 +34,7 @@ from `cmux-conversation::encode_id` unless stated).
 | --- | --- | --- |
 | Conversation head | `conv_<26>` (group, chief); `conv_dm_<26>` = base32(sha256("dm\0" + lo + "\0" + hi))[0..26] where lo/hi are the two sorted participant ids (a user id or an address id) | `kind`, `title`, `team?` (the team whose policy applies; null for personal), `created_by`, `created_at`, `updated_at`, `last_seq`, `rev`, `participants[]`, `invites[]`, `settings {wake_policy, agent_budget {turns, gap_ms}, history_visible: "all"|"since_join"}`, `retention_days?` (from team policy), `state: "active"|"archived"` |
 | Participant | `user_<id>`, `agent_<id>`, `addr_<26>` | `kind: human|agent|address`, `display_name`, `agent_class?: mux|agent`, `owner_user?` (agents), `role: owner|member`, `joined_seq` (last_seq when added), `added_by`, `left_at?` |
-| Message | `msg_<26>`, `seq` dense per conversation | `client_msg_id`, `author`, `parts[]` (text with runs/mentions, `work`, `approval`, `attachment {hash, name, mime_type, byte_count, width?, height?, duration_ms?, poster? {hash, mime_type, byte_count}}` (cloud heads only; see section 10.1), refs `task`/`vm`/`pr`), `reply_to? {message_id, part_index}`, `thread_root?`, `created_at`, `edited_at?`, `retracted_at?`, `reactions[] {author, part_index, kind, at}` |
+| Message | `msg_<26>`, `seq` dense per conversation | `client_msg_id`, `author`, `parts[]` (text with runs/mentions, `work`, `approval`, `attachment {hash, name, mime_type, byte_count, width?, height?, duration_ms?, poster? {hash, mime_type, byte_count}, preview? {hash, mime_type, byte_count}}` (cloud heads only; see section 10.1), refs `task`/`vm`/`pr`), `reply_to? {message_id, part_index}`, `thread_root?`, `created_at`, `edited_at?`, `retracted_at?`, `reactions[] {author, part_index, kind, at}` |
 | Read cursor | (conversation, participant) | `last_read_seq` (monotonic, written only by that participant) |
 | Invite | `inv_<26>` inside its conversation | `address` (`addr_<26>`), `channel: email|sms`, `display_name`, `invited_by`, `created_at`, `expires_at` (14 days), `token_hash` (sha256 of sha256 of the 128-bit secret), `status: pending|accepted|revoked|expired`, `accepted_by?`, `accepted_at?`, `delivery {state: queued|sent|delivered|bounced|complained|failed|suppressed|refused_env, provider_id?, at}`, `copy_variant`, `locale` |
 | Inbox entry | (user, conversation) | owner-projected (from ConversationDO, guarded by conversation `rev`): `kind`, `title`, `last_seq`, `last_at`, `preview` (240 chars, author + text), `unread` (count after the user's cursor, excluding own messages), `mentions` (unread mentions of the user), `dm_peer?`, `rev`; user-owned: `pinned`, `pin_position`, `muted_until?`, `archived`, `marked_unread` |
@@ -351,18 +351,32 @@ new body. No raw address, token or token hash is ever projected.
   etag}` on the video's record and answers it; the slot's quota charge includes the poster bytes.
   With an `exists` commit the first record wins, also for its poster. Expiry, refusals, the sweep
   and conversation deletion delete the poster key with its object.
+- Image previews (Lawrence's decision, 2026-10-04): readers get small image previews through a
+  server preview variant, built on the poster machinery (one "derived image" per attachment, its
+  variant chosen by class: `poster` for a video, `preview` for an image). The intent of an image
+  may declare `preview {sha256, byte_count, mime_type}` (image/jpeg or image/webp, 512 KB,
+  `ATTACHMENT_LIMITS.previewMaxBytes`; `attachment.preview_refused` for any other class, so a
+  video uses `poster`, never `preview`). The answer adds `preview_upload`
+  (`PUT /v1/home/attachments/preview/<conv>/<slot>.<kid>.<mac>`, a token purpose of its own),
+  stored at `<object key>.preview`, hash-checked, once while the slot is open; the image's PUT or
+  commit answers 409 `attachment.preview_missing` until then. Commit writes `preview {hash,
+  mime_type, byte_count, etag}` on the image's record; quota, expiry, refusals, the sweep and
+  conversation deletion treat it exactly like a poster. The client makes the preview; the server
+  never decodes images.
 - Use in messages: `message.send`/`message.edit` accept a hash only when the author uploaded it
   here or a message above the author's history floor references it; every other case is the same
-  `unknown_attachment`. A part's `poster` is valid only on a video part (`invalid_parts`
-  otherwise) and must equal its record's poster (`attachment_mismatch`).
+  `unknown_attachment`. A part's `poster` is valid only on a video part and its `preview` only on
+  an image part (`invalid_parts` otherwise); each must equal its record's (`attachment_mismatch`).
 - Downloads: `POST /v1/home/attachments/url {conversation, hash, message_id?, part_index?, variant?}`
   mints a 10-minute bearer-less URL bound to key id, method, conversation, object id, part,
   variant, actor and expiry; each GET rechecks membership and floor; the file name comes from the
   message part; text is served as `text/plain` attachments, only images inline; out-of-range
-  `Range` is 416. `variant: "poster"` (the only variant; anything else is 400) signs the poster
-  recorded on the video's record, for a video record and, with `message_id`, a video part; without
-  one it is 404 `attachment.no_poster`, never the video. The GET reads only the record's poster
-  key, type, size and etag (nothing from the request) and serves it inline.
+  `Range` is 416. `variant: "poster"` signs the poster recorded on the video's record, for a video
+  record and, with `message_id`, a video part; `variant: "preview"` signs the preview recorded on
+  an image's record, for an image record and part (anything else is 400). Without one it is 404
+  `attachment.no_poster` or `attachment.no_preview`, never the original. The GET reads only the
+  record's derived key, type, size and etag (nothing from the request) and serves it inline; the
+  variant is part of the signature, with the same membership and floor checks.
 - No URL carries user content: object and slot ids are random; names stay in message parts.
 - Inbox: bumps carry `preview_attachments {kind: photo|video|audio|file, count}` (preview text
   empty for attachment-only messages); clients localize.

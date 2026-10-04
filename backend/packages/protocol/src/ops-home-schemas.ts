@@ -65,6 +65,14 @@ export const TextRun = Schema.Struct({
 
 const Sha256 = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)).annotate({ identifier: "HomeSha256", description: "SHA-256 of the bytes, lowercase hex." })
 
+/** A derived image of an attachment (a video's poster, an image's preview): JPEG or WebP, capped per variant. */
+const derivedImage = (identifier: string, maxBytes: number, description: string) =>
+  Schema.Struct({
+    hash: Sha256,
+    mime_type: Schema.Literals(["image/jpeg", "image/webp"]),
+    byte_count: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(maxBytes))
+  }).annotate({ identifier, description })
+
 export const Part = Schema.Union([
   Schema.Struct({ type: Schema.Literal("text"), text: Schema.String, runs: Schema.optionalKey(Schema.Array(TextRun)) }),
   Schema.Struct({
@@ -83,13 +91,8 @@ export const Part = Schema.Union([
     width: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0))),
     height: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0))),
     duration_ms: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))),
-    poster: Schema.optionalKey(
-      Schema.Struct({
-        hash: Sha256,
-        mime_type: Schema.Literals(["image/jpeg", "image/webp"]),
-        byte_count: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(2_000_000))
-      }).annotate({ identifier: "HomeAttachmentPoster", description: "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}." })
-    )
+    poster: Schema.optionalKey(derivedImage("HomeAttachmentPoster", 2_000_000, "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}.")),
+    preview: Schema.optionalKey(derivedImage("HomeAttachmentPreview", 512_000, "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."))
   }).annotate({ description: "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold." })
 ]).annotate({ identifier: "HomePart" })
 export const Parts = Schema.Array(Part).check(Schema.isMinLength(1), Schema.isMaxLength(16))

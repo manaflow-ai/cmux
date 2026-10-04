@@ -4,7 +4,7 @@ import type { Principal } from "@cmux/ownership"
 import { authenticate, withGrantClasses } from "./auth.ts"
 import type { AttachmentAccess, DownloadAccess } from "./conversation-do.ts"
 import type { Env } from "./env.ts"
-import { posterReady, randomId, slotKeys, type UploadSlot } from "./home-attachment-store.ts"
+import { derivedReady, randomId, slotKeys, type UploadSlot } from "./home-attachment-store.ts"
 import { streamInto } from "./home-attachment-stream.ts"
 import { ssoGate } from "./policy-gate.ts"
 import { presignUrl, type Presigner } from "./r2-presign.ts"
@@ -12,7 +12,7 @@ import { presignUrl, type Presigner } from "./r2-presign.ts"
 /**
  * Home attachment routes (home-messaging.md section 10.1):
  *
- * - POST /v1/home/attachments/intent {conversation, sha256, byte_count, mime_type, name, width?, height?, duration_ms?, poster?}
+ * - POST /v1/home/attachments/intent {conversation, sha256, byte_count, mime_type, name, width?, height?, duration_ms?, poster?, preview?}
  *   A current participant only; allow list, 100 MB cap, per-user quota. Answers
  *   {state: "exists"} for a hash this caller can already use here, otherwise a single-use slot:
  *   up to 32 MB {mode: "stream", upload_url} (PUT through the Worker, which hashes the bytes);
@@ -22,9 +22,10 @@ import { presignUrl, type Presigner } from "./r2-presign.ts"
  *   A video may declare `poster {sha256, byte_count, mime_type: image/jpeg|image/webp}` (2 MB):
  *   the answer adds `poster_upload` (PUT through the Worker, once, before the video commits);
  *   the poster is stored at `<object key>.poster` under the same slot and recorded on the video's record.
+ *   An image may declare `preview` the same way (512 KB): `preview_upload`, `<object key>.preview`.
  * - POST /v1/home/attachments/url {conversation, hash, message_id?, part_index?, variant?}: a
- *   10-minute signed GET URL; the file name comes from that message part. `variant: "poster"`
- *   signs the poster recorded with a video (`attachment.no_poster` when there is none).
+ *   10-minute signed GET URL; the file name comes from that message part. `variant: "poster"|"preview"`
+ *   signs the derived image recorded with a video or an image (`attachment.no_<variant>` when there is none).
  * - GET|HEAD /v1/home/attachments/<conversation>/<object id>?m&p&variant&a&e&k&s: signature (key
  *   id, method, conversation, object, part, variant, actor, expiry), then the owner's live
  *   participant and history-floor check on every request.
@@ -47,15 +48,16 @@ const failure = (f: Fail, headers: Record<string, string> = {}) => Response.json
 const success = (value: unknown) => Response.json({ ok: true, value }, { headers: NO_STORE })
 const isFail = (v: unknown): v is Fail => typeof v === "object" && v !== null && "status" in v && "code" in v
 
-type Poster = homeConversation.AttachmentPoster
+type Image = homeConversation.DerivedImage
+type Variant = homeConversation.DerivedVariant
 interface ConversationAttachments {
   attachmentAccess(entity: string, actor: string, hash: string): Promise<AttachmentAccess>
-  createUploadSlot(entity: string, actor: string, quotaUser: string, meta: { hash: string; byte_count: number; mime_type: string; poster?: Poster }, mode: UploadSlot["mode"], id: string): Promise<UploadSlot | null>
+  createUploadSlot(entity: string, actor: string, quotaUser: string, meta: { hash: string; byte_count: number; mime_type: string; derived?: Image }, mode: UploadSlot["mode"], id: string): Promise<UploadSlot | null>
   uploadSlot(entity: string, id: string, mode: UploadSlot["mode"], consume: boolean, actor?: string): Promise<UploadSlot | null>
-  posterSlot(entity: string, id: string): Promise<UploadSlot | null>
-  settlePoster(entity: string, id: string, etag: string | null): Promise<void>
+  derivedSlot(entity: string, id: string): Promise<UploadSlot | null>
+  settleDerived(entity: string, id: string, etag: string | null): Promise<void>
   settleSlot(entity: string, id: string): Promise<void>
-  commitAttachment(entity: string, slotId: string, etag?: string): Promise<{ ok: true; state: "stored" | "exists"; object_key: string; poster?: Poster } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }>
+  commitAttachment(entity: string, slotId: string, etag?: string): Promise<{ ok: true; state: "stored" | "exists"; object_key: string; derived?: Image } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }>
   downloadAccess(entity: string, actor: string, by: { hash: string } | { object_id: string }, at?: { message_id: string; part_index: number }): Promise<DownloadAccess | "forbidden">
 }
 interface UserAttachments {
@@ -90,10 +92,9 @@ const verify = (env: Env, kid: string, purpose: string, fields: ReadonlyArray<st
 }
 
 const UPLOAD = "home-attachment-upload"
-const POSTER_UPLOAD = "home-attachment-poster-upload"
+/** Each derived image is its own token purpose: an image token is never a poster or preview token, nor the other way. */
+const derivedPurpose = (variant: Variant) => `home-attachment-${variant}-upload`
 const DOWNLOAD = "home-attachment-download"
-/** The only `variant` of a download: a video's poster image. */
-export const POSTER = "poster"
 
 const uploadToken = (env: Env, conversation: string, slot: string, purpose = UPLOAD) => {
   const kid = currentKid(env)
@@ -107,7 +108,7 @@ export interface DownloadArgs {
   readonly expires: number
   readonly message?: string
   readonly part?: number
-  readonly variant?: typeof POSTER
+  readonly variant?: Variant
   /** Tests and rotation drills only; the Worker always signs with the current key and GET. */
   readonly kid?: string
   readonly method?: string
@@ -171,12 +172,22 @@ const finish = async (env: Env, conversation: string, slot: UploadSlot, etag: st
   if (committed.object_key !== slot.object_key) {
     await bucket.delete(slotKeys(slot))
     await userOf(env, slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
-  } else await userOf(env, slot.quota_user).recordAttachmentStorage(slot.quota_user, slot.object_key, slot.byte_count + (committed.poster?.byte_count ?? 0))
-  // The record's poster (first upload wins): the one a message part may claim.
-  return success({ state: committed.state, attachment: { hash: slot.hash, mime_type: slot.mime_type, byte_count: slot.byte_count, ...(committed.poster ? { poster: committed.poster } : {}) } })
+  } else await userOf(env, slot.quota_user).recordAttachmentStorage(slot.quota_user, slot.object_key, slot.byte_count + (committed.derived?.byte_count ?? 0))
+  // The record's poster or preview (first upload wins): the one a message part may claim.
+  return success({ state: committed.state, attachment: { hash: slot.hash, mime_type: slot.mime_type, byte_count: slot.byte_count, ...derivedField(slot.mime_type, committed.derived) } })
 }
 
-const posterMissing = () => failure({ status: 409, code: "attachment.poster_missing", message: "PUT the declared poster to poster_upload before the video" })
+/** `{poster}` or `{preview}` (by the attachment's type) for an answer, or nothing. */
+const derivedField = (mime: string, image: Image | undefined): Record<string, Image> => {
+  const variant = homeConversation.derivedVariantOf(mime)
+  return variant && image ? { [variant]: { hash: image.hash, mime_type: image.mime_type, byte_count: image.byte_count } } : {}
+}
+
+/** A slot whose declared poster or preview is not stored yet: 409, the slot stays usable. */
+const derivedMissing = (slot: UploadSlot): Response | null => {
+  const variant = homeConversation.derivedVariantOf(slot.mime_type)
+  return derivedReady(slot) || !variant ? null : failure({ status: 409, code: `attachment.${variant}_missing`, message: `PUT the declared ${variant} to ${variant}_upload before the attachment` })
+}
 
 // --- Routes ---
 
@@ -192,9 +203,9 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
   const checked = homeConversation.validateAttachmentMeta(body)
   if (!checked.ok) return failure({ status: checked.code === "attachment.too_large" ? 413 : checked.code === "attachment.type_refused" ? 415 : 400, code: checked.code, message: checked.message })
   const meta = checked.meta
-  const posterCheck = homeConversation.validatePosterMeta((body as { poster?: unknown }).poster, checked.class)
-  if (!posterCheck.ok) return failure({ status: posterCheck.code === "attachment.too_large" ? 413 : posterCheck.code === "attachment.type_refused" ? 415 : 400, code: posterCheck.code, message: posterCheck.message })
-  const poster = posterCheck.poster
+  const derivedCheck = homeConversation.validateDerivedImages(body as Record<string, unknown>, checked.class)
+  if (!derivedCheck.ok) return failure({ status: derivedCheck.code === "attachment.too_large" ? 413 : derivedCheck.code === "attachment.type_refused" ? 415 : 400, code: derivedCheck.code, message: derivedCheck.message })
+  const derived = derivedCheck.derived
   const mode: UploadSlot["mode"] = meta.byte_count > L.streamMaxBytes ? "presigned" : "stream"
   const s3 = s3Config(env)
   if (mode === "presigned" && !s3) return failure({ status: 503, code: "attachment.large_unavailable", message: `files over ${L.streamMaxBytes} bytes are not enabled on this deployment` })
@@ -206,23 +217,30 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
   if (!seen.open) return failure({ status: 409, code: "archived", message: "this conversation takes no new messages" })
   // Dedupe only for a hash this caller can already use here: never an answer about other conversations, members or hidden history.
   if (seen.record) {
-    const p = seen.record.poster
-    return success({ state: "exists", attachment: { hash: seen.record.hash, mime_type: seen.record.mime_type, byte_count: seen.record.byte_count, ...(p ? { poster: { hash: p.hash, mime_type: p.mime_type, byte_count: p.byte_count } } : {}) } })
+    const r = seen.record
+    return success({ state: "exists", attachment: { hash: r.hash, mime_type: r.mime_type, byte_count: r.byte_count, ...derivedField(r.mime_type, homeConversation.recordedImageOf(r)?.image) } })
   }
-  // Every slot is charged its declared bytes, poster included (refunded on an "exists" commit or an unused expiry).
+  // Every slot is charged its declared bytes, poster or preview included (refunded on an "exists" commit or an unused expiry).
   const slotId = randomId()
   const users = userOf(env, caller.user)
-  const quota = await users.takeAttachmentQuota(caller.user, slotId, meta.byte_count + (poster?.byte_count ?? 0))
+  const quota = await users.takeAttachmentQuota(caller.user, slotId, meta.byte_count + (derived?.image.byte_count ?? 0))
   if (!quota.ok) return failure({ status: 429, code: quota.code, message: `attachment quota reached (${quota.window})`, extra: { retry_after_ms: quota.retry_after_ms } })
-  const slot = await conversationOf(env, conversation).createUploadSlot(conversation, caller.actor, caller.user, { hash: meta.sha256, byte_count: meta.byte_count, mime_type: meta.mime_type, ...(poster ? { poster } : {}) }, mode, slotId)
+  const slot = await conversationOf(env, conversation).createUploadSlot(conversation, caller.actor, caller.user, { hash: meta.sha256, byte_count: meta.byte_count, mime_type: meta.mime_type, ...(derived ? { derived: derived.image } : {}) }, mode, slotId)
   if (!slot) {
     await users.refundAttachmentQuota(caller.user, slotId)
     return failure({ status: 403, code: "auth.forbidden", message: "not a participant of this conversation" })
   }
   const origin = new URL(request.url).origin
-  // Always through the Worker (small), whatever the video's mode.
-  const posterUpload = poster
-    ? { poster_upload: { method: "PUT", upload_url: `${origin}/v1/home/attachments/poster/${conversation}/${uploadToken(env, conversation, slot.id, POSTER_UPLOAD)}`, headers: { "content-length": String(poster.byte_count) }, expires_at: slot.expires_at } }
+  // Always through the Worker (small), whatever the attachment's mode.
+  const derivedUpload = derived
+    ? {
+        [`${derived.variant}_upload`]: {
+          method: "PUT",
+          upload_url: `${origin}/v1/home/attachments/${derived.variant}/${conversation}/${uploadToken(env, conversation, slot.id, derivedPurpose(derived.variant))}`,
+          headers: { "content-length": String(derived.image.byte_count) },
+          expires_at: slot.expires_at
+        }
+      }
     : {}
   if (mode === "stream") {
     return success({
@@ -232,7 +250,7 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
       upload_url: `${origin}/v1/home/attachments/upload/${conversation}/${uploadToken(env, conversation, slot.id)}`,
       headers: { "content-length": String(meta.byte_count) },
       expires_at: slot.expires_at,
-      ...posterUpload
+      ...derivedUpload
     })
   }
   // Signed headers the client must send as given: the length, the checksum (R2 rejects other bytes) and
@@ -249,7 +267,7 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
     // The URL ends exactly at the slot's stored expiry (the grace is counted from it).
     now: slot.expires_at - L.uploadTtlMs
   })
-  return success({ state: "upload", mode, method: "PUT", upload_url: url, headers, slot: slot.id, expires_at: slot.expires_at, ...posterUpload })
+  return success({ state: "upload", mode, method: "PUT", upload_url: url, headers, slot: slot.id, expires_at: slot.expires_at, ...derivedUpload })
 }
 
 /** PUT /v1/home/attachments/upload/<conversation>/<slot>.<kid>.<mac>: single use; the bytes must hash to the slot's sha256. */
@@ -260,10 +278,11 @@ export const handleAttachmentUpload = async (request: Request, env: Env, convers
   const [id, kid, sig, extra] = token.split(".")
   if (!id || !kid || !sig || extra !== undefined || !verify(env, kid, UPLOAD, [conversation, id], sig)) return invalid
   const conv = conversationOf(env, conversation)
-  // A video whose declared poster is not stored yet: refused before the slot is used, so the client PUTs the poster and retries.
+  // A declared poster or preview not stored yet: refused before the slot is used, so the client PUTs it and retries.
   const peek = await conv.uploadSlot(conversation, id, "stream", false)
   if (!peek) return invalid
-  if (!posterReady(peek)) return posterMissing()
+  const missing = derivedMissing(peek)
+  if (missing) return missing
   // Consumed before any byte is read: a second PUT with this slot is refused whatever happens next.
   const slot = await conv.uploadSlot(conversation, id, "stream", true)
   if (!slot) return invalid
@@ -277,21 +296,25 @@ export const handleAttachmentUpload = async (request: Request, env: Env, convers
   return finish(env, conversation, slot, put.etag)
 }
 
-/** PUT /v1/home/attachments/poster/<conversation>/<slot>.<kid>.<mac>: the declared poster of an open video slot, once; the bytes must hash to its sha256. */
-export const handleAttachmentPoster = async (request: Request, env: Env, conversation: string, token: string): Promise<Response> => {
+/**
+ * PUT /v1/home/attachments/<poster|preview>/<conversation>/<slot>.<kid>.<mac>: the declared poster
+ * (video) or preview (image) of an open slot, once; the bytes must hash to its sha256.
+ */
+export const handleAttachmentDerived = async (request: Request, env: Env, variant: Variant, conversation: string, token: string): Promise<Response> => {
   const off = configured(env)
   if (off) return failure(off)
-  const invalid = failure({ status: 403, code: "attachment.slot_invalid", message: "the poster slot is invalid, used or expired; ask for a new one" })
+  const invalid = failure({ status: 403, code: "attachment.slot_invalid", message: `the ${variant} slot is invalid, used or expired; ask for a new one` })
   const [id, kid, sig, extra] = token.split(".")
-  if (!id || !kid || !sig || extra !== undefined || !verify(env, kid, POSTER_UPLOAD, [conversation, id], sig)) return invalid
+  if (!id || !kid || !sig || extra !== undefined || !verify(env, kid, derivedPurpose(variant), [conversation, id], sig)) return invalid
   const conv = conversationOf(env, conversation)
-  const slot = await conv.posterSlot(conversation, id)
-  if (!slot?.poster) return invalid
-  const key = homeConversation.attachmentPosterKey(slot.object_key)
-  const put = await streamInto(env.HOME_ATTACHMENTS!, key, request, slot.poster.byte_count, slot.poster.hash, slot.poster.mime_type)
-  await conv.settlePoster(conversation, slot.id, put.ok ? (put.etag ?? "") : null)
-  if (!put.ok) return failure({ status: 400, code: put.code, message: "the poster bytes do not match the declared size and sha256" })
-  return success({ state: "poster_stored" })
+  const slot = await conv.derivedSlot(conversation, id)
+  // The token's purpose names the variant, and only a slot of that variant's class declares one.
+  if (!slot?.derived) return invalid
+  const key = homeConversation.attachmentDerivedKey(slot.object_key, variant)
+  const put = await streamInto(env.HOME_ATTACHMENTS!, key, request, slot.derived.byte_count, slot.derived.hash, slot.derived.mime_type)
+  await conv.settleDerived(conversation, slot.id, put.ok ? (put.etag ?? "") : null)
+  if (!put.ok) return failure({ status: 400, code: put.code, message: `the ${variant} bytes do not match the declared size and sha256` })
+  return success({ state: `${variant}_stored` })
 }
 
 /** POST /v1/home/attachments/commit {conversation, slot}: after a presigned PUT; HEADs size and SHA-256 before the object is usable. */
@@ -306,7 +329,8 @@ export const handleAttachmentCommit = async (request: Request, env: Env): Promis
   const invalid = failure({ status: 403, code: "attachment.slot_invalid", message: "the upload slot is invalid, used or expired; ask for a new one" })
   const peek = await conv.uploadSlot(body.conversation, body.slot, "presigned", false, caller.actor)
   if (!peek) return invalid
-  if (!posterReady(peek)) return posterMissing()
+  const missing = derivedMissing(peek)
+  if (missing) return missing
   const bucket = env.HOME_ATTACHMENTS!
   const head = await bucket.head(peek.object_key)
   // Not there yet: the slot stays, so the client may commit again after its PUT finishes.
@@ -333,23 +357,24 @@ export const handleAttachmentUrl = async (request: Request, env: Env): Promise<R
   if (!body || typeof body.conversation !== "string" || !CONVERSATION_ID.test(body.conversation) || !homeConversation.isSha256(body.hash)) return failure({ status: 400, code: "validation.invalid", message: "conversation and hash required" })
   const at = body.message_id === undefined ? undefined : typeof body.message_id === "string" && MESSAGE_ID.test(body.message_id) && Number.isInteger(body.part_index) && (body.part_index as number) >= 0 && (body.part_index as number) < 16 ? { message_id: body.message_id, part_index: body.part_index as number } : null
   if (at === null) return failure({ status: 400, code: "validation.invalid", message: "message_id needs a part_index" })
-  if (body.variant !== undefined && body.variant !== POSTER) return failure({ status: 400, code: "validation.invalid", message: `variant must be "${POSTER}"` })
-  const variant = body.variant === POSTER ? POSTER : undefined
+  if (body.variant !== undefined && !homeConversation.isDerivedVariant(body.variant)) return failure({ status: 400, code: "validation.invalid", message: `variant must be "poster" or "preview"` })
+  const variant = body.variant as Variant | undefined
   const slow = await limited(env, caller.user)
   if (slow) return failure(slow)
   const access = await conversationOf(env, body.conversation).downloadAccess(body.conversation, caller.actor, { hash: body.hash }, at)
   if (access === "forbidden") return failure({ status: 403, code: "auth.forbidden", message: "not a participant of this conversation" })
   if (!access) return failure({ status: 404, code: "attachment.not_found", message: "no such attachment in this conversation" })
-  // Never a fallback to the video: a poster URL exists only for a video (part) whose record holds a poster.
-  if (variant && !posterServed(access)) return failure({ status: 404, code: "attachment.no_poster", message: "this attachment has no poster" })
+  // Never a fallback to the original: a poster (preview) URL exists only for a video (image) part whose record holds one.
+  if (variant && !derivedServed(access, variant)) return noDerived(variant)
   const expires = Date.now() + L.downloadTtlMs
   const path = downloadPath(env, { conversation: body.conversation, objectId: access.record.object_id, actor: caller.actor, expires, ...(at ? { message: at.message_id, part: at.part_index } : {}), ...(variant ? { variant } : {}) })
   return success({ url: `${new URL(request.url).origin}${path}`, expires_at: expires })
 }
 
-/** The poster a download may serve: the record's (server-chosen key), for a video record and, when asked by part, a video part. */
-const posterServed = (access: NonNullable<DownloadAccess>) =>
-  homeConversation.ATTACHMENT_TYPES[access.record.mime_type] === "video" && (!access.part || homeConversation.ATTACHMENT_TYPES[access.part.mime_type] === "video") ? access.record.poster : undefined
+/** The derived image a download may serve: the record's (server-chosen key), for a record and, when asked by part, a part of the variant's class. */
+const derivedServed = (access: NonNullable<DownloadAccess>, variant: Variant) =>
+  homeConversation.derivedVariantOf(access.record.mime_type) === variant && (!access.part || homeConversation.derivedVariantOf(access.part.mime_type) === variant) ? access.record[variant] : undefined
+const noDerived = (variant: Variant) => failure({ status: 404, code: `attachment.no_${variant}`, message: `this attachment has no ${variant}` })
 
 /** `bytes=a-b`, `bytes=a-`, `bytes=-n` against `size`: the clamped range, "unsatisfiable", or null to serve everything. */
 export const parseRange = (header: string | null, size: number): { offset: number; length: number } | "unsatisfiable" | null => {
@@ -375,7 +400,7 @@ export const handleAttachmentDownload = async (request: Request, env: Env, conve
   const message = q.get("m") ?? undefined
   const part = message === undefined ? undefined : Number(q.get("p"))
   const variant = q.get("variant") ?? undefined
-  if (variant !== undefined && variant !== POSTER) return failure({ status: 403, code: "auth.forbidden", message: "the link is invalid or expired" })
+  if (variant !== undefined && !homeConversation.isDerivedVariant(variant)) return failure({ status: 403, code: "auth.forbidden", message: "the link is invalid or expired" })
   const args: DownloadArgs = { conversation, objectId, actor: q.get("a") ?? "", expires: Number(q.get("e")), ...(message ? { message, part: part! } : {}), ...(variant ? { variant } : {}) }
   const kid = q.get("k") ?? ""
   const denied = failure({ status: 403, code: "auth.forbidden", message: "the link is invalid or expired" })
@@ -384,13 +409,12 @@ export const handleAttachmentDownload = async (request: Request, env: Env, conve
   if (!signed || !args.actor || !Number.isSafeInteger(args.expires) || args.expires <= Date.now() || (message !== undefined && (!MESSAGE_ID.test(message) || !Number.isInteger(part)))) return denied
   const access = await conversationOf(env, conversation).downloadAccess(conversation, args.actor, { object_id: objectId }, message ? { message_id: message, part_index: part! } : undefined)
   if (!access || access === "forbidden") return denied
-  const poster = variant ? posterServed(access) : undefined
-  if (variant && !poster) return failure({ status: 404, code: "attachment.no_poster", message: "this attachment has no poster" })
-  // What is served: the recorded object, or the poster recorded with it (key, type, size and etag from the record, never from the request).
-  const rec = poster
-    ? { object_key: homeConversation.attachmentPosterKey(access.record.object_key), mime_type: poster.mime_type, byte_count: poster.byte_count, etag: poster.etag }
-    : access.record
-  const name = poster ? `poster.${EXTENSIONS[poster.mime_type] ?? "jpg"}` : (access.name ?? `attachment.${EXTENSIONS[rec.mime_type] ?? "bin"}`)
+  const image = variant ? derivedServed(access, variant) : undefined
+  if (variant && !image) return noDerived(variant)
+  // What is served: the recorded object, or the poster or preview recorded with it (key, type, size and etag from the record, never from the request).
+  const rec =
+    variant && image ? { object_key: homeConversation.attachmentDerivedKey(access.record.object_key, variant), mime_type: image.mime_type, byte_count: image.byte_count, etag: image.etag } : access.record
+  const name = variant && image ? `${variant}.${EXTENSIONS[image.mime_type] ?? "jpg"}` : (access.name ?? `attachment.${EXTENSIONS[rec.mime_type] ?? "bin"}`)
   const headers = new Headers({
     "content-type": homeConversation.servedContentType(rec.mime_type),
     "content-disposition": homeConversation.contentDisposition(rec.mime_type, name),

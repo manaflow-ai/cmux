@@ -288,7 +288,7 @@ export class ConversationDO extends OwnerDO<Head> {
     entity: string,
     actor: string,
     quotaUser: string,
-    meta: { hash: string; byte_count: number; mime_type: string; poster?: conversation.AttachmentPoster },
+    meta: { hash: string; byte_count: number; mime_type: string; derived?: conversation.DerivedImage },
     mode: store.UploadSlot["mode"],
     id: string
   ): Promise<store.UploadSlot | null> {
@@ -308,15 +308,15 @@ export class ConversationDO extends OwnerDO<Head> {
     return store.takeSlot(this.sqlStore, id, mode, consume, actor)
   }
 
-  /** The open slot whose declared poster may be PUT now (moved to `uploading`). */
-  async posterSlot(entity: string, id: string): Promise<store.UploadSlot | null> {
+  /** The open slot whose declared poster or preview may be PUT now (moved to `uploading`). */
+  async derivedSlot(entity: string, id: string): Promise<store.UploadSlot | null> {
     if (!this.existingState(entity)) return null
-    return store.takePoster(this.sqlStore, id)
+    return store.takeDerived(this.sqlStore, id)
   }
 
-  /** Ends a poster PUT: its etag when verified, null when refused (the client may PUT again). */
-  async settlePoster(entity: string, id: string, etag: string | null): Promise<void> {
-    if (this.existingState(entity)) store.settlePoster(this.sqlStore, id, etag)
+  /** Ends a poster or preview PUT: its etag when verified, null when refused (the client may PUT again). */
+  async settleDerived(entity: string, id: string, etag: string | null): Promise<void> {
+    if (this.existingState(entity)) store.settleDerived(this.sqlStore, id, etag)
   }
 
   /** Ends an `uploading` slot whose bytes failed verification (the Worker deleted its object). */
@@ -335,7 +335,7 @@ export class ConversationDO extends OwnerDO<Head> {
     entity: string,
     slotId: string,
     etag?: string
-  ): Promise<{ ok: true; state: "stored" | "exists"; object_key: string; poster?: conversation.AttachmentPoster } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }> {
+  ): Promise<{ ok: true; state: "stored" | "exists"; object_key: string; derived?: conversation.DerivedImage } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }> {
     if (!this.existingState(entity)) return { ok: false, code: "slot_gone" }
     const slot = store.slotIn(this.sqlStore, slotId, "uploading")
     if (!slot) return { ok: false, code: "slot_gone" }
@@ -344,13 +344,14 @@ export class ConversationDO extends OwnerDO<Head> {
       store.settleSlot(this.sqlStore, slot, false)
       return { ok: false, code: a ? "archived" : "auth.forbidden" }
     }
-    // The poster goes into the record only once verified (the Worker refuses to commit a video whose declared poster is missing).
-    const poster = slot.poster && slot.poster_state === "stored" ? { ...slot.poster, ...(slot.poster_etag ? { etag: slot.poster_etag } : {}) } : undefined
-    const r = store.commitRecord(this.sqlStore, { hash: slot.hash, object_id: slot.object_id, object_key: slot.object_key, mime_type: slot.mime_type, byte_count: slot.byte_count, ...(etag ? { etag } : {}), ...(poster ? { poster } : {}), uploader: slot.actor, quota_user: slot.quota_user, created_at: Date.now() })
+    // The poster or preview goes into the record only once verified (the Worker refuses to commit while a declared one is missing).
+    const variant = conversation.derivedVariantOf(slot.mime_type)
+    const image = slot.derived && slot.derived_state === "stored" && variant ? { [variant]: { ...slot.derived, ...(slot.derived_etag ? { etag: slot.derived_etag } : {}) } } : {}
+    const r = store.commitRecord(this.sqlStore, { hash: slot.hash, object_id: slot.object_id, object_key: slot.object_key, mime_type: slot.mime_type, byte_count: slot.byte_count, ...(etag ? { etag } : {}), ...image, uploader: slot.actor, quota_user: slot.quota_user, created_at: Date.now() })
     store.settleSlot(this.sqlStore, slot, r.record.object_key === slot.object_key)
     this.scheduleAlarm()
-    const kept = r.record.poster
-    return { ok: true, state: r.state, object_key: r.record.object_key, ...(kept ? { poster: { hash: kept.hash, mime_type: kept.mime_type, byte_count: kept.byte_count } } : {}) }
+    const kept = conversation.recordedImageOf(r.record)?.image
+    return { ok: true, state: r.state, object_key: r.record.object_key, ...(kept ? { derived: { hash: kept.hash, mime_type: kept.mime_type, byte_count: kept.byte_count } } : {}) }
   }
 
   /** Part `partIndex` of a message `actor` can see, when that part holds `hash`; undefined otherwise. */

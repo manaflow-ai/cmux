@@ -301,6 +301,13 @@ export type HomeAttachmentPoster = {
   readonly byte_count: number
 }
 
+/** Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: "preview"}. */
+export type HomeAttachmentPreview = {
+  readonly hash: HomeSha256
+  readonly mime_type: "image/jpeg" | "image/webp"
+  readonly byte_count: number
+}
+
 export type HomeChief = {
   readonly id: ChiefId
   readonly owner_user: string
@@ -438,6 +445,7 @@ export type HomePart = {
   readonly height?: number
   readonly duration_ms?: number
   readonly poster?: HomeAttachmentPoster
+  readonly preview?: HomeAttachmentPreview
 }
 
 export type HomeParticipant = {

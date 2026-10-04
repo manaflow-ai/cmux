@@ -67,11 +67,13 @@ export interface AttachmentPart {
   /** Video and audio length. */
   readonly duration_ms?: number
   /** Video only: the poster image uploaded with this video's slot (home-messaging.md section 10.1); must equal the record's. */
-  readonly poster?: AttachmentPoster
+  readonly poster?: DerivedImage
+  /** Image only: the small preview image uploaded with this image's slot (same rules as a poster); must equal the record's. */
+  readonly preview?: DerivedImage
 }
 
-/** A video's poster image: JPEG or WebP, stored next to the video under the same upload slot. */
-export interface AttachmentPoster {
+/** A derived image (a video's poster, an image's preview): JPEG or WebP, stored next to its attachment under the same upload slot. */
+export interface DerivedImage {
   readonly hash: string
   readonly mime_type: string
   readonly byte_count: number

@@ -6,7 +6,9 @@ import type { SqlStore } from "@cmux/ownership"
  * outside the op stream (never in events or snapshots). Single writer: the ConversationDO.
  *
  * - `home_attachment_objects`: one row per verified upload (hash, random object id, R2 key, type,
- *   size, etag, uploaders, quota user). No file names: names live only in message parts.
+ *   size, etag, derived image, uploaders, quota user). No file names: names live only in message parts.
+ *   The `poster*` columns hold the attachment's derived image, a video's poster or an image's
+ *   preview (home-core `derivedVariantOf` picks the variant by type); the names predate previews.
  * - `home_attachment_slots`: upload slots made at intent time. States: `open` (issued),
  *   `uploading` (its one PUT or commit started), `tombstone` (a presigned slot that ended without
  *   keeping its object: its URL may still be used until it expires). A slot row lives until the
@@ -20,7 +22,7 @@ import type { SqlStore } from "@cmux/ownership"
 type Sql = Pick<SqlStore, "exec">
 type Record = conversation.AttachmentRecord
 type Row = { hash: string; object_id: string; object_key: string; mime_type: string; byte_count: number; etag: string | null; poster?: string | null; uploaders: string; quota_user: string; created_at: number }
-type Poster = conversation.AttachmentPoster
+type Image = conversation.DerivedImage
 
 export interface UploadSlot {
   readonly id: string
@@ -34,10 +36,10 @@ export interface UploadSlot {
   readonly mode: "stream" | "presigned"
   readonly expires_at: number
   readonly state?: "open" | "uploading" | "tombstone"
-  /** A video's declared poster: uploaded once through the Worker (`open` -> `uploading` -> `stored`) before the video commits. */
-  readonly poster?: Poster
-  readonly poster_state?: "open" | "uploading" | "stored"
-  readonly poster_etag?: string
+  /** The declared poster (video) or preview (image): uploaded once through the Worker (`open` -> `uploading` -> `stored`) before the attachment commits. */
+  readonly derived?: Image
+  readonly derived_state?: "open" | "uploading" | "stored"
+  readonly derived_etag?: string
 }
 
 /**
@@ -60,7 +62,7 @@ const ENGINE_ROWS = "own_rows"
 const MAX_UPLOADERS = 64
 const GRACE = conversation.ATTACHMENT_LIMITS.unreferencedGraceMs
 
-/** Columns added after the first schema (poster support); added once per store instance. */
+/** Columns added after the first schema (derived images, first posters); added once per store instance. */
 const LATER_COLUMNS: ReadonlyArray<[string, string]> = [
   [OBJECTS, "poster TEXT"],
   [SLOTS, "poster TEXT"],
@@ -89,24 +91,28 @@ const ensure = (sql: Sql) => {
   }
   migrated.add(sql)
 }
-const posterOf = (json: string | null | undefined): (Poster & { etag?: string }) | undefined => (json ? (JSON.parse(json) as Poster & { etag?: string }) : undefined)
-const toRecord = (r: Row): Record => ({
-  hash: r.hash,
-  object_id: r.object_id,
-  object_key: r.object_key,
-  mime_type: r.mime_type,
-  byte_count: Number(r.byte_count),
-  ...(r.etag ? { etag: r.etag } : {}),
-  ...(r.poster ? { poster: posterOf(r.poster)! } : {}),
-  uploaders: JSON.parse(r.uploaders) as Array<string>,
-  quota_user: r.quota_user,
-  created_at: Number(r.created_at)
-})
+const imageOf = (json: string | null | undefined): conversation.RecordedImage | undefined => (json ? (JSON.parse(json) as conversation.RecordedImage) : undefined)
+const toRecord = (r: Row): Record => {
+  const variant = conversation.derivedVariantOf(r.mime_type)
+  return {
+    hash: r.hash,
+    object_id: r.object_id,
+    object_key: r.object_key,
+    mime_type: r.mime_type,
+    byte_count: Number(r.byte_count),
+    ...(r.etag ? { etag: r.etag } : {}),
+    ...(r.poster && variant ? { [variant]: imageOf(r.poster)! } : {}),
+    uploaders: JSON.parse(r.uploaders) as Array<string>,
+    quota_user: r.quota_user,
+    created_at: Number(r.created_at)
+  }
+}
 
-/** Every R2 key a slot may have written: its object and its poster. */
-export const slotKeys = (slot: Pick<UploadSlot, "object_key">): Array<string> => [slot.object_key, conversation.attachmentPosterKey(slot.object_key)]
+const keysOf = (objectKey: string, variant: conversation.DerivedVariant | undefined): Array<string> => (variant ? [objectKey, conversation.attachmentDerivedKey(objectKey, variant)] : [objectKey])
+/** Every R2 key a slot may have written: its object and its derived image. */
+export const slotKeys = (slot: Pick<UploadSlot, "object_key" | "mime_type">): Array<string> => keysOf(slot.object_key, conversation.derivedVariantOf(slot.mime_type))
 /** Every R2 key of a record. */
-export const recordKeys = (r: Record): Array<string> => (r.poster ? [r.object_key, conversation.attachmentPosterKey(r.object_key)] : [r.object_key])
+export const recordKeys = (r: Record): Array<string> => keysOf(r.object_key, conversation.recordedImageOf(r)?.variant)
 
 /** A random 128-bit hex id (object ids and slot ids). */
 export const randomId = () => crypto.randomUUID().replace(/-/g, "")
@@ -153,19 +159,19 @@ export const createSlot = (sql: Sql, slot: UploadSlot): void => {
     slot.object_key,
     slot.mode,
     slot.expires_at,
-    slot.poster ? JSON.stringify({ hash: slot.poster.hash, mime_type: slot.poster.mime_type, byte_count: slot.poster.byte_count }) : null,
-    slot.poster ? "open" : null
+    slot.derived ? JSON.stringify({ hash: slot.derived.hash, mime_type: slot.derived.mime_type, byte_count: slot.derived.byte_count }) : null,
+    slot.derived ? "open" : null
   )
 }
 
-type SlotRow = Omit<UploadSlot, "poster" | "poster_state" | "poster_etag"> & { poster?: string | null; poster_state?: UploadSlot["poster_state"] | null; poster_etag?: string | null }
+type SlotRow = Omit<UploadSlot, "derived" | "derived_state" | "derived_etag"> & { poster?: string | null; poster_state?: UploadSlot["derived_state"] | null; poster_etag?: string | null }
 const slotRow = ({ poster, poster_state, poster_etag, ...s }: SlotRow): UploadSlot => ({
   ...s,
   byte_count: Number(s.byte_count),
   expires_at: Number(s.expires_at),
-  ...(poster ? { poster: posterOf(poster)! } : {}),
-  ...(poster_state ? { poster_state } : {}),
-  ...(poster_etag ? { poster_etag } : {})
+  ...(poster ? { derived: imageOf(poster)! } : {}),
+  ...(poster_state ? { derived_state: poster_state } : {}),
+  ...(poster_etag ? { derived_etag: poster_etag } : {})
 })
 
 /** The slot `id` in `state`, or null. */
@@ -183,19 +189,19 @@ export const takeSlot = (sql: Sql, id: string, mode: UploadSlot["mode"], consume
   return { ...s, state: consume ? "uploading" : "open" }
 }
 
-/** Whether the slot's declared poster (if any) is stored, so the video may commit. */
-export const posterReady = (slot: UploadSlot): boolean => !slot.poster || slot.poster_state === "stored"
+/** Whether the slot's declared derived image (if any) is stored, so the attachment may commit. */
+export const derivedReady = (slot: UploadSlot): boolean => !slot.derived || slot.derived_state === "stored"
 
-/** The live open slot `id` whose declared poster is still `open`; moves the poster to `uploading` (one PUT at a time, once stored never again). */
-export const takePoster = (sql: Sql, id: string): UploadSlot | null => {
+/** The live open slot `id` whose declared derived image is still `open`; moves it to `uploading` (one PUT at a time, once stored never again). */
+export const takeDerived = (sql: Sql, id: string): UploadSlot | null => {
   const s = slotIn(sql, id, "open")
-  if (!s || !s.poster || s.poster_state !== "open" || s.expires_at <= Date.now()) return null
+  if (!s || !s.derived || s.derived_state !== "open" || s.expires_at <= Date.now()) return null
   sql.exec(`UPDATE ${SLOTS} SET poster_state = 'uploading' WHERE id = ?`, id)
-  return { ...s, poster_state: "uploading" }
+  return { ...s, derived_state: "uploading" }
 }
 
-/** Ends a poster PUT: `etag` when the bytes were verified (stored), null to let the client try again. */
-export const settlePoster = (sql: Sql, id: string, etag: string | null): void => {
+/** Ends a derived image PUT: `etag` when the bytes were verified (stored), null to let the client try again. */
+export const settleDerived = (sql: Sql, id: string, etag: string | null): void => {
   if (!has(sql, SLOTS)) return
   sql.exec(`UPDATE ${SLOTS} SET poster_state = ?, poster_etag = ? WHERE id = ? AND poster_state = 'uploading'`, etag === null ? "open" : "stored", etag, id)
 }
@@ -244,6 +250,7 @@ export const commitRecord = (sql: Sql, rec: Omit<Record, "uploaders" | "quota_us
     byte_count: rec.byte_count,
     ...(rec.etag ? { etag: rec.etag } : {}),
     ...(rec.poster ? { poster: rec.poster } : {}),
+    ...(rec.preview ? { preview: rec.preview } : {}),
     uploaders: [rec.uploader],
     quota_user: rec.quota_user,
     created_at: rec.created_at
@@ -256,7 +263,7 @@ export const commitRecord = (sql: Sql, rec: Omit<Record, "uploaders" | "quota_us
     record.mime_type,
     record.byte_count,
     record.etag ?? null,
-    record.poster ? JSON.stringify(record.poster) : null,
+    (record.poster ?? record.preview) ? JSON.stringify(record.poster ?? record.preview) : null,
     JSON.stringify(record.uploaders),
     record.quota_user,
     record.created_at

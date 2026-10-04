@@ -1,5 +1,5 @@
 import type { RowWrite } from "./engine-types.ts"
-import type { AttachmentPart, AttachmentPoster, Message, Part } from "./types.ts"
+import type { AttachmentPart, DerivedImage, Message, Part } from "./types.ts"
 
 /**
  * Home attachments (home-messaging.md section 2, `attachment` part): pure rules shared by the
@@ -14,6 +14,7 @@ import type { AttachmentPart, AttachmentPoster, Message, Part } from "./types.ts
 
 export type AttachmentClass = "image" | "video" | "audio" | "file"
 
+const KB = 1_000
 const MB = 1_000_000
 /** Every attachment limit in one place (decimal megabytes; backend lead decisions 2026-10-03). */
 export const ATTACHMENT_LIMITS = {
@@ -28,6 +29,8 @@ export const ATTACHMENT_LIMITS = {
   maxDurationMs: 24 * 3_600_000,
   /** A video's poster image (JPEG or WebP), uploaded through the Worker with its video's slot. */
   posterMaxBytes: 2 * MB,
+  /** An image's small preview (JPEG or WebP), uploaded the same way with its image's slot. */
+  previewMaxBytes: 512 * KB,
   /** Upload slot (both modes) and download URL lifetimes. */
   uploadTtlMs: 15 * 60_000,
   downloadTtlMs: 10 * 60_000,
@@ -56,8 +59,24 @@ export const ATTACHMENT_TYPES: Readonly<Record<string, AttachmentClass>> = {
   "audio/wav": "audio"
 }
 
-/** Poster image types (a video's still frame). */
-export const POSTER_TYPES: ReadonlySet<string> = new Set(["image/jpeg", "image/webp"])
+/**
+ * Derived images: at most one per attachment, chosen by its class (a video's `poster`, an image's
+ * `preview`). JPEG or WebP, uploaded through the Worker with the attachment's slot, stored at
+ * `attachmentDerivedKey(object key, variant)` and recorded on the attachment's record; downloads
+ * name the variant (home-messaging.md section 10.1).
+ */
+export type DerivedVariant = "poster" | "preview"
+export const DERIVED_VARIANTS: Readonly<Record<DerivedVariant, { readonly cls: AttachmentClass; readonly maxBytes: number }>> = {
+  poster: { cls: "video", maxBytes: ATTACHMENT_LIMITS.posterMaxBytes },
+  preview: { cls: "image", maxBytes: ATTACHMENT_LIMITS.previewMaxBytes }
+}
+export const isDerivedVariant = (v: unknown): v is DerivedVariant => v === "poster" || v === "preview"
+export const DERIVED_IMAGE_TYPES: ReadonlySet<string> = new Set(["image/jpeg", "image/webp"])
+/** The derived image an attachment of `mime` may carry, if any. */
+export const derivedVariantOf = (mime: string): DerivedVariant | undefined => {
+  const cls = ATTACHMENT_TYPES[mime]
+  return cls === "video" ? "poster" : cls === "image" ? "preview" : undefined
+}
 
 /** Text types download as text/plain attachments (never rendered as their own type). */
 export const servedContentType = (mime: string): string => (mime.startsWith("text/") || mime === "application/json" ? "text/plain; charset=utf-8" : mime)
@@ -138,41 +157,52 @@ export const validateAttachmentMeta = (input: unknown): MetaResult => {
   }
 }
 
-export type PosterResult =
-  | { readonly ok: true; readonly poster: AttachmentPoster | null }
-  | { readonly ok: false; readonly code: "validation.invalid" | "attachment.poster_refused" | "attachment.type_refused" | "attachment.too_large"; readonly message: string }
+export type DerivedResult =
+  | { readonly ok: true; readonly derived: { readonly variant: DerivedVariant; readonly image: DerivedImage } | null }
+  | { readonly ok: false; readonly code: "validation.invalid" | "attachment.poster_refused" | "attachment.preview_refused" | "attachment.type_refused" | "attachment.too_large"; readonly message: string }
 
-/**
- * The optional `poster {sha256, byte_count, mime_type}` of an upload intent: only for a video,
- * JPEG or WebP, at most `posterMaxBytes`. Null when absent.
- */
-export const validatePosterMeta = (input: unknown, cls: AttachmentClass): PosterResult => {
-  if (input === undefined || input === null) return { ok: true, poster: null }
-  if (cls !== "video") return { ok: false, code: "attachment.poster_refused", message: "only a video takes a poster" }
+/** One `<variant> {sha256, byte_count, mime_type}`: only on its class, JPEG or WebP, within its size cap. Null when absent. */
+export const validateDerivedMeta = (input: unknown, cls: AttachmentClass | undefined, variant: DerivedVariant): DerivedResult => {
+  if (input === undefined || input === null) return { ok: true, derived: null }
+  const rule = DERIVED_VARIANTS[variant]
+  if (cls !== rule.cls) return { ok: false, code: `attachment.${variant}_refused`, message: `only ${rule.cls === "video" ? "a video" : "an image"} takes a ${variant}` }
   const v = input as Record<string, unknown>
   if (typeof input !== "object" || !isSha256(v.sha256) || !Number.isInteger(v.byte_count) || (v.byte_count as number) <= 0 || typeof v.mime_type !== "string") {
-    return { ok: false, code: "validation.invalid", message: "poster needs sha256, byte_count and mime_type" }
+    return { ok: false, code: "validation.invalid", message: `${variant} needs sha256, byte_count and mime_type` }
   }
   const mime = v.mime_type.toLowerCase()
-  if (!POSTER_TYPES.has(mime)) return { ok: false, code: "attachment.type_refused", message: "a poster is image/jpeg or image/webp" }
-  if ((v.byte_count as number) > ATTACHMENT_LIMITS.posterMaxBytes) return { ok: false, code: "attachment.too_large", message: `posters are limited to ${ATTACHMENT_LIMITS.posterMaxBytes} bytes` }
-  return { ok: true, poster: { hash: v.sha256, byte_count: v.byte_count as number, mime_type: mime } }
+  if (!DERIVED_IMAGE_TYPES.has(mime)) return { ok: false, code: "attachment.type_refused", message: `a ${variant} is image/jpeg or image/webp` }
+  if ((v.byte_count as number) > rule.maxBytes) return { ok: false, code: "attachment.too_large", message: `a ${variant} is limited to ${rule.maxBytes} bytes` }
+  return { ok: true, derived: { variant, image: { hash: v.sha256, byte_count: v.byte_count as number, mime_type: mime } } }
 }
 
-/** A part's `poster {hash, mime_type, byte_count}` (video parts only), or null when invalid. */
-const cleanPoster = (input: unknown, cls: AttachmentClass | undefined): AttachmentPoster | null => {
-  if (cls !== "video" || typeof input !== "object" || input === null) return null
+/** The upload intent's optional `poster` and `preview` (each refused off its class, so at most one survives). */
+export const validateDerivedImages = (input: Readonly<Record<string, unknown>>, cls: AttachmentClass): DerivedResult => {
+  let found: DerivedResult = { ok: true, derived: null }
+  for (const variant of ["poster", "preview"] as const) {
+    const r = validateDerivedMeta(input[variant], cls, variant)
+    if (!r.ok) return r
+    if (r.derived) found = r
+  }
+  return found
+}
+
+/** A part's `<variant> {hash, mime_type, byte_count}` (only on its class), or null when invalid. */
+const cleanDerived = (input: unknown, cls: AttachmentClass | undefined, variant: DerivedVariant): DerivedImage | null => {
+  if (typeof input !== "object" || input === null) return null
   const v = input as Record<string, unknown>
-  const r = validatePosterMeta({ sha256: v.hash, byte_count: v.byte_count, mime_type: v.mime_type }, cls)
-  return r.ok && r.poster && r.poster.mime_type === v.mime_type ? r.poster : null
+  const r = validateDerivedMeta({ sha256: v.hash, byte_count: v.byte_count, mime_type: v.mime_type }, cls, variant)
+  return r.ok && r.derived && r.derived.image.mime_type === v.mime_type ? r.derived.image : null
 }
 
 /** Validates one `attachment` part (shape and the same type, name and size rules); throws nothing, returns null when invalid. */
 export const cleanAttachmentPart = (part: Record<string, unknown>): AttachmentPart | null => {
   const r = validateAttachmentMeta({ ...part, sha256: part.hash })
   if (!r.ok || r.meta.mime_type !== part.mime_type) return null
-  const poster = part.poster === undefined ? undefined : cleanPoster(part.poster, ATTACHMENT_TYPES[r.meta.mime_type])
-  if (poster === null) return null
+  const cls = ATTACHMENT_TYPES[r.meta.mime_type]
+  const poster = part.poster === undefined ? undefined : cleanDerived(part.poster, cls, "poster")
+  const preview = part.preview === undefined ? undefined : cleanDerived(part.preview, cls, "preview")
+  if (poster === null || preview === null) return null
   return {
     type: "attachment",
     hash: r.meta.sha256,
@@ -182,7 +212,8 @@ export const cleanAttachmentPart = (part: Record<string, unknown>): AttachmentPa
     ...(r.meta.width === undefined ? {} : { width: r.meta.width }),
     ...(r.meta.height === undefined ? {} : { height: r.meta.height }),
     ...(r.meta.duration_ms === undefined ? {} : { duration_ms: r.meta.duration_ms }),
-    ...(poster ? { poster } : {})
+    ...(poster ? { poster } : {}),
+    ...(preview ? { preview } : {})
   }
 }
 
@@ -201,8 +232,9 @@ export interface AttachmentRecord {
   readonly byte_count: number
   /** R2 etag at commit; downloads read only this version. */
   readonly etag?: string
-  /** A video's poster, uploaded with the same slot and stored at `attachmentPosterKey(object_key)`; its etag pins downloads too. */
-  readonly poster?: AttachmentPoster & { readonly etag?: string }
+  /** A video's poster or an image's preview, uploaded with the same slot and stored at `attachmentDerivedKey(object_key, variant)`; its etag pins downloads too. */
+  readonly poster?: RecordedImage
+  readonly preview?: RecordedImage
   /** Actors who uploaded these bytes here (each may use the object before any message references it). */
   readonly uploaders: ReadonlyArray<string>
   /** The user whose stored-bytes quota the object counts against (the first uploader's user). */
@@ -210,9 +242,18 @@ export interface AttachmentRecord {
   readonly created_at: number
 }
 
+export type RecordedImage = DerivedImage & { readonly etag?: string }
+
+/** The derived image a record holds (by its class), if any. */
+export const recordedImageOf = (rec: Pick<AttachmentRecord, "mime_type" | "poster" | "preview">): { readonly variant: DerivedVariant; readonly image: RecordedImage } | undefined => {
+  const variant = derivedVariantOf(rec.mime_type)
+  const image = variant ? rec[variant] : undefined
+  return variant && image ? { variant, image } : undefined
+}
+
 export const attachmentObjectKey = (conversation: string, objectId: string) => `home/v1/${conversation}/${objectId}`
-/** The poster object of a video stored at `objectKey` (same slot, same prefix). */
-export const attachmentPosterKey = (objectKey: string) => `${objectKey}.poster`
+/** The derived image object of an attachment stored at `objectKey` (same slot, same prefix). */
+export const attachmentDerivedKey = (objectKey: string, variant: DerivedVariant) => `${objectKey}.${variant}`
 export const attachmentPrefix = (conversation: string) => `home/v1/${conversation}/`
 
 /**
@@ -222,7 +263,7 @@ export const attachmentPrefix = (conversation: string) => `home/v1/${conversatio
  */
 export const TABLE_ATTREF = "attref"
 
-/** Every hash a part list references (a poster belongs to its video's record, not a hash of its own). */
+/** Every hash a part list references (a poster or preview belongs to its attachment's record, not a hash of its own). */
 export const attachmentHashes = (parts: ReadonlyArray<Part>): Set<string> => {
   const out = new Set<string>()
   for (const p of parts) if (p.type === "attachment") out.add(p.hash)
@@ -236,16 +277,17 @@ export const attachmentHashes = (parts: ReadonlyArray<Part>): Set<string> => {
  */
 export type AttachmentLookup = (hash: string, actor: string, floor: number) => AttachmentRecord | undefined
 
-/** The owner's check for `actor`: each part's hash is usable by the author, and its type, size and claimed poster match the record. */
+/** The owner's check for `actor`: each part's hash is usable by the author, and its type, size and claimed poster or preview match the record. */
 export const checkAttachments = (parts: ReadonlyArray<Part>, lookup: AttachmentLookup, actor: string, floor: number): "unknown_attachment" | "attachment_mismatch" | null => {
   for (const p of parts) {
     if (p.type !== "attachment") continue
     const rec = lookup(p.hash, actor, floor)
     if (!rec) return "unknown_attachment"
     if (rec.mime_type !== p.mime_type || rec.byte_count !== p.byte_count) return "attachment_mismatch"
-    if (p.poster !== undefined) {
-      const kept = rec.poster
-      if (!kept || kept.hash !== p.poster.hash || kept.mime_type !== p.poster.mime_type || kept.byte_count !== p.poster.byte_count) return "attachment_mismatch"
+    for (const variant of ["poster", "preview"] as const) {
+      const claimed = p[variant]
+      const kept = rec[variant]
+      if (claimed && (!kept || kept.hash !== claimed.hash || kept.mime_type !== claimed.mime_type || kept.byte_count !== claimed.byte_count)) return "attachment_mismatch"
     }
   }
   return null

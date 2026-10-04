@@ -1680,6 +1680,36 @@
       },
       "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
     },
+    "HomeAttachmentPreview": {
+      "kind": "object",
+      "fields": {
+        "hash": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "HomeSha256"
+          }
+        },
+        "mime_type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "image/jpeg",
+              "image/webp"
+            ]
+          }
+        },
+        "byte_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      },
+      "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
+    },
     "HomeChief": {
       "kind": "object",
       "fields": {
@@ -2584,6 +2614,13 @@
               "type": {
                 "kind": "ref",
                 "name": "HomeAttachmentPoster"
+              }
+            },
+            "preview": {
+              "required": false,
+              "type": {
+                "kind": "ref",
+                "name": "HomeAttachmentPreview"
               }
             }
           }
@@ -14107,6 +14144,33 @@
             "additionalProperties": true,
             "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
           },
+          "HomeAttachmentPreview": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -14208,6 +14272,9 @@
                   },
                   "poster": {
                     "$ref": "#/$defs/HomeAttachmentPoster"
+                  },
+                  "preview": {
+                    "$ref": "#/$defs/HomeAttachmentPreview"
                   }
                 },
                 "required": [
@@ -14856,6 +14923,33 @@
             "additionalProperties": true,
             "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
           },
+          "HomeAttachmentPreview": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -14957,6 +15051,9 @@
                   },
                   "poster": {
                     "$ref": "#/$defs/HomeAttachmentPoster"
+                  },
+                  "preview": {
+                    "$ref": "#/$defs/HomeAttachmentPreview"
                   }
                 },
                 "required": [
@@ -16046,6 +16143,33 @@
             "additionalProperties": true,
             "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
           },
+          "HomeAttachmentPreview": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -16147,6 +16271,9 @@
                   },
                   "poster": {
                     "$ref": "#/$defs/HomeAttachmentPoster"
+                  },
+                  "preview": {
+                    "$ref": "#/$defs/HomeAttachmentPreview"
                   }
                 },
                 "required": [
@@ -16874,6 +17001,33 @@
             "additionalProperties": true,
             "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
           },
+          "HomeAttachmentPreview": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -16975,6 +17129,9 @@
                   },
                   "poster": {
                     "$ref": "#/$defs/HomeAttachmentPoster"
+                  },
+                  "preview": {
+                    "$ref": "#/$defs/HomeAttachmentPreview"
                   }
                 },
                 "required": [
@@ -33858,6 +34015,33 @@
             "additionalProperties": true,
             "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
           },
+          "HomeAttachmentPreview": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -33959,6 +34143,9 @@
                   },
                   "poster": {
                     "$ref": "#/$defs/HomeAttachmentPoster"
+                  },
+                  "preview": {
+                    "$ref": "#/$defs/HomeAttachmentPreview"
                   }
                 },
                 "required": [
@@ -34358,6 +34545,33 @@
             "additionalProperties": true,
             "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
           },
+          "HomeAttachmentPreview": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -34459,6 +34673,9 @@
                   },
                   "poster": {
                     "$ref": "#/$defs/HomeAttachmentPoster"
+                  },
+                  "preview": {
+                    "$ref": "#/$defs/HomeAttachmentPreview"
                   }
                 },
                 "required": [
