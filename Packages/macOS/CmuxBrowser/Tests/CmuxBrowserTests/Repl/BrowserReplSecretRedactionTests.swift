@@ -12,7 +12,7 @@ struct BrowserReplSecretRedactionTests {
     /// RFC 6238's test key, base32.
     private static let totpSeed = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
 
-    private func makeSession(_ driver: ScriptedPageDriver, cwd: String = FileManager.default.temporaryDirectory.path) -> BrowserReplSession? {
+    private func makeSession(_ driver: any BrowserReplDriver, cwd: String = FileManager.default.temporaryDirectory.path) -> BrowserReplSession? {
         guard let bundle = try? browserReplRepositoryBundle() else { return nil }
         return BrowserReplSession(id: "redaction-\(UUID().uuidString)", cwd: cwd, bundle: bundle, driver: driver)
     }
@@ -104,7 +104,79 @@ struct BrowserReplSecretRedactionTests {
         #expect(output.contains("masked true true 255 128"), "\(output)")
     }
 
+    /// Session A typed a secret into a tab; session B (`tabs.use`) does not
+    /// hold it. Every output B's own secrets are masked in (fetch bodies
+    /// read with the tab's cookies, files B writes and reads back, a page's
+    /// download, output lines, the cell's error) masks A's value too, not
+    /// only driver results and events.
+    @Test("A secret another session typed into a tab is masked in fetch, fs, output and errors")
+    func anotherSessionsTypedSecretIsRedactedOutsideDriverResults() async throws {
+        let value = Self.value
+        let server = try BrowserReplTestHTTPServer { path, _, _ in
+            if path == "/blob" {
+                var body = Data([0xff, 0x00])
+                body.append(Data(value.utf8))
+                body.append(Data([0x80]))
+                return (200, ["Content-Type": "application/octet-stream"], body)
+            }
+            return (200, ["Content-Type": "application/json", "X-Echo": value], Data(#"{"password":"\#(value)"}"#.utf8))
+        }
+        try await server.start()
+        defer { server.stop() }
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-typed-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        try Data("download: \(value)\n".utf8).write(to: work.appendingPathComponent("download.txt"))
+        let typed = BrowserReplSecretStore()
+        typed.setLiteral(key: "typed-1", maskName: "password", value: value, domains: [])
+        let session = try #require(makeSession(TypedSecretsPageDriver(typed: typed), cwd: work.path))
+        defer { session.close() }
+        let result = await run(session, """
+        const fs = await import("node:fs");
+        const response = await fetch("http://127.0.0.1:\(server.port)/profile");
+        const json = await response.text();
+        console.log("fetch", json.split("").join(" "), response.headers.get("x-echo").split("").join(" "));
+        const bytes = new Uint8Array(await (await fetch("http://127.0.0.1:\(server.port)/blob")).arrayBuffer());
+        console.log("binary", Array.from(bytes, (b) => String.fromCharCode(b)).join("").split("").join(" "));
+        console.log("file", fs.readFileSync("./download.txt", "utf8").split("").join(" "));
+        fs.writeFileSync("./written.txt", "\(value)");
+        console.log("line \(value)");
+        throw new Error("failed with \(value)");
+        """)
+        let output = result?.lines.map(\.text).joined(separator: "\n") ?? ""
+        #expect(!output.contains(spelled(value)), "\(output)")
+        #expect(!output.contains(value), "\(output)")
+        #expect(output.contains("line <secret:password>"), "\(output)")
+        #expect(output.components(separatedBy: spelled("<secret:password>")).count - 1 >= 4, "\(output)")
+        let error = result?.error ?? ""
+        #expect(error.contains("<secret:password>") && !error.contains(value), "\(error)")
+        let written = try String(contentsOf: work.appendingPathComponent("written.txt"), encoding: .utf8)
+        #expect(written == "<secret:password>", "\(written)")
+    }
+
     private func currentCode() -> String {
         BrowserReplSecretStore.totp(key: BrowserReplSecretStore.base32Decode(Self.totpSeed) ?? Data(), time: Date().timeIntervalSince1970)
     }
+}
+
+/// A page driver whose app reports a secret another session typed into a
+/// tab this session reaches (``BrowserReplTypedSecrets``).
+private final class TypedSecretsPageDriver: BrowserReplDriver, @unchecked Sendable {
+    private let page = ScriptedPageDriver()
+    private let typed: BrowserReplSecretStore
+
+    init(typed: BrowserReplSecretStore) {
+        self.typed = typed
+    }
+
+    var capabilities: [String] { page.capabilities }
+
+    func call(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
+        await page.call(method: method, paramsJSON: paramsJSON)
+    }
+
+    func attach(eventSink: @escaping BrowserReplDriverEventSink) {}
+    func detach() {}
+
+    func typedSecretRedaction() -> BrowserReplSecretStore? { typed }
 }
