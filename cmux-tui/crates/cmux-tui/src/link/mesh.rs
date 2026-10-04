@@ -87,15 +87,18 @@ impl Overlay for MeshOverlay {
     /// ones. Unchanged peers keep their sessions.
     async fn sync_peers(&self, pairings: &Pairings) -> io::Result<()> {
         let wanted = wanted(pairings)?;
-        let current = self.peers.lock().unwrap().clone();
+        let current = self.peers.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
         for (key, shape) in &current {
             if wanted.get(key) != Some(shape) {
                 self.mesh.remove_peer(*key).await.map_err(io::Error::other)?;
-                self.peers.lock().unwrap().remove(key);
+                self.peers.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(key);
             }
         }
         for (key, shape) in wanted {
-            if self.peers.lock().unwrap().get(&key) == Some(&shape) || self.is_cloud_key(&key) {
+            if self.peers.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&key)
+                == Some(&shape)
+                || self.is_cloud_key(&key)
+            {
                 continue;
             }
             let peer = WgPeer {
@@ -106,7 +109,7 @@ impl Overlay for MeshOverlay {
                 persistent_keepalive: Some(KEEPALIVE_SECONDS),
             };
             self.mesh.add_peer(peer).await.map_err(io::Error::other)?;
-            self.peers.lock().unwrap().insert(key, shape);
+            self.peers.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(key, shape);
         }
         Ok(())
     }
@@ -120,7 +123,7 @@ impl Overlay for MeshOverlay {
         // One change at a time, so two dials or a dial and an event never
         // interleave their remove and add steps.
         let _change = self.cloud_ops.lock().await;
-        if self.peers.lock().unwrap().contains_key(&key) {
+        if self.peers.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains_key(&key) {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "a Cloud host names the key of a paired peer",
@@ -136,13 +139,14 @@ impl Overlay for MeshOverlay {
             }
         };
         let shape = (cloud_networks(info)?, route);
-        let previous = self.cloud.lock().unwrap().get(host).cloned();
+        let previous =
+            self.cloud.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(host).cloned();
         if previous.as_ref() == Some(&(key, shape.clone())) {
             return Ok(());
         }
         if let Some((old_key, _)) = previous {
             self.mesh.remove_peer(old_key).await.map_err(io::Error::other)?;
-            self.cloud.lock().unwrap().remove(host);
+            self.cloud.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(host);
         }
         let peer = WgPeer {
             public_key: key,
@@ -152,14 +156,18 @@ impl Overlay for MeshOverlay {
             persistent_keepalive: Some(KEEPALIVE_SECONDS),
         };
         self.mesh.add_peer(peer).await.map_err(io::Error::other)?;
-        self.cloud.lock().unwrap().insert(host.to_string(), (key, shape));
+        self.cloud
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(host.to_string(), (key, shape));
         self.drop_unused_gateways().await;
         Ok(())
     }
 
     async fn forget_cloud_peer(&self, host: &str) -> io::Result<()> {
         let _change = self.cloud_ops.lock().await;
-        let removed = self.cloud.lock().unwrap().remove(host);
+        let removed =
+            self.cloud.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(host);
         if let Some((key, _)) = removed {
             self.mesh.remove_peer(key).await.map_err(io::Error::other)?;
         }
@@ -178,14 +186,20 @@ impl Overlay for MeshOverlay {
 
 impl MeshOverlay {
     fn is_cloud_key(&self, key: &[u8; 32]) -> bool {
-        self.cloud.lock().unwrap().values().any(|(cloud_key, _)| cloud_key == key)
+        self.cloud
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .any(|(cloud_key, _)| cloud_key == key)
     }
 
     /// The mesh gateway for this install's tunnel `gateway` (keyed by its
     /// full value, so a changed endpoint or server key starts a new tunnel).
     /// Called with `cloud_ops` held.
     async fn gateway(&self, gateway: &Gateway) -> io::Result<GatewayId> {
-        if let Some((id, _)) = self.gateways.lock().unwrap().get(gateway) {
+        if let Some((id, _)) =
+            self.gateways.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(gateway)
+        {
             return Ok(*id);
         }
         let started =
@@ -196,7 +210,10 @@ impl MeshOverlay {
                 })??;
         let (net, socket) = started;
         let id = self.mesh.add_gateway(socket).await.map_err(io::Error::other)?;
-        self.gateways.lock().unwrap().insert(gateway.clone(), (id, net));
+        self.gateways
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(gateway.clone(), (id, net));
         Ok(id)
     }
 
@@ -206,7 +223,7 @@ impl MeshOverlay {
         let used: Vec<GatewayId> = self
             .cloud
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .values()
             .filter_map(|(_, (_, route))| match route {
                 Some(PeerRoute::Gateway { gateway, .. }) => Some(*gateway),
@@ -216,14 +233,18 @@ impl MeshOverlay {
         let unused: Vec<(Gateway, GatewayId)> = self
             .gateways
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
             .filter(|(_, (id, _))| !used.contains(id))
             .map(|(gateway, (id, _))| (gateway.clone(), *id))
             .collect();
         for (gateway, id) in unused {
             let _ = self.mesh.remove_gateway(id).await;
-            let tunnel = self.gateways.lock().unwrap().remove(&gateway);
+            let tunnel = self
+                .gateways
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(&gateway);
             if let Some((_, net)) = tunnel {
                 net.shutdown().await;
             }

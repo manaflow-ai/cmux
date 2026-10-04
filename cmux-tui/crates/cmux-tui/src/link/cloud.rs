@@ -85,14 +85,23 @@ impl<S: ConnectInfoSource> CloudResolver<S> {
         refresh: bool,
     ) -> Result<Resolved, ConnectInfoError> {
         let cached = (!refresh)
-            .then(|| self.cache.lock().unwrap().get(host, Instant::now()).cloned())
+            .then(|| {
+                self.cache
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .get(host, Instant::now())
+                    .cloned()
+            })
             .flatten();
         let info = match cached {
             Some(info) => info,
             None => {
                 let fetched = within(self.source.fetch(host)).await?;
                 // Only a real fetch refreshes the entry (the 300 s limit).
-                self.cache.lock().unwrap().insert(fetched, Instant::now())
+                self.cache
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .insert(fetched, Instant::now())
             }
         };
         let key = info.validate(host).map_err(ConnectInfoError::Invalid)?;
@@ -114,12 +123,15 @@ impl<S: ConnectInfoSource> CloudResolver<S> {
 
     /// `cloud.machine.removed`: drop the record at once.
     pub(super) fn forget(&self, host: &str) -> bool {
-        self.cache.lock().unwrap().remove(host)
+        self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(host)
     }
 
     /// `cloud.machine.upsert` with `revision`: drop an older record.
     pub(super) fn observe_revision(&self, host: &str, revision: u64) -> bool {
-        self.cache.lock().unwrap().observe_revision(host, revision)
+        self.cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .observe_revision(host, revision)
     }
 }
 

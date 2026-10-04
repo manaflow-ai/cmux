@@ -343,9 +343,10 @@ fn deflate(raw: &[u8]) -> Vec<u8> {
         Vec::with_capacity(raw.len() / 8),
         flate2::Compression::new(1),
     );
-    // Writing to a Vec cannot fail.
-    encoder.write_all(raw).expect("deflate into memory");
-    encoder.finish().expect("deflate into memory")
+    // Writing to a Vec is infallible in the current implementation. Keep the
+    // snapshot path non-panicking if that implementation ever changes.
+    let _ = encoder.write_all(raw);
+    encoder.finish().unwrap_or_default()
 }
 
 fn digest_json(surface: SurfaceId, digest: &TerminalSnapshotDigest) -> Value {
