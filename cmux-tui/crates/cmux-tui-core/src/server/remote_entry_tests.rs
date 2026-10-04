@@ -260,3 +260,63 @@ fn the_conversation_gate_admits_only_the_remote_allowlist() {
         assert_eq!(reply["error_code"], json!("remote_denied"), "{frame}: {reply}");
     }
 }
+
+/// A stamp for `inst_9` (never checked in the fixture); `check` adds the
+/// link's accepted-token field.
+fn stamp_inst_9(check: bool) -> String {
+    let peer = r#"{"install":"inst_9","user":"42","team":"team_a"}"#;
+    if check {
+        format!(r#"{{"link_peer":{peer},"check":"link_token"}}"#)
+    } else {
+        format!(r#"{{"link_peer":{peer}}}"#)
+    }
+}
+
+/// True when the entry closed the connection without a reply.
+fn closed(reader: &mut BufReader<UnixStream>) -> bool {
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap_or(0) == 0
+}
+
+/// A stream whose link stamped an accepted link token counts as the
+/// install's good control-plane check: it is bound and served, even for an
+/// install the daemon never checked before.
+#[test]
+fn a_link_token_stamp_records_the_install_check_and_is_served() {
+    let entry = entry(true, Arc::new(DenyAllGate));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, &stamp_inst_9(true));
+    send(&mut stream, r#"{"id":1,"cmd":"ping"}"#);
+    let reply = response(&mut reader);
+    assert_eq!(reply["error_code"], json!(REMOTE_DENIED), "{reply}");
+    let clients = remote_clients(&entry.mux);
+    assert_eq!(clients.len(), 1);
+    assert_eq!(entry.mux.conversation_principal(clients[0]), "remote_inst_9");
+}
+
+/// Without the field, an install that was never checked opens no stream.
+#[test]
+fn a_plain_stamp_of_an_unchecked_install_is_refused() {
+    let entry = entry(true, Arc::new(DenyAllGate));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, &stamp_inst_9(false));
+    send(&mut stream, r#"{"id":1,"cmd":"ping"}"#);
+    assert!(closed(&mut reader));
+    assert!(remote_clients(&entry.mux).is_empty());
+}
+
+/// Guard (security, green before and after): a peer cannot set the field. A stamp-shaped frame after
+/// the real stamp is only a frame: it is denied and records no check.
+#[test]
+fn a_peer_frame_that_looks_like_a_checked_stamp_records_nothing() {
+    let entry = entry(true, Arc::new(DenyAllGate));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, STAMP);
+    send(&mut stream, &stamp_inst_9(true));
+    let reply = response(&mut reader);
+    assert_eq!(reply["error_code"], json!(REMOTE_DENIED), "{reply}");
+    let (mut later, mut later_reader) = connect_as_link(&entry);
+    send(&mut later, &stamp_inst_9(false));
+    send(&mut later, r#"{"id":1,"cmd":"ping"}"#);
+    assert!(closed(&mut later_reader), "inst_9 was never checked");
+}

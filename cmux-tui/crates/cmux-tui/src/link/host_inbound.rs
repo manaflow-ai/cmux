@@ -75,7 +75,10 @@ where
     }
     match hello.service {
         Service::Daemon => {
-            hand_to_entry(stream, &peer, me.session_socket).await.map_err(HostRefused::Inbound)
+            // RED: the accepted token is not stamped yet.
+            hand_to_entry(stream, &peer, None, me.session_socket)
+                .await
+                .map_err(HostRefused::Inbound)
         }
         Service::Ssh => {
             let mut sshd = tokio::net::TcpStream::connect(me.sshd)

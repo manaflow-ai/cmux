@@ -205,7 +205,7 @@ fn serve_remote_connection(
         let _ = stream.shutdown(Shutdown::Both);
         return;
     }
-    let Some(peer) = read_stamp(&stream) else {
+    let Some(cmux_link::stamp::Stamp { peer, check: _ }) = read_stamp(&stream) else {
         let _ = stream.shutdown(Shutdown::Both);
         return;
     };
@@ -235,7 +235,7 @@ fn greet(stream: &UnixStream) -> std::io::Result<()> {
 
 /// Read the stamp one byte at a time, so no byte after it is consumed
 /// here, under one deadline for the whole line.
-fn read_stamp(stream: &UnixStream) -> Option<RemotePeer> {
+fn read_stamp(stream: &UnixStream) -> Option<cmux_link::stamp::Stamp> {
     let deadline = Instant::now() + STAMP_TIMEOUT;
     let mut line = Vec::with_capacity(256);
     let mut reader = stream;
