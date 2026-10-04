@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AcpmuxSnapshot } from "./model";
 import { dragHasFiles, filesFrom, readAttachments, type AttachmentError, type ComposerAttachment } from "./attachments";
@@ -50,6 +50,12 @@ function attachmentErrorText(error: AttachmentError): string {
   return COMPOSER_LABELS[error.reason].replace("{name}", error.name);
 }
 
+/// What the pane can do to the composer from outside it.
+export type ComposerHandle = {
+  /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest.
+  restore(text: string, attachments: ComposerAttachment[]): void;
+};
+
 type Props = {
   snapshot: AcpmuxSnapshot;
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
@@ -65,6 +71,9 @@ type Props = {
   accessory?: React.ReactNode;
   /// Also receives the prompt field's handle, for dictation, which writes into it as typing does.
   prompt?: React.RefObject<MarkdownFieldHandle | null>;
+  /// Receives the composer's handle, which puts a prompt a harness switch held back (its text
+  /// and attachments) into the composer.
+  handle?: React.Ref<ComposerHandle>;
   /// Opens the host's file and image picker; the + menu offers it only when set.
   onAttach?(): void;
   /// Searches the session's files; the + menu offers Search files only when set.
@@ -96,6 +105,7 @@ export function Composer({
   searchFiles,
   onProject,
   onOpenInWindow,
+  handle,
 }: Props) {
   const t = useT();
   const [findingFiles, setFindingFiles] = useState(false);
@@ -183,6 +193,27 @@ export function Composer({
     sendButton.current?.focus();
     if (snapshot.isWorking) refocusSend.current = false;
   });
+  useImperativeHandle(
+    handle,
+    () => ({
+      restore(restoredText, restoredAttachments) {
+        // What comes back goes first; what was typed or attached since stays after it.
+        const typed = field.current?.value() ?? "";
+        const next = typed.trim() ? `${restoredText}\n\n${typed}` : restoredText;
+        if (field.current) field.current.type(next);
+        else {
+          setText(next);
+          setCaret(next.length);
+        }
+        if (restoredAttachments.length)
+          setAttachments((current) => [
+            ...restoredAttachments,
+            ...current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id)),
+          ]);
+      },
+    }),
+    [],
+  );
   useEffect(() => {
     // The prompt's DOM value is the typed text; a draft never replaces it.
     if (!draft || field.current?.value()) return;

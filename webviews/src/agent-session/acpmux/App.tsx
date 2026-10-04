@@ -44,7 +44,8 @@ import { acpWire } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
-import { Composer } from "./Composer";
+import { Composer, type ComposerHandle } from "./Composer";
+import type { ComposerAttachment } from "./attachments";
 import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { HomeLists } from "./HomeLists";
@@ -1253,6 +1254,17 @@ function AcpmuxPane() {
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   /// The composer's prompt, which dictation writes into.
   const prompt = useRef<MarkdownFieldHandle>(null);
+  /// The composer itself, which takes back prompts a harness switch held; prompts handed back
+  /// while it is not mounted (a handoff review) go in when it mounts.
+  const composerHandle = useRef<ComposerHandle | null>(null);
+  const heldBack = useRef<{ text: string; attachments: ComposerAttachment[] }[] | undefined>(undefined);
+  const composerRef = useCallback((handle: ComposerHandle | null) => {
+    composerHandle.current = handle;
+    const waiting = heldBack.current;
+    if (!handle || !waiting) return;
+    heldBack.current = undefined;
+    for (const back of waiting) handle.restore(back.text, back.attachments);
+  }, []);
   useComposerKeyboard(() => {
     if (!prompt.current) return false;
     prompt.current.focus();
@@ -1401,12 +1413,11 @@ function AcpmuxPane() {
     /// Sessions a switch started whose first summary has not arrived: it names the model a new
     /// chat on that harness starts on.
     const startedSessions = new Set<string>();
-    /// Prompts a failed or cancelled switch held go back into the composer, before what was typed since.
-    const restorePrompt = (text: string) => {
-      const field = prompt.current;
-      if (!field) return setDraft(text);
-      const typed = field.value();
-      field.type(typed.trim() ? `${text}\n\n${typed}` : text);
+    /// Prompts a failed or cancelled switch held go back into the composer with their
+    /// attachments, before what was typed since; while no composer is mounted they wait for one.
+    const restorePrompt = (text: string, attachments: ComposerAttachment[]) => {
+      if (composerHandle.current) composerHandle.current.restore(text, attachments);
+      else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
     };
     const connectHost = async () => {
       if (connecting) return;
@@ -1822,6 +1833,7 @@ function AcpmuxPane() {
         searchFiles={fileRoot ? searchFiles : undefined}
         onOpenInWindow={quick ? openInWindow : undefined}
         prompt={prompt}
+        handle={composerRef}
         accessory={<DictationButton dictation={dictation} />}
       />
     </>

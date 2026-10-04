@@ -107,8 +107,9 @@ type Intent = {
 };
 
 export type SwitchHandlers = {
-  /// Puts prompts a failed or cancelled switch held back into the composer.
-  restore?(text: string): void;
+  /// Puts prompts a failed or cancelled switch held back into the composer: their text, joined
+  /// in order, and every attachment they carried, as they were.
+  restore?(text: string, attachments: ComposerAttachment[]): void;
   /// A switch's session opened (the host persists it as the tab's session).
   opened?(sessionId: string): void;
   /// A pick the agent refused (a model it would not switch to).
@@ -286,7 +287,7 @@ export class HarnessSwitch {
     const prompt = intent?.queued.find((candidate) => candidate.id === id);
     if (!intent || !prompt) return;
     intent.queued = intent.queued.filter((candidate) => candidate !== prompt);
-    this.handlers.restore?.(prompt.text);
+    this.handlers.restore?.(prompt.text, prompt.attachments);
     prompt.reject(new Error(t("switch.cancelled")));
     this.changed();
   }
@@ -342,7 +343,7 @@ export class HarnessSwitch {
     if (intent.sessionId && !intent.reused && intent.phase !== "failed") this.port?.discard(intent.sessionId);
     intent.sessionId = undefined;
     if (restoreQueued && intent.queued.length) {
-      this.handlers.restore?.(intent.queued.map((prompt) => prompt.text).join("\n\n"));
+      this.handBack(intent.queued);
       for (const prompt of intent.queued) prompt.reject(new Error(t("switch.cancelled")));
       intent.queued = [];
     }
@@ -419,6 +420,14 @@ export class HarnessSwitch {
     intent.done.resolve(opened);
   }
 
+  /// Prompts the composer gets back, with their attachments; nothing is lost.
+  private handBack(prompts: Queued[]): void {
+    this.handlers.restore?.(
+      prompts.map((prompt) => prompt.text).join("\n\n"),
+      prompts.flatMap((prompt) => prompt.attachments),
+    );
+  }
+
   private refused(model: string, error: unknown): void {
     this.handlers.notice?.(t("switch.modelFailed", { model, reason: errorText(error) || "?" }));
   }
@@ -427,7 +436,7 @@ export class HarnessSwitch {
     intent.phase = "failed";
     intent.error = errorText(error) || t("switch.unknownError");
     if (intent.queued.length) {
-      this.handlers.restore?.(intent.queued.map((prompt) => prompt.text).join("\n\n"));
+      this.handBack(intent.queued);
       const reason = new Error(intent.error);
       for (const prompt of intent.queued) prompt.reject(reason);
       intent.queued = [];
