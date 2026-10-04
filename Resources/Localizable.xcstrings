@@ -60,6 +60,183 @@
         }
       }
     },
+    "cli.remotes.error.invalidArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: invalid arguments."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: وسيطات غير صالحة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: ungültige Argumente."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: argumentos no válidos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ : arguments non valides."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：引数が無効です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: 잘못된 인수입니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：无效的参数。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：無效的引數。"
+          }
+        }
+      }
+    },
+    "cli.remotes.error.unexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: unexpected argument '%2$@'."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: وسيطة غير متوقعة '%2$@'."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: unerwartetes Argument '%2$@'."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: argumento inesperado '%2$@'."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ : argument inattendu '%2$@'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：予期しない引数 '%2$@' です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: 예상하지 못한 인수 '%2$@'입니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：意外的参数 '%2$@'。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：非預期的引數 '%2$@'。"
+          }
+        }
+      }
+    },
+    "cli.remotes.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: unknown flag '%2$@'."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: خيار غير معروف '%2$@'."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: unbekannte Option '%2$@'."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: opción desconocida '%2$@'."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ : option inconnue '%2$@'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：不明なオプション '%2$@' です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: 알 수 없는 옵션 '%2$@'입니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：未知的选项 '%2$@'。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：未知的選項 '%2$@'。"
+          }
+        }
+      }
+    },
     "projectPanel.reload": {
       "extractionState": "manual",
       "localizations": {
@@ -235604,6 +235781,381 @@
         }
       }
     },
+    "machines.new.plan.loading": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      }
+    }
+  },
+    "machines.new.plan.retry": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      }
+    }
+  },
+    "machines.new.plan.error": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      }
+    }
+  },
     "machines.new": {
       "extractionState": "manual",
       "localizations": {
@@ -261697,130 +262249,130 @@
       }
     },
     "mobile.pairing.error.teamUnavailable": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Could not load your cmux team. Check your internet connection, then try again."
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not load your cmux team. Check your internet connection, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux チームを読み込めませんでした。インターネット接続を確認してから、もう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载你的 cmux 团队。请检查网络连接，然后重试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein cmux-Team konnte nicht geladen werden. Prüfe deine Internetverbindung und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger votre équipe cmux. Vérifiez votre connexion Internet, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تحميل فريق cmux الخاص بك. تحقّق من اتصالك بالإنترنت، ثم حاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cargar tu equipo de cmux. Comprueba tu conexión a internet e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入你的 cmux 團隊。請檢查網路連線，然後再試一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 팀을 불러올 수 없습니다. 인터넷 연결을 확인한 후 다시 시도하세요."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće učitati vaš cmux tim. Provjerite internetsku vezu i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din cmux-team kunne ikke indlæses. Kontrollér din internetforbindelse, og prøv igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile caricare il tuo team cmux. Controlla la connessione Internet e riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចផ្ទុកក្រុម cmux របស់អ្នកបានទេ។ សូមពិនិត្យការតភ្ជាប់អ៊ីនធឺណិត ហើយព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke laste inn cmux-teamet ditt. Kontroller internettilkoblingen, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się załadować Twojego zespołu cmux. Sprawdź połączenie z internetem i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível carregar sua equipe cmux. Verifique sua conexão com a internet e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось загрузить вашу команду cmux. Проверьте подключение к интернету и попробуйте ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถโหลดทีม cmux ของคุณได้ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ekibiniz yüklenemedi. İnternet bağlantınızı kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося завантажити вашу команду cmux. Перевірте підключення до інтернету й спробуйте ще раз."
+          }
+        }
       }
     },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux チームを読み込めませんでした。インターネット接続を確認してから、もう一度お試しください。"
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "无法加载你的 cmux 团队。请检查网络连接，然后重试。"
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Dein cmux-Team konnte nicht geladen werden. Prüfe deine Internetverbindung und versuche es erneut."
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Impossible de charger votre équipe cmux. Vérifiez votre connexion Internet, puis réessayez."
-      }
-    },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "تعذّر تحميل فريق cmux الخاص بك. تحقّق من اتصالك بالإنترنت، ثم حاول مرة أخرى."
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "No se pudo cargar tu equipo de cmux. Comprueba tu conexión a internet e inténtalo de nuevo."
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "無法載入你的 cmux 團隊。請檢查網路連線，然後再試一次。"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux 팀을 불러올 수 없습니다. 인터넷 연결을 확인한 후 다시 시도하세요."
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Nije moguće učitati vaš cmux tim. Provjerite internetsku vezu i pokušajte ponovo."
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Din cmux-team kunne ikke indlæses. Kontrollér din internetforbindelse, og prøv igen."
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Impossibile caricare il tuo team cmux. Controlla la connessione Internet e riprova."
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "មិនអាចផ្ទុកក្រុម cmux របស់អ្នកបានទេ។ សូមពិនិត្យការតភ្ជាប់អ៊ីនធឺណិត ហើយព្យាយាមម្ដងទៀត។"
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Kunne ikke laste inn cmux-teamet ditt. Kontroller internettilkoblingen, og prøv igjen."
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Nie udało się załadować Twojego zespołu cmux. Sprawdź połączenie z internetem i spróbuj ponownie."
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Não foi possível carregar sua equipe cmux. Verifique sua conexão com a internet e tente novamente."
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Не удалось загрузить вашу команду cmux. Проверьте подключение к интернету и попробуйте ещё раз."
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "ไม่สามารถโหลดทีม cmux ของคุณได้ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วลองอีกครั้ง"
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux ekibiniz yüklenemedi. İnternet bağlantınızı kontrol edip tekrar deneyin."
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Не вдалося завантажити вашу команду cmux. Перевірте підключення до інтернету й спробуйте ще раз."
-      }
-    }
-  }
-},
     "mobile.pairing.error.noTicket": {
       "extractionState": "manual",
       "localizations": {
@@ -353948,6 +354500,124 @@
         }
       }
     },
+    "settings.search.alias.setting.betaFeatures.remote-tmux-origin-colors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote host colors remote host colors origin color tint per-host server workspace sidebar row tab beta unstable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートホストの色 接続元 カラー 色合い ホストごと サーバー ワークスペース サイドバー 行 タブ ベータ 不安定"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Host-Farben Herkunft Farbe Tönung pro Host Server Arbeitsbereich Seitenleiste Zeile Tab Beta instabil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleurs des hôtes distants origine couleur teinte par hôte serveur espace de travail barre latérale ligne onglet bêta instable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ألوان المضيف البعيد الأصل لون تلوين لكل مضيف خادم مساحة عمل شريط جانبي صف علامة تبويب تجريبي غير مستقر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colores de hosts remotos origen color tinte por host servidor espacio de trabajo barra lateral fila pestaña beta inestable"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端主機顏色 來源 色彩 著色 每台主機 伺服器 工作區 側邊欄 列 分頁 測試版 不穩定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程主机颜色 来源 色彩 着色 每台主机 服务器 工作区 侧边栏 行 标签页 测试版 不稳定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 호스트 색상 출처 색 색조 호스트별 서버 작업 공간 사이드바 행 탭 베타 불안정"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.betaFeatures.remote-tmux-origin-host-titles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote host names on duplicate titles hostname server duplicate same title collision workspace sidebar row beta unstable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重複タイトルにリモートホスト名を表示 ホスト名 サーバー 重複 同じタイトル 衝突 ワークスペース サイドバー 行 ベータ 不安定"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Host-Namen bei gleichen Titeln Hostname Server doppelt gleicher Titel Kollision Arbeitsbereich Seitenleiste Zeile Beta instabil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noms des hôtes distants pour les titres identiques nom hôte serveur doublon même titre conflit espace de travail barre latérale ligne bêta instable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أسماء المضيف البعيد للعناوين المكررة اسم المضيف خادم مكرر نفس العنوان تعارض مساحة عمل شريط جانبي صف تجريبي غير مستقر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombres de hosts remotos en títulos duplicados nombre host servidor duplicado mismo título colisión espacio de trabajo barra lateral fila beta inestable"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重複標題顯示遠端主機名稱 主機名稱 伺服器 重複 相同標題 衝突 工作區 側邊欄 列 測試版 不穩定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重复标题显示远程主机名称 主机名 服务器 重复 相同标题 冲突 工作区 侧边栏 行 测试版 不稳定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중복 제목의 원격 호스트 이름 호스트명 서버 중복 같은 제목 충돌 작업 공간 사이드바 행 베타 불안정"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.betaFeatures.workspace-todo-controls": {
       "extractionState": "manual",
       "localizations": {
@@ -403024,6 +403694,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "重新命名工作區"
+          }
+        }
+      }
+    },
+    "sidebar.workspace.titleWithHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
           }
         }
       }
@@ -550521,14 +551250,54 @@
             "value": "Workspace Color: %@"
           }
         },
-        "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereichfarbe: %@"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Couleur de l’espace de travail : %@"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "لون مساحة العمل: %@"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Color del espacio de trabajo: %@"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "工作區顏色：%@"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "工作区颜色：%@"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "작업 공간 색상: %@"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "ワークスペースの色: %@"}}
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereichfarbe: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur de l’espace de travail : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون مساحة العمل: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color del espacio de trabajo: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區顏色：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区颜色：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 색상: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの色: %@"
+          }
+        }
       }
     },
     "fileExplorer.preview.failedTitle": {
@@ -556906,6 +557675,360 @@
           "stringUnit": {
             "state": "translated",
             "value": "リモートホストの tmux セッションをサイドバーにワークスペースとして表示します。cmux を終了してもセッションは動作し続けます。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginColors": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ألوان المضيفين البعيدين"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farben für Remote-Hosts"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote host colors"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colores de hosts remotos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleurs des hôtes distants"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートホストの色"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 호스트 색상"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程主机颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端主機顏色"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginColors.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى مساحات العمل البعيدة بلا لون للمصدر حتى تفعّل هذا الخيار هنا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Arbeitsbereiche erhalten keine Herkunftsfarbe, bis du diese Option hier aktivierst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leaves remote workspaces without an origin color until you enable it here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los espacios de trabajo remotos no tienen color de origen hasta que lo actives aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les espaces de travail distants restent sans couleur d’origine tant que vous ne l’activez pas ici."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここで有効にするまで、リモートワークスペースにオリジンカラーを表示しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기에서 활성화하기 전까지 원격 작업 공간에는 출처 색상이 표시되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此处启用之前，远程工作区不会显示来源颜色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此處啟用之前，遠端工作區不會顯示來源顏色。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginColors.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُلوّن صف كل مساحة عمل بعيدة في الشريط الجانبي بلون ثابت خاص بكل مضيف لتسهيل التمييز بين الخوادم. يبقى اللون الذي تختاره يدويًا لمساحة العمل هو المُعتمد دائمًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Färbt die Seitenleistenzeile jedes Remote-Arbeitsbereichs mit einer festen Farbe pro Host, damit sich Server leicht unterscheiden lassen. Eine manuell gewählte Arbeitsbereichsfarbe hat immer Vorrang."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tints each remote workspace's sidebar row with a stable per-host color so servers are easy to tell apart. Your manual workspace color always wins."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiñe la fila de la barra lateral de cada espacio de trabajo remoto con un color estable por host para distinguir fácilmente los servidores. El color que asignes manualmente al espacio de trabajo siempre tiene prioridad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teinte la ligne de la barre latérale de chaque espace de travail distant avec une couleur stable par hôte, pour distinguer facilement les serveurs. La couleur choisie manuellement pour un espace de travail l’emporte toujours."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各リモートワークスペースのサイドバー行を、ホストごとに固定された色で色付けし、サーバーを見分けやすくします。手動で設定したワークスペースの色が常に優先されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 원격 작업 공간의 사이드바 행에 호스트별 고정 색상을 입혀 서버를 쉽게 구분할 수 있습니다. 직접 지정한 작업 공간 색상이 항상 우선합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为每个远程工作区的侧边栏行添加按主机固定的颜色，便于区分服务器。你手动设置的工作区颜色始终优先。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為每個遠端工作區的側邊欄列加上依主機固定的顏色，方便區分伺服器。你手動設定的工作區顏色一律優先。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginHostTitles": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أسماء المضيفين البعيدين في العناوين المكررة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Hostnamen bei doppelten Titeln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote host names on duplicate titles"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombres de hosts remotos en títulos duplicados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noms des hôtes distants dans les titres en double"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重複したタイトルにリモートホスト名を表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중복된 제목에 원격 호스트 이름 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在重复标题中显示远程主机名"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在重複標題中顯示遠端主機名稱"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginHostTitles.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى عناوين مساحات العمل المكررة كما هي حتى تفعّل هذا الخيار هنا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doppelte Arbeitsbereichstitel bleiben unverändert, bis du diese Option hier aktivierst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leaves duplicate workspace titles as they are until you enable it here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los títulos duplicados de los espacios de trabajo se mantienen igual hasta que lo actives aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les titres d’espaces de travail en double restent tels quels tant que vous ne l’activez pas ici."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここで有効にするまで、重複したワークスペースのタイトルはそのまま表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기에서 활성화하기 전까지 중복된 작업 공간 제목은 그대로 표시됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此处启用之前，重复的工作区标题保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此處啟用之前，重複的工作區標題維持不變。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginHostTitles.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما تتشارك مساحات العمل عنوانًا واحدًا، يُعرض اسم مضيف كل مساحة بعيدة بعد العنوان دون النطاق المشترك بين المضيفين."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn Arbeitsbereiche denselben Titel haben, wird bei jedem Remote-Arbeitsbereich der Host nach dem Titel angezeigt, ohne die gemeinsame Domain der Hosts."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When workspaces share a title, shows each remote one's host after the title, leaving off the domain the hosts share."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando varios espacios de trabajo comparten título, muestra el host de cada espacio remoto después del título, sin el dominio que comparten los hosts."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lorsque des espaces de travail portent le même titre, affiche l’hôte de chaque espace distant après le titre, sans le domaine que les hôtes partagent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのタイトルが重複している場合、各リモートワークスペースのタイトルの後にホスト名を表示します。ホストに共通するドメインは省略します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간의 제목이 같으면 각 원격 작업 공간의 제목 뒤에 호스트 이름을 표시하며, 호스트에 공통된 도메인은 생략합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当多个工作区标题相同时，在每个远程工作区的标题后显示主机名，并省略这些主机共有的域名。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當多個工作區標題相同時，在每個遠端工作區的標題後顯示主機名稱，並省略這些主機共用的網域。"
           }
         }
       }
@@ -568588,70 +569711,70 @@
             "value": "cmux 重新開啟後仍在還原此終端機，並確認要恢復哪個代理工作階段。請幾秒後再試。"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux još vraća terminal nakon ponovnog otvaranja i provjerava koju sesiju agenta treba nastaviti. Pokušajte ponovo za nekoliko sekundi."
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux još vraća terminal nakon ponovnog otvaranja i provjerava koju sesiju agenta treba nastaviti. Pokušajte ponovo za nekoliko sekundi."
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux gendanner stadig terminalen efter genåbning og tjekker, hvilken agentsession der skal genoptages. Prøv igen om et par sekunder."
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux gendanner stadig terminalen efter genåbning og tjekker, hvilken agentsession der skal genoptages. Prøv igen om et par sekunder."
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux sta ancora ripristinando il terminale dopo la riapertura e verifica quale sessione dell’agente riprendere. Riprova tra qualche secondo."
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sta ancora ripristinando il terminale dopo la riapertura e verifica quale sessione dell’agente riprendere. Riprova tra qualche secondo."
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux នៅតែកំពុងស្ដារទែមីណាល់ឡើងវិញ បន្ទាប់ពីបើកម្ដងទៀត ហើយកំពុងពិនិត្យមើលថាត្រូវបន្តវគ្គភ្នាក់ងារមួយណា។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux នៅតែកំពុងស្ដារទែមីណាល់ឡើងវិញ បន្ទាប់ពីបើកម្ដងទៀត ហើយកំពុងពិនិត្យមើលថាត្រូវបន្តវគ្គភ្នាក់ងារមួយណា។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux gjenoppretter fortsatt terminalen etter at den ble åpnet på nytt, og sjekker hvilken agentøkt som skal gjenopptas. Prøv igjen om noen sekunder."
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux gjenoppretter fortsatt terminalen etter at den ble åpnet på nytt, og sjekker hvilken agentøkt som skal gjenopptas. Prøv igjen om noen sekunder."
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux wciąż przywraca terminal po ponownym otwarciu i sprawdza, którą sesję agenta wznowić. Spróbuj ponownie za kilka sekund."
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux wciąż przywraca terminal po ponownym otwarciu i sprawdza, którą sesję agenta wznowić. Spróbuj ponownie za kilka sekund."
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O cmux ainda está restaurando o terminal após ser reaberto e verificando qual sessão do agente retomar. Tente novamente em alguns segundos."
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux ainda está restaurando o terminal após ser reaberto e verificando qual sessão do agente retomar. Tente novamente em alguns segundos."
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux ещё восстанавливает терминал после повторного открытия и проверяет, какой сеанс агента возобновить. Повторите попытку через несколько секунд."
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ещё восстанавливает терминал после повторного открытия и проверяет, какой сеанс агента возобновить. Повторите попытку через несколько секунд."
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux ยังคงกู้คืนเทอร์มินัลหลังจากเปิดใหม่ และกำลังตรวจสอบว่าจะทำเซสชันเอเจนต์ใดต่อ ลองอีกครั้งในอีกไม่กี่วินาที"
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ยังคงกู้คืนเทอร์มินัลหลังจากเปิดใหม่ และกำลังตรวจสอบว่าจะทำเซสชันเอเจนต์ใดต่อ ลองอีกครั้งในอีกไม่กี่วินาที"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux yeniden açıldıktan sonra terminali hâlâ geri yüklüyor ve hangi ajan oturumunun sürdürüleceğini denetliyor. Birkaç saniye sonra yeniden deneyin."
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux yeniden açıldıktan sonra terminali hâlâ geri yüklüyor ve hangi ajan oturumunun sürdürüleceğini denetliyor. Birkaç saniye sonra yeniden deneyin."
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux ще відновлює термінал після повторного відкриття та перевіряє, який сеанс агента відновити. Спробуйте ще раз за кілька секунд."
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ще відновлює термінал після повторного відкриття та перевіряє, який сеанс агента відновити. Спробуйте ще раз за кілька секунд."
           }
         }
       }
@@ -568713,70 +569836,70 @@
             "value": "此終端機正在關閉，無法讀取。"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal se zatvara i ne može se pročitati."
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal se zatvara i ne može se pročitati."
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen lukkes og kan ikke læses."
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen lukkes og kan ikke læses."
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il terminale si sta chiudendo e non può essere letto."
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale si sta chiudendo e non può essere letto."
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ទែមីណាល់កំពុងបិទ ហើយមិនអាចអានបានទេ។"
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់កំពុងបិទ ហើយមិនអាចអានបានទេ។"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen lukkes og kan ikke leses."
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen lukkes og kan ikke leses."
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal jest zamykany i nie można go odczytać."
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal jest zamykany i nie można go odczytać."
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O terminal está sendo fechado e não pode ser lido."
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal está sendo fechado e não pode ser lido."
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Терминал закрывается, и его нельзя прочитать."
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал закрывается, и его нельзя прочитать."
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "เทอร์มินัลกำลังปิดและไม่สามารถอ่านได้"
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลกำลังปิดและไม่สามารถอ่านได้"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal kapanıyor ve okunamıyor."
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal kapanıyor ve okunamıyor."
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Термінал закривається, і його не можна прочитати."
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал закривається, і його не можна прочитати."
           }
         }
       }
@@ -568838,70 +569961,70 @@
             "value": "此終端機已休眠：cmux 暫停了其閒置的代理以節省記憶體。顯示它即可喚醒（這會將其視窗帶到最前面），然後再試一次：%@"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Probudite ga tako što ćete ga prikazati (njegov prozor prelazi u prvi plan), pa pokušajte ponovo: %@"
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Probudite ga tako što ćete ga prikazati (njegov prozor prelazi u prvi plan), pa pokušajte ponovo: %@"
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Væk den ved at vise den (dens vindue kommer forrest), og prøv igen: %@"
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Væk den ved at vise den (dens vindue kommer forrest), og prøv igen: %@"
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Riattivalo mostrandolo (la sua finestra passa in primo piano), quindi riprova: %@"
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Riattivalo mostrandolo (la sua finestra passa in primo piano), quindi riprova: %@"
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ ដាស់វាដោយបង្ហាញវា (បង្អួចរបស់វានឹងមកខាងមុខ) រួចព្យាយាមម្ដងទៀត៖ %@"
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ ដាស់វាដោយបង្ហាញវា (បង្អួចរបស់វានឹងមកខាងមុខ) រួចព្យាយាមម្ដងទៀត៖ %@"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vekk den ved å vise den (vinduet kommer i forgrunnen), og prøv igjen: %@"
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vekk den ved å vise den (vinduet kommer i forgrunnen), og prøv igjen: %@"
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wybudź go, wyświetlając go (jego okno przejdzie na pierwszy plan), a potem spróbuj ponownie: %@"
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wybudź go, wyświetlając go (jego okno przejdzie na pierwszy plan), a potem spróbuj ponownie: %@"
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Desperte-o exibindo-o (a janela vem para a frente) e tente novamente: %@"
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Desperte-o exibindo-o (a janela vem para a frente) e tente novamente: %@"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Разбудите его, показав терминал (его окно выйдет на передний план), и повторите попытку: %@"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Разбудите его, показав терминал (его окно выйдет на передний план), и повторите попытку: %@"
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ ปลุกโดยแสดงเทอร์มินัล (หน้าต่างจะมาอยู่ด้านหน้า) แล้วลองอีกครั้ง: %@"
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ ปลุกโดยแสดงเทอร์มินัล (หน้าต่างจะมาอยู่ด้านหน้า) แล้วลองอีกครั้ง: %@"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Onu göstererek uyandırın (penceresi öne gelir), ardından yeniden deneyin: %@"
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Onu göstererek uyandırın (penceresi öne gelir), ardından yeniden deneyin: %@"
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Розбудіть його, показавши термінал (його вікно перейде на передній план), і спробуйте ще раз: %@"
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Розбудіть його, показавши термінал (його вікно перейде на передній план), і спробуйте ще раз: %@"
           }
         }
       }
@@ -568963,70 +570086,70 @@
             "value": "此終端機已休眠：cmux 暫停了其閒置的代理以節省記憶體。請在 cmux 中顯示此終端機以喚醒它，然後再試一次。"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Prikažite terminal u cmuxu da ga probudite, pa pokušajte ponovo."
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Prikažite terminal u cmuxu da ga probudite, pa pokušajte ponovo."
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Vis terminalen i cmux for at vække den, og prøv igen."
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Vis terminalen i cmux for at vække den, og prøv igen."
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Mostra il terminale in cmux per riattivarlo, quindi riprova."
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Mostra il terminale in cmux per riattivarlo, quindi riprova."
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ បង្ហាញទែមីណាល់នៅក្នុង cmux ដើម្បីដាស់វា រួចព្យាយាមម្ដងទៀត។"
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ បង្ហាញទែមីណាល់នៅក្នុង cmux ដើម្បីដាស់វា រួចព្យាយាមម្ដងទៀត។"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vis terminalen i cmux for å vekke den, og prøv igjen."
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vis terminalen i cmux for å vekke den, og prøv igjen."
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wyświetl terminal w cmux, aby go wybudzić, a potem spróbuj ponownie."
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wyświetl terminal w cmux, aby go wybudzić, a potem spróbuj ponownie."
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Mostre o terminal no cmux para despertá-lo e tente novamente."
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Mostre o terminal no cmux para despertá-lo e tente novamente."
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Покажите терминал в cmux, чтобы разбудить его, и повторите попытку."
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Покажите терминал в cmux, чтобы разбудить его, и повторите попытку."
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ แสดงเทอร์มินัลใน cmux เพื่อปลุก แล้วลองอีกครั้ง"
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ แสดงเทอร์มินัลใน cmux เพื่อปลุก แล้วลองอีกครั้ง"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Uyandırmak için terminali cmux'ta gösterin, ardından yeniden deneyin."
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Uyandırmak için terminali cmux'ta gösterin, ardından yeniden deneyin."
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Покажіть термінал у cmux, щоб розбудити його, і спробуйте ще раз."
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Покажіть термінал у cmux, щоб розбудити його, і спробуйте ще раз."
           }
         }
       }
@@ -569088,70 +570211,70 @@
             "value": "此終端機尚未啟動。請幾秒後再試。"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal se još nije pokrenuo. Pokušajte ponovo za nekoliko sekundi."
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal se još nije pokrenuo. Pokušajte ponovo za nekoliko sekundi."
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen er ikke startet endnu. Prøv igen om et par sekunder."
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen er ikke startet endnu. Prøv igen om et par sekunder."
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il terminale non è ancora stato avviato. Riprova tra qualche secondo."
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale non è ancora stato avviato. Riprova tra qualche secondo."
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ទែមីណាល់មិនទាន់បានចាប់ផ្តើមនៅឡើយទេ។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់មិនទាន់បានចាប់ផ្តើមនៅឡើយទេ។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen har ikke startet ennå. Prøv igjen om noen sekunder."
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen har ikke startet ennå. Prøv igjen om noen sekunder."
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal jeszcze się nie uruchomił. Spróbuj ponownie za kilka sekund."
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal jeszcze się nie uruchomił. Spróbuj ponownie za kilka sekund."
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O terminal ainda não foi iniciado. Tente novamente em alguns segundos."
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal ainda não foi iniciado. Tente novamente em alguns segundos."
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Терминал ещё не запущен. Повторите попытку через несколько секунд."
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал ещё не запущен. Повторите попытку через несколько секунд."
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "เทอร์มินัลยังไม่ได้เริ่มทำงาน ลองอีกครั้งในอีกไม่กี่วินาที"
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลยังไม่ได้เริ่มทำงาน ลองอีกครั้งในอีกไม่กี่วินาที"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal henüz başlamadı. Birkaç saniye sonra yeniden deneyin."
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal henüz başlamadı. Birkaç saniye sonra yeniden deneyin."
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Термінал ще не запущено. Спробуйте ще раз за кілька секунд."
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал ще не запущено. Спробуйте ще раз за кілька секунд."
           }
         }
       }
@@ -607891,1714 +609014,6 @@
         }
       }
     },
-    "command.cloudVM.availabilityInfo.alertMessage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Folder, simulator, local browser creation, directory search, and diff commands are available after selecting a local workspace. Cloud VM commands may be unavailable here."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ordner-, Simulator-, lokale Browser-, Verzeichnis-Such- und Diff-Befehle sind nach Auswahl eines lokalen Arbeitsbereichs verfügbar. Cloud-VM-Befehle sind hier möglicherweise nicht verfügbar."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les commandes de dossier, de simulateur, de création de navigateur local, de recherche dans les répertoires et de comparaison sont disponibles après la sélection d’un espace de travail local. Les commandes de VM Cloud peuvent être indisponibles ici."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تتوفر أوامر المجلد والمحاكي وإنشاء المتصفح المحلي والبحث في الدليل والمقارنة بعد اختيار مساحة عمل محلية. قد لا تتوفر أوامر أجهزة Cloud الافتراضية هنا."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los comandos de carpetas, simulador, creación de navegadores locales, búsqueda en directorios y diferencias están disponibles después de seleccionar un espacio de trabajo local. Es posible que los comandos de VM de Cloud no estén disponibles aquí."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選取本機工作區後，即可使用資料夾、模擬器、本機瀏覽器建立、目錄搜尋和差異檢視指令。Cloud VM 指令可能無法在此使用。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "选择本地工作区后即可使用文件夹、模拟器、本地浏览器创建、目录搜索和差异查看命令。Cloud VM 命令可能无法在此使用。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "로컬 작업 공간을 선택하면 폴더, 시뮬레이터, 로컬 브라우저 생성, 디렉터리 검색 및 diff 명령을 사용할 수 있습니다. Cloud VM 명령은 여기서 사용하지 못할 수 있습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ローカルワークスペースを選択すると、フォルダ、シミュレータ、ローカルブラウザの作成、ディレクトリ検索、差分表示のコマンドを利用できます。Cloud VM コマンドはここでは利用できない場合があります。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Naredbe za fascikle, simulator, kreiranje lokalnog preglednika, pretragu direktorija i razlike dostupne su nakon odabira lokalnog radnog prostora. Cloud VM naredbe ovdje možda neće biti dostupne."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kommandoer til mapper, simulator, lokal oprettelse af browsere, katalogsøgning og diff er tilgængelige, når du vælger et lokalt arbejdsområde. Cloud VM-kommandoer er muligvis ikke tilgængelige her."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "I comandi per cartelle, simulatore, creazione di browser locali, ricerca nelle directory e differenze sono disponibili dopo aver selezionato uno spazio di lavoro locale. I comandi VM Cloud potrebbero non essere disponibili qui."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការបញ្ជាថត ស៊ីម្យូឡាទ័រ ការបង្កើតកម្មវិធីរុករកមូលដ្ឋាន ការស្វែងរកថត និងការប្រៀបធៀប នឹងអាចប្រើបានបន្ទាប់ពីជ្រើសរើសកន្លែងធ្វើការមូលដ្ឋាន។ ការបញ្ជា Cloud VM អាចមិនអាចប្រើបាននៅទីនេះ។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mappe-, simulator-, lokal nettleseroppretting-, katalogsøk- og diff-kommandoer er tilgjengelige etter at du har valgt et lokalt arbeidsområde. Cloud VM-kommandoer er kanskje ikke tilgjengelige her."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Polecenia dotyczące folderów, symulatora, tworzenia lokalnej przeglądarki, wyszukiwania w katalogach i porównywania są dostępne po wybraniu lokalnego obszaru roboczego. Polecenia Cloud VM mogą być tutaj niedostępne."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Os comandos de pasta, simulador, criação de navegador local, pesquisa em diretórios e diferenças ficam disponíveis depois que você seleciona um espaço de trabalho local. Os comandos de VM do Cloud podem não estar disponíveis aqui."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Команды для папок, симулятора, создания локального браузера, поиска в каталогах и сравнения доступны после выбора локального рабочего пространства. Команды Cloud VM могут быть недоступны здесь."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "คำสั่งโฟลเดอร์ โปรแกรมจำลอง การสร้างเบราว์เซอร์ภายในเครื่อง การค้นหาไดเรกทอรี และการเปรียบเทียบ จะใช้งานได้หลังจากเลือกพื้นที่ทำงานภายในเครื่อง คำสั่ง Cloud VM อาจไม่พร้อมใช้งานที่นี่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Klasör, simülatör, yerel tarayıcı oluşturma, dizin arama ve fark komutları, yerel bir çalışma alanı seçildikten sonra kullanılabilir. Cloud VM komutları burada kullanılamayabilir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Команди для папок, симулятора, створення локального браузера, пошуку в каталогах і порівняння доступні після вибору локального робочого простору. Команди Cloud VM можуть бути тут недоступні."
-          }
-        }
-      }
-    },
-    "command.cloudVM.availabilityInfo.alertTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Some commands are local-only"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Einige Befehle sind nur lokal verfügbar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Certaines commandes sont uniquement locales"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "بعض الأوامر محلية فقط"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Algunos comandos solo están disponibles localmente"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "部分指令僅限本機使用"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "部分命令仅限本地使用"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "일부 명령어는 로컬에서만 사용 가능"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一部のコマンドはローカル専用です"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neke naredbe su dostupne samo lokalno"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nogle kommandoer er kun lokale"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alcuni comandi sono solo locali"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការបញ្ជាមួយចំនួនមានសម្រាប់មូលដ្ឋានប៉ុណ្ណោះ"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Noen kommandoer er bare lokale"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Niektóre polecenia są dostępne tylko lokalnie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alguns comandos são apenas locais"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Некоторые команды доступны только локально"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "คำสั่งบางรายการใช้ได้เฉพาะในเครื่อง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bazı komutlar yalnızca yereldir"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Деякі команди доступні лише локально"
-          }
-        }
-      }
-    },
-    "command.cloudVM.availabilityInfo.keywords": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cloud, workspace, availability, local, unavailable, actions"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, Arbeitsbereich, Verfügbarkeit, lokal, nicht verfügbar, Aktionen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, espace de travail, disponibilité, local, indisponible, actions"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "السحابة, مساحة العمل, التوفر, محلي, غير متاح, إجراءات"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, espacio de trabajo, disponibilidad, local, no disponible, acciones"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, 工作區, 可用性, 本機, 無法使用, 動作"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, 工作区, 可用性, 本地, 不可用, 操作"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, 작업 공간, 사용 가능 여부, 로컬, 사용할 수 없음, 동작"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, ワークスペース, 利用可能性, ローカル, 利用不可, アクション"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, radni prostor, dostupnost, lokalno, nedostupno, radnje"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, arbejdsområde, tilgængelighed, lokal, utilgængelig, handlinger"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, spazio di lavoro, disponibilità, locale, non disponibile, azioni"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, កន្លែងធ្វើការ, ភាពអាចប្រើបាន, មូលដ្ឋាន, មិនអាចប្រើបាន, សកម្មភាព"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, arbeidsområde, tilgjengelighet, lokal, utilgjengelig, handlinger"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, obszar roboczy, dostępność, lokalne, niedostępne, działania"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, espaço de trabalho, disponibilidade, local, indisponível, ações"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, рабочее пространство, доступность, локальный, недоступно, действия"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, พื้นที่ทำงาน, ความพร้อมใช้งาน, ในเครื่อง, ไม่พร้อมใช้งาน, การทำงาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, çalışma alanı, kullanılabilirlik, yerel, kullanılamıyor, işlemler"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, робочий простір, доступність, локальний, недоступно, дії"
-          }
-        }
-      }
-    },
-    "command.cloudVM.availabilityInfo.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud workspace"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-Arbeitsbereich"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Espace de travail Cloud"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مساحة عمل سحابية"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Espacio de trabajo de Cloud"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 工作區"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 工作区"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 작업 공간"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud ワークスペース"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud radni prostor"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-arbejdsområde"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spazio di lavoro Cloud"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កន្លែងធ្វើការ Cloud"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-arbeidsområde"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Obszar roboczy Cloud"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Espaço de trabalho Cloud"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Рабочее пространство Cloud"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "พื้นที่ทำงาน Cloud"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud çalışma alanı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Робочий простір Cloud"
-          }
-        }
-      }
-    },
-    "command.cloudVM.availabilityInfo.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Cloud command availability"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verfügbarkeit von Cloud-Befehlen anzeigen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher la disponibilité des commandes Cloud"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار مدى توفر أوامر السحابة"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar disponibilidad de comandos de Cloud"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示 Cloud 指令可用性"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示 Cloud 命令可用性"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 명령어 사용 가능 여부 보기"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud コマンドの利用状況を表示"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži dostupnost Cloud naredbi"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis tilgængelighed af Cloud-kommandoer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra disponibilità dei comandi Cloud"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្ហាញភាពអាចប្រើបាននៃការបញ្ជា Cloud"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis tilgjengelighet for Cloud-kommandoer"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokaż dostępność poleceń Cloud"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar disponibilidade dos comandos Cloud"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показать доступность команд Cloud"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงความพร้อมใช้งานของคำสั่ง Cloud"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud komutlarının kullanılabilirliğini göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показати доступність команд Cloud"
-          }
-        }
-      }
-    },
-    "settings.betaFeatures.remoteTmuxOriginColors": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ألوان المضيفين البعيدين"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Farben für Remote-Hosts"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remote host colors"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Colores de hosts remotos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couleurs des hôtes distants"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リモートホストの色"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "원격 호스트 색상"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "远程主机颜色"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "遠端主機顏色"
-          }
-        }
-      }
-    },
-    "settings.betaFeatures.remoteTmuxOriginColors.subtitleOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تبقى مساحات العمل البعيدة بلا لون للمصدر حتى تفعّل هذا الخيار هنا."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remote-Arbeitsbereiche erhalten keine Herkunftsfarbe, bis du diese Option hier aktivierst."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Leaves remote workspaces without an origin color until you enable it here."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los espacios de trabajo remotos no tienen color de origen hasta que lo actives aquí."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les espaces de travail distants restent sans couleur d’origine tant que vous ne l’activez pas ici."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ここで有効にするまで、リモートワークスペースにオリジンカラーを表示しません。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "여기에서 활성화하기 전까지 원격 작업 공간에는 출처 색상이 표시되지 않습니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在此处启用之前，远程工作区不会显示来源颜色。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在此處啟用之前，遠端工作區不會顯示來源顏色。"
-          }
-        }
-      }
-    },
-    "settings.betaFeatures.remoteTmuxOriginColors.subtitleOn": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يُلوّن صف كل مساحة عمل بعيدة في الشريط الجانبي بلون ثابت خاص بكل مضيف لتسهيل التمييز بين الخوادم. يبقى اللون الذي تختاره يدويًا لمساحة العمل هو المُعتمد دائمًا."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Färbt die Seitenleistenzeile jedes Remote-Arbeitsbereichs mit einer festen Farbe pro Host, damit sich Server leicht unterscheiden lassen. Eine manuell gewählte Arbeitsbereichsfarbe hat immer Vorrang."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tints each remote workspace's sidebar row with a stable per-host color so servers are easy to tell apart. Your manual workspace color always wins."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tiñe la fila de la barra lateral de cada espacio de trabajo remoto con un color estable por host para distinguir fácilmente los servidores. El color que asignes manualmente al espacio de trabajo siempre tiene prioridad."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Teinte la ligne de la barre latérale de chaque espace de travail distant avec une couleur stable par hôte, pour distinguer facilement les serveurs. La couleur choisie manuellement pour un espace de travail l’emporte toujours."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "各リモートワークスペースのサイドバー行を、ホストごとに固定された色で色付けし、サーバーを見分けやすくします。手動で設定したワークスペースの色が常に優先されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "각 원격 작업 공간의 사이드바 행에 호스트별 고정 색상을 입혀 서버를 쉽게 구분할 수 있습니다. 직접 지정한 작업 공간 색상이 항상 우선합니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "为每个远程工作区的侧边栏行添加按主机固定的颜色，便于区分服务器。你手动设置的工作区颜色始终优先。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "為每個遠端工作區的側邊欄列加上依主機固定的顏色，方便區分伺服器。你手動設定的工作區顏色一律優先。"
-          }
-        }
-      }
-    },
-    "settings.betaFeatures.remoteTmuxOriginHostTitles": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أسماء المضيفين البعيدين في العناوين المكررة"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remote-Hostnamen bei doppelten Titeln"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remote host names on duplicate titles"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nombres de hosts remotos en títulos duplicados"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Noms des hôtes distants dans les titres en double"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重複したタイトルにリモートホスト名を表示"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "중복된 제목에 원격 호스트 이름 표시"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在重复标题中显示远程主机名"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在重複標題中顯示遠端主機名稱"
-          }
-        }
-      }
-    },
-    "settings.betaFeatures.remoteTmuxOriginHostTitles.subtitleOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تبقى عناوين مساحات العمل المكررة كما هي حتى تفعّل هذا الخيار هنا."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Doppelte Arbeitsbereichstitel bleiben unverändert, bis du diese Option hier aktivierst."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Leaves duplicate workspace titles as they are until you enable it here."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los títulos duplicados de los espacios de trabajo se mantienen igual hasta que lo actives aquí."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les titres d’espaces de travail en double restent tels quels tant que vous ne l’activez pas ici."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ここで有効にするまで、重複したワークスペースのタイトルはそのまま表示されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "여기에서 활성화하기 전까지 중복된 작업 공간 제목은 그대로 표시됩니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在此处启用之前，重复的工作区标题保持不变。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在此處啟用之前，重複的工作區標題維持不變。"
-          }
-        }
-      }
-    },
-    "settings.betaFeatures.remoteTmuxOriginHostTitles.subtitleOn": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عندما تتشارك مساحات العمل عنوانًا واحدًا، يُعرض اسم مضيف كل مساحة بعيدة بعد العنوان دون النطاق المشترك بين المضيفين."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wenn Arbeitsbereiche denselben Titel haben, wird bei jedem Remote-Arbeitsbereich der Host nach dem Titel angezeigt, ohne die gemeinsame Domain der Hosts."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "When workspaces share a title, shows each remote one's host after the title, leaving off the domain the hosts share."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cuando varios espacios de trabajo comparten título, muestra el host de cada espacio remoto después del título, sin el dominio que comparten los hosts."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lorsque des espaces de travail portent le même titre, affiche l’hôte de chaque espace distant après le titre, sans le domaine que les hôtes partagent."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースのタイトルが重複している場合、各リモートワークスペースのタイトルの後にホスト名を表示します。ホストに共通するドメインは省略します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "작업 공간의 제목이 같으면 각 원격 작업 공간의 제목 뒤에 호스트 이름을 표시하며, 호스트에 공통된 도메인은 생략합니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "当多个工作区标题相同时，在每个远程工作区的标题后显示主机名，并省略这些主机共有的域名。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "當多個工作區標題相同時，在每個遠端工作區的標題後顯示主機名稱，並省略這些主機共用的網域。"
-          }
-        }
-      }
-    },
-    "settings.search.alias.setting.betaFeatures.remote-tmux-origin-colors": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remote host colors remote host colors origin color tint per-host server workspace sidebar row tab beta unstable"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リモートホストの色 接続元 カラー 色合い ホストごと サーバー ワークスペース サイドバー 行 タブ ベータ 不安定"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remote-Host-Farben Herkunft Farbe Tönung pro Host Server Arbeitsbereich Seitenleiste Zeile Tab Beta instabil"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couleurs des hôtes distants origine couleur teinte par hôte serveur espace de travail barre latérale ligne onglet bêta instable"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ألوان المضيف البعيد الأصل لون تلوين لكل مضيف خادم مساحة عمل شريط جانبي صف علامة تبويب تجريبي غير مستقر"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Colores de hosts remotos origen color tinte por host servidor espacio de trabajo barra lateral fila pestaña beta inestable"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "遠端主機顏色 來源 色彩 著色 每台主機 伺服器 工作區 側邊欄 列 分頁 測試版 不穩定"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "远程主机颜色 来源 色彩 着色 每台主机 服务器 工作区 侧边栏 行 标签页 测试版 不稳定"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "원격 호스트 색상 출처 색 색조 호스트별 서버 작업 공간 사이드바 행 탭 베타 불안정"
-          }
-        }
-      }
-    },
-    "settings.search.alias.setting.betaFeatures.remote-tmux-origin-host-titles": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remote host names on duplicate titles hostname server duplicate same title collision workspace sidebar row beta unstable"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重複タイトルにリモートホスト名を表示 ホスト名 サーバー 重複 同じタイトル 衝突 ワークスペース サイドバー 行 ベータ 不安定"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remote-Host-Namen bei gleichen Titeln Hostname Server doppelt gleicher Titel Kollision Arbeitsbereich Seitenleiste Zeile Beta instabil"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Noms des hôtes distants pour les titres identiques nom hôte serveur doublon même titre conflit espace de travail barre latérale ligne bêta instable"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أسماء المضيف البعيد للعناوين المكررة اسم المضيف خادم مكرر نفس العنوان تعارض مساحة عمل شريط جانبي صف تجريبي غير مستقر"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nombres de hosts remotos en títulos duplicados nombre host servidor duplicado mismo título colisión espacio de trabajo barra lateral fila beta inestable"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重複標題顯示遠端主機名稱 主機名稱 伺服器 重複 相同標題 衝突 工作區 側邊欄 列 測試版 不穩定"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重复标题显示远程主机名称 主机名 服务器 重复 相同标题 冲突 工作区 侧边栏 行 测试版 不稳定"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "중복 제목의 원격 호스트 이름 호스트명 서버 중복 같은 제목 충돌 작업 공간 사이드바 행 베타 불안정"
-          }
-        }
-      }
-    },
-    "sidebar.workspace.titleWithHost": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ · %2$@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ · %2$@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ · %2$@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ · %2$@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ · %2$@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ · %2$@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ · %2$@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ · %2$@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ · %2$@"
-          }
-        }
-      }
-    },
-    "cli.remotes.error.invalidArguments": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@: invalid arguments."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@: وسيطات غير صالحة."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@: ungültige Argumente."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@: argumentos no válidos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ : arguments non valides."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@：引数が無効です。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@: 잘못된 인수입니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@：无效的参数。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@：無效的引數。"
-          }
-        }
-      }
-    },
-    "cli.remotes.error.unexpectedArgument": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: unexpected argument '%2$@'."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: وسيطة غير متوقعة '%2$@'."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: unerwartetes Argument '%2$@'."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: argumento inesperado '%2$@'."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ : argument inattendu '%2$@'."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@：予期しない引数 '%2$@' です。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: 예상하지 못한 인수 '%2$@'입니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@：意外的参数 '%2$@'。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@：非預期的引數 '%2$@'。"
-          }
-        }
-      }
-    },
-    "cli.remotes.error.unknownFlag": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: unknown flag '%2$@'."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: خيار غير معروف '%2$@'."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: unbekannte Option '%2$@'."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: opción desconocida '%2$@'."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ : option inconnue '%2$@'."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@：不明なオプション '%2$@' です。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: 알 수 없는 옵션 '%2$@'입니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@：未知的选项 '%2$@'。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@：未知的選項 '%2$@'。"
-          }
-        }
-      }
-    },
-    "machines.new.plan.loading": {
-    "extractionState": "manual",
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      },
-      "ar": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Loading your Cloud machine plan…"
-        }
-      }
-    }
-  },
-    "machines.new.plan.retry": {
-    "extractionState": "manual",
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      },
-      "ar": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Retry"
-        }
-      }
-    }
-  },
-    "machines.new.plan.error": {
-    "extractionState": "manual",
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      },
-      "ar": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
-        }
-      }
-    }
-  },
     "cli.agentMessages.globalOff": {
       "extractionState": "manual",
       "localizations": {
@@ -610539,6 +609954,631 @@
           "stringUnit": {
             "state": "translated",
             "value": "設定未變更：cmux 無法將它儲存到訊息日誌。"
+          }
+        }
+      }
+    },
+    "command.cloudVM.availabilityInfo.alertMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder, simulator, local browser creation, directory search, and diff commands are available after selecting a local workspace. Cloud VM commands may be unavailable here."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner-, Simulator-, lokale Browser-, Verzeichnis-Such- und Diff-Befehle sind nach Auswahl eines lokalen Arbeitsbereichs verfügbar. Cloud-VM-Befehle sind hier möglicherweise nicht verfügbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les commandes de dossier, de simulateur, de création de navigateur local, de recherche dans les répertoires et de comparaison sont disponibles après la sélection d’un espace de travail local. Les commandes de VM Cloud peuvent être indisponibles ici."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتوفر أوامر المجلد والمحاكي وإنشاء المتصفح المحلي والبحث في الدليل والمقارنة بعد اختيار مساحة عمل محلية. قد لا تتوفر أوامر أجهزة Cloud الافتراضية هنا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los comandos de carpetas, simulador, creación de navegadores locales, búsqueda en directorios y diferencias están disponibles después de seleccionar un espacio de trabajo local. Es posible que los comandos de VM de Cloud no estén disponibles aquí."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選取本機工作區後，即可使用資料夾、模擬器、本機瀏覽器建立、目錄搜尋和差異檢視指令。Cloud VM 指令可能無法在此使用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择本地工作区后即可使用文件夹、模拟器、本地浏览器创建、目录搜索和差异查看命令。Cloud VM 命令可能无法在此使用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 작업 공간을 선택하면 폴더, 시뮬레이터, 로컬 브라우저 생성, 디렉터리 검색 및 diff 명령을 사용할 수 있습니다. Cloud VM 명령은 여기서 사용하지 못할 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルワークスペースを選択すると、フォルダ、シミュレータ、ローカルブラウザの作成、ディレクトリ検索、差分表示のコマンドを利用できます。Cloud VM コマンドはここでは利用できない場合があります。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naredbe za fascikle, simulator, kreiranje lokalnog preglednika, pretragu direktorija i razlike dostupne su nakon odabira lokalnog radnog prostora. Cloud VM naredbe ovdje možda neće biti dostupne."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommandoer til mapper, simulator, lokal oprettelse af browsere, katalogsøgning og diff er tilgængelige, når du vælger et lokalt arbejdsområde. Cloud VM-kommandoer er muligvis ikke tilgængelige her."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I comandi per cartelle, simulatore, creazione di browser locali, ricerca nelle directory e differenze sono disponibili dopo aver selezionato uno spazio di lavoro locale. I comandi VM Cloud potrebbero non essere disponibili qui."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបញ្ជាថត ស៊ីម្យូឡាទ័រ ការបង្កើតកម្មវិធីរុករកមូលដ្ឋាន ការស្វែងរកថត និងការប្រៀបធៀប នឹងអាចប្រើបានបន្ទាប់ពីជ្រើសរើសកន្លែងធ្វើការមូលដ្ឋាន។ ការបញ្ជា Cloud VM អាចមិនអាចប្រើបាននៅទីនេះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappe-, simulator-, lokal nettleseroppretting-, katalogsøk- og diff-kommandoer er tilgjengelige etter at du har valgt et lokalt arbeidsområde. Cloud VM-kommandoer er kanskje ikke tilgjengelige her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Polecenia dotyczące folderów, symulatora, tworzenia lokalnej przeglądarki, wyszukiwania w katalogach i porównywania są dostępne po wybraniu lokalnego obszaru roboczego. Polecenia Cloud VM mogą być tutaj niedostępne."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os comandos de pasta, simulador, criação de navegador local, pesquisa em diretórios e diferenças ficam disponíveis depois que você seleciona um espaço de trabalho local. Os comandos de VM do Cloud podem não estar disponíveis aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команды для папок, симулятора, создания локального браузера, поиска в каталогах и сравнения доступны после выбора локального рабочего пространства. Команды Cloud VM могут быть недоступны здесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำสั่งโฟลเดอร์ โปรแกรมจำลอง การสร้างเบราว์เซอร์ภายในเครื่อง การค้นหาไดเรกทอรี และการเปรียบเทียบ จะใช้งานได้หลังจากเลือกพื้นที่ทำงานภายในเครื่อง คำสั่ง Cloud VM อาจไม่พร้อมใช้งานที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasör, simülatör, yerel tarayıcı oluşturma, dizin arama ve fark komutları, yerel bir çalışma alanı seçildikten sonra kullanılabilir. Cloud VM komutları burada kullanılamayabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команди для папок, симулятора, створення локального браузера, пошуку в каталогах і порівняння доступні після вибору локального робочого простору. Команди Cloud VM можуть бути тут недоступні."
+          }
+        }
+      }
+    },
+    "command.cloudVM.availabilityInfo.alertTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some commands are local-only"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einige Befehle sind nur lokal verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certaines commandes sont uniquement locales"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعض الأوامر محلية فقط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Algunos comandos solo están disponibles localmente"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分指令僅限本機使用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分命令仅限本地使用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 명령어는 로컬에서만 사용 가능"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部のコマンドはローカル専用です"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neke naredbe su dostupne samo lokalno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nogle kommandoer er kun lokale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alcuni comandi sono solo locali"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបញ្ជាមួយចំនួនមានសម្រាប់មូលដ្ឋានប៉ុណ្ណោះ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noen kommandoer er bare lokale"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niektóre polecenia są dostępne tylko lokalnie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alguns comandos são apenas locais"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Некоторые команды доступны только локально"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำสั่งบางรายการใช้ได้เฉพาะในเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bazı komutlar yalnızca yereldir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Деякі команди доступні лише локально"
+          }
+        }
+      }
+    },
+    "command.cloudVM.availabilityInfo.keywords": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cloud, workspace, availability, local, unavailable, actions"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, Arbeitsbereich, Verfügbarkeit, lokal, nicht verfügbar, Aktionen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, espace de travail, disponibilité, local, indisponible, actions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السحابة, مساحة العمل, التوفر, محلي, غير متاح, إجراءات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, espacio de trabajo, disponibilidad, local, no disponible, acciones"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, 工作區, 可用性, 本機, 無法使用, 動作"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, 工作区, 可用性, 本地, 不可用, 操作"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, 작업 공간, 사용 가능 여부, 로컬, 사용할 수 없음, 동작"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, ワークスペース, 利用可能性, ローカル, 利用不可, アクション"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, radni prostor, dostupnost, lokalno, nedostupno, radnje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, arbejdsområde, tilgængelighed, lokal, utilgængelig, handlinger"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, spazio di lavoro, disponibilità, locale, non disponibile, azioni"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, កន្លែងធ្វើការ, ភាពអាចប្រើបាន, មូលដ្ឋាន, មិនអាចប្រើបាន, សកម្មភាព"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, arbeidsområde, tilgjengelighet, lokal, utilgjengelig, handlinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, obszar roboczy, dostępność, lokalne, niedostępne, działania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, espaço de trabalho, disponibilidade, local, indisponível, ações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, рабочее пространство, доступность, локальный, недоступно, действия"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, พื้นที่ทำงาน, ความพร้อมใช้งาน, ในเครื่อง, ไม่พร้อมใช้งาน, การทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, çalışma alanı, kullanılabilirlik, yerel, kullanılamıyor, işlemler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, робочий простір, доступність, локальний, недоступно, дії"
+          }
+        }
+      }
+    },
+    "command.cloudVM.availabilityInfo.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud workspace"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Arbeitsbereich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espace de travail Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة عمل سحابية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacio de trabajo de Cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 工作區"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 工作区"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 작업 공간"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ワークスペース"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud radni prostor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-arbejdsområde"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spazio di lavoro Cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការ Cloud"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obszar roboczy Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaço de trabalho Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рабочее пространство Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ทำงาน Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud çalışma alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робочий простір Cloud"
+          }
+        }
+      }
+    },
+    "command.cloudVM.availabilityInfo.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Cloud command availability"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verfügbarkeit von Cloud-Befehlen anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la disponibilité des commandes Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار مدى توفر أوامر السحابة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar disponibilidad de comandos de Cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示 Cloud 指令可用性"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示 Cloud 命令可用性"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 명령어 사용 가능 여부 보기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud コマンドの利用状況を表示"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži dostupnost Cloud naredbi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis tilgængelighed af Cloud-kommandoer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra disponibilità dei comandi Cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញភាពអាចប្រើបាននៃការបញ្ជា Cloud"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis tilgjengelighet for Cloud-kommandoer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż dostępność poleceń Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar disponibilidade dos comandos Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать доступность команд Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงความพร้อมใช้งานของคำสั่ง Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud komutlarının kullanılabilirliğini göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати доступність команд Cloud"
           }
         }
       }
