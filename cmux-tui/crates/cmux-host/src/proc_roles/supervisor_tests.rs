@@ -17,7 +17,7 @@ impl Fixture {
         let bin = dir.path().join("bin");
         std::fs::create_dir(&bin).unwrap();
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let paths = RolePaths { store_bin: bin, state: dir.path().join("state") };
+        let paths = RolePaths { store_bin: bin, state: dir.path().join("state"), work_user: None };
         Fixture { dir, paths }
     }
 
@@ -216,4 +216,54 @@ fn many_status_lines_never_close_the_notify_pipe() {
     });
     assert_eq!(health[0].state, RoleState::Ready);
     assert_eq!(health[0].restarts, 0);
+}
+
+/// Least privilege under a root supervisor (server.md 5.1 "Root"): a role
+/// runs as the work user with no supplementary groups; `runAsRoot` keeps
+/// root. Needs root, so it is ignored by default; run it with
+/// `sudo <cmux-host test binary> --ignored roles_under_root_run_as_the_work_user`.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "needs root"]
+fn roles_under_root_run_as_the_work_user() {
+    // SAFETY: geteuid has no preconditions.
+    assert_eq!(unsafe { libc::geteuid() }, 0, "run this test as root");
+    let nobody = crate::linux::spawn::lookup_user("nobody").expect("user nobody");
+    let mut fx = Fixture::new();
+    std::fs::set_permissions(fx.dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let body = "id -u > \"$CMUX_ROLE_STATE_DIR/uid\"\nid -G > \"$CMUX_ROLE_STATE_DIR/groups\"\n\
+                echo \"$HOME\" > \"$CMUX_ROLE_STATE_DIR/home\"\nexec sleep 600";
+    fx.script("who", body);
+    fx.script("rootwho", body);
+    fx.paths.work_user = Some(super::super::privilege::WorkUser {
+        name: nobody.name.clone(),
+        uid: nobody.uid,
+        gid: nobody.gid,
+        home: nobody.home.clone(),
+    });
+    let sup = Supervisor::start(fx.paths.clone()).unwrap();
+    sup.apply(set(serde_json::json!({
+        "who": {"program": "who"},
+        "rootwho": {"program": "rootwho", "runAsRoot": true}
+    })));
+    let read = |role: &str, file: &str| {
+        let path = fx.paths.role_dir(role).join(file);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Ok(text) = std::fs::read_to_string(&path)
+                && text.ends_with('\n')
+            {
+                return text.trim().to_owned();
+            }
+            assert!(Instant::now() < deadline, "no {}", path.display());
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    assert_eq!(read("who", "uid"), nobody.uid.to_string());
+    assert_eq!(read("who", "groups"), nobody.gid.to_string());
+    assert_eq!(read("who", "home"), nobody.home.display().to_string());
+    assert_eq!(read("rootwho", "uid"), "0");
+    use std::os::unix::fs::MetadataExt;
+    assert_eq!(std::fs::metadata(fx.paths.role_dir("who")).unwrap().uid(), nobody.uid);
+    assert!(sup.stop_all(Instant::now() + Duration::from_secs(5)).is_empty());
 }

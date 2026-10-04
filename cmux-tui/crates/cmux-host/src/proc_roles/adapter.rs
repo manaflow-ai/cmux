@@ -8,6 +8,7 @@ use cmux_server::config::ServerConfig;
 use cmux_server_core::role::{HostEvent, Role, RoleContext, RoleError, StopContext};
 use cmux_server_core::role_spec::{RoleSet, parse_roles};
 
+use super::privilege::WorkUser;
 use super::{RolePaths, Supervisor};
 
 /// Reads the process roles from `server.json`. A config that cannot be
@@ -70,15 +71,16 @@ fn trusted_as_root(_config_file: &std::path::Path) -> Result<(), String> {
 }
 
 /// The `process-roles` role.
-#[derive(Default)]
 pub struct ProcessRoles {
     supervisor: Option<Supervisor>,
     config_file: Option<PathBuf>,
+    /// Under a root supervisor, the user roles run as.
+    work_user: Option<WorkUser>,
 }
 
 impl ProcessRoles {
-    pub fn new() -> ProcessRoles {
-        ProcessRoles::default()
+    pub fn new(work_user: Option<WorkUser>) -> ProcessRoles {
+        ProcessRoles { supervisor: None, config_file: None, work_user }
     }
 
     fn reload(&self) {
@@ -105,7 +107,7 @@ impl Role for ProcessRoles {
 
     fn start(&mut self, ctx: &RoleContext) -> Result<(), RoleError> {
         if self.supervisor.is_none() {
-            let paths = RolePaths::from_layout(&ctx.layout);
+            let paths = RolePaths { work_user: self.work_user.clone(), ..RolePaths::from_layout(&ctx.layout) };
             self.supervisor =
                 Some(Supervisor::start(paths).map_err(|e| RoleError(format!("supervisor: {e}")))?);
         }
