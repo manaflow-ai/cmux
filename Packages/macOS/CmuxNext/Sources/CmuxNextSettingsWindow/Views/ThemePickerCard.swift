@@ -4,7 +4,8 @@ import SwiftUI
 /// Appearance: pick the room, workspace or terminal theme of the window
 /// Settings was opened from, from every Ghostty theme with type-to-search.
 /// Typed text that is a valid spec but not a listed name (a light/dark pair,
-/// a path) gets its own row. Choosing runs the theme actions (host).
+/// a path) gets its own row. Choosing runs the theme actions (host). Each
+/// theme row leads with its swatch strip (R98), from the App's cache.
 struct ThemePickerCard: View {
     let model: SettingsWindowModel
     @State private var level: SettingsThemeLevel = .room
@@ -45,7 +46,7 @@ struct ThemePickerCard: View {
                     row(SettingsWindowStrings.themeUse(custom), selected: current == custom) { choose(custom, host) }
                 }
                 ForEach(names, id: \.self) { name in
-                    row(name, selected: current == name) { choose(name, host) }
+                    row(name, swatches: host.themeSwatches(name), selected: current == name) { choose(name, host) }
                 }
             }
         }
@@ -54,9 +55,10 @@ struct ThemePickerCard: View {
         .frame(height: 240)
     }
 
-    private func row(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+    private func row(_ title: String, swatches: [ThemeRGB] = [], selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack {
+                ThemeSwatchStrip(colors: swatches)
                 Text(title).font(SettingsStyle.body).foregroundStyle(SettingsStyle.text)
                 Spacer(minLength: 0)
                 if selected { Image(systemName: "checkmark").foregroundStyle(SettingsStyle.secondary) }

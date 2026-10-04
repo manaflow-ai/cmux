@@ -1,5 +1,6 @@
 import AppKit
 public import CmuxNextActions
+public import CmuxNextDesign
 import Foundation
 
 /// The dynamic sources the palette can use. Every source is optional; a nil
@@ -24,6 +25,9 @@ public struct PaletteSources {
     /// and with nil when the page is left without choosing. Choosing runs the
     /// action, which commits; no nil follows it.
     public var argumentPreview: PaletteArgumentPreview?
+    /// Colors for a suggested argument value (a theme's swatch strip, R98),
+    /// drawn in its row's icon place; empty draws the action's symbol.
+    public var argumentSwatches: PaletteArgumentSwatches?
     /// Actions the palette serves as a nested page of the App's making
     /// (history pages): choosing the action pushes the page in place.
     public var actionPages: [ActionID: @MainActor () -> PalettePageSpec?] = [:]
@@ -71,6 +75,9 @@ public struct PaletteScopeContribution {
 
 /// `(action, argument name, highlighted value or nil to revert, target)`.
 public typealias PaletteArgumentPreview = @MainActor (ActionID, String, String?, ActionTargetRef?) -> Void
+
+/// `(suggestion source, value)` to the colors drawn for that value.
+public typealias PaletteArgumentSwatches = @MainActor (String, String) -> [ThemeRGB]
 
 // MARK: - Providers over the sources
 

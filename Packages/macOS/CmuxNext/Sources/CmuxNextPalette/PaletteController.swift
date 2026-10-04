@@ -183,7 +183,8 @@ public final class PaletteController {
         guard let descriptor = registry.descriptor(for: id) else { return }
         captureContext()
         let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: sources.targets,
-                                       captured: capturedTargets, preview: sources.argumentPreview)
+                                       captured: capturedTargets, preview: sources.argumentPreview,
+                                       swatches: sources.argumentSwatches)
         let effect = flow.effect(collected: invocation)
         if case .perform(let handler) = effect {
             // Nothing left to ask.
