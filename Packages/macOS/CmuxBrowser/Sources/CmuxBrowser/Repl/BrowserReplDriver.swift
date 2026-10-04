@@ -49,10 +49,20 @@ public protocol BrowserReplDriver: AnyObject, Sendable {
     /// content rules built from it, and refuses reads and input on a tab
     /// whose page is blocked. The session calls this, never JavaScript.
     func setDomainPolicy(_ policy: BrowserReplDomainPolicy)
+
+    /// The secrets other sessions typed into tabs (``BrowserReplTypedSecrets``),
+    /// as a store that masks them, or `nil` when there are none. This
+    /// session does not hold them, so its own store would not mask them: the
+    /// session applies this store wherever it applies its own (fetch
+    /// responses, files written and read back, output lines, errors,
+    /// results and events). Called from any thread.
+    func typedSecretRedaction() -> BrowserReplSecretStore?
 }
 
 extension BrowserReplDriver {
     public func setDomainPolicy(_ policy: BrowserReplDomainPolicy) {}
+
+    public func typedSecretRedaction() -> BrowserReplSecretStore? { nil }
 }
 
 /// JSON helpers for values crossing the JavaScriptCore bridge.

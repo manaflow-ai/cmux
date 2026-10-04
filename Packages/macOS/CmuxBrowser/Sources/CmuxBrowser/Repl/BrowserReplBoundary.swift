@@ -14,10 +14,53 @@ final class BrowserReplBoundary: @unchecked Sendable {
     private let lock = NSLock()
     private var policy = BrowserReplDomainPolicy()
     private let publicSuffixes: BrowserReplPublicSuffixList
+    private let typedSecrets: @Sendable () -> BrowserReplSecretStore?
 
-    /// - Parameter publicSuffixes: The list `site` answers come from.
-    init(publicSuffixes: BrowserReplPublicSuffixList = .system) {
+    /// - Parameters:
+    ///   - publicSuffixes: The list `site` answers come from.
+    ///   - typedSecrets: The secrets other sessions typed into tabs
+    ///     (``BrowserReplDriver/typedSecretRedaction()``), masked wherever
+    ///     the session's own are.
+    init(
+        publicSuffixes: BrowserReplPublicSuffixList = .system,
+        typedSecrets: @escaping @Sendable () -> BrowserReplSecretStore? = { nil }
+    ) {
         self.publicSuffixes = publicSuffixes
+        self.typedSecrets = typedSecrets
+    }
+
+    // MARK: Redaction
+
+    /// The stores whose values JavaScript and output never see: the
+    /// session's own secrets, then the values other sessions typed.
+    private var redactionStores: [BrowserReplSecretStore] {
+        var stores = secrets.isEmpty ? [] : [secrets]
+        if let typed = typedSecrets(), !typed.isEmpty { stores.append(typed) }
+        return stores
+    }
+
+    /// `text` as JavaScript or output may see it.
+    func redact(_ text: String) -> String {
+        redactionStores.reduce(text) { $1.redact($0) }
+    }
+
+    /// A JSON document as JavaScript may see it, every string (keys too)
+    /// redacted; text that is not JSON is redacted as text.
+    /// - Throws: `invalid` when masking would grow it past the redaction
+    ///   limit (``BrowserReplSecretStore/maximumGrowth``).
+    func redactJSON(_ json: String) throws -> String {
+        let stores = redactionStores
+        guard !stores.isEmpty else { return json }
+        guard let value = JSONSerialization.browserReplValue(json) else { return redact(json) }
+        let redacted = try stores.reduce(value) { try $1.redactedValue($0) }
+        return JSONSerialization.browserReplString(redacted) ?? redact(json)
+    }
+
+    /// Bytes as JavaScript may see them, text or binary.
+    /// - Throws: `invalid` when masking would grow them past the redaction
+    ///   limit (``BrowserReplSecretStore/maximumGrowth``).
+    func redact(_ data: Data) throws -> Data {
+        try redactionStores.reduce(data) { try $1.redact($0) }
     }
 
     /// Methods whose results are images or documents; their pixels are
@@ -179,44 +222,58 @@ final class BrowserReplBoundary: @unchecked Sendable {
 
     /// A driver result as JavaScript may see it.
     func redact(method: String, _ result: Result<String, BrowserReplDriverError>) -> Result<String, BrowserReplDriverError> {
-        guard !secrets.isEmpty else { return result }
         switch result {
         case .success(let json):
-            return Self.binaryMethods.contains(method) ? result : .success(secrets.redactJSON(json))
+            guard !Self.binaryMethods.contains(method) else { return result }
+            do {
+                return .success(try redactJSON(json))
+            } catch {
+                return .failure(BrowserReplDriverError(code: "invalid", message: "\(method): \(BrowserReplSecretStore.limitMessage(json.utf8.count))"))
+            }
         case .failure(let error):
             return .failure(redact(error))
         }
     }
 
     func redact(_ error: BrowserReplDriverError) -> BrowserReplDriverError {
-        guard !secrets.isEmpty else { return error }
-        return BrowserReplDriverError(code: error.code, message: secrets.redact(error.message), errorName: error.errorName)
+        let message = redact(error.message)
+        return message == error.message ? error : BrowserReplDriverError(code: error.code, message: message, errorName: error.errorName)
     }
 
     /// A fetch result as JavaScript may see it: the URL, the headers and the
     /// body, text or binary (its bytes go through the secret store's byte redaction),
     /// are redacted.
     func redactFetch(_ result: Result<String, BrowserReplDriverError>) -> Result<String, BrowserReplDriverError> {
-        guard !secrets.isEmpty else { return result }
+        let stores = redactionStores
+        guard !stores.isEmpty else { return result }
         guard case .success(let json) = result else { return redact(method: "fetch", result) }
         var response = JSONSerialization.browserReplObject(json)
         let body = response.removeValue(forKey: "bodyBase64") as? String
-        var redacted = secrets.redactValue(response) as? [String: Any] ?? [:]
-        if let body {
-            guard let data = Data(base64Encoded: body) else {
-                return .failure(BrowserReplDriverError(code: "invalid", message: "fetch: the response body could not be checked for secrets"))
+        do {
+            var redacted = try stores.reduce(response as Any) { try $1.redactedValue($0) } as? [String: Any] ?? [:]
+            if let body {
+                guard let data = Data(base64Encoded: body) else {
+                    return .failure(BrowserReplDriverError(code: "invalid", message: "fetch: the response body could not be checked for secrets"))
+                }
+                let masked = try redact(data)
+                redacted["bodyBase64"] = masked == data ? body : masked.base64EncodedString()
             }
-            let masked = secrets.redact(data)
-            redacted["bodyBase64"] = masked == data ? body : masked.base64EncodedString()
+            return .success(JSONSerialization.browserReplString(redacted) ?? "null")
+        } catch let error as BrowserReplDriverError {
+            return .failure(BrowserReplDriverError(code: error.code, message: "fetch: \(error.message)"))
+        } catch {
+            return .failure(BrowserReplDriverError(code: "invalid", message: "fetch: \(error.localizedDescription)"))
         }
-        return .success(JSONSerialization.browserReplString(redacted) ?? "null")
     }
 
     /// File contents the session writes for JavaScript, or reads back for it
     /// (`fs.readFile`), with secrets redacted, text or binary.
-    func redactFileContents(_ base64: String) -> String {
-        guard !secrets.isEmpty, let data = Data(base64Encoded: base64) else { return base64 }
-        let redacted = secrets.redact(data)
+    /// - Throws: `invalid` when masking would grow them past the redaction
+    ///   limit (``BrowserReplSecretStore/maximumGrowth``).
+    func redactFileContents(_ base64: String) throws -> String {
+        let stores = redactionStores
+        guard !stores.isEmpty, let data = Data(base64Encoded: base64) else { return base64 }
+        let redacted = try redact(data)
         return redacted == data ? base64 : redacted.base64EncodedString()
     }
 }

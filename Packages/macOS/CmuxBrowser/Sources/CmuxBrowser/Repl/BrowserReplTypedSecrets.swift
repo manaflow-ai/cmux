@@ -9,7 +9,9 @@ import Foundation
 /// (`tabs.use`) does not hold them, so without this its reads of the field
 /// (`inputValue`, `evaluate`, a screenshot) would return the value. The
 /// driver records each secret it types, by tab, and masks the values other
-/// sessions typed in every result, event and capture it hands a session.
+/// sessions typed in every result, event and capture it hands a session;
+/// the session masks them in everything else it hands JavaScript or prints
+/// (fetch responses, files written and read back, output lines, errors).
 /// The typing session keeps its own store's behavior (a TOTP code it typed
 /// stays readable to it). A record lasts until its tab closes; when the
 /// typing session leaves, its records mask for every session, including a
@@ -22,7 +24,11 @@ import Foundation
 /// masked as typed, a literal under an internal key shown as
 /// `<secret:name>`: a TOTP secret's typed value is its code, so no TOTP
 /// rule (`totp`, or a name ending in `bu_2fa_code`) applies.
-public struct BrowserReplTypedSecrets {
+///
+/// The registry is shared by every session and safe to use from any thread:
+/// a session reads it off the main thread for its fetch responses, files
+/// and output lines (``BrowserReplDriver/typedSecretRedaction()``).
+public final class BrowserReplTypedSecrets: @unchecked Sendable {
     private struct Typed {
         let key: Int
         let tab: String
@@ -33,83 +39,80 @@ public struct BrowserReplTypedSecrets {
         var typist: String?
     }
 
-    /// The redaction stores built since the last change, by reader. Replaced
-    /// (never mutated in place) on every change, so a copy of this value
-    /// never reads a store built for another copy's records.
-    private final class Cache: @unchecked Sendable {
-        private let lock = NSLock()
-        private var stores: [String: BrowserReplSecretStore?] = [:]
-        /// Readers are sessions; past this many the cache starts over.
-        static let maximumReaders = 64
+    /// Readers are sessions; past this many cached stores the cache starts over.
+    static let maximumCachedReaders = 64
 
-        func store(forReader reader: String, build: () -> BrowserReplSecretStore?) -> BrowserReplSecretStore? {
-            if let cached = lock.withLock({ stores[reader] }) { return cached }
-            let built = build()
-            lock.withLock {
-                if stores.count >= Self.maximumReaders { stores.removeAll() }
-                stores[reader] = .some(built)
-            }
-            return built
-        }
-    }
-
+    private let lock = NSLock()
     private var entries: [Typed] = []
     private var nextKey = 0
-    private var cache = Cache()
+    /// The redaction stores built since the last change, by reader; emptied
+    /// on every change.
+    private var stores: [String: BrowserReplSecretStore?] = [:]
 
     public init() {}
 
-    public var isEmpty: Bool { entries.isEmpty }
+    public var isEmpty: Bool { lock.withLock { entries.isEmpty } }
 
     /// `typist` typed secret `name`'s `value` into `tab`.
-    public mutating func record(tab: String, name: String, value: String, domains: [BrowserReplDomainPattern], typist: String) {
-        entries.removeAll { $0.tab == tab && $0.name == name && $0.typist == typist }
-        nextKey += 1
-        entries.append(Typed(key: nextKey, tab: tab, name: name, value: value, domains: domains, typist: typist))
-        cache = Cache()
+    public func record(tab: String, name: String, value: String, domains: [BrowserReplDomainPattern], typist: String) {
+        lock.withLock {
+            entries.removeAll { $0.tab == tab && $0.name == name && $0.typist == typist }
+            nextKey += 1
+            entries.append(Typed(key: nextKey, tab: tab, name: name, value: value, domains: domains, typist: typist))
+            stores.removeAll()
+        }
     }
 
     /// `sessionID` ended: what it typed masks for every session from now on.
-    public mutating func sessionLeft(_ sessionID: String) {
-        var changed = false
-        for index in entries.indices where entries[index].typist == sessionID {
-            entries[index].typist = nil
-            changed = true
+    public func sessionLeft(_ sessionID: String) {
+        lock.withLock {
+            var changed = false
+            for index in entries.indices where entries[index].typist == sessionID {
+                entries[index].typist = nil
+                changed = true
+            }
+            if changed { stores.removeAll() }
         }
-        if changed { cache = Cache() }
     }
 
     /// `tab` closed, and its typed values with it.
-    public mutating func tabClosed(_ tab: String) {
-        let before = entries.count
-        entries.removeAll { $0.tab == tab }
-        if entries.count != before { cache = Cache() }
+    public func tabClosed(_ tab: String) {
+        lock.withLock {
+            let before = entries.count
+            entries.removeAll { $0.tab == tab }
+            if entries.count != before { stores.removeAll() }
+        }
     }
 
-    private func entries(forReader sessionID: String) -> [Typed] {
+    private func entriesLocked(forReader sessionID: String) -> [Typed] {
         entries.filter { $0.typist != sessionID }
     }
 
     /// A store that redacts the values other sessions typed, for what
     /// `sessionID` reads, or `nil` when there are none. The same store is
-    /// returned until the typed values change, so its patterns compile once
-    /// per change, not per result or event. It is safe to use off the main
-    /// thread.
+    /// returned until the typed values change, so its matchers are built
+    /// once per change, not per result or event.
     public func redaction(forReader sessionID: String) -> BrowserReplSecretStore? {
-        cache.store(forReader: sessionID) {
-            let visible = entries(forReader: sessionID)
-            guard !visible.isEmpty else { return nil }
-            let store = BrowserReplSecretStore()
-            for entry in visible {
-                store.setLiteral(key: "typed-\(entry.key)", maskName: entry.name, value: entry.value, domains: entry.domains)
+        lock.withLock {
+            if let cached = stores[sessionID] { return cached }
+            let visible = entriesLocked(forReader: sessionID)
+            var built: BrowserReplSecretStore?
+            if !visible.isEmpty {
+                let store = BrowserReplSecretStore()
+                for entry in visible {
+                    store.setLiteral(key: "typed-\(entry.key)", maskName: entry.name, value: entry.value, domains: entry.domains)
+                }
+                built = store.isEmpty ? nil : store
             }
-            return store.isEmpty ? nil : store
+            if stores.count >= Self.maximumCachedReaders { stores.removeAll() }
+            stores[sessionID] = .some(built)
+            return built
         }
     }
 
     /// The values other sessions typed, as the driver's `secretMasks`
     /// (`[{ value, domains }]`), for a capture `sessionID` takes.
     public func captureMasks(forReader sessionID: String) -> [[String: Any]] {
-        entries(forReader: sessionID).map { ["value": $0.value, "domains": $0.domains.map(\.json)] }
+        lock.withLock { entriesLocked(forReader: sessionID) }.map { ["value": $0.value, "domains": $0.domains.map(\.json)] }
     }
 }

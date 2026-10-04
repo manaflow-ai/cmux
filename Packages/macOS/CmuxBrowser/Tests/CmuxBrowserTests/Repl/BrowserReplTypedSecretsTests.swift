@@ -9,7 +9,7 @@ struct BrowserReplTypedSecretsTests {
     private static let domains = [try! BrowserReplDomainPattern.parse("https://login.example.com", title: "test")]
 
     @Test func anotherSessionsReadsMaskATypedSecret() throws {
-        var typed = BrowserReplTypedSecrets()
+        let typed = BrowserReplTypedSecrets()
         typed.record(tab: "tab1", name: "password", value: "hunter2-secret", domains: Self.domains, typist: "typist")
         let reader = try #require(typed.redaction(forReader: "reader"))
         #expect(reader.redactJSON(#"{"value":"hunter2-secret"}"#) == #"{"value":"<secret:password>"}"#)
@@ -20,14 +20,14 @@ struct BrowserReplTypedSecretsTests {
     }
 
     @Test func theTypingSessionKeepsItsOwnRedaction() {
-        var typed = BrowserReplTypedSecrets()
+        let typed = BrowserReplTypedSecrets()
         typed.record(tab: "tab1", name: "password", value: "hunter2-secret", domains: Self.domains, typist: "typist")
         #expect(typed.redaction(forReader: "typist") == nil)
         #expect(typed.captureMasks(forReader: "typist").isEmpty)
     }
 
     @Test func aSessionThatLeftNoLongerKeepsItsTypedSecretsToItself() {
-        var typed = BrowserReplTypedSecrets()
+        let typed = BrowserReplTypedSecrets()
         typed.record(tab: "tab1", name: "password", value: "hunter2-secret", domains: Self.domains, typist: "typist")
         // A later session with the same name does not hold the secret.
         typed.sessionLeft("typist")
@@ -35,7 +35,7 @@ struct BrowserReplTypedSecretsTests {
     }
 
     @Test func masksEndWhenTheTabCloses() {
-        var typed = BrowserReplTypedSecrets()
+        let typed = BrowserReplTypedSecrets()
         typed.record(tab: "tab1", name: "a", value: "first-value", domains: Self.domains, typist: "typist")
         typed.record(tab: "tab2", name: "b", value: "second-value", domains: Self.domains, typist: "typist")
         typed.tabClosed("tab1")
@@ -51,7 +51,7 @@ struct BrowserReplTypedSecretsTests {
     /// that is dropped (not base32) or masks other numbers (base32 digits).
     @Test(arguments: ["123456", "234567"])
     func aTypedCodeUnderATOTPNameIsMaskedAsTyped(code: String) throws {
-        var typed = BrowserReplTypedSecrets()
+        let typed = BrowserReplTypedSecrets()
         typed.record(tab: "tab1", name: "acct_bu_2fa_code", value: code, domains: Self.domains, typist: "typist")
         let reader = try #require(typed.redaction(forReader: "reader"), "a typed code under a TOTP name was not masked for another session")
         #expect(reader.redact("code \(code) entered") == "code <secret:acct_bu_2fa_code> entered")
@@ -61,7 +61,7 @@ struct BrowserReplTypedSecretsTests {
     /// Two sessions that each hold a secret named `password` type different
     /// values into one tab: both values stay masked for a third session.
     @Test func sameNamedSecretsOfTwoSessionsInOneTabAreBothMasked() throws {
-        var typed = BrowserReplTypedSecrets()
+        let typed = BrowserReplTypedSecrets()
         typed.record(tab: "tab1", name: "password", value: "first-session-value", domains: Self.domains, typist: "a")
         typed.record(tab: "tab1", name: "password", value: "second-session-value", domains: Self.domains, typist: "b")
         let reader = try #require(typed.redaction(forReader: "reader"))
@@ -74,7 +74,7 @@ struct BrowserReplTypedSecretsTests {
     /// One session types a secret of one name into two tabs: both values
     /// stay masked.
     @Test func sameNamedSecretsInTwoTabsAreBothMasked() throws {
-        var typed = BrowserReplTypedSecrets()
+        let typed = BrowserReplTypedSecrets()
         typed.record(tab: "tab1", name: "password", value: "value-in-tab-one", domains: Self.domains, typist: "a")
         typed.record(tab: "tab2", name: "password", value: "value-in-tab-two", domains: Self.domains, typist: "a")
         let reader = try #require(typed.redaction(forReader: "reader"))
@@ -84,7 +84,7 @@ struct BrowserReplTypedSecretsTests {
     /// Redaction runs on every result and event; its store (whose patterns
     /// compile on creation) is built once per change of the typed values.
     @Test func theRedactionStoreIsReusedUntilTheTypedValuesChange() throws {
-        var typed = BrowserReplTypedSecrets()
+        let typed = BrowserReplTypedSecrets()
         typed.record(tab: "tab1", name: "password", value: "hunter2-secret", domains: Self.domains, typist: "typist")
         let first = try #require(typed.redaction(forReader: "reader"))
         #expect(typed.redaction(forReader: "reader") === first, "the redaction store was rebuilt without a change")

@@ -9,8 +9,17 @@ public import Foundation
 /// whose origin matches the secret's domains, and every string the session
 /// hands back to JavaScript or prints (driver results, events, fetch
 /// responses, output, errors, files written and read back) is masked as
-/// `<secret:name>`, including the value's percent-encoded, JSON-escaped,
-/// HTML-escaped and Base64-wrapped forms (a Basic `Authorization` header).
+/// `<secret:name>`, including the value's percent-encoded (also twice),
+/// JSON- and JavaScript-escaped, HTML-escaped (named and numeric
+/// references), character by character in any mix, and Base64-wrapped
+/// forms (a Basic `Authorization` header,
+/// Base64 at any offset in a longer run; see
+/// ``BrowserReplSecretScanner/minimumBytesAtEveryOffset`` for short
+/// values). A value transformed otherwise (compressed, hex, Base64 twice or
+/// broken across lines) is not found.
+/// Masking is one linear pass (``BrowserReplSecretScanner``) whose growth
+/// is bounded: text that masking would grow by more than
+/// ``maximumGrowth`` is withheld, and bytes are refused.
 ///
 /// A TOTP secret's value is its seed. The codes it generates are secrets too
 /// while a server can still accept them: the code of the current 30-second
@@ -32,7 +41,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     private let lock = NSLock()
     private var entries: [String: Entry] = [:]
     private var order: [String] = []
-    private var matchers: [Matcher] = []
+    private var values: [BrowserReplSecretScanner.Value] = []
     private var totpKeys: [(name: String, key: Data, domains: [BrowserReplDomainPattern])] = []
     private var codeCache: (window: Int64, codes: [ValidCodes])?
 
@@ -162,8 +171,6 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         let mask: String
         let codes: [String]
         let domains: [BrowserReplDomainPattern]
-        /// Matches one of `codes` standing as a whole number.
-        let pattern: NSRegularExpression?
     }
 
     /// The codes of every TOTP secret a server can still accept at `date`,
@@ -177,12 +184,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
                 let list = Array(Set((-Self.totpSkewWindows...Self.totpSkewWindows).map {
                     Self.totp(key: entry.key, time: Double(window + Int64($0)) * Self.totpPeriod)
                 })).sorted()
-                return ValidCodes(
-                    mask: "<secret:\(entry.name)>",
-                    codes: list,
-                    domains: entry.domains,
-                    pattern: try? NSRegularExpression(pattern: "(?<![0-9])(?:" + list.joined(separator: "|") + ")(?![0-9])")
-                )
+                return ValidCodes(mask: "<secret:\(entry.name)>", codes: list, domains: entry.domains)
             }
             codeCache = (window, codes)
             return codes
@@ -191,157 +193,75 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
 
     // MARK: Redaction
 
-    private struct Matcher {
-        let mask: String
-        let bytes: Data
-        let literals: [String]
-        let encoded: NSRegularExpression?
-    }
-
-    private static let base64Token = try! NSRegularExpression(pattern: "[A-Za-z0-9+/_-]{8,}={0,2}")
+    /// How many bytes masking may add to one text, byte buffer or JSON
+    /// value. A mask is longer than a short value, so a body full of a
+    /// one-character secret would otherwise grow up to 73 times.
+    public static let maximumGrowth = 8 << 20
 
     private func rebuildLocked() {
         codeCache = nil
         totpKeys = order.compactMap { entries[$0] }.filter(\.totp).compactMap { entry in
             Self.base32Decode(entry.value).map { (entry.maskName, $0, entry.domains) }
         }
-        matchers = order.compactMap { entries[$0] }
-            .sorted { $0.value.count > $1.value.count }
-            .map { entry in
-                let value = entry.value
-                let json = (JSONSerialization.browserReplString(value) ?? "\"\"").dropFirst().dropLast()
-                let html = value.replacingOccurrences(of: "&", with: "&amp;")
-                    .replacingOccurrences(of: "<", with: "&lt;")
-                    .replacingOccurrences(of: ">", with: "&gt;")
-                    .replacingOccurrences(of: "\"", with: "&quot;")
-                let htmlApostrophe = html.replacingOccurrences(of: "'", with: "&#39;")
-                let htmlHexApostrophe = html.replacingOccurrences(of: "'", with: "&#x27;")
-                let literals = Array(Set([value, String(json), html, htmlApostrophe, htmlHexApostrophe]))
-                    .filter { !$0.isEmpty }
-                    .sorted { $0.count > $1.count }
-                return Matcher(
-                    mask: "<secret:\(entry.maskName)>",
-                    bytes: Data(value.utf8),
-                    literals: literals,
-                    encoded: Self.percentEncodedPattern(value)
-                )
-            }
+        values = order.compactMap { entries[$0] }
+            .sorted { $0.value.utf8.count > $1.value.utf8.count }
+            .map { BrowserReplSecretScanner.Value(value: $0.value, mask: "<secret:\($0.maskName)>") }
     }
 
-    /// A pattern that matches `value` with any of its characters written
-    /// literally or percent-encoded (either hex case), and a space also as `+`.
-    private static func percentEncodedPattern(_ value: String) -> NSRegularExpression? {
-        var pattern = ""
-        for character in value {
-            let bytes = Array(String(character).utf8)
-            let encoded = bytes.map { byte -> String in
-                let hex = String(format: "%02X", byte)
-                return "%" + hex.map { $0.isLetter ? "[\($0)\(Character($0.lowercased()))]" : String($0) }.joined()
-            }.joined()
-            var options = [NSRegularExpression.escapedPattern(for: String(character)), encoded]
-            if character == " " { options.append("\\+") }
-            pattern += "(?:" + options.joined(separator: "|") + ")"
+    /// The scanner for the values registered now and the TOTP codes valid
+    /// at `date`.
+    private func scanner(at date: Date) -> BrowserReplSecretScanner? {
+        let values = lock.withLock { self.values }
+        guard !values.isEmpty else { return nil }
+        let codes = validCodes(at: date).flatMap { entry in
+            entry.codes.map { (digits: Array($0.utf8), mask: Array(entry.mask.utf8)) }
         }
-        return try? NSRegularExpression(pattern: pattern)
+        return BrowserReplSecretScanner(values: values, codes: codes)
+    }
+
+    /// Why masking withheld `count` bytes.
+    static func limitMessage(_ count: Int) -> String {
+        "masking secrets would grow these \(count) bytes by more than the redaction limit of \(maximumGrowth >> 20) MiB, so they are withheld"
     }
 
     /// `text` with every registered value and its encodings masked, and the
-    /// TOTP codes valid now.
+    /// TOTP codes valid now. Text that masking would grow by more than
+    /// ``maximumGrowth`` is replaced by a note saying it was withheld.
     public func redact(_ text: String) -> String {
         redact(text, at: Date())
     }
 
     func redact(_ text: String, at date: Date) -> String {
-        let matchers = lock.withLock { self.matchers }
-        guard !matchers.isEmpty, !text.isEmpty else { return text }
-        var out = Self.redactBase64(text, matchers)
-        for matcher in matchers {
-            for literal in matcher.literals where out.contains(literal) {
-                out = out.replacingOccurrences(of: literal, with: matcher.mask)
-            }
-            if let encoded = matcher.encoded, out.contains("%") || out.contains("+") {
-                let range = NSRange(out.startIndex..., in: out)
-                out = encoded.stringByReplacingMatches(in: out, range: range, withTemplate: NSRegularExpression.escapedTemplate(for: matcher.mask))
-            }
-        }
-        return redactCodes(out, at: date)
+        var budget = Self.maximumGrowth
+        return (try? redact(text, at: date, budget: &budget)) ?? "<\(Self.limitMessage(text.utf8.count))>"
     }
 
-    /// `data` with every registered value and its encodings masked. UTF-8
-    /// text is redacted as text. Other bytes (an image, an archive, text in
-    /// another encoding) get each value's UTF-8 bytes and its escaped forms
-    /// replaced by the mask's, then the ASCII forms (percent-encoded, Base64,
-    /// TOTP codes) matched over a Latin-1 view, one character per byte. The
-    /// cost is a few linear passes over the bytes. A value the bytes hold
-    /// only compressed or in another encoding is not found.
-    public func redact(_ data: Data) -> Data {
-        let matchers = lock.withLock { self.matchers }
-        guard !matchers.isEmpty, !data.isEmpty else { return data }
-        if let text = String(data: data, encoding: .utf8) {
-            let redacted = redact(text)
-            return redacted == text ? data : Data(redacted.utf8)
+    private func redact(_ text: String, at date: Date, budget: inout Int) throws -> String {
+        guard !text.isEmpty, let scanner = scanner(at: date) else { return text }
+        var text = text
+        let outcome = text.withUTF8 { scanner.redact($0, budget: &budget) }
+        switch outcome {
+        case .unchanged: return text
+        case .redacted(let bytes): return String(decoding: bytes, as: UTF8.self)
+        case .overLimit: throw BrowserReplDriverError(code: "invalid", message: Self.limitMessage(text.utf8.count))
         }
-        var out = data
-        for matcher in matchers {
-            let mask = Data(matcher.mask.utf8)
-            for literal in matcher.literals {
-                out = Self.replace(Data(literal.utf8), with: mask, in: out)
-            }
-        }
-        guard let latin = String(data: out, encoding: .isoLatin1) else { return out }
-        let redacted = redact(latin)
-        guard redacted != latin else { return out }
-        // A mask outside Latin-1 (a name in another script) is written lossily; it still hides the value.
-        return redacted.data(using: .isoLatin1, allowLossyConversion: true) ?? out
     }
 
-    private static func replace(_ needle: Data, with replacement: Data, in data: Data) -> Data {
-        guard !needle.isEmpty, var hit = data.range(of: needle) else { return data }
-        var out = Data()
-        out.reserveCapacity(data.count)
-        var start = data.startIndex
-        while true {
-            out.append(data[start..<hit.lowerBound])
-            out.append(replacement)
-            start = hit.upperBound
-            guard let next = data.range(of: needle, in: start..<data.endIndex) else { break }
-            hit = next
+    /// `data` with every registered value and its encodings masked, text or
+    /// binary alike: the value's UTF-8 bytes and their encoded forms are
+    /// matched byte by byte. A value the bytes hold only compressed or in
+    /// another encoding is not found.
+    /// - Throws: `invalid` when masking would grow the bytes by more than
+    ///   ``maximumGrowth``.
+    public func redact(_ data: Data) throws -> Data {
+        guard !data.isEmpty, let scanner = scanner(at: Date()) else { return data }
+        var budget = Self.maximumGrowth
+        let outcome = data.withUnsafeBytes { scanner.redact($0.bindMemory(to: UInt8.self), budget: &budget) }
+        switch outcome {
+        case .unchanged: return data
+        case .redacted(let bytes): return Data(bytes)
+        case .overLimit: throw BrowserReplDriverError(code: "invalid", message: Self.limitMessage(data.count))
         }
-        out.append(data[start..<data.endIndex])
-        return out
-    }
-
-    /// Masks the valid TOTP codes where they stand as a whole number (a code
-    /// inside a longer run of digits is another number).
-    private func redactCodes(_ text: String, at date: Date) -> String {
-        guard text.utf8.contains(where: { (0x30...0x39).contains($0) }) else { return text }
-        var out = text
-        for entry in validCodes(at: date) {
-            guard let pattern = entry.pattern else { continue }
-            out = pattern.stringByReplacingMatches(
-                in: out, range: NSRange(out.startIndex..., in: out),
-                withTemplate: NSRegularExpression.escapedTemplate(for: entry.mask)
-            )
-        }
-        return out
-    }
-
-    /// Masks Base64 tokens whose decoded bytes hold a value.
-    private static func redactBase64(_ text: String, _ matchers: [Matcher]) -> String {
-        let range = NSRange(text.startIndex..., in: text)
-        let tokens = base64Token.matches(in: text, range: range)
-        guard !tokens.isEmpty else { return text }
-        var out = text
-        for token in tokens.reversed() {
-            guard let tokenRange = Range(token.range, in: out) else { continue }
-            var encoded = String(out[tokenRange]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-            encoded = encoded.trimmingCharacters(in: CharacterSet(charactersIn: "="))
-            while encoded.count % 4 != 0 { encoded += "=" }
-            guard let decoded = Data(base64Encoded: encoded),
-                  let hit = matchers.first(where: { decoded.range(of: $0.bytes) != nil }) else { continue }
-            out.replaceSubrange(tokenRange, with: hit.mask)
-        }
-        return out
     }
 
     /// A JSON document with every string (keys too) redacted. Text that is
@@ -352,16 +272,30 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         return JSONSerialization.browserReplString(redactValue(value)) ?? redact(json)
     }
 
-    /// `value` (decoded JSON) with every string redacted.
+    /// `value` (decoded JSON) with every string redacted. A value that
+    /// masking would grow by more than ``maximumGrowth`` in all is replaced
+    /// by a note saying it was withheld.
     public func redactValue(_ value: Any) -> Any {
+        (try? redactedValue(value)) ?? "<\(Self.limitMessage(JSONSerialization.browserReplString(value)?.utf8.count ?? 0))>"
+    }
+
+    /// `value` (decoded JSON) with every string redacted.
+    /// - Throws: `invalid` when masking would grow it by more than
+    ///   ``maximumGrowth`` in all.
+    public func redactedValue(_ value: Any) throws -> Any {
+        var budget = Self.maximumGrowth
+        return try redactValue(value, at: Date(), budget: &budget)
+    }
+
+    private func redactValue(_ value: Any, at date: Date, budget: inout Int) throws -> Any {
         switch value {
         case let text as String:
-            return redact(text)
+            return try redact(text, at: date, budget: &budget)
         case let list as [Any]:
-            return list.map(redactValue)
+            return try list.map { try redactValue($0, at: date, budget: &budget) }
         case let object as [String: Any]:
             var out: [String: Any] = [:]
-            for (key, item) in object { out[redact(key)] = redactValue(item) }
+            for (key, item) in object { out[try redact(key, at: date, budget: &budget)] = try redactValue(item, at: date, budget: &budget) }
             return out
         case let number as NSNumber where CFGetTypeID(number) != CFBooleanGetTypeID():
             // A page can read a code as a number (`Number(field.value)`),
@@ -372,7 +306,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
                 forms.append(String(format: "%06lld", integer))
             }
             for form in forms {
-                let masked = redact(form)
+                let masked = try redact(form, at: date, budget: &budget)
                 if masked != form { return masked }
             }
             return value

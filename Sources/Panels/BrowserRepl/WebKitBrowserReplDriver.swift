@@ -88,6 +88,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     private static let closedError = BrowserReplDriverError(code: "closed", message: "the REPL session was closed")
 
+    func typedSecretRedaction() -> BrowserReplSecretStore? {
+        BrowserReplTabAttachments.typedSecrets.redaction(forReader: sessionID)
+    }
+
     /// Publishes `policy` to the navigation checks before it returns
     /// (``BrowserReplPolicyBoard``): the next navigation or popup of the
     /// session's tabs is judged by it. WebKit compiles its content rules
@@ -206,7 +210,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         // The store is cached per change of the typed values; the scan of
         // the result runs off the main thread.
-        guard let store = BrowserReplTabAttachments.shared.typedSecrets.redaction(forReader: sessionID) else { return result }
+        guard let store = BrowserReplTabAttachments.typedSecrets.redaction(forReader: sessionID) else { return result }
         return await Self.maskingTypedSecrets(result, method: method, store: store)
     }
 
@@ -231,7 +235,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func typedSecretMasks(_ params: [String: Any]) -> [[String: Any]] {
         (params["secretMasks"] as? [[String: Any]] ?? [])
-            + BrowserReplTabAttachments.shared.typedSecrets.captureMasks(forReader: sessionID)
+            + BrowserReplTabAttachments.typedSecrets.captureMasks(forReader: sessionID)
     }
 
     @MainActor
@@ -775,7 +779,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             }
         }
         // Events carry no secret another session typed (BrowserReplTypedSecrets).
-        let visible = BrowserReplTabAttachments.shared.typedSecrets.redaction(forReader: sessionID)
+        let visible = BrowserReplTabAttachments.typedSecrets.redaction(forReader: sessionID)
             .map { $0.redactValue(payload) } ?? payload
         guard let json = JSONSerialization.browserReplString(visible) else { return }
         let sink = lock.withLock { self.sink }
@@ -2249,7 +2253,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             // masked for them, also when typing fails partway and part of
             // the value is already in the page. A refused value is never
             // recorded, so it never becomes a mask other sessions see.
-            BrowserReplTabAttachments.shared.typedSecrets.record(
+            BrowserReplTabAttachments.typedSecrets.record(
                 tab: panel.id.uuidString,
                 name: name,
                 value: text,
