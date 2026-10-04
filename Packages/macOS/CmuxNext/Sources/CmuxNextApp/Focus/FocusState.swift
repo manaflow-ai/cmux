@@ -225,7 +225,7 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
             case (.terminal, _): return .terminal(pane: pane, tab: tab.id)
             case (.agent, _): return .agentPage(pane: pane, tab: tab.id)
             case (.page, _): return .page(pane: pane, tab: tab.id)
-            case (.conversation, _): return .emptyPane(pane: pane)
+            case (.conversation, _): return .conversation(pane: pane, tab: tab.id)
             case (.other, _): return .emptyPane(pane: pane)
             }
         }
