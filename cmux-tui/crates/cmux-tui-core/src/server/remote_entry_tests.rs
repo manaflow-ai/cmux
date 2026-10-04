@@ -122,7 +122,8 @@ fn every_daemon_command_is_refused_by_the_default_gate() {
     assert_eq!(remote_clients(&entry.mux).len(), 1);
 }
 
-/// RED (security): a remote client never acts as the server's local user.
+/// RED (security): a remote client never acts as the server's local user;
+/// it is the participant of its paired install.
 #[test]
 fn a_remote_client_acts_as_its_peer_user_never_the_local_user() {
     let entry = entry(true, Arc::new(DenyAllGate));
@@ -133,7 +134,7 @@ fn a_remote_client_acts_as_its_peer_user_never_the_local_user() {
     let clients = remote_clients(&entry.mux);
     assert_eq!(clients.len(), 1);
     let principal = entry.mux.conversation_principal(clients[0]);
-    assert_eq!(principal, "user_42");
+    assert_eq!(principal, "remote_inst_1");
     assert_ne!(principal, crate::conversation_store::LOCAL_USER);
     assert!(!entry.mux.control_clients.is_unix(clients[0]));
 }

@@ -16,7 +16,7 @@
 //!
 //! A remote client is registered as [`ClientTransport::Remote`], so checks
 //! for a trusted local connection (`is_unix`) refuse it, and its
-//! conversation principal is the peer's user, never `user_local`.
+//! conversation principal is `remote_<install>`, never `user_local`.
 
 use std::io::Read;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -80,9 +80,11 @@ impl Drop for RemoteEntryServer {
     }
 }
 
-/// The conversation principal of a remote peer (server-remote-conversations.md 2).
+/// The conversation principal of a remote peer: one participant per paired
+/// install, never `user_local` (server-remote-conversations.md 5, decision
+/// D-B; the relay gate counts it as the same person as the owner).
 pub fn remote_principal(peer: &RemotePeer) -> String {
-    format!("user_{}", peer.user)
+    format!("remote_{}", peer.install)
 }
 
 /// Listen on `path` (mode 0600) and serve link streams for `mux`.
