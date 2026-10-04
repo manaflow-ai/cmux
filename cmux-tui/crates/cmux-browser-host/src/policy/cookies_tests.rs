@@ -29,7 +29,7 @@ fn cookies_follow_hosts_not_origins() {
     // A leading dot names the same host.
     let p = policy(None, &["peer.test"], false);
     assert!(p.cookie_refusal(".peer.test").is_some());
-    assert_eq!(p.cookie_refusal(""), None, "no policy entry names an empty domain");
+    assert_eq!(p.cookie_refusal("").as_deref(), Some("the cookie names no domain"));
 }
 
 #[test]
@@ -42,7 +42,10 @@ fn an_allow_list_covers_the_cookies_its_hosts_receive() {
         p.cookie_refusal("other.test").as_deref(),
         Some("not in session.allowedDomains (https://www.parent.test)")
     );
-    assert_eq!(policy(Some(&["a.test"]), &[], false).cookie_refusal("").as_deref(), Some("the cookie names no domain"));
+    assert_eq!(
+        policy(Some(&["a.test"]), &[], false).cookie_refusal("").as_deref(),
+        Some("the cookie names no domain")
+    );
 }
 
 #[test]
@@ -60,7 +63,9 @@ fn a_domain_cookie_must_not_reach_hosts_outside_the_policy() {
     let p = policy(Some(&["https://www.parent.test"]), &[], false);
     assert_eq!(
         p.cookie_set_refusal(".parent.test").as_deref(),
-        Some("a cookie on parent.test reaches its other subdomains, which session.allowedDomains (https://www.parent.test) does not all allow; set it on the allowed host itself")
+        Some(
+            "a cookie on parent.test reaches its other subdomains, which session.allowedDomains (https://www.parent.test) does not all allow; set it on the allowed host itself"
+        )
     );
     assert_eq!(p.cookie_set_refusal("www.parent.test"), None);
     let p = policy(Some(&["*.parent.test"]), &[], false);
