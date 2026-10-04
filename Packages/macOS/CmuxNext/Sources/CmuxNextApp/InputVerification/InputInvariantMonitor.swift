@@ -170,7 +170,17 @@ final class InputInvariantMonitor {
         )
         reports.append(report)
         if reports.count > Self.reportsKept { reports.removeFirst(reports.count - Self.reportsKept) }
-        if let data = Self.fileData(report, services: services) { store.write(data, for: report) }
+        // The UI snapshots are read here (main actor); encoding and pretty-printing them (about
+        // 30 ms per report, R81 trace) run off the main actor with the write.
+        let extras: [String: JSONValue] = [
+            "debug_focus": DebugFocus.report(services: services),
+            "debug_surfaces": SurfaceDiagnosticsReport.make(services),
+            "debug_layers": DebugLayers.report(services: services),
+        ]
+        let store = store
+        Task.detached(priority: .utility) {
+            if let data = Self.fileData(report, extras: extras) { store.write(data, for: report) }
+        }
         for line in report.summary {
             #if DEBUG
             logger.fault("input desync \(line, privacy: .public)")
@@ -181,12 +191,10 @@ final class InputInvariantMonitor {
         return report
     }
 
-    /// The report plus `debug.focus` and `debug.surfaces` at capture time.
-    private static func fileData(_ report: DesyncReport, services: AppServices) -> Data? {
+    /// The report plus `debug.focus`, `debug.surfaces` and `debug.layers` captured with it.
+    nonisolated private static func fileData(_ report: DesyncReport, extras: [String: JSONValue]) -> Data? {
         guard let encoded = try? DesyncReport.encoder.encode(report), case .object(var object)? = try? JSONValue.parse(encoded) else { return nil }
-        object["debug_focus"] = DebugFocus.report(services: services)
-        object["debug_surfaces"] = SurfaceDiagnosticsReport.make(services)
-        object["debug_layers"] = DebugLayers.report(services: services)
+        object.merge(extras) { _, extra in extra }
         return Data(JSONValue.object(object).prettyText().utf8)
     }
 
