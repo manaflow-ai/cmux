@@ -591,6 +591,25 @@ import Testing
         #expect(listed(source, listedID), "a listed conversation left the inbox when its transcript closed")
     }
 
+    /// The daemon reconnects: the open conversations subscribe again
+    /// before the inbox lists, so the inbox the store gets still shows them
+    /// (the router removes what a cloud inbox leaves out).
+    @Test func aReconnectKeepsTheOpenConversationsListed() async throws {
+        let (source, _, tape) = await configured(.init(heads: [dm: F.head(dm)]))
+        #expect(await signedIn(tape))
+        _ = try await source.snapshot(of: ConversationID(dm), tail: 10)
+        let mark = tape.all.count
+        let second = FakeCloudDaemon(.init(heads: [dm: F.head(dm)]))
+        source.configure(commands: second, link: ObjectIdentifier(second), identity: F.identity)
+        @Sendable func inboxes(_ events: [HomeEvent]) -> [InboxSnapshot] {
+            events.dropFirst(mark).compactMap { if case .inbox(let inbox) = $0 { inbox } else { nil } }
+        }
+        #expect(await tape.wait { !inboxes($0).isEmpty })
+        let first = try #require(inboxes(tape.all).first)
+        #expect(first.conversations.contains { $0.id.rawValue == dm }, "the reconnect's inbox dropped an open conversation")
+        #expect(await second.wait { $0.contains(.subscribe(dm)) })
+    }
+
     func listed(_ source: CloudHomeSource, _ id: String) -> Bool {
         source.currentInbox().conversations.contains { $0.id.rawValue == id }
     }
