@@ -9308,127 +9308,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "setting is required (a dotted cmux.json path)"
+            "value": "setting is required (a dotted cmux-next.json path)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "setting が必要です(ドット区切りの cmux.json パス)"
+            "value": "setting が必要です(ドット区切りの cmux-next.json パス)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الإعداد مطلوب (مسار cmux.json بنقاط)"
+            "value": "الإعداد مطلوب (مسار cmux-next.json بنقاط)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "postavka je obavezna (cmux.json putanja s tačkama)"
+            "value": "postavka je obavezna (cmux-next.json putanja s tačkama)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "indstilling er påkrævet (en punktsepareret cmux.json-sti)"
+            "value": "indstilling er påkrævet (en punktsepareret cmux-next.json-sti)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Einstellung ist erforderlich (ein cmux.json-Pfad mit Punkten)"
+            "value": "Einstellung ist erforderlich (ein cmux-next.json-Pfad mit Punkten)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "se requiere el ajuste (una ruta de cmux.json con puntos)"
+            "value": "se requiere el ajuste (una ruta de cmux-next.json con puntos)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "le réglage est requis (un chemin cmux.json à points)"
+            "value": "le réglage est requis (un chemin cmux-next.json à points)"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "l’impostazione è obbligatoria (un percorso cmux.json con punti)"
+            "value": "l’impostazione è obbligatoria (un percorso cmux-next.json con punti)"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ត្រូវការការកំណត់ (ផ្លូវ cmux.json ដែលមានចំណុច)"
+            "value": "ត្រូវការការកំណត់ (ផ្លូវ cmux-next.json ដែលមានចំណុច)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "setting이 필요함(점으로 구분된 cmux.json 경로)"
+            "value": "setting이 필요함(점으로 구분된 cmux-next.json 경로)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "innstilling kreves (en punktseparert cmux.json-bane)"
+            "value": "innstilling kreves (en punktseparert cmux-next.json-bane)"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ustawienie jest wymagane (ścieżka cmux.json z kropkami)"
+            "value": "ustawienie jest wymagane (ścieżka cmux-next.json z kropkami)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "o ajuste é obrigatório (um caminho pontuado do cmux.json)"
+            "value": "o ajuste é obrigatório (um caminho pontuado do cmux-next.json)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "требуется настройка (путь cmux.json через точку)"
+            "value": "требуется настройка (путь cmux-next.json через точку)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ต้องระบุการตั้งค่า (พาธ cmux.json แบบจุด)"
+            "value": "ต้องระบุการตั้งค่า (พาธ cmux-next.json แบบจุด)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ayar gerekli (noktalı bir cmux.json yolu)"
+            "value": "ayar gerekli (noktalı bir cmux-next.json yolu)"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "потрібен параметр (шлях у cmux.json через крапку)"
+            "value": "потрібен параметр (шлях у cmux-next.json через крапку)"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cần chỉ định cài đặt (đường dẫn cmux.json dạng dấu chấm)"
+            "value": "cần chỉ định cài đặt (đường dẫn cmux-next.json dạng dấu chấm)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "需要 setting（以点分隔的 cmux.json 路径）"
+            "value": "需要 setting（以点分隔的 cmux-next.json 路径）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "需要 setting（以點分隔的 cmux.json 路徑）"
+            "value": "需要 setting（以點分隔的 cmux-next.json 路徑）"
           }
         }
       }
@@ -9439,127 +9439,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.json is not loaded yet"
+            "value": "cmux-next.json is not loaded yet"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.json はまだ読み込まれていません"
+            "value": "cmux-next.json はまだ読み込まれていません"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم يتم تحميل cmux.json بعد"
+            "value": "لم يتم تحميل cmux-next.json بعد"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json još nije učitan"
+            "value": "cmux-next.json još nije učitan"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json er ikke indlæst endnu"
+            "value": "cmux-next.json er ikke indlæst endnu"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json ist noch nicht geladen"
+            "value": "cmux-next.json ist noch nicht geladen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json aún no se ha cargado"
+            "value": "cmux-next.json aún no se ha cargado"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json n’est pas encore chargé"
+            "value": "cmux-next.json n’est pas encore chargé"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json non è ancora caricato"
+            "value": "cmux-next.json non è ancora caricato"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json មិនទាន់ត្រូវបានផ្ទុកនៅឡើយទេ"
+            "value": "cmux-next.json មិនទាន់ត្រូវបានផ្ទុកនៅឡើយទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json이 아직 로드되지 않음"
+            "value": "cmux-next.json이 아직 로드되지 않음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json er ikke lastet inn ennå"
+            "value": "cmux-next.json er ikke lastet inn ennå"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json nie jest jeszcze wczytany"
+            "value": "cmux-next.json nie jest jeszcze wczytany"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "o cmux.json ainda não foi carregado"
+            "value": "o cmux-next.json ainda não foi carregado"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json еще не загружен"
+            "value": "cmux-next.json еще не загружен"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ยังไม่ได้โหลด cmux.json"
+            "value": "ยังไม่ได้โหลด cmux-next.json"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json henüz yüklenmedi"
+            "value": "cmux-next.json henüz yüklenmedi"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json ще не завантажено"
+            "value": "cmux-next.json ще не завантажено"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json chưa được tải"
+            "value": "cmux-next.json chưa được tải"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json 尚未加载"
+            "value": "cmux-next.json 尚未加载"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json 尚未載入"
+            "value": "cmux-next.json 尚未載入"
           }
         }
       }

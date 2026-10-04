@@ -21,10 +21,9 @@ public enum SettingsWindowLayout: String, Sendable, CaseIterable, TunableChoice 
     }
 }
 
-/// Where Settings… opens (`settings.presentation`, DEV and NIGHTLY): a tab
-/// in the active window's focused pane (lane 20, Lawrence 2026-10-02), or
-/// the separate window it used to be. Debug Settings follows the same
-/// choice. Release builds open the tab.
+/// Where Settings… opens (`settings.presentation`, DEV and NIGHTLY): a tab in
+/// the active window's focused pane by default, or the separate desktop
+/// window when explicitly selected. Debug Settings follows the same choice.
 public enum SettingsPresentation: String, Sendable, CaseIterable, TunableChoice {
     case pane
     case window
