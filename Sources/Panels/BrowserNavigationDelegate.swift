@@ -59,6 +59,18 @@ import WebKit
     private var trustedInternalNavigationURL: URL?
     // WKNavigation is WebKit's only public identity linking a load to its lifecycle callbacks.
     private var activeMainFrameNavigation: WKNavigation?
+    // Transient-failure auto-retry for loopback main-frame navigations: a dev
+    // server restarting, or the shared WebKit networking process whose
+    // per-host HTTP/1.1 pool is pinned by long-lived SSE/HMR connections,
+    // fails "connection refused" while curl succeeds. One or two quick
+    // retries recover both without showing the misleading error page.
+    private var loopbackAutoRetryAttemptCount = 0
+    private var loopbackAutoRetryFailedURL: String?
+    private var loopbackAutoRetryTask: Task<Void, Never>?
+    /// Backoff schedule; tests shrink it to keep suites fast.
+    /// One quick retry, then one longer one — enough to survive a dev-server
+    /// restart or a draining connection pool without hiding real failures.
+    var loopbackAutoRetryDelays: [TimeInterval] = [1.5, 4.0]
 
     init(
         externalNavigationHandler: BrowserExternalNavigationHandler
@@ -129,6 +141,9 @@ import WebKit
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         let isCurrentNavigation = isCurrentMainFrameNavigation(navigation)
+        if isCurrentNavigation {
+            cancelLoopbackAutoRetry(resetBudget: true)
+        }
         if activeSSLTrustBypassReplayRequest != nil || activeSSLTrustBypassErrorPageRetryRequest != nil {
             clearAttemptedRequest(discardPendingBypasses: true)
         }
@@ -211,6 +226,11 @@ import WebKit
             ?? ""
         didFailNavigation?(webView, failedURL, error.localizedDescription, navigation)
         clearActiveMainFrameNavigation(ifMatching: navigation)
+        if isCurrentNavigation,
+           shouldAutoRetryLoopbackConnectionFailure(nsError, failedURL: failedURL) {
+            scheduleLoopbackAutoRetry(webView: webView, failedURL: failedURL)
+            return
+        }
         loadErrorPage(
             in: webView,
             failedURL: failedURL,
@@ -1029,6 +1049,91 @@ import WebKit
         mimeType?.split(separator: ";", maxSplits: 1).first?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .caseInsensitiveCompare("application/pdf") == .orderedSame
+    }
+
+    // MARK: Transient loopback connection failures
+
+    /// Connection-level errors that are transient on loopback: the dev server
+    /// is restarting or its pool is momentarily wedged. Scoped to these codes
+    /// so certificate, policy, and body-level failures keep their error page.
+    private static let loopbackAutoRetryErrorCodes: Set<Int> = [
+        NSURLErrorCannotConnectToHost,
+        NSURLErrorTimedOut,
+        NSURLErrorNetworkConnectionLost,
+    ]
+
+    private func shouldAutoRetryLoopbackConnectionFailure(
+        _ error: NSError,
+        failedURL: String
+    ) -> Bool {
+        guard error.domain == NSURLErrorDomain,
+              Self.loopbackAutoRetryErrorCodes.contains(error.code),
+              let url = URL(string: failedURL),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              let host = url.host,
+              RemoteLoopbackProxyAlias.isLoopbackHost(host) else {
+            return false
+        }
+        // Match the manual Retry link's replayability rules: a streamed or
+        // oversized upload must not become an automatic replay.
+        guard BrowserErrorPage.retryURL(
+            from: failedURL,
+            retry: retryForFailedNavigation(failedURL: failedURL)
+        ) != nil else {
+            return false
+        }
+        if loopbackAutoRetryFailedURL != failedURL {
+            loopbackAutoRetryAttemptCount = 0
+            loopbackAutoRetryFailedURL = failedURL
+        }
+        guard loopbackAutoRetryAttemptCount < loopbackAutoRetryDelays.count else {
+            return false
+        }
+        loopbackAutoRetryAttemptCount += 1
+        return true
+    }
+
+    private func scheduleLoopbackAutoRetry(webView: WKWebView, failedURL: String) {
+        let delay = loopbackAutoRetryDelays[loopbackAutoRetryAttemptCount - 1]
+        loopbackAutoRetryTask?.cancel()
+        loopbackAutoRetryTask = Task { [weak self, weak webView] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, !Task.isCancelled else { return }
+            self.loopbackAutoRetryTask = nil
+            self.performLoopbackAutoRetry(webView: webView, failedURL: failedURL)
+        }
+    }
+
+    private func performLoopbackAutoRetry(webView: WKWebView?, failedURL: String) {
+        guard let webView else { return }
+        // The user navigated elsewhere while the retry was pending: leave
+        // their navigation alone.
+        guard lastAttemptedURL == nil || lastAttemptedURL?.absoluteString == failedURL else {
+            return
+        }
+        // A newer provisional navigation is in flight; do not stomp it.
+        guard activeMainFrameNavigation == nil else { return }
+        guard let retryURL = BrowserErrorPage.retryURL(
+            from: failedURL,
+            retry: retryForFailedNavigation(failedURL: failedURL)
+        ) else { return }
+        var request = URLRequest(url: retryURL)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        NSLog("BrowserPanel auto-retrying loopback navigation after transient failure: %@", failedURL)
+        owner?.navigateWithoutInsecureHTTPPrompt(
+            request: request,
+            recordTypedNavigation: false,
+            preserveRestoredSessionHistory: true
+        )
+    }
+
+    private func cancelLoopbackAutoRetry(resetBudget: Bool) {
+        loopbackAutoRetryTask?.cancel()
+        loopbackAutoRetryTask = nil
+        if resetBudget {
+            loopbackAutoRetryAttemptCount = 0
+            loopbackAutoRetryFailedURL = nil
+        }
     }
 
     private func clearActiveMainFrameNavigation(ifMatching navigation: WKNavigation?) {
