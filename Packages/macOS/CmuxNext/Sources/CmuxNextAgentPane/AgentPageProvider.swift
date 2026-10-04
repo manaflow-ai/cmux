@@ -31,6 +31,7 @@ public nonisolated struct AgentPageOps {
             "quick.dismiss", "quick.openInWindow",
             "git.diff", "git.status", "file.search", "git.checkpoint.diff",
             "dictation.toggle", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings",
+            "transport.open", "transport.send", "transport.close",
         ].map { ($0, $0) })
         methods["handshake"] = "ready"
         methods["session.persist"] = "chat.persistSession"

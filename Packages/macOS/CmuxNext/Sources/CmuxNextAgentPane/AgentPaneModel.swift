@@ -68,6 +68,17 @@ public final class AgentPaneModel {
     /// reaches the page as `native.failed`.
     @ObservationIgnored public var onGit: (@MainActor (AgentPaneGitRequest) async throws -> Data)?
 
+    /// The host's acpmux socket for this pane (in the app the page never holds one).
+    @ObservationIgnored public let transport: AgentPaneTransport
+    /// The last handshake's connection, until the page opens it: used once, so the LocalApp
+    /// token is never kept beyond one handshake.
+    @ObservationIgnored private var pendingConnection: AcpmuxConnection?
+    /// The folders of this pane's workspace the App knows (its local tabs' folders). With the
+    /// handshake's cwd and the new tab page's folders they are the roots every `cwd` or `path`
+    /// the page sends must be under (``AcpmuxPathPolicy``).
+    @ObservationIgnored public var workspaceRoots: (@MainActor () -> [String])?
+    @ObservationIgnored private var handshakeCwd: String?
+
     @ObservationIgnored private let host: any AgentPaneHostProviding
     /// What a new chat inherits from the tab it was opened from.
     @ObservationIgnored private let seed: AgentPaneSeedSource?
@@ -76,12 +87,26 @@ public final class AgentPaneModel {
         host: any AgentPaneHostProviding,
         sessionId: String? = nil,
         seed: AgentPaneSeedSource? = nil,
-        newTab: AgentPaneNewTab? = nil
+        newTab: AgentPaneNewTab? = nil,
+        transport: AgentPaneTransport = AgentPaneTransport()
     ) {
         self.host = host
+        self.transport = transport
         self.sessionId = sessionId
         self.seed = seed
         self.newTab = sessionId == nil ? newTab : nil
+        transport.roots = { [weak self] in self?.roots() ?? [] }
+    }
+
+    /// The workspace roots for ``AcpmuxPathPolicy``.
+    func roots() -> [String] {
+        var roots = workspaceRoots?() ?? []
+        if let handshakeCwd { roots.append(handshakeCwd) }
+        if let newTab {
+            if let cwd = newTab.cwd { roots.append(cwd) }
+            roots += newTab.projects + newTab.omnibar.folders
+        }
+        return roots
     }
 
     /// Cmd-T adopted this prewarmed new tab page: `page` is the context of
@@ -103,7 +128,8 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .unsupported: break
+        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .unsupported,
+             .transportOpen, .transportSend, .transportClose: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
             userTouched = true
@@ -139,6 +165,10 @@ public final class AgentPaneModel {
                 handshake.revealTurn = pendingRevealTurn
                 pendingRevealTurn = nil
                 hasHandshake = true
+                if let cwd = handshake.cwd { handshakeCwd = cwd }
+                // The connection stays here; the reply never encodes it.
+                pendingConnection = handshake.connection
+                handshake.connection = nil
                 return AgentPaneReply.handshake(handshake)
             } catch {
                 let message = AgentPaneHostError.userMessage(for: error)
@@ -231,9 +261,27 @@ public final class AgentPaneModel {
             }
         case .invalidGit:
             return Self.gitFailure(.invalidRequest)
+        case .transportOpen:
+            guard let connection = pendingConnection else { return Self.transportFailure(.noConnection) }
+            pendingConnection = nil
+            do {
+                return AgentPaneReply.success(["connection": try await transport.open(connection)])
+            } catch {
+                return Self.transportFailure(error)
+            }
+        case .transportSend(let connection, let frames):
+            if let error = await transport.send(connection: connection, frames: frames) { return Self.transportFailure(error) }
+            return AgentPaneReply.success()
+        case .transportClose(let connection):
+            transport.close(connection: connection)
+            return AgentPaneReply.success()
         case .unsupported(let method):
             return Self.unsupported(method)
         }
+    }
+
+    private static func transportFailure(_ error: AgentPaneTransportError) -> [String: Any] {
+        AgentPaneReply.failure(code: error.rawValue, message: transportFailedMessage, details: nil, retryable: nil, origin: "native")
     }
 
     private static func unsupported(_ method: String) -> [String: Any] {

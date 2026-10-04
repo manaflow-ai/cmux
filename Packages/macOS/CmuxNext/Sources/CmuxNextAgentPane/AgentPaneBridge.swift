@@ -23,7 +23,10 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             return (AgentPaneReply.failure(code: "untrusted_frame", message: "Untrusted frame"), nil)
         }
         let request = AgentPaneRequest(body: message.body)
-        logger.info("agent pane trusted message request=\(String(describing: request), privacy: .public) url=\(message.frameInfo.request.url?.absoluteString ?? "", privacy: .public)")
+        // Transport requests carry chat content and run per batch: not logged.
+        if !request.isTransport {
+            logger.info("agent pane trusted message request=\(String(describing: request), privacy: .public) url=\(message.frameInfo.request.url?.absoluteString ?? "", privacy: .public)")
+        }
         return (await reply(to: request), nil)
     }
 

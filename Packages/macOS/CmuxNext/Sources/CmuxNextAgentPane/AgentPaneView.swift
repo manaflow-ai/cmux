@@ -5,8 +5,9 @@ import os
 public import WebKit
 
 /// Hosts the React agent pane (`Resources/agent-pane/index.html`, built by
-/// `scripts/cmux-next/build-agent-pane-web.sh`) in a WKWebView. The page
-/// connects to acpmux itself after the handshake; this view only answers
+/// `scripts/cmux-next/build-agent-pane-web.sh`) in a WKWebView. The model's
+/// ``AgentPaneTransport`` owns the acpmux socket and relays its frames to the
+/// page (the page never holds an endpoint or a token); this view answers
 /// host requests, keeps the page on its source, and applies the theme
 /// of the scope it sits in (window, workspace), re-applied whenever that
 /// scope repaints.
@@ -56,6 +57,8 @@ public final class AgentPaneView: NSView {
     private var motionObservation: Task<Void, Never>?
     private var reduceMotionObserver: (any NSObjectProtocol)?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
+    /// Paces the transport's pushes (stopped when the pane closes).
+    private var transportPacer: AgentPaneFramePacer?
 
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
     private static let processPool = WKProcessPool()
@@ -148,6 +151,13 @@ public final class AgentPaneView: NSView {
             self.rendersAtFullRate = full
         }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
+        // The host owns the acpmux socket; its frames reach the page in display-frame batches.
+        let pacer = AgentPaneFramePacer(view: self)
+        transportPacer = pacer
+        model.transport.pacer = pacer
+        model.transport.deliver = { [weak self] event in
+            self?.deliver([.transport(event)], scripts: [event.script])
+        }
         if page == nil {
             navigation.view = self
             webView.navigationDelegate = navigation
@@ -290,6 +300,9 @@ public final class AgentPaneView: NSView {
         reduceMotionObserver = nil
         reduceMotionOverrideObserver = nil
         dictation.close()
+        if let connection = model.transport.connection { model.transport.close(connection: connection) }
+        model.transport.deliver = nil
+        transportPacer?.stop()
         if let page {
             page.close()
         } else {

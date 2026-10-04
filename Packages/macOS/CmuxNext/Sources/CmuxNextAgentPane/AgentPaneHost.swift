@@ -59,11 +59,17 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     }
 
     public func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
-        .acpmux(try await endpoint(startsDaemon: true), sessionId: sessionId)
+        .acpmux(connection(try await endpoint(startsDaemon: true)), sessionId: sessionId)
     }
 
     public func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake {
-        .acpmux(try await endpoint(startsDaemon: false), sessionId: sessionId)
+        .acpmux(connection(try await endpoint(startsDaemon: false)), sessionId: sessionId)
+    }
+
+    /// The host socket's connection, with this daemon launch's LocalApp token read now, on the
+    /// actor (it changes at every launch, so it is read at every handshake and reconnect).
+    private func connection(_ endpoint: AcpmuxWebEndpoint) -> AcpmuxConnection {
+        AcpmuxConnection(endpoint: endpoint, home: environment?.home)
     }
 
     public func prewarm() async throws {

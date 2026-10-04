@@ -1,0 +1,450 @@
+public import Foundation
+import os
+import Synchronization
+
+/// Why the host's socket refused a page frame or stopped. The raw value is the code the page
+/// receives (a bridge failure, or `closed.error` of a transport event).
+public nonisolated enum AgentPaneTransportError: String, Error, Equatable, Sendable {
+    /// `transport.open` without a handshake that named a daemon (or its connection was used).
+    case noConnection = "transport.no_connection"
+    case connectFailed = "transport.connect_failed"
+    /// A send or close for a connection that is not the current one.
+    case staleConnection = "transport.stale_connection"
+    case closed = "transport.closed"
+    case invalidFrame = "transport.invalid_frame"
+    case frameTooLarge = "transport.frame_too_large"
+    case firstFrameNotInitialize = "transport.first_frame"
+    /// The method is not on ``AcpmuxPaneMethods``.
+    case methodRefused = "transport.method_refused"
+    /// A `cwd` or `path` param that is not an absolute existing path (a `cwd` must be a directory).
+    case pathInvalid = "transport.path_invalid"
+    /// A `cwd` or `path` param outside the pane's workspace roots (``AcpmuxPathPolicy``).
+    case pathOutsideRoots = "transport.path_outside_roots"
+    /// The page did not take frames as fast as the daemon sent them; the socket was closed.
+    case inboundOverflow = "transport.inbound_overflow"
+    /// The daemon did not take the page's frames; the socket was closed.
+    case outboundOverflow = "transport.outbound_overflow"
+}
+
+/// How the socket ended: the close code and reason, and the host's error when the host closed it.
+public nonisolated struct AgentPaneTransportClose: Equatable, Sendable {
+    public var code: Int
+    public var reason: String
+    public var error: AgentPaneTransportError?
+}
+
+/// One push to the page: frames in arrival order, then (at most once) the close.
+public nonisolated struct AgentPaneTransportEvent: Equatable, Sendable {
+    public var connection: Int
+    public var frames: [String]
+    public var closed: AgentPaneTransportClose?
+
+    var object: [String: Any] {
+        var object: [String: Any] = ["connection": connection]
+        if !frames.isEmpty { object["frames"] = frames }
+        if let closed {
+            var close: [String: Any] = ["code": closed.code, "reason": closed.reason]
+            if let error = closed.error { close["error"] = error.rawValue }
+            object["closed"] = close
+        }
+        return object
+    }
+
+    /// The old host's push: `cmuxAcpmuxTransport.receive(event)` (bridgeSocket.ts).
+    var script: String {
+        let json = (try? JSONSerialization.data(withJSONObject: object)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+        return "window.cmuxAcpmuxTransport?.receive(\(json));"
+    }
+}
+
+/// When the transport delivers what arrived. Production paces by display frames
+/// (``AgentPaneFramePacer``); tests flush on the next main-loop turn or by hand.
+@MainActor public protocol AgentPaneTransportPacer: AnyObject {
+    /// Arrange for `flush` to run soon, and again while it returns true (more is waiting).
+    func schedule(_ flush: @escaping @MainActor @Sendable () -> Bool)
+}
+
+/// Flushes on the next main-loop turn, again while more is waiting.
+@MainActor public final class AgentPaneNextTurnPacer: AgentPaneTransportPacer {
+    private var scheduled = false
+    public init() {}
+
+    public func schedule(_ flush: @escaping @MainActor @Sendable () -> Bool) {
+        guard !scheduled else { return }
+        scheduled = true
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.scheduled = false
+                if flush() { self?.schedule(flush) }
+            }
+        }
+    }
+}
+
+/// The host side of the pane's acpmux connection (design B, localapp-isolation-spike.md): the
+/// host owns the WebSocket, puts the LocalApp token in the first frame, checks every page frame
+/// against ``AcpmuxPaneMethods`` and relays frames both ways through the page bridge. The page
+/// world never sees an endpoint or a token.
+///
+/// - One connection at a time; `open` closes the previous one. Each has an id the page names.
+/// - Inbound frames queue off the main thread in a bounded queue and reach the page in batches,
+///   one bridge call per flush (``pacer``). Overflow closes the socket with
+///   ``AgentPaneTransportError/inboundOverflow``; the page then reconnects and resyncs.
+/// - Outbound sends are bounded too (``AgentPaneTransportError/outboundOverflow``).
+/// - Nothing here blocks the main thread: the socket's callbacks run on its own queue.
+@MainActor public final class AgentPaneTransport {
+    public nonisolated struct Limits: Sendable {
+        public var maximumQueuedFrames = 8192
+        public var maximumQueuedBytes = 32 << 20
+        public var maximumFramesPerFlush = 512
+        public var maximumBytesPerFlush = 4 << 20
+        public var maximumOutstandingSends = 8192
+        public var maximumOutstandingBytes = 64 << 20
+        public var connectTimeout: TimeInterval = 10
+        public init() {}
+    }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.transport")
+    public let limits: Limits
+    /// Gets each push for the page (the view sends it through the bridge).
+    public var deliver: (@MainActor (AgentPaneTransportEvent) -> Void)?
+    public var pacer: any AgentPaneTransportPacer
+    private var socket: AcpmuxPaneSocket?
+    private var current = 0
+    /// Held from `open` until the first frame is sent, then dropped.
+    private var localAppToken: String?
+    private var sentFirst = false
+    /// The send in flight: sends run one after another, so frames keep the page's order.
+    private var sendTail: Task<Void, Never>?
+    /// The pane's workspace roots (``AcpmuxPathPolicy``); asked at each frame that names a path.
+    public var roots: @MainActor () -> [String] = { [] }
+
+    /// Pushes and flushes so far (tests and the bench read them).
+    public private(set) var flushes = 0
+
+    public init(limits: Limits = Limits(), pacer: (any AgentPaneTransportPacer)? = nil) {
+        self.limits = limits
+        self.pacer = pacer ?? AgentPaneNextTurnPacer()
+    }
+
+    public var connection: Int? { socket == nil ? nil : current }
+
+    /// Frames waiting for the page (tests and the bench).
+    var queuedFrames: Int { socket?.queuedFrames ?? 0 }
+
+    /// Opens a new socket (closing the current one) and returns its id once it is open.
+    public func open(_ connection: AcpmuxConnection) async throws(AgentPaneTransportError) -> Int {
+        close(connection: current)
+        current += 1
+        let id = current
+        localAppToken = connection.localAppToken
+        sentFirst = false
+        let socket = AcpmuxPaneSocket(request: connection.request, limits: limits) { [weak self] in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.arrived(id) } }
+        }
+        self.socket = socket
+        do {
+            try await socket.start(timeout: limits.connectTimeout)
+        } catch {
+            if self.socket === socket { self.socket = nil; localAppToken = nil }
+            Self.logger.error("agent pane transport connect failed connection=\(id, privacy: .public)")
+            throw .connectFailed
+        }
+        guard self.socket === socket else { throw .staleConnection }
+        Self.logger.info("agent pane transport open connection=\(id, privacy: .public) localApp=\(self.localAppToken != nil, privacy: .public)")
+        return id
+    }
+
+    /// Sends the page's frames in order, after every earlier send. A refused frame is not sent; a
+    /// refused request is answered with a JSON-RPC error frame. Returns the first error, if any.
+    @discardableResult
+    public func send(connection id: Int, frames: [String]) async -> AgentPaneTransportError? {
+        let previous = sendTail
+        let work = Task { @MainActor [weak self] () -> AgentPaneTransportError? in
+            await previous?.value
+            guard let self else { return .closed }
+            return await self.process(connection: id, frames: frames)
+        }
+        sendTail = Task { _ = await work.value }
+        return await work.value
+    }
+
+    private func process(connection id: Int, frames: [String]) async -> AgentPaneTransportError? {
+        var firstError: AgentPaneTransportError?
+        for frame in frames {
+            guard id == current, let socket else { return firstError ?? .staleConnection }
+            var decision = AcpmuxPaneMethods.decide(frame, isFirst: !sentFirst, localAppToken: localAppToken)
+            if case .send(let text) = decision, sentFirst, AcpmuxPathPolicy.mayNamePath(text) {
+                switch await AcpmuxPathPolicy.check(text, roots: roots()) {
+                case .success(let checked): decision = .send(checked)
+                case .failure(let refusal): decision = .refuse(refusal.error, method: refusal.method, requestID: refusal.requestID)
+                }
+                // The connection may have changed while the disk was read.
+                guard id == current, self.socket === socket else { return firstError ?? .staleConnection }
+            }
+            switch decision {
+            case .send(let text):
+                if !sentFirst {
+                    sentFirst = true
+                    localAppToken = nil
+                }
+                if let error = socket.send(text) {
+                    firstError = firstError ?? error
+                    if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
+                    return firstError
+                }
+            case .refuse(let error, let method, let requestID):
+                Self.logger.error("agent pane transport refused frame error=\(error.rawValue, privacy: .public) method=\(method ?? "-", privacy: .public)")
+                firstError = firstError ?? error
+                if error == .firstFrameNotInitialize {
+                    socket.close(code: 1008, reason: "first frame", error: error)
+                    return firstError
+                }
+                if let requestID {
+                    socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method))
+                }
+            }
+        }
+        return firstError
+    }
+
+    /// Closes the connection if it is the current one.
+    public func close(connection id: Int) {
+        guard id == current, let socket else { return }
+        socket.close(code: 1000, reason: "", error: nil)
+        self.socket = nil
+        localAppToken = nil
+    }
+
+    private func arrived(_ id: Int) {
+        guard id == current, socket != nil else { return }
+        pacer.schedule { [weak self] in self?.flush() ?? false }
+    }
+
+    /// Delivers one batch; true when more is waiting.
+    @discardableResult
+    func flush() -> Bool {
+        guard let socket else { return false }
+        let batch = socket.take(maximumFrames: limits.maximumFramesPerFlush, maximumBytes: limits.maximumBytesPerFlush)
+        guard !batch.frames.isEmpty || batch.closed != nil else { return batch.more }
+        flushes += 1
+        let event = AgentPaneTransportEvent(connection: current, frames: batch.frames, closed: batch.closed)
+        if batch.closed != nil {
+            self.socket = nil
+            localAppToken = nil
+            Self.logger.info("agent pane transport closed connection=\(self.current, privacy: .public) code=\(batch.closed?.code ?? 0, privacy: .public) error=\(batch.closed?.error?.rawValue ?? "-", privacy: .public)")
+        }
+        deliver?(event)
+        return batch.more && self.socket != nil
+    }
+}
+
+/// The URLSession WebSocket behind ``AgentPaneTransport``. Its callbacks run on its own serial
+/// queue; the queues are guarded by one Mutex that is never held across IO.
+nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate, Sendable {
+    struct Batch {
+        var frames: [String]
+        var closed: AgentPaneTransportClose?
+        var more: Bool
+    }
+
+    private struct State {
+        var session: URLSession?
+        var task: URLSessionWebSocketTask?
+        var opening: CheckedContinuation<Void, any Error>?
+        var opened = false
+        var inbox: [String] = []
+        var inboxBytes = 0
+        var signaled = false
+        var outstanding = 0
+        var outstandingBytes = 0
+        var closed: AgentPaneTransportClose?
+        var closeDelivered = false
+    }
+
+    private let request: URLRequest
+    private let limits: AgentPaneTransport.Limits
+    private let signal: @Sendable () -> Void
+    private let state = Mutex(State())
+
+    init(request: URLRequest, limits: AgentPaneTransport.Limits, signal: @escaping @Sendable () -> Void) {
+        self.request = request
+        self.limits = limits
+        self.signal = signal
+    }
+
+    func start(timeout: TimeInterval) async throws {
+        let queue = OperationQueue()
+        queue.maxConcurrentOperationCount = 1
+        queue.qualityOfService = .userInitiated
+        let session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: queue)
+        var request = request
+        request.timeoutInterval = timeout
+        let task = session.webSocketTask(with: request)
+        task.maximumMessageSize = AcpmuxPaneMethods.maximumFrameBytes
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            let cancelled = state.withLock { state -> Bool in
+                guard state.closed == nil else { return true }
+                state.session = session
+                state.task = task
+                state.opening = continuation
+                return false
+            }
+            if cancelled {
+                session.invalidateAndCancel()
+                continuation.resume(throwing: AgentPaneTransportError.closed)
+            } else {
+                task.resume()
+            }
+        }
+    }
+
+    // MARK: Inbound
+
+    private func receive(_ task: URLSessionWebSocketTask) {
+        task.receive { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(.string(let text)): self.arrived(text)
+            case .success(.data(let data)): self.arrived(String(decoding: data, as: UTF8.self))
+            case .success: break
+            case .failure: return self.finish(code: 1006, reason: "", error: nil)
+            }
+            self.receive(task)
+        }
+    }
+
+    private func arrived(_ text: String) {
+        let bytes = text.utf8.count
+        let (wake, overflow) = state.withLock { state -> (Bool, Bool) in
+            guard state.closed == nil else { return (false, false) }
+            if false, state.inbox.count >= limits.maximumQueuedFrames || state.inboxBytes + bytes > limits.maximumQueuedBytes { // RED STUB: unbounded
+                return (false, true)
+            }
+            state.inbox.append(text)
+            state.inboxBytes += bytes
+            guard !state.signaled else { return (false, false) }
+            state.signaled = true
+            return (true, false)
+        }
+        if overflow { close(code: 1008, reason: "inbound overflow", error: .inboundOverflow) }
+        if wake { signal() }
+    }
+
+    var queuedFrames: Int { state.withLock { $0.inbox.count } }
+
+    /// Queues a frame the host made (a refusal) as if the daemon had sent it.
+    func inject(_ text: String) { arrived(text) }
+
+    /// Up to `maximumFrames` frames and `maximumBytes` bytes (at least one frame), and the close
+    /// once every frame before it was taken. Dropped queues on an overflow close are not kept.
+    func take(maximumFrames: Int, maximumBytes: Int) -> Batch {
+        state.withLock { state in
+            var count = 0
+            var bytes = 0
+            while count < state.inbox.count { // RED STUB: one flush takes everything
+                let size = state.inbox[count].utf8.count
+                if false, count > 0, bytes + size > maximumBytes { break } // RED STUB
+                bytes += size
+                count += 1
+            }
+            let frames = Array(state.inbox.prefix(count))
+            state.inbox.removeFirst(count)
+            state.inboxBytes -= bytes
+            var closed: AgentPaneTransportClose?
+            if state.inbox.isEmpty, let close = state.closed, !state.closeDelivered {
+                state.closeDelivered = true
+                closed = close
+            }
+            let more = !state.inbox.isEmpty
+            if !more { state.signaled = false }
+            return Batch(frames: frames, closed: closed, more: more)
+        }
+    }
+
+    // MARK: Outbound
+
+    /// Nil when the frame was handed to the socket.
+    func send(_ text: String) -> AgentPaneTransportError? {
+        let bytes = text.utf8.count
+        let outcome = state.withLock { state -> Result<URLSessionWebSocketTask, AgentPaneTransportError> in
+            guard state.closed == nil, let task = state.task, state.opened else { return .failure(.closed) }
+            guard state.outstanding < limits.maximumOutstandingSends,
+                  state.outstandingBytes + bytes <= limits.maximumOutstandingBytes else { return .failure(.outboundOverflow) }
+            state.outstanding += 1
+            state.outstandingBytes += bytes
+            return .success(task)
+        }
+        switch outcome {
+        case .failure(let error): return error
+        case .success(let task):
+            task.send(.string(text)) { [weak self] error in
+                guard let self else { return }
+                self.state.withLock { state in
+                    state.outstanding -= 1
+                    state.outstandingBytes -= bytes
+                }
+                if error != nil { self.finish(code: 1006, reason: "", error: nil) }
+            }
+            return nil
+        }
+    }
+
+    // MARK: Close
+
+    /// Closes the socket (the host's decision): queued inbound frames are dropped on an error.
+    func close(code: Int, reason: String, error: AgentPaneTransportError?) {
+        let (task, session, wake) = state.withLock { state -> (URLSessionWebSocketTask?, URLSession?, Bool) in
+            guard state.closed == nil else { return (nil, nil, false) }
+            state.closed = AgentPaneTransportClose(code: code, reason: reason, error: error)
+            if error != nil {
+                state.inbox.removeAll()
+                state.inboxBytes = 0
+            }
+            let wake = !state.signaled
+            state.signaled = true
+            return (state.task, state.session, wake)
+        }
+        task?.cancel(with: URLSessionWebSocketTask.CloseCode(rawValue: code) ?? .normalClosure, reason: Data(reason.utf8))
+        session?.finishTasksAndInvalidate()
+        if wake { signal() }
+    }
+
+    /// The socket ended on its own (the daemon closed it, or IO failed).
+    private func finish(code: Int, reason: String, error: AgentPaneTransportError?) {
+        let (opening, session, wake) = state.withLock { state -> (CheckedContinuation<Void, any Error>?, URLSession?, Bool) in
+            let opening = state.opening
+            state.opening = nil
+            guard state.closed == nil else { return (opening, nil, false) }
+            state.closed = AgentPaneTransportClose(code: code, reason: reason, error: error)
+            let wake = !state.signaled
+            state.signaled = true
+            return (opening, state.session, wake)
+        }
+        opening?.resume(throwing: AgentPaneTransportError.connectFailed)
+        session?.finishTasksAndInvalidate()
+        if wake { signal() }
+    }
+
+    // MARK: URLSessionWebSocketDelegate
+
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol subprotocol: String?) {
+        let opening = state.withLock { state -> CheckedContinuation<Void, any Error>? in
+            state.opened = true
+            let opening = state.opening
+            state.opening = nil
+            return opening
+        }
+        receive(webSocketTask)
+        opening?.resume()
+    }
+
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
+                    didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+        finish(code: closeCode.rawValue, reason: reason.map { String(decoding: $0, as: UTF8.self) } ?? "", error: nil)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
+        finish(code: 1006, reason: "", error: nil)
+    }
+}

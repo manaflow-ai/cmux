@@ -21,6 +21,11 @@ extension AgentPaneModel {
         String(localized: "agentPane.error.openPreview", defaultValue: "The page could not be opened.", bundle: .module)
     }
 
+    /// The host's acpmux socket refused a page frame or could not connect (AgentPaneTransport).
+    static var transportFailedMessage: String {
+        String(localized: "agentPane.error.transport", defaultValue: "The app refused the agent connection.", bundle: .module)
+    }
+
     /// A git read of the changes view failed or has no session host.
     static var gitFailedMessage: String {
         String(localized: "agentPane.error.git", defaultValue: "The changes could not be read.", bundle: .module)

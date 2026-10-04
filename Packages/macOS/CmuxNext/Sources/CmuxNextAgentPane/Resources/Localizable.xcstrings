@@ -12052,6 +12052,137 @@
         }
       }
     }
+  },
+    "agentPane.error.transport": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "رفض التطبيق الاتصال بالوكيل."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Aplikacija je odbila vezu s agentom."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Appen afviste forbindelsen til agenten."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Die App hat die Verbindung zum Agenten abgelehnt."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "The app refused the agent connection."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "La app rechazó la conexión con el agente."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "L’app a refusé la connexion à l’agent."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "L’app ha rifiutato la connessione all’agente."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "アプリがエージェントへの接続を拒否しました。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "កម្មវិធីបានបដិសេធការតភ្ជាប់ភ្នាក់ងារ។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "앱이 에이전트 연결을 거부했습니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Appen avviste tilkoblingen til agenten."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Aplikacja odrzuciła połączenie z agentem."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "O app recusou a conexão com o agente."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Приложение отклонило подключение к агенту."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "แอปปฏิเสธการเชื่อมต่อกับเอเจนต์"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Uygulama aracı bağlantısını reddetti."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Застосунок відхилив підключення до агента."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ứng dụng đã từ chối kết nối với tác tử."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "应用拒绝了与代理的连接。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "App 拒絕了與代理的連線。"
+        }
+      }
+    }
   }
   },
   "version": "1.0"
