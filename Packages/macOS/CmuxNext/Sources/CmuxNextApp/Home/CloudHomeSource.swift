@@ -59,6 +59,9 @@ nonisolated final class CloudHomeSource: HomeSource {
         /// Keys of intents a previous account submitted. Refused for good, so
         /// none goes out under another identity (the owner scopes keys per actor).
         var revoked: Set<String> = []
+        /// The unsubscribes sent so far, in order. A subscribe waits for them,
+        /// so a late unsubscribe never ends a subscription made after it.
+        var unsubscribing: Task<Void, Never>?
         /// This source's inbox stream revision: one per inbox event it publishes.
         var inboxRev: Revision = 0
         /// A read or op failed in a way that leaves intents unconfirmed; the
@@ -105,8 +108,7 @@ nonisolated final class CloudHomeSource: HomeSource {
             if same.nowLeased { leaseArrived(generation: same.generation) }
             return
         }
-        let change = state.withLock { state -> (generation: UInt64, cleared: Bool, ended: [ConversationID], kept: [ConversationID],
-                                                old: (any CloudConversationCommands)?)? in
+        let change = state.withLock { state -> (generation: UInt64, cleared: Bool, kept: [ConversationID])? in
             guard link != state.link || identity != state.identity else { return nil }
             let cleared = identity?.cloudID != state.identity?.cloudID
             if cleared {
@@ -125,7 +127,10 @@ nonisolated final class CloudHomeSource: HomeSource {
             let ended = cleared && link == state.link ? Array(state.targets.keys) : []
             // The same account on a new connection: its open conversations subscribe again.
             let kept = cleared ? [] : state.recent
-            let old = state.commands
+            if let old = state.commands, !ended.isEmpty {
+                // The previous account's subscriptions end before the next one subscribes.
+                Self.chainUnsubscribes(ended, commands: old, &state)
+            }
             state.generation += 1
             state.commands = commands
             state.link = link
@@ -145,14 +150,9 @@ nonisolated final class CloudHomeSource: HomeSource {
                 state.removed = []
                 state.heads = [:]
             }
-            return (state.generation, cleared, ended, kept, old)
+            return (state.generation, cleared, kept)
         }
         guard let change else { return }
-        if let old = change.old, !change.ended.isEmpty {
-            let ended = change.ended
-            // task-owner: ends the previous account's subscriptions; ends with the replies
-            Task { for id in ended { _ = try? await old.unsubscribe(id.rawValue) } }
-        }
         if change.cleared { publishInbox() }
         guard let commands, identity != nil else {
             publish(.connection(.offline(since: Date())))
@@ -290,12 +290,37 @@ nonisolated final class CloudHomeSource: HomeSource {
     /// previous account submitted is refused (`notAuthorized`, the store
     /// drops it) and never reaches the daemon under this account's lease.
     func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
+        if case .setTyping(let conversation, _) = intent.op {
+            // Typing is not in cloud-conversations-v1 part 1: nothing is sent or
+            // resent, so the key is not bound to the account.
+            return HomeOpResult(rev: 0, conversation: conversation)
+        }
         let key = intent.key.rawValue
         let (commands, identity, generation) = try requireEndpoint(binding: key)
-        let result = try await run(intent, commands: commands, identity: identity, generation: generation)
+        let result: HomeOpResult
+        do {
+            result = try await run(intent, commands: commands, identity: identity, generation: generation)
+        } catch let rejection as HomeRejection {
+            // Refused for good: the store never resends it. A refused send stays
+            // bound, because the user may send it again with the same key.
+            if Self.isFinal(rejection), !Self.isSend(intent.op) { state.withLock { _ = $0.accepted.remove(key) } }
+            throw rejection
+        }
         // Committed: the store never sends this key again.
         state.withLock { _ = $0.accepted.remove(key) }
         return result
+    }
+
+    private static func isSend(_ op: HomeOp) -> Bool {
+        if case .sendMessage = op { true } else { false }
+    }
+
+    /// A refusal the store does not resend.
+    private static func isFinal(_ rejection: HomeRejection) -> Bool {
+        switch rejection {
+        case .invalid, .notAuthorized: true
+        default: false
+        }
     }
 
     private func run(_ intent: HomeIntent, commands: any CloudConversationCommands, identity: CloudIdentity,
@@ -321,7 +346,7 @@ nonisolated final class CloudHomeSource: HomeSource {
             return try await edit(.addReaction(messageID: message.rawValue, partIndex: partIndex,
                                                kind: CloudHomeMapping.reaction(reaction)), in: conversation)
         case .setTyping(let conversation, _):
-            // Typing is not in cloud-conversations-v1 part 1; nothing to send.
+            // Answered by `submit` before binding; nothing to send.
             return HomeOpResult(rev: 0, conversation: conversation)
         case .setPinned, .setMuted, .createChief:
             // inbox.pin, inbox.mute and chief.create are not cloud-conversation-op kinds yet
@@ -543,6 +568,7 @@ nonisolated final class CloudHomeSource: HomeSource {
         }
         guard case .start(let evicted) = step else { return }
         if let evicted { _ = try? await commands.unsubscribe(evicted.rawValue) }
+        await state.withLock { $0.unsubscribing }?.value
         do {
             let reply = try await commands.subscribe(conversation.rawValue)
             state.withLock { state in
@@ -760,8 +786,17 @@ nonisolated final class CloudHomeSource: HomeSource {
     /// Ends subscriptions of conversations the inbox no longer lists.
     private func unsubscribe(_ ids: [ConversationID], commands: (any CloudConversationCommands)?) {
         guard let commands, !ids.isEmpty else { return }
-        // task-owner: one unsubscribe per unlisted conversation; ends with the replies
-        Task { for id in ids { _ = try? await commands.unsubscribe(id.rawValue) } }
+        state.withLock { Self.chainUnsubscribes(ids, commands: commands, &$0) }
+    }
+
+    /// Queues unsubscribes after the ones queued before (call with the lock held).
+    private static func chainUnsubscribes(_ ids: [ConversationID], commands: any CloudConversationCommands, _ state: inout State) {
+        let prior = state.unsubscribing
+        // task-owner: one unsubscribe per conversation, after the earlier ones; ends with the replies
+        state.unsubscribing = Task {
+            await prior?.value
+            for id in ids { _ = try? await commands.unsubscribe(id.rawValue) }
+        }
     }
 
     /// The cloud is reachable again after a failure: the store resends.
