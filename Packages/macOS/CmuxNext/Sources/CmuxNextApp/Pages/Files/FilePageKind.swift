@@ -104,6 +104,12 @@ nonisolated enum FilePageStrings {
                table: "FilePages", bundle: .module)
     }
 
+    static func restoreConflict(_ name: String) -> String {
+        String(format: String(localized: "filePages.restoreConflict",
+                              defaultValue: "“%@” changed on disk after its recovered draft was saved. The draft is open as unsaved changes; saving replaces the file.",
+                              table: "FilePages", bundle: .module), name)
+    }
+
     static func noRecovery(_ name: String) -> String {
         String(format: String(localized: "filePages.noRecovery", defaultValue: "No crash recovery for “%@”: the file is too large.",
                               table: "FilePages", bundle: .module), name)

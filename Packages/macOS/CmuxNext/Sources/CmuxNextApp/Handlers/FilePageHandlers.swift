@@ -18,11 +18,20 @@ enum FilePageHandlers {
         services.pages.register(services.viewers.markdownPages)
         services.pages.register(services.viewers.editorPages)
         // R96: a recovered draft of a local file opens in the code editor page as an unsaved edit
-        // (the launch notice's Open; a draft whose file changed on disk says so in that notice).
+        // (the launch notice's Open). The page compares the file with the draft's base itself.
         RecoveryDraftStore.shared.restoreHandler = { [weak services] draft in
-            guard let services, let url = FilePageRecovery.document(of: draft),
-                  let pane = services.windows.active?.focusedPane else { return }
-            services.viewers.editorPages.open(url, in: pane, focus: true, recoveredText: String(decoding: draft.contents, as: UTF8.self))
+            // task-owner: one restore per launch notice Open; it ends when the tab opens
+            Task { @MainActor in
+                guard let restore = await FilePageRecovery.restore(draft), let services,
+                      let pane = services.windows.active?.focusedPane else { return }
+                services.viewers.editorPages.open(restore.url, in: pane, focus: true, recoveredText: restore.text)
+                // The file changed after the draft: say so; the draft stays unsaved changes.
+                if restore.conflict, let window = services.windowController(showing: pane)?.window ?? pane.view.window {
+                    _ = CmuxToastCenter.shared.show(CmuxToast(id: "file-recovery-conflict:\(restore.url.path)",
+                                                              message: FilePageStrings.restoreConflict(restore.url.lastPathComponent),
+                                                              duration: .seconds(12)), in: window)
+                }
+            }
         }
         for (action, command) in EditorPageCommand.forAction where !sharedFindActions.contains(action) {
             registry.bind(ActionID(rawValue: action), run: { invocation in

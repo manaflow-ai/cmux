@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "filePages.restoreConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” changed on disk after its recovered draft was saved. The draft is open as unsaved changes; saving replaces the file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」は復元された下書きの保存後にディスク上で変更されました。下書きは未保存の変更として開いています。保存するとファイルが置き換わります。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تغيّر “%@” على القرص بعد حفظ مسودته المستردة. المسودة مفتوحة كتغييرات غير محفوظة؛ الحفظ يستبدل الملف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@” je promijenjen na disku nakon što je njegov oporavljeni nacrt sačuvan. Nacrt je otvoren kao nesačuvane promjene; čuvanje zamjenjuje datoteku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” blev ændret på disken, efter at dens gendannede kladde blev gemt. Kladden er åben som ikke-gemte ændringer; at gemme erstatter filen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@“ wurde auf dem Datenträger geändert, nachdem sein wiederhergestellter Entwurf gesichert wurde. Der Entwurf ist als ungesicherte Änderungen geöffnet; Sichern ersetzt die Datei."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«%@» cambió en el disco después de guardarse su borrador recuperado. El borrador está abierto como cambios sin guardar; guardar reemplaza el archivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "« %@ » a changé sur le disque après l’enregistrement de son brouillon récupéré. Le brouillon est ouvert comme modifications non enregistrées ; enregistrer remplace le fichier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” è cambiato sul disco dopo il salvataggio della bozza recuperata. La bozza è aperta come modifiche non salvate; salvare sostituisce il file."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” បានផ្លាស់ប្ដូរលើថាស បន្ទាប់ពីសេចក្ដីព្រាងដែលបានស្ដារត្រូវបានរក្សាទុក។ សេចក្ដីព្រាងបើកជាការផ្លាស់ប្ដូរមិនទាន់រក្សាទុក ការរក្សាទុកនឹងជំនួសឯកសារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "복구된 초안이 저장된 후 “%@”이(가) 디스크에서 변경되었습니다. 초안은 저장되지 않은 변경 사항으로 열려 있으며, 저장하면 파일이 대체됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«%@» ble endret på disken etter at det gjenopprettede utkastet ble lagret. Utkastet er åpent som ulagrede endringer; lagring erstatter filen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@” zmienił się na dysku po zapisaniu odzyskanego szkicu. Szkic jest otwarty jako niezapisane zmiany; zapisanie zastąpi plik."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” mudou no disco depois que o rascunho recuperado foi salvo. O rascunho está aberto como alterações não salvas; salvar substitui o arquivo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«%@» изменился на диске после сохранения восстановленного черновика. Черновик открыт как несохранённые изменения; сохранение заменит файл."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” เปลี่ยนบนดิสก์หลังจากบันทึกฉบับร่างที่กู้คืน ฉบับร่างเปิดอยู่เป็นการเปลี่ยนแปลงที่ยังไม่บันทึก การบันทึกจะแทนที่ไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”, kurtarılan taslağı kaydedildikten sonra diskte değişti. Taslak kaydedilmemiş değişiklikler olarak açık; kaydetmek dosyanın yerine geçer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«%@» змінився на диску після збереження відновленої чернетки. Чернетку відкрито як незбережені зміни; збереження замінить файл."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” đã thay đổi trên đĩa sau khi bản nháp khôi phục được lưu. Bản nháp đang mở dưới dạng thay đổi chưa lưu; lưu sẽ thay thế tệp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”在恢复的草稿保存后已在磁盘上更改。草稿以未保存的更改打开；保存将替换该文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」在復原的草稿儲存後已在磁碟上變更。草稿以未儲存的變更開啟；儲存會取代該檔案。"
+          }
+        }
+      }
+    },
     "filePages.noRecovery": {
       "extractionState": "manual",
       "localizations": {
