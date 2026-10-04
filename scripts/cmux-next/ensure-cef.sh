@@ -82,7 +82,28 @@ if [[ -n "${CMUX_CEF_PATH:-}" ]]; then
   exit 0
 fi
 
-field() { /usr/bin/plutil -extract "$1" raw -o - "$MANIFEST" 2>/dev/null || true; }
+field() {
+  local key="$1" value
+  if [[ -x /usr/bin/plutil ]] && value=$(/usr/bin/plutil -extract "$key" raw -o - "$MANIFEST" 2>/dev/null); then
+    printf "%s\n" "$value"
+    return 0
+  fi
+  # CI also exercises this script on Linux, where macOS plutil is absent.
+  # Keep the manifest reader JSON-only and portable without changing the
+  # signed artifact or checksum path.
+  /usr/bin/python3 - "$key" "$MANIFEST" <<'PYJSON'
+import json
+import sys
+try:
+    value = json.load(open(sys.argv[2], encoding="utf-8"))
+    for part in sys.argv[1].split("."):
+        value = value[part]
+    if value is not None:
+        print(value)
+except (FileNotFoundError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+    pass
+PYJSON
+}
 version="$(field version)"; tag="$(field tag)"; repo="$(field repo)"
 r2_bucket="$(field r2_bucket)"
 if [[ "$arch" == "arm64" ]]; then
