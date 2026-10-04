@@ -259,8 +259,16 @@ lost: <reason words>", `unadoptable` "Running under an older cmux; close to end 
 "Reconnecting…", `failed` "Lost connection to the terminal" with Reconnect.
 
 Not covered yet: the `surface-exited` event carries no `end` (clients read it from the next tree);
-a handshake with no common protocol version still retries as `adopting` (only unreadable records
-become `unadoptable`); `failed` has no daemon-side retry trigger beyond a new adoption.
+`failed` has no daemon-side retry trigger beyond a new adoption.
+
+No common protocol version: a host closes an owner hello without HostHello only when it shares no
+version with this build. When every protocol attempt of an adoption is refused, the error is typed
+`NoCommonHostProtocol`. After 3 consecutive refusals while the host's live marker is held, the
+terminal becomes `unadoptable` (with `host_record_version` = its readable record's version), its host
+is watched like C3, and `tree-changed` is pushed. One refusal can be a host that closed while it
+exits; then its marker frees and the watcher ends the terminal with the real status. Close ends such
+a host with SIGKILL after the same marker + PID proof, because it cannot take Terminate. No wire
+change.
 
 ## 8. Risks and the strongest objection
 
