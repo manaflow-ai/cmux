@@ -134,3 +134,22 @@ fn syn_origins_stay_bounded() {
         assert!(server.syn_origins.as_ref().unwrap().len() <= MAX_SYN_ORIGINS);
     }
 }
+
+#[tokio::test]
+async fn reading_from_a_full_stream_wakes_the_driver() {
+    // The driver stops copying into a stream whose channel is full and waits
+    // for an event; the reader making room must be that event, or the bytes
+    // wait in the socket for an unrelated timer (about a second).
+    let mut server = stack(SERVER, false);
+    let handle = server.sockets.add(TcpStack::new_socket(TCP_TIMEOUT));
+    let local = SocketAddr::new(address(SERVER), 4100);
+    let remote = SocketAddr::new(address(CLIENT), 50_000);
+    let (conn, mut stream) = server.bridge(handle, local, remote, None);
+    let inbound = conn.inbound.clone().unwrap();
+    while inbound.try_send(Bytes::from_static(b"x")).is_ok() {}
+
+    let mut byte = [0u8; 1];
+    stream.read_exact(&mut byte).await.unwrap();
+    let woken = tokio::time::timeout(Duration::from_millis(100), server.wake.notified()).await;
+    assert!(woken.is_ok(), "the driver did not learn that the full stream has room");
+}
