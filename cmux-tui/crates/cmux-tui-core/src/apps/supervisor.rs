@@ -502,6 +502,27 @@ fn load_mirror(state_dir: Option<&std::path::Path>) -> Mirror {
     }
 }
 
+/// `{scope: class}` for the manifest's scopes and optionalScopes; a scope
+/// the class table does not know is `unknown`.
+fn scope_classes(facts: &mirror::Facts) -> serde_json::Map<String, Value> {
+    use cmux_app_manifest::ScopeClass;
+    facts
+        .requested
+        .iter()
+        .chain(&facts.optional)
+        .map(|scope| {
+            let class = match cmux_app_manifest::scope_info(scope).map(|info| info.class) {
+                Some(ScopeClass::Standard) => "standard",
+                Some(ScopeClass::Sensitive) => "sensitive",
+                Some(ScopeClass::Restricted) => "restricted",
+                Some(ScopeClass::Elevated) => "elevated",
+                None => "unknown",
+            };
+            (scope.clone(), json!(class))
+        })
+        .collect()
+}
+
 /// One `apps-list` entry.
 pub(super) fn entry(id: &str, package: Option<&Package>, record: Option<&Record>) -> Value {
     let facts = package.map(Package::facts);
@@ -519,6 +540,9 @@ pub(super) fn entry(id: &str, package: Option<&Package>, record: Option<&Record>
         "hidden_access": record.hidden_access,
         "source": record.source,
         "grants": record.grants,
+        // The class of every scope the manifest asks for, so the
+        // confirmation sheet can warn on sensitive, restricted and elevated.
+        "scope_classes": facts.as_ref().map(scope_classes).unwrap_or_default(),
         "sandboxed": record.sandboxed,
         "available": package.is_some(),
         // Local connections only (apps commands refuse remote ones), so the
