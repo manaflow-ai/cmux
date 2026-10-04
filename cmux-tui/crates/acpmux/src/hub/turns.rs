@@ -157,6 +157,16 @@ impl Hub {
                 f(v);
             }
         };
+        // A prompt that cannot reach any agent (none running, and its harness is gone) is
+        // refused before it is recorded, so a caller may send it again (handoff start).
+        let live = match session.child.lock().await.as_ref() {
+            Some(child) => child.is_alive().await,
+            None => false,
+        };
+        let harness = session.meta().harness;
+        if !live && self.config.read().await.profile(&harness).is_none() {
+            return Err(RpcError::invalid_params(format!("unknown harness {harness:?}")));
+        }
         let text = prompt_text(&blocks);
         let running = session.turn();
         let steer_now = steer && session.steering.load(Ordering::SeqCst) && running.is_some();
