@@ -253,7 +253,7 @@ final class AgentTabStore {
             self?.newTabPages[key] = nil
             self?.views[key]?.applyTheme() // now the agent chat surface (R55)
         }
-        model.onOpenTab = { [weak self] request in self?.newTabPages[key]?.handler.open(key, request) }
+        model.onOpenTab = { [weak self] request in BenchSpans.mark("bridge.tab.open"); self?.newTabPages[key]?.handler.open(key, request) }
         model.onTypeAhead = { [weak self] text in self?.newTabPages[key]?.handler.typeAhead(key, text) }
         model.onRememberNewTab = { [weak self] agent in self?.newTabPages[key]?.handler.remember(agent) }
         model.onJump = { [weak self] target, id in self?.newTabPages[key]?.handler.jump(target, id) }
@@ -312,7 +312,7 @@ final class AgentTabStore {
     func close(_ key: String) {
         for pane in tabsByPane.keys { tabsByPane[pane]?.removeAll { $0 == key } }
         tabsByPane = tabsByPane.filter { !$0.value.isEmpty }
-        views.removeValue(forKey: key)?.close()
+        BenchSpans.measure("agentPane.close") { views.removeValue(forKey: key)?.close() }
         sessions[key] = nil
         newTabPages[key] = nil
         seeds[key] = nil

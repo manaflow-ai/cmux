@@ -191,7 +191,7 @@ extension PaneController {
         let cwd = selectedTab?.cwd
         let page = NewTabPage.page(services, selected: selectedTab)
         let handler = NewTabPage.handler(services, cwd: cwd) { [weak self] key, request in
-            if let self { NewTabPage.replace(key, with: request, cwd: request.cwd ?? cwd, in: self) }
+            if let self { BenchSpans.measure("newTab.replace") { NewTabPage.replace(key, with: request, cwd: request.cwd ?? cwd, in: self) } }
         }
         let after = selectedID?.hasPrefix(LocalAgentTab.prefix) == true ? selectedID : nil
         let spare = services.newTabSpares.take(for: view.window)
@@ -229,7 +229,7 @@ extension NewTabPage {
     /// responsibility (the godfile limit counts its extensions).
     static func replace(_ key: String, with request: AgentPaneOpenTab, cwd: String?, in pane: PaneController) {
         let services = pane.services
-        let closePage: @MainActor (SurfaceID) -> Void = { [weak pane] _ in pane?.close([StripTabID(key)]) }
+        let closePage: @MainActor (SurfaceID) -> Void = { [weak pane] _ in BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
         switch request.kind {
         case .terminal where !request.run:
             // `!` on the screen: type, never run; keys typed while the

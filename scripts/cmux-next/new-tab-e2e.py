@@ -19,6 +19,9 @@ parser.add_argument("--tag", required=True)
 parser.add_argument("--runs", type=int, default=20)
 parser.add_argument("--budget-ms", type=float, default=16)
 parser.add_argument("--text", default="hello")
+parser.add_argument("--bench", action="store_true",
+                    help="R81: Cmd-W and ! latency (main-thread ms, missed frames, span breakdown) instead of the open test")
+parser.add_argument("--budget-close-ms", type=float, default=10)
 opts = parser.parse_args()
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 APP = next(iter(sorted(glob.glob(os.path.expanduser(
@@ -102,6 +105,54 @@ def open_and_check(expect_spare, snapshot=None, close=1, window=0):
     return opening
 
 
+def p95(values):
+    values = sorted(values)
+    return values[max(0, int(round(0.95 * len(values))) - 1)] if values else 0
+
+
+def summarize(label, results):
+    keys = [r["key_ms"] for r in results]
+    visible = [r["visible_ms"] for r in results if r.get("visible_ms") is not None]
+    missed = [r["frames"]["missed"] for r in results]
+    worst = [r["frames"]["max_ms"] for r in results]
+    print(f"{label}: key p50={statistics.median(keys):.2f} p95={p95(keys):.2f} ms; "
+          f"visible p50={statistics.median(visible) if visible else -1:.1f} p95={p95(visible):.1f} ms; "
+          f"missed frames total={sum(missed)} runs-with-misses={sum(1 for m in missed if m)}; "
+          f"worst frame p95={p95(worst):.1f} max={max(worst):.1f} ms", flush=True)
+    names = {}
+    for r in results:
+        for span in r["spans"]:
+            names.setdefault(span["name"], []).append(span["ms"])
+    for name, values in sorted(names.items(), key=lambda kv: -statistics.median(kv[1])):
+        print(f"  span {name}: n={len(values)} p50={statistics.median(values):.2f} p95={p95(values):.2f} ms", flush=True)
+    print(f"  sample run: {json.dumps(results[len(results) // 2])[:1500]}", flush=True)
+
+
+def ready_spare():
+    return wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
+
+
+def run_bench():
+    closes, bangs = [], []
+    for _ in range(opts.runs):
+        ready_spare()
+        rpc("debug.new_tab", {"action": "open_and_type", "text": ""})
+        time.sleep(0.4)  # test harness: the page settles before the measured close
+        closes.append(rpc("debug.new_tab", {"action": "bench_close"}))
+    for _ in range(opts.runs):
+        ready_spare()
+        rpc("debug.new_tab", {"action": "open_and_type", "text": ""})
+        time.sleep(0.4)  # test harness: the page settles before the measured key
+        bangs.append(rpc("debug.new_tab", {"action": "bench_bang"}))
+        time.sleep(0.3)  # test harness
+        rpc("debug.key", {"key": "w", "modifiers": ["command"]})
+    bad = [r for r in closes + bangs if not isinstance(r, dict) or "error" in r]
+    if bad:
+        sys.exit(f"FAIL bench errors: {bad[:3]}")
+    summarize("Cmd-W on the new tab page", closes)
+    summarize("! on the new tab page", bangs)
+
+
 app = None
 try:
     if os.path.exists(SOCKET):
@@ -116,6 +167,9 @@ try:
     wait("the tagged app comes up", lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 90)
     print("app is up", flush=True)
     time.sleep(2)  # test harness: let the first workspace settle
+    if opts.bench:
+        run_bench()
+        sys.exit(0)
     spare_ms, footprints = [], []
     for run in range(opts.runs):
         spares = wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
