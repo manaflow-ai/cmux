@@ -11,13 +11,13 @@ readonly PACKAGE_PATH="$REPO_ROOT/Packages/macOS/CmuxNext"
 readonly TEST_FILTER="ActionCatalogTests/browserHistoryOwnsCmdYAndRightSidebarHasNoDigitDefaults"
 
 on_failure() {
-    local status=$?
-    printf 'hotkey-history: failed at line %s (exit %s).\n' "${1:-unknown}" "$status" >&2
+    local status=$? line=${1:-unknown} command=${2:-unknown}
+    printf 'hotkey-history: command failed at line %s (exit %s): %s\n' "$line" "$status" "$command" >&2
     printf 'Fix: inspect and correct the reported compile or test diagnostic, push the fix, then rerun this helper at that exact head on the fleet.\n' >&2
     printf 'Repair: %s\n' "$REPAIR_URL" >&2
     exit "$status"
 }
-trap 'on_failure "$LINENO"' ERR
+trap 'on_failure "$LINENO" "$BASH_COMMAND"' ERR
 
 cd "$REPO_ROOT"
 printf 'hotkey-history: repo=%s\n' "$REPO_ROOT"
