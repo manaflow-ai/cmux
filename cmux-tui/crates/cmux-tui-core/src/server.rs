@@ -116,6 +116,8 @@ mod raw_tab;
 #[cfg(unix)]
 mod remote_entry;
 mod remote_relay;
+#[cfg(test)]
+use remote_relay::handle_connection_message;
 mod responses;
 mod rows;
 mod screen_json;
@@ -10521,9 +10523,13 @@ fn resource_stream_end(
     end
 }
 
-fn handle_connection_message(
+/// One frame of a connection. `transport` is the connection's own value
+/// (not a registry lookup), so a remote-entry connection always takes the
+/// remote path, also after its registry record is gone.
+fn handle_connection_frame(
     mux: &Arc<Mux>,
     client: u64,
+    transport: ClientTransport,
     message: &str,
     writer: &MessageWriter,
     scheduler: &Arc<ConnectionSurfaceScheduler>,
@@ -10535,6 +10541,7 @@ fn handle_connection_message(
     if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
         return false;
     }
+    let _ = transport;
     if mux.is_remote_client(client) {
         return remote_relay::handle_frame(mux, client, message, writer);
     }
@@ -21019,7 +21026,7 @@ mod tests {
         let unix_client = mux.control_clients.register(ClientTransport::Unix, test_writer());
         let websocket_client =
             mux.control_clients.register(ClientTransport::WebSocket, test_writer());
-        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+        let identity = handle_command(&mux, mux.local_test_client(0), Command::Identify, &test_writer()).unwrap();
         assert!(
             identity["capabilities"]
                 .as_array()
@@ -22471,14 +22478,14 @@ mod tests {
     #[test]
     fn identify_and_ping_return_build_metadata() {
         let mux = test_mux();
-        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+        let identity = handle_command(&mux, mux.local_test_client(0), Command::Identify, &test_writer()).unwrap();
         assert_eq!(identity["app"].as_str(), Some("cmux-tui"));
         assert_eq!(identity["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(identity["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
         assert_eq!(identity["build_commit"].as_str(), stamped_build_commit());
         assert_eq!(identity["ghostty_commit"].as_str(), stamped_ghostty_commit());
 
-        let data = handle_command(&mux, 0, Command::Ping, &test_writer()).unwrap();
+        let data = handle_command(&mux, mux.local_test_client(0), Command::Ping, &test_writer()).unwrap();
         assert_eq!(data["ok"].as_bool(), Some(true));
         assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(data["build_commit"].as_str(), stamped_build_commit());
@@ -22509,7 +22516,7 @@ mod tests {
     fn lifecycle_ready_identity_advertises_new_public_protocol() {
         let mux = test_mux();
         mux.mark_server_lifecycle_ready();
-        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+        let identity = handle_command(&mux, mux.local_test_client(0), Command::Identify, &test_writer()).unwrap();
 
         assert_eq!(identity["lifecycle_ready"], true);
         assert_eq!(identity["protocol"].as_u64(), Some(12));
@@ -22528,7 +22535,7 @@ mod tests {
 
         let result = handle_command(
             &mux,
-            0,
+            mux.local_test_client(0),
             Command::ReportAgent {
                 surface: surface.id,
                 state: "working".into(),
@@ -22562,7 +22569,7 @@ mod tests {
         for source in ["plugin", "detected"] {
             let error = handle_command(
                 &mux,
-                0,
+                mux.local_test_client(0),
                 Command::ReportAgent {
                     surface: surface.id,
                     state: "working".into(),
@@ -22876,7 +22883,7 @@ mod tests {
         let second = mux.split(first_pane, SplitDir::Right, None).unwrap();
         let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
 
-        let before = handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap();
+        let before = handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer()).unwrap();
         let split = before["workspaces"][0]["screens"][0]["layout"]["split"]
             .as_u64()
             .expect("protocol v8 split id");
@@ -22888,8 +22895,8 @@ mod tests {
             "ratio": 0.7
         }))
         .unwrap();
-        handle_command(&mux, 0, request.cmd, &test_writer()).unwrap();
-        let after_exact = handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap();
+        handle_command(&mux, mux.local_test_client(0), request.cmd, &test_writer()).unwrap();
+        let after_exact = handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer()).unwrap();
         assert_eq!(after_exact["workspaces"][0]["screens"][0]["layout"]["split"], split);
         let exact_ratio = after_exact["workspaces"][0]["screens"][0]["layout"]["ratio"]
             .as_f64()
@@ -22904,9 +22911,9 @@ mod tests {
             "ratio": 0.3
         }))
         .unwrap();
-        handle_command(&mux, 0, legacy.cmd, &test_writer()).unwrap();
+        handle_command(&mux, mux.local_test_client(0), legacy.cmd, &test_writer()).unwrap();
         let after_legacy =
-            handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap();
+            handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer()).unwrap();
         assert_eq!(after_legacy["workspaces"][0]["screens"][0]["layout"]["split"], split);
         let legacy_ratio = after_legacy["workspaces"][0]["screens"][0]["layout"]["ratio"]
             .as_f64()
@@ -22920,7 +22927,7 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(
-            handle_command(&mux, 0, unknown.cmd, &test_writer()).unwrap_err().to_string(),
+            handle_command(&mux, mux.local_test_client(0), unknown.cmd, &test_writer()).unwrap_err().to_string(),
             "unknown split 999999"
         );
     }
@@ -22934,7 +22941,7 @@ mod tests {
             ContentPublicId::Browser(_) => panic!("workspace started with a browser"),
         };
 
-        let tree = handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap();
+        let tree = handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer()).unwrap();
 
         for (path, prefix) in [
             (&tree["workspaces"][0]["resource_id"], "ws_"),
@@ -22957,7 +22964,7 @@ mod tests {
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
         mux.new_pane_right(pane, 0.5, Some((38, 22))).unwrap();
         let split =
-            handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap()["workspaces"]
+            handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer()).unwrap()["workspaces"]
                 [0]["screens"][0]["layout"]["split"]
                 .as_u64()
                 .expect("viewport projection exposes a stable split");
@@ -22966,7 +22973,7 @@ mod tests {
 
         handle_message(
             &mux,
-            7,
+            mux.local_test_client(7),
             &json!({
                 "id": 21,
                 "cmd": "set-split-ratio",
@@ -22999,7 +23006,7 @@ mod tests {
         ] {
             handle_message(
                 &mux,
-                7,
+                mux.local_test_client(7),
                 &json!({
                     "id": id,
                     "cmd": "set-viewport-pane-width",
@@ -23017,7 +23024,7 @@ mod tests {
 
         handle_message(
             &mux,
-            7,
+            mux.local_test_client(7),
             &json!({
                 "id": 33,
                 "cmd": "new-pane-right",
@@ -23041,7 +23048,7 @@ mod tests {
         for (cols, rows) in [(Some(80), None), (None, Some(24))] {
             let error = handle_command(
                 &mux,
-                0,
+                mux.local_test_client(0),
                 Command::CreateTerminal {
                     workspace: Some(workspace),
                     key: None,
@@ -23093,7 +23100,7 @@ mod tests {
             },
         };
 
-        let first = handle_command(&mux, 0, command(), &test_writer()).unwrap();
+        let first = handle_command(&mux, mux.local_test_client(0), command(), &test_writer()).unwrap();
         assert_eq!(first["replayed"], false);
         let first_snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
         assert_eq!(first_snapshot["screens"].as_array().unwrap().len(), 1);
@@ -23103,7 +23110,7 @@ mod tests {
         assert_eq!(first_snapshot["tabs"][0]["content_id"], first_snapshot["terminals"][0]["id"]);
         let first_revision = first_snapshot["cursor"]["revision"].clone();
 
-        let replay = handle_command(&mux, 0, command(), &test_writer()).unwrap();
+        let replay = handle_command(&mux, mux.local_test_client(0), command(), &test_writer()).unwrap();
         assert_eq!(replay["replayed"], true);
         let replayed_snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
         assert_eq!(replayed_snapshot["cursor"]["revision"], first_revision);
@@ -24041,7 +24048,7 @@ mod tests {
             } else {
                 Command::ClosePane { pane, end_terminals: false }
             };
-            handle_command(&mux, 0, command, &test_writer()).unwrap();
+            handle_command(&mux, mux.local_test_client(0), command, &test_writer()).unwrap();
 
             assert!(!mux.with_state(|state| state.surfaces.contains_key(&surface)));
             assert!(mux.surface(surface).is_some());
@@ -24059,7 +24066,7 @@ mod tests {
 
     fn run_json_command(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
         let command: Command = serde_json::from_value(request)?;
-        handle_command(mux, 0, command, &test_writer())
+        handle_command(mux, mux.local_test_client(0), command, &test_writer())
     }
 
     #[test]
@@ -24727,7 +24734,7 @@ mod tests {
             terminal_id: Some(IDLE.into()),
             idle_close_seconds: Some(3_600),
         };
-        let result = handle_command(&mux, 0, set, &test_writer()).unwrap();
+        let result = handle_command(&mux, mux.local_test_client(0), set, &test_writer()).unwrap();
         assert_eq!(result["terminal_id"], IDLE);
         assert_eq!(result["idle_close_seconds"], 3_600);
         // A stable terminal id works as well, and null means never close.
@@ -24737,7 +24744,7 @@ mod tests {
                 terminal_id: Some(NEVER.into()),
                 idle_close_seconds,
             };
-            handle_command(&mux, 0, set, &test_writer()).unwrap();
+            handle_command(&mux, mux.local_test_client(0), set, &test_writer()).unwrap();
         }
         assert_eq!(mux.terminal_idle_policy(IDLE).unwrap(), Some(3_600));
         assert_eq!(mux.terminal_idle_policy(NEVER).unwrap(), None);
@@ -24746,7 +24753,7 @@ mod tests {
             terminal_id: Some(IDLE.into()),
             idle_close_seconds: Some(60),
         };
-        assert!(handle_command(&mux, 0, ambiguous, &test_writer()).is_err());
+        assert!(handle_command(&mux, mux.local_test_client(0), ambiguous, &test_writer()).is_err());
 
         // An attached view keeps the terminal alive regardless of elapsed time.
         let start = Instant::now();
@@ -25683,7 +25690,9 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(error.to_string().contains(&format!("unknown client {client}")));
+        // A disconnected id is unregistered, so dispatch fails closed before
+        // the resize path (server/remote_relay: never local trust).
+        assert_eq!(error.to_string(), "remote_denied");
         assert_eq!(surface.size(), (100, 40));
     }
 
@@ -26981,7 +26990,7 @@ mod tests {
     #[test]
     fn identify_advertises_additive_capabilities() {
         let mux = test_mux();
-        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+        let identity = handle_command(&mux, mux.local_test_client(0), Command::Identify, &test_writer()).unwrap();
 
         let capabilities = identity["capabilities"].as_array().expect("capabilities");
         for expected in [
@@ -27024,7 +27033,7 @@ mod tests {
 
         let preview = handle_command(
             &mux,
-            0,
+            mux.local_test_client(0),
             Command::UndoLayout { pane: right_pane, revision: None, confirm_close: false },
             &writer,
         )
@@ -27036,7 +27045,7 @@ mod tests {
 
         let error = handle_command(
             &mux,
-            0,
+            mux.local_test_client(0),
             Command::UndoLayout { pane: right_pane, revision: None, confirm_close: true },
             &writer,
         )
@@ -27046,7 +27055,7 @@ mod tests {
 
         let result = handle_command(
             &mux,
-            0,
+            mux.local_test_client(0),
             Command::UndoLayout { pane: right_pane, revision: Some(revision), confirm_close: true },
             &writer,
         )
@@ -27066,7 +27075,7 @@ mod tests {
 
         handle_message(
             &mux,
-            7,
+            mux.local_test_client(7),
             &json!({"id": 19, "cmd": "undo-layout", "pane": pane}).to_string(),
             &writer,
         );
@@ -27272,7 +27281,7 @@ mod tests {
         let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
         let worker = std::thread::spawn(move || {
             result_tx
-                .send(handle_command(&worker_mux, 0, Command::ReloadConfig, &test_writer()))
+                .send(handle_command(&worker_mux, worker_mux.local_test_client(0), Command::ReloadConfig, &test_writer()))
                 .unwrap();
         });
         assert!(matches!(
@@ -27344,7 +27353,7 @@ mod tests {
 
         let data = handle_command(
             &mux,
-            0,
+            mux.local_test_client(0),
             Command::SetWindowTitle { title: "hello".to_string() },
             &test_writer(),
         )
@@ -27355,7 +27364,7 @@ mod tests {
             Ok(MuxEvent::WindowTitleRequested(title)) if title == "hello"
         ));
 
-        handle_command(&mux, 0, Command::ClearWindowTitle, &test_writer()).unwrap();
+        handle_command(&mux, mux.local_test_client(0), Command::ClearWindowTitle, &test_writer()).unwrap();
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::WindowTitleRequested(title)) if title.is_empty()

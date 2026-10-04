@@ -779,3 +779,50 @@ fn a_pairing_that_cannot_join_every_conversation_joins_none() {
         assert!(!snapshot.to_string().contains("remote_inst_1"), "{snapshot}");
     }
 }
+
+// Landing condition (round 3): an unregistered id fails closed, and a
+// remote-entry connection keeps the remote path after its record is gone.
+
+/// One frame through the connection path with the connection's own
+/// transport value.
+fn connection_frame(mux: &Arc<Mux>, client: u64, transport: ClientTransport, frame: &str) -> Value {
+    let (writer, outbound) = writer();
+    let scheduler = Arc::new(ConnectionSurfaceScheduler::new(Arc::new(
+        ServerSurfaceOperationAdmission::default(),
+    )));
+    handle_connection_frame(mux, client, transport, frame, &writer, &scheduler);
+    let message = outbound.try_pop().expect("a response");
+    serde_json::from_str(&message).unwrap()
+}
+
+#[test]
+fn an_unregistered_client_id_fails_closed() {
+    let fixture = fixture();
+    let stray = 987_654;
+    assert!(fixture.mux.control_clients.transport_of(stray).is_none());
+    for request in [json!({"cmd":"ping"}), json!({"cmd":"list-workspaces"})] {
+        let command: Command = serde_json::from_value(request.clone()).unwrap();
+        let error = handle_command(&fixture.mux, stray, command, &writer().0).unwrap_err();
+        assert_eq!(error.to_string(), "remote_denied", "{request}");
+    }
+    assert_ne!(fixture.mux.conversation_principal(stray), "user_local");
+    for transport in [ClientTransport::Unix, ClientTransport::WebSocket] {
+        let reply = connection_frame(&fixture.mux, stray, transport, r#"{"id":1,"cmd":"ping"}"#);
+        assert_code(&reply, "remote_denied");
+        let list = connection_frame(&fixture.mux, stray, transport, r#"{"id":2,"cmd":"conversation-list"}"#);
+        assert_code(&list, "remote_denied");
+    }
+}
+
+#[test]
+fn a_remote_entry_connection_keeps_the_remote_path_after_disconnect() {
+    let fixture = fixture();
+    let client = remote(&fixture, "inst_1", OWNER);
+    assert!(disconnect_client(&fixture.mux, client, false));
+    assert!(fixture.mux.control_clients.transport_of(client).is_none());
+    let frame = r#"{"id":1,"cmd":"url-open","terminal_id":"t","url":"https://x"}"#;
+    let reply = connection_frame(&fixture.mux, client, ClientTransport::Remote, frame);
+    assert_code(&reply, "remote_denied");
+    let bad = r#"{"id":2,"cmd":"conversation-snapshot","conversation":"conv_01ARZ3NDEKTSV4RRFFQ69G5FAV","tail":"x"}"#;
+    assert_code(&connection_frame(&fixture.mux, client, ClientTransport::Remote, bad), "remote_error");
+}
