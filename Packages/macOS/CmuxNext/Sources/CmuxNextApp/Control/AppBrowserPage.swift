@@ -22,13 +22,18 @@ enum AppBrowserPage {
             throw ControlError(code: "unavailable", message: "The browser page is still starting; retry")
         }
         try rebuildStale(stale, tabID: tabID, for: operation, services: services)
-        switch operation {
-        case .navigate(let raw):
+        var target: URL?
+        if case .navigate(let raw) = operation {
             let chromium = tab.browserEngine == BrowserEngineTag.cef.rawValue
-            guard let target = BrowserURLResolver(allowsChromiumSchemes: chromium).url(for: raw) else {
+            guard let resolved = BrowserURLResolver(allowsChromiumSchemes: chromium).url(for: raw) else {
                 throw ControlError(code: "invalid_params", message: "Invalid url: \(raw)")
             }
-            page.load(target)
+            target = resolved
+        }
+        if let refusal = agentURLRefusal(operation, target: target, page: page) { throw refusal }
+        switch operation {
+        case .navigate:
+            if let target { page.load(target) }
         case .back: page.goBack()
         case .forward: page.goForward()
         case .reload: page.reload()
