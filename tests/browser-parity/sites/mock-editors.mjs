@@ -279,7 +279,7 @@ export function createEditors() {
   function handle(req, url, body, internal = {}) {
     if (req.method === "GET" && /^\/(document|spreadsheets|presentation)\/create$/.test(url.pathname)) {
       const kind = url.pathname.split("/")[1];
-      const id = add({ kind, title: kind === "document" ? "Untitled document" : kind === "spreadsheets" ? "Untitled spreadsheet" : "Untitled presentation", shared: false, sheets: [{ name: "Sheet1", gid: "0", cells: new Map() }], blocks: [{ type: "paragraph", text: "" }], slides: [{ title: "", body: [], notes: "" }] });
+      const id = add({ kind, owner: internal.owner || null, title: kind === "document" ? "Untitled document" : kind === "spreadsheets" ? "Untitled spreadsheet" : "Untitled presentation", shared: false, sheets: [{ name: "Sheet1", gid: "0", cells: new Map() }], blocks: [{ type: "paragraph", text: "" }], slides: [{ title: "", body: [], notes: "" }] });
       return { redirect: `https://docs.google.com/${kind}/d/${id}/edit` };
     }
     const m = /^\/(document|spreadsheets|presentation)\/d\/([\w-]+)\/(edit|export|htmlview|__mock\/(\w+))$/.exec(url.pathname);

@@ -100,6 +100,17 @@ const SHEETS = {
 
 function docs(req, url, body, state) {
   if (!signedInGoogle(req)) return { redirect: GOOGLE_LOGIN + encodeURIComponent(url.href) };
+  if (req.method === "GET" && /^\/(document|spreadsheets|presentation)\/create$/.test(url.pathname)) {
+    // As live: authuser names the account by /u/ index or by email; the
+    // new file is that account's. Another session may sign an account in
+    // while the page loads (googleSwitchOnLoad), moving the indexes.
+    switchGoogleOnLoad(state);
+    const asked = url.searchParams.get("authuser");
+    const rows = state.googleAccounts || GOOGLE_ACCOUNT_ROWS;
+    const account = asked && asked.includes("@") ? rows.find((a) => a[3].toLowerCase() === asked.toLowerCase() && a[14] !== 1) : googleAccountAt(state, asked);
+    if (!account) return { redirect: GOOGLE_LOGIN + encodeURIComponent(url.href) };
+    return state.editors.handle(req, url, body, { owner: account[3] });
+  }
   const edited = state.editors.handle(req, url, body);
   if (edited) return edited;
   const m = /^\/(document|spreadsheets|presentation)\/d\/([\w-]+)\/(export|htmlview)$/.exec(url.pathname);

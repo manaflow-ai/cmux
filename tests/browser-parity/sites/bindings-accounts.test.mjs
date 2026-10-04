@@ -70,6 +70,18 @@ test("googleCalendar.create: the event editor's account is checked right before 
   }
 });
 
+test("googleDrive.create: the file is the named account's, also when another session signs an account in while the editor loads", async () => {
+  try {
+    env.state.googleSwitchOnLoad = SWITCHED();
+    const f = await s.value('sites.googleDrive.create("document", "Bound create", { uid: 0 })');
+    assert.equal(env.state.editors.files.get(f.id).owner, "ada@example.com", "the file was created in the account that moved to u/0");
+  } finally {
+    env.state.googleAccounts = null;
+    env.state.googleSwitchOnLoad = null;
+  }
+  assert.match(await s.error('sites.googleDrive.create("document", "Bad uid", { uid: "0&x=1" })'), /uid: expected a non-negative integer/);
+});
+
 const NOTION_PAGE_URL = "https://www.notion.so/acme/Team-Handbook-1a2b3c4d00004000800000000000abcd";
 
 test("notion.append: the draft names the Notion user; another user at confirmation appends nothing", async () => {
