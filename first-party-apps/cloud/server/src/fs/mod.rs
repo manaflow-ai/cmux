@@ -51,6 +51,9 @@ pub(crate) fn run<C: ControlPlane>(
     origin: Origin,
     key: Option<&str>,
 ) -> Result<Value, CloudError> {
+    if name == transfer::LIST {
+        return transfer::list(server, raw);
+    }
     if name == transfer::CANCEL {
         return transfer::cancel(server, raw);
     }
