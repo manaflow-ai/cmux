@@ -153,6 +153,9 @@ pub enum Frame {
         extension_host_access: bool,
         #[serde(default)]
         user_override: bool,
+        /// Names of the extensions with access, for the refusal text.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        extensions: Vec<String>,
     },
 }
 
@@ -204,7 +207,7 @@ impl fmt::Debug for Frame {
             Frame::UserInput { target_id } => {
                 f.debug_struct("UserInput").field("target_id", target_id).finish()
             }
-            Frame::TabAccess { target_id, extension_host_access, user_override } => f
+            Frame::TabAccess { target_id, extension_host_access, user_override, .. } => f
                 .debug_struct("TabAccess")
                 .field("target_id", target_id)
                 .field("extension_host_access", extension_host_access)
@@ -375,6 +378,7 @@ mod tests {
                 target_id: "tab_1".into(),
                 extension_host_access: true,
                 user_override: false,
+                extensions: vec!["Ext".into()],
             },
         ];
         let mut stream = Vec::new();
@@ -405,7 +409,8 @@ mod tests {
             Frame::TabAccess {
                 target_id: "t".into(),
                 extension_host_access: false,
-                user_override: false
+                user_override: false,
+                extensions: Vec::new(),
             }
         );
     }

@@ -73,13 +73,18 @@ type Waiters = Arc<Mutex<HashMap<u64, mpsc::SyncSender<Result<Value, DriverError
 /// `errorName` of a call refused by the interim extension rule.
 pub const EXTENSION_HOST_ACCESS: &str = "extension_host_access";
 
+const EXTENSION_REFUSAL: &str = "the tab's profile has an enabled extension with access to this \
+     page; use a browser profile without extensions, or ask the person to allow agents in this tab";
+const EXTENSION_REFUSAL_HINT: &str =
+    "use a browser profile without extensions, or ask the person to allow agents in this tab";
+
 /// The provider's tabs as the app reports them: engine per tab, and for CEF
 /// tabs the last `tab.access` report (interim extension rule).
 #[derive(Default)]
 struct TabTable {
     engines: HashMap<String, String>,
-    /// targetId -> (extension_host_access, user_override).
-    access: HashMap<String, (bool, bool)>,
+    /// targetId -> (extension_host_access, user_override, extension names).
+    access: HashMap<String, (bool, bool, Vec<String>)>,
 }
 
 impl TabTable {
@@ -117,16 +122,15 @@ impl TabTable {
         if self.engines.get(target_id).map(String::as_str) == Some("webkit") {
             return None;
         }
+        // The text the coordinator fixed (2026-10-04); extension names follow.
         let message = match self.access.get(target_id) {
-            Some((false, _) | (true, true)) => return None,
-            Some((true, false)) => format!(
-                "{method}: an enabled extension of this tab's profile has access to the page; \
-                 agents may drive only tabs without one (request a tab in a clean agent profile, \
-                 or the person can allow this tab in cmux)"
-            ),
+            Some((false, _, _) | (true, true, _)) => return None,
+            Some((true, false, names)) if !names.is_empty() => {
+                format!("{method}: {EXTENSION_REFUSAL} (extensions: {})", names.join(", "))
+            }
+            Some((true, false, _)) => format!("{method}: {EXTENSION_REFUSAL}"),
             None => format!(
-                "{method}: the cmux app has not reported this tab's extension access yet; \
-                 agents may drive only tabs without an extension that has access to the page"
+                "{method}: the cmux app has not reported this tab's extension access yet; {EXTENSION_REFUSAL_HINT}"
             ),
         };
         let mut error = DriverError::new(crate::protocol::ErrorCode::Forbidden, message);
@@ -177,12 +181,13 @@ impl ProviderDriver {
                         target_id,
                         extension_host_access,
                         user_override,
+                        extensions,
                     })) => {
                         thread_tabs
                             .lock()
                             .unwrap_or_else(PoisonError::into_inner)
                             .access
-                            .insert(target_id, (extension_host_access, user_override));
+                            .insert(target_id, (extension_host_access, user_override, extensions));
                     }
                     Ok(Some(frame @ Frame::Result { .. })) => {
                         if let Some((id, result)) = frame.into_call_result()
@@ -349,6 +354,7 @@ mod tests {
                     target_id: target.into(),
                     extension_host_access: exposed,
                     user_override: user,
+                    extensions: if exposed { vec!["Pass Keeper".into()] } else { Vec::new() },
                 },
             );
         }
@@ -362,6 +368,7 @@ mod tests {
         let error = result.expect_err("the call must be refused");
         assert_eq!(error.code, crate::protocol::ErrorCode::Forbidden, "{error}");
         assert_eq!(error.error_name.as_deref(), Some("extension_host_access"), "{error}");
+        assert!(error.message.contains("ask the person to allow agents in this tab"), "{error}");
     }
 
     #[test]
@@ -374,6 +381,8 @@ mod tests {
         assert!(!app.saw("tab.navigate", "C"));
         // An enabled extension holds host access on the page.
         app.access(&driver, "C", true, false);
+        let named = driver.call("tab.info", &json!({"targetId": "C"})).unwrap_err();
+        assert!(named.message.contains("Pass Keeper"), "{named}");
         for method in ["frame.evaluate", "input.mouse", "tab.screenshot", "cdp", "tabs.close"] {
             assert_refused(driver.call(method, &json!({"targetId": "C"})));
             assert!(!app.saw(method, "C"), "{method} reached the app");
