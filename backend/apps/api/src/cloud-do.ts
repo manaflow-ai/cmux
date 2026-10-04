@@ -1,5 +1,5 @@
 import type { Domain, EventFrame, OpFrame, OwnerFrame, Principal } from "@cmux/ownership"
-import { CloudMachineList } from "@cmux/protocol"
+import { CloudMachineList, planRequiredDetails } from "@cmux/protocol"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { DriverError } from "./team-vm-driver.ts"
@@ -175,6 +175,8 @@ export class CloudDO extends OwnerDO<CloudState> {
     }
     const after = this.ledger(key)
     if (after?.state === "pending") return this.refuse(result.frames, "mutation.indeterminate", "the provider call was cut off; retry with the same key", true)
+    // A plan refusal at call time (the allowlist changed after the intent) keeps its code and names the lifting plan.
+    if (after?.state === "failed" && after.error?.code === "cloud.plan.required") return this.refuse(result.frames, "cloud.plan.required", after.error.message, false, planRequiredDetails())
     if (after?.state === "failed") return this.refuse(result.frames, "cloud.provider.unavailable", after.error?.message ?? "the provider call failed", false)
     return result
   }
@@ -198,11 +200,11 @@ export class CloudDO extends OwnerDO<CloudState> {
     }
   }
 
-  private refuse(frames: ReadonlyArray<OwnerFrame>, code: string, message: string, retryable: boolean): SubmitResult {
+  private refuse(frames: ReadonlyArray<OwnerFrame>, code: string, message: string, retryable: boolean, details?: unknown): SubmitResult {
     return {
       frames: frames.map((f): OwnerFrame =>
         f.t === "result"
-          ? { t: "reject", tx: "", idempotency_key: f.idempotency_key, code, message, retryable, replayed: false }
+          ? { t: "reject", tx: "", idempotency_key: f.idempotency_key, code, message, ...(details === undefined ? {} : { details }), retryable, replayed: false }
           : f.t === "request-settled"
             ? { ...f, tx: "", sequence: 0, ok: false }
             : f
@@ -316,7 +318,7 @@ export class CloudDO extends OwnerDO<CloudState> {
       let result: { key: string; ok: boolean; provider_id?: string; bind_token_sha256?: string; error?: { code: string; message: string }; final?: boolean }
       if (!driver) result = { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "no Cloud provider is configured on this deployment" }, final: true }
       // P1-1: a create runs only for a team with a plan (the allowlist may have changed since the intent). Deletes always run: they only stop cost.
-      else if (row.op === "create" && !row.cancel && !teamPlan(this.config, tag.team)) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }
+      else if (row.op === "create" && !row.cancel && !teamPlan(this.testUnset.has("CLOUD_ALLOWED_TEAMS") ? { ...this.config, allowedTeams: new Set() } : this.config, tag.team)) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }
       // Review P3-a: the bind file's origin and env tag are checked before ensure, so a misconfiguration never leaves a running VM.
       else if (row.op === "create" && !row.cancel && !this.bindFileConfig()) result = { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "CLOUD_API_ORIGIN (https) or the environment tag is not configured" }, final: true }
       else {
@@ -457,7 +459,7 @@ export class CloudDO extends OwnerDO<CloudState> {
   }
 
   /** Test only (ENVIRONMENT=test): drive the fake provider and the object's clock. */
-  async fakeControl(cmd: { unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string } }) {
+  async fakeControl(cmd: { unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string } }) {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     cloudDriver(this.env, this.sqlStore)
     if (cmd.unset) this.testUnset = new Set(cmd.unset)

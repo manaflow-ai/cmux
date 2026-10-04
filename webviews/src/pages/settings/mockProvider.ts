@@ -99,6 +99,10 @@ export class MockSettingsProvider {
       },
       "cmux.settings.theme.accepts": (params) => ({ accepts: String((params as { text: string }).text).includes(":") }),
       "cmux.settings.file.reveal": () => ({}),
+      "cmux.settings.section.actions": (params) =>
+        String((params as { section: string }).section) === "general"
+          ? [{ id: "palette.welcomeChecklist", title: "Welcome Checklist", enabled: true }]
+          : [],
       "cmux.settings.folders.add": (params) => {
         const key = String((params as { key: string }).key);
         const current = Array.isArray(this.values.get(key)) ? (this.values.get(key) as string[]) : [];
@@ -112,7 +116,10 @@ export class MockSettingsProvider {
       "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
       "cmux.app.action.run": (params) => {
         // The page bridge allows this page only its declared actions.
-        if (!(settingsPageActions as readonly string[]).includes(params.action as string)) {
+        if (
+          !(settingsPageActions as readonly string[]).includes(params.action as string) &&
+          params.action !== "palette.welcomeChecklist"
+        ) {
           throw new ProtocolError("cmux.page.action_refused", `action ${String(params.action)} is not allowed here`);
         }
         this.runProfileAction(
@@ -134,6 +141,7 @@ export class MockSettingsProvider {
       "cmux.settings.theme.accepts",
       "cmux.settings.file.reveal",
       "cmux.settings.folders.add",
+      "cmux.settings.section.actions",
       "cmux.app.action.run",
     ]);
     for (const [op, handler] of Object.entries(ops)) {

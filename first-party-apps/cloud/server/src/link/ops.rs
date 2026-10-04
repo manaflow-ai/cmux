@@ -75,6 +75,11 @@ pub(crate) fn run<C: ControlPlane>(
             let nonce = server.attach_mut().attempt_nonce();
             let start_key = key.map(|k| format!("{k}/start/{nonce}"));
             let carrier = connect(server, &id, origin, start_key)?;
+            // The host's open token (a user run of an `openOps` op): the
+            // link's bytes also get a frame link on the host channel.
+            if let Some(token) = open_token {
+                server.request_frame_link(&carrier, token);
+            }
             Ok(carrier_json(&carrier))
         }
         DISCONNECT => {

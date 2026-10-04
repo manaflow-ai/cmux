@@ -38,4 +38,19 @@ if "$VERIFIER" "$APP_PATH" >/dev/null 2>&1; then
   exit 1
 fi
 
+cp "$ROOT_DIR/THIRD_PARTY_LICENSES.md" "$RESOURCES_PATH/THIRD_PARTY_LICENSES.md"
+mkdir -p "$RESOURCES_PATH/bin"
+printf '\xcf\xfa\xed\xfe\x0c\x00\x00\x01' > "$RESOURCES_PATH/bin/unmapped-helper"
+if "$VERIFIER" "$APP_PATH" >/dev/null 2>&1; then
+  echo "FAIL: verifier accepted a Mach-O that no bundle-map entry covers" >&2
+  exit 1
+fi
+rm "$RESOURCES_PATH/bin/unmapped-helper"
+
+# A mapped Mach-O passes only when the repository notices carry its section.
+printf '\xcf\xfa\xed\xfe\x0c\x00\x00\x01' > "$RESOURCES_PATH/bin/cmux"
+"$VERIFIER" "$APP_PATH"
+
+python3 "$ROOT_DIR/scripts/cmux-next/notices/test_check_bundle_notices.py"
+
 echo "PASS: app bundle license compliance verifier rejects incomplete artifacts"
