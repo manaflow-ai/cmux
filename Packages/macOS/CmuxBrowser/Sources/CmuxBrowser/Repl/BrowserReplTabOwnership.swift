@@ -38,6 +38,18 @@ public struct BrowserReplNetworkRecipient: Sendable, Equatable {
     }
 }
 
+extension Dictionary where Key == String, Value == Any {
+    /// A network event's payload as a session that did not create the tab
+    /// gets it: without the request's and response's credential headers.
+    public func redactingBrowserReplCredentials() -> [String: Any] {
+        var payload = self
+        if let headers = payload["headers"] as? [String: String] {
+            payload["headers"] = headers.removingBrowserReplCredentialHeaders()
+        }
+        return payload
+    }
+}
+
 extension Dictionary where Key == String, Value == String {
     /// Header names whose values sign the user in: never shown to a session
     /// that did not create the tab.

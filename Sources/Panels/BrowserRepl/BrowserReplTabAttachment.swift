@@ -743,16 +743,14 @@ final class BrowserReplTabAttachment {
 
     /// Sends a network event only to the sessions it belongs to
     /// (``BrowserReplTabOwnership/networkRecipients(event:requestID:)``),
-    /// with its credential headers only for the tab's creator.
+    /// with its credentials (headers, and credential values in URLs) only
+    /// for the tab's creator.
     private func emitNetwork(_ name: String, _ payload: [String: Any]) {
         let requestID = payload["requestId"] as? String ?? ""
         for recipient in ownership.networkRecipients(event: name, requestID: requestID) {
             guard let sink = sinks[recipient.sessionID] else { continue }
-            var body = payload
+            var body = recipient.seesCredentials ? payload : payload.redactingBrowserReplCredentials()
             body["targetId"] = targetID
-            if !recipient.seesCredentials, let headers = body["headers"] as? [String: String] {
-                body["headers"] = headers.removingBrowserReplCredentialHeaders()
-            }
             sink(name, body)
         }
     }

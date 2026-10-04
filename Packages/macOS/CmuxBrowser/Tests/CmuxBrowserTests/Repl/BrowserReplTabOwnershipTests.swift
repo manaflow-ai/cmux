@@ -349,4 +349,41 @@ import Testing
         ]
         #expect(headers.removingBrowserReplCredentialHeaders() == ["x-request-id": "r", "content-type": "text/html"])
     }
+    /// A request's URL can carry a credential too: an OAuth code or token
+    /// in a callback, a signed URL's signature, a reset token, a password
+    /// in the userinfo. A session that did not create the tab gets the URL
+    /// with those values replaced, by the header rule's names plus the
+    /// usual query names (`code`, `sig`, `key` and the like), also in the
+    /// URL-valued headers (`location`, `referer`).
+    @Test func credentialValuesInURLsAreRedactedForOtherSessions() throws {
+        let payload: [String: Any] = [
+            "requestId": "1",
+            "url": "https://user:hunter2@app.example/cb?code=abc123&state=xyz&access_token=t0k&X-Amz-Signature=s1g&sig=s2&page=2#id_token=jwt",
+            "method": "GET",
+            "headers": [
+                "location": "https://app.example/next?refresh_token=r3f&view=full",
+                "referer": "https://login.example/reset?reset_token=rst&lang=en",
+                "accept": "text/html",
+                "cookie": "sid=1",
+            ],
+        ]
+        let redacted = payload.redactingBrowserReplCredentials()
+        let url = try #require(redacted["url"] as? String)
+        let headers = try #require(redacted["headers"] as? [String: String])
+        for secret in ["hunter2", "abc123", "t0k", "s1g", "s2", "jwt", "r3f", "rst", "sid=1"] {
+            #expect(!url.contains(secret) && !headers.values.contains { $0.contains(secret) }, "\(secret) reached another session")
+        }
+        for kept in ["state=xyz", "page=2", "app.example/cb"] {
+            #expect(url.contains(kept), "\(kept) was lost")
+        }
+        #expect(headers["location"]?.contains("view=full") == true)
+        #expect(headers["referer"]?.contains("lang=en") == true)
+        #expect(headers["accept"] == "text/html")
+        #expect(redacted["method"] as? String == "GET")
+    }
+
+    @Test func aURLWithoutCredentialsIsUnchanged() {
+        let payload: [String: Any] = ["url": "https://app.example/search?q=tea&page=2"]
+        #expect(payload.redactingBrowserReplCredentials()["url"] as? String == "https://app.example/search?q=tea&page=2")
+    }
 }
