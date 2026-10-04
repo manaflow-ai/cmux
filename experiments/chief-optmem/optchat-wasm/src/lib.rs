@@ -301,9 +301,15 @@ impl OptChat {
     /// `marks` are byte offsets into the UTF-8 context where a cached piece ends
     /// (section 8); send each piece as its own block with a breakpoint.
     /// `prompt` is `taelin`, `cmux` or `custom` (then `custom` is its text).
+    ///
+    /// When a read fails, the call throws and the node is released (as if
+    /// `fail(l, i)` were called): `pump` marked it busy, and a host that only
+    /// retries `compactRequest` would otherwise leave it busy forever, which
+    /// under rule 3 blocks every later level-0 node and every turn. The host
+    /// waits its fixed retry delay and pumps again.
     #[wasm_bindgen(js_name = compactRequest)]
     pub fn compact_request(
-        &self,
+        &mut self,
         store: &JsStore,
         l: u32,
         i: f64,
@@ -323,14 +329,13 @@ impl OptChat {
             "custom" => CompactPrompt::Custom(custom.to_string()),
             _ => CompactPrompt::Taelin,
         };
+        let node = NodeId::new(level(l)?, id(i)?);
         let host = Host::new(store);
-        let r = core::compact_request(
-            &self.memory,
-            &host,
-            NodeId::new(level(l)?, id(i)?),
-            choice.text(agent),
-        );
-        host.check()?;
+        let r = core::compact_request(&self.memory, &host, node, choice.text(agent));
+        if let Err(e) = host.check() {
+            self.memory.fail(node);
+            return Err(e);
+        }
         let marks = core::cache_marks(&r.context);
         Ok(serde_json::to_string(&Out {
             system: r.system,

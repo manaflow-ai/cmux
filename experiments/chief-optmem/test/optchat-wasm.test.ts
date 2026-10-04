@@ -114,4 +114,25 @@ describe("optchat-core as WebAssembly (hosted placement)", () => {
     expect(() => memory.zoom(store, Number.MAX_SAFE_INTEGER - 1, 2)).toThrow("No line");
     expect(() => memory.complete(0, Number.NaN, "x")).toThrow("not a message id");
   });
+
+  it("releases a model node whose compactor request fails on a read", () => {
+    // Audit round 2: pump marks the node busy; a failed read in compactRequest
+    // left it busy until the host called fail(), so a host that only retried
+    // compactRequest blocked every later level-0 node.
+    const store = new Store();
+    const memory = new OptChat(0);
+    store.messages.push({ kind: "tool", text: "y".repeat(3_000) });
+    memory.append();
+    const work = JSON.parse(memory.pump(store)) as Array<Work>;
+    expect(work).toContainEqual({ kind: "model", l: 0, i: 0 });
+    const broken = {
+      message: () => {
+        throw new Error("SQLite busy");
+      },
+      node: (l: number, i: number) => store.node(l, i),
+    };
+    expect(() => memory.compactRequest(broken, 0, 0, "taelin", "", "Chief")).toThrow("SQLite busy");
+    const again = JSON.parse(memory.pump(store)) as Array<Work>;
+    expect(again).toContainEqual({ kind: "model", l: 0, i: 0 });
+  });
 });

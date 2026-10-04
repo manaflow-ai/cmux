@@ -16,6 +16,12 @@ export class OptChat {
      * `marks` are byte offsets into the UTF-8 context where a cached piece ends
      * (section 8); send each piece as its own block with a breakpoint.
      * `prompt` is `taelin`, `cmux` or `custom` (then `custom` is its text).
+     *
+     * When a read fails, the call throws and the node is released (as if
+     * `fail(l, i)` were called): `pump` marked it busy, and a host that only
+     * retries `compactRequest` would otherwise leave it busy forever, which
+     * under rule 3 blocks every later level-0 node and every turn. The host
+     * waits its fixed retry delay and pumps again.
      */
     compactRequest(store: any, l: number, i: number, prompt: string, custom: string, agent: string): string;
     complete(l: number, i: number, text: string): void;
