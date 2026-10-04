@@ -420,3 +420,11 @@ Queue:
 2. Next server slice: file transfers on a worker thread with completion events.
 3. Next page slice: a route 404 shows "Not available yet" (localized), not "gone"; full webviews
    `bun test` before the push.
+4. C10 (waits for the apps lead's choice between a host-only op such as `cloud.link.configure` and
+   AppHostCapabilities; no code before that answer): remove `Attach::from_env` and every env read outside
+   the allowlist `CMUX_APP_ID`, `CMUX_APP_DATA_DIR`, `TMPDIR`, `LANG` (hits: serve.rs:13, link/mod.rs:73-88,
+   link/spawner.rs:81, fs/openssh.rs:125). Child processes get an env built only from configured values
+   (absolute binary path, a private HOME under `CMUX_APP_DATA_DIR`, TMPDIR, LANG). OpenSSH children take
+   their config and known_hosts paths explicitly (`-F <path>`, `-o UserKnownHostsFile=<path>`), never an
+   implicit `~/.ssh`; a test proves the ssh child gets no implicit `~/.ssh` path. File transfers move to a
+   worker thread in the same slice. Red tests first.
