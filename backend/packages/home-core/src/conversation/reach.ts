@@ -5,11 +5,12 @@ import { safeDisplayName } from "./validate.ts"
  * them into a new group, or add them to a conversation.
  *
  * A human may be added only by someone who shares a team with them (16.2, 16.7) or is already
- * connected to them (4.1 "already share a conversation", 16.7 "connected"); the target's
- * `allow_dm_from` setting (4.2) narrows that:
- * - `anyone`: a shared team or a connection;
+ * connected to them (16.7 "connected"; a shared group alone is no connection, 16.3); the
+ * target's `allow_requests_from` setting (4.2, 16.7) narrows that:
+ * - `anyone`: a shared team or a connection. Interim (16.10): the target is "anyone" for
+ *   message requests, which are not built, so a stranger is refused until they exist;
  * - `teams`: a shared team only;
- * - `contacts`: a connection only.
+ * - `nobody`: no new reach at all (current participants stay).
  * A block on the pair (16.6) refuses everything. Strangers get the invite flow instead.
  *
  * The facts are resolved by the Worker from their owners (TeamDO membership, the caller's
@@ -17,9 +18,9 @@ import { safeDisplayName } from "./validate.ts"
  * principal, so the reducer stays pure. Every refusal, and an account the Worker found nothing
  * for, is `not_reachable`: the caller cannot tell an unknown account from a refusal (section 9).
  */
-export type AllowDmFrom = "anyone" | "teams" | "contacts"
+export type AllowRequestsFrom = "anyone" | "teams" | "nobody"
 
-export const ALLOW_DM_FROM: ReadonlyArray<AllowDmFrom> = ["anyone", "teams", "contacts"]
+export const ALLOW_REQUESTS_FROM: ReadonlyArray<AllowRequestsFrom> = ["anyone", "teams", "nobody"]
 
 export interface HumanReach {
   /** The target's `user_` id. */
@@ -31,7 +32,7 @@ export interface HumanReach {
   /** The pair is connected; until relationships (16.7) are built: a DM where both are current participants. */
   readonly connected: boolean
   /** The target's setting (UserDO `home.settings.set`). */
-  readonly allow_dm_from: AllowDmFrom
+  readonly allow_requests_from: AllowRequestsFrom
   /** Either side blocked the other (16.6); not resolved until the pair state exists. */
   readonly blocked?: boolean
 }
@@ -47,8 +48,7 @@ export type ReachDecision = { readonly ok: true; readonly display_name: string }
 /** The rule above, for one target. `undefined` = the Worker found no link (or no account). */
 export const reachDecision = (reach: HumanReach | undefined): ReachDecision => {
   if (!reach || reach.blocked === true) return { ok: false, code: NOT_REACHABLE }
-  const allowed =
-    reach.allow_dm_from === "anyone" ? reach.shared_team || reach.connected : reach.allow_dm_from === "teams" ? reach.shared_team : reach.allow_dm_from === "contacts" ? reach.connected : false
+  const allowed = reach.allow_requests_from === "anyone" ? reach.shared_team || reach.connected : reach.allow_requests_from === "teams" ? reach.shared_team : false
   if (!allowed) return { ok: false, code: NOT_REACHABLE }
   return { ok: true, display_name: safeDisplayName(reach.display_name, FALLBACK) }
 }

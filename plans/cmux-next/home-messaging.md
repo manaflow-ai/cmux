@@ -78,7 +78,7 @@ inside a DO only), `link` (an unauthenticated holder of an invite secret, read o
 | `reaction.add` / `reaction.remove` | `{message_id, part_index, reaction}` | client key | participants | one per (author, part, kind) |
 | `read_cursor.set` | `{seq}` | client key (`read:<seq>` recommended) | humans | monotonic, `<= last_seq` |
 | `title.set` | `{title}` | client key | members (group) | not for `dm`, `chief` |
-| `participants.add` | `{participant: user or chief}` | client key | members | a human may be added only when they share a team with the adder or already share a conversation with them; anyone else needs `invite.create`. A chief may be added by its owner, or by anyone when its `reachability` allows. Max 64 |
+| `participants.add` | `{participant: user or chief}` | client key | members | a human may be added only when they share a team with the adder or are connected to them (a shared group is no connection), and their `allow_requests_from` allows it (section 16.10); anyone else needs `invite.create` (later a message request). A chief adds the humans its owner could add, under its owner's reach. A chief may be added by its owner, or by anyone when its `reachability` allows. Max 64 |
 | `participants.remove` | `{participant}` | client key | self (leave), conversation owner, chief owner (for their chief) | removing the last human archives the conversation |
 | `invite.create` | `{invite_id, address, channel, display_name, locale, copy_variant}` | `invite_id` (the Worker derives it from the client key) | members | Worker first runs `address.ensure` and `invite.quota.take`; commit emits outbox `address.deliver` (send happens after commit); max 20 pending invites per conversation |
 | `invite.revoke` | `{invite_id}` | client key | inviter, conversation owner | pending only |
@@ -102,7 +102,7 @@ inside a DO only), `link` (an unauthenticated holder of an invite secret, read o
 | `chief.create` | `{name, parent?, avatar?, brain}` | client key | session | creates the agent principal, its grant (class `mux`), its `MuxDO` and its `chief` conversation (outbox, system ops with derived keys); the first chief is pinned |
 | `chief.update` / `chief.archive` | `{agent, ...}` | client key | session (owner) | archive keeps history read-only |
 | `invite.quota.take` | `{invite_id, channel}` | `quota:<invite_id>` | system (Worker on the inviter's behalf) | per-user windows (section 9); a refused take refuses the invite |
-| `home.settings.set` | `{discoverable_by_email?, discoverable_by_phone?, allow_dm_from: anyone|teams|contacts}` | client key | session | |
+| `home.settings.set` | `{discoverable_by_email?, discoverable_by_phone?, allow_requests_from?: anyone|teams|nobody, email_requests?}` | client key | session | at least one field. Defaults: `allow_requests_from: anyone`, `discoverable_by_email: false`, `discoverable_by_phone: false`, `email_requests: true`. `allow_requests_from` limits `dm.open`, group creation and `participants.add` of this user (section 16.10): `anyone` = a shared team or a connection (interim), `teams` = a shared team only, `nobody` = no new reach |
 
 ### 4.3 MuxDO, TeamDO, AddressDO
 
@@ -513,9 +513,9 @@ projections within one drain).
 
 Built so far (2026-10-03, branch feat-cmux-next-home-reach): until pair state exists, "connected"
 means a DM where both are current participants and both gave consent (both sent a message there,
-or one accepted the other's one-to-one invite). The setting is still named `allow_dm_from:
-anyone|teams|contacts` (section 4.2) and gained `email_requests` (R2, default on, stored only);
-whether it becomes `allow_requests_from: anyone|teams|nobody` is an open decision.
+or one accepted the other's one-to-one invite). The setting is `allow_requests_from:
+anyone|teams|nobody` plus `email_requests` (R2, default on, stored only); `allow_dm_from` is
+gone (section 16.10).
 
 ### 16.8 Migration from today
 
@@ -529,6 +529,24 @@ between two existing org members creates their relationship only when both send 
 - R1: the three primitives are accepted: Contacts (relationships), Grants, and Team with the roles guest, member, admin, owner and billing. The product and code keep the name "Team" (`team_` ids); "org" in this section only separates it from relationships.
 - R2: message requests from unrelated users show in Home AND send an email (on by default; the recipient can turn email off in `home.settings.set {email_requests}`).
 - R3: the address owner is `AddressDO`, participants `addr_<26>`, secret `HOME_ADDRESS_KEY` (backend and home-core renamed).
+
+### 16.10 Reach decisions (coordinator, 2026-10-03)
+
+1. Names are the 16.7 ones: `home.settings.set {allow_requests_from: anyone|teams|nobody,
+   email_requests}`. `allow_dm_from` is removed everywhere; `nobody` refuses all new reach.
+2. A shared group is no connection (16.3 stands).
+3. Interim rule, until message requests (16.4) exist: `anyone` reaches only people who share a
+   team with the caller or are connected to them; a stranger gets `not_reachable`, the same
+   answer as an unknown account. Target: a stranger's DM or add becomes a message request.
+4. The setting limits group adds too (`conversation.create` and `participants.add`): only people
+   the caller can reach are added; the client offers an invite (later a request) for the others.
+5. Defaults: `allow_requests_from: anyone`, `discoverable_by_email: false`,
+   `discoverable_by_phone: false`.
+6. A chief adds the humans its owner could add, acting under its owner's reach: the Worker
+   resolves the reach facts for the chief's `owner_user` (the owner's teams, the owner's
+   connections, the target's setting checked against the owner) after the owner's UserDO
+   confirms the agent is one of the owner's active chiefs. Any other agent caller gets no facts,
+   so a cloud owner never re-adds a departed human through the stored record for an agent.
 
 ## 17. Engine and flow questions (answered by the backend lead, 2026-10-02)
 

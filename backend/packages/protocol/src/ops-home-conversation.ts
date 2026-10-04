@@ -190,7 +190,7 @@ export const ParticipantsAdd = def({
   params: Schema.Struct({ ...conv, participant: ParticipantInput }),
   result: commit,
   errors: [...conversationErrors, "duplicate_participant", "invalid_participant", "not_reachable"],
-  docs: "Add a user who shares a team or a conversation with you, or a chief its reachability allows (max 64). Anyone else needs invite.create.",
+  docs: "Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create.",
   cli: cli("add"),
   mcp: { expose: "opt_in", group: "home" }
 })

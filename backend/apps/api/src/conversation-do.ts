@@ -16,7 +16,8 @@ const WORKER_DERIVED_OPS = new Set(["conversation.create", "dm.open", "invite.cr
 /**
  * Reach policy with owner records: an agent participant is allowed when it is one of the
  * caller's chiefs (principal.owned_agents, resolved by the Worker from UserDO); everything
- * else follows home-core's default policy.
+ * else follows home-core's default policy. An agent caller always has reach facts here (its
+ * owner's, or none): the stored record of a departed human is never a shortcut back in.
  */
 const ownerRecordPolicy: conversation.ParticipantPolicy = (principal, participant, head) => {
   if (participant.kind === "agent") {
@@ -24,6 +25,8 @@ const ownerRecordPolicy: conversation.ParticipantPolicy = (principal, participan
     const actor = conversation.actorOf(principal)
     if (owned && actor?.startsWith("user_")) return { ok: true, owner_user: actor, display_name: owned.display_name }
   }
+  if (participant.kind === "human" && principal.agent && principal.kind !== "system" && principal.home_reach === undefined)
+    return conversation.defaultParticipantPolicy({ ...principal, home_reach: [] }, participant, head)
   return conversation.defaultParticipantPolicy(principal, participant, head)
 }
 /** Accept rejects that count toward the lock (a wrong or used link), not transient ones. */

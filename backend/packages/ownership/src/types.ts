@@ -55,14 +55,15 @@ export interface Principal {
    * Home reach facts (home-messaging.md section 16), one per human the op would add, resolved by
    * the Worker from their owners (TeamDO membership, the caller's inbox and DMs, the target's
    * UserDO settings). Same trust as `owned_agents`: built only by the Worker, never from frames
-   * or params; no entry means no link. Shape: home-core `HumanReach`.
+   * or params; no entry means no link. A chief's facts are its owner's (owner's teams, owner's
+   * connections, the target's setting checked against the owner). Shape: home-core `HumanReach`.
    */
   readonly home_reach?: ReadonlyArray<{
     readonly user: string
     readonly display_name: string
     readonly shared_team: boolean
     readonly connected: boolean
-    readonly allow_dm_from: "anyone" | "teams" | "contacts"
+    readonly allow_requests_from: "anyone" | "teams" | "nobody"
     readonly blocked?: boolean
   }>
   /** Op classes of the principal's grant, resolved by the grant's owner (UserDO) for other owners. */
