@@ -236,6 +236,9 @@ async fn a_cancelled_answer_before_the_cancel_reply_is_one_cancel() {
     let outcome = run.await.unwrap();
     assert_eq!(outcome, Outcome::Cancelled { confirmed: true });
     // The late {} reply finds a closed connection; nothing is reported twice.
-    let _ = daemon.writer.write_all(format!("{}\n", json!({"id": cancel["id"], "ok": true, "data": {}})).as_bytes()).await;
+    let _ = daemon
+        .writer
+        .write_all(format!("{}\n", json!({"id": cancel["id"], "ok": true, "data": {}})).as_bytes())
+        .await;
     assert_eq!(report(&outcome, OutputMode::Human).2, EXIT_CANCELLED);
 }

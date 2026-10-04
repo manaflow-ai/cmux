@@ -337,11 +337,18 @@ fn settings_confirm_sends_confirm_and_waits_for_the_sheet() {
             .unwrap();
     let AppCommand::Call { method, params, timeout, .. } = command else { panic!("a call") };
     assert_eq!(method, "settings.set");
-    assert_eq!(params, json!({ "path": "history.terminalCommands", "value": false, "confirm": true }));
+    assert_eq!(
+        params,
+        json!({ "path": "history.terminalCommands", "value": false, "confirm": true })
+    );
     assert_eq!(timeout, settings::CONFIRM_TIMEOUT);
-    let (method, params) =
-        call(parse(&args(&["settings", "reset", "--confirm", "appearance.theme"])).unwrap().unwrap());
-    assert_eq!((method, params), ("settings.reset", json!({ "path": "appearance.theme", "confirm": true })));
+    let (method, params) = call(
+        parse(&args(&["settings", "reset", "--confirm", "appearance.theme"])).unwrap().unwrap(),
+    );
+    assert_eq!(
+        (method, params),
+        ("settings.reset", json!({ "path": "appearance.theme", "confirm": true }))
+    );
     let command = parse(&args(&["settings", "unset", "appearance.theme"])).unwrap().unwrap();
     let AppCommand::Call { params, timeout, .. } = command else { panic!("a call") };
     assert_eq!((params, timeout), (json!({ "path": "appearance.theme" }), READ_TIMEOUT));
@@ -363,7 +370,8 @@ fn a_user_only_refusal_and_a_declined_sheet_explain_themselves() {
         "message": "history.terminalCommands can be changed only by you",
         "data": { "key": "history.terminalCommands" } } });
     let (socket, app) = fake_app(vec![refused.clone()]);
-    let command = parse(&args(&["settings", "set", "history.terminalCommands", "false"])).unwrap().unwrap();
+    let command =
+        parse(&args(&["settings", "set", "history.terminalCommands", "false"])).unwrap().unwrap();
     assert_eq!(run(&global_for(&socket), command), 1);
     let sent = app.join().unwrap();
     assert!(sent[0][0]["params"].get("confirm").is_none(), "no confirm without the flag");
@@ -373,9 +381,10 @@ fn a_user_only_refusal_and_a_declined_sheet_explain_themselves() {
         "message": "history.terminalCommands was not changed: the confirmation was declined",
         "data": { "key": "history.terminalCommands", "declined": true } } });
     let (socket, app) = fake_app(vec![declined.clone()]);
-    let command = parse(&args(&["settings", "set", "history.terminalCommands", "false", "--confirm"]))
-        .unwrap()
-        .unwrap();
+    let command =
+        parse(&args(&["settings", "set", "history.terminalCommands", "false", "--confirm"]))
+            .unwrap()
+            .unwrap();
     assert_eq!(run(&global_for(&socket), command), 1);
     let sent = app.join().unwrap();
     assert_eq!(sent[0][0]["params"]["confirm"], json!(true));
