@@ -2,16 +2,16 @@ import AppKit
 import CmuxNextDesign
 
 /// Vertical row scrolling (plans/cmux-next/rows.md, Viewport). Each column
-/// whose rows overflow keeps its own `ColumnScrollState`, fed the column's
-/// rows as a strip on the vertical axis (`ColumnStrip(rows:)`), so reveal,
+/// whose rows overflow keeps its own `RowScroll`: the column scroll reducer
+/// fed the column's rows as a strip on the vertical axis, so reveal,
 /// camera anchor, snapping and focus-after-scroll are the column scroll
 /// rules transposed (V1, V2). Offsets are client view state, never sent.
 extension ScreenContentView {
     /// The presented vertical offset of each scrolling row column.
-    var rowOffsets: [ColumnID: CGFloat] { rowScrolls.mapValues(\.spring.value) }
+    var rowOffsets: [ColumnID: CGFloat] { rowScrolls.mapValues(\.state.spring.value) }
 
     func rowOffset(of pane: PaneID) -> CGFloat {
-        baseGeometry.rowColumnOfPane[pane].flatMap { rowScrolls[$0]?.spring.value } ?? 0
+        baseGeometry.rowColumnOfPane[pane].flatMap { rowScrolls[$0]?.state.spring.value } ?? 0
     }
 
     func rowOffset(of kind: DividerHandleView.Kind) -> CGFloat {
@@ -20,21 +20,11 @@ extension ScreenContentView {
         case let .rowEdge(id, _): id
         case .columnEdge: nil
         }
-        return column.flatMap { rowScrolls[$0]?.spring.value } ?? 0
+        return column.flatMap { rowScrolls[$0]?.state.spring.value } ?? 0
     }
 
     var rowsMoving: Bool {
-        rowScrolls.values.contains { !$0.isGestureActive && ($0.spring.value != $0.spring.target || $0.spring.velocity != 0) }
-    }
-
-    /// The rows of each scrolling column as the reducer sees them.
-    private func rowStrips() -> [ColumnID: ColumnStrip] {
-        var result: [ColumnID: ColumnStrip] = [:]
-        for (id, stack) in baseGeometry.rowStacks where stack.scrolls {
-            guard let column = layout.columns.first(where: { $0.id == id }) else { continue }
-            result[id] = ColumnStrip(rows: stack, column: column, panes: baseGeometry.panes)
-        }
-        return result
+        rowScrolls.values.map(\.state).contains { !$0.isGestureActive && ($0.spring.value != $0.spring.target || $0.spring.velocity != 0) }
     }
 
     /// Feeds every row column the current rows and focus (called with each
@@ -42,13 +32,15 @@ extension ScreenContentView {
     /// Returns true if a spring needs frames.
     @discardableResult
     func syncRows(focused: PaneID?, source: ColumnFocusSource, animated: Bool, reveals: Bool) -> Bool {
-        let strips = rowStrips()
         var needsFrames = false
-        for id in rowScrolls.keys where strips[id] == nil { rowScrolls[id] = nil }
-        for (id, strip) in strips {
-            var state = rowScrolls[id] ?? ColumnScrollState()
-            let effects = state.reduce(.sync(strip, focused: focused, source: source, animated: animated, reveals: reveals))
-            rowScrolls[id] = state
+        let scrolling = baseGeometry.rowStacks.filter { $0.value.scrolls }
+        for id in rowScrolls.keys where scrolling[id] == nil { rowScrolls[id] = nil }
+        for (id, stack) in scrolling {
+            guard let column = layout.columns.first(where: { $0.id == id }) else { continue }
+            var scroll = rowScrolls[id] ?? RowScroll()
+            let strip = scroll.strip(rows: stack, column: column, panes: baseGeometry.panes)
+            let effects = scroll.state.reduce(.sync(strip, focused: focused, source: source, animated: animated, reveals: reveals))
+            rowScrolls[id] = scroll
             if effects.needsFrames { needsFrames = true }
         }
         refreshRowShift()
@@ -58,8 +50,8 @@ extension ScreenContentView {
     /// Steps the row springs; true while one moves.
     func stepRows(_ dt: Double) -> Bool {
         var moving = false
-        for id in Array(rowScrolls.keys) where rowScrolls[id]?.isGestureActive == false {
-            if rowScrolls[id]!.spring.advance(dt, parameters: Motion.spring(.scroll), epsilon: 0.25) { moving = true }
+        for id in Array(rowScrolls.keys) where rowScrolls[id]?.state.isGestureActive == false {
+            if rowScrolls[id]!.state.spring.advance(dt, parameters: Motion.spring(.scroll), epsilon: 0.25) { moving = true }
         }
         if !rowScrolls.isEmpty { refreshRowShift() }
         return moving
@@ -94,31 +86,31 @@ extension ScreenContentView {
     }
 
     func beginRowScroll(_ column: ColumnID) {
-        rowScrolls[column]?.reduce(.gestureBegan)
+        rowScrolls[column]?.state.reduce(.gestureBegan)
     }
 
     /// A trackpad delta (points; positive moves content down, as AppKit
     /// reports it).
     func rowScroll(_ column: ColumnID, deltaY: CGFloat, timestamp: TimeInterval) {
-        rowScrolls[column]?.reduce(.gestureChanged(deltaX: deltaY, time: timestamp))
+        rowScrolls[column]?.state.reduce(.gestureChanged(deltaX: deltaY, time: timestamp))
         refreshRowShift()
         applyPresentation()
     }
 
     @discardableResult
     func endRowScroll(_ column: ColumnID, timestamp: TimeInterval) -> Bool {
-        guard var state = rowScrolls[column] else { return false }
-        let effects = state.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion))
-        rowScrolls[column] = state
+        guard var scroll = rowScrolls[column] else { return false }
+        let effects = scroll.state.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion))
+        rowScrolls[column] = scroll
         return applyRow(effects)
     }
 
     /// One mouse wheel notch on the vertical axis.
     @discardableResult
     func discreteRowScroll(_ column: ColumnID, direction: Int) -> Bool {
-        guard var state = rowScrolls[column] else { return false }
-        let effects = state.reduce(.wheel(direction: direction, animated: !context.reduceMotion))
-        rowScrolls[column] = state
+        guard var scroll = rowScrolls[column] else { return false }
+        let effects = scroll.state.reduce(.wheel(direction: direction, animated: !context.reduceMotion))
+        rowScrolls[column] = scroll
         return applyRow(effects)
     }
 
@@ -127,25 +119,5 @@ extension ScreenContentView {
         applyPresentation()
         if let pane = effects.focus { context.model.focus(pane, source: .scroll) }
         return effects.needsFrames
-    }
-}
-
-extension ColumnStrip {
-    /// The rows of one column as a strip on the vertical axis: x and y
-    /// swapped, measured from the column's top, so the column scroll rules
-    /// apply to rows unchanged (rows.md V1, V2). Strip column ids carry
-    /// the row ids.
-    init(rows stack: RowStackGeometry, column: LayoutColumn, panes: [PaneID: CGRect]) {
-        let top = stack.frame.minY
-        func transposed(_ rect: CGRect) -> CGRect {
-            CGRect(x: rect.minY - top, y: rect.minX, width: rect.height, height: rect.width)
-        }
-        let columns = zip(column.rows, stack.rows).map { row, placed in
-            let rowPanes = row.root.panes
-            var frames: [PaneID: CGRect] = [:]
-            for pane in rowPanes { frames[pane] = panes[pane].map(transposed) }
-            return Column(id: ColumnID(row.id.rawValue), frame: transposed(placed.frame), panes: rowPanes, paneFrames: frames)
-        }
-        self.init(columns: columns, viewportWidth: stack.frame.height, contentWidth: stack.contentHeight, gap: stack.gap)
     }
 }
