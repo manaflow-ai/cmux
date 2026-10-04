@@ -160,7 +160,8 @@ public final class BrowserReplFrameGate {
         arguments: [String: Any],
         in webView: WKWebView,
         frame: BrowserReplFrame,
-        contentWorld: WKContentWorld
+        contentWorld: WKContentWorld,
+        userGesture: Bool = true
     ) async throws -> Any? {
         guard policy.isActive else {
             return try await webView.callAsyncJavaScript(body, arguments: arguments, in: frame.info, contentWorld: contentWorld)

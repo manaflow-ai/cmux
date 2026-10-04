@@ -549,6 +549,22 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         }
     }
 
+    // MARK: - Agent gestures
+
+    /// Starts a quarantine of WebKit's writes of the general pasteboard.
+    @MainActor
+    public func beginQuarantine() -> Bool {
+        install()
+    }
+
+    /// Ends one ``beginQuarantine()``.
+    @MainActor
+    public func endQuarantine(lingering: Duration) {}
+
+    /// Ends every quarantine at once (tests).
+    @MainActor
+    func liftQuarantine() {}
+
     // MARK: - Automated drags
 
     /// Opens `pasteboard`'s drag window: until ``closeDragWindow(_:)`` or
