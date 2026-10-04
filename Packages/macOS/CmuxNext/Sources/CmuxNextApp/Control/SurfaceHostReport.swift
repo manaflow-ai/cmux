@@ -26,7 +26,19 @@ enum SurfaceHostReport {
     /// Adds `terminal_id` and `host_pid` to every pane object of `report`
     /// whose `pane` key is in `identities`; other panes are unchanged.
     nonisolated static func annotate(_ report: CmuxNextSettings.JSONValue, identities: [String: Identity]) -> CmuxNextSettings.JSONValue {
-        report
+        guard case .object(var root) = report, case .array(let windows)? = root["windows"] else { return report }
+        root["windows"] = .array(windows.map { window in
+            guard case .object(var object) = window, case .array(let panes)? = object["panes"] else { return window }
+            object["panes"] = .array(panes.map { pane in
+                guard case .object(var fields) = pane, case .string(let key)? = fields["pane"],
+                      let identity = identities[key] else { return pane }
+                fields["terminal_id"] = identity.terminalID.map(CmuxNextSettings.JSONValue.string) ?? .null
+                fields["host_pid"] = identity.hostPID.map { .number(Double($0)) } ?? .null
+                return .object(fields)
+            })
+            return .object(object)
+        })
+        return .object(root)
     }
 
     /// Terminal panes of every window, with their daemon tab.
