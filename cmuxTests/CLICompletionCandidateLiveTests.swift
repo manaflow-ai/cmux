@@ -328,7 +328,9 @@ struct CLICompletionCandidateLiveTests {
             let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
             let result = try runCLI(
                 cliPath,
-                arguments: ["---completion", "select-workspace", "--", "--workspace"] + words,
+                // Three-parameter `.custom` wire format: the completing word's
+                // index in `words`, then the cursor offset within that word.
+                arguments: ["---completion", "select-workspace", "--", "--workspace", String(words.count - 1), "0"] + words,
                 environment: ["CMUX_SOCKET_PATH": socketA]
             )
 

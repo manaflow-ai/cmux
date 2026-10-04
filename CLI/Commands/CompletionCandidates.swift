@@ -14,23 +14,23 @@ enum CompletionCandidates {
     /// `--workspace`/`--window` already typed on the line scopes the listing.
     /// Without params the app answers for its *selected* workspace, which is not
     /// necessarily the one the user is targeting.
-    static func workspaces(_ arguments: [String]) -> [String] {
+    @Sendable static func workspaces(_ arguments: [String], _ index: Int = 0, _ prefix: String = "") -> [String] {
         fetch(arguments, method: "workspace.list", params: selectors(["window"], in: arguments), mapping: identifier)
     }
 
-    static func surfaces(_ arguments: [String]) -> [String] {
+    @Sendable static func surfaces(_ arguments: [String], _ index: Int = 0, _ prefix: String = "") -> [String] {
         fetch(arguments, method: "surface.list", params: selectors(["window", "workspace"], in: arguments), mapping: identifier)
     }
 
-    static func windows(_ arguments: [String]) -> [String] {
+    @Sendable static func windows(_ arguments: [String], _ index: Int = 0, _ prefix: String = "") -> [String] {
         fetch(arguments, method: "window.list", mapping: identifier)
     }
 
-    static func panes(_ arguments: [String]) -> [String] {
+    @Sendable static func panes(_ arguments: [String], _ index: Int = 0, _ prefix: String = "") -> [String] {
         fetch(arguments, method: "pane.list", params: selectors(["window", "workspace"], in: arguments), mapping: identifier)
     }
 
-    static func panels(_ arguments: [String]) -> [String] {
+    @Sendable static func panels(_ arguments: [String], _ index: Int = 0, _ prefix: String = "") -> [String] {
         fetch(arguments, method: "surface.list", params: selectors(["window", "workspace"], in: arguments), mapping: identifier)
     }
 
@@ -40,7 +40,7 @@ enum CompletionCandidates {
     /// own surface and workspace come from the environment cmux exports into every
     /// terminal it owns. With neither set the app's selected-workspace fallback is
     /// still the best available answer.
-    static func tabs(_ arguments: [String]) -> [String] {
+    @Sendable static func tabs(_ arguments: [String], _ index: Int = 0, _ prefix: String = "") -> [String] {
         var params = selectors(["surface", "workspace"], in: arguments)
         let environment = ProcessInfo.processInfo.environment
         // An explicit selector on the line wins over the caller's environment.
@@ -60,7 +60,7 @@ enum CompletionCandidates {
     /// worker and the handler abandons it at the same 0.5s bound. The abandoned
     /// worker outlives the wait but not the process, which exits as soon as the
     /// candidates are printed.
-    static func themes(_ arguments: [String]) -> [String] {
+    @Sendable static func themes(_ arguments: [String], _ index: Int = 0, _ prefix: String = "") -> [String] {
         let box = ThemeNamesBox()
         let finished = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
@@ -71,7 +71,7 @@ enum CompletionCandidates {
         return sanitized(box.value)
     }
 
-    static func vms(_ arguments: [String]) -> [String] {
+    @Sendable static func vms(_ arguments: [String], _ index: Int = 0, _ prefix: String = "") -> [String] {
         fetch(arguments, method: "vm.list", mapping: identifier)
     }
 
@@ -237,7 +237,9 @@ struct CompleteCandidates: ParsableCommand {
     @Argument var kind: String
     /// Shell words the handler scopes its listing by, as ArgumentParser's
     /// completion callback would pass them.
-    @Argument(parsing: .remaining) var words: [String] = []
+    /// `.captureForPassthrough`, not `.remaining`: the words carry flags such as
+    /// `--workspace` that this command does not declare.
+    @Argument(parsing: .captureForPassthrough) var words: [String] = []
 
     func run() throws {
         let candidates: [String]
