@@ -158,6 +158,23 @@ fn a_lone_column_of_rows_keeps_its_id_and_fills_the_width() {
     assert_eq!(wire.rows(0).len(), 2);
 }
 
+/// `set-viewport-pane-width` returns the width in effect after the commit: a
+/// lone column of rows always fills the screen (1.0), and a column beside
+/// another keeps the requested width.
+#[test]
+fn set_viewport_pane_width_returns_the_effective_width() {
+    let (mut wire, pane) = Wire::lone();
+    wire.ok(json!({"cmd": "new-row", "pane": pane, "height_permille": 500}));
+    let lone = wire.ok(json!({"cmd": "set-viewport-pane-width", "pane": pane, "width": 0.6}));
+    assert_eq!(lone, json!({"width": 1.0}), "a lone column fills the width");
+    assert_eq!(wire.columns()[0]["width"], 1.0, "{}", wire.screen());
+    wire.ok(json!({"cmd": "new-pane-right", "pane": pane, "cols": 38, "rows": 22}));
+    let set = wire.ok(json!({"cmd": "set-viewport-pane-width", "pane": pane, "width": 0.6}));
+    let width = set["width"].as_f64().unwrap_or_else(|| panic!("no width: {set}"));
+    assert!((width - 0.6).abs() < 1e-6, "{set}");
+    assert!((wire.columns()[0]["width"].as_f64().unwrap() - width).abs() < 1e-6);
+}
+
 /// A client without `rows-v1` cannot resize a row through its synthetic split.
 #[test]
 fn the_synthetic_row_split_is_read_only() {
