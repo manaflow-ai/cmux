@@ -263,7 +263,8 @@ fn rename_target(value: &mut Value, from: &str, to: &str) {
     match value {
         Value::Object(map) => {
             for (key, item) in map.iter_mut() {
-                if key.ends_with("argetId") && item.as_str() == Some(from) {
+                // `target_id`: automation.input events (schemas/automation-input).
+                if (key.ends_with("argetId") || key == "target_id") && item.as_str() == Some(from) {
                     *item = Value::String(to.to_owned());
                 } else {
                     rename_target(item, from, to);

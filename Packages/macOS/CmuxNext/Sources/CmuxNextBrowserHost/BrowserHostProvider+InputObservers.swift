@@ -1,4 +1,4 @@
-import CmuxNextBrowserAutomation
+public import CmuxNextBrowserAutomation
 
 /// One registered input consumer; `cancel()` (or dropping the provider)
 /// stops it.
