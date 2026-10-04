@@ -47,10 +47,12 @@ fn refused(what: &str) -> RpcError {
 /// Check (and canonicalize the folder fields of) a request from a
 /// connection that is not the unix socket.
 pub(super) async fn check(
+    hub: &std::sync::Arc<crate::hub::Hub>,
     origin: super::Origin,
     m: &str,
     params: &mut Value,
 ) -> Result<(), RpcError> {
+    let _ = hub; // RED: no F1-F4 rules yet.
     if origin == super::Origin::Web {
         web_only(m, params)?;
     }

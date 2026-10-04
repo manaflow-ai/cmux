@@ -61,6 +61,7 @@ impl Hub {
             current.auto_prefer = next.auto_prefer;
             current.unavailable = next.unavailable;
             current.pool = next.pool;
+            current.web_roots = next.web_roots;
             (
                 current.harnesses.keys().cloned().collect::<Vec<_>>(),
                 current.default_harness.clone(),
