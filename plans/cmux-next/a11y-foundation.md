@@ -215,7 +215,9 @@ part filters it; entering and going up keep the field a path); Cmd-Up for the pa
 start and Backspace on an empty query still go up); a hint under the field ("Type / or ~/ to enter a
 path. ⌘↑ opens the enclosing folder."). Five new strings in 21 locales (`picker.locations`,
 `picker.home`, `picker.computer`, `picker.hintPath`, `picker.status`; only en and ja reviewed). The
-field placeholder still says "Filter, or type ~ or /" (21 locales; a copy follow-up).
+field placeholder reads "Type to filter, or start with / to type a path" (21 locales, en and ja
+reviewed); test/viewer-empty-model.test.ts fails if the placeholder or the hint offers `~` as a jump
+key in any locale.
 The diff page's empty state now loads on demand (`viewer-empty/emptySurface.ts`), so an open
 repository never evaluates Base UI.
 
