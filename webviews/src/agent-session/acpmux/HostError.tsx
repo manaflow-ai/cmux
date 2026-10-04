@@ -8,7 +8,7 @@ export function HostError({ message, retrying, onRetry }: { message: string; ret
   return (
     <div className="acpmux-host-error" role="alert">
       <div className="acpmux-host-error-card">
-        <p className="acpmux-host-error-message">{message}</p>
+        <p className="acpmux-host-error-message selectable">{message}</p>
         <p className="acpmux-host-error-hint">{t("host.retrying")}</p>
         <button type="button" onClick={onRetry} disabled={retrying}>
           {t(retrying ? "host.retryQueued" : "host.retry")}

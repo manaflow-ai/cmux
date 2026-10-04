@@ -85,34 +85,50 @@ export {
   type DrillKey as PickerKey,
 } from "../ui/drillKeys";
 
-/** A typed query that jumps: `name/` enters that folder of the level. */
-export function queryJump(query: string, rows: readonly PickerRow[]): { path: string } | null {
-  if (query.length > 1 && query.endsWith("/") && !isPathQuery(query)) {
-    const name = query.slice(0, -1).toLowerCase();
-    const row = rows.find((candidate) => candidate.kind === "dir" && candidate.name.toLowerCase() === name);
-    if (row) return { path: row.path };
-  }
-  return null;
-}
-
-/** Whether a query is a path: it starts with `/` or `~/` (path mode). */
+/** Whether a query is a path: it starts with `/` or `~/` (path mode). `~` alone is text. */
 export function isPathQuery(query: string): boolean {
   return query.startsWith("/") || query.startsWith("~/");
 }
 
+export interface PathQuery {
+  /** The folder part as typed, up to and with its last `/` (`~/fun/`). */
+  typed: string;
+  /** The folder to list (`~/` is home). */
+  dir: string;
+  /** The segment after the last `/`, being typed (`cm`). */
+  rest: string;
+}
+
 /**
- * A path query split into the folder to list and the text that filters it: `~/fun/cm` lists
- * `<home>/fun` filtered by `cm`; `/` lists the root. `~` before any listing named home is `"~"`,
- * which the host resolves (`cmux.picker.list {path: "~"}`). Null when the query is not a path.
+ * A path query split into the folder to list and the segment being typed: `~/fun/cm` lists
+ * `<home>/fun` and completes `cm`; `/` lists the root. `~/` before any listing named home is
+ * `"~"`, which the host resolves (`cmux.picker.list {path: "~"}`). Null when not a path.
  */
-export function pathQuery(query: string, home: string | null): { dir: string; rest: string } | null {
+export function pathQuery(query: string, home: string | null): PathQuery | null {
   if (!isPathQuery(query)) return null;
   const cut = query.lastIndexOf("/");
-  const head = query.slice(0, cut);
+  const typed = query.slice(0, cut + 1);
   const rest = query.slice(cut + 1);
   const base = home?.replace(/\/+$/, "") ?? "~";
+  const head = typed.slice(0, -1);
   const dir = head.startsWith("~") ? `${base}${head.slice(1)}` : head;
-  return { dir: dir === "" ? "/" : dir.replace(/\/+$/, "") || "/", rest };
+  return { typed, dir: dir === "" ? "/" : dir.replace(/\/+$/, "") || "/", rest };
+}
+
+/**
+ * The entries of a path query's folder that complete its segment: a case-insensitive prefix, in
+ * the listing's order (folders first, Finder order); dot entries only for a segment starting `.`.
+ */
+export function pathCompletions(rows: readonly PickerRow[], rest: string): PickerRow[] {
+  const wanted = rest.toLowerCase();
+  return rows.filter(
+    (row) => (rest.startsWith(".") || !row.name.startsWith(".")) && row.name.toLowerCase().startsWith(wanted),
+  );
+}
+
+/** The query after completing `row` in path mode: a folder ends in `/`, so its entries follow. */
+export function completedQuery(path: PathQuery, row: PickerEntry): string {
+  return `${path.typed}${row.name}${row.kind === "dir" ? "/" : ""}`;
 }
 
 /** The path query that shows folder `path` (home written as `~`), ending in `/`. */
@@ -122,43 +138,51 @@ export function folderQuery(path: string, home: string | null): string {
   return path === "/" ? "/" : `${path}/`;
 }
 
-export interface PickerLocation {
-  name: string;
+/** The kinds of place `cmux.picker.locations` answers, in its order (R89 Locations). */
+export type PickerPlaceKind = "workspace" | "home" | "desktop" | "documents" | "downloads" | "iCloudDrive" | "pinned";
+
+export interface PickerPlace {
+  kind: PickerPlaceKind;
   path: string;
-  kind: "dir";
-  location: true;
 }
 
+const PLACE_KINDS = new Set<string>([
+  "workspace",
+  "home",
+  "desktop",
+  "documents",
+  "downloads",
+  "iCloudDrive",
+  "pinned",
+]);
+
 /**
- * The Locations section (shown above the level while the query is empty): home, the computer's
- * root, then up to `limit` recent folders (in the file modes, the folders of recent files). The shown
- * folder itself is left out.
+ * The places of a `cmux.picker.locations` answer (`{locations: [{kind, path}]}`), in the host's
+ * order, each folder once; malformed rows are dropped.
  */
-export function pickerLocations(options: {
-  home: string | null;
-  current: string | null;
-  recents: readonly string[];
-  mode: PickerMode;
-  labels: { home: string; computer: string };
-  limit?: number;
-}): PickerLocation[] {
-  const { home, current, recents, mode, labels, limit = 3 } = options;
+export function parsePickerPlaces(value: unknown): PickerPlace[] {
+  const rows = (value as { locations?: unknown } | null)?.locations;
+  if (!Array.isArray(rows)) return [];
   const seen = new Set<string>();
-  const out: PickerLocation[] = [];
-  const add = (path: string | null, name: string) => {
-    if (!path || seen.has(path) || path === current) return;
+  const out: PickerPlace[] = [];
+  for (const row of rows as Array<Partial<PickerPlace> | null>) {
+    if (!row || typeof row.path !== "string" || row.path === "" || !PLACE_KINDS.has(String(row.kind))) continue;
+    const path = row.path.length > 1 ? row.path.replace(/\/+$/, "") : row.path;
+    if (seen.has(path)) continue;
     seen.add(path);
-    out.push({ name, path, kind: "dir", location: true });
-  };
-  if (home) add(home.replace(/\/+$/, ""), labels.home);
-  add("/", labels.computer);
-  let added = 0;
-  for (const recent of recents) {
-    if (added >= limit) break;
-    const folder = mode === "folder" ? recent : parentPath(recent);
-    if (!folder || seen.has(folder) || folder === current) continue;
-    add(folder, folder.split("/").filter(Boolean).pop() ?? folder);
-    added += 1;
+    out.push({ kind: row.kind as PickerPlaceKind, path });
   }
   return out;
+}
+
+/** The standard places under `home` (the fallback when the host answers no locations). */
+export function standardPlaces(home: string | null): PickerPlace[] {
+  if (!home) return [];
+  const base = home.replace(/\/+$/, "");
+  return [
+    { kind: "home", path: base },
+    { kind: "desktop", path: `${base}/Desktop` },
+    { kind: "documents", path: `${base}/Documents` },
+    { kind: "downloads", path: `${base}/Downloads` },
+  ];
 }

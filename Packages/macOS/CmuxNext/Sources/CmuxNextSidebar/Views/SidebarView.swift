@@ -369,7 +369,7 @@ public final class SidebarView: NSView {
         if lastState?.preferences.minimalMode != state.preferences.minimalMode { setChromeRevealed(isChromeRevealed) }
         if listChanged {
             if profileChanged {
-                switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles)
+                switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles, oldSections: previous ?? [])
             } else {
                 list.reload(animated: Self.animatesReload(from: previous, to: state.sections))
             }

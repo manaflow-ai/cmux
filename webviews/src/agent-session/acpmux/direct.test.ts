@@ -1142,6 +1142,20 @@ describe("direct client session state", () => {
     expect(latest().rows.find((row) => row.text === "did not send")?.failed).toBe(true);
   });
 
+  /// A row made without an event (a failed prompt) sorts after the events it saw, and live events
+  /// that arrive after it sort below it; it does not stick to the bottom of the transcript.
+  test("a failed prompt row stays above the turns that come after it", async () => {
+    const client = await connect();
+    ScriptedSocket.held.add("session/prompt");
+    const sending = client.send("did not send").catch(() => "failed");
+    await settle();
+    ScriptedSocket.current.fail("session/prompt");
+    expect(await sending).toBe("failed");
+    ScriptedSocket.current.notify("_acpmux/event", { ...userEvent("a", 7, "a later prompt"), at: 7 });
+    await settle();
+    expect(texts()).toEqual(["a five", "a six", "did not send", "a later prompt"]);
+  });
+
   /// ACP wraps a tool call's output as `{ type: "content", content: { type: "text" } }`.
   test("a tool call's wrapped text content becomes its output", async () => {
     const update: EventRecord = {

@@ -14,6 +14,7 @@ import {
   EDITOR_RECENTS_OP,
   MARKDOWN_RECENTS_OP,
   PICKER_LIST_OP,
+  PICKER_LOCATIONS_OP,
   parseRecents,
   type PickerMode,
 } from "./ops";
@@ -68,6 +69,7 @@ export async function showDevPicker(
           start={options.start ?? null}
           labels={options.labels}
           list={(path, list) => devOp("/__cmux-viewer/op", PICKER_LIST_OP, { path, ...list })}
+          locations={() => devOp("/__cmux-viewer/op", PICKER_LOCATIONS_OP, {})}
           onChoose={(path) => done(path)}
           onCancel={() => done(null)}
         />

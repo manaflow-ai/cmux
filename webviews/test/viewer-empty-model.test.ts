@@ -17,9 +17,11 @@ import {
   parentPath,
   pathQuery,
   pickerKeyAction,
-  pickerLocations,
+  completedQuery,
+  parsePickerPlaces,
+  pathCompletions,
   pickerRows,
-  queryJump,
+  standardPlaces,
 } from "../src/viewer-empty/pickerModel";
 import { relativeTime } from "../src/viewer-empty/time";
 import { emptySourceOptions } from "../src/viewer-empty/DiffEmptyState";
@@ -137,50 +139,82 @@ describe("picker model", () => {
     expect(pickerKeyAction({ key: "ArrowRight" }, rtl("ab"))).toBeNull();
   });
 
-  test("jumps: name/ only; ~ and / are path mode now", () => {
-    const rows = pickerRows(entries, "", "folder", new Set());
-    expect(queryJump("~", rows)).toBeNull();
-    expect(queryJump("/", rows)).toBeNull();
-    expect(queryJump("alpha/", rows)).toEqual({ path: "/h/Alpha" });
-    expect(queryJump("nope/", rows)).toBeNull();
-    expect(queryJump("al", rows)).toBeNull();
-    expect(queryJump("~/alpha/", rows)).toBeNull();
+  test("ranking: prefix matches first in Finder order (c2 before c10), then fuzzy by score", () => {
+    const level = ["c10", "abc", "c2", "Cx", "xc"].map((name) => ({ name, path: `/h/${name}`, kind: "dir" as const }));
+    const ranked = pickerRows(level, "c", "folder", new Set()).map((row) => row.name);
+    expect(ranked.slice(0, 3)).toEqual(["c2", "c10", "Cx"]);
+    expect(ranked.slice(3).sort()).toEqual(["abc", "xc"]);
   });
 
-  test("path mode: / and ~/ queries name a folder and a filter", () => {
+  test("path mode: / and ~/ queries name a folder and the segment being typed", () => {
     expect(isPathQuery("~")).toBe(false);
+    expect(isPathQuery("~fun")).toBe(false);
     expect(isPathQuery("~/")).toBe(true);
     expect(pathQuery("fun", "/h")).toBeNull();
-    expect(pathQuery("/", "/h")).toEqual({ dir: "/", rest: "" });
-    expect(pathQuery("/Us", "/h")).toEqual({ dir: "/", rest: "Us" });
-    expect(pathQuery("/tmp/a", "/h")).toEqual({ dir: "/tmp", rest: "a" });
-    expect(pathQuery("~/", "/h/")).toEqual({ dir: "/h", rest: "" });
-    expect(pathQuery("~/fun/cm", "/h")).toEqual({ dir: "/h/fun", rest: "cm" });
-    expect(pathQuery("~/fun/", null)).toEqual({ dir: "~/fun", rest: "" });
+    expect(pathQuery("/", "/h")).toEqual({ typed: "/", dir: "/", rest: "" });
+    expect(pathQuery("/Us", "/h")).toEqual({ typed: "/", dir: "/", rest: "Us" });
+    expect(pathQuery("/tmp/a", "/h")).toEqual({ typed: "/tmp/", dir: "/tmp", rest: "a" });
+    expect(pathQuery("~/", "/h/")).toEqual({ typed: "~/", dir: "/h", rest: "" });
+    expect(pathQuery("~/fun/cm", "/h")).toEqual({ typed: "~/fun/", dir: "/h/fun", rest: "cm" });
+    expect(pathQuery("~/fun/", null)).toEqual({ typed: "~/fun/", dir: "~/fun", rest: "" });
     expect(folderQuery("/h/fun", "/h")).toBe("~/fun/");
     expect(folderQuery("/h", "/h")).toBe("~/");
     expect(folderQuery("/tmp", "/h")).toBe("/tmp/");
     expect(folderQuery("/", "/h")).toBe("/");
   });
 
-  test("Locations: home, the root, then recent folders, without the shown folder", () => {
-    const labels = { home: "Home", computer: "Computer" };
-    const names = (locations: ReturnType<typeof pickerLocations>) => locations.map((row) => `${row.name}=${row.path}`);
+  test("path mode completes the segment: case-insensitive prefix, dot entries only after a dot", () => {
+    const entries = [
+      { name: "Code", path: "/h/Code", kind: "dir" as const },
+      { name: "cmux", path: "/h/cmux", kind: "dir" as const },
+      { name: ".config", path: "/h/.config", kind: "dir" as const },
+      { name: "notes.md", path: "/h/notes.md", kind: "file" as const },
+    ];
+    // The picker lists the level unfiltered, or with hidden entries for a segment starting ".".
+    const level = pickerRows(entries, "", "file", new Set());
+    const hidden = pickerRows(entries, ".", "file", new Set());
+    expect(pathCompletions(level, "c").map((row) => row.name)).toEqual(["cmux", "Code"]);
+    expect(pathCompletions(level, "").map((row) => row.name)).toEqual(["cmux", "Code", "notes.md"]);
+    expect(pathCompletions(level, ".c").map((row) => row.name)).toEqual([]);
+    expect(pathCompletions(hidden, ".c").map((row) => row.name)).toEqual([".config"]);
+    // In Finder order the prefix test keeps the level's order (folders first).
+    const path = pathQuery("~/c", "/h")!;
     expect(
-      names(
-        pickerLocations({
-          home: "/h",
-          current: "/h",
-          recents: ["/h/a", "/h/b", "/h/a", "/x/c", "/y/d"],
-          mode: "folder",
-          labels,
-        }),
+      completedQuery(
+        path,
+        level.find((row) => row.name === "cmux")!,
       ),
-    ).toEqual(["Computer=/", "a=/h/a", "b=/h/b", "c=/x/c"]);
+    ).toBe("~/cmux/");
     expect(
-      names(pickerLocations({ home: "/h", current: "/tmp", recents: ["/h/n/x.md"], mode: "file", labels })),
-    ).toEqual(["Home=/h", "Computer=/", "n=/h/n"]);
-    expect(names(pickerLocations({ home: null, current: "/", recents: [], mode: "folder", labels }))).toEqual([]);
+      completedQuery(
+        path,
+        level.find((row) => row.name === "notes.md")!,
+      ),
+    ).toBe("~/notes.md");
+  });
+
+  test("Locations come from the host op, in its order, each folder once", () => {
+    expect(
+      parsePickerPlaces({
+        locations: [
+          { kind: "workspace", path: "/h/fun/cmux/" },
+          { kind: "home", path: "/h" },
+          { kind: "desktop", path: "/h/Desktop" },
+          { kind: "pinned", path: "/h" },
+          { kind: "nonsense", path: "/x" },
+          { kind: "pinned", path: "" },
+          null,
+          { kind: "iCloudDrive", path: "/h/Library/Mobile Documents/com~apple~CloudDocs" },
+        ],
+      }),
+    ).toEqual([
+      { kind: "workspace", path: "/h/fun/cmux" },
+      { kind: "home", path: "/h" },
+      { kind: "desktop", path: "/h/Desktop" },
+      { kind: "iCloudDrive", path: "/h/Library/Mobile Documents/com~apple~CloudDocs" },
+    ]);
+    expect(parsePickerPlaces(null)).toEqual([]);
+    expect(standardPlaces("/h/").map((place) => place.kind)).toEqual(["home", "desktop", "documents", "downloads"]);
   });
 
   test("breadcrumb and parent", () => {

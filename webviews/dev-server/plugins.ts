@@ -45,6 +45,7 @@ import {
   devStateDirectory,
   gitTopLevel,
   listPickerDirectory,
+  pickerLocations,
   sourceKind,
   sourceQuery,
   withBranch,
@@ -312,7 +313,8 @@ function newestAppBinary(name: string): string | undefined {
 }
 
 /// POST /__cmux-viewer/op: the dev host of the empty states. `cmux.picker.list` lists one folder
-/// for the fallback picker (inside the home folder only); `cmux.diff.recents` and
+/// for the fallback picker (inside the home folder only), `cmux.picker.locations` its Locations;
+/// `cmux.diff.recents` and
 /// `cmux.markdown.recents` answer the recents file. The open ops live with their page hosts.
 function viewerEmptyHost(): Plugin {
   return {
@@ -341,6 +343,13 @@ function viewerEmptyHost(): Plugin {
               hidden: params.hidden === true,
             });
             return reply(200, listing);
+          }
+          if (op === "cmux.picker.locations") {
+            // The dev server's workspace is its checkout; `CMUX_DEV_PICKER_PINNED` (":"-separated,
+            // `~/` allowed) stands in for the `picker.pinned` setting.
+            const workspace = gitTopLevel(process.cwd());
+            const pinned = (process.env.CMUX_DEV_PICKER_PINNED ?? "").split(":").filter(Boolean);
+            return reply(200, pickerLocations({ home, workspace: workspace ? [workspace] : [], pinned }));
           }
           if (op === "cmux.diff.recents") {
             return reply(200, { home, items: viewerRecents(port()).list("diff").map(withBranch) });
