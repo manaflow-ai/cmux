@@ -103,11 +103,16 @@ import {
 import type { DiffViewerLabelResolver } from "./labels";
 import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
-import { createDiffTransport, DiffTransportError, type DiffTransport } from "./diff/transport";
+import {
+  createDiffTransport,
+  DiffTransportError,
+  type DiffTransport,
+  type DiffViewerTransportConfig,
+} from "./diff/transport";
 import { FindBar } from "./find/FindBar";
 import { useDiffFind, type DiffFindController } from "./find/useDiffFind";
 import { useFindKeyboard } from "./find/useFindKeyboard";
-import type { DiffSource, DiffTransportConfig } from "./diff/generated/protocol";
+import type { DiffSource } from "./diff/generated/protocol";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
 import { diffLanguages } from "./diff-languages/registry";
 
@@ -2891,7 +2896,7 @@ function useFileSearchDismiss(fileSearchOpen: boolean, dispatch: React.Dispatch<
   }, [dispatch, fileSearchOpen]);
 }
 
-function useDiffTransport(config: DiffTransportConfig | undefined): DiffTransport | null {
+function useDiffTransport(config: DiffViewerTransportConfig | undefined): DiffTransport | null {
   const transportRef = useRef<DiffTransport | null | undefined>(undefined);
   if (transportRef.current === undefined) {
     transportRef.current = createDiffTransport(config);
