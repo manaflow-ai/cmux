@@ -110,6 +110,10 @@ pub enum BackendError {
     /// The implementation cannot do this (missing route or capability).
     Unsupported(String),
     Invalid(String),
+    /// RED STUB: `denied {reason}` of the landed interface (not used yet).
+    Denied {
+        reason: String,
+    },
 }
 
 impl fmt::Display for BackendError {
@@ -121,19 +125,31 @@ impl fmt::Display for BackendError {
             Self::Closed => f.write_str("the terminal or link is not open"),
             Self::Unsupported(why) => write!(f, "unsupported: {why}"),
             Self::Invalid(why) => write!(f, "invalid: {why}"),
+            Self::Denied { reason } => write!(f, "denied: {reason}"),
         }
     }
 }
 
 impl std::error::Error for BackendError {}
 
-/// `ConnectRequest` of the real trait: the kind, the `connection` handle
-/// (here: the target, a machine id) and the actor.
+/// `connect {kind, target, open_token}`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectRequest {
     pub kind: String,
     pub target: String,
-    pub actor: Option<String>,
+    pub open_token: crate::rescue::iface::OpenToken,
+}
+
+/// `end {channel, lost: {reason, retryable}}`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConnectorEvent {
+    End { channel: String, lost: Lost },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Lost {
+    pub reason: String,
+    pub retryable: bool,
 }
 
 /// The byte carrier to the far session host. In the real system the app
@@ -159,6 +175,10 @@ pub enum CarrierEvent {
 
 /// The link the daemon gets from `connect`.
 pub trait HostLink: Send {
+    /// RED STUB: the `channel` of the connect answer.
+    fn channel(&self) -> &str;
+    /// RED STUB: the `window_bytes` of the connect answer.
+    fn window_bytes(&self) -> u32;
     fn carrier(&self) -> &Carrier;
 }
 
@@ -168,6 +188,8 @@ pub trait TerminalConnector {
     fn kinds(&self) -> &[LocalId];
     /// At most one carrier per target: a second call while it is up returns it.
     fn connect(&mut self, request: ConnectRequest) -> Result<Box<dyn HostLink>, BackendError>;
-    /// Carrier events since the last call, in order.
-    fn take_events(&mut self) -> Vec<CarrierEvent>;
+    /// RED STUB: `close {channel}`.
+    fn close(&mut self, channel: &str) -> Result<(), BackendError>;
+    /// RED STUB: `end` events since the last call, in order.
+    fn take_events(&mut self) -> Vec<ConnectorEvent>;
 }
