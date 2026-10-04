@@ -21,8 +21,10 @@
 //! - server -> host: `{"type":"relay.session","id"}`; host -> server:
 //!   `{"type":"relay.session","id","signed_in","team"}`
 //! - host-only ops (`cmux.host.link.get`): `t` frames, see [`super::host`].
-//!   A host frame that arrives during a relay call is queued like an op
-//!   line and applied after the call, on the loop thread.
+//!   A host frame that arrives during a relay call is kept and applied
+//!   after the call, on the loop thread: a `host.event` replaces a waiting
+//!   one of the same op, at most 64 events (distinct ops) and 64 answers
+//!   are kept, other frames are dropped (see `HostRelay::hold`).
 //!
 //! The host adds the bearer when it sends the HTTP call; no line in either
 //! direction carries a credential. The host answers every relay request,
@@ -133,6 +135,8 @@ pub struct HostRelay<R, W> {
     waiting_ops: usize,
     /// `host.result` and `host.error` frames in `queued`.
     host_answers: usize,
+    /// `host.event` frames in `queued` (one per op).
+    host_events: usize,
 }
 
 impl<R: BufRead, W: Write> HostRelay<R, W> {
@@ -144,6 +148,7 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
             queued: VecDeque::new(),
             waiting_ops: 0,
             host_answers: 0,
+            host_events: 0,
         }
     }
 
@@ -178,7 +183,7 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
         let m = self.queued.pop_front()?;
         match m["t"].as_str() {
             Some("host.result" | "host.error") => self.host_answers -= 1,
-            Some("host.event") => {}
+            Some("host.event") => self.host_events -= 1,
             _ if super::host::is_host_frame(&m) => {}
             _ => self.waiting_ops -= 1,
         }
@@ -262,9 +267,15 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
                     let op = message["op"].clone();
                     let same = |m: &Value| m["t"] == "host.event" && m["op"] == op;
                     // In place: the newest event keeps the older one's turn.
-                    match self.queued.iter_mut().find(|m| same(m)) {
-                        Some(waiting) => *waiting = message,
-                        None => self.queued.push_back(message),
+                    if let Some(waiting) = self.queued.iter_mut().find(|m| same(m)) {
+                        *waiting = message;
+                    } else if self.host_events < RELAY_QUEUE_LINES {
+                        self.host_events += 1;
+                        self.queued.push_back(message);
+                    } else {
+                        eprintln!(
+                            "cmux-cloud: dropped a host event that came during a relay call"
+                        );
                     }
                 }
                 Some("host.result" | "host.error") if self.host_answers < RELAY_QUEUE_LINES => {

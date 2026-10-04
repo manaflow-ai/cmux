@@ -100,6 +100,9 @@ impl Drop for Transfers {
     /// pull's hidden landing file is removed, so no partial file stays next
     /// to the user's target. No end event goes out (the channel is gone).
     fn drop(&mut self) {
+        // Transfers whose worker already ended are finished first, so a
+        // completed pull is published, not removed.
+        self.settle();
         for running in self.running.values_mut() {
             running.cancel.cancel();
             running.route.close();
@@ -170,8 +173,10 @@ impl Transfers {
                 Ok(_) => entry["state"] = json!("done"),
                 Err(e) if e.code == TRANSFER_CANCELLED => entry["state"] = json!("cancelled"),
                 Err(e) => {
+                    // Code and retryable only: the message can hold local
+                    // paths and scp output, and this read is on MCP.
                     entry["state"] = json!("failed");
-                    entry["error"] = json!(e);
+                    entry["error"] = json!({ "code": e.code, "retryable": e.retryable });
                 }
             }
             out.push(entry);
