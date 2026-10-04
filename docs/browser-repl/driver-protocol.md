@@ -179,6 +179,7 @@ Every event carries `targetId`.
 | `tab.created` | `{ targetId, openerTargetId?, url }` (popups and `target=_blank`) |
 | `tab.closed` | |
 | `tab.crashed` | (the web content process ended; calls other than navigation fail until a reload or navigation starts a new one) |
+| `tab.replaced` | (cmux gave the tab a new web view: it restored a page it had unloaded to save memory, or recovered a crashed one; frame ids and element handles from before are gone) |
 | `tab.navigated` | `{ frameId, url, sameDocument }` |
 | `navigation.blocked` | `{ url, reason }`: the driver cancelled a main-frame navigation of a tab the session created because the domain policy blocks `url` |
 | `tab.loadState` | `{ state: "domcontentloaded"\|"load"\|"networkidle" }` |
