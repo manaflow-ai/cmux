@@ -116,4 +116,54 @@ struct BrowserReplTypedSecretsTests {
         typed.sessionLeft("typist")
         #expect(typed.redaction(forReader: "typist")?.redact("hunter2-secret") == "<secret:password>")
     }
+
+    /// Every reader masks every value other sessions typed into open tabs,
+    /// so the values held are bounded like a session's own secrets: past
+    /// 4,096 the driver refuses to type another (it records a value before
+    /// it types it), never forgets one that a tab may still show.
+    @Test func typedValuesAreBoundedAndRefusedPastTheLimit() throws {
+        let typed = BrowserReplTypedSecrets()
+        let limit = 4096  // the documented bound
+        for index in 0..<limit {
+            try typed.record(tab: "tab\(index % 8)", name: "n\(index)", value: "value-\(index)", domains: Self.domains, typist: "typist")
+        }
+        #expect(throws: BrowserReplDriverError.self) {
+            try typed.record(tab: "tab0", name: "one-more", value: "value-more", domains: Self.domains, typist: "typist")
+        }
+        // Typing a name into the same tab again replaces its value.
+        try typed.record(tab: "tab0", name: "n0", value: "value-again", domains: Self.domains, typist: "typist")
+        let reader = try #require(typed.redaction(forReader: "reader"))
+        #expect(reader.redact("value-4095 value-again value-more") == "<secret:n4095> <secret:n0> value-more")
+        // A closed tab's values go with it, which makes room.
+        typed.tabClosed("tab1")
+        try typed.record(tab: "tab0", name: "one-more", value: "value-more", domains: Self.domains, typist: "typist")
+    }
+
+    /// A tab the user keeps can see a session type the same secret every
+    /// day; a value that a session which left typed, typed again by a later
+    /// one, is one record, so it never fills the bound.
+    @Test func aValueTypedAgainAfterItsSessionLeftIsOneRecord() throws {
+        let typed = BrowserReplTypedSecrets()
+        for index in 0..<5000 {
+            try typed.record(tab: "kept", name: "password", value: "hunter2-secret", domains: Self.domains, typist: "session-\(index)")
+            typed.sessionLeft("session-\(index)")
+        }
+        let reader = try #require(typed.redaction(forReader: "reader"))
+        #expect(reader.redact("hunter2-secret") == "<secret:password>")
+    }
+
+    /// The literal store a reader builds refuses values past the bound
+    /// instead of growing without one.
+    @Test func literalStoreIsBounded() throws {
+        let store = BrowserReplSecretStore()
+        for index in 0..<4096 {
+            try store.setLiteral(key: "typed-\(index)", maskName: "n", value: "value-\(index)", domains: Self.domains)
+        }
+        #expect(throws: BrowserReplDriverError.self) {
+            try store.setLiteral(key: "typed-more", maskName: "n", value: "value-more", domains: Self.domains)
+        }
+        #expect(throws: BrowserReplDriverError.self) {
+            try BrowserReplSecretStore().setLiteral(key: "long", maskName: "n", value: String(repeating: "x", count: 4097), domains: Self.domains)
+        }
+    }
 }
