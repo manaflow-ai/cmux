@@ -115,11 +115,18 @@ final class KeyboardAuditUITests: XCTestCase {
         composer.typeKey("x", modifierFlags: [])
         let control = composer.value as? String ?? ""
         KeyboardUITest.record("hardwareControl", ["typed": control.debugDescription])
-        guard control == "x" else {
+        // The software keyboard's auto-capitalization may make it "X".
+        guard control.lowercased() == "x" else {
             XCTFail("harness: hardware key events do not reach the app (typeKey x gave \(control.debugDescription))")
             return
         }
+        // Second control: a special key (Delete) must reach the app too.
         composer.typeKey(XCUIKeyboardKey.delete, modifierFlags: [])
+        let afterDelete = composer.value as? String ?? ""
+        guard afterDelete.isEmpty else {
+            XCTFail("harness: special hardware keys do not reach the app (Delete left \(afterDelete.debugDescription)); UNVERIFIED here")
+            return
+        }
         composer.typeText("first")
         composer.typeKey(XCUIKeyboardKey.return, modifierFlags: .shift)
         composer.typeText("second")
@@ -239,8 +246,8 @@ final class KeyboardAuditUITests: XCTestCase {
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
         let keyboard = KeyboardUITest.keyboard(app)
         let shown = keyboard.waitForExistence(timeout: 4)
-        let escKey = app.buttons["Esc"].exists || app.buttons["esc"].exists
-        let ctrlKey = app.buttons["Ctrl"].exists || app.buttons["Control"].exists
+        let escKey = app.buttons["Escape"].exists
+        let ctrlKey = app.buttons["Control"].exists
         KeyboardUITest.record("terminal", ["keyboardOnTap": shown, "escKey": escKey, "ctrlKey": ctrlKey,
                                            "keyboard": keyboard.frame.short])
         XCTAssertTrue(shown, "tapping the terminal does not show the keyboard")

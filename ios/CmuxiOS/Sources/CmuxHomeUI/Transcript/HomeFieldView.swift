@@ -99,10 +99,29 @@ final class HomeFieldView: UIView, UITextViewDelegate {
     func preferredHeight(width: CGFloat) -> CGFloat {
         let textWidth = max(1, width - Self.sendSize - 6)
         let fitting = textView.sizeThatFits(CGSize(width: textWidth, height: .greatestFiniteMagnitude)).height
-        let maxHeight = ceil(lineHeight * CGFloat(Self.maxLines) + verticalInsets)
-        textView.isScrollEnabled = fitting > maxHeight
+        let maxHeight = maximumHeight(width: textWidth)
+        textView.isScrollEnabled = fitting > maxHeight + 0.5
         return min(max(minimumHeight, ceil(fitting)), maxHeight)
     }
+
+    /// `maxLines` lines as the text view lays them out (its line fragments
+    /// are taller than `font.lineHeight`), measured once per font.
+    private func maximumHeight(width: CGFloat) -> CGFloat {
+        let font = textView.font ?? .preferredFont(forTextStyle: .body)
+        if let cached = measuredMaximum, cached.font == font, cached.inset == textView.textContainerInset {
+            return cached.height
+        }
+        let probe = UITextView()
+        probe.font = font
+        probe.textContainerInset = textView.textContainerInset
+        probe.isScrollEnabled = false
+        probe.text = Array(repeating: "X", count: Self.maxLines).joined(separator: "\n")
+        let height = ceil(probe.sizeThatFits(CGSize(width: max(width, 40), height: .greatestFiniteMagnitude)).height)
+        measuredMaximum = (font, textView.textContainerInset, height)
+        return height
+    }
+
+    private var measuredMaximum: (font: UIFont, inset: UIEdgeInsets, height: CGFloat)?
 
     override func layoutSubviews() {
         super.layoutSubviews()
