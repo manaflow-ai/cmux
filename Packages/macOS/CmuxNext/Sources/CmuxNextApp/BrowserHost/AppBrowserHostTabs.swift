@@ -48,6 +48,11 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         localBrowserTabs.contains { $0.model.id == targetID }
     }
 
+    /// The workspace that holds an announced tab (agent input routing).
+    func workspaceID(ofTab targetID: String) -> String? {
+        localBrowserTabs.first { $0.model.id == targetID }?.workspace.id
+    }
+
     // MARK: ProviderTabSource
 
     var providerTabs: [ProviderTab] {

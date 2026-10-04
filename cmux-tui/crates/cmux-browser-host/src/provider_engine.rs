@@ -263,7 +263,8 @@ fn rename_target(value: &mut Value, from: &str, to: &str) {
     match value {
         Value::Object(map) => {
             for (key, item) in map.iter_mut() {
-                if key.ends_with("argetId") && item.as_str() == Some(from) {
+                // `target_id`: automation.input events (schemas/automation-input).
+                if (key.ends_with("argetId") || key == "target_id") && item.as_str() == Some(from) {
                     *item = Value::String(to.to_owned());
                 } else {
                     rename_target(item, from, to);
@@ -877,6 +878,19 @@ mod tests {
             })
             .unwrap();
         assert_eq!(open["engine"], "cef");
+    }
+
+    /// A CEF tab's automation.input names the tab as the app knows it, so
+    /// the app routes the agent cursor (snake_case `target_id` too).
+    #[test]
+    fn cef_input_events_name_the_app_tab() {
+        let mut payload = json!({"session_id": "s1", "target_id": "CDP1",
+            "nested": {"targetId": "CDP1"}, "other": "CDP1"});
+        rename_target(&mut payload, "CDP1", "c1");
+        assert_eq!(
+            payload,
+            json!({"session_id": "s1", "target_id": "c1", "nested": {"targetId": "c1"}, "other": "CDP1"})
+        );
     }
 }
 
