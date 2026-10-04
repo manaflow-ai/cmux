@@ -97,17 +97,22 @@ public final class ControlSocketServer: Sendable {
 
     /// `accept(2)`, replaceable in tests.
     typealias AcceptCall = @Sendable (Int32) -> Int32
+    /// `bind(2)`; tests wrap it to act while the socket file is created.
+    typealias BindCall = @Sendable (Int32, UnsafePointer<sockaddr>, socklen_t) -> Int32
     private let acceptCall: AcceptCall
+    private let bindCall: BindCall
     private let acceptRetry = DemandTimer(owner: "ControlSocketServer.acceptRetry")
 
     public convenience init(configuration: Configuration, router: ControlRouter) {
         self.init(configuration: configuration, router: router, accept: { accept($0, nil, nil) })
     }
 
-    init(configuration: Configuration, router: ControlRouter, accept: @escaping AcceptCall) {
+    init(configuration: Configuration, router: ControlRouter, accept: @escaping AcceptCall,
+         bind: @escaping BindCall = { Darwin.bind($0, $1, $2) }) {
         self.configuration = configuration
         self.router = router
         self.acceptCall = accept
+        self.bindCall = bind
     }
 
     deinit {
@@ -144,7 +149,7 @@ public final class ControlSocketServer: Sendable {
         let previousMask = umask(configuration.accessMode == .allowAll ? 0 : 0o177)
         let bound = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+                bindCall(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
         umask(previousMask)
