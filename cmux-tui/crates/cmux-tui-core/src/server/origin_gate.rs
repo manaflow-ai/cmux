@@ -216,6 +216,11 @@ mod test_hooks {
         mux.control_clients.origin_clock.advance(ms);
     }
 
+    /// Moves only the wall clock (an NTP step or a user change).
+    pub(in crate::server) fn jump_origin_wall_clock_for_test(mux: &Arc<Mux>, delta_ms: i64) {
+        mux.control_clients.origin_clock.jump_wall(delta_ms);
+    }
+
     pub(in crate::server) fn role_for_test(mux: &Arc<Mux>, client: u64) -> String {
         match role(mux, client) {
             HelloRole::Legacy => "legacy",

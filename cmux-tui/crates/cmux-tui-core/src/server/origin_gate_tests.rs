@@ -6,8 +6,8 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::server::origin_gate::{
-    advance_origin_clock_for_test, set_peer_key_for_test, set_role_for_test,
-    set_verified_app_for_test,
+    advance_origin_clock_for_test, jump_origin_wall_clock_for_test, set_peer_key_for_test,
+    set_role_for_test, set_verified_app_for_test,
 };
 use crate::server::*;
 
@@ -310,4 +310,107 @@ fn a_page_relay_is_never_the_hosting_app_for_apps_v1() {
     let plain = connect(&mux);
     declare_app(&plain);
     assert_ne!(send(&mux, &plain, &install)["error_code"], "apps.origin_forbidden");
+}
+
+const HOUR_MS: i64 = 3_600_000;
+
+#[test]
+fn a_token_expires_at_exactly_60_seconds_of_monotonic_time() {
+    let mux = mux("token-exact-ttl");
+    let app = verified_app(&mux, "token:10.1");
+    let relay = relay(&mux, "token:10.1");
+    let sha = install_params_sha256();
+    // Freeze the test clock so only the steps below move time.
+    advance_origin_clock_for_test(&mux, 0);
+    let token = issued_token(&issue(&mux, &app, "apps.install", &sha, &relay));
+    advance_origin_clock_for_test(&mux, TTL_MS - 1);
+    assert_not_forbidden(&send(&mux, &relay, &install(Some(user_claim(&token)))));
+    let token = issued_token(&issue(&mux, &app, "apps.install", &sha, &relay));
+    advance_origin_clock_for_test(&mux, TTL_MS);
+    assert_forbidden(&send(&mux, &relay, &install(Some(user_claim(&token)))));
+}
+
+#[test]
+fn a_wall_clock_jump_neither_cuts_nor_extends_a_token() {
+    let mux = mux("token-wall-jump");
+    let app = verified_app(&mux, "token:10.1");
+    let relay = relay(&mux, "token:10.1");
+    let sha = install_params_sha256();
+    advance_origin_clock_for_test(&mux, 0);
+    // A forward wall jump does not cut a live token.
+    let token = issued_token(&issue(&mux, &app, "apps.install", &sha, &relay));
+    jump_origin_wall_clock_for_test(&mux, 2 * HOUR_MS);
+    assert_not_forbidden(&send(&mux, &relay, &install(Some(user_claim(&token)))));
+    // A backward wall jump does not extend a token past 60 s.
+    let token = issued_token(&issue(&mux, &app, "apps.install", &sha, &relay));
+    jump_origin_wall_clock_for_test(&mux, -2 * HOUR_MS);
+    advance_origin_clock_for_test(&mux, TTL_MS);
+    assert_forbidden(&send(&mux, &relay, &install(Some(user_claim(&token)))));
+}
+
+fn apps_set(fields: Value) -> Value {
+    let mut request =
+        json!({"id": 1, "cmd": "apps-set", "idempotency_key": "k1", "app": "cmux/demo"});
+    for (key, value) in fields.as_object().unwrap() {
+        request[key] = value.clone();
+    }
+    request
+}
+
+/// Every legacy apps-set change: install, uninstall, enable, disable, hide,
+/// sandbox and grant, with and without a claimed origin.
+fn apps_set_changes() -> Vec<Value> {
+    let mut changes = Vec::new();
+    for origin in [None, Some("user"), Some("script")] {
+        for fields in [
+            json!({"installed": true}),
+            json!({"installed": false}),
+            json!({"enabled": true}),
+            json!({"enabled": false}),
+            json!({"hidden": true}),
+            json!({"sandboxed": false}),
+            json!({"grant": {"scope": "workspace:write", "granted": true}}),
+        ] {
+            let mut request = apps_set(fields);
+            if let Some(origin) = origin {
+                request["origin"] = json!(origin);
+            }
+            changes.push(request);
+        }
+    }
+    changes
+}
+
+fn assert_legacy_a2_refusal(reply: &Value, derived: &str) {
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error_code"], "origin.forbidden", "{reply}");
+    assert_eq!(reply["error"], "needs a verified cmux app connection", "{reply}");
+    assert_eq!(reply["error_details"], json!({"required": "user", "derived": derived}), "{reply}");
+}
+
+#[test]
+fn legacy_apps_set_is_refused_from_every_connection_but_the_verified_app() {
+    let mux = mux("apps-set-a2");
+    let client = connect(&mux);
+    let page_relay = relay(&mux, "token:10.1");
+    let agent = connect(&mux);
+    mux.bind_conversation_principal(agent.client, "agent:test".to_string());
+    // A self-declared kind app is still not the verified app.
+    let declared_app = connect(&mux);
+    mux.control_clients.state.lock().unwrap().clients.get_mut(&declared_app.client).unwrap().kind =
+        Some("app".to_string());
+    for request in apps_set_changes() {
+        assert_legacy_a2_refusal(&send(&mux, &client, &request), "agent");
+        assert_legacy_a2_refusal(&send(&mux, &page_relay, &request), "page");
+        assert_legacy_a2_refusal(&send(&mux, &agent, &request), "agent");
+        assert_legacy_a2_refusal(&send(&mux, &declared_app, &request), "agent");
+    }
+    // The verified app passes the gate: the request reaches the app
+    // supervisor (apps.unavailable in a daemon without an app host).
+    let app = verified_app(&mux, "token:10.1");
+    for request in apps_set_changes() {
+        let reply = send(&mux, &app, &request);
+        assert_ne!(reply["error_code"], "origin.forbidden", "{reply}");
+        assert_ne!(reply["error_code"], "apps.origin_forbidden", "{reply}");
+    }
 }

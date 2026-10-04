@@ -310,6 +310,15 @@ impl OriginClock {
     pub(crate) fn advance(&self, ms: u64) {
         self.offset_ms.fetch_add(ms, Ordering::Relaxed);
     }
+
+    /// Red-commit stand-in: this clock has only the wall clock, so a forward
+    /// wall jump moves token validity; a backward jump is not representable.
+    #[cfg(test)]
+    pub(crate) fn jump_wall(&self, delta_ms: i64) {
+        if let Ok(forward) = u64::try_from(delta_ms) {
+            self.advance(forward);
+        }
+    }
 }
 
 #[cfg(test)]
