@@ -12,7 +12,7 @@ set -eu
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 OUT_ROOT="$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
 MODE="${1:-build}"
-PAGES="history apps cloud keybindings icon-picker settings"
+PAGES="history apps coderouter cloud keybindings icon-picker settings"
 
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required to build the pages" >&2; exit 1; }
 

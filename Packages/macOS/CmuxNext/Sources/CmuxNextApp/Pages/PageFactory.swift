@@ -39,6 +39,24 @@ struct PageFactory {
         return page
     }
 
+    /// The React CodeRouter page (cmux.coderouter). Its namespace goes to the CodeRouter app's
+    /// ops over the control router (``CodeRouterPageProvider``); before the control socket starts
+    /// every call answers `unavailable`. `cmux.app.` runs the page's four account actions.
+    func coderouterWebPage() -> PageWebView? {
+        let ops = CodeRouterAppOps(control: { [weak apps = services.apps] method, params throws(AppHostCapabilityError) in
+            guard let router = await MainActor.run(body: { apps?.controlRouter }) else {
+                throw AppHostCapabilityError(code: "unavailable", message: "cmux is still starting", retryable: true)
+            }
+            return try await AppOperationRouter.control(router, method, params)
+        })
+        let native = AppPageNativeProvider(services: services, page: .coderouter)
+        let routes = [PageRoute(prefix: "cmux.coderouter.", provider: CodeRouterPageProvider(ops: ops)),
+                      PageRoute(prefix: "cmux.app.", provider: native)]
+        guard let page = PageWebView(descriptor: .coderouter, routes: routes) else { return nil }
+        native.anchor = { [weak page] in page }
+        return page
+    }
+
     /// The Cloud app page (cmux.cloud) with the machine list layout from Debug Settings. Its
     /// namespace answers "not available yet" until the app supervisor (apps-v1) runs the Cloud app
     /// server; then the route goes to the supervisor relay.

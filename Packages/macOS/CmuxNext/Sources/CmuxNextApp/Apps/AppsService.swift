@@ -18,6 +18,10 @@ final class AppsService {
     let host: AppHost
     let storage: AppStorageStore
     private let sink = DeferredAppSink()
+    /// The control router once the socket starts (the CodeRouter page's ops run on it).
+    private(set) var controlRouter: ControlRouter?
+    /// The React CodeRouter page tab (Debug Settings `coderouter.surface = web`), registered on first open.
+    private var coderouterPage: CodeRouterPageTab?
     private var fingerprints: [String: Int] = [:]
     private var store: AppStoreWindowController?
     private var storeModel: AppStoreModel?
@@ -59,6 +63,7 @@ final class AppsService {
 
     /// Wires the sink to the control router (reads, action.run) and the daemon.
     func attach(router: ControlRouter) {
+        controlRouter = router
         let daemon = services.daemon
         let ledger: @Sendable () async throws -> [ListNotificationsRequest.Entry] = {
             guard let connection = await MainActor.run(body: { daemon.connection }) else {
@@ -105,6 +110,15 @@ final class AppsService {
     /// focus the tab; automation opens it without moving focus.
     func openApp(_ appID: String, command: String? = nil, focus: Bool = true) throws(AppsServiceError) {
         guard let app = registry.app(appID), app.isActive else { throw .unknownApp }
+        if appID == CodeRouterPageTab.appID, command == nil, PageTunables.coderouter.value == .web {
+            let tab = coderouterPage ?? CodeRouterPageTab(services: services)
+            if coderouterPage == nil {
+                coderouterPage = tab
+                services.pages.register(tab)
+            }
+            guard services.pages.show(tab.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
+            return
+        }
         guard AppPanePage.opens(app) else { throw .noPage }
         let provider = appPages[appID] ?? AppPanePage(appID: appID, apps: self)
         if appPages[appID] == nil {
