@@ -251,6 +251,27 @@ describe("fan-out", () => {
     expect(chiefBumps.find((b) => b.user === BOB)).toMatchObject({ last_author: CHIEF, last_author_kind: "agent" })
   })
 
+  it("an approval notifies only its addressee: the owner of the agent that asked (home.md section 5)", () => {
+    // The approval part type is not in the conversation vocabulary yet (validateParts refuses it), so the
+    // committed message is given the part after the send, as a future send of the part would commit it.
+    const withApproval = (author: string, id: string) => {
+      const host = new CoreHost(groupHead())
+      const before = host.head
+      const op = { kind: "message.send" as const, client_msg_id: id, parts: [text("may I deploy?")] }
+      const request = host.request(author, id, op)
+      const result = host.run(author, id, op)
+      if (!result.ok) throw new Error(result.code)
+      const message = { ...result.commit.message!, parts: [...result.commit.message!.parts, { type: "approval" } as unknown as (typeof result.commit.message.parts)[number]] }
+      return fanOut({ before, request, commit: { ...result.commit, message } }).bumps
+    }
+    const fromChief = withApproval(CHIEF, "a1")
+    expect(fromChief.find((b) => b.user === ALICE)).toMatchObject({ last_author: CHIEF, last_author_kind: "agent", last_approval: true })
+    // Another member of the group cannot decide the chief's approval: no alert through mute.
+    expect(fromChief.find((b) => b.user === BOB)?.last_approval).toBeUndefined()
+    // A human's message never carries the approval fact, whatever its parts.
+    expect(withApproval(BOB, "a2").every((b) => b.last_approval === undefined)).toBe(true)
+  })
+
   it("an approval bump is never coalesced away by a later bump of the same conversation", () => {
     const fan = {
       bumps: [{ user: BOB, conversation: "conv_GROUP", rev: 4, kind: "group" as const, title: "Team", last_seq: 3, last_at: "t", preview: "", last_author: CHIEF, last_author_kind: "agent" as const, last_approval: true as const }],

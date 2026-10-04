@@ -12,7 +12,7 @@ import type { ApnsMessage, SendResult } from "../src/push/apns.ts"
  * through the APNs sender FeedDO uses. A fake sender replaces APNs inside the object.
  */
 
-const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace }
+const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace; FEED_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
 const call = async (path: string, token: string | undefined, body?: unknown) => {
   const res = await worker.fetch(`https://api.test${path}`, { method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) })
@@ -57,14 +57,17 @@ const pushUser = async (sub: string) => {
   expect(reg.json).toMatchObject({ ok: true })
   const stub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user)) as UserStub
   const sent: Array<Sent> = []
+  /** APNs outcomes the fake returns for the next sends, in order; "sent" when empty. */
+  const outcomes: Array<SendResult["outcome"]> = []
   await runInDurableObject(stub, (instance: unknown) => {
     ;(instance as { homePushSender: unknown }).homePushSender = async (targets: ReadonlyArray<PushTarget>, message: ApnsMessage): Promise<ReadonlyArray<SendResult>> => {
       sent.push({ tokens: targets.map((t) => t.token), message })
-      return targets.map((t) => ({ token: t.token, outcome: "sent" as const, status: 200 }))
+      const outcome = outcomes.shift() ?? "sent"
+      return targets.map((t) => ({ token: t.token, outcome, status: outcome === "sent" ? 200 : outcome === "drop_target" ? 410 : 503, ...(outcome === "drop_target" ? { reason: "Unregistered" } : {}) }))
     }
   })
   const me: Principal = { kind: "session", identity: `session:${user}`, user }
-  return { user, stub, sent, session, me, pushToken }
+  return { user, stub, sent, session, me, pushToken, token, outcomes }
 }
 
 const OTHER = "user_bbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -95,6 +98,9 @@ const bump = (user: string, conversation: string, over: Record<string, unknown> 
 
 /** Runs the object's alarm now (the drain), whether or not the scheduled alarm was set yet. */
 const drain = (stub: UserStub) => runInDurableObject(stub, (instance: unknown) => (instance as { alarm(): Promise<void> }).alarm())
+/** Runs the Home push drain as if the clock read `at` (collapse window, backoff and hourly budget tests). */
+const drainAt = (stub: UserStub, at: number) => runInDurableObject(stub, (instance: unknown) => (instance as { drainHomePush(now: number): Promise<void> }).drainHomePush(at))
+const HOUR = 3600_000
 
 const deliver = async (stub: UserStub, user: string, items: ReadonlyArray<ReturnType<typeof bump>>) => {
   const r = await stub.systemDeliver(user, "conv:test", items)
@@ -143,27 +149,39 @@ describe("Home push: UserDO decides from each inbox.bump", () => {
     expect(JSON.parse(sent[0]!.message.body).aps.category).toBe("HOME_APPROVAL")
   })
 
-  it("does not notify while the user has a foreground socket", async () => {
-    const { user, stub, sent, session } = await pushUser("home-push-foreground")
-    const res = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${session}` } })
+  it("waits while the user's Mac is active (FeedDO presence, push_skip_when_mac_active) and notifies once the Mac goes idle", async () => {
+    const { user, stub, sent, token } = await pushUser("home-push-foreground")
+    const res = await worker.fetch("https://api.test/v1/wire/feed", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
     const ws = res.webSocket!
     ws.accept()
-    /** Waits until the object recorded the socket's presence (socket frames and RPCs are separate inputs). */
-    const presence = async (active: boolean) => {
-      ws.send(JSON.stringify({ t: "presence.set", state: { active, client: "ios" } }))
+    const feed = testEnv.FEED_DO.get(testEnv.FEED_DO.idFromName(user))
+    /** Waits until FeedDO recorded the socket's presence (socket frames and RPCs are separate inputs). */
+    const presence = async (active: boolean, client = "mac") => {
+      ws.send(JSON.stringify({ t: "presence.set", stream: `feed:${user}`, state: { active, client } }))
       for (;;) {
-        const seen = await runInDurableObject(stub, (_i, state) => state.getWebSockets().some((s) => (s.deserializeAttachment() as { presence?: { active: boolean } } | null)?.presence?.active === active))
+        const seen = await runInDurableObject(feed, (_i, state) =>
+          state.getWebSockets().some((s) => {
+            const p = (s.deserializeAttachment() as { presence?: { active: boolean; client: string } } | null)?.presence
+            return p?.active === active && p.client === client
+          })
+        )
         if (seen) return
         await new Promise((r) => setTimeout(r, 5))
       }
     }
-    await presence(true)
-    await deliver(stub, user, [bump(user, convId())])
-    expect(sent).toEqual([])
-    // Backgrounded: the next message notifies.
-    await presence(false)
+    // An active phone does not hold back the push (only an active Mac, as FeedDO).
+    await presence(true, "ios")
     await deliver(stub, user, [bump(user, convId())])
     expect(sent).toHaveLength(1)
+    await presence(true)
+    const conv = convId()
+    await deliver(stub, user, [bump(user, conv)])
+    expect(sent).toHaveLength(1)
+    // The row waits rather than settling: once the Mac is idle, the same message notifies.
+    await presence(false)
+    await drainAt(stub, Date.now() + HOUR)
+    expect(sent).toHaveLength(2)
+    expect(JSON.parse(sent[1]!.message.body).cmux).toEqual({ home_conversation: conv, seq: 1 })
     ws.close()
   })
 
@@ -187,9 +205,9 @@ describe("Home push: UserDO decides from each inbox.bump", () => {
     await deliver(stub, user, [bump(user, convId(), { unread: 0, mentions: 0 })])
     expect(sent).toEqual([])
     const none = await pushUser("home-push-no-token")
-    await runInDurableObject(none.stub, (instance: unknown) => {
+    await runInDurableObject(none.stub, async (instance: unknown) => {
       // The only target is gone (for example dropped after APNs refused it).
-      ;(instance as { dropPushTarget(u: string, t: string, r: string): Promise<void> }).dropPushTarget(none.user, none.pushToken, "Unregistered")
+      await (instance as { dropPushTarget(u: string, t: string, r: string): Promise<void> }).dropPushTarget(none.user, none.pushToken, "Unregistered")
     })
     expect(await none.stub.pushTargets(none.user)).toEqual([])
     await deliver(none.stub, none.user, [bump(none.user, convId())])
@@ -204,5 +222,106 @@ describe("Home push: UserDO decides from each inbox.bump", () => {
     expect(sent).toEqual([])
     await deliver(stub, user, [bump(user, conv, { ...chief, rev: 3, last_seq: 2, last_mention: true })])
     expect(sent).toHaveLength(1)
+  })
+
+  it("an approval from a human never notifies through mute (only an agent asks for approval)", async () => {
+    const { user, stub, sent, me } = await pushUser("home-push-approval-human")
+    const conv = convId()
+    await deliver(stub, user, [bump(user, conv, { rev: 1, last_seq: 1, last_author: user })])
+    await stub.submitInbox(user, me, { t: "op", op: "inbox.mute", params: { conversation: conv, muted: true }, idempotency_key: "mute-1" })
+    await deliver(stub, user, [bump(user, conv, { rev: 2, last_seq: 2, last_approval: true })])
+    expect(sent).toEqual([])
+  })
+
+  it("the alert shows the queued message, not a later one skipped by the mute", async () => {
+    const { user, stub, sent, me } = await pushUser("home-push-approval-text")
+    const conv = convId()
+    const chief = { kind: "chief", title: "Chief", dm_peer: undefined }
+    await deliver(stub, user, [bump(user, conv, { ...chief, rev: 1, last_seq: 1, last_author: user })])
+    await stub.submitInbox(user, me, { t: "op", op: "inbox.mute", params: { conversation: conv, muted: true }, idempotency_key: "mute-1" })
+    // The approval is queued, then (before the drain) a newer message arrives and is skipped by the mute.
+    await stub.systemDeliver(user, "conv:test", [bump(user, conv, { ...chief, rev: 2, last_seq: 2, last_author: CHIEF, last_author_kind: "agent", last_approval: true, preview: "Chief: may I deploy?" })])
+    await stub.systemDeliver(user, "conv:test", [bump(user, conv, { ...chief, rev: 3, last_seq: 3, last_author: OTHER, last_author_kind: "human", preview: "Bob: later" })])
+    await drain(stub)
+    expect(sent).toHaveLength(1)
+    const body = JSON.parse(sent[0]!.message.body)
+    expect(body.aps.category).toBe("HOME_APPROVAL")
+    expect(body.aps.alert.body).toBe("Chief: may I deploy?")
+    expect(body.cmux.seq).toBe(2)
+  })
+
+  it("a message skipped by the mute stays skipped: a later row change for the same seq after unmute does not notify", async () => {
+    const { user, stub, sent, me } = await pushUser("home-push-mute-settles")
+    const conv = convId()
+    await deliver(stub, user, [bump(user, conv, { rev: 1, last_seq: 1, last_author: user })])
+    await stub.submitInbox(user, me, { t: "op", op: "inbox.mute", params: { conversation: conv, muted: true }, idempotency_key: "mute-1" })
+    await deliver(stub, user, [bump(user, conv, { rev: 2, last_seq: 2 })])
+    await stub.submitInbox(user, me, { t: "op", op: "inbox.mute", params: { conversation: conv, muted: false }, idempotency_key: "mute-2" })
+    // A title change bumps the row again; it still describes message 2.
+    await deliver(stub, user, [bump(user, conv, { rev: 3, last_seq: 2, title: "Renamed" })])
+    expect(sent).toEqual([])
+  })
+
+  it("collapses a conversation for 10 s after a push, then sends the newest message", async () => {
+    const { user, stub, sent } = await pushUser("home-push-collapse")
+    const conv = convId()
+    await deliver(stub, user, [bump(user, conv, { rev: 2, last_seq: 1 })])
+    expect(sent).toHaveLength(1)
+    await deliver(stub, user, [bump(user, conv, { rev: 3, last_seq: 2 }), bump(user, conv, { rev: 4, last_seq: 3, preview: "Bob: third" })])
+    expect(sent).toHaveLength(1)
+    await drainAt(stub, Date.now() + 5_000)
+    expect(sent).toHaveLength(1)
+    await drainAt(stub, Date.now() + 10_001)
+    expect(sent).toHaveLength(2)
+    expect(JSON.parse(sent[1]!.message.body).cmux.seq).toBe(3)
+  })
+
+  it("the user's own reply or a full read clears a pending push", async () => {
+    const { user, stub, sent } = await pushUser("home-push-clear")
+    const replied = convId()
+    const read = convId()
+    await deliver(stub, user, [bump(user, replied, { rev: 2, last_seq: 1 }), bump(user, read, { rev: 2, last_seq: 1 })])
+    expect(sent).toHaveLength(2)
+    // Both conversations now have a pending row inside the collapse window.
+    await deliver(stub, user, [bump(user, replied, { rev: 3, last_seq: 2 }), bump(user, read, { rev: 3, last_seq: 2, unread: 1, mentions: 0 })])
+    await deliver(stub, user, [bump(user, replied, { rev: 4, last_seq: 3, last_author: user }), bump(user, read, { rev: 4, last_seq: 2, unread: 0, mentions: 0 })])
+    await drainAt(stub, Date.now() + 60_000)
+    expect(sent).toHaveLength(2)
+  })
+
+  it("drops a token APNs refuses", async () => {
+    const { user, stub, sent, outcomes } = await pushUser("home-push-drop")
+    outcomes.push("drop_target")
+    await deliver(stub, user, [bump(user, convId())])
+    expect(sent).toHaveLength(1)
+    expect(await stub.pushTargets(user)).toEqual([])
+  })
+
+  it("an APNs retry_later puts the row back with a backoff and sends it once", async () => {
+    const { user, stub, sent, outcomes } = await pushUser("home-push-retry-later")
+    outcomes.push("retry_later")
+    const conv = convId()
+    await deliver(stub, user, [bump(user, conv)])
+    expect(sent).toHaveLength(1)
+    await drainAt(stub, Date.now() + 60_000)
+    expect(sent).toHaveLength(2)
+    expect(JSON.parse(sent[1]!.message.body).cmux).toEqual({ home_conversation: conv, seq: 1 })
+    await drainAt(stub, Date.now() + HOUR)
+    expect(sent).toHaveLength(2)
+  })
+
+  it("sends at most 60 pushes per hour per user; approvals are exempt; the rest wait for the window (B10)", async () => {
+    const { user, stub, sent } = await pushUser("home-push-cap")
+    const convs = Array.from({ length: 61 }, () => convId())
+    await deliver(stub, user, convs.map((c) => bump(user, c)))
+    await drain(stub)
+    expect(sent).toHaveLength(60)
+    const approval = convId()
+    await deliver(stub, user, [bump(user, approval, { kind: "chief", title: "Chief", dm_peer: undefined, last_author: CHIEF, last_author_kind: "agent", last_approval: true })])
+    expect(sent).toHaveLength(61)
+    expect(JSON.parse(sent[60]!.message.body).aps.category).toBe("HOME_APPROVAL")
+    await drainAt(stub, Date.now() + HOUR + 1_000)
+    expect(sent).toHaveLength(62)
+    expect(JSON.parse(sent[61]!.message.body).cmux.home_conversation).toBe(convs[60])
   })
 })
