@@ -66,6 +66,30 @@ fn a_cli_name_never_takes_a_built_in_or_reserved_word() {
 }
 
 #[test]
+fn a_first_party_app_may_claim_its_mapped_reserved_word() {
+    let cloud =
+        manifest(json!({ "id": "cmux/cloud", "repository": "https://github.com/manaflow-ai/cmux",
+        "cli": { "name": "cloud" } }));
+    assert!(validate_manifest(&cloud).is_empty(), "{:?}", validate_manifest(&cloud));
+
+    let third_party =
+        manifest(json!({ "id": "alice/cloud", "repository": "https://github.com/alice/cloud",
+        "cli": { "name": "cloud" } }));
+    assert_eq!(
+        found(&validate_manifest(&third_party)),
+        vec![("/cli/name", "cli.nameReserved", Severity::Error)]
+    );
+
+    let other_first_party =
+        manifest(json!({ "id": "cmux/notes", "repository": "https://github.com/manaflow-ai/cmux",
+        "cli": { "name": "cloud" } }));
+    assert_eq!(
+        found(&validate_manifest(&other_first_party)),
+        vec![("/cli/name", "cli.nameReserved", Severity::Error)]
+    );
+}
+
+#[test]
 fn cli_paths_are_relative_to_the_app() {
     let m = manifest(json!({ "cli": { "name": "notes" } }));
     let ok = catalog(vec![
