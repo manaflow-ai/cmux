@@ -451,10 +451,18 @@ CMUX_SHIM_EXPORT int cmux_shim_context_proxy_state(const char* profile_cache_pat
 // unique in-memory profile); Chromium destroys that profile, with all of its
 // data, once no browser uses it.
 CMUX_SHIM_EXPORT void cmux_shim_release_context(const char* profile_cache_path);
-// Main-frame http(s) navigations of browser_id: 0 unrestricted, 1 must stay
-// loopback (a remote machine's store), 2 must not be loopback (a normal
-// store in a remote workspace). A violation is cancelled and reported as
+// Main-frame navigation guard of browser_id. mode is a bit set.
+// Bits 0-1, the store (http(s) only): 0 unrestricted, 1 must stay loopback
+// (a remote machine's store), 2 must not be loopback (a normal store in a
+// remote workspace). A violation is cancelled and reported as
 // NAVIGATION_REROUTE.
+// Bit 2 (4), agent-driven tab: a main-frame navigation (redirects and
+// history steps included) to a Chromium page is cancelled before commit,
+// with no event; the tab stays on its page. Chromium pages: the schemes
+// chrome, chrome-extension, chrome-untrusted, chrome-search, devtools,
+// chrome-devtools and view-source; about: other than blank and srcdoc;
+// blob: and filesystem: of those. The same rule as AgentURLPolicy.swift
+// (plans/cmux-next/passwords.md, section 2).
 CMUX_SHIM_EXPORT void cmux_shim_set_navigation_guard(int browser_id, int mode);
 
 #ifdef __cplusplus

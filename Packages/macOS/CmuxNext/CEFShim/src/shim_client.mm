@@ -123,6 +123,8 @@ class Client : public CefClient,
     if (!frame->IsMain()) return false;
     int id = browser->GetIdentifier();
     std::string url = request->GetURL().ToString();
+    // An agent-driven tab never commits a Chromium page (passwords.md, section 2).
+    if (NavigationRefusedForAgent(id, url)) return true;
     if (!NavigationViolatesGuard(id, url)) return false;
     Emit(CMUX_SHIM_NAVIGATION_REROUTE, id, 0, is_redirect ? 1 : 0, 0, url);
     return true;

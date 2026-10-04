@@ -61,4 +61,13 @@ import Testing
         person.load(try #require(URL(string: "chrome://extensions/")))
         #expect(person.initialURLString == "chrome://extensions/")
     }
+
+    /// Bit 4 of the shim guard is the agent rule; the store bits stay.
+    @Test func theShimGuardModeCombinesStoreAndAgent() {
+        #expect(CEFAgentURLGuard.shimGuardMode(.none, agentDriven: false) == 0)
+        #expect(CEFAgentURLGuard.shimGuardMode(.none, agentDriven: true) == 4)
+        #expect(CEFAgentURLGuard.shimGuardMode(.loopbackOnly, agentDriven: true) == 5)
+        #expect(CEFAgentURLGuard.shimGuardMode(.noLoopback, agentDriven: false) == 2)
+        #expect(CEFAgentURLGuard.shimGuardMode(.noLoopback, agentDriven: true) == 6)
+    }
 }
