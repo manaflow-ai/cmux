@@ -263,7 +263,7 @@ any depth and reaches no view; a click, a focus change, another window or the ap
 resigning active cancels too. After the leader an unbound key is consumed; after another
 prefix it goes on to the view (unchanged).
 
-8.2 **Arguments.** `ActionRegistry.setKeyBindingLayers` loads app and keybindings.json
+8.2 **Arguments.** `KeyBindingLoader.load` loads app and keybindings.json
 entries through `validated(_:)`: canonical id, each argument exists in the schema and fits
 its kind (text that fits is parsed), at most four keys, first key with Command or Control
 (only those reach the dispatcher). A bad entry is left out with a `KeyBindingIssue`

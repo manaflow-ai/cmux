@@ -24,7 +24,7 @@ struct MultiKeyChordRoutingTests {
         ])
         for id: ActionID in ["save", "deep", "deepest"] { registry.bind(id, invoke: { _ in }) }
         let plain = { (key: String) in Shortcut(key, modifiers: []) }
-        registry.setKeyBindingLayers(KeyBindingLayers(user: [
+        KeyBindingLoader(registry).load(KeyBindingLayers(user: [
             KeyBinding(keys: [k, plain("s")], command: "save", source: .user),
             KeyBinding(keys: [k, plain("x"), plain("y")], command: "deep", source: .user),
             KeyBinding(keys: [k, plain("x"), plain("s"), plain("y")], command: "deepest", source: .user),

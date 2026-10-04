@@ -98,7 +98,7 @@ import Testing
         for vector in vectors {
             let registry = ActionRegistry.standard()
             for descriptor in registry.descriptors { registry.bind(descriptor.id, invoke: { _ in }) }
-            let issues = registry.setKeyBindingLayers(KeyBindingLayers(user: vector.bindings, removals: vector.removals))
+            let issues = KeyBindingLoader(registry).load(KeyBindingLayers(user: vector.bindings, removals: vector.removals))
             #expect(issues.isEmpty, "\(vector.name): \(issues)")
             let bindings = RegistryKeyBindings(registry)
             let outcome = bindings.table.outcome(of: vector.keys.map { [$0] }, in: vector.context) {

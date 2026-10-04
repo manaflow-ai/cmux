@@ -33,7 +33,7 @@ import Testing
 
     @Test func argumentsThatFitTheSchemaLoadNormalized() {
         let registry = Self.registry()
-        let issues = registry.setKeyBindingLayers(KeyBindingLayers(user: [
+        let issues = KeyBindingLoader(registry).load(KeyBindingLayers(user: [
             Self.entry("legacy.send", ["text": .string("\u{1B}[A"), "count": .int(3), "paste": .string("yes"), "color": .string("sage"),
                                        "tab": .string("tab:t1")]),
         ]))
@@ -49,7 +49,7 @@ import Testing
 
     @Test func aBadEntryIsLeftOutWithAnIssueAndTheOthersLoad() {
         let registry = Self.registry()
-        let issues = registry.setKeyBindingLayers(KeyBindingLayers(
+        let issues = KeyBindingLoader(registry).load(KeyBindingLayers(
             app: [Self.entry("missing")],
             user: [
                 Self.entry("send", ["text": .string("x"), "speed": .int(1)]),
@@ -81,7 +81,7 @@ import Testing
     /// (the palette's argument collector), as from the palette.
     @Test func aMissingRequiredArgumentStillLoads() {
         let registry = Self.registry()
-        #expect(registry.setKeyBindingLayers(KeyBindingLayers(user: [Self.entry("send")])).isEmpty)
+        #expect(KeyBindingLoader(registry).load(KeyBindingLayers(user: [Self.entry("send")])).isEmpty)
         #expect(registry.keyBindingLayers.user.count == 1)
     }
 
@@ -90,7 +90,7 @@ import Testing
         let registry = Self.registry()
         var received: [String: ActionValue] = [:]
         registry.bind("send", invoke: { received = $0.arguments })
-        registry.setKeyBindingLayers(KeyBindingLayers(user: [Self.entry("send", ["text": .string("hi"), "count": .int(2)])]))
+        KeyBindingLoader(registry).load(KeyBindingLayers(user: [Self.entry("send", ["text": .string("hi"), "count": .int(2)])]))
         let winner = RegistryKeyBindings(registry).table.resolve([Self.ctrlK], in: KeyContext(bits: [])) { _ in true }.winner
         #expect(winner.map { RegistryKeyBindings(registry).run($0, keyContext: []) } == true)
         #expect(received == ["text": .string("hi"), "count": .int(2)])

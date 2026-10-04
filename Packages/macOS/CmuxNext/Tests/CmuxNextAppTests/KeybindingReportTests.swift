@@ -50,7 +50,7 @@ struct KeybindingReportTests {
         #expect(verdicts.contains("whenFalse"), "copy mode's Ctrl-Tab entry is listed with its verdict")
         #expect(report["context"]?["surfaceKind"] == "agent")
 
-        registry.setKeyBindingLayers(KeyBindingLayers(user: [
+        KeyBindingLoader(registry).load(KeyBindingLayers(user: [
             KeyBinding(keys: [Shortcut("k", modifiers: [.control]), Shortcut("x", modifiers: [])], command: "toggleSidebar", source: .user),
         ]))
         let armed = try #require(KeybindingReports.resolve("ctrl+k", context: Self.agent, registry: registry, window: nil))
@@ -63,7 +63,7 @@ struct KeybindingReportTests {
 
     @Test func argsAndContextKeysAreJSON() {
         let registry = Self.registry()
-        registry.setKeyBindingLayers(KeyBindingLayers(user: [
+        KeyBindingLoader(registry).load(KeyBindingLayers(user: [
             KeyBinding(keys: [Shortcut("k", modifiers: [.control])], command: "terminal.setTheme",
                        arguments: ["theme": .string("Builtin Dark")], source: .user),
         ]))

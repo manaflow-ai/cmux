@@ -30,13 +30,22 @@ public nonisolated struct KeyBindingIssue: Hashable, Sendable {
     }
 }
 
-extension ActionRegistry {
-    /// Loads app and user entries and user removals: each entry is checked against its
-    /// action's schema (``validated(_:)``); an entry that fails is left out
-    /// and reported, the others load. A required argument may be missing:
-    /// running the binding asks for it, as the palette does.
+/// Loads app and keybindings.json entries into a registry's binding table
+/// (`ActionRegistry.keyBindingLayers`), checked against the catalog.
+@MainActor
+public struct KeyBindingLoader {
+    public let registry: ActionRegistry
+
+    public init(_ registry: ActionRegistry) {
+        self.registry = registry
+    }
+
+    /// Loads app and user entries and user removals: each entry is checked
+    /// against its action's schema (``validated(_:)``); an entry that fails
+    /// is left out and reported, the others load. A required argument may be
+    /// missing: running the binding asks for it, as the palette does.
     @discardableResult
-    public func setKeyBindingLayers(_ layers: KeyBindingLayers) -> [KeyBindingIssue] {
+    public func load(_ layers: KeyBindingLayers) -> [KeyBindingIssue] {
         var issues: [KeyBindingIssue] = []
         func load(_ entries: [KeyBinding], _ source: KeyBinding.Source) -> [KeyBinding] {
             entries.enumerated().compactMap { index, entry in
@@ -49,8 +58,8 @@ extension ActionRegistry {
             }
         }
         let removals = layers.removals.enumerated().compactMap { index, removal -> KeyBindingRemoval? in
-            let id = canonicalID(for: removal.command)
-            guard descriptor(for: id) != nil || action(for: id) != nil else {
+            let id = registry.canonicalID(for: removal.command)
+            guard registry.descriptor(for: id) != nil || registry.action(for: id) != nil else {
                 issues.append(KeyBindingIssue(source: .user, index: index, kind: .unknownCommand(removal.command.rawValue), isRemoval: true))
                 return nil
             }
@@ -58,7 +67,7 @@ extension ActionRegistry {
             canonical.command = id
             return canonical
         }
-        keyBindingLayers = KeyBindingLayers(app: load(layers.app, .app), user: load(layers.user, .user), removals: removals)
+        registry.keyBindingLayers = KeyBindingLayers(app: load(layers.app, .app), user: load(layers.user, .user), removals: removals)
         return issues
     }
 
@@ -69,12 +78,12 @@ extension ActionRegistry {
         guard let first = entry.keys.first else { return .failure(.noKeys) }
         guard entry.keys.count <= KeyBindingTable.maxSequenceLength else { return .failure(.tooManyKeys) }
         guard !first.modifiers.isDisjoint(with: [.command, .control]) else { return .failure(.firstKeyNeedsCommandOrControl) }
-        let id = canonicalID(for: entry.command)
+        let id = registry.canonicalID(for: entry.command)
         var binding = entry
         binding.command = id
-        guard let descriptor = descriptor(for: id) else {
+        guard let descriptor = registry.descriptor(for: id) else {
             // An action registered without a catalog row takes no arguments.
-            return action(for: id) == nil || !entry.arguments.isEmpty ? .failure(.unknownCommand(entry.command.rawValue)) : .success(binding)
+            return registry.action(for: id) == nil || !entry.arguments.isEmpty ? .failure(.unknownCommand(entry.command.rawValue)) : .success(binding)
         }
         for (name, value) in entry.arguments {
             guard let argument = descriptor.arguments.first(where: { $0.name == name }) else { return .failure(.unknownArgument(name)) }

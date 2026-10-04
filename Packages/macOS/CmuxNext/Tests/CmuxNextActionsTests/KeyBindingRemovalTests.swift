@@ -32,7 +32,7 @@ import Testing
     /// mode's Ctrl-Tab, Ctrl-PageDown and Cmd-Shift-] stay.
     @Test func aRemovalTakesOutOneDefaultByKeyAndWhen() {
         let registry = Self.registry()
-        let issues = registry.setKeyBindingLayers(KeyBindingLayers(removals: [
+        let issues = KeyBindingLoader(registry).load(KeyBindingLayers(removals: [
             KeyBindingRemoval(command: "nextSurface", keys: [Self.ctrlTab], when: .exactly(KeyBindingDefaults.notTerminal)),
         ]))
         #expect(issues.isEmpty)
@@ -47,12 +47,12 @@ import Testing
     /// every key of the command goes, as an unbind would.
     @Test func anOmittedWhenOrKeyMatchesEveryEntry() {
         let registry = Self.registry()
-        registry.setKeyBindingLayers(KeyBindingLayers(removals: [KeyBindingRemoval(command: "nextSurface", keys: [Self.ctrlTab])]))
+        KeyBindingLoader(registry).load(KeyBindingLayers(removals: [KeyBindingRemoval(command: "nextSurface", keys: [Self.ctrlTab])]))
         #expect(Self.winner(registry, [Self.ctrlTab], Self.agent) == nil)
         #expect(Self.winner(registry, [Self.ctrlTab], Self.copyMode) == nil)
         #expect(Self.winner(registry, [Self.nextKey], Self.agent) == "nextSurface")
 
-        registry.setKeyBindingLayers(KeyBindingLayers(removals: [KeyBindingRemoval(command: "nextSurface")]))
+        KeyBindingLoader(registry).load(KeyBindingLayers(removals: [KeyBindingRemoval(command: "nextSurface")]))
         #expect(Self.winner(registry, [Self.nextKey], Self.agent) == nil)
         #expect(Self.winner(registry, [Self.ctrlPageDown], Self.agent) == nil)
         #expect(Self.winner(registry, [Shortcut("[", modifiers: [.command, .shift])], Self.agent) == "prevSurface")
@@ -63,7 +63,7 @@ import Testing
     /// (the user deletes their own line instead).
     @Test func removalsMatchExactlyAndSpareUserEntries() {
         let registry = Self.registry()
-        registry.setKeyBindingLayers(KeyBindingLayers(
+        KeyBindingLoader(registry).load(KeyBindingLayers(
             app: [KeyBinding(keys: [Shortcut("n", modifiers: [.control])], command: "nextSurface", source: .app)],
             user: [KeyBinding(keys: [Shortcut("m", modifiers: [.control])], command: "nextSurface", source: .user)],
             removals: [
@@ -78,7 +78,7 @@ import Testing
 
     @Test func aRemovalOfAnUnknownCommandIsAnIssue() {
         let registry = Self.registry()
-        let issues = registry.setKeyBindingLayers(KeyBindingLayers(removals: [KeyBindingRemoval(command: "nope")]))
+        let issues = KeyBindingLoader(registry).load(KeyBindingLayers(removals: [KeyBindingRemoval(command: "nope")]))
         #expect(issues == [KeyBindingIssue(source: .user, index: 0, kind: .unknownCommand("nope"), isRemoval: true)])
         #expect(registry.keyBindingLayers.removals.isEmpty)
     }
