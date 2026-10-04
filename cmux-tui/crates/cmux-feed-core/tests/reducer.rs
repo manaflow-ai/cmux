@@ -193,7 +193,7 @@ fn post_unpruned_never_prunes() {
         assert!(changes.removed.is_empty(), "post_unpruned removed {:?}", changes.removed);
     }
     let late = notice("late", "k-late", None, 1 + RETENTION_MS * 2);
-    let (_, changes) = feed.post_unpruned(late.clone()).unwrap();
+    let (_, changes) = feed.post_unpruned(late).unwrap();
     assert!(changes.removed.is_empty());
     assert_eq!(feed.items().len(), MAX_ITEMS + 2);
     assert!(feed.get("old-read").is_some(), "a read item past retention stays in the copy");

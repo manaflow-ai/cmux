@@ -362,7 +362,8 @@ fn feedfix_reading_a_terminal_less_tab_item_clears_its_ring_durably() {
     let mut tab_changed = false;
     while let Ok(event) = events.try_recv() {
         if let MuxEvent::TreeDelta(delta) = event {
-            tab_changed |= delta.kind == TreeDeltaKind::TabChanged && delta.surface == Some(browser);
+            tab_changed |=
+                delta.kind == TreeDeltaKind::TabChanged && delta.surface == Some(browser);
         }
     }
     assert!(tab_changed, "the cleared placement gets tab-changed");
