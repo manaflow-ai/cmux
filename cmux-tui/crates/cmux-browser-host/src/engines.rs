@@ -125,7 +125,7 @@ impl crate::host::Engines for HostEngines {
 impl HostEngines {
     #[cfg(unix)]
     fn headless(&self, events: EventSink) -> Result<Arc<dyn Driver>, DriverError> {
-        use crate::cdp::pipe::{HeadlessChromium, HeadlessOptions};
+        use crate::cdp::pipe::HeadlessChromium;
         let Some(binary) = chromium_candidates().into_iter().find(|p| p.is_file()) else {
             return Err(unavailable(
                 "headless",
