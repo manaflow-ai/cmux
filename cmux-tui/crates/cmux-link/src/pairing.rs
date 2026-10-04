@@ -49,7 +49,10 @@ impl PairingRecord {
     }
 
     pub fn is_valid(&self) -> bool {
-        valid_id(&self.install) && valid_id(&self.user) && valid_id(&self.team) && self.key().is_some()
+        valid_id(&self.install)
+            && valid_id(&self.user)
+            && valid_id(&self.team)
+            && self.key().is_some()
     }
 }
 
@@ -119,8 +122,12 @@ impl Pairings {
 fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
-    let mut file =
-        std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path)?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?;
     file.write_all(bytes)?;
     file.sync_all()
 }

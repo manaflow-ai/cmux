@@ -221,9 +221,8 @@ unsafe fn string(object: CFTypeRef) -> Option<String> {
     }
     let mut buffer = [0 as c_char; 256];
     // SAFETY: the buffer is valid for its length.
-    let copied = unsafe {
-        CFStringGetCString(object, buffer.as_mut_ptr(), buffer.len() as CFIndex, UTF8)
-    };
+    let copied =
+        unsafe { CFStringGetCString(object, buffer.as_mut_ptr(), buffer.len() as CFIndex, UTF8) };
     if copied == 0 {
         return None;
     }

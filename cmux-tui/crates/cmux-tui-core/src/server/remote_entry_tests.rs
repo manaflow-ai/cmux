@@ -143,7 +143,8 @@ fn a_remote_client_acts_as_its_peer_user_never_the_local_user() {
 #[test]
 fn a_missing_or_malformed_stamp_closes_the_connection() {
     let entry = entry(true, Arc::new(AdmitAll));
-    for first in [r#"{"id":1,"cmd":"ping"}"#, r#"{"link_peer":{"install":"../x","user":"u","team":"t"}}"#]
+    for first in
+        [r#"{"id":1,"cmd":"ping"}"#, r#"{"link_peer":{"install":"../x","user":"u","team":"t"}}"#]
     {
         let (mut stream, mut reader) = connect(&entry);
         send(&mut stream, first);

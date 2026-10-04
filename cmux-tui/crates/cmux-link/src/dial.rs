@@ -131,8 +131,8 @@ mod tests {
 
     #[test]
     fn the_dial_contract_has_stable_wire_shapes() {
-        let request = parse_request(r#"{"op":"link.dial","host":"inst_9","service":"daemon"}"#)
-            .unwrap();
+        let request =
+            parse_request(r#"{"op":"link.dial","host":"inst_9","service":"daemon"}"#).unwrap();
         assert_eq!(request.host, "inst_9");
         assert_eq!(
             line(&DialReply::connected(PathState::Direct)),

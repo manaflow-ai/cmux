@@ -81,8 +81,7 @@ pub fn parse(line: &str) -> Result<LinkPeer, StampError> {
     if line.len() > MAX_STAMP_BYTES {
         return Err(StampError::TooLong);
     }
-    let StampLine { link_peer } =
-        serde_json::from_str(line).map_err(|_| StampError::Malformed)?;
+    let StampLine { link_peer } = serde_json::from_str(line).map_err(|_| StampError::Malformed)?;
     if !link_peer.is_valid() {
         return Err(StampError::InvalidId);
     }

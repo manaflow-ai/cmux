@@ -92,6 +92,7 @@ mod loopback_forward;
 pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
+mod admission;
 mod bookmarks;
 mod browser_profiles;
 mod conversation_tabs_wire;
@@ -101,6 +102,8 @@ mod home;
 mod launch_snapshot;
 mod personal;
 mod raw_tab;
+#[cfg(unix)]
+mod remote_entry;
 mod responses;
 mod rows;
 mod screen_json;
@@ -108,16 +111,13 @@ mod session_stream;
 mod split_respawn;
 mod tab_column;
 mod websocket_listener;
-mod admission;
-#[cfg(unix)]
-mod remote_entry;
-#[cfg(unix)]
-pub use remote_entry::{
-    DenyAllGate, LinkVerifier, RemoteEntryServer, RemoteGate, RemotePeer, serve_remote_entry,
-};
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
     start_launch_snapshot_writer_with,
+};
+#[cfg(unix)]
+pub use remote_entry::{
+    DenyAllGate, LinkVerifier, RemoteEntryServer, RemoteGate, RemotePeer, serve_remote_entry,
 };
 use responses::{
     response_error_code, send_bad_request, send_request_error, send_request_error_with_delivery,
