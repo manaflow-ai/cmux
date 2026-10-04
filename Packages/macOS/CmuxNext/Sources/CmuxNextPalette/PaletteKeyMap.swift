@@ -9,9 +9,12 @@ public struct PaletteKeyMap {
     /// `hierarchical`: the page walks a tree (`PaletteHierarchy`), so Left
     /// and Right move through it where they would not move the caret:
     /// Right from the end of the query enters the selected row, Left from
-    /// its start goes up.
+    /// its start goes up. `selectedTogglesInPlace`: the selected row's
+    /// primary command keeps the palette open (a toggle), so Space with an
+    /// empty query toggles it.
     public static func command(for event: NSEvent, actionsMenuOpen: Bool, queryIsEmpty: Bool, registry: ActionRegistry,
-                               hierarchical: Bool = false, caretAtEnd: Bool = true, caretAtStart: Bool? = nil) -> PaletteKeyCommand? {
+                               hierarchical: Bool = false, caretAtEnd: Bool = true, caretAtStart: Bool? = nil,
+                               selectedTogglesInPlace: Bool = false) -> PaletteKeyCommand? {
         let caretAtStart = caretAtStart ?? queryIsEmpty
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
@@ -21,6 +24,8 @@ public struct PaletteKeyMap {
         // List navigation (R85): the list.next / list.previous bindings (Ctrl-J / Ctrl-K by default).
         if listKeys(for: "list.next", in: registry).contains(pressed) { return .moveDown }
         if listKeys(for: "list.previous", in: registry).contains(pressed) { return .moveUp }
+
+        if event.keyCode == 49, flags.isEmpty, queryIsEmpty, selectedTogglesInPlace, !actionsMenuOpen { return .submit }
 
         switch event.keyCode {
         // Cmd-Up: a tree page's parent, else the first row.
