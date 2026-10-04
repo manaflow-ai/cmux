@@ -184,6 +184,10 @@ pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
 pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
 pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
+/// `error_code` of a request refused while the daemon's shutdown handoff is
+/// reserved and not yet announced. The [`DAEMON_SHUTDOWN_EVENT`] follows
+/// unless the shutdown is cancelled.
+pub const DAEMON_SHUTDOWN_PENDING_CODE: &str = "daemon_shutdown_pending";
 /// The daemon answers `machine-usage` and emits `machine-usage-changed`.
 pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
 /// The daemon reads the host's listening TCP sockets for an authenticated
