@@ -61,10 +61,11 @@ pub(crate) fn end(handle: &LinkHandle, lost: Lost) {
     }
 }
 
-/// One link to a Cloud machine's session host. Its bytes move on the
-/// carrier socket ([`DataPlane::Socket`]): the app host has no frame stream
-/// for this server, so the daemon dials the link's local socket. It is the
-/// only handle of its channel while it lives.
+/// One in-process link to a Cloud machine's session host. Its bytes move on
+/// the carrier socket ([`DataPlane::Socket`]): an in-process caller dials
+/// the link's local socket. (On the app host's stream the bytes move as
+/// frames instead: [`super::frames`].) It is the only handle of its channel
+/// while it lives.
 ///
 /// [`HostLink::close`] only asks: the server applies the close at its next
 /// drain of link events (`take_events`, `take_link_events` or the serve

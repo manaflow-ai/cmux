@@ -16,7 +16,6 @@ import os
 from pathlib import Path
 import sys
 import tempfile
-import textwrap
 import unittest
 
 sys.dont_write_bytecode = True
@@ -124,11 +123,11 @@ class Fixture:
         path.write_text(json.dumps(self.reviewed_data))
         return path
 
-    def args(self, *extra: str, fmt: str = "spdx-json") -> list[str]:
+    def args(self, *extra: str, fmt: str = "spdx-json", targets: tuple[str, ...] = ("aarch64-apple-darwin",)) -> list[str]:
         return [
             "--lock", str(self.lock),
             "--root", "app",
-            "--target", "aarch64-apple-darwin",
+            *[arg for t in targets for arg in ("--target", t)],
             "--sources", str(self.vendor),
             "--workspace", str(self.ws),
             "--first-party", "crates/*",
@@ -167,10 +166,10 @@ class RustNoticesTest(unittest.TestCase):
             os.environ["CARGO_HOME"] = self._env
         self._tmp.cleanup()
 
-    def generate(self, name: str, *extra: str, fmt: str = "spdx-json") -> tuple[int, str, Path, Path]:
+    def generate(self, name: str, *extra: str, fmt: str = "spdx-json", targets: tuple[str, ...] = ("aarch64-apple-darwin",)) -> tuple[int, str, Path, Path]:
         out = self.tmp / name / "out"
         files = self.tmp / name / "files"
-        code, err = run(self.fx.args("--out", str(out), "--files-out", str(files), *extra, fmt=fmt))
+        code, err = run(self.fx.args("--out", str(out), "--files-out", str(files), *extra, fmt=fmt, targets=targets))
         return code, err, out, files
 
     def spdx(self, name: str = "spdx") -> dict:
@@ -188,10 +187,16 @@ class RustNoticesTest(unittest.TestCase):
         )
 
     def test_linux_target_drops_the_not_linux_cfg(self) -> None:
-        code, err, out, _ = self.generate("linux", "--target", "x86_64-unknown-linux-gnu")
+        code, err, out, _ = self.generate("linux", targets=("x86_64-unknown-linux-gnu",))
         self.assertEqual(code, 0, err)
         names = {p["name"] for p in json.loads(out.read_text())["packages"]}
         self.assertNotIn("cmux-tui-rust-unixonly", names)
+
+    def test_several_targets_give_the_union(self) -> None:
+        code, err, out, _ = self.generate("union", targets=("x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "x86_64-apple-darwin"))
+        self.assertEqual(code, 0, err)
+        names = {p["name"] for p in json.loads(out.read_text())["packages"]}
+        self.assertTrue({"cmux-tui-rust-unixonly", "cmux-tui-rust-winonly"} <= names, names)
 
     def test_cargo_tree_narrows_and_must_be_a_subset(self) -> None:
         exact = self.tmp / "tree.txt"
@@ -289,6 +294,21 @@ class RustNoticesTest(unittest.TestCase):
         self.fx.reviewed_data["overrides"] = {}
         self.assertEqual(self.generate("unknown")[0], 1)
 
+    def test_git_crate_in_a_workspace_uses_the_checkout_license_and_workspace_fields(self) -> None:
+        import shutil
+
+        shutil.rmtree(self.fx.vendor / "gitdep-0.3.0")
+        checkout = self.fx.cargo_home / "git" / "checkouts" / "gitdep-1a2b3c" / "0123456"
+        (checkout / "crates" / "gitdep").mkdir(parents=True)
+        (checkout / "Cargo.toml").write_text('[workspace]\nmembers = ["crates/*"]\n[workspace.package]\nversion = "0.3.0"\nlicense = "MIT"\n')
+        (checkout / "crates" / "gitdep" / "Cargo.toml").write_text('[package]\nname = "gitdep"\nversion.workspace = true\nlicense.workspace = true\n')
+        (checkout / "LICENSE-MIT").write_text("MIT text gitdep repository\n")
+        code, err, out, files = self.generate("git")
+        self.assertEqual(code, 0, err)
+        gitdep = next(p for p in json.loads(out.read_text())["packages"] if p["name"] == "cmux-tui-rust-gitdep")
+        self.assertEqual(gitdep["licenseDeclared"], "MIT")
+        self.assertEqual(tree(files)["gitdep-0.3.0/repository-LICENSE-MIT"], b"MIT text gitdep repository\n")
+
     # Texts ----------------------------------------------------------------------
 
     def test_missing_license_text_fails(self) -> None:
@@ -359,6 +379,24 @@ class RustNoticesTest(unittest.TestCase):
         ids = [p["SPDXID"] for p in doc["packages"]] + [f["SPDXID"] for f in doc["files"]]
         self.assertEqual(len(ids), len(set(ids)))
         self.assertEqual(doc["creationInfo"]["created"], "1970-01-01T00:00:00Z")
+
+    def test_repo_root_sets_first_party_paths(self) -> None:
+        argv = self.fx.args("--out", str(self.tmp / "rr.json"))
+        index = argv.index("--first-party")
+        argv[index + 1] = "ws/crates/*"
+        code, err = run([*argv, "--repo-root", str(self.fx.root)])
+        self.assertEqual(code, 0, err)
+        app = next(p for p in json.loads((self.tmp / "rr.json").read_text())["packages"] if p["name"] == "cmux-tui-rust-app")
+        self.assertEqual(app["downloadLocation"], "https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-b8feb806d6e/ws/crates/app")
+
+    def test_path_download_names_third_party_path_packages(self) -> None:
+        (self.fx.ws / "crates/app/LICENSE").write_text("third-party app license\n")
+        argv = self.fx.args("--out", str(self.tmp / "pd.json"), "--path-download", "git+https://example.invalid/ws@abc")
+        argv[argv.index("--first-party") + 1] = "nothing/*"
+        code, err = run(argv)
+        self.assertEqual(code, 0, err)
+        app = next(p for p in json.loads((self.tmp / "pd.json").read_text())["packages"] if p["name"] == "cmux-tui-rust-app")
+        self.assertEqual(app["downloadLocation"], "git+https://example.invalid/ws@abc")
 
     def test_extracted_texts_only_for_licenseref(self) -> None:
         doc = self.spdx()
