@@ -14,6 +14,7 @@ public struct SidebarMapping {
     /// detail (tooltip, accessibility).
     public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
+                                hidesHomeWorkspace: Bool = true,
                                 showsUnread: Bool = true,
                                 statusLine: (String) -> String? = { _ in nil }) -> [SidebarRowSection] {
         var nodes: [SidebarNode] = []
