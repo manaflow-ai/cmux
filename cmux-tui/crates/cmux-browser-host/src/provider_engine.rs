@@ -61,7 +61,8 @@ fn lease_refusal(method: &str, error: LeaseError) -> DriverError {
         LeaseError::PausedByUser => "the person used this tab; wait for them to hand it back",
         LeaseError::UserDriving => "the person is driving this tab; wait for them to hand it back",
         LeaseError::StaleAfterHandBack => "the person handed the tab back; observe it again first",
-        LeaseError::StoppedByUser => "the person stopped this agent session",
+        LeaseError::StoppedByUser => "the person stopped this agent",
+        LeaseError::SessionRequired => "the person's tabs need a named session",
         _ => "the tab's automation lease refused the call",
     };
     let mut refusal =
@@ -438,6 +439,7 @@ mod tests {
             on_behalf_of: None,
             origin: "mcp".into(),
             label: "task".into(),
+            ..LeaseCaller::default()
         };
         ProviderEngine::new(
             provider.clone(),
@@ -484,7 +486,7 @@ mod tests {
         app.send(Frame::LeaseUser {
             op: "hand_back".into(),
             target_id: Some("W".into()),
-            session: None,
+            actor: None,
         });
         provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
         let stale = first.call("input.key", &json!({"targetId": "W"})).unwrap_err();

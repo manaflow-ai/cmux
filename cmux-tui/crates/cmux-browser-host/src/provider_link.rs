@@ -244,14 +244,14 @@ fn apply_lease(
 fn user_lease_op(
     op: &str,
     target_id: Option<String>,
-    session: Option<String>,
+    actor: Option<String>,
 ) -> Option<crate::lease::LeaseOp> {
     use crate::lease::LeaseOp;
-    Some(match (op, target_id, session) {
+    Some(match (op, target_id, actor) {
         ("take_over", Some(target), _) => LeaseOp::TakeOver { target },
         ("hand_back", Some(target), _) => LeaseOp::HandBack { target },
         ("stop", Some(target), _) => LeaseOp::Stop { target },
-        ("allow", _, Some(session)) => LeaseOp::Allow { session },
+        ("allow", _, Some(actor)) => LeaseOp::Allow { actor },
         _ => return None,
     })
 }
@@ -328,6 +328,15 @@ impl ProviderDriver {
                                 .unwrap_or_else(PoisonError::into_inner)
                                 .remove(target_id);
                         }
+                        // A gone tab takes its automation lease with it.
+                        if name == "tab.gone"
+                            && let Some(target_id) = payload.get("targetId").and_then(Value::as_str)
+                        {
+                            let op =
+                                crate::lease::LeaseOp::TargetGone { target: target_id.to_owned() };
+                            let caller = crate::lease::LeaseCaller::default();
+                            let _ = apply_lease(&thread_leases, &thread_writer, &op, &caller);
+                        }
                         let event = DriverEvent { name, payload };
                         let sinks: Vec<EventSink> = thread_subscribers
                             .lock()
@@ -346,8 +355,8 @@ impl ProviderDriver {
                         let caller = crate::lease::LeaseCaller::default();
                         let _ = apply_lease(&thread_leases, &thread_writer, &op, &caller);
                     }
-                    Ok(Some(Frame::LeaseUser { op, target_id, session })) => {
-                        if let Some(op) = user_lease_op(&op, target_id, session) {
+                    Ok(Some(Frame::LeaseUser { op, target_id, actor })) => {
+                        if let Some(op) = user_lease_op(&op, target_id, actor) {
                             let caller = crate::lease::LeaseCaller {
                                 origin: "user".into(),
                                 ..crate::lease::LeaseCaller::default()
