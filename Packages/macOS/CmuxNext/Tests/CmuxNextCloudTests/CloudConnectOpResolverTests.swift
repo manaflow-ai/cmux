@@ -53,25 +53,35 @@ import Testing
         guard case .unsafeSocket = error else { Issue.record("expected unsafeSocket, got \(String(describing: error))"); return }
     }
 
-    @Test func pathsThatAreNotAnOwnedSocketAreRefused() throws {
+    @Test func pathsThatAreNotAnOwnedCarrierSocketAreRefused() throws {
         let socket = try TestLinkSocket()
         defer { socket.remove() }
-        let file = socket.directory + "/plain"
+        let file = socket.directory + "/cmux-link-111111111111.sock"
         #expect(FileManager.default.createFile(atPath: file, contents: Data()))
         defer { unlink(file) }
-        let link = socket.directory + "/link"
+        let link = socket.directory + "/cmux-link-222222222222.sock"
         #expect(symlink(socket.path, link) == 0)
         defer { unlink(link) }
-        let dotted: String = socket.directory + "/../" + String(socket.directory.dropFirst(5)) + "/l.sock"
-        let missing: String = socket.directory + "/missing.sock"
-        let long: String = "/" + String(repeating: "a", count: 120)
-        let paths: [String] = ["", "relative/l.sock", file, link, dotted, missing, long]
+        let dotted: String = socket.directory + "/../" + String(socket.directory.dropFirst(5)) + "/cmux-link-0123456789ab.sock"
+        let missing: String = socket.directory + "/cmux-link-333333333333.sock"
+        let long: String = "/" + String(repeating: "a", count: 80) + "/cmux-link-0123456789ab.sock"
+        let paths: [String] = ["", "relative/cmux-link-0123456789ab.sock", file, link, dotted, missing, long,
+                               socket.directory + "//cmux-link-0123456789ab.sock"]
         for path in paths {
             #expect(throws: CloudLinkError.self, "\(path)") { try CloudLinkSocketPolicy.check(path) }
         }
         try CloudLinkSocketPolicy.check(socket.path)
         // Another user's socket (the check takes the uid to compare with).
         #expect(throws: CloudLinkError.self) { try CloudLinkSocketPolicy.check(socket.path, uid: getuid() + 1) }
+    }
+
+    @Test func aSocketThatIsNotACarrierIsRefused() throws {
+        // For example the local daemon's socket in an owner-only directory.
+        for name in ["daemon.sock", "cmux-link-0123456789AB.sock", "cmux-link-0123.sock"] {
+            let socket = try TestLinkSocket(name: name)
+            defer { socket.remove() }
+            #expect(throws: CloudLinkError.self, "\(name)") { try CloudLinkSocketPolicy.check(socket.path) }
+        }
     }
 
     @Test func linkErrorsFromTheServerKeepTheirMeaning() async throws {

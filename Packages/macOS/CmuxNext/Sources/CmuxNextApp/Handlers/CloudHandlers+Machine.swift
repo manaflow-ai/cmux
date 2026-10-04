@@ -11,8 +11,9 @@ extension CloudHandlers {
         let cloud = context.services.cloud!
         bind("cloudOpenMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            // An ended app link waits for the user: opening the machine connects it.
-            if session.linkEnded != nil { session.connect(origin: .user) }
+            // An app link waits for the user after it ended: opening the
+            // machine connects it (a live link stays as it is).
+            if session.appLink != nil { session.connect(origin: .user) }
             run("open machine", context) { show(try await firstWorkspace(on: session, context), context) }
         }
         bind("cloudSSH", registry, reason: reason) { invocation in

@@ -17,20 +17,31 @@ import Testing
         let socket = try TestLinkSocket()
         defer { socket.remove() }
         let link = session(FakeCloudAppOps(socket: socket.path))
-        _ = try await link.connect(origin: .user)
-        #expect(try await link.endpoint() == socket.path)
+        let ticket = try await link.connect(origin: .user)
+        #expect(try await link.endpoint(ticket) == socket.path)
         // A second call is the connection reconnecting by itself: refused,
         // and the link stays ended until the user connects again.
-        await #expect(throws: CloudLinkError.self) { _ = try await link.endpoint() }
-        await #expect(throws: CloudLinkError.self) { _ = try await link.endpoint() }
+        await #expect(throws: CloudLinkError.self) { _ = try await link.endpoint(ticket) }
+        await #expect(throws: CloudLinkError.self) { _ = try await link.endpoint(ticket) }
         #expect(await link.isEnded)
-        _ = try await link.connect(origin: .user)
-        #expect(try await link.endpoint() == socket.path)
+        let again = try await link.connect(origin: .user)
+        #expect(try await link.endpoint(again) == socket.path)
     }
 
-    @Test func noEndpointBeforeAConnect() async {
-        let link = session(FakeCloudAppOps(socket: "/unused"))
-        await #expect(throws: CloudLinkError.self) { _ = try await link.endpoint() }
+    @Test func anOlderConnectsConnectionCannotTakeOrEndTheNewLink() async throws {
+        let socket = try TestLinkSocket()
+        defer { socket.remove() }
+        let link = session(FakeCloudAppOps(socket: socket.path))
+        let old = try await link.connect(origin: .script)
+        _ = try await link.endpoint(old)
+        let new = try await link.connect(origin: .user)
+        // The old connection reconnecting asks with its ticket: superseded,
+        // and the new connect's socket is still there for its connection.
+        await #expect(throws: CloudLinkError.self) { _ = try await link.endpoint(old) }
+        #expect(await !link.isEnded)
+        #expect(try await link.endpoint(new) == socket.path)
+        // A link change ends the link of the current ticket only.
+        #expect(await link.apply(CloudLinkChange(key: key, state: .down, generation: nil, reason: nil)) == new.id)
     }
 
     @Test func everyConnectIsANewIntent() async throws {
@@ -49,7 +60,7 @@ import Testing
     @Test func aFailedConnectEndsTheLinkWithItsError() async {
         let link = session(FakeCloudAppOps { _ in throw CloudAppOpError(code: "cmux.cloud.link_revoked", message: "gone") })
         await #expect(throws: CloudLinkError.revoked(reason: "gone")) { _ = try await link.connect(origin: .user) }
-        await #expect(throws: CloudLinkError.revoked(reason: "gone")) { _ = try await link.endpoint() }
+        #expect(await link.isEnded)
     }
 
     @Test func linkDownOrRevokedEndsTheLink() async throws {
@@ -57,12 +68,12 @@ import Testing
         defer { socket.remove() }
         for state in [CloudLinkChange.State.down, .revoked] {
             let link = session(FakeCloudAppOps(socket: socket.path, generation: 3))
-            _ = try await link.connect(origin: .user)
-            _ = try await link.endpoint()
+            let ticket = try await link.connect(origin: .user)
+            _ = try await link.endpoint(ticket)
             let change = CloudLinkChange(key: key, state: state, generation: state == .down ? 3 : nil, reason: "bye")
-            #expect(await link.apply(change))
+            #expect(await link.apply(change) == ticket.id)
             #expect(await link.isEnded)
-            await #expect(throws: CloudLinkError.self) { _ = try await link.endpoint() }
+            await #expect(throws: CloudLinkError.self) { _ = try await link.endpoint(ticket) }
         }
     }
 
@@ -70,11 +81,11 @@ import Testing
         let socket = try TestLinkSocket()
         defer { socket.remove() }
         let link = session(FakeCloudAppOps(socket: socket.path, generation: 5))
-        _ = try await link.connect(origin: .user)
-        #expect(await !link.apply(CloudLinkChange(key: CloudLinkKey(machine: "vm_2"), state: .down, generation: 5, reason: nil)))
-        #expect(await !link.apply(CloudLinkChange(key: key, state: .down, generation: 4, reason: nil)))
-        #expect(await !link.apply(CloudLinkChange(key: key, state: .up, generation: 6, reason: nil)))
-        #expect(try await link.endpoint() == socket.path)
+        let ticket = try await link.connect(origin: .user)
+        #expect(await link.apply(CloudLinkChange(key: CloudLinkKey(machine: "vm_2"), state: .down, generation: 5, reason: nil)) == nil)
+        #expect(await link.apply(CloudLinkChange(key: key, state: .down, generation: 4, reason: nil)) == nil)
+        #expect(await link.apply(CloudLinkChange(key: key, state: .up, generation: 6, reason: nil)) == nil)
+        #expect(try await link.endpoint(ticket) == socket.path)
     }
 
     @Test func closeEndsTheLinkAndDisconnectsTheMachine() async throws {
@@ -82,10 +93,10 @@ import Testing
         defer { socket.remove() }
         let ops = FakeCloudAppOps(socket: socket.path)
         let link = session(ops)
-        _ = try await link.connect(origin: .user)
+        let ticket = try await link.connect(origin: .user)
         await link.close()
         #expect(ops.recorded.map(\.op) == ["cloud.machine.connect", "cloud.machine.disconnect"])
-        await #expect(throws: CloudLinkError.self) { _ = try await link.endpoint() }
+        await #expect(throws: CloudLinkError.self) { _ = try await link.endpoint(ticket) }
     }
 
     @Test func aConnectThatLosesToANewerOneDoesNotPublishItsSocket() async throws {
@@ -104,9 +115,10 @@ import Testing
             let path = call == 1 ? firstPath : secondPath
             return Data(#"{"machine":"\#(args["machine"] ?? "")","generation":\#(call),"state":"up","socket":"\#(path)"}"#.utf8)
         }))
-        async let older: CloudLinkSocket = link.connect(origin: .script)
+        async let older: CloudLinkTicket = link.connect(origin: .script)
         await entered.wait()
-        #expect(try await link.connect(origin: .user).path == second.path)
+        let newer = try await link.connect(origin: .user)
+        #expect(newer.socket.path == second.path)
         release.open()
         do {
             _ = try await older
@@ -114,7 +126,7 @@ import Testing
         } catch {
             #expect(error is CloudLinkError)
         }
-        #expect(try await link.endpoint() == second.path)
+        #expect(try await link.endpoint(newer) == second.path)
     }
 
     @Test func linkChangedEventsParseFromTheAppServerEvent() throws {
