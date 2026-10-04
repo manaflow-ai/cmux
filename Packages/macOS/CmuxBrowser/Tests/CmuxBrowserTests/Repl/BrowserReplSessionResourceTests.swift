@@ -243,6 +243,41 @@ struct BrowserReplSessionResourceTests {
         #expect(lines.contains { $0.text.hasPrefix("# output continues in ") })
     }
 
+    /// Output that reaches the native print past what the session keeps in
+    /// memory goes to a spill file, but the runtime's output gate is not the
+    /// only way there (the runtime's own error reports, a script holding the
+    /// host): the spill stops at 64 MiB per cell and counts against the
+    /// session's fs budget, so a script cannot fill the disk through it.
+    @Test("Native output past the spill ceiling is dropped instead of written")
+    func nativeSpillIsBounded() async throws {
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-spill-\(UUID().uuidString)").path
+        try FileManager.default.createDirectory(atPath: scratch + "/work", withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scratch) }
+        let session = BrowserReplSession(
+            id: "spill-\(UUID().uuidString)",
+            cwd: scratch + "/work",
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "resources.js", source: resourceRuntime)], agentScripts: []),
+            driver: HeldCookiesDriver(),
+            temporaryDirectory: scratch
+        )
+        defer { session.close() }
+
+        // 112 MiB straight to the native host: 16 MiB kept, the rest spilled.
+        let result = await browserReplWithDeadline(seconds: 180) {
+            await session.evaluate(code: """
+            const line = "x".repeat(1 << 20);
+            for (let i = 0; i < 112; i++) native.print("log", line);
+            native.print("log", "last");
+            """, timeout: .seconds(170))
+        }
+        let lines = try #require(result?.lines)
+        let continues = try #require(lines.first { $0.text.hasPrefix("# output continues in ") }?.text)
+        let path = String(continues.dropFirst("# output continues in ".count))
+        let size = try #require(try FileManager.default.attributesOfItem(atPath: path)[.size] as? NSNumber).intValue
+        #expect(size <= 64 << 20, "the spill file grew to \(size) bytes")
+        #expect(lines.contains { $0.text.contains("dropped") }, "\(lines.suffix(3).map(\.text))")
+    }
+
     @Test("A cell that times out cancels the fetches it started")
     func timeoutCancelsTheCellsFetches() async {
         let driver = HeldCookiesDriver()
