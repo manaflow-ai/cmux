@@ -33,11 +33,14 @@ final class BrowserReplNavigationGuard {
 
     /// Whether the navigation of `panelID` to `url` must be cancelled. A
     /// cancelled navigation is reported to the sessions as `navigation.blocked`.
-    func cancels(panelID: UUID, url: URL) -> Bool {
+    /// `initiator` is the document that started it (WebKit's record of the
+    /// source frame): an `about:blank`, `data:` or opaque `blob:` document
+    /// takes or is written by it (``BrowserReplDomainPolicy/navigationBlockReason(_:initiator:)``).
+    func cancels(panelID: UUID, url: URL, initiator: BrowserReplFrameDocument?) -> Bool {
         guard let attachment = BrowserReplTabAttachments.shared.attachment(for: panelID),
               let creator = attachment.creatorSessionID,
               let policy = board.policy(for: creator),
-              let reason = policy.blockReason(url.absoluteString) else { return false }
+              let reason = policy.navigationBlockReason(url, initiator: initiator) else { return false }
         attachment.emit("navigation.blocked", ["url": url.absoluteString, "reason": reason])
         return true
     }
@@ -80,7 +83,9 @@ final class BrowserReplNavigationGuard {
     typealias PopupRoute = BrowserReplPopupRoute
 
     /// Routes a window the page in `panelID` opens (``BrowserReplPopupRoute``).
-    func popupRoute(panelID: UUID, url: URL?) -> PopupRoute {
+    /// `opener` is the document of the frame that opened it; an
+    /// `about:blank` window takes its origin.
+    func popupRoute(panelID: UUID, url: URL?, opener: BrowserReplFrameDocument?) -> PopupRoute {
         guard let attachment = BrowserReplTabAttachments.shared.attachment(for: panelID),
               attachment.isAttached else { return .browser }
         return BrowserReplPopupRoute(
@@ -88,7 +93,8 @@ final class BrowserReplNavigationGuard {
             openerCreatedBySession: attachment.appliesSessionPolicies,
             creatorPolicy: attachment.creatorSessionID.flatMap { board.policy(for: $0) } ?? BrowserReplDomainPolicy(),
             inputSession: attachment.inputSessionID.map { ($0, board.policy(for: $0) ?? BrowserReplDomainPolicy()) },
-            allowlist: BrowserURLAllowlistPolicy(defaults: .standard)
+            allowlist: BrowserURLAllowlistPolicy(defaults: .standard),
+            opener: opener
         )
     }
 }

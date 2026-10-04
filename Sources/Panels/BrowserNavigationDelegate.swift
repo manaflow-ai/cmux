@@ -341,6 +341,19 @@ import WebKit
             label: "BrowserNavigationDelegate.navigationAction"
         ).closure
 
+        // While a browser REPL session's guarded input or capture is in
+        // flight in this web view, no child frame loads a new document: the
+        // frame gate judged the frames before it started
+        // (BrowserReplSubframeLoadHold). The navigation is decided once
+        // that ends.
+        if BrowserReplSubframeLoadHold.shared.holdsBack(navigationAction.targetFrame, in: webView, until: { [weak self, weak webView] in
+            // A dropped decision cancels (the guard's fallback).
+            guard let self, let webView else { return }
+            self.webView(webView, decidePolicyFor: navigationAction, decisionHandler: decisionHandler)
+        }) {
+            return
+        }
+
         // A download this navigation becomes goes to a browser REPL session
         // only when that session's own input started it (a user's tab).
         if let owner, let url = navigationAction.request.url {
@@ -374,7 +387,7 @@ import WebKit
         if navigationAction.targetFrame?.isMainFrame == true,
            let url = navigationAction.request.url,
            let owner,
-           BrowserReplNavigationGuard.shared.cancels(panelID: owner.id, url: url) {
+           BrowserReplNavigationGuard.shared.cancels(panelID: owner.id, url: url, initiator: navigationAction.browserReplSourceDocument) {
             decisionHandler(.cancel)
             return
         }
@@ -505,11 +518,12 @@ import WebKit
 
         let replAttachment = owner.flatMap { BrowserReplTabAttachments.shared.attachment(for: $0.id) }
         let ownerID = owner?.id
+        let opener = replAttachment == nil ? nil : navigationAction.browserReplSourceDocument
         let openRequestInNewTab: (URLRequest) -> Void = { [requestNavigation, openInNewTab] request in
             // A REPL session sees the new tab as a popup it can attach to,
             // when it passes as an untrusted navigation (popupRoute).
             if let replAttachment, let ownerID {
-                switch BrowserReplNavigationGuard.shared.popupRoute(panelID: ownerID, url: request.url) {
+                switch BrowserReplNavigationGuard.shared.popupRoute(panelID: ownerID, url: request.url, opener: opener) {
                 case .refused:
                     return
                 case .browser:
@@ -920,6 +934,16 @@ import WebKit
             fallbackPolicy: WKNavigationResponsePolicy.cancel,
             label: "BrowserNavigationDelegate.navigationResponse"
         ).closure
+
+        // A child frame's document does not commit while a browser REPL
+        // session's guarded input or capture is in flight
+        // (BrowserReplSubframeLoadHold); its response is decided after.
+        if BrowserReplSubframeLoadHold.shared.holdsBack(response: navigationResponse.isForMainFrame, in: webView, until: { [weak self, weak webView] in
+            guard let self, let webView else { return }
+            self.webView(webView, decidePolicyFor: navigationResponse, decisionHandler: decisionHandler)
+        }) {
+            return
+        }
 
         if let url = navigationResponse.response.url {
             let isMainFrame = navigationResponse.isForMainFrame
