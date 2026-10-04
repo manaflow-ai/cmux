@@ -56,11 +56,51 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
     }
 
     public func render(_ event: AutomationInputEvent) {
-        _ = event
+        let session = event.sessionID
+        var cursor = cursors[session] ?? Cursor()
+        guard !cursor.paused else { return }
+        switch resolver.placement(forTarget: event.targetID) {
+        case let .visible(content, magnification):
+            guard let target = AgentCursorGeometry.overlayPoint(of: event, content: content, magnification: magnification) else {
+                return
+            }
+            if let from = cursor.point {
+                if from != target {
+                    host.apply(.glide(session: session, plan: motion.plan(
+                        fromX: from.x, fromY: from.y, toX: target.x, toY: target.y, endHeading: Self.restingHeading
+                    )))
+                }
+            } else {
+                host.apply(.place(session: session, point: target))
+            }
+            cursor.point = target
+            if event.kind == .click || event.kind == .doubleClick || event.kind == .rightClick {
+                host.apply(.pulse(session: session))
+            }
+        case let .hidden(anchor):
+            host.apply(.indicate(session: session, anchor: CGPoint(x: anchor.midX, y: anchor.midY)))
+            cursor.point = nil
+        case .elsewhere:
+            host.apply(.hide(session: session))
+            cursor.point = nil
+        }
+        cursors[session] = cursor
     }
 
     /// A lease frame for `session`: `nil` means the lease ended.
     public func leaseDidChange(session: String, state: AgentCursorLeaseState?) {
-        _ = (session, state)
+        guard let state else {
+            if cursors.removeValue(forKey: session) != nil {
+                host.apply(.remove(session: session))
+            }
+            return
+        }
+        var cursor = cursors[session] ?? Cursor()
+        let paused = state != .driving
+        if cursor.paused != paused {
+            cursor.paused = paused
+            host.apply(.setPaused(session: session, paused: paused))
+        }
+        cursors[session] = cursor
     }
 }

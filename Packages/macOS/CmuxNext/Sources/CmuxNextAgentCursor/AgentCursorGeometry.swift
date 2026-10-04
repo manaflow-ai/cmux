@@ -6,7 +6,12 @@ public enum AgentCursorGeometry {
     /// The page point the input lands on: `point`, else the center of
     /// `rect` (type and key may carry only the focused element), else nil.
     public static func pagePoint(of event: AutomationInputEvent) -> CGPoint? {
-        _ = event
+        if let point = event.point {
+            return CGPoint(x: point.x, y: point.y)
+        }
+        if let rect = event.rect {
+            return CGPoint(x: rect.x + rect.w / 2, y: rect.y + rect.h / 2)
+        }
         return nil
     }
 
@@ -16,7 +21,10 @@ public enum AgentCursorGeometry {
     public static func overlayPoint(
         of event: AutomationInputEvent, content: CGRect, magnification: Double
     ) -> CGPoint? {
-        _ = (event, content, magnification)
-        return nil
+        guard let page = pagePoint(of: event) else { return nil }
+        let scale = (event.zoom ?? 1) * magnification
+        let x = content.minX + page.x * scale
+        let y = content.minY + page.y * scale
+        return CGPoint(x: min(max(x, content.minX), content.maxX), y: min(max(y, content.minY), content.maxY))
     }
 }
