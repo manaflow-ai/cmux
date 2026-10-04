@@ -189,9 +189,8 @@ pub mod vectors {
         again.write(input(1, "echo two\n")).expect("write after resume");
         let events = take_until(again.as_mut(), "two", |e| has(&output(e), "two"));
         assert!(!has(&output(&events), "one"), "resume repeats nothing: {events:?}");
-        let mut twice = far.backend().resume(&token).expect("resume while attached");
-        let lost = take_until(twice.as_mut(), "lost", |e| !e.is_empty());
-        assert!(matches!(lost.as_slice(), [ByteEvent::Lost(_)]), "{lost:?}");
+        let twice = far.backend().resume(&token).err();
+        assert!(matches!(twice, Some(BackendError::Invalid(_))), "attached: {twice:?}");
         again.close(Close::Now).expect("close");
         let mut gone = far.backend().resume(&token).expect("resume after close");
         let lost = take_until(gone.as_mut(), "lost", |e| !e.is_empty());
