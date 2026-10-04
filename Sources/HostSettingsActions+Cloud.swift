@@ -82,7 +82,7 @@ extension HostSettingsActions {
         guard let flow = AppDelegate.shared?.auth?.accountFlow, flow.isAuthenticated,
               let accountID = flow.currentIdentity?.id else { return nil }
         let requestedTeamID = flow.confirmedTeamID
-        guard await flow.refreshBillingPlan() else { return nil }
+        guard await flow.refreshBillingPlanAndReportSuccess() else { return nil }
         // Only answer for the account that asked; a switch mid-check means
         // this answer belongs to someone else.
         guard !Task.isCancelled,

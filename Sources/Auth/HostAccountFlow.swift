@@ -250,8 +250,12 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         // stale the user signs in again (full browser round trip).
     }
 
+    func refreshBillingPlan() async {
+        _ = await refreshBillingPlanAndReportSuccess()
+    }
+
     @discardableResult
-    func refreshBillingPlan() async -> Bool {
+    func refreshBillingPlanAndReportSuccess() async -> Bool {
         guard coordinator.currentUser != nil, let identityID = currentIdentity?.id else {
             billingPlanState = .unknown
             return false
