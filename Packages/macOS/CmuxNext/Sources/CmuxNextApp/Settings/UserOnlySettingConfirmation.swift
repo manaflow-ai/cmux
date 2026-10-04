@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextSettings
 
 /// The native sheet for `cmux settings set <user-only key> <value> --confirm` (SECURITY,
@@ -14,10 +15,24 @@ enum UserOnlySettingConfirmation {
                 // A reset shows the value it returns to (the schema default).
                 body: ConfirmationStrings.userOnlySettingBody(key, (value ?? Self.defaultValue(key)).compactText),
                 button: ConfirmationStrings.userOnlySettingButton)
-            return await withCheckedContinuation { continuation in
-                DestructiveConfirmation.present(prompt, in: window) { continuation.resume(returning: $0) }
+            // The request may end first (deadline, Ctrl-C): then the sheet goes, answered no.
+            guard !Task.isCancelled else { return false }
+            let shown = ShownDialog()
+            return await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    shown.id = CmuxDialogCenter.shared.present(DestructiveConfirmation.spec(prompt), in: .window(window)) {
+                        continuation.resume(returning: $0.button == DestructiveConfirmation.confirmID)
+                    }
+                }
+            } onCancel: {
+                Task { @MainActor in if let id = shown.id { _ = CmuxDialogCenter.shared.dismiss(id) } }
             }
         }
+    }
+
+    /// The sheet's dialog id, for a dismissal when the request ends first.
+    @MainActor final class ShownDialog: Sendable {
+        var id: Int?
     }
 
     static func defaultValue(_ key: String) -> JSONValue {

@@ -172,14 +172,17 @@ state is paused; the caller runs `cloud.machine.start` with an idempotency key, 
 `cloud.machine.link_token` (the dial credential; CLOUD-ROUTE and LINK-TOKEN-OP, 2026-10-04): class
 `mutation` with NO idempotency key (`idempotency: "none"`): each call mints a fresh token and
 nothing replays, so a stored answer can never hand a credential out twice; a retry mints another.
-Risk `execute`. Principals `install` only (no session), owner `cloud:CloudDO`, off MCP, hidden on
+Risk `execute`. Principals `install` only (no session). An agent (chief) token is refused
+(`auth.forbidden`, decision 2026-10-04): an agent can get a dial token later only through its
+owner's install principal with a confirmation, and that is a separate decision. Further rules: owner `cloud:CloudDO`, off MCP, hidden on
 the CLI, never in an app's `consumes.ops`. CloudDO audits every mint; a mint commits no stream event and
 the token is never cached, logged or kept in a ledger row. Request `{host, services}` (`services`: 1 or 2 unique of `daemon`, `ssh`, a subset of
 what `connect_info` lists). Result `{token, expires_at, host, epoch, services}`: `token` is a
 secret for one `hello` (the VM daemon checks it; a link with no valid token is closed after
 `hello`), single host, single install, these services, this `epoch`; `expires_at` at most 5
-minutes after the mint. Errors: `cloud.machine.not_found`, `cloud.machine.not_bound`,
-`auth.forbidden`, plus the standard mutation and Worker gate codes.
+minutes after the mint. Errors: `cloud.machine.not_found`, `cloud.machine.not_bound` (also for a
+machine in `deleting` or `failed`), `auth.forbidden`, `cloud.rate_limited` (per install), plus the
+standard mutation and Worker gate codes.
 
 Cache rules for `cmux link`:
 1. Cache the `connect_info` result by host id for at most 300 s or until a
@@ -195,7 +198,12 @@ Mapping to `link.dial` errors: `unknown_host` = `cloud.machine.not_found`; `not_
 `unreachable` = no path answered; `bad_request` = malformed op line.
 
 Dependencies: VM bind (the backend lead: CloudDO records `host`, `epoch`, `wg_public_key` at bind
-from the image's bind agent); `TeamDO` peer map and the Freestyle tunnel and rule reconciler (lane
+from the image's bind agent); the driver writes `/var/lib/cmux/bind.json` (0600 root, dir 0700 root)
+as `{team, machine, bind_token, api_origin, env}` on every create, retry and restore: `api_origin`
+is the https origin from the Worker var `CLOUD_API_ORIGIN` (no write if it is not https) and `env`
+is `dev`, `stg` or `prod`, the same tag as the token's `iss` `cmux:cloud:<env>`; the image's agent
+refuses an origin not on its per-environment allowlist, binds, deletes `bind.json` and writes
+`bound.json` `{host, epoch}`; `TeamDO` peer map and the Freestyle tunnel and rule reconciler (lane
 12); for `ssh`, the VM's sshd trusts the team SSH CA (`team_vm.ssh_cert`, team VM lead), so scp and
 sftp use short-lived certificates, never a static key.
 

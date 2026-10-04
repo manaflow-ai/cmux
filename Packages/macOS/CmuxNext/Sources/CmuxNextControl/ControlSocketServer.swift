@@ -356,6 +356,8 @@ public final class ControlSocketServer: Sendable {
             state.withLock { $0.connections[id] = connection }
             connection.onClosed = { [weak self] in
                 _ = self?.state.withLock { $0.connections.removeValue(forKey: id) }
+                // A request still waiting for this client (a confirmation sheet) ends now.
+                ControlConnectionClosures.shared.closed(id)
             }
             let router = self.router
             connection.start { lines in

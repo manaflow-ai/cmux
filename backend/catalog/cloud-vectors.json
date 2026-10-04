@@ -9,7 +9,7 @@
     "agent": "agent_chief01"
   },
   "conventions": {
-    "request": "POST http.path with {op, params, idempotency_key?}; reads have no key.",
+    "request": "POST http.path with {op, params, idempotency_key?}; reads have no key. `backend_only` bind cases POST params as the whole body to /v1/cloud/bind with no bearer (the one-time bind token is the credential).",
     "responses": "One entry per attempt with the same (principal, op, params, idempotency_key): attempt i gets responses[i], later attempts the last entry.",
     "read_error": "A read error is the HTTP error body {_tag, code, message} at http.status.",
     "principal": "kind install or session; agent set = a chief token (claim agt).",
@@ -1467,7 +1467,7 @@
               "state": "running",
               "peer": {
                 "wg_public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                "overlay_address": "fd7c:6d78:0:0:0:0:0:1",
+                "overlay_address": "fd7c:6d78:9125:b977:256c:dccb:e2fa:f808",
                 "vpc_endpoint": null,
                 "public_ipv6": null
               },
@@ -1517,7 +1517,7 @@
               "state": "running",
               "peer": {
                 "wg_public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                "overlay_address": "fd7c:6d78:0:0:0:0:0:1",
+                "overlay_address": "fd7c:6d78:9125:b977:256c:dccb:e2fa:f808",
                 "vpc_endpoint": null,
                 "public_ipv6": null
               },
@@ -1567,7 +1567,7 @@
               "state": "paused",
               "peer": {
                 "wg_public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                "overlay_address": "fd7c:6d78:0:0:0:0:0:2",
+                "overlay_address": "fd7c:6d78:bf6d:3146:3452:bc05:ac6a:2f2a",
                 "vpc_endpoint": null,
                 "public_ipv6": null
               },
@@ -1695,7 +1695,7 @@
       "params": {
         "host": "host_h0000000000000000004",
         "services": [
-          "daemon"
+          "ssh"
         ]
       },
       "responses": [
@@ -1712,14 +1712,87 @@
               "message": "the machine is still provisioning",
               "retryable": false
             },
-            "transaction": "",
+            "transaction": "tx_0013",
             "idempotency_key": "",
             "replayed": false,
-            "stream": "cloud:team_t0000000000000000001",
+            "stream": "",
             "sequence": 0
           }
         }
       ]
+    },
+    {
+      "name": "machine.link_token.not_found",
+      "op": "cloud.machine.link_token",
+      "class": "mutation",
+      "principal": {
+        "kind": "install"
+      },
+      "params": {
+        "host": "host_h0000000000000000009",
+        "services": [
+          "ssh"
+        ]
+      },
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.machine.link_token",
+            "error": {
+              "code": "cloud.machine.not_found",
+              "message": "no such machine in this team",
+              "retryable": false
+            },
+            "transaction": "tx_0014",
+            "idempotency_key": "",
+            "replayed": false,
+            "stream": "",
+            "sequence": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "machine.link_token.session_forbidden",
+      "op": "cloud.machine.link_token",
+      "class": "mutation",
+      "principal": {
+        "kind": "session"
+      },
+      "params": {
+        "host": "host_h0000000000000000001",
+        "services": [
+          "ssh"
+        ]
+      },
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.machine.link_token",
+            "error": {
+              "code": "auth.forbidden",
+              "message": "link tokens are minted only for an install's cmux link",
+              "retryable": false
+            },
+            "transaction": "tx_0015",
+            "idempotency_key": "",
+            "replayed": false,
+            "stream": "",
+            "sequence": 0
+          }
+        }
+      ],
+      "note": "Install principals only (LINK-RESOLVE): an app or page caller never holds a link token."
     },
     {
       "name": "snapshot.list.machine",
@@ -1834,7 +1907,7 @@
                 "revision": "1"
               }
             },
-            "transaction": "tx_0013",
+            "transaction": "tx_0016",
             "idempotency_key": "key-snap-1",
             "revision": "1",
             "replayed": false,
@@ -1933,7 +2006,7 @@
                 "revision": "44"
               }
             },
-            "transaction": "tx_0014",
+            "transaction": "tx_0017",
             "idempotency_key": "key-restore-1",
             "revision": "44",
             "replayed": false,
@@ -1976,7 +2049,7 @@
                 "revision": "44"
               }
             },
-            "transaction": "tx_0014",
+            "transaction": "tx_0017",
             "idempotency_key": "key-restore-1",
             "revision": "44",
             "replayed": true,
@@ -2045,7 +2118,7 @@
             "value": {
               "deleted": true
             },
-            "transaction": "tx_0015",
+            "transaction": "tx_0018",
             "idempotency_key": "key-snap-delete-1",
             "revision": "4",
             "replayed": false,
@@ -2064,7 +2137,7 @@
             "value": {
               "deleted": true
             },
-            "transaction": "tx_0015",
+            "transaction": "tx_0018",
             "idempotency_key": "key-snap-delete-1",
             "revision": "4",
             "replayed": true,
@@ -2144,7 +2217,7 @@
             "value": {
               "url": "https://checkout.example.com/session/cs_vector_0001"
             },
-            "transaction": "tx_0016",
+            "transaction": "tx_0019",
             "idempotency_key": "key-checkout-1",
             "revision": "13",
             "replayed": false,
@@ -2239,7 +2312,7 @@
             "value": {
               "state": "moving"
             },
-            "transaction": "tx_0017",
+            "transaction": "tx_0020",
             "idempotency_key": "key-migrate-1",
             "revision": "4",
             "replayed": false,
@@ -2361,7 +2434,7 @@
                 "revision": "54"
               }
             },
-            "transaction": "tx_0018",
+            "transaction": "tx_0021",
             "idempotency_key": "key-upgrade-1",
             "revision": "54",
             "replayed": false,
@@ -2464,7 +2537,7 @@
             "value": {
               "stream": "wst_w0000000000000000001"
             },
-            "transaction": "tx_0019",
+            "transaction": "tx_0022",
             "idempotency_key": "key-shell-1",
             "revision": "7",
             "replayed": false,
@@ -2726,6 +2799,152 @@
           }
         }
       }
+    }
+  ],
+  "backend_only": [
+    {
+      "name": "machine.link_token.key_refused",
+      "op": "cloud.machine.link_token",
+      "class": "mutation",
+      "principal": {
+        "kind": "install"
+      },
+      "params": {
+        "host": "host_h0000000000000000001",
+        "services": [
+          "daemon"
+        ]
+      },
+      "request_idempotency_key": "client-key",
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 400
+          },
+          "body": {
+            "_tag": "BadRequest",
+            "code": "validation.invalid",
+            "message": "cloud.machine.link_token takes no idempotency_key"
+          }
+        }
+      ],
+      "note": "The request carried idempotency_key (request_idempotency_key): refused, so a stored answer can never hand a credential out twice."
+    },
+    {
+      "name": "machine.connect_info.both_selectors",
+      "op": "cloud.machine.connect_info",
+      "class": "read",
+      "principal": {
+        "kind": "install"
+      },
+      "params": {
+        "machine": "vm_m0000000000000000001",
+        "host": "host_h0000000000000000001"
+      },
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/read",
+            "status": 400
+          },
+          "body": {
+            "_tag": "BadRequest",
+            "code": "validation.invalid",
+            "message": "give exactly one of machine and host"
+          }
+        }
+      ],
+      "note": "Exactly one of machine and host; the client refuses both or neither before sending, and the server refuses them too."
+    },
+    {
+      "name": "machine.bind",
+      "op": "cloud.machine.bind",
+      "principal": {
+        "kind": "bind_token"
+      },
+      "params": {
+        "team": "team_t0000000000000000001",
+        "machine": "vm_m0000000000000000004",
+        "bind_token": "bt_vector_one_time_token_000000000000000000",
+        "wg_public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "daemon": {
+          "version": "0.40.0",
+          "capabilities": [
+            "terminal",
+            "files"
+          ]
+        }
+      },
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/cloud/bind",
+            "status": 200
+          },
+          "body": {
+            "ok": true,
+            "value": {
+              "machine": "vm_m0000000000000000004",
+              "host": "host_h0000000000000000004",
+              "epoch": 1,
+              "keyset": {
+                "version": "0123456789abcdef",
+                "keys": {
+                  "vector-k1": {
+                    "kty": "OKP",
+                    "crv": "Ed25519",
+                    "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
+                    "kid": "vector-k1",
+                    "alg": "EdDSA",
+                    "use": "sig"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "http": {
+            "path": "/v1/cloud/bind",
+            "status": 403
+          },
+          "body": {
+            "ok": false,
+            "error": {
+              "code": "auth.forbidden",
+              "message": "bind refused"
+            }
+          }
+        }
+      ],
+      "note": "responses[0]: the answer carries the public link keyset (at most 2 kids, no private part) and the machine becomes running with its host (cloud.machine.upsert). responses[1]: a second bind with the spent token; any wrong, expired or unknown token is the same auth.forbidden."
+    },
+    {
+      "name": "machine.bind.invalid",
+      "op": "cloud.machine.bind",
+      "principal": {
+        "kind": "bind_token"
+      },
+      "params": {
+        "team": "team_t0000000000000000001",
+        "machine": "vm_m0000000000000000004"
+      },
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/cloud/bind",
+            "status": 400
+          },
+          "body": {
+            "ok": false,
+            "error": {
+              "code": "validation.invalid",
+              "message": "invalid bind request"
+            }
+          }
+        }
+      ]
     }
   ]
 }

@@ -5318,7 +5318,7 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
         &harness.socket,
         serde_json::json!({"id": 8, "cmd": "send", "surface": adopted_surface, "text": format!("{typed}\n")}),
     );
-    assert!(wait_for_screen(&harness.socket, adopted_surface, &typed).contains(&typed));
+    assert_screen_shows(&harness.socket, adopted_surface, &typed, &terminal_id);
     request(
         &harness.socket,
         serde_json::json!({"id": 9, "cmd": "close-terminal", "terminal_id": terminal_id, "terminal_incarnation": incarnation}),

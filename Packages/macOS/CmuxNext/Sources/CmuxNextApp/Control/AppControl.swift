@@ -116,6 +116,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugDockColumns.handle(call.params, services: services))
             },
+            // Agent cursor visibility per browser tab (`target` narrows it).
+            .mainActor("debug.agent_cursor") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugAgentCursor.report(call.params, services: services))
+            },
             .mainActor("debug.screens") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(DebugScreens.report(services: services))
