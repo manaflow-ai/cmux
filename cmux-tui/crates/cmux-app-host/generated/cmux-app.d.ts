@@ -445,8 +445,12 @@ interface CmuxGlobal {
       status: CmuxOp<Record<string, never>, { signedIn: boolean; team?: string | null }>
     }
     machine: {
+      /** `cloud.machine.connect` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Open the one private link (carrier) to a machine and return it. A second call while the link is up returns the same carrier and starts no new link. A paused machine is started first. Not a focus change. When the link goes down nothing reconnects by itself and nothing queues: call connect again. */
+      connect: CmuxOp<{ machine: string }, { machine: string; carrier: string; generation: number; state: "up"; socket: string }>
       /** `cloud.machine.create` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Create a machine. Needs an idempotency key: a retry with the same key returns the same machine and never creates a second one. Uses your plan quota. Alias: vm.create. */
       create: CmuxOp<{ displayName?: string; memoryMb?: number; kind?: string }, { id: string; provider?: string; status: "provisioning" | "running" | "failed" | "paused" | "destroyed" | "unknown"; displayName?: string | null; slug?: string | null; kind?: string | null; image?: string | null; imageVersion?: string | null; createdAt?: number | null; address?: { ipv4?: string | null; ipv6?: string | null } | null; createdBy?: { userId?: string; displayName?: string | null } | null; freeAccessExpiresAt?: number | null }>
+      /** `cloud.machine.disconnect` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): End the link to a machine and forget it, also after a revocation. The machine keeps running. */
+      disconnect: CmuxOp<{ machine: string }, { machine: string; disconnected: boolean }>
       /** `cloud.machine.get` (read, scope `cloud:read`, owner `app:cmux/cloud`): Read one machine and update it in the projection. Alias: vm.get. */
       get: CmuxOp<{ machine: string }, { id: string; provider?: string; status: "provisioning" | "running" | "failed" | "paused" | "destroyed" | "unknown"; displayName?: string | null; slug?: string | null; kind?: string | null; image?: string | null; imageVersion?: string | null; createdAt?: number | null; address?: { ipv4?: string | null; ipv6?: string | null } | null; createdBy?: { userId?: string; displayName?: string | null } | null; freeAccessExpiresAt?: number | null }>
       idle_policy: {
@@ -469,6 +473,10 @@ interface CmuxGlobal {
     plan: {
       /** `cloud.plan.get` (read, scope `cloud:read`, owner `app:cmux/cloud`): Your plan: machine limit, active machines, memory sizes the plan includes and the plan that adds larger ones. Read from the cmux Cloud API; cmux keeps no plan logic. */
       get: CmuxOp<Record<string, never>, { planId?: string | null; maxActiveVms?: number | null; activeVmCount?: number | null; memoryOptionsMb?: Array<number>; lockedMemoryOptionsMb?: Array<number>; memoryUpgradePlanId?: string | null; freeAccessWindowDays?: number | null; freeAccessExpiresAt?: number | null }>
+    }
+    rescue: {
+      /** `cloud.rescue.open` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Open a shell on a machine whose cmux daemon does not answer (the cmux.terminal.backend/1 rescue kind). The new terminal gets focus only for origin user or focus true. Answers cmux.cloud.unsupported until the cmux Cloud API has an interactive shell route. */
+      open: CmuxOp<{ machine: string; cols?: number; rows?: number; focus?: boolean }, { terminal: string; machine: string; backend: string; kind: "cloud-vm-rescue"; focus: boolean }>
     }
     snapshot: {
       /** `cloud.snapshot.create` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Take a snapshot of a machine. Alias: vm.snapshot.create. */
