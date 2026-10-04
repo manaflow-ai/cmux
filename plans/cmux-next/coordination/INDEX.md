@@ -9,6 +9,7 @@ Read the lane file before changing a shared surface. Newest entries remain first
 
 - [app-platform](app-platform.md)
 - [apps](apps.md)
+- [appstore-coderouter](appstore-coderouter.md)
 - [automations](automations.md)
 - [backend](backend.md)
 - [browser](browser.md)
