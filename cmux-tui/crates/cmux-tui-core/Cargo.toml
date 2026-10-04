@@ -35,6 +35,7 @@ getrandom.workspace = true
 rusqlite.workspace = true
 fs4.workspace = true
 sha2.workspace = true
+quick-xml.workspace = true
 zeroize.workspace = true
 url.workspace = true
 cmux-app-manifest.workspace = true

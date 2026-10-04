@@ -328,6 +328,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object getBlob(GetBlobRequest request) throws CmuxException {
+        Object result = execute(Commands.GET_BLOB, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final BrowserProviderSnapshot getBrowserProvider() throws CmuxException {
         Object result = execute(Commands.GET_BROWSER_PROVIDER, Map.of());
         return BrowserProviderSnapshot.fromWire(result);
@@ -636,6 +641,11 @@ public abstract class GeneratedCmuxClient {
     public final ProcessInfoResult processInfo(ProcessInfoRequest request) throws CmuxException {
         Object result = execute(Commands.PROCESS_INFO, request.toWire());
         return ProcessInfoResult.fromWire(result);
+    }
+
+    public final Object putBlob(PutBlobRequest request) throws CmuxException {
+        Object result = execute(Commands.PUT_BLOB, request.toWire());
+        return Wire.immutableJson(result);
     }
 
     public final FrontendProjection putFrontendProjection(PutFrontendProjectionRequest request) throws CmuxException {

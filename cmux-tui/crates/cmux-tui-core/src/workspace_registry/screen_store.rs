@@ -8,7 +8,7 @@
 //! against live screens. Each write appends one advisory `state` journal
 //! record; the tables are authoritative for restoration.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use anyhow::Context;
 use rusqlite::{Connection, Transaction, params};
@@ -211,6 +211,7 @@ pub(crate) fn write_screen_state(
     for group in state.groups.values() {
         validate_screen_group(group)?;
     }
+    require_new_screen_icons(transaction, state)?;
     transaction.execute("DELETE FROM screen_presentation", [])?;
     transaction.execute("DELETE FROM screen_groups", [])?;
     transaction.execute("DELETE FROM screen_group_members", [])?;
@@ -257,6 +258,27 @@ pub(crate) fn write_screen_state(
             .collect(),
         &json!({"screens": state}),
     )
+}
+
+/// Every screen icon this write adds must name a stored asset. Icons the
+/// table already holds are not checked again: the whole table is rewritten.
+fn require_new_screen_icons(
+    transaction: &Transaction<'_>,
+    state: &ScreenPresentationState,
+) -> anyhow::Result<()> {
+    let stored = {
+        let mut statement = transaction
+            .prepare("SELECT DISTINCT icon FROM screen_presentation WHERE icon IS NOT NULL")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<HashSet<_>, _>>()?
+    };
+    for icon in state.screens.values().filter_map(|record| record.icon.as_ref()) {
+        if !stored.contains(icon) {
+            super::personal_store::require_icon_asset(transaction, icon)?;
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn read_screen_state(
@@ -316,7 +338,7 @@ pub(crate) fn read_screen_state(
     }
     // A group left without a live member (its screens closed while the
     // daemon was down) is gone.
-    let live: std::collections::HashSet<&String> = state.members.values().collect();
+    let live: HashSet<&String> = state.members.values().collect();
     let empty =
         state.groups.keys().filter(|id| !live.contains(id)).cloned().collect::<Vec<String>>();
     for id in empty {

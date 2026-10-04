@@ -18,10 +18,12 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::JournalSubject;
+pub(crate) mod blobs;
 use super::presentation_store::{
     append_presentation_record, validate_presentation_color, validate_presentation_icon,
     validate_presentation_text, validate_workspace_group_id,
 };
+pub(crate) use blobs::require_icon_asset;
 
 /// The built-in room. It always exists and cannot be deleted.
 pub const DEFAULT_PROFILE_ID: &str = "default";
@@ -105,6 +107,7 @@ pub(crate) fn migrate_personal_v1(
     create_personal_schema(&tx)?;
     super::personal_browser_profiles::create_browser_profile_schema(&tx)?;
     super::personal_bookmarks::create_bookmark_schema(&tx)?;
+    blobs::open_blob_store(&tx)?;
     tx.execute("INSERT OR IGNORE INTO meta(key, value) VALUES(?1, '0')", [REVISION_META_KEY])?;
     let migrated = tx
         .query_row("SELECT 1 FROM meta WHERE key = ?1", [MIGRATED_META_KEY], |_| Ok(()))
