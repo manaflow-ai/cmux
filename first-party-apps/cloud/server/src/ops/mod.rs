@@ -87,6 +87,8 @@ const OPS: &[(&str, Kind)] = &[
     // the path (native file panel), never an agent.
     ("cloud.file.push", Kind::UserOnly),
     ("cloud.file.pull", Kind::UserOnly),
+    // Stopping a transfer only stops work a person started: no gesture.
+    ("cloud.file.transfer.cancel", Kind::Mutation),
     // Ports and browser routes (crate::ports).
     ("cloud.port.list", Kind::Read),
     ("cloud.port.forward", Kind::Mutation),
@@ -356,6 +358,7 @@ impl<C: ControlPlane> Server<C> {
         };
         if crate::link::ops::live_state_op(name)
             || crate::ports::live_state_op(name)
+            || crate::fs::live_state_op(name)
             || RERUN_OPS.contains(&name)
         {
             // The answer is live state (a carrier, a forward, or DNS and

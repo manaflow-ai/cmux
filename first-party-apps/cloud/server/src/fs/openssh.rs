@@ -19,6 +19,7 @@
 //!
 //! UNVERIFIED live: needs a Cloud machine (no non-production account yet).
 
+use super::cancel::Cancel;
 use super::key::TransferKey;
 use super::transfer::{Direction, Transfer, TransferError, TransferJob};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -222,7 +223,12 @@ impl OpenSshTransfer {
 }
 
 impl Transfer for OpenSshTransfer {
-    fn run(&self, job: &TransferJob, key: &TransferKey) -> Result<u64, TransferError> {
+    fn run(
+        &self,
+        job: &TransferJob,
+        key: &TransferKey,
+        _cancel: &Cancel,
+    ) -> Result<u64, TransferError> {
         for program in [&self.ssh, &self.scp, &self.ssh_agent, &self.ssh_add] {
             if !program.is_absolute() {
                 return Err(failed("OpenSSH is not configured", &program.to_string_lossy()));
