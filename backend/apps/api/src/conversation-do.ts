@@ -138,7 +138,7 @@ export class ConversationDO extends OwnerDO<Head> {
 
   /** The alarm also expires upload slots and runs the attachment sweep (shared with the outbox drain and the prunes). */
   protected override nextWakeAt(_state: Head, _now: number): number | null {
-    const times = [store.nextSweepAt(this.sqlStore), store.nextSlotDue(this.sqlStore)].filter((t): t is number => t !== null)
+    const times = [store.nextSweepAt(this.sqlStore), store.nextSlotDue(this.sqlStore), store.purgeAt(this.sqlStore)].filter((t): t is number => t !== null)
     return times.length ? Math.min(...times) : null
   }
 
@@ -146,6 +146,12 @@ export class ConversationDO extends OwnerDO<Head> {
     await this.expireSlots(now)
     const due = store.nextSweepAt(this.sqlStore)
     if (due !== null && due <= now) await this.sweepAttachments(now)
+    const purge = store.purgeAt(this.sqlStore)
+    const entity = this.boundRow()?.entity
+    if (purge !== null && purge <= now && entity) {
+      await this.deletePrefix(entity)
+      store.clearPurge(this.sqlStore, purge)
+    }
   }
 
   private users(user: string): Users {
@@ -395,21 +401,35 @@ export class ConversationDO extends OwnerDO<Head> {
   /**
    * Conversation storage deletion: forgets every record and slot, deletes every object under
    * `home/v1/<conversation>/` (also orphans of failed uploads) and releases the uploaders' storage.
-   * The deletion path that calls it (no human for 30 days, section 10) does not exist yet.
+   * A dropped slot's URL may still finish a PUT after this (S3 checks expiry only at the start),
+   * so the prefix is deleted again by the alarm once the latest dropped slot is past its expiry
+   * plus the upload grace. The deletion path that calls it (no human for 30 days, section 10)
+   * does not exist yet; the conversation takes no new uploads by then (archived).
    */
   async deleteAttachmentStorage(entity: string): Promise<number> {
     if (!this.existingState(entity) || !this.env.HOME_ATTACHMENTS) return 0
     const { records, slots } = store.forgetAll(this.sqlStore)
+    if (slots.length) {
+      store.schedulePurge(this.sqlStore, Math.max(...slots.map((s) => s.expires_at)) + store.UPLOADING_GRACE_MS)
+      this.scheduleAlarm()
+    }
     await this.dropObjects(records)
     for (const slot of slots) if (slot.state !== "tombstone") await this.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
-    let deleted = records.length
+    const known = new Set(records.flatMap(store.recordKeys))
+    return records.length + (await this.deletePrefix(entity)).filter((k) => !known.has(k)).length
+  }
+
+  /** Deletes every object under `home/v1/<conversation>/`; answers the keys it deleted. */
+  private async deletePrefix(entity: string): Promise<Array<string>> {
+    const bucket = this.env.HOME_ATTACHMENTS
+    if (!bucket) return []
+    const deleted: Array<string> = []
     let cursor: string | undefined
     do {
-      const page = await this.env.HOME_ATTACHMENTS.list({ prefix: conversation.attachmentPrefix(entity), ...(cursor ? { cursor } : {}) })
+      const page = await bucket.list({ prefix: conversation.attachmentPrefix(entity), ...(cursor ? { cursor } : {}) })
       if (page.objects.length) {
-        await this.env.HOME_ATTACHMENTS.delete(page.objects.map((o) => o.key))
-        const known = new Set(records.flatMap(store.recordKeys))
-        deleted += page.objects.filter((o) => !known.has(o.key)).length
+        await bucket.delete(page.objects.map((o) => o.key))
+        deleted.push(...page.objects.map((o) => o.key))
       }
       cursor = page.truncated ? page.cursor : undefined
     } while (cursor)

@@ -379,7 +379,8 @@ new body. No raw address, token or token hash is ever projected.
   A batch holds a `running` mark until `markSwept`, so a retract or edit that lands while the batch
   awaits its R2 delete queues another pass (due at once) instead of being cleared. Hooks for paths that do
   not exist yet: `messageDeleteWrites` (message retention) and `ConversationDO.deleteAttachmentStorage`
-  (conversation storage deletion). Attachments in `conversation.import` remain C-13.
+  (conversation storage deletion; it drops open slots, so it schedules a second prefix delete at
+  the latest dropped slot's expiry plus `UPLOADING_GRACE_MS`, which removes a late presigned PUT). Attachments in `conversation.import` remain C-13.
 
 ## 11. Self-hosted implementation (cmux server, team VM)
 

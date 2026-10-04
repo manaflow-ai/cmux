@@ -67,7 +67,9 @@ const LATER_COLUMNS: ReadonlyArray<[string, string]> = [
   [SLOTS, "poster_state TEXT"],
   [SLOTS, "poster_etag TEXT"],
   // 1 from a batch until its markSwept: a release in between (during the R2 delete) queues another pass.
-  [SWEEP, "running INTEGER NOT NULL DEFAULT 0"]
+  [SWEEP, "running INTEGER NOT NULL DEFAULT 0"],
+  // After conversation storage deletion: when to delete the prefix again (a URL the deletion dropped may still finish a PUT).
+  [SWEEP, "purge_at INTEGER"]
 ]
 const migrated = new WeakSet<object>()
 const has = (sql: Sql, table: string) => sql.exec(`SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ?`, table).length > 0
@@ -350,3 +352,23 @@ export const markDirty = (sql: Sql, at: number): void => {
   sql.exec(`INSERT INTO ${SWEEP} (id, cutoff) VALUES (1, ?) ON CONFLICT (id) DO NOTHING`, Number.MIN_SAFE_INTEGER)
   sql.exec(`UPDATE ${SWEEP} SET dirty_at = MIN(COALESCE(dirty_at, ?), ?), redo = CASE WHEN cursor_at IS NULL AND running = 0 THEN redo ELSE 1 END WHERE id = 1`, at, at)
 }
+
+/**
+ * Conversation storage deletion dropped slots whose URL may still finish a PUT: the prefix is
+ * deleted again at `at` (the latest dropped slot's expiry plus the upload grace).
+ */
+export const schedulePurge = (sql: Sql, at: number): void => {
+  ensure(sql)
+  sql.exec(`INSERT INTO ${SWEEP} (id, cutoff) VALUES (1, ?) ON CONFLICT (id) DO NOTHING`, Number.MIN_SAFE_INTEGER)
+  sql.exec(`UPDATE ${SWEEP} SET purge_at = MAX(COALESCE(purge_at, ?), ?) WHERE id = 1`, at, at)
+}
+
+export const purgeAt = (sql: Sql): number | null => {
+  if (!has(sql, SWEEP)) return null
+  ensure(sql)
+  const at = sql.exec<{ purge_at: number | null }>(`SELECT purge_at FROM ${SWEEP} WHERE id = 1`)[0]?.purge_at
+  return at === null || at === undefined ? null : Number(at)
+}
+
+/** After the delayed prefix delete that was due at `at` (a later schedule stays). */
+export const clearPurge = (sql: Sql, at: number): void => void sql.exec(`UPDATE ${SWEEP} SET purge_at = NULL WHERE id = 1 AND purge_at <= ?`, at)
