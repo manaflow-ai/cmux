@@ -33,6 +33,7 @@ mod keys;
 mod layout_undo;
 mod local_owner;
 mod localization;
+mod loopback_policy;
 mod machine;
 #[cfg(unix)]
 mod machine_agent;
@@ -80,6 +81,9 @@ mod test_wait;
 mod ui;
 
 use headless::run_headless;
+use loopback_policy::loopback_forward_policy;
+#[cfg(unix)]
+use loopback_policy::deny_daemon_listener_ports;
 pub(crate) use headless::wake_headless;
 
 #[cfg(target_os = "linux")]
@@ -1346,23 +1350,6 @@ fn provider_connector_with_unix_token(
     Ok(connector)
 }
 
-/// Installs the cloud transport behind `cloud-conversations-v1`. A failure
-/// leaves the daemon without the capability; nothing else depends on it.
-#[cfg(unix)]
-fn install_cloud_conversations(mux: &Arc<Mux>) {
-    match cloud_conversations_backend::RemoteCloudBackend::new() {
-        Ok(backend) => {
-            let service =
-                cmux_tui_core::cloud_conversations::CloudConversations::new(Arc::new(backend));
-            mux.install_cloud_conversations(service);
-        }
-        Err(error) => crate::client_log::stderr_log!(
-            "startup",
-            "cmux-tui: cloud conversations unavailable: {error}"
-        ),
-    }
-}
-
 #[cfg(unix)]
 fn parse_provider_token(value: OsString) -> anyhow::Result<BearerToken> {
     let mut bytes = value.into_encoded_bytes();
@@ -2175,37 +2162,6 @@ impl Drop for LocalOwnerEventLoop {
 }
 
 /// Starts the session server: surface environment, state root, mux, and listeners.
-/// `server.loopback_forward` from cmux-tui.json. An invalid value turns
-/// forwarding off instead of widening access.
-fn loopback_forward_policy(
-    value: Option<&serde_json::Value>,
-) -> cmux_tui_core::server::LoopbackForwardPolicy {
-    use cmux_tui_core::server::LoopbackForwardPolicy;
-    let Some(value) = value else { return LoopbackForwardPolicy::default() };
-    match LoopbackForwardPolicy::from_config_value(value) {
-        Ok(policy) => policy,
-        Err(error) => {
-            crate::client_log::stderr_log!(
-                "startup",
-                "cmux-tui: server.loopback_forward is invalid ({error}); loopback forwarding is off"
-            );
-            LoopbackForwardPolicy::disabled()
-        }
-    }
-}
-
-/// Denies loopback forwarding to ports this daemon listens on, so a forwarded
-/// page can never reach the daemon itself. Port 0 (not yet bound) is skipped.
-#[cfg(unix)]
-fn deny_daemon_listener_ports<const N: usize>(
-    policy: &mut cmux_tui_core::server::LoopbackForwardPolicy,
-    addresses: [Option<std::net::SocketAddr>; N],
-) {
-    for address in addresses.into_iter().flatten().filter(|address| address.port() != 0) {
-        policy.deny_port(address.port());
-    }
-}
-
 fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
@@ -2519,10 +2475,8 @@ fn run_server(
     // other host resolves no source and gets no poller.
     #[cfg(unix)]
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
-    // The cloud conversations proxy (`cloud-conversations-v1`): idle until a
-    // trusted local client leases a cloud session to it.
     #[cfg(unix)]
-    install_cloud_conversations(&mux);
+    cloud_conversations_backend::install(&mux);
     // Ends terminals that have had no tab placement for the reap grace
     // period and are not marked keep (`terminal-reap-v1`). Opt-in: a close
     // has always left the terminal running unplaced, and clients built

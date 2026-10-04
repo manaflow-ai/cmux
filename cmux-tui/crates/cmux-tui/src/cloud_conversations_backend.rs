@@ -8,11 +8,13 @@
 //! `bearer.<token>` subprotocol (the Worker reads it there so it stays out of
 //! URLs and logs); errors never include it.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use cmux_tui_core::cloud_conversations::{
     CloudBackend, CloudWire, ConnectError, HttpReply, TransportError, WireRecv,
 };
+use cmux_tui_core::Mux;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use tokio::net::TcpStream;
@@ -176,6 +178,24 @@ impl CloudWire for RemoteWire {
                 Some(Ok(_)) => WireRecv::Idle,
             }
         })
+    }
+}
+
+/// Installs the cloud transport behind `cloud-conversations-v1` on the
+/// daemon's mux. The proxy stays idle until a trusted local client leases a
+/// cloud session to it. A failure leaves the daemon without the capability;
+/// nothing else depends on it.
+pub(crate) fn install(mux: &Arc<Mux>) {
+    match RemoteCloudBackend::new() {
+        Ok(backend) => {
+            let service =
+                cmux_tui_core::cloud_conversations::CloudConversations::new(Arc::new(backend));
+            mux.install_cloud_conversations(service);
+        }
+        Err(error) => crate::client_log::stderr_log!(
+            "startup",
+            "cmux-tui: cloud conversations unavailable: {error}"
+        ),
     }
 }
 
