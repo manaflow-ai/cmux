@@ -1,8 +1,11 @@
 import Foundation
+import os
 
 /// Attach-connection lines to channel events (byte replay and snapshot
 /// attach).
 extension TerminalAttachment {
+    private static let decodeLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.attach")
+
     private struct VTState: Decodable {
         var surface: SurfaceID?
         var cols: Int
@@ -48,6 +51,14 @@ extension TerminalAttachment {
         var rows: Int?
         var colors: TerminalColors?
         var data: Data
+        /// History chunks: `deflate` (raw DEFLATE) and the inflated length.
+        var compression: String?
+        var rawBytes: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case surface, phase, generation, offset, version, cols, rows, colors, data, compression
+            case rawBytes = "raw_bytes"
+        }
     }
 
     private struct SurfaceScoped: Decodable {
@@ -94,9 +105,19 @@ extension TerminalAttachment {
                 guard scoped(snapshot.surface), let phase = TerminalSnapshotFrame.Phase(rawValue: snapshot.phase),
                       phase == .history || (snapshot.cols != nil && snapshot.rows != nil)
                 else { return nil }  // A READY without its grid cannot lock the mirror's grid.
+                // An unknown codec or a bad chunk would corrupt the restore: refused.
+                guard let data = TerminalSnapshotInflate.inflate(snapshot.data, compression: snapshot.compression,
+                                                                 rawBytes: snapshot.rawBytes)
+                else {
+                    decodeLogger.error("""
+                        snapshot \(snapshot.phase, privacy: .public) chunk refused: compression \(snapshot.compression ?? "none", privacy: .public), \
+                        raw_bytes \(snapshot.rawBytes ?? -1), \(snapshot.data.count) bytes
+                        """)
+                    return nil
+                }
                 return DecodedAttachLine(event: .snapshot(TerminalSnapshotFrame(
                     phase: phase, generation: snapshot.generation, offset: snapshot.offset, version: snapshot.version,
-                    cols: snapshot.cols, rows: snapshot.rows, colors: snapshot.colors, data: snapshot.data)))
+                    cols: snapshot.cols, rows: snapshot.rows, colors: snapshot.colors, data: data)))
             case "output":
                 let output = try decoder.decode(Output.self, from: line)
                 guard scoped(output.surface) else { return nil }
