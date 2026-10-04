@@ -45,7 +45,7 @@ test("slack reads: channels, history by #name, replies, search, users; token sta
 
 test("slack.post: draft, then the confirmed draft posts once", async () => {
   const d = await s.value('sites.slack.post({ team: "T01ACME", channel: "#eng", text: "Deploy at 3pm", threadTs: "1790000000.000100" })');
-  assert.deepEqual(d.preview, { team: { id: "T01ACME", name: "Acme" }, channel: { id: "C02ENG0002", name: "eng" }, threadTs: "1790000000.000100", text: "Deploy at 3pm" });
+  assert.deepEqual(d.preview, { team: { id: "T01ACME", name: "Acme" }, user: { id: "U01ADA", name: "ada" }, channel: { id: "C02ENG0002", name: "eng" }, threadTs: "1790000000.000100", text: "Deploy at 3pm" });
   assert.equal(env.state.slackPosts.length, 0);
   assert.deepEqual(await s.value(`sites.slack.post(${JSON.stringify(d.id)}, { confirm: true })`), { status: "posted", channel: "C02ENG0002", ts: "1790000009.000900" });
   assert.deepEqual(env.state.slackPosts, [{ team: "T01ACME", channel: "C02ENG0002", text: "Deploy at 3pm", thread_ts: "1790000000.000100" }]);

@@ -8,7 +8,10 @@
   if (!S) return;
   const APP = "https://app.slack.com";
 
-  // Runs in app.slack.com. arg: { list } or { team, method, params }.
+  // Runs in app.slack.com. arg: { list } or { team, method, params,
+  // expect }. With expect { teamId, userId }, auth.test runs first with the
+  // same token and the method runs only when that token is that member of
+  // that workspace: a token names one member, so the method acts as them.
   async function slackCall(arg) {
     let config = null;
     try {
@@ -19,8 +22,20 @@
     if (arg.list) return { teams: teams.map((t) => ({ teamId: t.id, name: t.name, domain: t.domain, url: t.url, userId: t.user_id || null, enterpriseId: t.enterprise_id || null, lastActive: config.lastActiveTeamId === t.id })) };
     const team = arg.team ? teams.find((t) => t.id === arg.team || t.domain === arg.team || t.name === arg.team) : teams.find((t) => t.id === config.lastActiveTeamId) || teams[0];
     if (!team) return { error: "unknown_team", teams: teams.map((t) => t.id + " " + t.name) };
+    const token = team.token;
+    if (arg.expect) {
+      const who = new FormData();
+      who.append("token", token);
+      const a = await fetch(location.origin + "/api/auth.test", { method: "POST", body: who, credentials: "include" });
+      let auth = null;
+      try {
+        auth = await a.json();
+      } catch (e) {}
+      if (!auth || !auth.ok) return { status: a.status, teamId: team.id, json: auth };
+      if (auth.team_id !== arg.expect.teamId || auth.user_id !== arg.expect.userId) return { error: "account_changed", now: { teamId: auth.team_id, userId: auth.user_id, user: auth.user || null } };
+    }
     const body = new FormData();
-    body.append("token", team.token);
+    body.append("token", token);
     for (const [k, v] of Object.entries(arg.params || {})) if (v !== undefined && v !== null) body.append(k, typeof v === "object" ? JSON.stringify(v) : String(v));
     // Same-origin, as the web client calls it; the token selects the
     // workspace (workspace hosts refuse cross-origin calls).
@@ -59,8 +74,9 @@
         });
       const withSlack = (body) =>
         slackPage((run) =>
-          body(async (team, method, params) => {
-            const r = await run(slackCall, { team, method, params });
+          body(async (team, method, params, expect) => {
+            const r = await run(slackCall, { team, method, params, expect });
+            if (r.error === "account_changed") throw new S.SiteError("account_changed", `slack ${method}: the workspace's signed-in member is now ${r.now.user || r.now.userId} (${r.now.userId}) in ${r.now.teamId}, not ${expect.userId} in ${expect.teamId} as drafted; nothing was sent. Make a new draft and show it to the user again`);
             if (r.error === "not_signed_in") throw new S.SiteError("not_signed_in", "slack: the cmux browser is not signed in to Slack; open https://app.slack.com with tabs.open() and ask the user to sign in");
             if (r.error === "unknown_team") throw new S.SiteError("not_found", `slack: no signed-in workspace ${JSON.stringify(team)}; workspaces: ${r.teams.join(", ")}`);
             if (!r.json) throw new S.SiteError("http", `slack ${method}: HTTP ${r.status}`);
@@ -135,7 +151,7 @@
             if (!m || typeof m !== "object" || !m.channel || typeof m.text !== "string" || !m.text.trim()) throw new S.SiteError("invalid", "slack.post: expected { team, channel, text, threadTs? } with non-empty text");
             const text = m.text;
             const threadTs = m.threadTs ? String(m.threadTs) : null;
-            const { team, channel } = await withSlack(async (call) => {
+            const { team, user, channel } = await withSlack(async (call) => {
               const auth = await call(m.team, "auth.test", {});
               const teamId = auth.team_id;
               let id;
@@ -148,20 +164,18 @@
                 id = await channelId(call, teamId, m.channel);
                 name = String(m.channel).replace(/^#/, "");
               }
-              return { team: { id: teamId, name: auth.team || null }, channel: { id, name } };
+              return { team: { id: teamId, name: auth.team || null }, user: { id: auth.user_id, name: auth.user || null }, channel: { id, name } };
             });
             const where = `${channel.name ? `#${channel.name} ` : ""}(${channel.id})`;
             return {
               category: "[9] representational communication",
-              summary: `Post to ${where}${threadTs ? ` (thread ${threadTs})` : ""} in workspace ${team.name || team.id} (${team.id})`,
-              preview: { team, channel, threadTs, text },
+              summary: `Post to ${where}${threadTs ? ` (thread ${threadTs})` : ""} in workspace ${team.name || team.id} (${team.id}) as ${user.name || user.id} (${user.id})`,
+              preview: { team, user, channel, threadTs, text },
               run: async () => {
-                const r = await withSlack(async (call) => {
-                  // The token of the drafted workspace only; never the last-active one.
-                  const auth = await call(team.id, "auth.test", {});
-                  if (auth.team_id !== team.id) throw new S.SiteError("account_changed", `slack.post: the workspace is now ${auth.team_id}, not ${team.id} as drafted; nothing was posted`);
-                  return call(team.id, "chat.postMessage", { channel: channel.id, text, thread_ts: threadTs || undefined });
-                });
+                // The token of the drafted workspace only (never the
+                // last-active one), checked in the same page call to be the
+                // drafted member's before chat.postMessage sends with it.
+                const r = await withSlack((call) => call(team.id, "chat.postMessage", { channel: channel.id, text, thread_ts: threadTs || undefined }, { teamId: team.id, userId: user.id }));
                 return { status: "posted", channel: r.channel, ts: r.ts };
               },
             };
