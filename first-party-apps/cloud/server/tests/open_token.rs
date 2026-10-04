@@ -65,8 +65,10 @@ fn a_long_base64url_token_is_accepted_unchanged_and_passed_to_nobody() {
     let (spawner, transport) = (FakeSpawner::default(), FakeTransport::default());
     let mut s = server(&spawner, &transport);
     let t = token("a");
-    s.connector().connect(connect(&t)).expect("the connector accepts the token as given");
-    s.handle(&rescue("r-1").open_token(&t)).expect("rescue.open accepts the token as given");
+    let linked = s.connector().connect(connect(&t)).map(|_| ());
+    assert!(linked.is_ok(), "the connector accepts the token as given: {linked:?}");
+    let opened = s.handle(&rescue("r-1").open_token(&t));
+    assert!(opened.is_ok(), "rescue.open accepts the token as given: {opened:?}");
     assert_eq!(transport.log().opened, [("vm-alpha01".to_owned(), Grid::new(80, 24))]);
     let everything = sent(&mut s, &spawner, &transport);
     assert!(!everything.contains(&t), "the server passes the token to nobody");
