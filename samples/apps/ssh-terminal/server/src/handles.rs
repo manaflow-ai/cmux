@@ -57,7 +57,10 @@ pub trait HostKeyPolicy: Send + Sync {
 pub trait CredentialHandle: Send + Sync {
     /// The public half; the server checks it before it asks for a signature.
     fn public_key(&self) -> PublicKey;
-    /// Signs the SSH user-auth payload. `hash_alg` is set for RSA keys.
+    /// Signs the SSH user-auth payload. `hash_alg` is set only for RSA keys
+    /// (rsa-sha2-256 or rsa-sha2-512). The real host op must check that
+    /// `data` is a user-auth request for this key before it signs (README,
+    /// "Interface gaps").
     fn sign(&self, hash_alg: Option<HashAlg>, data: &[u8]) -> Result<Signature, BackendError>;
 }
 

@@ -33,13 +33,27 @@ pub struct SshBackend {
     id: BackendId,
     kinds: Vec<LocalId>,
     handles: Arc<dyn ConnectionHandles>,
-    runtime: Arc<Runtime>,
+    /// Always `Some` until drop.
+    runtime: Option<Runtime>,
     registry: Arc<Registry>,
 }
 
+/// `open` and `resume` wait for the network on the backend's own runtime;
+/// called from inside another async runtime, that wait would panic.
+fn outside_async_runtime() -> Result<(), BackendError> {
+    if tokio::runtime::Handle::try_current().is_ok() {
+        Err(BackendError::Unsupported(
+            "call the ssh backend from a plain thread, not from an async task".into(),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 impl SshBackend {
-    /// Starts the backend with its own async runtime. Call it, and every
-    /// trait method, from a thread that is not inside an async runtime.
+    /// Starts the backend with its own async runtime. Call it, `open` and
+    /// `resume` from a thread that is not inside an async runtime (they
+    /// return `Unsupported` there). The other calls never wait.
     pub fn new(handles: Arc<dyn ConnectionHandles>) -> Result<Self, BackendError> {
         let kinds = vec![LocalId::new(SSH_KIND)?];
         check_kinds(&kinds)?;
@@ -56,7 +70,7 @@ impl SshBackend {
             id: BackendId::app(APP_ID, &LocalId::new(SSH_ID)?),
             kinds,
             handles,
-            runtime: Arc::new(runtime),
+            runtime: Some(runtime),
             registry: Arc::new(Registry::default()),
         })
     }
@@ -84,6 +98,7 @@ impl TerminalBackend for SshBackend {
 
     fn open(&mut self, request: OpenRequest) -> Result<Box<dyn ByteTerminal>, BackendError> {
         allow_kind(&self.kinds, &request.kind)?;
+        outside_async_runtime()?;
         if request.command.is_some() || request.cwd.is_some() {
             return Err(BackendError::Unsupported(
                 "the ssh sample opens the login shell only (no command, no cwd)".into(),
@@ -92,7 +107,7 @@ impl TerminalBackend for SshBackend {
         if request.grid.cols == 0 || request.grid.rows == 0 {
             return Err(BackendError::Invalid("the grid needs at least one cell".into()));
         }
-        if self.registry.contains(&request.terminal) {
+        if self.registry.is_busy(&request.terminal) {
             return Err(BackendError::Invalid(format!("terminal {} is open", request.terminal)));
         }
         // The handle is resolved before any network access: an unknown or
@@ -104,22 +119,34 @@ impl TerminalBackend for SshBackend {
             .find(|(name, _)| name == "TERM")
             .map_or(DEFAULT_TERM, |(_, value)| value.as_str());
         let grid = request.grid;
-        let (ssh, channel) =
-            self.runtime.block_on(async { client::connect(&connection, term, grid).await })?;
-        let session = session::start(&self.runtime, request.terminal.clone(), ssh, channel);
-        self.registry.insert(session.clone());
+        let runtime = self.runtime.as_ref().ok_or(BackendError::Closed)?;
+        let opened = runtime.block_on(async { client::connect(&connection, term, grid).await })?;
+        let session = session::start(
+            runtime,
+            request.terminal.clone(),
+            opened.ssh,
+            opened.read,
+            opened.write,
+            &opened.early,
+        );
+        if let Err(error) = self.registry.insert(session.clone()) {
+            Session::close_now(&session);
+            return Err(error);
+        }
         Ok(Box::new(SshTerminal::new(session, self.registry.clone())))
     }
 
     fn resume(&mut self, token: &ResumeToken) -> Result<Box<dyn ByteTerminal>, BackendError> {
-        let (terminal, offset) = session::parse_token(token)?;
-        let Some(session) = self.registry.get(&terminal) else {
-            return Ok(Box::new(LostTerminal::new("no live ssh session for this terminal")));
+        let (terminal, offset, nonce) = session::parse_token(token)?;
+        let session = self.registry.get(&terminal).filter(|s| s.nonce_matches(nonce));
+        let Some(session) = session else {
+            return Ok(Box::new(LostTerminal::new("no live ssh session for this token")));
         };
+        if !self.registry.is_detached(&session) {
+            return Err(BackendError::Invalid(format!("terminal {terminal} is attached")));
+        }
         if !session.output.attach_at(offset) {
-            return Ok(Box::new(LostTerminal::new(
-                "the resume offset is outside the kept output, or the terminal is attached",
-            )));
+            return Ok(Box::new(LostTerminal::new("the resume offset is outside the kept output")));
         }
         self.registry.attached(&session);
         Ok(Box::new(SshTerminal::new(session, self.registry.clone())))
@@ -130,6 +157,11 @@ impl Drop for SshBackend {
     fn drop(&mut self) {
         for session in self.registry.drain() {
             Session::close_now(&session);
+        }
+        // Does not wait and does not panic inside another runtime; the
+        // tasks stop and every connection drops.
+        if let Some(runtime) = self.runtime.take() {
+            runtime.shutdown_background();
         }
     }
 }

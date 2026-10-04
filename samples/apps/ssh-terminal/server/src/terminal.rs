@@ -43,7 +43,7 @@ impl ByteTerminal for SshTerminal {
     }
 
     fn close(&self, how: Close) -> Result<(), BackendError> {
-        self.registry.remove(&self.session.terminal);
+        self.registry.remove(&self.session);
         self.session.close(how)
     }
 
@@ -54,7 +54,7 @@ impl ByteTerminal for SshTerminal {
 
 impl Drop for SshTerminal {
     fn drop(&mut self) {
-        if self.registry.contains(&self.session.terminal) {
+        if self.registry.is_current(&self.session) {
             self.session.output.detach();
             self.registry.detached(&self.session);
         }
