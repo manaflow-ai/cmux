@@ -91,11 +91,15 @@ across calls. The Chief is one such harness; a subagent's report comes back as a
 5. Harness adapter for the Chief on top, then for other harnesses.
 6. Import: OptMem `LOG.txt` notes and old agent sessions as kind `note`.
 
-## 7. Decisions
+## 7. Decisions (Lawrence, 2026-10-03)
 
-- O1 One Rust core compiled to WebAssembly for the DO (proposed), or a Rust core plus a TypeScript
-  twin?
-- O2 Memory scope: one OptChat per agent (each Chief its own log), or one per person shared by
-  all of that person's agents (Taelin's "single unified log of my entire life")?
-- O3 Default placement for a new user: hosted, or the same MacBook?
-- O4 The production Chief (P1, `cmux-chief`) moves to OptChat memory too, or only the experiment?
+- O1: one Rust core (`optchat-core`), native in the daemon and WebAssembly in the MemoryDO. No
+  TypeScript twin.
+- O2: one OptChat per agent (each Chief and each agent has its own log and tree).
+- O3: the default placement for a new user is hosted by us (MemoryDO, PlanetScale); the user can
+  move to the same MacBook or a Mac mini later (`export` then `import`).
+- O4 (coordinator): the production Chief (P1) moves to OptChat memory once `optchat-core` passes its
+  corpus and a native daemon test; until then its OptMem memory is frozen (bug fixes only).
+- Compactor prompt: selectable per memory. `taelin` (default): the OptChat spec's prompt, verbatim
+  apart from the agent's name, credited to Victor Taelin. `cmux`: our own version that tries to
+  improve on it. `custom`: a prompt the user supplies.
