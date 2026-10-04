@@ -105,6 +105,7 @@ struct CmuxToastTests {
         let delegate = UndoDelegate(undo)
         window.delegate = delegate
         let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
+        text.allowsUndo = true
         window.contentView?.addSubview(text)
         #expect(window.makeFirstResponder(text))
         text.string = "hello"
