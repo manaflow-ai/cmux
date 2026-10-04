@@ -17,13 +17,13 @@ const DOC = `https://docs.google.com/document/d/${DOC_ID}/edit`;
 test("a private-file edit re-checks sharing right before the write; a file shared meanwhile is not edited", async () => {
   const doc = files.get(DOC_ID);
   const before = JSON.stringify(doc.blocks);
-  doc.shareOnExport = true;
+  doc.shareAfterEditorLoad = true;
   try {
     assert.match(await s.error(`sites.googleDocs.replace(${JSON.stringify(DOC)}, "Intro", "Opening")`), /sharing_changed|sharing is now/);
     assert.equal(JSON.stringify(doc.blocks), before, "the now-shared doc was edited without a draft");
   } finally {
     doc.shared = false;
-    doc.shareOnExport = false;
+    doc.shareAfterEditorLoad = false;
   }
 });
 

@@ -169,6 +169,12 @@
         return label || "";
       },
       isPrivate: (label) => /private to only me/i.test(label),
+      // Offsets of `find` in `text` as the editors' Find and replace
+      // matches it by default: case ignored, no overlaps.
+      matchesIn(text, find) {
+        const re = new RegExp(String(find).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+        return [...String(text).matchAll(re)].map((m) => m.index);
+      },
       // A write: at once on a private file, else a draft confirmed later.
       // spec(label, page) (may be async) -> { summary, preview, run(page,
       // gate) }. run calls gate() right before its first input to the

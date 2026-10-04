@@ -276,7 +276,7 @@ export function createEditors() {
   add({ id: "1docPRIVATE000000000000000000000x", kind: "document", title: "Plan", shared: false, blocks: [{ type: "heading", level: 1, text: "Plan" }, { type: "paragraph", text: "Intro paragraph." }, { type: "heading", level: 2, text: "Goals" }, { type: "list", items: ["Ship it", "Measure it"] }, { type: "table", rows: [["Owner", "Task"], ["Ada", "Draft"]] }, { type: "paragraph", text: "Closing line." }] });
   add({ id: "1deckPRIVATE00000000000000000000x", kind: "presentation", title: "Roadmap deck", shared: false, slides: [{ id: "g1a2b3c_0_0", title: "Roadmap", body: ["Q1: ship", "Q2: grow"], notes: "Say hello" }, { id: "g1a2b3c_0_7", title: "Risks", body: ["Time"], notes: "Keep short" }] });
 
-  function handle(req, url, body) {
+  function handle(req, url, body, internal = {}) {
     if (req.method === "GET" && /^\/(document|spreadsheets|presentation)\/create$/.test(url.pathname)) {
       const kind = url.pathname.split("/")[1];
       const id = add({ kind, title: kind === "document" ? "Untitled document" : kind === "spreadsheets" ? "Untitled spreadsheet" : "Untitled presentation", shared: false, sheets: [{ name: "Sheet1", gid: "0", cells: new Map() }], blocks: [{ type: "paragraph", text: "" }], slides: [{ title: "", body: [], notes: "" }] });
@@ -290,6 +290,13 @@ export function createEditors() {
     if (file.kind !== m[1]) return { status: 404, html: "<p>Not found</p>" };
     const op = m[3];
     if (op === "edit") {
+      // A collaborator shares the file right after an editor page loaded
+      // (its Share button still shows the old label).
+      if (file.shareAfterEditorLoad && !internal.skipShare) {
+        const page = handle(req, url, body, { skipShare: true });
+        (file.shared = true), (file.shareAfterEditorLoad = false);
+        return page;
+      }
       if (file.kind === "spreadsheets") return { html: sheetEditor(file) };
       if (file.kind === "document")
         return {
@@ -338,8 +345,6 @@ nw.addEventListener("keydown", (e) => {
     }
     if (op === "htmlview" && file.kind === "spreadsheets") return { html: `<html><head><title>${esc(file.title)} - Google Sheets</title></head><body><ul>${file.sheets.map((s) => `<li id="sheet-button-${s.gid}"><a href="#">${esc(s.name)}</a></li>`).join("")}</ul></body></html>` };
     if (op === "export") {
-      // A collaborator shares the file around the time a tool reads it.
-      if (file.shareOnExport) (file.shared = true), (file.shareOnExport = false);
       // As live: Google answers 429 to exports requested in quick succession.
       const now = Date.now();
       const last = file.lastExport || 0;

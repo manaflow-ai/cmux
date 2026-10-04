@@ -81,22 +81,31 @@
         },
         // Replaces every occurrence of `find` in the deck (Find and replace):
         // { status: "replaced", count, verified }. Private deck: at once; else a draft.
-        replace(deck, find, replacement, options) {
+        async replace(deck, find, replacement, options) {
           if (typeof deck === "string" && /^draft-\d+-[0-9a-f]+$/.test(deck)) return ed.edit("googleSlides", "replace", "googleSlides.replace", null, deck, find);
           if (typeof find !== "string" || !find) throw new S.SiteError("invalid", "googleSlides.replace: find: expected text");
           // Read once, so the preview and the edit use the same text.
           replacement = String(replacement);
           const r = ref(deck, "googleSlides.replace", options || {});
-          const occurrences = async () => (await ed.deck("googleSlides.replace", r)).flatMap((s) => [...s.text, s.notes]).reduce((n, x) => n + (x.split(find).length - 1), 0);
+          const occurrences = (slides) => slides.flatMap((s) => [...s.text, s.notes]).reduce((n, x) => n + (x.split(find).length - 1), 0);
+          // The deck as drafted (pptx export: slide text and notes) and the
+          // matches per slide, case ignored as Find and replace does. Replace
+          // all edits every match, so the write runs only on that same deck,
+          // read again right before it (document_changed otherwise).
+          const drafted = await ed.deck("googleSlides.replace", r);
+          const draftedJSON = JSON.stringify(drafted);
+          const at = drafted.map((s) => ({ slide: s.index, matches: ed.matchesIn([...s.text, s.notes].join("\n"), find).length })).filter((x) => x.matches);
+          const total = at.reduce((n, x) => n + x.matches, 0);
           return ed.edit("googleSlides", "replace", "googleSlides.replace", r, {}, options, () => ({
-            summary: `Replace "${find}" with "${replacement}" in Google Slides ${r.id}`,
-            preview: { file: deck, find, replace: replacement },
+            summary: `Replace ${total} match(es) of "${find}" (case ignored) with "${replacement}" in Google Slides ${r.id}`,
+            preview: { file: deck, find, replace: replacement, matches: total, at },
             run: async (page, gate) => {
-              const before = await occurrences();
               await gate();
+              const now = await ed.deck("googleSlides.replace", r);
+              if (JSON.stringify(now) !== draftedJSON) throw new S.SiteError("document_changed", `googleSlides.replace: the deck changed since the ${total} match(es) were counted; nothing was changed. Make a new call (a new draft for a shared deck)`);
               await ed.findReplace(page, find, replacement);
-              const verified = before === 0 || replacement.includes(find) || (await ed.verify(async () => (await occurrences()) === 0));
-              return { status: "replaced", count: before, verified };
+              const verified = total === 0 || replacement.includes(find) || (await ed.verify(async () => occurrences(await ed.deck("googleSlides.replace", r)) === 0));
+              return { status: "replaced", count: total, verified };
             },
           }));
         },
