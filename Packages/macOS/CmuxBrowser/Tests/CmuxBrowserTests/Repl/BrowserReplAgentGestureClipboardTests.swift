@@ -267,13 +267,17 @@ extension BrowserReplPasteboardRedirectTests {
         /// Like ``PageScripts/withStandInSystemPasteboard(_:)``, but the
         /// stand-in replaces only what the lookups in place (the redirect's)
         /// would return for the system pasteboard, so the redirect still
-        /// answers both lookups.
+        /// answers both lookups, and it stands in for the system's change
+        /// count the redirect reads. Its count starts where a real system
+        /// pasteboard's is (thousands), far above a fresh private one's.
         static func withStandInSystemPasteboard(_ body: (NSPasteboard) async throws -> Void) async throws {
             let standIn = NSPasteboard.withUniqueName()
             defer { standIn.releaseGlobally() }
-            standIn.clearContents()
+            while standIn.changeCount < 3_000 { standIn.clearContents() }
             standIn.setString(PageScripts.personsClipboard, forType: .string)
             let pasteboards = StandIn(system: NSPasteboard(name: .general), standIn: standIn)
+            BrowserReplPasteboardRedirect.shared.standInSystemChangeCount { pasteboards.standIn.changeCount }
+            defer { BrowserReplPasteboardRedirect.shared.standInSystemChangeCount(nil) }
 
             let byName = NSSelectorFromString("pasteboardWithName:")
             let byNameMethod = try #require(class_getClassMethod(NSPasteboard.self, byName))

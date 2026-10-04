@@ -588,7 +588,14 @@ native (`BrowserReplBoundary` in the session, and the driver):
   emptied at every lookup: an `execCommand("copy")` or Clipboard API write
   reaches nobody, the session included, and a read finds nothing (the page
   clipboard guard's writes to the tab's clipboard are not pasteboard
-  writes and still land). WebKit does not say which web view wrote, so a
+  writes and still land). A write the page starts then stays there however
+  late its data arrives (a `ClipboardItem` whose promise the page settles
+  after the quarantine): WebKit writes only while the general pasteboard's
+  change count is the one it read when the page called `write`, and the
+  private pasteboard's count is kept below the system's, which only grows,
+  so WebKit refuses the late write. While the system's count is below 2
+  (nothing was copied yet in the login session) no such call runs; it fails
+  with `unsupported`. WebKit does not say which web view wrote, so a
   copy or paste the person makes in another web view of cmux during that
   time does nothing (the terminal, text fields and other code keep the
   system clipboard). A command the session runs in its own tab (Meta+C)
