@@ -18,6 +18,9 @@ public struct PaletteKeyMap {
         let pressed = Shortcut(key, modifiers: flags)
         if let next = registry.effectiveShortcut(for: "commandPaletteNext"), next == pressed { return .moveDown }
         if let previous = registry.effectiveShortcut(for: "commandPalettePrevious"), previous == pressed { return .moveUp }
+        // List navigation (R85): the list.next / list.previous bindings (Ctrl-J / Ctrl-K by default).
+        if listKeys(for: "list.next", in: registry).contains(pressed) { return .moveDown }
+        if listKeys(for: "list.previous", in: registry).contains(pressed) { return .moveUp }
 
         switch event.keyCode {
         // Cmd-Up: a tree page's parent, else the first row.
@@ -47,6 +50,12 @@ public struct PaletteKeyMap {
             return .actionsFilterAppend(characters)
         }
         return nil
+    }
+
+    /// The single-key bindings of a list action in the binding table,
+    /// whatever their `when` (the palette is a list).
+    static func listKeys(for id: ActionID, in registry: ActionRegistry) -> [Shortcut] {
+        RegistryKeyBindings(registry).table.entries.filter { $0.command == id && $0.keys.count == 1 }.map { $0.keys[0] }
     }
 
     /// Cmd-W, the chord that closes the selected row's object.
