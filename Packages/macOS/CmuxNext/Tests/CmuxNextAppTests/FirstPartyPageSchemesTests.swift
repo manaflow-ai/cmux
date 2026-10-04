@@ -63,12 +63,10 @@ import Testing
     @Test func registrationSkipsRefusedRoots() throws {
         let (resources, base) = try fixture()
         defer { try? FileManager.default.removeItem(at: base) }
-        var added: [String] = []
         let accepted = FirstPartyPageSchemes.accepted(
             roots: ["cmux.agent": resources.appending(path: "agent-pane"), "cmux.history": base.appending(path: "outside")],
             bundleResources: resources
         )
-        added = accepted.keys.sorted()
-        #expect(added == ["cmux.agent"])
+        #expect(accepted.keys.sorted() == ["cmux.agent"])
     }
 }
