@@ -1233,5 +1233,8 @@ fn osc133_prompt_after_padded_partial_line_stays_on_its_own_line_across_resize()
     rs.update(&mut term).unwrap();
     let lines = rs.text_lines().unwrap();
     assert!(lines.iter().any(|line| line == "$ ls"), "prompt row after narrowing: {lines:?}");
-    assert!(!lines.iter().any(|line| line.contains('%') && line.contains('$')), "prompt joined the padded row: {lines:?}");
+    assert!(
+        !lines.iter().any(|line| line.contains('%') && line.contains('$')),
+        "prompt joined the padded row: {lines:?}"
+    );
 }
