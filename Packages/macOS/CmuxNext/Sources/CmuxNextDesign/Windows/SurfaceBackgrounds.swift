@@ -14,6 +14,9 @@ public nonisolated enum SurfaceKind: String, CaseIterable, Sendable, Hashable {
     case home
     case browserChrome
     case docks
+    /// The diff viewer page (`--cmux-surface-background` in webviews); it
+    /// has its own override instead of its host surface's.
+    case diff
 }
 
 /// One surface's override: a color, an opacity, or both. Both nil is no

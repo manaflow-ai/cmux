@@ -8,8 +8,11 @@
 
 pub mod api;
 pub mod connector;
+pub mod fs;
 pub mod link;
 pub mod ops;
+pub mod ports;
+pub mod proxy;
 pub mod rescue;
 
 pub use api::{

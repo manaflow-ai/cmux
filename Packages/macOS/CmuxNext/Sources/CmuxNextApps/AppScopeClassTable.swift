@@ -15,6 +15,9 @@ public nonisolated struct AppScopeClassTable: Sendable {
         case sensitive
         /// First-party apps, or Verified apps whose review covers the scope.
         case restricted
+        /// Never granted at install; any tier gets it only by an explicit
+        /// user grant in the native confirmation sheet, with a warning.
+        case elevated
     }
 
     /// One rule of the table.
@@ -79,4 +82,7 @@ public nonisolated struct AppScopeClassTable: Sendable {
 
     /// Restricted, or unknown to the table (fail closed).
     public func isRestricted(_ scope: String) -> Bool { scopeClass(of: scope) ?? .restricted == .restricted }
+
+    /// Granted only by an explicit user grant, never at install.
+    public func isElevated(_ scope: String) -> Bool { scopeClass(of: scope) == .elevated }
 }

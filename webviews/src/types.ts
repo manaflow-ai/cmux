@@ -1,9 +1,9 @@
 import type { DiffViewerAppearance } from "./appearance";
-import type { DiffTransportConfig } from "./diff/generated/protocol";
+import type { DiffViewerTransportConfig } from "./diff/transport";
 
 export type DiffViewerPayload = {
   appearance?: DiffViewerAppearance;
-  transport?: DiffTransportConfig;
+  transport?: DiffViewerTransportConfig;
   externalURL?: string;
   labels?: Record<string, string>;
   layout?: "split" | "unified";

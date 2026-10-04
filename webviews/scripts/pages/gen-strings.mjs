@@ -64,7 +64,10 @@ export const PAGES = {
   settings: {
     out: "webviews/src/pages/settings/generated/strings.json",
     catalogs: [
-      { file: `${sources}/CmuxNextSettings/Localizable.xcstrings`, keys: () => schemaKeys("schemas/settings/settings-schema.json") },
+      {
+        file: `${sources}/CmuxNextSettings/Localizable.xcstrings`,
+        keys: () => schemaKeys("schemas/settings/settings-schema.json"),
+      },
       {
         file: `${sources}/CmuxNextSettingsWindow/Localizable.xcstrings`,
         keys: (all) => all.filter((key) => key.startsWith("settingsPage.")),

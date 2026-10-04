@@ -7,9 +7,9 @@
     "target": "string (an opaque connection handle conn_..., or a backend-defined id such as a cloud machine id; never a host name typed by a user or an agent)"
   },
   "methods": {
-    "open": "({kind, target, open_token, cols, rows, cell_width_px?, cell_height_px?, cwd?, command?, env?}) -> {terminal, capabilities, resume_token?}",
-    "resume": "({resume_token, open_token}) -> {terminal, capabilities, offset} (output continues from offset; an offset the backend cannot serve is lost)",
-    "write": "({terminal, seq, bytes}) -> void (seq orders chunks; a used seq is refused; a full input buffer answers unavailable {retryable: true} and changes nothing)",
+    "open": "({terminal, kind, target, open_token, cols, rows, cell_width_px?, cell_height_px?, cwd?, command?, env?}) -> {capabilities, window_bytes, resume_token?}. The session host picks terminal (it owns the journal). A kind not in options.kinds fails with denied.",
+    "resume": "({terminal, resume_token, open_token}) -> {capabilities, window_bytes, offset}: output continues from offset; an offset the backend cannot serve ends with lost",
+    "write": "removed: input is data frames on the terminal channel (dataPlane), within the backend's in credit",
     "resize": "({terminal, cols, rows, cell_width_px?, cell_height_px?}) -> void (capabilities.resize)",
     "signal": "({terminal, signal}) -> void (capabilities.signals; signal is a name without SIG: INT, TERM, HUP, KILL, ...)",
     "close": "({terminal}) -> void"
@@ -39,11 +39,11 @@
       }
     }
   },
-  "status": "draft: shapes chosen by the ghostty-next lead (2026-10-04, revised with the SSH sample's gaps: offsets, typed host key refusal, exit signal, answers_queries, host-owned SSH transport with no signing op); refined with the cmux Cloud and third-party sample backends before the interface is public",
+  "status": "draft: shapes chosen by the ghostty-next lead (2026-10-04, revised with the SSH sample's gaps: offsets, typed host key refusal, exit signal, answers_queries, host-owned SSH transport with no signing op; 2026-10-04 later: credit-based data frames, host-picked terminal ids, denied for undeclared kinds); refined with the cmux Cloud and third-party sample backends before the interface is public",
   "eventShapes": {
-    "output": "{terminal, offset, bytes}: offset is the running byte total after this chunk since open; resume continues it. The session host treats a gap or an overlap as lost, never splices.",
-    "exit": "{terminal, code?, signal?, core_dumped, message?}: code when the far end sent an exit status; signal is the name without SIG (SSH exit-signal or POSIX); message is far-end text, at most 4 KiB, shown and never parsed.",
-    "lost": "{terminal, reason, retryable}"
+    "output": "data frames on the terminal channel (dataPlane), within the session host's out credit; offset is the running total since open and continues across resume",
+    "exit": "end {terminal, exit: {code?, signal?, core_dumped, message?}}: code when the far end sent an exit status; signal is the name without SIG; message is far-end text, at most 4 KiB, shown and never parsed",
+    "lost": "end {terminal, lost: {reason, retryable}}"
   },
   "capabilities": {
     "resize": "bool",
@@ -58,14 +58,20 @@
     "unsupported": "{}",
     "unavailable": "{reason, retryable}",
     "hostKey": "{decision: unknown|changed, fingerprint: \"SHA256:...\"}: typed host key refusal; the host shows its accept sheet from these fields. Nothing reached the far shell.",
-    "denied": "{reason}: a handle was revoked or a host check failed",
+    "denied": "{reason}: a kind not in options.kinds, a revoked handle, or a failed host check",
     "invalid": "{reason}"
   },
   "hostOps": {
-    "connection.channel.open": "({connection, open_token, pty: {term, cols, rows}, command?}) -> {channel} for a connection handle of kind ssh. The host resolves the handle, dials, checks the host key the user pinned for it (else the call fails with hostKey), authenticates with the user's credential, opens a session channel with a PTY and returns a byte channel (data in and out, window change, signal, exit status). The backend never sees the host name, the key or a signature.",
+    "connection.channel.open": "({connection, open_token, pty: {term, cols, rows}, command?}) -> {channel, window_bytes} for a connection handle of kind ssh. The host resolves the handle, dials, checks the host key the user pinned for it (else the call fails with hostKey), authenticates with the user's credential, opens a session channel with a PTY and returns a byte channel (data in and out, window change, signal, exit status). The backend never sees the host name, the key or a signature. Data, credit and end on the channel follow dataPlane.",
     "connection.channel.resize": "({channel, cols, rows}) -> void",
     "connection.channel.signal": "({channel, signal}) -> void",
     "connection.channel.close": "({channel}) -> void",
     "open_token": "issued by the host for one open or resume of one terminal after the user's gesture; host ops refuse a missing, expired or reused token"
+  },
+  "dataPlane": {
+    "frames": "Data moves as frames on the app host's stream (binary payload), never as op calls. Per channel, in order: data {channel, offset, bytes} (offset = running byte total after this frame, per direction), credit {channel, direction: in|out, bytes} and end {channel, exit? | lost?} (exactly once, after the last data). channel is a host channel (hostOps), a terminal (backend output and input) or a connector link.",
+    "credit": "The receiver grants bytes; the sender keeps at most the granted, not yet acknowledged bytes in flight and never sends past them. Each direction starts with window_bytes (from the open answer, 64 KiB to 1 MiB, default 256 KiB); the receiver sends credit as it consumes data. Data past the credit is a protocol violation: the receiver ends the channel with lost {reason: \"credit\", retryable: false}. No frame or op waits.",
+    "backpressure": "End to end: the session host grants output credit for a terminal only while its viewers and journal keep up; a backend grants host-channel out credit only from its own terminal credit, so a slow viewer stops the far end (SSH window) instead of growing a buffer. Input runs the other way the same way.",
+    "continuity": "A receiver checks offsets: a gap or an overlap ends the channel with lost. resume continues the offsets of the resumed terminal."
   }
 }

@@ -1,377 +1,312 @@
-//! Test harness: an in-process SSH server on 127.0.0.1 (russh server, never
-//! a real sshd, never a real host), in-memory handles and keys made in the
-//! test. Nothing here reads or writes ~/.ssh or a known_hosts file.
+//! Test harness: an in-memory fake of the host's `connection.channel.*`
+//! ops. No network, no SSH, no key: the fake stands for the host, which
+//! owns the SSH transport, the pinned host keys and the user's credential.
 //!
-//! The server runs a tiny shell: a line `echo X` answers `X\r\n`; a line
-//! `exit N` sends exit status N and closes the channel. Every other line is
-//! only recorded.
+//! Each channel runs a tiny shell on its input:
+//! - `echo X` answers `X\r\n`;
+//! - `exit N` ends the channel with exit status N;
+//! - `flood N` answers N KiB of `f`;
+//! - `die SIG` ends the channel with exit signal SIG, a core dump and a
+//!   5100-byte message of 3-byte characters.
+//!
+//! Every other line is only recorded.
 
 #![allow(dead_code)]
 
-use russh::keys::ssh_key::Signature;
-use russh::keys::{Algorithm, HashAlg, PrivateKey, PublicKey};
-use russh::server::{self, Auth, ChannelOpenHandle, Msg, Session};
-use russh::{Channel, ChannelId, Pty, Sig};
-use ssh_terminal::handles::{
-    ConnectionHandles, CredentialHandle, HostKeyDecision, HostKeyPolicy, SshConnection, SshTarget,
+use ssh_terminal::iface::{
+    BackendError, ByteEvent, ByteTerminal, ChannelEvent, ChannelId, ChannelOpenRequest, ExitStatus,
+    Grid, HostChannels, HostKeyRefusal, OpenRequest, OpenToken, Signal,
 };
-use ssh_terminal::iface::{BackendError, ByteEvent, ByteTerminal, Grid, OpenRequest};
 use ssh_terminal::{SSH_KIND, SshBackend};
-use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
-use tokio::runtime::Runtime;
-use tokio::task::JoinHandle;
 
 pub const HANDLE: &str = "conn_test";
-pub const USER: &str = "tester";
+pub const FINGERPRINT: &str = "SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU";
 const WAIT: Duration = Duration::from_secs(10);
-const TICK: Duration = Duration::from_millis(10);
+const TICK: Duration = Duration::from_millis(5);
 
-pub fn random_key() -> PrivateKey {
-    PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).expect("ed25519 key")
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Trust {
+    /// The user pinned the server's key for the handle.
+    Known,
+    /// No key is pinned for the handle.
+    Unknown,
+    /// A different key is pinned for the handle.
+    Changed,
 }
 
-/// What the test server saw.
+/// What the fake host saw, in order.
 #[derive(Debug, Clone, Default)]
-pub struct ServerLog {
-    pub connections: usize,
-    /// TCP connections that ended (the client closed or the relay died).
-    pub closed_connections: usize,
-    pub auth_attempts: usize,
+pub struct HostLog {
+    /// Every host op the backend called, by name.
+    pub ops: Vec<&'static str>,
+    /// Every `connection.channel.open` request that reached the host.
+    pub opens: Vec<ChannelOpenRequest>,
+    /// Channels the host opened (after the host key check).
     pub channels: usize,
-    pub pty: Option<(u32, u32)>,
-    pub windows: Vec<(u32, u32)>,
+    /// Input bytes that reached a far shell, in arrival order.
     pub input: Vec<u8>,
+    /// The PTY size, then each window change.
+    pub grids: Vec<(u16, u16)>,
     pub signals: Vec<String>,
+    pub closes: usize,
 }
 
-pub struct TestServer {
-    pub addr: SocketAddr,
-    pub host_key: PublicKey,
-    log: Arc<Mutex<ServerLog>>,
-    relays: Arc<Mutex<Vec<JoinHandle<()>>>>,
-    runtime: Runtime,
+#[derive(Default)]
+struct FakeChannel {
+    out: VecDeque<u8>,
+    end: Option<ChannelEvent>,
+    end_sent: bool,
+    line: Vec<u8>,
+    closed: bool,
 }
 
-impl TestServer {
-    /// Starts a server that accepts only `client_key`.
-    pub fn start(client_key: PublicKey) -> Self {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .build()
-            .expect("server runtime");
-        let host = random_key();
-        let host_key = host.public_key().clone();
-        let config = Arc::new(server::Config {
-            keys: vec![host],
-            auth_rejection_time: Duration::from_millis(1),
-            auth_rejection_time_initial: Some(Duration::ZERO),
-            ..Default::default()
-        });
-        let log = Arc::new(Mutex::new(ServerLog::default()));
-        let relays = Arc::new(Mutex::new(Vec::new()));
-        let listener =
-            runtime.block_on(tokio::net::TcpListener::bind("127.0.0.1:0")).expect("bind 127.0.0.1");
-        let addr = listener.local_addr().expect("addr");
-        let (accept_log, accept_relays) = (log.clone(), relays.clone());
-        runtime.spawn(async move {
-            while let Ok((tcp, _)) = listener.accept().await {
-                accept_log.lock().expect("log").connections += 1;
-                let handler = Shell {
-                    log: accept_log.clone(),
-                    allowed: client_key.clone(),
-                    line: Vec::new(),
-                };
-                let relay_log = accept_log.clone();
-                let config = config.clone();
-                let relay = tokio::spawn(async move {
-                    relay(tcp, config, handler).await;
-                    relay_log.lock().expect("log").closed_connections += 1;
+#[derive(Default)]
+struct State {
+    log: HostLog,
+    issued: HashSet<String>,
+    next_token: u64,
+    next_channel: u64,
+    channels: HashMap<String, FakeChannel>,
+    /// While set, `send` answers that the host buffer is full.
+    stalled: bool,
+    /// While set, `signal` is refused (a server that ignores signals).
+    refuse_signals: bool,
+    /// While set, `receive` sends more data than it was asked for.
+    oversend: bool,
+}
+
+pub struct FakeHost {
+    trust: Mutex<Trust>,
+    state: Mutex<State>,
+}
+
+impl FakeHost {
+    pub fn new(trust: Trust) -> Arc<Self> {
+        Arc::new(Self { trust: Mutex::new(trust), state: Mutex::new(State::default()) })
+    }
+
+    fn state(&self) -> MutexGuard<'_, State> {
+        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// A fresh `open_token`, as the host issues it after a user gesture.
+    pub fn issue_token(&self) -> OpenToken {
+        let mut state = self.state();
+        state.next_token += 1;
+        let token = format!("otk-{}", state.next_token);
+        state.issued.insert(token.clone());
+        OpenToken(token)
+    }
+
+    pub fn log(&self) -> HostLog {
+        self.state().log.clone()
+    }
+
+    pub fn stall_input(&self, stalled: bool) {
+        self.state().stalled = stalled;
+    }
+
+    /// The user accepted (or the far host changed) the key.
+    pub fn set_trust(&self, trust: Trust) {
+        *self.trust.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = trust;
+    }
+
+    pub fn refuse_signals(&self, refuse: bool) {
+        self.state().refuse_signals = refuse;
+    }
+
+    pub fn oversend(&self, oversend: bool) {
+        self.state().oversend = oversend;
+    }
+
+    /// Ends every open channel with no exit (the TCP link died).
+    pub fn drop_transport(&self) {
+        for channel in self.state().channels.values_mut() {
+            if channel.end.is_none() {
+                channel.end = Some(ChannelEvent::Dropped {
+                    reason: "the ssh connection ended".into(),
+                    retryable: true,
                 });
-                accept_relays.lock().expect("relays").push(relay);
             }
-        });
-        Self { addr, host_key, log, relays, runtime }
-    }
-
-    pub fn log(&self) -> ServerLog {
-        self.log.lock().expect("log").clone()
-    }
-
-    /// Drops every TCP connection without an SSH goodbye.
-    pub fn kill_connections(&self) {
-        for relay in self.relays.lock().expect("relays").drain(..) {
-            relay.abort();
         }
     }
 
-    /// Waits until `check` holds for the server log.
-    pub fn wait_for(&self, what: &str, check: impl Fn(&ServerLog) -> bool) -> ServerLog {
+    pub fn wait_for(&self, what: &str, check: impl Fn(&HostLog) -> bool) -> HostLog {
         let deadline = Instant::now() + WAIT;
         loop {
             let log = self.log();
             if check(&log) {
                 return log;
             }
-            assert!(Instant::now() < deadline, "server never saw {what}: {log:?}");
+            assert!(Instant::now() < deadline, "the host never saw {what}: {log:?}");
             std::thread::sleep(TICK);
         }
     }
 }
 
-/// The relay task owns the TCP socket. Aborting it closes the socket, which
-/// is how the tests drop the transport.
-async fn relay(mut tcp: tokio::net::TcpStream, config: Arc<server::Config>, handler: Shell) {
-    let (mut near, far) = tokio::io::duplex(64 * 1024);
-    // The SSH session reads the client's id through the relay, so it runs
-    // beside the copy. When the relay ends, `near` drops and the session
-    // sees end of file.
-    tokio::spawn(async move {
-        if let Ok(session) = server::run_stream(config, far, handler).await {
-            let _ended = session.await;
+fn run_line(channel: &mut FakeChannel) {
+    let line = String::from_utf8_lossy(&std::mem::take(&mut channel.line)).into_owned();
+    if let Some(text) = line.strip_prefix("echo ") {
+        channel.out.extend(format!("{text}\r\n").bytes());
+    } else if let Some(kib) = line.strip_prefix("flood ") {
+        let kib: usize = kib.trim().parse().unwrap_or(0);
+        channel.out.extend(std::iter::repeat_n(b'f', kib * 1024));
+    } else if let Some(code) = line.strip_prefix("exit ") {
+        let code = code.trim().parse().unwrap_or(1);
+        channel.end =
+            Some(ChannelEvent::Exit(ExitStatus { code: Some(code), ..Default::default() }));
+    } else if let Some(signal) = line.strip_prefix("die ") {
+        channel.end = Some(ChannelEvent::Exit(ExitStatus {
+            code: None,
+            signal: Some(signal.trim().to_owned()),
+            core_dumped: true,
+            message: Some("\u{20ac}".repeat(1700)),
+        }));
+    }
+}
+
+fn channel<'a>(state: &'a mut State, id: &ChannelId) -> Result<&'a mut FakeChannel, BackendError> {
+    match state.channels.get_mut(&id.0) {
+        Some(channel) if !channel.closed => Ok(channel),
+        _ => Err(BackendError::invalid("no such channel")),
+    }
+}
+
+impl HostChannels for FakeHost {
+    fn open(&self, request: ChannelOpenRequest) -> Result<ChannelId, BackendError> {
+        let mut state = self.state();
+        state.log.ops.push("open");
+        state.log.opens.push(request.clone());
+        // One token per open: a missing, unknown or reused token is refused.
+        if !state.issued.remove(&request.open_token.0) {
+            return Err(BackendError::Denied { reason: "open_token refused".into() });
         }
-    });
-    let _closed = tokio::io::copy_bidirectional(&mut tcp, &mut near).await;
-}
-
-struct Shell {
-    log: Arc<Mutex<ServerLog>>,
-    allowed: PublicKey,
-    line: Vec<u8>,
-}
-
-impl Shell {
-    fn with_log(&self, f: impl FnOnce(&mut ServerLog)) {
-        f(&mut self.log.lock().expect("log"));
-    }
-
-    fn run_line(&mut self, channel: ChannelId, session: &mut Session) -> Result<(), russh::Error> {
-        let line = String::from_utf8_lossy(&std::mem::take(&mut self.line)).into_owned();
-        if let Some(text) = line.strip_prefix("echo ") {
-            session.data(channel, format!("{text}\r\n").into_bytes())?;
-        } else if let Some(kib) = line.strip_prefix("flood ") {
-            let kib: usize = kib.trim().parse().unwrap_or(0);
-            for _ in 0..kib {
-                session.data(channel, vec![b'f'; 1024])?;
-            }
-        } else if let Some(code) = line.strip_prefix("exit ") {
-            session.exit_status_request(channel, code.trim().parse().unwrap_or(1))?;
-            session.eof(channel)?;
-            session.close(channel)?;
+        if request.connection != HANDLE {
+            return Err(BackendError::Denied { reason: "unknown connection handle".into() });
         }
-        Ok(())
-    }
-}
-
-impl server::Handler for Shell {
-    type Error = russh::Error;
-
-    async fn auth_publickey_offered(
-        &mut self,
-        _user: &str,
-        key: &PublicKey,
-    ) -> Result<Auth, Self::Error> {
-        self.with_log(|l| l.auth_attempts += 1);
-        Ok(if key.key_data() == self.allowed.key_data() { Auth::Accept } else { Auth::reject() })
-    }
-
-    async fn auth_publickey(&mut self, user: &str, key: &PublicKey) -> Result<Auth, Self::Error> {
-        let ok = user == USER && key.key_data() == self.allowed.key_data();
-        Ok(if ok { Auth::Accept } else { Auth::reject() })
-    }
-
-    async fn channel_open_session(
-        &mut self,
-        _channel: Channel<Msg>,
-        reply: ChannelOpenHandle,
-        _session: &mut Session,
-    ) -> Result<(), Self::Error> {
-        self.with_log(|l| l.channels += 1);
-        reply.accept().await;
-        Ok(())
-    }
-
-    async fn pty_request(
-        &mut self,
-        channel: ChannelId,
-        _term: &str,
-        cols: u32,
-        rows: u32,
-        _pix_width: u32,
-        _pix_height: u32,
-        _modes: &[(Pty, u32)],
-        session: &mut Session,
-    ) -> Result<(), Self::Error> {
-        self.with_log(|l| l.pty = Some((cols, rows)));
-        session.channel_success(channel)
-    }
-
-    async fn shell_request(
-        &mut self,
-        channel: ChannelId,
-        session: &mut Session,
-    ) -> Result<(), Self::Error> {
-        session.channel_success(channel)
-    }
-
-    async fn window_change_request(
-        &mut self,
-        _channel: ChannelId,
-        cols: u32,
-        rows: u32,
-        _pix_width: u32,
-        _pix_height: u32,
-        _session: &mut Session,
-    ) -> Result<(), Self::Error> {
-        self.with_log(|l| l.windows.push((cols, rows)));
-        Ok(())
-    }
-
-    async fn signal(
-        &mut self,
-        _channel: ChannelId,
-        signal: Sig,
-        _session: &mut Session,
-    ) -> Result<(), Self::Error> {
-        self.with_log(|l| l.signals.push(format!("{signal:?}")));
-        Ok(())
-    }
-
-    async fn data(
-        &mut self,
-        channel: ChannelId,
-        data: &[u8],
-        session: &mut Session,
-    ) -> Result<(), Self::Error> {
-        self.with_log(|l| l.input.extend_from_slice(data));
-        for &byte in data {
-            if byte == b'\n' || byte == b'\r' {
-                self.run_line(channel, session)?;
-            } else {
-                self.line.push(byte);
-            }
-        }
-        Ok(())
-    }
-}
-
-/// Host keys the user accepted, held by the host (here: in memory).
-pub struct KnownKeys(pub Vec<(String, u16, PublicKey)>);
-
-impl HostKeyPolicy for KnownKeys {
-    fn check(&self, target: &SshTarget, key: &PublicKey) -> HostKeyDecision {
-        match self.0.iter().find(|(h, p, _)| *h == target.host && *p == target.port) {
-            None => HostKeyDecision::Unknown,
-            Some((_, _, known)) if known.key_data() == key.key_data() => HostKeyDecision::Trusted,
-            Some(_) => HostKeyDecision::Changed,
-        }
-    }
-}
-
-/// A credential handle over a key made in the test. Counts signatures and
-/// keeps the last requested RSA hash.
-pub struct MemoryCredential {
-    key: PrivateKey,
-    pub signs: AtomicUsize,
-    pub last_hash: Mutex<Option<HashAlg>>,
-}
-
-impl MemoryCredential {
-    pub fn new(key: PrivateKey) -> Self {
-        Self { key, signs: AtomicUsize::new(0), last_hash: Mutex::new(None) }
-    }
-}
-
-impl CredentialHandle for MemoryCredential {
-    fn public_key(&self) -> PublicKey {
-        self.key.public_key().clone()
-    }
-
-    fn sign(&self, hash_alg: Option<HashAlg>, data: &[u8]) -> Result<Signature, BackendError> {
-        use russh::keys::signature::Signer;
-        self.signs.fetch_add(1, Ordering::SeqCst);
-        *self.last_hash.lock().expect("hash") = hash_alg;
-        let signed = match self.key.key_data().rsa() {
-            Some(rsa) => (rsa, hash_alg).try_sign(data),
-            None => self.key.try_sign(data),
+        // The host checks the pinned key during key exchange, before auth
+        // and before any channel: no byte reaches the shell.
+        let trust = *self.trust.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let decision = match trust {
+            Trust::Known => None,
+            Trust::Unknown => Some(HostKeyRefusal::Unknown),
+            Trust::Changed => Some(HostKeyRefusal::Changed),
         };
-        signed.map_err(|e| BackendError::Invalid(format!("sign: {e}")))
-    }
-}
-
-/// One connection handle, `conn_test`, of kind `ssh`.
-pub struct OneHandle(pub SshConnection);
-
-impl ConnectionHandles for OneHandle {
-    fn resolve(&self, kind: &str, handle: &str) -> Result<SshConnection, BackendError> {
-        if kind == SSH_KIND && handle == HANDLE {
-            Ok(self.0.clone())
-        } else {
-            Err(BackendError::Revoked { reason: format!("no {kind} handle {handle}") })
+        if let Some(decision) = decision {
+            return Err(BackendError::HostKey { decision, fingerprint: FINGERPRINT.into() });
         }
+        state.next_channel += 1;
+        let id = format!("ch-{}", state.next_channel);
+        state.channels.insert(id.clone(), FakeChannel::default());
+        state.log.channels += 1;
+        state.log.grids.push((request.pty.cols, request.pty.rows));
+        Ok(ChannelId(id))
     }
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Trust {
-    /// The host recorded the server's key.
-    Known,
-    /// The host has no key for the server.
-    Unknown,
-    /// The host recorded a different key for the server.
-    Changed,
+    fn resize(&self, id: &ChannelId, cols: u16, rows: u16) -> Result<(), BackendError> {
+        let mut state = self.state();
+        state.log.ops.push("resize");
+        channel(&mut state, id)?;
+        state.log.grids.push((cols, rows));
+        Ok(())
+    }
+
+    fn signal(&self, id: &ChannelId, signal: Signal) -> Result<(), BackendError> {
+        let mut state = self.state();
+        state.log.ops.push("signal");
+        channel(&mut state, id)?;
+        if state.refuse_signals {
+            return Err(BackendError::Denied { reason: "the server refused the signal".into() });
+        }
+        state.log.signals.push(signal.name().to_owned());
+        Ok(())
+    }
+
+    fn close(&self, id: &ChannelId) -> Result<(), BackendError> {
+        let mut state = self.state();
+        state.log.ops.push("close");
+        channel(&mut state, id)?.closed = true;
+        state.log.closes += 1;
+        Ok(())
+    }
+
+    fn send(&self, id: &ChannelId, bytes: &[u8]) -> Result<(), BackendError> {
+        let mut state = self.state();
+        if state.stalled {
+            return Err(BackendError::Unavailable {
+                reason: "the host buffer is full".into(),
+                retryable: true,
+            });
+        }
+        let ended = channel(&mut state, id)?.end.is_some();
+        if ended {
+            return Err(BackendError::invalid("the channel ended"));
+        }
+        state.log.input.extend_from_slice(bytes);
+        let channel = channel(&mut state, id)?;
+        for &byte in bytes {
+            if channel.end.is_some() {
+                break;
+            }
+            if byte == b'\n' || byte == b'\r' {
+                run_line(channel);
+            } else {
+                channel.line.push(byte);
+            }
+        }
+        Ok(())
+    }
+
+    fn receive(&self, id: &ChannelId, max_bytes: usize) -> Vec<ChannelEvent> {
+        let mut state = self.state();
+        let limit = if state.oversend { usize::MAX } else { max_bytes };
+        let Ok(channel) = channel(&mut state, id) else { return Vec::new() };
+        let mut events = Vec::new();
+        let take = channel.out.len().min(limit);
+        if take > 0 {
+            events.push(ChannelEvent::Data(channel.out.drain(..take).collect()));
+        }
+        if channel.out.is_empty()
+            && !channel.end_sent
+            && let Some(end) = channel.end.clone()
+        {
+            events.push(end);
+            channel.end_sent = true;
+        }
+        events
+    }
 }
 
 pub struct Fixture {
-    pub server: TestServer,
+    pub host: Arc<FakeHost>,
     pub backend: SshBackend,
-    pub credential: Arc<MemoryCredential>,
 }
 
 pub fn fixture(trust: Trust) -> Fixture {
-    fixture_with(trust, random_key())
+    let host = FakeHost::new(trust);
+    let backend = SshBackend::new(host.clone()).expect("backend");
+    Fixture { host, backend }
 }
 
-/// A 2048-bit RSA client key (the default size is slower to make).
-pub fn rsa_key() -> PrivateKey {
-    use russh::keys::ssh_key::private::{KeypairData, RsaKeypair};
-    let rsa = RsaKeypair::random(&mut rand::rng(), 2048).expect("rsa key");
-    PrivateKey::new(KeypairData::from(rsa), "").expect("rsa private key")
-}
-
-pub fn fixture_with(trust: Trust, client: PrivateKey) -> Fixture {
-    let server = TestServer::start(client.public_key().clone());
-    let credential = Arc::new(MemoryCredential::new(client));
-    let host = server.addr.ip().to_string();
-    let port = server.addr.port();
-    let known = match trust {
-        Trust::Known => vec![(host.clone(), port, server.host_key.clone())],
-        Trust::Unknown => Vec::new(),
-        Trust::Changed => vec![(host.clone(), port, random_key().public_key().clone())],
-    };
-    let connection = SshConnection {
-        target: SshTarget { host, port, user: USER.into() },
-        host_keys: Arc::new(KnownKeys(known)),
-        credential: credential.clone(),
-    };
-    let backend = SshBackend::new(Arc::new(OneHandle(connection))).expect("backend");
-    Fixture { server, backend, credential }
-}
-
-pub fn request(kind: &str, terminal: &str, grid: Grid) -> OpenRequest {
+pub fn request(host: &FakeHost, kind: &str, terminal: &str, grid: Grid) -> OpenRequest {
     OpenRequest {
         kind: kind.into(),
         terminal: terminal.into(),
         target: HANDLE.into(),
+        open_token: host.issue_token(),
         command: None,
         cwd: None,
         env: Vec::new(),
         grid,
         actor: None,
     }
+}
+
+pub fn ssh_request(f: &Fixture, terminal: &str) -> OpenRequest {
+    request(&f.host, SSH_KIND, terminal, Grid::new(80, 24))
 }
 
 /// Drains events until `done` holds for everything taken so far.
@@ -397,7 +332,7 @@ pub fn output(events: &[ByteEvent]) -> Vec<u8> {
     events
         .iter()
         .filter_map(|e| match e {
-            ByteEvent::Output(bytes) => Some(bytes.as_slice()),
+            ByteEvent::Output { bytes, .. } => Some(bytes.as_slice()),
             _ => None,
         })
         .flatten()
@@ -407,4 +342,8 @@ pub fn output(events: &[ByteEvent]) -> Vec<u8> {
 
 pub fn contains(haystack: &[u8], needle: &str) -> bool {
     haystack.windows(needle.len()).any(|w| w == needle.as_bytes())
+}
+
+pub fn is_end(event: &ByteEvent) -> bool {
+    matches!(event, ByteEvent::Exit(_) | ByteEvent::Lost { .. })
 }

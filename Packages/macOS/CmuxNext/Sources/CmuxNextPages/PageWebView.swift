@@ -36,13 +36,52 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var pageID: String { descriptor.id }
 
     /// Nil when the page is missing from the resource bundle.
-    public convenience init?(descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil) {
-        guard let root = PageSchemeHandler.bundledRoot(for: descriptor) else { return nil }
-        self.init(descriptor: descriptor, root: root, routes: routes, route: route)
+    public convenience init?(descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil,
+                             documentAttributes: [String: String] = [:]) {
+        guard let root = Self.debugRoot(for: descriptor) ?? PageSchemeHandler.bundledRoot(for: descriptor) else { return nil }
+        self.init(descriptor: descriptor, root: root, routes: routes, route: route, documentAttributes: documentAttributes)
     }
 
-    /// `root` is the directory that holds the page's `index.html` (tests pass their own).
-    public init(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil) {
+    /// The script that sets `data-<name>` attributes on `<html>`; nil for none. Names keep only
+    /// lowercase letters, digits and dashes; values are JSON string literals.
+    nonisolated static func attributesScript(_ attributes: [String: String]) -> String? {
+        let safe = attributes.filter { name, _ in !name.isEmpty && name.allSatisfy { $0.isLowercase || $0.isNumber || $0 == "-" } }
+        guard !safe.isEmpty else { return nil }
+        let lines = safe.keys.sorted().map { name in
+            "document.documentElement.setAttribute(\(JSONValue.string("data-" + name).compactText), \(JSONValue.string(safe[name] ?? "").compactText));"
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// The DEBUG root override of a page (`CMUX_NEXT_PAGE_ROOT_cmux_history=/path`), else nil.
+    nonisolated static func debugRoot(for descriptor: PageDescriptor) -> URL? {
+        #if DEBUG
+        let name = "CMUX_NEXT_PAGE_ROOT_" + descriptor.id.replacingOccurrences(of: ".", with: "_")
+        return ProcessInfo.processInfo.environment[name].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        #else
+        return nil
+        #endif
+    }
+
+    /// Whether `descriptor` may be served from `root`: any root for an app page; for a first-party
+    /// page only its bundled root or its DEBUG override.
+    nonisolated static func mayServe(_ descriptor: PageDescriptor, from root: URL) -> Bool {
+        guard PageID.isReserved(descriptor.id) else { return true }
+        let wanted = root.standardizedFileURL.resolvingSymlinksInPath().path
+        let allowed = [PageSchemeHandler.bundledRoot(for: descriptor), debugRoot(for: descriptor)].compactMap { $0 }
+        return allowed.contains { $0.standardizedFileURL.resolvingSymlinksInPath().path == wanted }
+    }
+
+    /// `root` is the directory that holds the page's `index.html`. A first-party page (``PageID``)
+    /// is served only from its bundled root, so nothing else can be served under a first-party
+    /// origin; DEBUG builds may point one at another root (`CMUX_NEXT_PAGE_ROOT_<id>`, dots as
+    /// underscores) for the page dev loop. Nil when that check fails.
+    ///
+    /// `documentAttributes` become `data-*` attributes of `<html>` before the page's code runs (the
+    /// page's init: `["cloud-machines-layout": "cards"]` is `data-cloud-machines-layout`).
+    public init?(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil,
+                 documentAttributes: [String: String] = [:]) {
+        guard Self.mayServe(descriptor, from: root) else { return nil }
         self.descriptor = descriptor
         router = PageRouter(descriptor: descriptor, routes: routes)
         let configuration = WKWebViewConfiguration()
@@ -50,6 +89,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         configuration.setURLSchemeHandler(PageSchemeHandler(page: descriptor, root: root), forURLScheme: PageDescriptor.scheme)
         configuration.userContentController.addUserScript(
             WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
+        if let script = Self.attributesScript(documentAttributes) {
+            configuration.userContentController.addUserScript(
+                WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
+        }
         webView = WKWebView(frame: .zero, configuration: configuration)
         bridge = WebKitPageHostBridge(webView: webView)
         super.init(frame: .zero)
