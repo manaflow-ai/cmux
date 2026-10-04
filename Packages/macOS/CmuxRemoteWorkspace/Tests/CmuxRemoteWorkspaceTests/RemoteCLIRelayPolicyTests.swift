@@ -544,10 +544,35 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
+    /// A relayed `create_for_target` with `effects` reaches the local socket with the override intact.
+    @Test("notification.create_for_target carrying an effects override is forwarded")
+    func allowsNotificationCreateForTargetWithEffects() throws {
+        let localWorkspace = UUID()
+        let localSurface = UUID()
+        try withServer(
+            workspaceAliases: [localWorkspace: localWorkspace],
+            surfaceAliases: [localSurface: localSurface]
+        ) { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"p15","method":"notification.create_for_target","params":{"workspace_id":"\(localWorkspace.uuidString)","surface_id":"\(localSurface.uuidString)","title":"Done","effects":{"desktop":false}}}
+                """
+            )
+            #expect(exchange.responseLines.first?["ok"] as? Bool == true)
+            #expect(unixServer.requests.count == 1)
+            let forwarded = try #require(unixServer.requests.first)
+            #expect(String(decoding: forwarded, as: UTF8.self).contains("\"effects\":{\"desktop\":false}"))
+        }
+    }
+
     @Test("relay does not learn ownership from unsolicited create responses")
-    func createdSurfaceIsImmediatelyUsable() throws {
-        // The package relay never treats response fields as an ownership grant;
-        // the app's live workspace gate must authorize every follow-up request.
+    func createdSurfaceIsNotOwnedByResponse() throws {
+        // The package relay never treats response fields as an ownership grant:
+        // a surface ID that is absent from the alias map is refused before the
+        // local socket, even when a prior response named it.
         let workspaceAlias = (remote: UUID(), local: UUID())
         let createdSurface = UUID()
         let createResponse = Data("""
@@ -566,11 +591,7 @@ struct RemoteCLIRelayPolicyTests {
                 {"id":"c2","method":"surface.send_text","params":{"surface_id":"\(createdSurface.uuidString)","text":"ls\\n"}}
                 """
             )
-            #expect(
-                send.responseLines.first?["ok"] as? Bool == true,
-                "the created surface must be drivable immediately: \(send.rawResponse)"
-            )
-            #expect(unixServer.requests.count == 1)
+            expectDenial(send, unixServer, "unowned created surface")
         }
     }
 

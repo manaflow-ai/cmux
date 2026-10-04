@@ -9,6 +9,36 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct SidebarCloudWorkspaceBadgeTests {
+    @Test("Cloud sidebar waits for machine metadata before showing identity or directory")
+    func cloudProjectionLoadingDoesNotShowPlaceholders() throws {
+        let workspace = Workspace(title: "Project", initialSurface: .cloudVMLoading)
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.cloud("vm-loading")
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: true)
+        workspace.cloudBindingState.updateCatalogMetadata(
+            resources: [panelID: SurfaceResourceID(machine: machine, kind: .terminal, key: "terminal")],
+            machineNames: [:]
+        )
+        workspace.updateCloudPanelDirectory(panelId: panelID, directory: nil)
+
+        let settings = SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults())
+        let factory = SidebarWorkspaceSnapshotFactory(workspace: workspace, settings: settings, showsAgentActivity: false)
+        let loading = factory.makeSnapshot()
+        #expect(loading.cloudWorkspaceLabel == nil)
+        #expect(loading.compactDirectoryCandidates.isEmpty)
+        #expect(loading.remoteWorkspaceBadgeLabel?.contains("Directory unavailable") != true)
+        #expect(loading.remoteWorkspaceBadgeLabel?.contains(machine.rawValue) != true)
+
+        workspace.cloudBindingState.updateCatalogMetadata(
+            resources: [panelID: SurfaceResourceID(machine: machine, kind: .terminal, key: "terminal")],
+            machineNames: [machine.rawValue: "Friendly machine"]
+        )
+        workspace.updateRemotePanelDirectory(panelId: panelID, directory: "/home/cmux/project")
+        let loaded = factory.makeSnapshot()
+        #expect(loaded.cloudWorkspaceLabel?.contains("Friendly machine") == true)
+    }
+
     @Test(arguments: [false, true])
     func deviceNameIsVisibleBesideItsDirectory(vertical: Bool) throws {
         let defaults = Self.makeDefaults()
@@ -138,7 +168,7 @@ struct SidebarCloudWorkspaceBadgeTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let sidebar = SidebarCatalogSection()
         defaults.set(verticalLayout, forKey: sidebar.branchVerticalLayout.userDefaultsKey)
-        let workspace = Workspace(initialSurface: .cloudVMLoading)
+        let workspace = Workspace(initialSurface: .terminal)
         defer { for panel in workspace.panels.values { panel.close() } }
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
         workspace.updateCloudPanelDirectory(panelId: try #require(workspace.focusedPanelId), directory: "/home/cmux")

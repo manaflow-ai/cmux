@@ -86,10 +86,10 @@ final class FeedCoordinator: @unchecked Sendable {
 
     private init() {}
 
-    /// Combines the two durable inputs to the mobile Feed into one monotonic
-    /// revision. The high and low 32-bit lanes preserve independent changes,
-    /// so a notification update cannot be hidden behind a larger workstream
-    /// revision (or vice versa).
+    /// Preserves the historical mobile Feed revision namespace. The Agent Feed
+    /// now contains workstream rows only, but the low notification lane keeps
+    /// a newly upgraded Mac from sending a revision lower than one cached by
+    /// an older phone. Notification changes do not emit `feed.changed`.
     static func combinedMobileFeedRevision(
         workstream: Int,
         notifications: Int
@@ -114,10 +114,9 @@ final class FeedCoordinator: @unchecked Sendable {
         // expressions evaluate outside the method's main-actor isolation.
         self.userNotificationCenter = userNotificationCenter
             ?? TerminalNotificationStore.shared.userNotificationCenter
-        // Mirror of the notification feed's `notification.feed.changed`
-        // contract: a revision-only invalidation tells subscribed phones to
-        // re-list the workstream feed (`feed.list`). Emission is a no-op
-        // without subscribers.
+        // A revision-only invalidation tells subscribed phones to re-list the
+        // workstream feed (`feed.list`). Keep the historical revision namespace
+        // so older phones do not reject the first post-upgrade snapshot.
         store.onRevisionChange = { revision in
             MobileHostService.emitEvent(
                 topic: "feed.changed",

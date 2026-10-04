@@ -15,6 +15,8 @@ mock.module("../dashboard-app/shell/dashboard-team-scope", () => ({
     selected: { id: "fixture-team", name: "Fixture team" },
     teams: [{ id: "fixture-team", name: "Fixture team" }],
     switchTeam: async () => {},
+    refreshError: false,
+    retryRefresh: () => undefined,
   }),
 }));
 mock.module("@hexclave/next", () => ({

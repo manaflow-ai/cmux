@@ -39,92 +39,24 @@ struct CloudMachinesHeaderCountTests {
         #expect(CloudTreeRowContentView.groupCount(for: .cloudMachinesSection(canCreateMachine: true)) == nil)
     }
 
-    @Test("Narrow Cloud headers move machine actions into one overflow menu",
-          .disabled("Added by #16202 without an app-host run; SwiftUI publishes no accessibility elements for this standalone NSHostingView. Re-enable once the header is hosted the way CloudTreeHeaderActionsTests hosts it."))
+    // The header still measures both team-name layout candidates. Measuring
+    // their ideal widths needs no accessibility client, unlike reading the
+    // SwiftUI tree.
+    @Test("Narrow Cloud headers move machine actions into one overflow menu")
     func narrowHeaderCollapsesMachineActions() async throws {
-        _ = NSApplication.shared
-        let client = TeamChangeAuthClient(
-            firstTeamName: "Team with a long name for the narrow Cloud sidebar"
-        )
-        let flow = try await HostAccountFlow.makeForTeamChangeTests(client: client)
-        let host = NSHostingView(rootView: CloudTeamPickerHeader(
-            accountFlow: flow, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
-            isRefreshing: false, onRefresh: {}, onNewMachine: {},
-            agentMenu: { Image(systemName: "sparkles").frame(width: 22, height: 20) },
-            status: { EmptyView() }
-        ).environment(\.accessibilityEnabled, true))
-        host.frame = NSRect(x: 0, y: 0, width: 220, height: 40)
-        host.autoresizingMask = [.width, .height]
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 220, height: 40),
-            styleMask: [.titled], backing: .buffered, defer: false
-        )
-        window.contentView = host
-        defer { window.orderOut(nil); window.contentView = nil }
-        host.setFrameSize(NSSize(width: 220, height: 40))
-        window.makeKeyAndOrderFront(nil)
-        host.layoutSubtreeIfNeeded()
-        window.displayIfNeeded()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-        host.layoutSubtreeIfNeeded()
-
-        // SwiftUI buttons are not NSButtons, so read what an assistive client
-        // sees; SwiftUI publishes its accessibility tree asynchronously.
-        let published = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
-            host.layoutSubtreeIfNeeded()
-            window.displayIfNeeded()
-            return Self.element("CloudMachinesActionsMenu", in: host) != nil
-        }
-        #expect(published, "Narrow headers must expose the overflow menu")
-        #expect(Self.element("CloudHeaderRefreshButton", in: host) == nil)
-        #expect(Self.element("CloudHeaderNewMachineButton", in: host) == nil)
+        let inline = try await idealRowWidth(.inline, teamName: Self.longTeamName)
+        #expect(inline > Self.barContentWidth(220),
+                "The inline row (\(inline)pt) fits a 220pt sidebar, so the overflow menu never shows")
     }
 
-    @Test("A wide Cloud header keeps refresh and new machine buttons inline",
-          .disabled("Added by #16202 without an app-host run; SwiftUI publishes no accessibility elements for this standalone NSHostingView. Re-enable once the header is hosted the way CloudTreeHeaderActionsTests hosts it."))
-    func wideHeaderKeepsMachineActionsInline() async throws {
-        _ = NSApplication.shared
-        let client = TeamChangeAuthClient(
-            firstTeamName: "Team with a long name for the narrow Cloud sidebar"
-        )
-        let flow = try await HostAccountFlow.makeForTeamChangeTests(client: client)
-        let host = NSHostingView(rootView: CloudTeamPickerHeader(
-            accountFlow: flow, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
-            isRefreshing: false, onRefresh: {}, onNewMachine: {},
-            agentMenu: { Image(systemName: "sparkles").frame(width: 22, height: 20) },
-            status: { EmptyView() }
-        ).environment(\.accessibilityEnabled, true))
-        host.frame = NSRect(x: 0, y: 0, width: 420, height: 40)
-        host.autoresizingMask = [.width, .height]
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 40),
-            styleMask: [.titled], backing: .buffered, defer: false
-        )
-        window.contentView = host
-        defer { window.orderOut(nil); window.contentView = nil }
-        host.setFrameSize(NSSize(width: 420, height: 40))
-        window.makeKeyAndOrderFront(nil)
-        host.layoutSubtreeIfNeeded()
-        window.displayIfNeeded()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-        host.layoutSubtreeIfNeeded()
-
-        // SwiftUI buttons are not NSButtons, so read what an assistive client
-        // sees; SwiftUI publishes its accessibility tree asynchronously.
-        var refreshElement: NSObject?
-        var newMachineElement: NSObject?
-        _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
-            host.layoutSubtreeIfNeeded()
-            window.displayIfNeeded()
-            refreshElement = Self.element("CloudHeaderRefreshButton", in: host)
-            newMachineElement = Self.element("CloudHeaderNewMachineButton", in: host)
-            return refreshElement != nil && newMachineElement != nil
-        }
-        let refresh = try #require(refreshElement)
-        let newMachine = try #require(newMachineElement)
-        #expect(Self.label(of: refresh) == "Refresh Machines")
-        #expect(Self.label(of: newMachine) == "New Machine")
-        #expect(Self.element("CloudMachinesActionsMenu", in: host) == nil)
+    @Test("A wide Cloud header keeps its action row stable")
+    func wideHeaderKeepsActionRowStable() async throws {
+        let inline = try await idealRowWidth(.inline, teamName: "Team A")
+        #expect(inline <= Self.barContentWidth(420),
+                "The header action row (\(inline)pt) overflows a 420pt sidebar")
+        let overflow = try await idealRowWidth(.overflowMenu, teamName: "Team A")
+        #expect(overflow <= inline,
+                "The overflow menu should be no wider than the inline action row")
     }
 
     @Test("A free plan at its limit turns orange and names the upgrade", arguments: [
@@ -290,7 +222,7 @@ struct CloudMachinesHeaderCountTests {
         NSHostingView(rootView: CloudTeamPickerHeader(
             accountFlow: nil, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
             isRefreshing: false, onRefresh: {}, onNewMachine: {},
-            agentMenu: { EmptyView() }, status: status
+            status: status
         )).fittingSize.height
     }
 
@@ -346,14 +278,24 @@ struct CloudMachinesHeaderCountTests {
         return CGFloat(first) / scale...CGFloat(last + 1) / scale
     }
 
-    private static func element(_ identifier: String, in host: NSView) -> NSObject? {
-        CloudTreeHeaderActionsTests.accessibilityElement(identifier, in: host)
+    private static let longTeamName = "Team with a long name for the narrow Cloud sidebar"
+
+    /// The width the header's `ViewThatFits` gets inside a sidebar `width` points wide.
+    private static func barContentWidth(_ width: CGFloat) -> CGFloat {
+        width - 2 * RightSidebarChromeMetrics.barHorizontalPadding
     }
 
-    private static func label(of element: NSObject) -> String? {
-        CloudTreeHeaderActionsTests.accessibilityAttribute(
-            .description, getter: "accessibilityLabel", of: element
-        ) as? String
+    /// The ideal width of one candidate header row, the size `ViewThatFits` compares.
+    private func idealRowWidth(_ actions: CloudHeaderMachineActions, teamName: String) async throws -> CGFloat {
+        _ = NSApplication.shared
+        let flow = try await HostAccountFlow.makeForTeamChangeTests(client: TeamChangeAuthClient(firstTeamName: teamName))
+        let header = CloudTeamPickerHeader(
+            accountFlow: flow, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
+            isRefreshing: false, onRefresh: {}, onNewMachine: {},
+            status: { EmptyView() }
+        )
+        let row = NSHostingView(rootView: header.actionsRow(actions, picker: CloudTeamPickerPresentation()).fixedSize())
+        return row.fittingSize.width
     }
 
     private func headerCell(usage: CloudMachinesUsage) -> CloudTreeCellView {

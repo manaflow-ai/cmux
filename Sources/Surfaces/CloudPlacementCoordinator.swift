@@ -182,6 +182,15 @@ final class CloudPlacementCoordinator {
                   let pane = state.lookupIndex.pane(id: tab.paneID),
                   let screen = state.lookupIndex.screen(id: pane.screenID),
                   projection.remoteWorkspaceID != screen.workspaceID else { continue }
+            // Do not adopt a tab's new workspace until the destination has a
+            // complete resource inventory. The projection coordinator uses the
+            // same fence before retiring or recreating panes, so updating the
+            // remote coordinate here first would make an incomplete move look
+            // accepted and lose the source projection.
+            guard CloudVMGraphCompleteness(
+                state: state,
+                resources: catalog.snapshot.resources(on: state.machine)
+            ).isComplete(workspaceID: screen.workspaceID) else { continue }
             var updated = projection
             updated.remoteWorkspaceID = screen.workspaceID
             replacements[projection] = updated

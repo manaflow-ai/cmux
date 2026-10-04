@@ -722,6 +722,21 @@ class CanonicalRootTests(unittest.TestCase):
             taken = calls.read_text().splitlines() if calls.exists() else []
             return result.returncode, result.stdout.strip(), taken
 
+    def test_a_per_runner_root_is_kept_on_a_mac_without_glaeda(self) -> None:
+        # A fleet Mac without the glaeda helper builds at a per-runner root
+        # (canonical-build-root.sh); the rerun must build there too.
+        derived = "/private/tmp/cmux-ci-aws-m4pro-7-glaeda-2/derived-data-compile-admission"
+        code, out, taken = self.take(derived, helper=False)
+        self.assertEqual((code, out, taken), (0, "/private/tmp/cmux-ci-aws-m4pro-7-glaeda-2", []))
+        code, out, _ = self.take(None, env_root="/private/tmp/cmux-ci-aws-m4pro-7-glaeda-2", helper=False)
+        self.assertEqual((code, out), (0, "/private/tmp/cmux-ci-aws-m4pro-7-glaeda-2"))
+
+    def test_glaeda_still_refuses_a_per_runner_root(self) -> None:
+        derived = "/private/tmp/cmux-ci-aws-m4pro-7-glaeda-2/derived-data-compile-admission"
+        code, _, taken = self.take(derived, env_root="/private/tmp/cmux-ci-aws-m4pro-7-glaeda-2")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(taken, [])
+
     def test_the_workflow_names_no_canonical_root_itself(self) -> None:
         # The root comes from the product's receipt, or CMUX_CI_CANONICAL_ROOT,
         # falling back to /private/tmp/cmux-ci only inside the helper.
@@ -779,6 +794,7 @@ class CanonicalRootTests(unittest.TestCase):
     def test_compiled_file_paths_are_independent_of_the_producer_root(self) -> None:
         compile_script = COMPILE_PRODUCT.read_text()
         restore_script = RESTORE_PRODUCT.read_text()
+        run_script = (ROOT / "scripts" / "ci" / "run-app-host-xcodebuild.sh").read_text()
         self.assertIn("FILE_PATH_ROOT=/private/tmp/cmux-test-source", compile_script)
         self.assertIn("-file-prefix-map", compile_script)
         self.assertIn("-debug-prefix-map", compile_script)
@@ -790,6 +806,8 @@ class CanonicalRootTests(unittest.TestCase):
         source_text = "\n".join(path.read_text() for path in source_helpers)
         self.assertIn("static func sourceURL", helper_text)
         self.assertIn("appendingPathComponent(fileID)", helper_text)
+        self.assertIn("TEST_RUNNER_CMUX_CI_RUNTIME_SOURCE_ROOT", run_script)
+        self.assertIn('"CMUX_CI_RUNTIME_SOURCE_ROOT"', helper_text)
         self.assertNotIn("URL(fileURLWithPath: #filePath)", source_text)
         self.assertIn("CMUX_CI_RUNTIME_SOURCE_ROOT=/private/tmp/cmux-test-source", restore_script)
         self.assertNotIn("glaeda-canonical-root", restore_script)
