@@ -66,11 +66,15 @@ pub struct EdgeDown {
 /// Files transfers, forwards and proxy routes of this server.
 pub struct Edge {
     pub(crate) tunnel: Arc<dyn PortTunnel>,
-    pub(crate) transfer: Box<dyn Transfer>,
+    pub(crate) transfer: Arc<dyn Transfer>,
+    /// Running file transfers (crate::fs::running); the loop is the only writer.
+    pub(crate) transfers: crate::fs::running::Transfers,
     pub(crate) forwards: BTreeMap<(String, u16), Forward>,
     pub(crate) proxies: BTreeMap<String, Forward>,
     /// Closes by link state since the last [`Edge::take_events`], in order.
     events: Vec<EdgeDown>,
+    /// The host key pinned for each machine (`<data>/ssh/known_hosts`).
+    pinned: BTreeMap<String, String>,
 }
 
 /// A tunnel for platforms without Unix sockets: every open fails.
@@ -88,10 +92,12 @@ impl Edge {
     pub fn new(tunnel: Arc<dyn PortTunnel>, transfer: Box<dyn Transfer>) -> Self {
         Self {
             tunnel,
-            transfer,
+            transfer: Arc::from(transfer),
+            transfers: crate::fs::running::Transfers::new(),
             forwards: BTreeMap::new(),
             proxies: BTreeMap::new(),
             events: Vec::new(),
+            pinned: BTreeMap::new(),
         }
     }
 
@@ -102,7 +108,36 @@ impl Edge {
         let tunnel: Arc<dyn PortTunnel> = Arc::new(LoopbackTunnel);
         #[cfg(not(unix))]
         let tunnel: Arc<dyn PortTunnel> = Arc::new(NoTunnel);
-        Self::new(tunnel, Box::new(OpenSshTransfer::default()))
+        Self::new(tunnel, Box::new(OpenSshTransfer::system()))
+    }
+
+    /// Pins `host_key` (from the Cloud API's scp-endpoint answer) for
+    /// `machine` in the app's known_hosts and rewrites the file (atomic
+    /// rename). Only the loop thread calls this. A key the Cloud API did not
+    /// give is never pinned here: new keys of other hosts go through the
+    /// user's host key sheet (crate::fs::transfer::HOST_KEY_UNPINNED).
+    pub(crate) fn pin_host_key(
+        &mut self,
+        ssh: &crate::app_env::SshFiles,
+        machine: &str,
+        host_key: &str,
+    ) -> std::io::Result<()> {
+        if self.pinned.get(machine).map(String::as_str) == Some(host_key)
+            && ssh.known_hosts.is_file()
+        {
+            return Ok(());
+        }
+        // The map changes only after the file did, so a failed write is
+        // retried by the next transfer instead of trusting a stale file.
+        let mut pinned = self.pinned.clone();
+        pinned.insert(machine.to_owned(), host_key.to_owned());
+        let text: String = pinned
+            .iter()
+            .map(|(m, key)| format!("{} {key}\n", crate::fs::transfer::host_alias(m)))
+            .collect();
+        crate::app_env::write_private(&ssh.known_hosts, text.as_bytes())?;
+        self.pinned = pinned;
+        Ok(())
     }
 
     fn listeners(&self) -> usize {

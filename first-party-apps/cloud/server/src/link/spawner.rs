@@ -26,6 +26,8 @@ pub enum LinkProcessEvent {
     Line { tag: LinkTag, line: String },
     /// The process ended (`None`: killed by a signal).
     Exited { tag: LinkTag, code: Option<i32> },
+    /// The link's ready deadline passed (sent by the supervisor's clock).
+    Deadline { tag: LinkTag },
 }
 
 /// Wakes the owner of the link state (the serve loop) after an event was
@@ -74,9 +76,6 @@ pub trait LinkSpawner: Send {
 /// The real spawner: one child process and one reader thread per link.
 pub struct ProcessSpawner;
 
-/// Variables the child keeps from this process; everything else is cleared.
-const KEPT_ENV: &[&str] = &["HOME", "PATH", "TMPDIR", "USER", "LOGNAME", "LANG", "LC_ALL"];
-
 fn private_dir(path: &Path) -> std::io::Result<()> {
     let mut builder = std::fs::DirBuilder::new();
     builder.recursive(true);
@@ -102,13 +101,13 @@ impl LinkSpawner for ProcessSpawner {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e),
         }
+        // The binary by absolute path; the child's environment is exactly
+        // the command's (nothing of this process's environment).
+        if !command.binary.is_absolute() {
+            return Err(std::io::Error::other("the link binary is not an absolute path"));
+        }
         let mut process = Command::new(&command.binary);
         process.args(&command.args).env_clear();
-        for key in KEPT_ENV {
-            if let Some(value) = std::env::var_os(key) {
-                process.env(key, value);
-            }
-        }
         process.envs(command.env.iter().map(|(k, v)| (k, v)));
         // The link's stderr goes to the server's stderr (the host's log); it
         // carries no credential because none is given to the link.

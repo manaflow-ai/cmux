@@ -227,7 +227,10 @@ final class PaneOverlayView: NSView {
             let attentionColor = attentionMark?.color?.nsColor ?? attentionSettings.color?.nsColor ?? Palette.attention
             attention.borderColor = attentionColor.cgColor
             border.borderColor = (borderStyle.color?.nsColor ?? Palette.paneBorder).cgColor
-            dimLayer.backgroundColor = Palette.contentBackground.withAlphaComponent(1).cgColor
+            // In glass windows the root backdrop owns the ground. An opaque
+            // inactive-pane veil would hide the painting and reintroduce the
+            // History/terminal mismatch; paneFill is clear in that mode.
+            dimLayer.backgroundColor = Palette.paneFill.cgColor
         }
     }
 }

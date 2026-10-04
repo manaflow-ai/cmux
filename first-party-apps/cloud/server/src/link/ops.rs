@@ -24,10 +24,9 @@ pub(crate) const RESCUE_OPEN: &str = "cloud.rescue.open";
 /// call, in order. The serve loop takes them after each op and whenever a
 /// link process event wakes it (`LinkSupervisor::set_wake`).
 pub(crate) fn take_event_lines<C: ControlPlane>(server: &mut Server<C>) -> Vec<Value> {
-    let supervisor = server.attach_mut().supervisor_mut();
-    supervisor.pump();
-    supervisor
-        .take_events()
+    server
+        .attach_mut()
+        .take_host_link_events()
         .into_iter()
         .map(|event| match event {
             CarrierEvent::Up { carrier } => json!({ "type": "event", "event": "cloud.link.changed",
@@ -59,6 +58,7 @@ pub(crate) fn run<C: ControlPlane>(
     raw: &Value,
     origin: Origin,
     key: Option<&str>,
+    open_token: Option<&OpenToken>,
 ) -> Result<Value, CloudError> {
     match name {
         CONNECT => {
@@ -74,7 +74,7 @@ pub(crate) fn run<C: ControlPlane>(
             let existed = attach.supervisor.disconnect(id);
             Ok(json!({ "machine": id, "disconnected": existed }))
         }
-        RESCUE_OPEN => rescue_open(server, raw, origin, key),
+        RESCUE_OPEN => rescue_open(server, raw, origin, key, open_token),
         _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
     }
 }
@@ -108,32 +108,85 @@ pub(crate) fn backend_error(error: BackendError) -> CloudError {
     }
 }
 
-/// Opens (or returns) the one carrier of `machine`. A paused machine is
-/// started first through `cloud.machine.start` (with `start_key`).
+/// Opens (or returns) the one carrier of `machine` and waits for it. A
+/// paused machine is started first through `cloud.machine.start` (with
+/// `start_key`). In the serve loop (`park_link_waits`) it never waits: the
+/// op that called it is parked until the link is up or ended.
 pub(crate) fn connect<C: ControlPlane>(
     server: &mut Server<C>,
     machine: &str,
     origin: Origin,
     start_key: Option<String>,
 ) -> Result<Carrier, CloudError> {
+    let generation = match begin_connect(server, machine, origin, start_key)? {
+        Begun::Up(carrier) => return Ok(carrier),
+        Begun::Connecting(generation) => generation,
+    };
+    let attach = server.attach_mut();
+    attach.supervisor.pump();
+    if let Some(outcome) = attach.supervisor.outcome(machine, generation) {
+        return outcome.map_err(link_failure);
+    }
+    if attach.park_link_waits {
+        // The serve loop never waits for a link: the op is parked and runs
+        // again when this generation is up or ended (super::park).
+        attach.parked = Some((machine.to_owned(), generation));
+        return Err(CloudError::new(super::park::LINK_WAIT, "the link is connecting"));
+    }
+    attach.supervisor.wait_connect(machine, generation).map_err(link_failure)
+}
+
+/// How a connect started.
+pub(crate) enum Begun {
+    /// The link was already up.
+    Up(Carrier),
+    /// A link process of this generation connects; `up` or `down` follows.
+    Connecting(u64),
+}
+
+/// A link failure as an op error.
+pub(crate) fn link_failure(failure: LinkFailure) -> CloudError {
+    match failure {
+        LinkFailure::Revoked(reason) => CloudError::new(LINK_REVOKED, reason),
+        LinkFailure::Down { retryable, reason } => {
+            CloudError { retryable, ..CloudError::new(LINK_DOWN, reason) }
+        }
+        LinkFailure::Spawn(why) => {
+            CloudError::new(LINK_UNAVAILABLE, format!("the link process did not start: {why}"))
+        }
+    }
+}
+
+/// Everything of a connect up to the link process start, without waiting
+/// for its ready line: the up carrier, the generation that connects now,
+/// or a typed error. Only the loop thread calls it.
+pub(crate) fn begin_connect<C: ControlPlane>(
+    server: &mut Server<C>,
+    machine: &str,
+    origin: Origin,
+    start_key: Option<String>,
+) -> Result<Begun, CloudError> {
     // The interface path has no catalog arg check: check the id here, before
     // it enters a path or argv.
     args::id(&serde_json::Map::from_iter([("machine".to_owned(), json!(machine))]), "machine")?;
     let attach = server.attach_mut();
     attach.supervisor.pump();
     match attach.supervisor.state(machine) {
-        Some(LinkState::Up(carrier)) => return Ok(carrier.clone()),
+        Some(LinkState::Up(carrier)) => return Ok(Begun::Up(carrier.clone())),
         Some(LinkState::Revoked { reason }) => {
             return Err(CloudError::new(LINK_REVOKED, reason.clone()));
         }
         _ => {}
     }
-    let Some(paths) = attach.paths.clone() else {
-        return Err(CloudError::new(
-            LINK_UNAVAILABLE,
-            "cmux did not give the Cloud app a link binary and network hub",
-        ));
-    };
+    // A link that already connects (another connect, a respawn): follow it.
+    if let Some(generation) = attach.supervisor.connecting(machine) {
+        return Ok(Begun::Connecting(generation));
+    }
+    let paths = server.link_paths()?;
+    let attach = server.attach_mut();
+    let child_env = attach.env.child_env().map_err(|e| {
+        CloudError::new(LINK_UNAVAILABLE, format!("no private home for the link: {e}"))
+    })?;
     let start_key = match start_key {
         Some(key) => key,
         None => format!("link-{}/start", attach.attempt_nonce()),
@@ -167,16 +220,19 @@ pub(crate) fn connect<C: ControlPlane>(
         }
     };
     let endpoint = AttachEndpoint::decode(answer)?;
-    let command = link_command(&paths, machine, &endpoint);
-    server.attach_mut().supervisor.spawn_and_wait(machine, &command).map_err(|f| match f {
-        LinkFailure::Revoked(reason) => CloudError::new(LINK_REVOKED, reason),
-        LinkFailure::Down { retryable, reason } => {
-            CloudError { retryable, ..CloudError::new(LINK_DOWN, reason) }
-        }
-        LinkFailure::Spawn(why) => {
-            CloudError::new(LINK_UNAVAILABLE, format!("the link process did not start: {why}"))
-        }
-    })
+    let command = link_command(&paths, machine, &endpoint, &child_env);
+    let attach = server.attach_mut();
+    attach.endpoints.insert(machine.to_owned(), endpoint);
+    // The relay calls above may have taken a while: a link that came up or
+    // started meanwhile is used, not replaced.
+    attach.supervisor.pump();
+    if let Some(carrier) = attach.supervisor.carrier(machine) {
+        return Ok(Begun::Up(carrier.clone()));
+    }
+    if let Some(generation) = attach.supervisor.connecting(machine) {
+        return Ok(Begun::Connecting(generation));
+    }
+    attach.supervisor.begin(machine, &command).map(Begun::Connecting).map_err(link_failure)
 }
 
 /// Reads the machine when the projection does not know it, and starts it
@@ -206,6 +262,7 @@ fn rescue_open<C: ControlPlane>(
     raw: &Value,
     origin: Origin,
     key: Option<&str>,
+    open_token: Option<&OpenToken>,
 ) -> Result<Value, CloudError> {
     let map = args::object(raw, &["machine", "cols", "rows", "focus"])?;
     let machine = args::id(map, "machine")?.to_owned();
@@ -221,6 +278,10 @@ fn rescue_open<C: ControlPlane>(
     if !server.attach_mut().rescue_route_available() {
         return Err(CloudError::new(codes::UNSUPPORTED, MISSING_ROUTE));
     }
+    // The host stamps its open token on the op line after the user's
+    // gesture; without one nothing starts and nothing opens.
+    let open_token = open_token.cloned().unwrap_or_else(|| OpenToken(String::new()));
+    open_token.check().map_err(backend_error)?;
     let start_key = key.map_or_else(
         || format!("rescue-{}/start", server.attach_mut().attempt_nonce()),
         |k| format!("{k}/start"),
@@ -235,10 +296,7 @@ fn rescue_open<C: ControlPlane>(
             kind: RESCUE_KIND.into(),
             terminal: terminal.clone(),
             target: machine.clone(),
-            // GAP: the host issues open tokens after the user's gesture; this
-            // op has no host token to pass on yet, so it passes none. The
-            // rescue backend does not check it (no route behind it today).
-            open_token: OpenToken(String::new()),
+            open_token,
             command: None,
             cwd: None,
             env: Vec::new(),

@@ -29,6 +29,7 @@ BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
 SCRATCH = tempfile.mkdtemp(prefix=f"newtab-{opts.tag}-")
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 GHOSTTY = os.path.join(SCRATCH, "ghostty")
+WINDOW_IDS = []  # debug.surfaces window ids by index, for debug.key
 open(GHOSTTY, "w").write("")
 open(CONFIG, "w").write("{}")
 
@@ -67,8 +68,8 @@ def state():
     return rpc("debug.new_tab", {"action": "state"}) or {}
 
 
-def open_and_check(expect_spare, snapshot=None, close=1):
-    reply = rpc("debug.new_tab", {"action": "open_and_type", "text": opts.text}) or {}
+def open_and_check(expect_spare, snapshot=None, close=1, window=0):
+    reply = rpc("debug.new_tab", {"action": "open_and_type", "text": opts.text, "window": window}) or {}
     opening = reply.get("opening") or {}
     if reply.get("first_responder") != "WKWebView":
         print(f"note: first responder right after the open: {reply.get('first_responder')}", flush=True)
@@ -77,7 +78,7 @@ def open_and_check(expect_spare, snapshot=None, close=1):
     last = {}
 
     def read_field():
-        last["field"] = rpc("debug.new_tab", {"action": "field"}) or {}
+        last["field"] = rpc("debug.new_tab", {"action": "field", "window": window}) or {}
         last["focus"] = rpc("debug.focus") or {}
         return last["field"].get("text") == opts.text and last["field"]
 
@@ -97,8 +98,8 @@ def open_and_check(expect_spare, snapshot=None, close=1):
     if snapshot:
         print(f"snapshot: {rpc('debug.window_snapshot', {'path': snapshot})}")
     for _ in range(close):
-        rpc("debug.key", {"key": "w", "modifiers": ["command"]})
-    return opening["ms"]
+        rpc("debug.key", {"key": "w", "modifiers": ["command"], **({"window": WINDOW_IDS[window]} if window else {})})
+    return opening
 
 
 app = None
@@ -120,7 +121,7 @@ try:
         spares = wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
         footprints += [s["footprint_mb"] for s in spares if s.get("footprint_mb") is not None]
         shot = os.path.join(os.environ.get("NX_ARTIFACTS", SCRATCH), "new-tab-spare.png") if run == 0 else None
-        spare_ms.append(open_and_check(True, shot))
+        spare_ms.append(open_and_check(True, shot)["ms"])
     # Cold: two opens back to back, so the second finds the slot empty (the next spare waits
     # for quiet input); close both tabs.
     wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
@@ -138,6 +139,22 @@ try:
     print(f"spare openings: n={len(spare_ms)} p50={statistics.median(spare_ms):.2f} ms p95={p95:.2f} ms max={max(spare_ms):.2f} ms")
     if footprints:
         print(f"spare WebContent footprint: median={statistics.median(footprints):.1f} MB max={max(footprints):.1f} MB")
+    # One spare per app: a second window adopts the spare parked in the first (a reparent), and a
+    # key-window change moves the parked spare (debug `retarget`, since no-activate windows never
+    # become key).
+    windows_before = len((rpc("debug.surfaces") or {}).get("windows", []))
+    print(f"new window: {rpc('action.run', {'id': 'newWindow'})}", flush=True)
+    wait("a second window", lambda: len((rpc("debug.surfaces") or {}).get("windows", [])) > windows_before, 30)
+    WINDOW_IDS[:] = [w.get("id") for w in (rpc("debug.focus") or {}).get("windows", [])]
+    time.sleep(2)  # test harness: let the new window's workspace settle
+    wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
+    cross = open_and_check(True, window=1)
+    print(f"cross-window adoption: {cross}", flush=True)
+    wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
+    moved = rpc("debug.new_tab", {"action": "retarget", "window": 1}) or {}
+    print(f"key-window change moves the spare: target={moved.get('target_window')} move={moved.get('last_retarget_ms')} ms", flush=True)
+    after = open_and_check(True, window=1)
+    print(f"after the move, same-window adoption: {after}", flush=True)
     if p95 > opts.budget_ms:
         sys.exit(f"FAIL p95 {p95:.2f} ms is over the {opts.budget_ms} ms budget")
     print("ok: no lost key in any run; p95 within budget")

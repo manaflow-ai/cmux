@@ -13,7 +13,19 @@ import {
   rpcRequestStatus,
 } from "../dev-server/diffHost";
 import { diffLanguagesDirectory, readDiffLanguagePack } from "../dev-server/diffLanguages";
-import { SHELL_PLACEHOLDERS, fillShell, markdownFiles, splitStyles } from "../dev-server/markdownHost";
+import {
+  SHELL_PLACEHOLDERS,
+  cmuxConfigFile,
+  contentHash,
+  fillShell,
+  markdownAsset,
+  markdownFiles,
+  readMarkdown,
+  readMarkdownLook,
+  saveMarkdown,
+  splitStyles,
+  stripJSONC,
+} from "../dev-server/markdownHost";
 
 const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "dev-server-test-")));
 afterAll(() => fs.rmSync(scratch, { recursive: true, force: true }));
@@ -171,6 +183,89 @@ describe("markdown dev host file resolution", () => {
     expect(files.link(readme, ".env")).toBeUndefined();
     expect(files.link(readme, "")).toBeUndefined();
     expect(files.link(path.join(root, ".env"), "README.md")).toBeUndefined();
+  });
+});
+
+describe("markdown editor dev host", () => {
+  const root = path.join(scratch, "md-editor-root");
+  const doc = write(path.join(root, "docs/doc.md"), "# Doc\n");
+  write(path.join(root, "docs/images/a.png"), "png");
+  write(path.join(root, "docs/notes.txt"), "text");
+  write(path.join(root, "secret.png"), "png");
+  const readOnlyRoot = path.join(scratch, "md-readonly-root");
+  const outsideDoc = write(path.join(readOnlyRoot, "ref.md"), "# Ref\n");
+  const files = markdownFiles(root, doc, [readOnlyRoot]);
+
+  test("read-only roots open but never save", () => {
+    expect(files.file(outsideDoc)).toBe(outsideDoc);
+    expect(files.writable(outsideDoc)).toBe(false);
+    expect(files.writable(doc)).toBe(true);
+    expect(saveMarkdown(outsideDoc, "# Changed\n", contentHash("# Ref\n"), files.writable(outsideDoc))).toEqual({
+      ok: false,
+      code: "cmux.markdown.read_only",
+    });
+    expect(fs.readFileSync(outsideDoc, "utf8")).toBe("# Ref\n");
+  });
+
+  test("save writes on a matching hash and refuses a stale one with the current text", () => {
+    const base = readMarkdown(doc)!;
+    const saved = saveMarkdown(doc, "# Doc 2\n", base.hash, true);
+    expect(saved).toEqual({ ok: true, hash: contentHash("# Doc 2\n") });
+    expect(fs.readFileSync(doc, "utf8")).toBe("# Doc 2\n");
+    expect(saveMarkdown(doc, "# Doc 3\n", base.hash, true)).toEqual({
+      ok: false,
+      code: "cmux.markdown.conflict",
+      details: { hash: contentHash("# Doc 2\n"), text: "# Doc 2\n" },
+    });
+    expect(fs.readFileSync(doc, "utf8")).toBe("# Doc 2\n");
+  });
+
+  test("a save over a deleted file is a conflict; a null base hash creates it", () => {
+    const gone = path.join(root, "docs/gone.md");
+    expect(saveMarkdown(gone, "x", contentHash("old"), true)).toEqual({
+      ok: false,
+      code: "cmux.markdown.conflict",
+      details: { hash: null, deleted: true },
+    });
+    expect(saveMarkdown(gone, "x\n", null, true).ok).toBe(true);
+  });
+
+  test("a file that is not UTF-8 is reported so it opens read only", () => {
+    const latin = path.join(root, "docs/latin.md");
+    fs.writeFileSync(latin, Buffer.from([0x23, 0x20, 0xe9, 0x0a]));
+    expect(readMarkdown(latin)?.utf8).toBe(false);
+    expect(readMarkdown(doc)?.utf8).toBe(true);
+  });
+
+  test("images resolve only inside the file's folder", () => {
+    expect(markdownAsset(doc, "images/a.png")).toEqual({
+      file: path.join(root, "docs/images/a.png"),
+      contentType: "image/png",
+    });
+    expect(markdownAsset(doc, "../secret.png")).toBeUndefined();
+    expect(markdownAsset(doc, "notes.txt")).toBeUndefined();
+    expect(markdownAsset(doc, "images/missing.png")).toBeUndefined();
+  });
+});
+
+describe("markdown editor dev look", () => {
+  test("reads the markdown section of a JSONC cmux.json and markdown/theme.css next to it", () => {
+    const config = write(
+      path.join(scratch, "look/cmux.json"),
+      '{\n  // comment\n  "url": "https://x//y", /* block */\n  "markdown": { "font": { "size": 18, }, },\n}\n',
+    );
+    write(path.join(scratch, "look/markdown/theme.css"), ".md-prose { color: red; }");
+    expect(readMarkdownLook(config)).toEqual({
+      settings: { font: { size: 18 } },
+      themeCSS: ".md-prose { color: red; }",
+    });
+    expect(JSON.parse(stripJSONC('{"a": "//not a comment", "b": [1,],}'))).toEqual({ a: "//not a comment", b: [1] });
+  });
+
+  test("a missing config or stylesheet is an empty look; CMUX_NEXT_CONFIG_FILE moves cmux.json", () => {
+    expect(readMarkdownLook(path.join(scratch, "nowhere/cmux.json"))).toEqual({ settings: undefined, themeCSS: "" });
+    expect(cmuxConfigFile({ CMUX_NEXT_CONFIG_FILE: "/tmp/x/cmux.json" }, "/home/u")).toBe("/tmp/x/cmux.json");
+    expect(cmuxConfigFile({}, "/home/u")).toBe("/home/u/.config/cmux/cmux.json");
   });
 });
 

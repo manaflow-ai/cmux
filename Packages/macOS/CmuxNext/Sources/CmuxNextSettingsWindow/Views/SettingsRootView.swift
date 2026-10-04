@@ -24,6 +24,7 @@ struct SettingsRootView: View {
         .foregroundStyle(SettingsStyle.text)
         .font(SettingsStyle.body)
         .controlSize(.small)
+        .background(Color(nsColor: SettingsTheme.shared.tokens.surfaceBackground.nsColor))
     }
 }
 

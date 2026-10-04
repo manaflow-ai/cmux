@@ -3,9 +3,19 @@
 //!
 //! The private key never touches the disk or argv: a private `ssh-agent`
 //! runs for this transfer only, `ssh-add -` reads the key on stdin, and
-//! `scp` uses that agent (`IdentityAgent`). The pinned host key goes into a
-//! `known_hosts` file in an owner-only folder (a public key, not a secret).
-//! The folder, the agent and the key are gone when the transfer ends.
+//! `scp` uses that agent (`IdentityAgent`). The agent's folder and the key
+//! are gone when the transfer ends.
+//!
+//! Every OpenSSH child starts from an empty environment plus the job's
+//! (`TMPDIR`, `LANG`, a private `HOME`; crate::app_env), and runs by
+//! absolute path: the programs are found once in a fixed system folder
+//! list, never through `PATH`. Every `scp` passes `-F <data>/ssh/config`
+//! and `UserKnownHostsFile=<data>/ssh/known_hosts` (the server pinned the
+//! endpoint's host key there before the job), `GlobalKnownHostsFile=/dev/null`
+//! and `StrictHostKeyChecking=yes`, and runs `ssh` by absolute path (`-S`),
+//! so nothing reads the user's `~/.ssh`. One access remains: OpenSSH takes
+//! the home folder from the user database (not `HOME`) and may `stat` (or
+//! create, when missing) the real `~/.ssh`; it reads no file there.
 //!
 //! UNVERIFIED live: needs a Cloud machine (no non-production account yet).
 
@@ -15,49 +25,72 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
-/// Variables the OpenSSH processes keep; everything else is cleared (no
-/// inherited agent, no inherited config).
-const KEPT_ENV: &[&str] = &["HOME", "PATH", "TMPDIR", "USER", "LOGNAME", "LANG", "LC_ALL"];
-const HOST_ALIAS: &str = "cmux-scp";
+/// The folders the OpenSSH programs are taken from, in order (system
+/// OpenSSH only; never `PATH`).
+pub const SYSTEM_DIRS: &[&str] = &["/usr/bin", "/bin"];
+
+/// The host key alias of `machine` in `<data>/ssh/known_hosts`.
+pub fn host_alias(machine: &str) -> String {
+    format!("cmux-scp-{machine}")
+}
 
 #[derive(Debug, Clone)]
 pub struct OpenSshTransfer {
+    pub ssh: PathBuf,
     pub ssh_agent: PathBuf,
     pub ssh_add: PathBuf,
     pub scp: PathBuf,
 }
 
-impl Default for OpenSshTransfer {
-    fn default() -> Self {
+impl OpenSshTransfer {
+    /// The system OpenSSH: each program from the first folder of
+    /// [`SYSTEM_DIRS`] that has it (resolved once; a missing program fails
+    /// its transfer with a typed error).
+    pub fn system() -> Self {
+        let find = |name: &str| {
+            SYSTEM_DIRS
+                .iter()
+                .map(|dir| Path::new(dir).join(name))
+                .find(|path| path.is_file())
+                .unwrap_or_else(|| Path::new(SYSTEM_DIRS[0]).join(name))
+        };
         Self {
-            ssh_agent: PathBuf::from("/usr/bin/ssh-agent"),
-            ssh_add: PathBuf::from("/usr/bin/ssh-add"),
-            scp: PathBuf::from("/usr/bin/scp"),
+            ssh: find("ssh"),
+            ssh_agent: find("ssh-agent"),
+            ssh_add: find("ssh-add"),
+            scp: find("scp"),
         }
     }
 }
 
-/// The `scp` arguments for `job`: no key material, the host key pinned by
-/// alias, the private agent only, no config file.
-pub fn scp_args(
-    job: &TransferJob,
-    agent_socket: &Path,
-    known_hosts: &Path,
-    identity_pub: &Path,
-) -> Vec<String> {
+impl Default for OpenSshTransfer {
+    fn default() -> Self {
+        Self::system()
+    }
+}
+
+/// The `scp` arguments for `job`: no key material, the app's config and
+/// known_hosts (the host key pinned by alias), the private agent only.
+pub fn scp_args(job: &TransferJob, agent_socket: &Path, identity_pub: &Path) -> Vec<String> {
     let option = |o: String| ["-o".to_owned(), o];
     // Quoted (a space would split the value) with `%` escaped (ssh tokens).
     let escape = |p: &Path| format!("\"{}\"", p.to_string_lossy().replace('%', "%%"));
     // `-s`: the SFTP protocol, so the guest shell never reads the path
     // (the legacy protocol passes it to a remote shell).
-    let mut args = vec!["-s".to_owned(), "-F".to_owned(), "/dev/null".to_owned()];
+    let config = job.ssh.config.to_string_lossy().into_owned();
+    let mut args = vec!["-s".to_owned(), "-F".to_owned(), config];
     args.extend(["-P".to_owned(), job.route.port().to_string()]);
     for o in [
-        "StrictHostKeyChecking=yes".to_owned(),
-        "HostKeyAlgorithms=ssh-ed25519".to_owned(),
-        format!("HostKeyAlias={HOST_ALIAS}"),
-        format!("UserKnownHostsFile={}", escape(known_hosts)),
+        // Quoted: ssh splits this value on spaces (the macOS data folder
+        // has one), and `%` is escaped (ssh tokens).
+        format!("UserKnownHostsFile={}", escape(&job.ssh.known_hosts)),
         "GlobalKnownHostsFile=/dev/null".to_owned(),
+        "StrictHostKeyChecking=yes".to_owned(),
+        // Never let the server add keys, never check the route's address.
+        "UpdateHostKeys=no".to_owned(),
+        "CheckHostIP=no".to_owned(),
+        "HostKeyAlgorithms=ssh-ed25519".to_owned(),
+        format!("HostKeyAlias={}", host_alias(&job.machine)),
         format!("IdentityAgent={}", escape(agent_socket)),
         // Only the transfer key: the public half names the agent's key, so
         // ssh never offers the user's own keys to the guest.
@@ -89,11 +122,13 @@ pub fn scp_args(
 struct Scratch(PathBuf);
 
 impl Scratch {
-    fn new() -> std::io::Result<Self> {
+    /// A new folder in `temp` (short, so the agent socket fits `sun_path`).
+    fn new(temp: &Path) -> std::io::Result<Self> {
         let mut nonce = [0u8; 8];
         getrandom::fill(&mut nonce).map_err(|e| std::io::Error::other(e.to_string()))?;
         let name: String = nonce.iter().map(|b| format!("{b:02x}")).collect();
-        let path = std::env::temp_dir().join(format!("cmux-cloud-{name}"));
+        std::fs::create_dir_all(temp)?;
+        let path = temp.join(format!("cmux-cloud-{name}"));
         let mut builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
@@ -118,14 +153,10 @@ impl Drop for Agent {
     }
 }
 
-fn command(program: &Path) -> Command {
+/// `program` with exactly `env` (nothing of this process's environment).
+fn command(program: &Path, env: &[(String, String)]) -> Command {
     let mut command = Command::new(program);
-    command.env_clear();
-    for key in KEPT_ENV {
-        if let Some(value) = std::env::var_os(key) {
-            command.env(key, value);
-        }
-    }
+    command.env_clear().envs(env.iter().map(|(k, v)| (k, v)));
     command
 }
 
@@ -136,8 +167,8 @@ fn failed(what: &str, detail: &str) -> TransferError {
 }
 
 impl OpenSshTransfer {
-    fn start_agent(&self, socket: &Path) -> Result<Agent, TransferError> {
-        let mut child = command(&self.ssh_agent)
+    fn start_agent(&self, job: &TransferJob, socket: &Path) -> Result<Agent, TransferError> {
+        let mut child = command(&self.ssh_agent, &job.env)
             .args(["-D", "-a"])
             .arg(socket)
             .stdin(Stdio::null())
@@ -159,8 +190,13 @@ impl OpenSshTransfer {
         Ok(agent)
     }
 
-    fn add_key(&self, socket: &Path, key: &TransferKey) -> Result<(), TransferError> {
-        let mut child = command(&self.ssh_add)
+    fn add_key(
+        &self,
+        job: &TransferJob,
+        socket: &Path,
+        key: &TransferKey,
+    ) -> Result<(), TransferError> {
+        let mut child = command(&self.ssh_add, &job.env)
             .env("SSH_AUTH_SOCK", socket)
             .arg("-q")
             .arg("-")
@@ -186,19 +222,25 @@ impl OpenSshTransfer {
 }
 
 impl Transfer for OpenSshTransfer {
-    fn run(&mut self, job: &TransferJob, key: &TransferKey) -> Result<u64, TransferError> {
-        let scratch = Scratch::new().map_err(|e| failed("no private folder", &e.to_string()))?;
+    fn run(&self, job: &TransferJob, key: &TransferKey) -> Result<u64, TransferError> {
+        for program in [&self.ssh, &self.scp, &self.ssh_agent, &self.ssh_add] {
+            if !program.is_absolute() {
+                return Err(failed("OpenSSH is not configured", &program.to_string_lossy()));
+            }
+        }
+        let scratch =
+            Scratch::new(&job.temp_dir).map_err(|e| failed("no private folder", &e.to_string()))?;
         let socket = scratch.0.join("agent.sock");
-        let known_hosts = scratch.0.join("known_hosts");
         let identity_pub = scratch.0.join("transfer.pub");
         std::fs::write(&identity_pub, format!("{}\n", key.public_openssh()))
             .map_err(|e| failed("transfer.pub", &e.to_string()))?;
-        let pinned = format!("{HOST_ALIAS} {}\n", job.endpoint.host_public_key);
-        std::fs::write(&known_hosts, pinned).map_err(|e| failed("known_hosts", &e.to_string()))?;
-        let _agent = self.start_agent(&socket)?;
-        self.add_key(&socket, key)?;
-        let mut child = command(&self.scp)
-            .args(scp_args(job, &socket, &known_hosts, &identity_pub))
+        let _agent = self.start_agent(job, &socket)?;
+        self.add_key(job, &socket, key)?;
+        let mut args = scp_args(job, &socket, &identity_pub);
+        // `ssh` by absolute path, never found through PATH.
+        args.splice(1..1, ["-S".to_owned(), self.ssh.to_string_lossy().into_owned()]);
+        let mut child = command(&self.scp, &job.env)
+            .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
