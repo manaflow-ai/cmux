@@ -1,4 +1,43 @@
 {
+  "machines.new.plan.loading": {
+    "source": "Loading your Cloud machine plan…",
+    "identityLocales": {
+      "ar": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "de": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "es": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "fr": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "ja": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "ko": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "zh-Hans": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "zh-Hant": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required."
+    }
+  },
+  "machines.new.plan.retry": {
+    "source": "Retry",
+    "identityLocales": {
+      "ar": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "de": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "es": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "fr": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "ja": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "ko": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "zh-Hans": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "zh-Hant": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required."
+    }
+  },
+  "machines.new.plan.error": {
+    "source": "Cloud plan details are still loading. Retry in a moment.",
+    "identityLocales": {
+      "ar": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "de": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "es": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "fr": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "ja": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "ko": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "zh-Hans": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required.",
+      "zh-Hant": "Temporary plan-state text is intentionally shared until translated copy lands; the translated catalog entry is still required."
+    }
+  },
   "actions.discovery.menuTitle": {
     "source": "Actions · cmux.json…",
     "identityLocales": {
