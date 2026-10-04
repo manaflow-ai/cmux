@@ -399,6 +399,79 @@ async fn a_prompt_during_a_slow_session_load_waits_for_the_load() {
     warmer.await.unwrap();
 }
 
+/// A harness launched as `npx -y PACKAGE` (Codex without codex-acp on
+/// PATH) is resolved to the package's installed bin once, in the
+/// background after startup; the model probe and every session spawn run
+/// that bin, never npx.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_npx_package_launch_is_resolved_once_and_never_spawned_through_npx() {
+    use std::os::unix::fs::PermissionsExt;
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let dir = std::env::temp_dir().join(format!("acpmux-npx-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let log = dir.join("npx.log");
+    let bin = dir.join("fake-acp");
+    std::fs::write(&bin, format!("#!/bin/sh\nexec python3 {fake}\n")).unwrap();
+    // `npx -y -p PKG -c 'command -v fake-acp'` prints the bin; any other
+    // use is a launch through npx.
+    let npx = dir.join("npx");
+    std::fs::write(
+        &npx,
+        format!(
+            "#!/bin/sh\ncase \" $* \" in *\" -c \"*) echo resolve >> {log}; echo {bin}; exit 0;; esac\necho run >> {log}\nexec python3 {fake}\n",
+            log = log.display(),
+            bin = bin.display(),
+        ),
+    )
+    .unwrap();
+    for p in [&bin, &npx] {
+        std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let mut agents = BTreeMap::new();
+    agents.insert(
+        "fake".to_owned(),
+        HarnessProfile {
+            kind: Default::default(),
+            argv: vec![npx.to_string_lossy().into_owned(), "-y".into(), "@scope/fake-acp@1.0.0".into()],
+            env: BTreeMap::new(),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        },
+    );
+    let mut cfg =
+        Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
+    cfg.store.mode = StoreMode::Memory;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.begin_startup(false);
+    hub.finish_startup().await;
+    let lines = || std::fs::read_to_string(&log).unwrap_or_default();
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    // The startup model probe has run (it lists the fake's models).
+    while !hub.models_catalog().await.to_string().contains("\"m2\"") {
+        assert!(std::time::Instant::now() < deadline, "the model probe never ran; npx log: {}", lines());
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    for name in ["npx-a", "npx-b"] {
+        hub.new_session(acpmux::hub::NewRequest {
+            name: Some(name.into()),
+            cwd: Some(std::env::temp_dir()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    }
+    assert_eq!(lines(), "resolve\n", "npx ran as a launcher, or resolved more than once");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[tokio::test]
 async fn attach_replays_and_watch_broadcasts() {
     let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
