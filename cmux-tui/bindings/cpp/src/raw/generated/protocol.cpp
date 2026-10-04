@@ -1081,71 +1081,77 @@ Result<ColumnPin> Codec<ColumnPin>::decode(const Json& value) {
     return result;
 }
 
-Result<Json> Codec<ConversationAgentClass>::encode(const ConversationAgentClass& value) {
-    switch (value) {
-        case ConversationAgentClass::mux: return Json(std::string("mux"));
-        case ConversationAgentClass::agent: return Json(std::string("agent"));
-    }
-    return make_error(ErrorCode::invalid_argument, "invalid enum value");
-}
-
-Result<ConversationAgentClass> Codec<ConversationAgentClass>::decode(const Json& value) {
-    if (value == Json(std::string("mux"))) return ConversationAgentClass::mux;
-    if (value == Json(std::string("agent"))) return ConversationAgentClass::agent;
-    return make_error(ErrorCode::decode, "unknown ConversationAgentClass value");
-}
-
 Result<Json> Codec<ConversationChange>::encode(const ConversationChange& value) {
-    return encode_value(value.value);
-}
-
-Result<ConversationChange> Codec<ConversationChange>::decode(const Json& value) {
-    auto tag = require_string(value, "kind");
-    if (!tag) return std::move(tag).error();
-    if (tag.value() == "conversation") {
-        auto decoded = decode_value<ConversationChangeConversation>(value);
-        if (!decoded) return std::move(decoded).error();
-        return ConversationChange{ConversationChange::Variant(std::move(decoded).value())};
-    }
-    if (tag.value() == "message") {
-        auto decoded = decode_value<ConversationChangeMessage>(value);
-        if (!decoded) return std::move(decoded).error();
-        return ConversationChange{ConversationChange::Variant(std::move(decoded).value())};
-    }
-    if (tag.value() == "message-updated") {
-        auto decoded = decode_value<ConversationChangeMessageUpdated>(value);
-        if (!decoded) return std::move(decoded).error();
-        return ConversationChange{ConversationChange::Variant(std::move(decoded).value())};
-    }
-    if (tag.value() == "read-cursor") {
-        auto decoded = decode_value<ConversationChangeReadCursor>(value);
-        if (!decoded) return std::move(decoded).error();
-        return ConversationChange{ConversationChange::Variant(std::move(decoded).value())};
-    }
-    return make_error(ErrorCode::decode, "unknown ConversationChange tag");
-}
-
-Result<Json> Codec<ConversationEmojiReaction>::encode(const ConversationEmojiReaction& value) {
     (void)value;
     Json::Object object;
-    auto encoded_emoji = encode_value(value.emoji);
-    if (!encoded_emoji) return std::move(encoded_emoji).error();
-    object.emplace("emoji", std::move(encoded_emoji).value());
+    if (value.conversation) {
+        auto encoded = encode_value(*value.conversation);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("conversation", std::move(encoded).value());
+    }
+    auto encoded_kind = encode_value(value.kind);
+    if (!encoded_kind) return std::move(encoded_kind).error();
+    object.emplace("kind", std::move(encoded_kind).value());
+    if (value.message) {
+        auto encoded = encode_value(*value.message);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("message", std::move(encoded).value());
+    }
+    if (value.participant) {
+        auto encoded = encode_value(*value.participant);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("participant", std::move(encoded).value());
+    }
+    if (value.seq) {
+        auto encoded = encode_value(*value.seq);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("seq", std::move(encoded).value());
+    }
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
     return Json(std::move(object));
 }
 
-Result<ConversationEmojiReaction> Codec<ConversationEmojiReaction>::decode(const Json& value) {
+Result<ConversationChange> Codec<ConversationChange>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
-    ConversationEmojiReaction result{};
-    const Json* field_emoji = value.find("emoji");
-    if (!field_emoji) {
-        return make_error(ErrorCode::decode, "missing required field 'emoji'");
-    }
-    if (field_emoji) {
-        auto decoded = decode_value<std::string>(*field_emoji);
+    ConversationChange result{};
+    const Json* field_conversation = value.find("conversation");
+    if (field_conversation) {
+        auto decoded = decode_value<ConversationSummary>(*field_conversation);
         if (!decoded) return std::move(decoded).error();
-        result.emoji = std::move(decoded).value();
+        result.conversation = std::move(decoded).value();
+    }
+    const Json* field_kind = value.find("kind");
+    if (!field_kind) {
+        return make_error(ErrorCode::decode, "missing required field 'kind'");
+    }
+    if (field_kind) {
+        auto decoded = decode_value<std::string>(*field_kind);
+        if (!decoded) return std::move(decoded).error();
+        result.kind = std::move(decoded).value();
+    }
+    const Json* field_message = value.find("message");
+    if (field_message) {
+        auto decoded = decode_value<ConversationMessage>(*field_message);
+        if (!decoded) return std::move(decoded).error();
+        result.message = std::move(decoded).value();
+    }
+    const Json* field_participant = value.find("participant");
+    if (field_participant) {
+        auto decoded = decode_value<std::string>(*field_participant);
+        if (!decoded) return std::move(decoded).error();
+        result.participant = std::move(decoded).value();
+    }
+    const Json* field_seq = value.find("seq");
+    if (field_seq) {
+        auto decoded = decode_value<std::uint64_t>(*field_seq);
+        if (!decoded) return std::move(decoded).error();
+        result.seq = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "conversation" && key != "kind" && key != "message" && key != "participant" && key != "seq") result.additional_properties.emplace(key, item);
     }
     return result;
 }
@@ -1293,23 +1299,100 @@ Result<ConversationMessage> Codec<ConversationMessage>::decode(const Json& value
 }
 
 Result<Json> Codec<ConversationPart>::encode(const ConversationPart& value) {
-    return encode_value(value.value);
+    (void)value;
+    Json::Object object;
+    if (value.host) {
+        auto encoded = encode_value(*value.host);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("host", std::move(encoded).value());
+    }
+    if (value.preview) {
+        auto encoded = encode_value(*value.preview);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("preview", std::move(encoded).value());
+    }
+    if (value.runs) {
+        auto encoded = encode_value(*value.runs);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("runs", std::move(encoded).value());
+    }
+    if (value.session) {
+        auto encoded = encode_value(*value.session);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("session", std::move(encoded).value());
+    }
+    if (value.status) {
+        auto encoded = encode_value(*value.status);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("status", std::move(encoded).value());
+    }
+    if (value.text) {
+        auto encoded = encode_value(*value.text);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("text", std::move(encoded).value());
+    }
+    auto encoded_type = encode_value(value.type);
+    if (!encoded_type) return std::move(encoded_type).error();
+    object.emplace("type", std::move(encoded_type).value());
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
 }
 
 Result<ConversationPart> Codec<ConversationPart>::decode(const Json& value) {
-    auto tag = require_string(value, "type");
-    if (!tag) return std::move(tag).error();
-    if (tag.value() == "text") {
-        auto decoded = decode_value<ConversationPartText>(value);
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ConversationPart result{};
+    const Json* field_host = value.find("host");
+    if (field_host) {
+        auto decoded = decode_value<std::string>(*field_host);
         if (!decoded) return std::move(decoded).error();
-        return ConversationPart{ConversationPart::Variant(std::move(decoded).value())};
+        result.host = std::move(decoded).value();
     }
-    if (tag.value() == "work") {
-        auto decoded = decode_value<ConversationPartWork>(value);
+    const Json* field_preview = value.find("preview");
+    if (field_preview) {
+        auto decoded = decode_value<std::string>(*field_preview);
         if (!decoded) return std::move(decoded).error();
-        return ConversationPart{ConversationPart::Variant(std::move(decoded).value())};
+        result.preview = std::move(decoded).value();
     }
-    return make_error(ErrorCode::decode, "unknown ConversationPart tag");
+    const Json* field_runs = value.find("runs");
+    if (field_runs) {
+        auto decoded = decode_value<std::vector<ConversationTextRun>>(*field_runs);
+        if (!decoded) return std::move(decoded).error();
+        result.runs = std::move(decoded).value();
+    }
+    const Json* field_session = value.find("session");
+    if (field_session) {
+        auto decoded = decode_value<std::string>(*field_session);
+        if (!decoded) return std::move(decoded).error();
+        result.session = std::move(decoded).value();
+    }
+    const Json* field_status = value.find("status");
+    if (field_status) {
+        auto decoded = decode_value<std::string>(*field_status);
+        if (!decoded) return std::move(decoded).error();
+        result.status = std::move(decoded).value();
+    }
+    const Json* field_text = value.find("text");
+    if (field_text) {
+        auto decoded = decode_value<std::string>(*field_text);
+        if (!decoded) return std::move(decoded).error();
+        result.text = std::move(decoded).value();
+    }
+    const Json* field_type = value.find("type");
+    if (!field_type) {
+        return make_error(ErrorCode::decode, "missing required field 'type'");
+    }
+    if (field_type) {
+        auto decoded = decode_value<std::string>(*field_type);
+        if (!decoded) return std::move(decoded).error();
+        result.type = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "host" && key != "preview" && key != "runs" && key != "session" && key != "status" && key != "text" && key != "type") result.additional_properties.emplace(key, item);
+    }
+    return result;
 }
 
 Result<Json> Codec<ConversationPartRef>::encode(const ConversationPartRef& value) {
@@ -1386,7 +1469,7 @@ Result<ConversationParticipant> Codec<ConversationParticipant>::decode(const Jso
     }
     const Json* field_agent_class = value.find("agent_class");
     if (field_agent_class) {
-        auto decoded = decode_value<ConversationAgentClass>(*field_agent_class);
+        auto decoded = decode_value<std::string>(*field_agent_class);
         if (!decoded) return std::move(decoded).error();
         result.agent_class = std::move(decoded).value();
     }
@@ -1413,25 +1496,11 @@ Result<ConversationParticipant> Codec<ConversationParticipant>::decode(const Jso
         return make_error(ErrorCode::decode, "missing required field 'kind'");
     }
     if (field_kind) {
-        auto decoded = decode_value<ConversationParticipantKind>(*field_kind);
+        auto decoded = decode_value<std::string>(*field_kind);
         if (!decoded) return std::move(decoded).error();
         result.kind = std::move(decoded).value();
     }
     return result;
-}
-
-Result<Json> Codec<ConversationParticipantKind>::encode(const ConversationParticipantKind& value) {
-    switch (value) {
-        case ConversationParticipantKind::human: return Json(std::string("human"));
-        case ConversationParticipantKind::agent: return Json(std::string("agent"));
-    }
-    return make_error(ErrorCode::invalid_argument, "invalid enum value");
-}
-
-Result<ConversationParticipantKind> Codec<ConversationParticipantKind>::decode(const Json& value) {
-    if (value == Json(std::string("human"))) return ConversationParticipantKind::human;
-    if (value == Json(std::string("agent"))) return ConversationParticipantKind::agent;
-    return make_error(ErrorCode::decode, "unknown ConversationParticipantKind value");
 }
 
 Result<Json> Codec<ConversationReaction>::encode(const ConversationReaction& value) {
@@ -1496,17 +1565,44 @@ Result<ConversationReaction> Codec<ConversationReaction>::decode(const Json& val
 }
 
 Result<Json> Codec<ConversationReactionKind>::encode(const ConversationReactionKind& value) {
-    return encode_value(value.value);
+    (void)value;
+    Json::Object object;
+    if (value.emoji) {
+        auto encoded = encode_value(*value.emoji);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("emoji", std::move(encoded).value());
+    }
+    if (value.tapback) {
+        auto encoded = encode_value(*value.tapback);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("tapback", std::move(encoded).value());
+    }
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
 }
 
 Result<ConversationReactionKind> Codec<ConversationReactionKind>::decode(const Json& value) {
-    if (auto decoded = decode_value<ConversationTapbackReaction>(value); decoded) {
-        return ConversationReactionKind{ConversationReactionKind::Variant(std::move(decoded).value())};
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ConversationReactionKind result{};
+    const Json* field_emoji = value.find("emoji");
+    if (field_emoji) {
+        auto decoded = decode_value<std::string>(*field_emoji);
+        if (!decoded) return std::move(decoded).error();
+        result.emoji = std::move(decoded).value();
     }
-    if (auto decoded = decode_value<ConversationEmojiReaction>(value); decoded) {
-        return ConversationReactionKind{ConversationReactionKind::Variant(std::move(decoded).value())};
+    const Json* field_tapback = value.find("tapback");
+    if (field_tapback) {
+        auto decoded = decode_value<std::string>(*field_tapback);
+        if (!decoded) return std::move(decoded).error();
+        result.tapback = std::move(decoded).value();
     }
-    return make_error(ErrorCode::decode, "value did not match any ConversationReactionKind variant");
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "emoji" && key != "tapback") result.additional_properties.emplace(key, item);
+    }
+    return result;
 }
 
 Result<Json> Codec<ConversationSearchHit>::encode(const ConversationSearchHit& value) {
@@ -1775,53 +1871,6 @@ Result<ConversationTabRecord> Codec<ConversationTabRecord>::decode(const Json& v
     return result;
 }
 
-Result<Json> Codec<ConversationTapback>::encode(const ConversationTapback& value) {
-    switch (value) {
-        case ConversationTapback::love: return Json(std::string("love"));
-        case ConversationTapback::like: return Json(std::string("like"));
-        case ConversationTapback::dislike: return Json(std::string("dislike"));
-        case ConversationTapback::laugh: return Json(std::string("laugh"));
-        case ConversationTapback::emphasize: return Json(std::string("emphasize"));
-        case ConversationTapback::question: return Json(std::string("question"));
-    }
-    return make_error(ErrorCode::invalid_argument, "invalid enum value");
-}
-
-Result<ConversationTapback> Codec<ConversationTapback>::decode(const Json& value) {
-    if (value == Json(std::string("love"))) return ConversationTapback::love;
-    if (value == Json(std::string("like"))) return ConversationTapback::like;
-    if (value == Json(std::string("dislike"))) return ConversationTapback::dislike;
-    if (value == Json(std::string("laugh"))) return ConversationTapback::laugh;
-    if (value == Json(std::string("emphasize"))) return ConversationTapback::emphasize;
-    if (value == Json(std::string("question"))) return ConversationTapback::question;
-    return make_error(ErrorCode::decode, "unknown ConversationTapback value");
-}
-
-Result<Json> Codec<ConversationTapbackReaction>::encode(const ConversationTapbackReaction& value) {
-    (void)value;
-    Json::Object object;
-    auto encoded_tapback = encode_value(value.tapback);
-    if (!encoded_tapback) return std::move(encoded_tapback).error();
-    object.emplace("tapback", std::move(encoded_tapback).value());
-    return Json(std::move(object));
-}
-
-Result<ConversationTapbackReaction> Codec<ConversationTapbackReaction>::decode(const Json& value) {
-    auto source = value.as_object();
-    if (!source) return std::move(source).error();
-    ConversationTapbackReaction result{};
-    const Json* field_tapback = value.find("tapback");
-    if (!field_tapback) {
-        return make_error(ErrorCode::decode, "missing required field 'tapback'");
-    }
-    if (field_tapback) {
-        auto decoded = decode_value<ConversationTapback>(*field_tapback);
-        if (!decoded) return std::move(decoded).error();
-        result.tapback = std::move(decoded).value();
-    }
-    return result;
-}
-
 Result<Json> Codec<ConversationTextRun>::encode(const ConversationTextRun& value) {
     (void)value;
     Json::Object object;
@@ -1879,24 +1928,6 @@ Result<ConversationTextRun> Codec<ConversationTextRun>::decode(const Json& value
         result.start = std::move(decoded).value();
     }
     return result;
-}
-
-Result<Json> Codec<ConversationWorkStatus>::encode(const ConversationWorkStatus& value) {
-    switch (value) {
-        case ConversationWorkStatus::running: return Json(std::string("running"));
-        case ConversationWorkStatus::done: return Json(std::string("done"));
-        case ConversationWorkStatus::failed: return Json(std::string("failed"));
-        case ConversationWorkStatus::waiting: return Json(std::string("waiting"));
-    }
-    return make_error(ErrorCode::invalid_argument, "invalid enum value");
-}
-
-Result<ConversationWorkStatus> Codec<ConversationWorkStatus>::decode(const Json& value) {
-    if (value == Json(std::string("running"))) return ConversationWorkStatus::running;
-    if (value == Json(std::string("done"))) return ConversationWorkStatus::done;
-    if (value == Json(std::string("failed"))) return ConversationWorkStatus::failed;
-    if (value == Json(std::string("waiting"))) return ConversationWorkStatus::waiting;
-    return make_error(ErrorCode::decode, "unknown ConversationWorkStatus value");
 }
 
 Result<Json> Codec<CopyResult>::encode(const CopyResult& value) {
@@ -28133,273 +28164,6 @@ Result<WorkspaceRenamedEvent> Codec<WorkspaceRenamedEvent>::decode(const Json& v
     if (field_event) {
         if (*field_event != Json(std::string("workspace-renamed"))) {
             return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
-        }
-    }
-    return result;
-}
-
-Result<Json> Codec<ConversationChangeConversation>::encode(const ConversationChangeConversation& value) {
-    (void)value;
-    Json::Object object;
-    object.emplace("kind", Json(std::string("conversation")));
-    auto encoded_conversation = encode_value(value.conversation);
-    if (!encoded_conversation) return std::move(encoded_conversation).error();
-    object.emplace("conversation", std::move(encoded_conversation).value());
-    return Json(std::move(object));
-}
-
-Result<ConversationChangeConversation> Codec<ConversationChangeConversation>::decode(const Json& value) {
-    auto source = value.as_object();
-    if (!source) return std::move(source).error();
-    ConversationChangeConversation result{};
-    const Json* field_conversation = value.find("conversation");
-    if (!field_conversation) {
-        return make_error(ErrorCode::decode, "missing required field 'conversation'");
-    }
-    if (field_conversation) {
-        auto decoded = decode_value<ConversationSummary>(*field_conversation);
-        if (!decoded) return std::move(decoded).error();
-        result.conversation = std::move(decoded).value();
-    }
-    const Json* field_kind = value.find("kind");
-    if (!field_kind) {
-        return make_error(ErrorCode::decode, "missing required field 'kind'");
-    }
-    if (field_kind) {
-        if (*field_kind != Json(std::string("conversation"))) {
-            return make_error(ErrorCode::decode, "field 'kind' has the wrong literal value");
-        }
-    }
-    return result;
-}
-
-Result<Json> Codec<ConversationChangeMessage>::encode(const ConversationChangeMessage& value) {
-    (void)value;
-    Json::Object object;
-    object.emplace("kind", Json(std::string("message")));
-    auto encoded_message = encode_value(value.message);
-    if (!encoded_message) return std::move(encoded_message).error();
-    object.emplace("message", std::move(encoded_message).value());
-    return Json(std::move(object));
-}
-
-Result<ConversationChangeMessage> Codec<ConversationChangeMessage>::decode(const Json& value) {
-    auto source = value.as_object();
-    if (!source) return std::move(source).error();
-    ConversationChangeMessage result{};
-    const Json* field_message = value.find("message");
-    if (!field_message) {
-        return make_error(ErrorCode::decode, "missing required field 'message'");
-    }
-    if (field_message) {
-        auto decoded = decode_value<ConversationMessage>(*field_message);
-        if (!decoded) return std::move(decoded).error();
-        result.message = std::move(decoded).value();
-    }
-    const Json* field_kind = value.find("kind");
-    if (!field_kind) {
-        return make_error(ErrorCode::decode, "missing required field 'kind'");
-    }
-    if (field_kind) {
-        if (*field_kind != Json(std::string("message"))) {
-            return make_error(ErrorCode::decode, "field 'kind' has the wrong literal value");
-        }
-    }
-    return result;
-}
-
-Result<Json> Codec<ConversationChangeMessageUpdated>::encode(const ConversationChangeMessageUpdated& value) {
-    (void)value;
-    Json::Object object;
-    object.emplace("kind", Json(std::string("message-updated")));
-    auto encoded_message = encode_value(value.message);
-    if (!encoded_message) return std::move(encoded_message).error();
-    object.emplace("message", std::move(encoded_message).value());
-    return Json(std::move(object));
-}
-
-Result<ConversationChangeMessageUpdated> Codec<ConversationChangeMessageUpdated>::decode(const Json& value) {
-    auto source = value.as_object();
-    if (!source) return std::move(source).error();
-    ConversationChangeMessageUpdated result{};
-    const Json* field_message = value.find("message");
-    if (!field_message) {
-        return make_error(ErrorCode::decode, "missing required field 'message'");
-    }
-    if (field_message) {
-        auto decoded = decode_value<ConversationMessage>(*field_message);
-        if (!decoded) return std::move(decoded).error();
-        result.message = std::move(decoded).value();
-    }
-    const Json* field_kind = value.find("kind");
-    if (!field_kind) {
-        return make_error(ErrorCode::decode, "missing required field 'kind'");
-    }
-    if (field_kind) {
-        if (*field_kind != Json(std::string("message-updated"))) {
-            return make_error(ErrorCode::decode, "field 'kind' has the wrong literal value");
-        }
-    }
-    return result;
-}
-
-Result<Json> Codec<ConversationChangeReadCursor>::encode(const ConversationChangeReadCursor& value) {
-    (void)value;
-    Json::Object object;
-    object.emplace("kind", Json(std::string("read-cursor")));
-    auto encoded_participant = encode_value(value.participant);
-    if (!encoded_participant) return std::move(encoded_participant).error();
-    object.emplace("participant", std::move(encoded_participant).value());
-    auto encoded_seq = encode_value(value.seq);
-    if (!encoded_seq) return std::move(encoded_seq).error();
-    object.emplace("seq", std::move(encoded_seq).value());
-    return Json(std::move(object));
-}
-
-Result<ConversationChangeReadCursor> Codec<ConversationChangeReadCursor>::decode(const Json& value) {
-    auto source = value.as_object();
-    if (!source) return std::move(source).error();
-    ConversationChangeReadCursor result{};
-    const Json* field_participant = value.find("participant");
-    if (!field_participant) {
-        return make_error(ErrorCode::decode, "missing required field 'participant'");
-    }
-    if (field_participant) {
-        auto decoded = decode_value<std::string>(*field_participant);
-        if (!decoded) return std::move(decoded).error();
-        result.participant = std::move(decoded).value();
-    }
-    const Json* field_seq = value.find("seq");
-    if (!field_seq) {
-        return make_error(ErrorCode::decode, "missing required field 'seq'");
-    }
-    if (field_seq) {
-        auto decoded = decode_value<std::uint64_t>(*field_seq);
-        if (!decoded) return std::move(decoded).error();
-        result.seq = std::move(decoded).value();
-    }
-    const Json* field_kind = value.find("kind");
-    if (!field_kind) {
-        return make_error(ErrorCode::decode, "missing required field 'kind'");
-    }
-    if (field_kind) {
-        if (*field_kind != Json(std::string("read-cursor"))) {
-            return make_error(ErrorCode::decode, "field 'kind' has the wrong literal value");
-        }
-    }
-    return result;
-}
-
-Result<Json> Codec<ConversationPartText>::encode(const ConversationPartText& value) {
-    (void)value;
-    Json::Object object;
-    object.emplace("type", Json(std::string("text")));
-    if (value.runs) {
-        auto encoded = encode_value(*value.runs);
-        if (!encoded) return std::move(encoded).error();
-        object.emplace("runs", std::move(encoded).value());
-    }
-    auto encoded_text = encode_value(value.text);
-    if (!encoded_text) return std::move(encoded_text).error();
-    object.emplace("text", std::move(encoded_text).value());
-    return Json(std::move(object));
-}
-
-Result<ConversationPartText> Codec<ConversationPartText>::decode(const Json& value) {
-    auto source = value.as_object();
-    if (!source) return std::move(source).error();
-    ConversationPartText result{};
-    const Json* field_runs = value.find("runs");
-    if (field_runs) {
-        auto decoded = decode_value<std::vector<ConversationTextRun>>(*field_runs);
-        if (!decoded) return std::move(decoded).error();
-        result.runs = std::move(decoded).value();
-    }
-    const Json* field_text = value.find("text");
-    if (!field_text) {
-        return make_error(ErrorCode::decode, "missing required field 'text'");
-    }
-    if (field_text) {
-        auto decoded = decode_value<std::string>(*field_text);
-        if (!decoded) return std::move(decoded).error();
-        result.text = std::move(decoded).value();
-    }
-    const Json* field_type = value.find("type");
-    if (!field_type) {
-        return make_error(ErrorCode::decode, "missing required field 'type'");
-    }
-    if (field_type) {
-        if (*field_type != Json(std::string("text"))) {
-            return make_error(ErrorCode::decode, "field 'type' has the wrong literal value");
-        }
-    }
-    return result;
-}
-
-Result<Json> Codec<ConversationPartWork>::encode(const ConversationPartWork& value) {
-    (void)value;
-    Json::Object object;
-    object.emplace("type", Json(std::string("work")));
-    if (value.host) {
-        auto encoded = encode_value(*value.host);
-        if (!encoded) return std::move(encoded).error();
-        object.emplace("host", std::move(encoded).value());
-    }
-    if (value.preview) {
-        auto encoded = encode_value(*value.preview);
-        if (!encoded) return std::move(encoded).error();
-        object.emplace("preview", std::move(encoded).value());
-    }
-    auto encoded_session = encode_value(value.session);
-    if (!encoded_session) return std::move(encoded_session).error();
-    object.emplace("session", std::move(encoded_session).value());
-    auto encoded_status = encode_value(value.status);
-    if (!encoded_status) return std::move(encoded_status).error();
-    object.emplace("status", std::move(encoded_status).value());
-    return Json(std::move(object));
-}
-
-Result<ConversationPartWork> Codec<ConversationPartWork>::decode(const Json& value) {
-    auto source = value.as_object();
-    if (!source) return std::move(source).error();
-    ConversationPartWork result{};
-    const Json* field_host = value.find("host");
-    if (field_host) {
-        auto decoded = decode_value<std::string>(*field_host);
-        if (!decoded) return std::move(decoded).error();
-        result.host = std::move(decoded).value();
-    }
-    const Json* field_preview = value.find("preview");
-    if (field_preview) {
-        auto decoded = decode_value<std::string>(*field_preview);
-        if (!decoded) return std::move(decoded).error();
-        result.preview = std::move(decoded).value();
-    }
-    const Json* field_session = value.find("session");
-    if (!field_session) {
-        return make_error(ErrorCode::decode, "missing required field 'session'");
-    }
-    if (field_session) {
-        auto decoded = decode_value<std::string>(*field_session);
-        if (!decoded) return std::move(decoded).error();
-        result.session = std::move(decoded).value();
-    }
-    const Json* field_status = value.find("status");
-    if (!field_status) {
-        return make_error(ErrorCode::decode, "missing required field 'status'");
-    }
-    if (field_status) {
-        auto decoded = decode_value<ConversationWorkStatus>(*field_status);
-        if (!decoded) return std::move(decoded).error();
-        result.status = std::move(decoded).value();
-    }
-    const Json* field_type = value.find("type");
-    if (!field_type) {
-        return make_error(ErrorCode::decode, "missing required field 'type'");
-    }
-    if (field_type) {
-        if (*field_type != Json(std::string("work"))) {
-            return make_error(ErrorCode::decode, "field 'type' has the wrong literal value");
         }
     }
     return result;

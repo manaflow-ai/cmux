@@ -63,28 +63,6 @@ class ClientTransport(str, Enum):
     UNIX = 'unix'
     WS = 'ws'
 
-class ConversationAgentClass(str, Enum):
-    MUX = 'mux'
-    AGENT = 'agent'
-
-class ConversationParticipantKind(str, Enum):
-    HUMAN = 'human'
-    AGENT = 'agent'
-
-class ConversationTapback(str, Enum):
-    LOVE = 'love'
-    LIKE = 'like'
-    DISLIKE = 'dislike'
-    LAUGH = 'laugh'
-    EMPHASIZE = 'emphasize'
-    QUESTION = 'question'
-
-class ConversationWorkStatus(str, Enum):
-    RUNNING = 'running'
-    DONE = 'done'
-    FAILED = 'failed'
-    WAITING = 'waiting'
-
 class CursorStyle(str, Enum):
     BLOCK = 'block'
     UNDERLINE = 'underline'
@@ -437,38 +415,14 @@ class ColumnPin:
 
 
 @dataclass(frozen=True)
-class ConversationChangeConversation:
-    __cmux_schema_path__: ClassVar[str] = 'types/ConversationChange/variants/conversation'
-    conversation: ConversationSummary
-    kind: Literal['conversation']
-
-
-@dataclass(frozen=True)
-class ConversationChangeMessage:
-    __cmux_schema_path__: ClassVar[str] = 'types/ConversationChange/variants/message'
-    kind: Literal['message']
-    message: ConversationMessage
-
-
-@dataclass(frozen=True)
-class ConversationChangeMessageUpdated:
-    __cmux_schema_path__: ClassVar[str] = 'types/ConversationChange/variants/message-updated'
-    kind: Literal['message-updated']
-    message: ConversationMessage
-
-
-@dataclass(frozen=True)
-class ConversationChangeReadCursor:
-    __cmux_schema_path__: ClassVar[str] = 'types/ConversationChange/variants/read-cursor'
-    kind: Literal['read-cursor']
-    participant: str
-    seq: int
-
-
-@dataclass(frozen=True)
-class ConversationEmojiReaction:
-    __cmux_schema_path__: ClassVar[str] = 'types/ConversationEmojiReaction'
-    emoji: str
+class ConversationChange:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationChange'
+    kind: str
+    conversation: Union[ConversationSummary, MissingType] = field(default=MISSING)
+    message: Union[ConversationMessage, MissingType] = field(default=MISSING)
+    participant: Union[str, MissingType] = field(default=MISSING)
+    seq: Union[int, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 
 
 @dataclass(frozen=True)
@@ -488,21 +442,16 @@ class ConversationMessage:
 
 
 @dataclass(frozen=True)
-class ConversationPartText:
-    __cmux_schema_path__: ClassVar[str] = 'types/ConversationPart/variants/text'
-    text: str
-    type: Literal['text']
-    runs: Union[List[ConversationTextRun], MissingType] = field(default=MISSING)
-
-
-@dataclass(frozen=True)
-class ConversationPartWork:
-    __cmux_schema_path__: ClassVar[str] = 'types/ConversationPart/variants/work'
-    session: str
-    status: ConversationWorkStatus
-    type: Literal['work']
+class ConversationPart:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationPart'
+    type: str
     host: Union[str, MissingType] = field(default=MISSING)
     preview: Union[str, MissingType] = field(default=MISSING)
+    runs: Union[List[ConversationTextRun], MissingType] = field(default=MISSING)
+    session: Union[str, MissingType] = field(default=MISSING)
+    status: Union[str, MissingType] = field(default=MISSING)
+    text: Union[str, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 
 
 @dataclass(frozen=True)
@@ -517,9 +466,9 @@ class ConversationParticipant:
     __cmux_schema_path__: ClassVar[str] = 'types/ConversationParticipant'
     display_name: str
     id: str
-    kind: ConversationParticipantKind
+    kind: str
     acp_session: Union[str, MissingType] = field(default=MISSING)
-    agent_class: Union[ConversationAgentClass, MissingType] = field(default=MISSING)
+    agent_class: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -529,6 +478,14 @@ class ConversationReaction:
     author: str
     kind: ConversationReactionKind
     part_index: int
+
+
+@dataclass(frozen=True)
+class ConversationReactionKind:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationReactionKind'
+    emoji: Union[str, MissingType] = field(default=MISSING)
+    tapback: Union[str, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 
 
 @dataclass(frozen=True)
@@ -563,12 +520,6 @@ class ConversationTabRecord:
     __cmux_schema_path__: ClassVar[str] = 'types/ConversationTabRecord'
     conversation: str
     owner: str
-
-
-@dataclass(frozen=True)
-class ConversationTapbackReaction:
-    __cmux_schema_path__: ClassVar[str] = 'types/ConversationTapbackReaction'
-    tapback: ConversationTapback
 
 
 @dataclass(frozen=True)
@@ -4255,9 +4206,6 @@ class WorkspaceRenamedEvent(EventBase):
 # Named protocol aliases.
 Base64 = str
 ColorHex = str
-ConversationChange = Union[ConversationChangeConversation, ConversationChangeMessage, ConversationChangeMessageUpdated, ConversationChangeReadCursor]
-ConversationPart = Union[ConversationPartText, ConversationPartWork]
-ConversationReactionKind = Union[ConversationTapbackReaction, ConversationEmojiReaction]
 DeclarativeLayout = Union[DeclarativeLayoutLeaf, DeclarativeLayoutSplit, DeclarativeLayoutStack]
 DetachClientTarget = Any
 FrontendJournalEvent = Union[FrontendJournalEventFocus, FrontendJournalEventResize, FrontendJournalEventViewport]
@@ -4285,10 +4233,6 @@ __all__ = [
     'AgentState',
     'BrowserProviderAuthentication',
     'ClientTransport',
-    'ConversationAgentClass',
-    'ConversationParticipantKind',
-    'ConversationTapback',
-    'ConversationWorkStatus',
     'CursorStyle',
     'DetachReason',
     'FrontendFocusTarget',
@@ -4322,21 +4266,16 @@ __all__ = [
     'ClientSize',
     'CloseTerminalResult',
     'ColumnPin',
-    'ConversationChangeConversation',
-    'ConversationChangeMessage',
-    'ConversationChangeMessageUpdated',
-    'ConversationChangeReadCursor',
-    'ConversationEmojiReaction',
+    'ConversationChange',
     'ConversationMessage',
-    'ConversationPartText',
-    'ConversationPartWork',
+    'ConversationPart',
     'ConversationPartRef',
     'ConversationParticipant',
     'ConversationReaction',
+    'ConversationReactionKind',
     'ConversationSearchHit',
     'ConversationSummary',
     'ConversationTabRecord',
-    'ConversationTapbackReaction',
     'ConversationTextRun',
     'CopyResult',
     'DeadPane',
@@ -4739,9 +4678,6 @@ __all__ = [
     'WorkspaceRenamedEvent',
     'Base64',
     'ColorHex',
-    'ConversationChange',
-    'ConversationPart',
-    'ConversationReactionKind',
     'DeclarativeLayout',
     'DetachClientTarget',
     'FrontendJournalEvent',

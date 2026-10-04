@@ -140,7 +140,10 @@ A connection that calls `ConnectedClient::declare_capabilities` with
 connection reads it as `Browser` in `session.snapshot` and `session.events`
 alike. The raw `conversation-*` and `new-conversation-tab` commands return
 typed results (`ConversationSummary`, `ConversationMessage`,
-`ConversationChange`, ...), generated from spec/sdk-schema.json.
+`ConversationChange`, ...), generated from spec/sdk-schema.json. Their
+discriminators (part `type`, change `kind`, participant `kind`, reaction
+kinds) are strings with documented known values, and these objects keep
+unknown fields in `additional`, so a newer daemon's new variant decodes.
 
 ```rust,no_run
 use cmux::{CONVERSATION_TABS_CAPABILITY, Selector};
