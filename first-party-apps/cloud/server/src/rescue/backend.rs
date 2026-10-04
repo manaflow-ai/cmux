@@ -24,6 +24,9 @@ pub const RESCUE_ID: &str = "rescue";
 const MAX_PENDING_INPUT: usize = 256;
 /// One write to the transport at most (a paste is split by the session host).
 const MAX_WRITE_BYTES: usize = 64 * 1024;
+/// Held input bytes (waiting for an earlier `seq`). More is refused as
+/// retryable, like the sample's `MAX_BUFFERED_BYTES`.
+const MAX_PENDING_BYTES: usize = 1024 * 1024;
 /// Longest signal name kept from the far end (`exit.signal`).
 const MAX_SIGNAL_NAME: usize = 32;
 
@@ -72,7 +75,6 @@ impl Stream {
     /// Queues the one end event and drops held input.
     fn end(&mut self, event: ByteEvent) {
         self.status = Status::Ended;
-        self.released = true;
         self.pending.clear();
         self.events.push(event);
     }
@@ -97,9 +99,15 @@ impl Inner {
                     stream.offset += bytes.len() as u64;
                     stream.events.push(ByteEvent::Output { offset: stream.offset, bytes });
                 }
-                TransportEvent::Closed(status) => stream.end(ByteEvent::Exit(bounded(status))),
+                // The transport frees a stream that closed or dropped by
+                // itself (RescueTransport contract): never close it again.
+                TransportEvent::Closed(status) => {
+                    stream.released = true;
+                    stream.end(ByteEvent::Exit(bounded(status)));
+                }
                 TransportEvent::Dropped { mut reason, retryable } => {
                     cut(&mut reason, MAX_EXIT_MESSAGE);
+                    stream.released = true;
                     stream.end(ByteEvent::Lost { reason, retryable });
                 }
             }
@@ -114,7 +122,8 @@ impl Inner {
         }
     }
 
-    /// A transport failure ends the stream: the terminal shows it lost.
+    /// A failed input write ends the stream: the terminal shows it lost and
+    /// the transport stream is closed once.
     fn fail(&mut self, id: StreamId, error: BackendError) -> BackendError {
         if let Some(stream) = self.streams.get_mut(&id)
             && stream.status == Status::Open
@@ -123,6 +132,10 @@ impl Inner {
             let mut reason = error.to_string();
             cut(&mut reason, MAX_EXIT_MESSAGE);
             stream.end(ByteEvent::Lost { reason, retryable });
+            if !std::mem::replace(&mut stream.released, true) {
+                // The stream is lost either way; a refusal changes nothing.
+                let _refused = self.transport.close(id);
+            }
         }
         error
     }
@@ -143,6 +156,13 @@ impl Inner {
                 "seq {} is more than {MAX_PENDING_INPUT} ahead of {next}",
                 input.seq
             )));
+        }
+        let held: usize = stream.pending.values().map(Vec::len).sum();
+        if input.seq > next && held + input.bytes.len() > MAX_PENDING_BYTES {
+            return Err(BackendError::Unavailable {
+                reason: "the input buffer is full".into(),
+                retryable: true,
+            });
         }
         stream.pending.insert(input.seq, input.bytes);
         let mut ready = Vec::new();
@@ -287,13 +307,16 @@ impl ByteTerminal for RescueTerminal {
         }
         let mut inner = lock(&self.inner);
         inner.open_stream(self.stream)?;
-        inner.transport.resize(self.stream, grid).map_err(|e| inner.fail(self.stream, e))
+        // A refused resize leaves the shell running (as in the sample): the
+        // error is the answer, the terminal stays open.
+        inner.transport.resize(self.stream, grid)
     }
 
     fn signal(&self, signal: Signal) -> Result<(), BackendError> {
         let mut inner = lock(&self.inner);
         inner.open_stream(self.stream)?;
-        inner.transport.signal(self.stream, signal).map_err(|e| inner.fail(self.stream, e))
+        // A refused signal leaves the shell running, like a refused resize.
+        inner.transport.signal(self.stream, signal)
     }
 
     fn close(&self, _how: Close) -> Result<(), BackendError> {
