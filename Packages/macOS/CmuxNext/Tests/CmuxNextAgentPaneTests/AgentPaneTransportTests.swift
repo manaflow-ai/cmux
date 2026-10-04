@@ -4,9 +4,9 @@ import Testing
 
 /// Flushes only when the test says so.
 @MainActor private final class ManualPacer: AgentPaneTransportPacer {
-    var pending: (@MainActor @Sendable () -> Bool)?
-    func schedule(_ flush: @escaping @MainActor @Sendable () -> Bool) { pending = flush }
-    func drain() { while let pending, pending() {} ; pending = nil }
+    var pending: (@MainActor @Sendable () -> AgentPaneFlush)?
+    func schedule(_ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) { pending = flush }
+    func drain() { while let pending, pending().more {} ; pending = nil }
 }
 
 /// A host whose LocalApp token is read from a file at each handshake, as AcpmuxHost reads
@@ -45,7 +45,7 @@ private actor FileTokenHost: AgentPaneHostProviding {
         defer { server.stop() }
         let transport = AgentPaneTransport()
         var events: [AgentPaneTransportEvent] = []
-        transport.deliver = { events.append($0) }
+        transport.deliver = { event, done in events.append(event); done() }
         let id = try await transport.open(connection(server))
         #expect(await transport.send(connection: id, frames: [Self.initialize]) == nil)
         #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":1,"method":"_acpmux/watch","params":{"enabled":true}}"#]) == nil)
@@ -67,7 +67,7 @@ private actor FileTokenHost: AgentPaneHostProviding {
         defer { server.stop() }
         let transport = AgentPaneTransport()
         var events: [AgentPaneTransportEvent] = []
-        transport.deliver = { events.append($0) }
+        transport.deliver = { event, done in events.append(event); done() }
         let id = try await transport.open(connection(server))
         _ = await transport.send(connection: id, frames: [Self.initialize])
         let refused = #"{"jsonrpc":"2.0","id":9,"method":"_acpmux/peer_add","params":{"url":"ssh://-oProxyCommand=x"}}"#
@@ -86,7 +86,7 @@ private actor FileTokenHost: AgentPaneHostProviding {
         defer { server.stop() }
         let transport = AgentPaneTransport()
         var events: [AgentPaneTransportEvent] = []
-        transport.deliver = { events.append($0) }
+        transport.deliver = { event, done in events.append(event); done() }
         let id = try await transport.open(connection(server))
         #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":1,"method":"session/new","params":{}}"#]) == .firstFrameNotInitialize)
         #expect(await eventually { events.contains { $0.closed?.error == .firstFrameNotInitialize } })
@@ -103,7 +103,7 @@ private actor FileTokenHost: AgentPaneHostProviding {
         let pacer = ManualPacer()
         let transport = AgentPaneTransport(limits: limits, pacer: pacer)
         var events: [AgentPaneTransportEvent] = []
-        transport.deliver = { events.append($0) }
+        transport.deliver = { event, done in events.append(event); done() }
         let id = try await transport.open(connection(server))
         _ = await transport.send(connection: id, frames: [Self.initialize])
         #expect(await server.wait { $0.first?.frames.count == 1 })
@@ -124,7 +124,7 @@ private actor FileTokenHost: AgentPaneHostProviding {
         let pacer = ManualPacer()
         let transport = AgentPaneTransport(pacer: pacer)
         var frames: [String] = []
-        transport.deliver = { frames += $0.frames }
+        transport.deliver = { event, done in frames += event.frames; done() }
         let id = try await transport.open(connection(server))
         _ = await transport.send(connection: id, frames: [Self.initialize])
         #expect(await eventually { transport.queuedFrames == 1 })
@@ -203,7 +203,7 @@ private actor FileTokenHost: AgentPaneHostProviding {
         let transport = AgentPaneTransport()
         transport.roots = { [root.path] }
         var events: [AgentPaneTransportEvent] = []
-        transport.deliver = { events.append($0) }
+        transport.deliver = { event, done in events.append(event); done() }
         let id = try await transport.open(connection(server))
         _ = await transport.send(connection: id, frames: [Self.initialize])
         let refused = #"{"jsonrpc":"2.0","id":5,"method":"session/new","params":{"cwd":"\#(outside.path)","mcpServers":[]}}"#

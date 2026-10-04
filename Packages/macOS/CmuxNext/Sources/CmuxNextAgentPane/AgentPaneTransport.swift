@@ -63,11 +63,31 @@ public nonisolated struct AgentPaneTransportEvent: Equatable, Sendable {
     }
 }
 
-/// When the transport delivers what arrived. Production paces by display frames
-/// (``AgentPaneFramePacer``); tests flush on the next main-loop turn or by hand.
+/// What one flush did: whether it made a bridge call (``AgentPaneTransportPacer/delivered()``
+/// follows when the page has run it) and whether frames are still waiting.
+public nonisolated struct AgentPaneFlush: Equatable, Sendable {
+    public var delivered: Bool
+    public var more: Bool
+    public init(delivered: Bool, more: Bool) {
+        self.delivered = delivered
+        self.more = more
+    }
+}
+
+/// When the transport delivers what arrived. Production delivers at once when idle and coalesces
+/// only under load (``AgentPaneFramePacer``); tests flush on the next main-loop turn or by hand.
 @MainActor public protocol AgentPaneTransportPacer: AnyObject {
-    /// Arrange for `flush` to run soon, and again while it returns true (more is waiting).
-    func schedule(_ flush: @escaping @MainActor @Sendable () -> Bool)
+    /// Frames arrived: arrange for `flush` to run, and again while it reports more waiting.
+    func schedule(_ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush)
+    /// The page has run the last call `flush` made.
+    func delivered()
+    /// The connection changed or closed: forget what was in flight.
+    func reset()
+}
+
+public extension AgentPaneTransportPacer {
+    func delivered() {}
+    func reset() {}
 }
 
 /// Flushes on the next main-loop turn, again while more is waiting.
@@ -75,13 +95,13 @@ public nonisolated struct AgentPaneTransportEvent: Equatable, Sendable {
     private var scheduled = false
     public init() {}
 
-    public func schedule(_ flush: @escaping @MainActor @Sendable () -> Bool) {
+    public func schedule(_ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) {
         guard !scheduled else { return }
         scheduled = true
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {
                 self?.scheduled = false
-                if flush() { self?.schedule(flush) }
+                if flush().more { self?.schedule(flush) }
             }
         }
     }
@@ -112,8 +132,11 @@ public nonisolated struct AgentPaneTransportEvent: Equatable, Sendable {
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.transport")
     public let limits: Limits
-    /// Gets each push for the page (the view sends it through the bridge).
-    public var deliver: (@MainActor (AgentPaneTransportEvent) -> Void)?
+    /// Gets each push for the page (the view sends it through the bridge) and a completion to call
+    /// once the page has run it (it paces the next push).
+    public var deliver: (@MainActor (AgentPaneTransportEvent, _ done: @escaping @MainActor @Sendable () -> Void) -> Void)?
+    /// Counts pushes, so a late completion of a previous connection's push is ignored.
+    private var deliveries = 0
     public var pacer: any AgentPaneTransportPacer
     private var socket: AcpmuxPaneSocket?
     private var current = 0
@@ -147,6 +170,7 @@ public nonisolated struct AgentPaneTransportEvent: Equatable, Sendable {
     /// Opens a new socket (closing the current one) and returns its id once it is open.
     public func open(_ connection: AcpmuxConnection) async throws(AgentPaneTransportError) -> Int {
         close(connection: current)
+        pacer.reset()
         current += 1
         let id = current
         localAppToken = connection.localAppToken
@@ -236,15 +260,15 @@ public nonisolated struct AgentPaneTransportEvent: Equatable, Sendable {
 
     private func arrived(_ id: Int) {
         guard id == current, socket != nil else { return }
-        pacer.schedule { [weak self] in self?.flush() ?? false }
+        pacer.schedule { [weak self] in self?.flush() ?? AgentPaneFlush(delivered: false, more: false) }
     }
 
-    /// Delivers one batch; true when more is waiting.
+    /// Delivers one batch, and says whether it made a call and whether more is waiting.
     @discardableResult
-    func flush() -> Bool {
-        guard let socket else { return false }
+    func flush() -> AgentPaneFlush {
+        guard let socket else { return AgentPaneFlush(delivered: false, more: false) }
         let batch = socket.take(maximumFrames: limits.maximumFramesPerFlush, maximumBytes: limits.maximumBytesPerFlush)
-        guard !batch.frames.isEmpty || batch.closed != nil else { return batch.more }
+        guard !batch.frames.isEmpty || batch.closed != nil else { return AgentPaneFlush(delivered: false, more: batch.more) }
         flushes += 1
         let event = AgentPaneTransportEvent(connection: current, frames: batch.frames, closed: batch.closed)
         if batch.closed != nil {
@@ -252,8 +276,16 @@ public nonisolated struct AgentPaneTransportEvent: Equatable, Sendable {
             localAppToken = nil
             Self.logger.info("agent pane transport closed connection=\(self.current, privacy: .public) code=\(batch.closed?.code ?? 0, privacy: .public) error=\(batch.closed?.error?.rawValue ?? "-", privacy: .public)")
         }
-        deliver?(event)
-        return batch.more && self.socket != nil
+        let more = batch.more && self.socket != nil
+        guard let deliver else { return AgentPaneFlush(delivered: false, more: more) }
+        deliveries += 1
+        let delivery = deliveries
+        deliver(event) { [weak self] in
+            guard let self, self.deliveries == delivery else { return }
+            self.pacer.delivered()
+        }
+        if batch.closed != nil { pacer.reset() }
+        return AgentPaneFlush(delivered: batch.closed == nil, more: more)
     }
 }
 

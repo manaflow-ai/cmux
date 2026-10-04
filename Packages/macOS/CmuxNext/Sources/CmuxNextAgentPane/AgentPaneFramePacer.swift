@@ -1,58 +1,175 @@
 public import AppKit
 import CmuxNextWakeups
 
-/// Paces the transport's pushes to the page by display frames: the first frame after a quiet
-/// moment goes on the next main-loop turn (no added latency when idle), and while a burst lasts
-/// the rest go in one bridge call per display frame (a 2,000-frame burst is a few dozen calls, not
-/// 2,000), on the window's ``FrameScheduler``, which stops when the queue is empty.
+/// Display frames for ``AgentPaneFramePacer`` (the window's ``FrameScheduler``; a fake in tests).
+@MainActor public protocol AgentPaneFrameTicks: AnyObject {
+    /// Called once per display frame while active.
+    var onTick: (@MainActor () -> Void)? { get set }
+    func activate()
+    func deactivate()
+}
+
+/// The one-shot fallback deadline of ``AgentPaneFramePacer`` (a ``DemandTimer``; a fake in tests).
+@MainActor public protocol AgentPaneFallbackDeadline: AnyObject {
+    func schedule(after delay: Duration, _ action: @escaping @MainActor @Sendable () -> Void)
+    func cancel()
+}
+
+/// Paces the transport's pushes to the page with no added latency when idle:
+/// - No bridge call in flight: deliver at once, on the turn the frames arrived.
+/// - A call in flight (until the page has run it): new frames wait and go together in the next
+///   call, at most 512 frames each (``AgentPaneTransport/Limits``).
+/// - Under load (a call finished less than one display frame after the previous one began): wait
+///   for the next display frame, so a burst is at most one call per frame.
+/// - The display link does not fire (an occluded or hidden window): after ``fallbackDelay`` the
+///   frames go at once, and every later call goes on the next turn until a frame ticks again, so
+///   streaming and notifications keep arriving.
 @MainActor public final class AgentPaneFramePacer: AgentPaneTransportPacer {
-    /// A flush closer than this to the previous one waits for the next display frame.
-    public static let quietInterval: TimeInterval = 1.0 / 120
-    private var client: FrameClient?
-    private var pending: (@MainActor @Sendable () -> Bool)?
-    private var leadingScheduled = false
-    private var lastFlush: TimeInterval = 0
+    /// One display frame at the slowest rate the pacer assumes.
+    public static let frameInterval: TimeInterval = 1.0 / 120
+    /// Longest wait for a display frame before the pacer treats the link as stalled.
+    public static let fallbackDelay: Duration = .milliseconds(20)
+
+    private let frames: any AgentPaneFrameTicks
+    private let fallback: any AgentPaneFallbackDeadline
     private let now: @MainActor () -> TimeInterval
+    private let nextTurn: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
+    private var flush: (@MainActor @Sendable () -> AgentPaneFlush)?
+    /// Frames arrived, or a capped flush left some, since the last call began.
+    private var pending = false
+    private(set) var inFlight = false
+    private(set) var waitingForFrame = false
+    /// The display link missed its frame; deliver on the next turn until it ticks again.
+    private(set) var linkStalled = false
+    private var nextTurnScheduled = false
+    private var lastCall: TimeInterval = -.infinity
+    /// Calls made (tests).
+    private(set) var calls = 0
 
-    public init(view: NSView, now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+    public init(frames: any AgentPaneFrameTicks, fallback: any AgentPaneFallbackDeadline,
+                now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+                nextTurn: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { work in
+                    DispatchQueue.main.async { MainActor.assumeIsolated { work() } }
+                }) {
+        self.frames = frames
+        self.fallback = fallback
         self.now = now
-        client = FrameClient(owner: "agent-pane.transport", isAnimation: false,
-                             scheduler: { [weak view] in view.map(FrameScheduler.forView) ?? .app }) { [weak self] _ in
-            self?.tick() ?? false
-        }
+        self.nextTurn = nextTurn
+        frames.onTick = { [weak self] in self?.ticked() }
     }
 
-    public func schedule(_ flush: @escaping @MainActor @Sendable () -> Bool) {
-        pending = flush
-        guard client?.isActive != true, !leadingScheduled else { return }
-        if now() - lastFlush >= Self.quietInterval {
-            leadingScheduled = true
-            DispatchQueue.main.async { [weak self] in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    self.leadingScheduled = false
-                    if self.run() { self.client?.activate() }
-                }
-            }
+    /// The pacer of a pane: its window's display frames, a ``DemandTimer`` fallback.
+    public convenience init(view: NSView) {
+        self.init(frames: AgentPaneWindowFrames(view: view), fallback: AgentPaneDemandDeadline())
+    }
+
+    public func schedule(_ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) {
+        self.flush = flush
+        pending = true
+        guard !inFlight, !waitingForFrame, !nextTurnScheduled else { return }
+        if true { waitingForFrame = true; frames.activate(); return } // RED STUB: every push waits for a frame
+        call()
+    }
+
+    public func delivered() {
+        inFlight = false
+        guard pending else { return }
+        if linkStalled {
+            scheduleNextTurn()
+        } else if now() - lastCall >= Self.frameInterval {
+            call()
         } else {
-            client?.activate()
+            waitingForFrame = true
+            frames.activate()
+            fallback.schedule(after: Self.fallbackDelay) { [weak self] in self?.missedFrame() }
         }
     }
 
-    private func tick() -> Bool { run() }
-
-    private func run() -> Bool {
-        lastFlush = now()
-        guard let pending else { return false }
-        let more = pending()
-        if !more { self.pending = nil }
-        return more
+    public func reset() {
+        linkStalled = false
+        flush = nil
+        pending = false
+        inFlight = false
+        waitingForFrame = false
+        nextTurnScheduled = false
+        fallback.cancel()
+        frames.deactivate()
     }
 
     /// Stops pacing (the pane closed).
-    public func stop() {
-        pending = nil
-        client?.deactivate()
-        client = nil
+    public func stop() { reset() }
+
+    private func call() {
+        guard let flush, pending else { return }
+        pending = false
+        inFlight = true
+        lastCall = now()
+        let result = flush()
+        if result.delivered { calls += 1 } else { inFlight = false }
+        // A capped flush leaves frames: they go when this call is done, or next turn without one.
+        if result.more {
+            pending = true
+            if !inFlight { scheduleNextTurn() }
+        }
     }
+
+    private func ticked() {
+        linkStalled = false
+        guard waitingForFrame else {
+            frames.deactivate()
+            return
+        }
+        waitingForFrame = false
+        fallback.cancel()
+        call()
+    }
+
+    private func missedFrame() {
+        if true { return } // RED STUB: no fallback
+        guard waitingForFrame else { return }
+        waitingForFrame = false
+        linkStalled = true
+        call()
+    }
+
+    private func scheduleNextTurn() {
+        guard !nextTurnScheduled else { return }
+        nextTurnScheduled = true
+        // Keep the link asked for frames, so a window that shows again leaves the fallback.
+        frames.activate()
+        nextTurn { [weak self] in
+            guard let self else { return }
+            self.nextTurnScheduled = false
+            if !self.inFlight { self.call() }
+        }
+    }
+}
+
+/// The window's display frames (``FrameClient`` on its ``FrameScheduler``).
+@MainActor final class AgentPaneWindowFrames: AgentPaneFrameTicks {
+    var onTick: (@MainActor () -> Void)?
+    private var client: FrameClient?
+
+    init(view: NSView) {
+        client = FrameClient(owner: "agent-pane.transport", isAnimation: false,
+                             scheduler: { [weak view] in view.map(FrameScheduler.forView) ?? .app }) { [weak self] tick in
+            // A synthesized tick (the scheduler's stall deadline) is not a live display link.
+            if tick.refreshInterval != nil { self?.onTick?() }
+            return false
+        }
+    }
+
+    func activate() { client?.activate() }
+    func deactivate() { client?.deactivate() }
+}
+
+/// The pacer's fallback on a ``DemandTimer``.
+@MainActor final class AgentPaneDemandDeadline: AgentPaneFallbackDeadline {
+    private let timer = DemandTimer(owner: "agent-pane.transport.fallback")
+
+    func schedule(after delay: Duration, _ action: @escaping @MainActor @Sendable () -> Void) {
+        timer.schedule(after: delay) { @MainActor in action() }
+    }
+
+    func cancel() { timer.cancel() }
 }

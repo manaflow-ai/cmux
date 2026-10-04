@@ -162,8 +162,16 @@ public final class AgentPaneView: NSView {
         let pacer = AgentPaneFramePacer(view: self)
         transportPacer = pacer
         model.transport.pacer = pacer
-        model.transport.deliver = { [weak self] event in
-            self?.deliver([.transport(event)], scripts: [event.script])
+        model.transport.deliver = { [weak self] event, done in
+            guard let self else { return done() }
+            if let pageEvents = self.pageEvents {
+                // The page host's events carry no completion: the next push may follow next turn.
+                pageEvents.publish(.transport(event))
+                DispatchQueue.main.async { MainActor.assumeIsolated { done() } }
+            } else {
+                // The completion runs once the page has run the push.
+                self.webView.evaluateJavaScript(event.script) { _, _ in done() }
+            }
         }
         if page == nil {
             navigation.view = self

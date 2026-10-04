@@ -69,7 +69,7 @@ import Testing
         defer { server.stop() }
         let transport = AgentPaneTransport()
         var events: [AgentPaneTransportEvent] = []
-        transport.deliver = { events.append($0) }
+        transport.deliver = { event, done in events.append(event); done() }
         let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
         _ = await transport.send(connection: id, frames: [Self.initialize])
         server.push(Self.pending, to: 0)
