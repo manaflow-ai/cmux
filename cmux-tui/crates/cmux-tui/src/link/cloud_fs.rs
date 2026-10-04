@@ -86,7 +86,17 @@ pub(super) fn install_if_cloud_host() -> bool {
     if roots.is_empty() {
         return false;
     }
-    cmux_tui_core::fs_ops::install(FsService::new(roots))
+    if !cmux_tui_core::fs_ops::install(FsService::new(roots)) {
+        return false;
+    }
+    // Leftover temporaries of writes a previous daemon did not finish; off
+    // the startup path.
+    let _ = std::thread::Builder::new().name("cmux-fs-sweep".into()).spawn(|| {
+        if let Some(service) = cmux_tui_core::fs_ops::installed() {
+            service.sweep_stale_temporaries();
+        }
+    });
+    true
 }
 
 #[cfg(test)]
