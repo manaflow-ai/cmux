@@ -28,7 +28,8 @@ public final class SidebarView: NSView {
     private var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
 
     let list: SidebarListView
-    private let scrollView = SidebarScrollView()
+    let scrollView = SidebarScrollView()
+    private(set) lazy var spacePaging = SidebarSpacePaging(host: self)
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
     private var edgeFade: ScrollEdgeFadeView!
@@ -205,7 +206,7 @@ public final class SidebarView: NSView {
         // Sidebars keep overlay scrollers even when the system shows legacy
         // ones, so rows never reflow when the scroller appears.
         NotificationCenter.default.addObserver(self, selector: #selector(scrollerStyleChanged), name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
-        scrollView.onHorizontalSwipe = { [weak self] delta in self?.model.stepProfile(by: delta) }
+        scrollView.onHorizontalScroll = { [weak self] phase, dx, time in self?.spacePaging.scroll(phase, deltaX: dx, time: time) }
         edgeFade = ScrollEdgeFadeView(scrollView: scrollView)
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
@@ -367,12 +368,11 @@ public final class SidebarView: NSView {
         // Minimal mode changed: show or hide the chosen bands now.
         if lastState?.preferences.minimalMode != state.preferences.minimalMode { setChromeRevealed(isChromeRevealed) }
         if listChanged {
-            if profileChanged, let previousProfile = lastState?.activeProfile, let nextProfile = state.activeProfile,
-               let oldIndex = state.profiles.firstIndex(where: { $0.id == previousProfile }), let newIndex = state.profiles.firstIndex(where: { $0.id == nextProfile }),
-               oldIndex != newIndex {
-                animateProfileSwitch(on: list, towardNext: newIndex > oldIndex)
+            if profileChanged {
+                switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles)
+            } else {
+                list.reload(animated: Self.animatesReload(from: previous, to: state.sections))
             }
-            list.reload(animated: Self.animatesReload(from: previous, to: state.sections))
         }
         if chromeChanged || profilesChanged { needsLayout = true }
         lastState = state
