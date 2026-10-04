@@ -381,6 +381,9 @@ fn failed_read_after_a_clone_signal_retries_while_running() {
     let signal = Observation { clone_signal: true, ..ob(None, None, Some("p")) };
     assert_eq!(m.step(Input::Observed(signal)), [Action::ArmRetry(RETRY_FIRST_MS)]);
     assert!(m.step(Input::ResumeSignal).is_empty(), "Resumed waits for the id");
+    m.step(Input::AnnounceDone);
+    let tick = m.step(Input::AnnounceTick);
+    assert!(!tick.contains(&Action::Announce), "no announce before the id is confirmed: {tick:?}");
     m.step(Input::RetryElapsed);
     assert_eq!(m.step(obs(None, None, Some("p"))), [Action::ArmRetry(2 * RETRY_FIRST_MS)]);
     m.step(Input::RetryElapsed);

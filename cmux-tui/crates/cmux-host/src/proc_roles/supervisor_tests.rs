@@ -145,3 +145,70 @@ fn a_missing_program_backs_off_with_the_reason() {
     assert!(health[0].last_error.as_deref().unwrap().contains("ghost"));
     assert!(sup.stop_all(Instant::now() + Duration::from_secs(5)).is_empty());
 }
+
+fn child_pid(fx: &Fixture, role: &str) -> u32 {
+    let path = fx.paths.role_dir(role).join("child");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(pid) = std::fs::read_to_string(&path).ok().and_then(|s| s.trim().parse().ok()) {
+            return pid;
+        }
+        assert!(Instant::now() < deadline, "no child pid in {}", path.display());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn wait_dead(pid: u32) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while alive(pid) {
+        assert!(Instant::now() < deadline, "pid {pid} still alive");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Review P2-a: a role whose grace outlasts the caller's deadline is killed
+/// at the deadline, its whole group included.
+#[test]
+fn stop_kills_at_the_callers_deadline() {
+    let fx = Fixture::new();
+    fx.script("stubborn", "trap '' TERM\nsleep 600 &\necho $! > \"$CMUX_ROLE_STATE_DIR/child\"\nwait");
+    let sup = Supervisor::start(fx.paths.clone()).unwrap();
+    sup.apply(set(serde_json::json!({"stubborn": {"program": "stubborn", "stopGraceSeconds": 60}})));
+    let child = child_pid(&fx, "stubborn");
+    let started = Instant::now();
+    let left = sup.stop_all(Instant::now() + Duration::from_secs(1));
+    assert!(started.elapsed() < Duration::from_secs(6), "{:?}", started.elapsed());
+    assert!(left.is_empty(), "{left:?}");
+    wait_dead(child);
+}
+
+/// Review P2-b: when a role's leader exits, the rest of its group ends too.
+#[test]
+fn a_dead_leader_takes_its_group() {
+    let fx = Fixture::new();
+    fx.script("leaky", "sleep 600 &\necho $! > \"$CMUX_ROLE_STATE_DIR/child\"\nexit 1");
+    let sup = Supervisor::start(fx.paths.clone()).unwrap();
+    sup.apply(set(serde_json::json!({"leaky": {"program": "leaky", "restart": "never"}})));
+    let child = child_pid(&fx, "leaky");
+    wait_for(&sup, "exited", |h| state_of(h, "leaky") == Some(RoleState::Exited));
+    wait_dead(child);
+}
+
+/// Review P2-c: a role that writes many status lines (more than the old
+/// 1 MiB total) is not killed by SIGPIPE.
+#[test]
+fn many_status_lines_never_close_the_notify_pipe() {
+    let fx = Fixture::new();
+    fx.script(
+        "chatty",
+        "echo READY=1 >&3\ni=0\nwhile [ $i -lt 3000 ]; do\n\
+         printf 'STATUS=%0500d\\n' $i >&3\ni=$((i+1))\ndone\necho STATUS=done >&3\nexec sleep 600",
+    );
+    let sup = Supervisor::start(fx.paths.clone()).unwrap();
+    sup.apply(set(serde_json::json!({"chatty": {"program": "chatty", "ready": "notify"}})));
+    let health = wait_for(&sup, "all status lines", |h| {
+        h.first().is_some_and(|c| c.status_text.as_deref() == Some("done"))
+    });
+    assert_eq!(health[0].state, RoleState::Ready);
+    assert_eq!(health[0].restarts, 0);
+}

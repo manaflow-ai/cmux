@@ -75,7 +75,7 @@ impl Supervisor {
         let loop_tx = tx.clone();
         let thread =
             std::thread::Builder::new().name("cmux-host-roles".to_owned()).spawn(move || {
-                Loop { paths, entries: BTreeMap::new(), invalid: Vec::new() }.run(&rx, &loop_tx);
+                Loop { paths, entries: BTreeMap::new(), invalid: Vec::new(), published: None }.run(&rx, &loop_tx);
             })?;
         Ok(Supervisor { tx, thread: Some(thread) })
     }
@@ -91,7 +91,7 @@ impl Supervisor {
         if self.tx.send(Msg::StopAll { deadline, done }).is_err() {
             return Vec::new();
         }
-        let left = deadline.saturating_duration_since(Instant::now()) + Duration::from_secs(1);
+        let left = deadline.saturating_duration_since(Instant::now()) + KILL_SETTLE * 2;
         wait.recv_timeout(left).unwrap_or_else(|_| vec!["(supervisor did not answer)".to_owned()])
     }
 
@@ -118,13 +118,33 @@ struct Loop {
     paths: RolePaths,
     entries: BTreeMap<String, Entry>,
     invalid: Vec<RoleHealth>,
+    /// The last status written, so an unchanged state is not rewritten.
+    published: Option<serde_json::Value>,
+}
+
+/// A `StopAll` in progress.
+struct Stopping {
+    deadline: Instant,
+    /// SIGKILL went to every group left at `deadline`.
+    killed: bool,
+    done: Sender<Vec<String>>,
+}
+
+/// How long killed groups get to be reaped before the reply.
+const KILL_SETTLE: Duration = Duration::from_secs(2);
+
+impl Stopping {
+    fn next_deadline(&self) -> Instant {
+        if self.killed { self.deadline + KILL_SETTLE } else { self.deadline }
+    }
 }
 
 impl Loop {
     fn run(mut self, rx: &Receiver<Msg>, tx: &Sender<Msg>) {
-        let mut stopping: Option<(Instant, Sender<Vec<String>>)> = None;
+        let mut stopping: Option<Stopping> = None;
         loop {
-            let next = self.entries.values().filter_map(|e| e.wake).min();
+            let deadline = stopping.as_ref().map(Stopping::next_deadline);
+            let next = self.entries.values().filter_map(|e| e.wake).chain(deadline).min();
             let msg = match next {
                 Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                     Ok(msg) => Some(msg),
@@ -140,8 +160,13 @@ impl Loop {
             match msg {
                 None => self.fire_due(now, tx),
                 Some(Msg::Gone { name, pid }) => {
-                    let code = self.reap(&name, pid);
-                    self.input(&name, Input::Exited { pid, code }, now, tx);
+                    // The leader is a zombie and still holds the group id:
+                    // end what it left behind (children that ignore SIGTERM,
+                    // children of a crashed role) before reaping it.
+                    signal_group(pid, libc_sig::KILL);
+                    if let Some(code) = self.reap(&name, pid, tx) {
+                        self.input(&name, Input::Exited { pid, code }, now, tx);
+                    }
                 }
                 Some(Msg::Ready { name, pid }) => self.input_for(&name, pid, Input::Ready, now, tx),
                 Some(Msg::Status { name, pid, text }) => {
@@ -157,20 +182,33 @@ impl Loop {
                     for name in names {
                         self.input(&name, Input::Stop, now, tx);
                     }
-                    stopping = Some((deadline, done));
+                    stopping = Some(Stopping { deadline, killed: false, done });
                 }
                 Some(Msg::Health(reply)) => {
                     let _ = reply.send(self.health());
                 }
-                Some(Msg::Exit) => return,
+                Some(Msg::Exit) => {
+                    self.kill_all_and_reap();
+                    return;
+                }
             }
             self.settle(now, tx);
-            if let Some((deadline, _)) = &stopping {
+            if let Some(stop) = &mut stopping {
                 let all_down = self.entries.values().all(|e| e.proc.is_down());
-                if all_down || Instant::now() >= *deadline {
-                    let (_, done) = stopping.take().expect("stopping");
+                let now = Instant::now();
+                if !all_down && !stop.killed && now >= stop.deadline {
+                    // A role's grace may outlast the caller's deadline (a
+                    // rebind, a park): no role process may outlive it.
+                    for entry in self.entries.values().filter(|e| !e.proc.is_down()) {
+                        if let Some(pid) = entry.proc.pid() {
+                            signal_group(pid, libc_sig::KILL);
+                        }
+                    }
+                    stop.killed = true;
+                } else if all_down || now >= stop.next_deadline() {
+                    let stop = stopping.take().expect("stopping");
                     let left = self.entries.values().filter(|e| !e.proc.is_down());
-                    let _ = done.send(left.map(|e| e.spec.name.clone()).collect());
+                    let _ = stop.done.send(left.map(|e| e.spec.name.clone()).collect());
                 }
             }
             self.publish();
@@ -191,9 +229,10 @@ impl Loop {
                 None => Next::Remove,
             };
             if entry.next == Next::Keep {
-                // Only a role that was stopped (park, shutdown) starts again;
-                // a crash loop or a finished role waits for a config change.
-                if entry.proc.health().state == RoleState::Stopped {
+                // Only a role that was stopped, or is stopping after a quick
+                // change back (park, shutdown, revert) starts again; a crash
+                // loop or a finished role waits for a config change.
+                if matches!(entry.proc.health().state, RoleState::Stopped | RoleState::Stopping) {
                     self.input(&name, Input::Start, now, tx);
                 }
             } else {
@@ -271,11 +310,30 @@ impl Loop {
         }
     }
 
-    /// Reaps the exited child and returns its exit code (`None`: a signal).
-    fn reap(&mut self, name: &str, pid: u32) -> Option<i32> {
+    /// Reaps the exited child: `Some(code)` (`None` inside: a signal), or
+    /// `None` when it has not exited (a spurious wake; the waiter restarts).
+    fn reap(&mut self, name: &str, pid: u32, tx: &Sender<Msg>) -> Option<Option<i32>> {
         let entry = self.entries.get_mut(name)?;
         let mut child = entry.child.take_if(|c| c.id() == pid)?;
-        child.wait().ok().and_then(|status| status.code())
+        match child.try_wait() {
+            Ok(Some(status)) => Some(status.code()),
+            Ok(None) => {
+                entry.child = Some(child);
+                spawn::watch_exit(name, pid, tx);
+                None
+            }
+            Err(_) => Some(None),
+        }
+    }
+
+    /// The thread is ending: no role process may stay behind.
+    fn kill_all_and_reap(&mut self) {
+        for entry in self.entries.values_mut() {
+            if let Some(mut child) = entry.child.take() {
+                signal_group(child.id(), libc_sig::KILL);
+                let _ = child.wait();
+            }
+        }
     }
 
     fn health(&self) -> Vec<RoleHealth> {
@@ -284,17 +342,22 @@ impl Loop {
         all
     }
 
-    fn publish(&self) {
+    fn publish(&mut self) {
+        let json = serde_json::json!({ "roles": self.health() });
+        if self.published.as_ref() == Some(&json) {
+            return;
+        }
         let path = status_path(&self.paths);
         if let Some(dir) = path.parent()
             && cmux_server::fsx::ensure_dir(dir, 0o700).is_err()
         {
             return;
         }
-        let json = serde_json::json!({ "roles": self.health() });
         let mut bytes = serde_json::to_vec_pretty(&json).unwrap_or_default();
         bytes.push(b'\n');
-        let _ = cmux_server::fsx::atomic_write(&path, &bytes, 0o600);
+        if cmux_server::fsx::atomic_write(&path, &bytes, 0o600).is_ok() {
+            self.published = Some(json);
+        }
     }
 }
 

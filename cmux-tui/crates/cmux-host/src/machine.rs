@@ -605,7 +605,9 @@ impl Machine {
     /// failed bind leaves them stopped, so running roles mean the id they
     /// started with is the current one.
     fn identity_settled(&self) -> bool {
-        !self.parked && self.roles_running && self.current_id.is_some()
+        // A clone signal whose metadata read has not confirmed the id yet
+        // may be a fork: do not announce the source machine's identity.
+        !self.parked && self.roles_running && self.current_id.is_some() && !self.verify_pending
     }
 
     fn announce(&mut self, out: &mut Vec<Action>) {
