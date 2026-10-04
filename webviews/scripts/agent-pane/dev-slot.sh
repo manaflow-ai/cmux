@@ -131,8 +131,13 @@ PY
     # Current daemons trust a dev origin only through --allow-dev-origin (never saved); older ones
     # read websocket.allowed_origins above.
     origin_args=()
-    if "$bin" daemon run --help 2>/dev/null | grep -q -- --allow-dev-origin; then
+    local help; help="$("$bin" daemon run --help 2>/dev/null || true)"
+    if grep -q -- --allow-dev-origin <<<"$help"; then
       origin_args=(--allow-dev-origin "$vite_origin")
+      # A release acpmux honors a dev origin only on an explicit development launch.
+      if grep -qE -- '--dev( |$)' <<<"$help"; then
+        origin_args+=(--dev)
+      fi
     fi
     (cd "$cwd" && ACPMUX_HOME="$home" nohup "$bin" daemon run --listen "127.0.0.1:$daemon_port" --token "$token" \
       ${origin_args[@]+"${origin_args[@]}"} </dev/null >"$home/daemon.log" 2>&1 & echo $! >"$home/daemon.pid")

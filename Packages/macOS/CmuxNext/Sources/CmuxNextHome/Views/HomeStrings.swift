@@ -36,6 +36,15 @@ enum HomeStrings {
         String(format: String(localized: "home.composer.attach.locationNotRemoved",
                               defaultValue: "Location data couldn’t be removed from “%@”, so it was not attached.", bundle: .module), name)
     }
+    /// Why a send shows "Not Delivered": attachments to an owner that
+    /// stores none, else the refusal's own notice.
+    static func notDeliveredReason(_ rejection: HomeRejection) -> String {
+        if rejection == .invalid("attachments unsupported") {
+            return String(localized: "home.send.attachmentsUnsupported", defaultValue: "This conversation can’t receive attachments yet.",
+                          bundle: .module)
+        }
+        return Self.rejection(rejection)
+    }
     static var unanswered: String {
         String(localized: "home.send.unanswered", defaultValue: "A change may not have gone through. Check your connection.",
                bundle: .module)
