@@ -29,10 +29,22 @@ fn lock(handle: &LinkHandle) -> MutexGuard<'_, LinkShared> {
     handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// Gives the channel to one new handle; `false` while another handle holds
-/// it. A dropped handle frees the channel and leaves the link up.
-pub(crate) fn claim(handle: &LinkHandle) -> bool {
-    !std::mem::replace(&mut lock(handle).held, true)
+/// Gives the channel to one new handle. A close that no drain applied yet
+/// is `unavailable` (retryable: the link is about to end, and a connect
+/// after the drain works); a channel another handle holds is `invalid`. A
+/// dropped handle frees the channel and leaves the link up.
+pub(crate) fn claim(handle: &LinkHandle) -> Result<(), BackendError> {
+    let mut shared = lock(handle);
+    if shared.close {
+        return Err(BackendError::Unavailable {
+            reason: "the link is closing".to_owned(),
+            retryable: true,
+        });
+    }
+    if std::mem::replace(&mut shared.held, true) {
+        return Err(BackendError::invalid(super::ALREADY_CONNECTED));
+    }
+    Ok(())
 }
 
 /// Takes a close the handle asked for (`true` once per ask).
