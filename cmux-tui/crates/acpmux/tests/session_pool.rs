@@ -168,6 +168,21 @@ impl Rpc {
     }
 
     async fn call(&mut self, method: &str, params: Value) -> Value {
+        let v = self.raw(method, params).await;
+        assert!(v.get("error").is_none(), "{method} failed: {v}");
+        v["result"].clone()
+    }
+
+    /// The error a request answers with.
+    async fn call_err(&mut self, method: &str, params: Value) -> String {
+        let v = self.raw(method, params).await;
+        v["error"]["message"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{method} did not fail: {v}"))
+            .to_owned()
+    }
+
+    async fn raw(&mut self, method: &str, params: Value) -> Value {
         self.next += 1;
         let id = self.next;
         let line = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
@@ -180,8 +195,7 @@ impl Rpc {
                 .expect("daemon closed the socket");
             let v: Value = serde_json::from_str(&line).unwrap();
             if v.get("id") == Some(&json!(id)) {
-                assert!(v.get("error").is_none(), "{method} failed: {v}");
-                return v["result"].clone();
+                return v;
             }
         }
     }
@@ -396,4 +410,33 @@ async fn a_pooled_start_still_running_ends_with_the_daemon() {
     daemon.wait_exit();
     assert!(gone_within(harness, Duration::from_secs(10)), "a start in flight outlived shutdown");
     assert!(daemon.pool_records().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_new_that_fails_after_its_claim_puts_the_entry_back() {
+    let daemon = Daemon::new("ret", 0);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let (_first, _) = new_session(&mut rpc, &home, "fake").await;
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let pooled = daemon.pool_records()[0]["session_id"].as_str().unwrap().to_owned();
+    // The name is taken: the create fails after it claimed the pooled entry
+    // (a cancelled session/new drops its claim the same way).
+    let err = rpc
+        .call_err(
+            "session/new",
+            json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeb", "name": "fake"}}}),
+        )
+        .await;
+    assert!(err.contains("taken"), "{err}");
+    let status = rpc.call("_acpmux/status", json!({})).await;
+    let entry = &status["pool"]["entries"][0];
+    assert_eq!(entry["harness"], "fakeb", "{status}");
+    assert_eq!(entry["state"], "ready", "the entry is back in the pool: {status}");
+    assert_eq!(daemon.pool_records().len(), 1, "its host still runs");
+    let (second, warm) = new_session(&mut rpc, &home, "fakeb").await;
+    assert_eq!(second, pooled, "the next switch takes the same entry");
+    assert!(taken(&daemon, &second));
+    assert!(warm < Duration::from_millis(300), "{warm:?}");
 }
