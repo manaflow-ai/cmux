@@ -28,9 +28,8 @@ fn a_create_whose_commit_fails_leaves_no_workspace_or_terminal() {
     let mux = Mux::new_for_test("partial-create", SurfaceOptions::default());
     let workspaces = |mux: &Mux| mux.with_state(|state| state.workspaces.len());
     let terminals = |mux: &Mux| mux.with_state(|state| state.terminal_catalog.len());
-    let public = |mux: &Mux| {
-        public_session_snapshot(mux).unwrap()["workspaces"].as_array().unwrap().len()
-    };
+    let public =
+        |mux: &Mux| public_session_snapshot(mux).unwrap()["workspaces"].as_array().unwrap().len();
     let (before_workspaces, before_terminals, before_public) =
         (workspaces(&mux), terminals(&mux), public(&mux));
     // Both projection attempts of the create fail, after the workspace row
@@ -48,5 +47,16 @@ fn a_create_whose_commit_fails_leaves_no_workspace_or_terminal() {
     assert_eq!(workspaces(&mux), before_workspaces, "a half-created workspace stayed in memory");
     assert_eq!(terminals(&mux), before_terminals, "the failed create left its terminal running");
     assert_eq!(public(&mux), before_public);
+    // The failure is the settled outcome: the same request replays it.
+    let replay = topology::dispatch(
+        &mux,
+        parsed_request(
+            "workspace.create",
+            json!({"initial_content":"terminal","name":"partial"}),
+            "partial-create",
+        ),
+    );
+    assert!(replay.is_err(), "the replay of a failed create succeeded: {replay:?}");
+    assert_eq!(workspaces(&mux), before_workspaces);
     mux.shutdown();
 }
