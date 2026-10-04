@@ -1688,9 +1688,11 @@ export interface CloudOps {
     readonly params: {
       readonly limit?: number
       readonly include_archived?: boolean
+      readonly cursor?: string
     }
     readonly result: {
       readonly entries: ReadonlyArray<HomeInboxEntry>
+      readonly next_cursor: string | null
       readonly revision: string
     }
   }
