@@ -37,7 +37,17 @@ enum AgentHandlers {
         registry.bind("palette.computerUse.accessibility", run: { _ in try openPrivacyPane("Privacy_Accessibility", context) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in try openPrivacyPane("Privacy_ScreenCapture", context) })
         registry.bindAgentPane { invocation in
-            guard let pane = context.scope(invocation).pane else { return context.refuse(MiscHandlerStrings.noPane) }
+            var pane = context.scope(invocation).pane
+            // Cmd-I is also the entry point when a workspace is settling and
+            // has no focused pane yet. Reuse Cmd-T's shared path to repair or
+            // create the active workspace's first usable pane, then resolve it
+            // again before opening the agent tab. Explicit targets still fail
+            // normally instead of silently switching panes.
+            if pane == nil, invocation.target == nil {
+                _ = context.registry.perform("newTab.sameKind", invocation: invocation)
+                pane = context.scope(invocation).pane
+            }
+            guard let pane else { return context.refuse(MiscHandlerStrings.noPane) }
             if invocation.origin == .user { context.services.newTabKinds.record(.agent, folder: pane.selectedTab?.cwd) }
             pane.newAgentTab()
         }
