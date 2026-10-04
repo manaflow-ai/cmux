@@ -51,4 +51,32 @@ final class PageWKWebView: WKWebView {
     override func magnify(with event: NSEvent) {}
 
     override func smartMagnify(with event: NSEvent) {}
+
+    // MARK: Host file drops (diff-host S4)
+
+    /// File drops the host opens itself (``PageFileDrop``, the diff viewer's empty state); nil gives
+    /// every drag to WebKit.
+    var fileDrop: PageFileDrop?
+
+    private func droppedFile(_ info: any NSDraggingInfo) -> URL? {
+        guard let fileDrop,
+              let url = info.draggingPasteboard.readObjects(forClasses: [NSURL.self],
+                                                            options: [.urlReadingFileURLsOnly: true])?.first as? URL,
+              fileDrop.accepts(url) else { return nil }
+        return url
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        droppedFile(sender) != nil ? .copy : super.draggingEntered(sender)
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        droppedFile(sender) != nil ? .copy : super.draggingUpdated(sender)
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        guard let url = droppedFile(sender), let fileDrop else { return super.performDragOperation(sender) }
+        fileDrop.open(url)
+        return true
+    }
 }

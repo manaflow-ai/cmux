@@ -23,6 +23,8 @@ public protocol PageSurface: AnyObject {
 @MainActor
 public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public let descriptor: PageDescriptor
+    /// The engine options the page was made with (``PageEngineOptions``).
+    public let engineOptions: PageEngineOptions
     public let router: PageRouter
     let webView: WKWebView
     /// The WebKit view, for WebKit-only callers (focus, debug verbs). Engine-neutral code uses the
@@ -49,6 +51,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var themeSurface: SurfaceKind? {
         didSet { if themeSurface != oldValue { applyTheme() } }
     }
+    /// File drops the host opens itself (``PageFileDrop``); nil gives every drop to the page.
+    public var fileDrop: PageFileDrop? {
+        get { (webView as? PageWKWebView)?.fileDrop }
+        set { (webView as? PageWKWebView)?.fileDrop = newValue }
+    }
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     private var crashReloads = PageCrashReloads()
@@ -58,11 +65,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Nil when the page is missing from the resource bundle and no root is registered for it
     /// (``PageID/registerBundledRoot(_:for:)``).
     public convenience init?(descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil,
-                             documentAttributes: [String: String] = [:], surface: SurfaceKind? = nil,
-                             dynamicResources: (any PageDynamicResourceSource)? = nil) {
+                             documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
+                             surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
         guard let root = Self.servedRoot(for: descriptor) else { return nil }
         self.init(descriptor: descriptor, root: root, routes: routes, route: route, documentAttributes: documentAttributes,
-                  surface: surface, dynamicResources: dynamicResources)
+                  options: options, surface: surface, dynamicResources: dynamicResources)
     }
 
     /// The root a page is served from without an explicit one: the DEBUG override, else this
@@ -119,6 +126,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
                  surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
         guard Self.mayServe(descriptor, from: root) else { return nil }
         self.descriptor = descriptor
+        engineOptions = options
         themeSurface = surface
         self.dynamicResources = dynamicResources
         router = PageRouter(descriptor: descriptor, routes: routes)
