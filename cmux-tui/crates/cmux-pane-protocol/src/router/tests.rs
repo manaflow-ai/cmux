@@ -312,3 +312,64 @@ fn first_party_ir_must_match_the_router_and_third_party_is_recorded() {
     let state = router.state();
     assert_eq!(state.live[&2].ir_sha256, "ab");
 }
+
+#[test]
+fn page_tokens_never_carry_server_only_scopes() {
+    let router = router();
+    let mut settings = diff_page();
+    settings.id = "cmux.settings".into();
+    settings.namespace = "cmux.settings".into();
+    settings.consumes = vec![];
+    settings.scopes = vec!["settings:read".into(), "process:spawn:git".into()];
+    router.register_page("cmux.agent", settings).unwrap();
+    let token = router.mint_page_token("cmux.settings", "instance-1", None, &[]).unwrap();
+    let claims = verify_signature(&router.public_key(), &token).unwrap();
+    assert_eq!(claims.scopes, ["settings:read"]);
+}
+
+#[test]
+fn the_host_mints_gestures_bound_to_op_provider_and_page() {
+    use crate::gesture::{GESTURE_TYPE, GestureClaims};
+    use crate::token::verify_jws;
+    let router = router();
+    router
+        .admit(1, &spawned("cmux.git"), hello("cmux.git", &["cmux.git"], vec![status_op()]))
+        .unwrap();
+    router.register_page("octo.diff_tools", diff_page()).unwrap();
+    let page = router.mint_page_token("octo.diff_tools.viewer", "instance-1", None, &[]).unwrap();
+    let params = |op: &str, aud: Option<&str>| ops::GestureMintParams {
+        page: page.clone(),
+        op: op.into(),
+        aud: aud.map(str::to_owned),
+    };
+    let minted = router.mint_gesture(params("cmux.git.status", None)).unwrap();
+    let claims: GestureClaims =
+        verify_jws(&router.public_key(), &minted.token, GESTURE_TYPE).unwrap();
+    assert_eq!(
+        (claims.sub.as_str(), claims.aud.as_str(), claims.op.as_str()),
+        ("instance-1", "cmux.git", "cmux.git.status")
+    );
+    assert!(claims.exp <= crate::token::now() + crate::gesture::GESTURE_TTL_SECS);
+    // A capability token is not a gesture token, and the other way round.
+    assert!(verify_jws::<GestureClaims>(&router.public_key(), &page, GESTURE_TYPE).is_err());
+    assert!(verify_signature(&router.public_key(), &minted.token).is_err());
+    assert!(router.mint_gesture(params(crate::gesture::ANY_VIEW, None)).is_err());
+    assert!(router.mint_gesture(params(crate::gesture::ANY_VIEW, Some("cmux.git"))).is_ok());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn only_the_host_may_call_gesture_mint() {
+    use crate::envelope::Role;
+    use crate::rpc::{NoHandler, Peer};
+    let router = router();
+    for admission in [Admission::SelfStarted, Admission::Spawned("cmux.git".into())] {
+        let (ours, theirs) = crate::transport::memory_pair();
+        tokio::spawn(router.clone().serve_connection(theirs, admission));
+        let (peer, _) = Peer::start(ours, Role::Connecting, Arc::new(NoHandler));
+        let params = serde_json::json!({ "page": "x", "op": "cmux.git.status" });
+        let refused = peer.call("cmux.router.gesture.mint", params).await.unwrap_err();
+        assert_eq!(refused.code, error::FORBIDDEN);
+        assert_eq!(refused.details.unwrap()["reason"], "server_only");
+    }
+}

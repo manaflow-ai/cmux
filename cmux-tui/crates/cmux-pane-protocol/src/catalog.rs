@@ -1,9 +1,11 @@
 //! The one catalog of everything this crate declares; `emit-ir` writes it.
 
-use crate::example::{GreetOp, GreetTicks};
+use crate::example::{GreetAdminOp, GreetFocusOp, GreetOp, GreetTicks, GreetWaveOp};
 use crate::git::{GitDiffOp, GitStatusChanged, GitStatusOp};
 use crate::ir::{Catalog, InterfaceDecl};
-use crate::router::ops::{HelloOp, InterfacesListOp, PagesListOp, ResolveOp, TokenRefreshOp};
+use crate::router::ops::{
+    GestureMintOp, HelloOp, InterfacesListOp, PagesListOp, ResolveOp, TokenRefreshOp,
+};
 
 /// The interface diff viewers read from.
 pub const DIFF_SOURCE: &str = "cmux.diff.source/1";
@@ -19,7 +21,11 @@ pub fn catalog() -> Catalog {
         .op::<TokenRefreshOp>()
         .op::<InterfacesListOp>()
         .op::<PagesListOp>()
+        .op::<GestureMintOp>()
         .op::<GreetOp>()
+        .op::<GreetWaveOp>()
+        .op::<GreetFocusOp>()
+        .op::<GreetAdminOp>()
         .event::<GitStatusChanged>()
         .event::<GreetTicks>()
         .interface(diff_source())

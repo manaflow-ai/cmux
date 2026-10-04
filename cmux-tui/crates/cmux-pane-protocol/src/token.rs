@@ -138,7 +138,13 @@ impl SigningKey {
     }
 
     pub fn sign(&self, claims: &Claims) -> String {
-        let header = Header { alg: TOKEN_ALG.into(), typ: TOKEN_TYPE.into() };
+        self.sign_jws(TOKEN_TYPE, claims)
+    }
+
+    /// Sign any claims as a compact JWS of type `typ` (capability tokens,
+    /// gesture tokens).
+    pub fn sign_jws<T: Serialize>(&self, typ: &str, claims: &T) -> String {
+        let header = Header { alg: TOKEN_ALG.into(), typ: typ.into() };
         let header = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header).unwrap_or_default());
         let claims = URL_SAFE_NO_PAD.encode(serde_json::to_vec(claims).unwrap_or_default());
         let signed = format!("{header}.{claims}");
@@ -158,6 +164,10 @@ pub struct Verifier {
 impl Verifier {
     pub fn new(public_key: [u8; 32], audience: impl Into<String>) -> Self {
         Self { public_key, audience: audience.into() }
+    }
+
+    pub fn public_key(&self) -> &[u8; 32] {
+        &self.public_key
     }
 
     pub fn audience(&self) -> &str {
@@ -191,6 +201,15 @@ impl Verifier {
 /// Check the header and signature and decode the claims, without the time,
 /// audience or origin checks.
 pub fn verify_signature(public_key: &[u8; 32], token: &str) -> Result<Claims, TokenError> {
+    verify_jws(public_key, token, TOKEN_TYPE)
+}
+
+/// Check a compact JWS of type `typ` and decode its claims.
+pub fn verify_jws<T: serde::de::DeserializeOwned>(
+    public_key: &[u8; 32],
+    token: &str,
+    typ: &str,
+) -> Result<T, TokenError> {
     let mut parts = token.split('.');
     let (Some(header), Some(claims), Some(signature), None) =
         (parts.next(), parts.next(), parts.next(), parts.next())
@@ -199,7 +218,7 @@ pub fn verify_signature(public_key: &[u8; 32], token: &str) -> Result<Claims, To
     };
     let header_json = URL_SAFE_NO_PAD.decode(header).map_err(|_| TokenError::Malformed)?;
     let parsed: Header = serde_json::from_slice(&header_json).map_err(|_| TokenError::Malformed)?;
-    if parsed.alg != TOKEN_ALG || parsed.typ != TOKEN_TYPE {
+    if parsed.alg != TOKEN_ALG || parsed.typ != typ {
         return Err(TokenError::WrongHeader);
     }
     let signature = URL_SAFE_NO_PAD.decode(signature).map_err(|_| TokenError::Malformed)?;

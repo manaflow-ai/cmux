@@ -20,7 +20,7 @@
         "result": "ok"
       }
     ],
-    "router_ir_sha256": "799583cb88d70602efe4f5bd10115887380c31edaca71fdec7d2be466bb7673a",
+    "router_ir_sha256": "be8d18d7d762d14341407c8e02fbe5d270880bb5cf49c4e38f96d7e17b0650b0",
     "rule": "ir_sha256 \"router\" stands for router_ir_sha256"
   },
   "fragments": [
@@ -50,7 +50,8 @@
               "type": "array"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -90,7 +91,8 @@
               "type": "array"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -131,7 +133,8 @@
               "type": "array"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -174,7 +177,8 @@
               "type": "array"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -208,7 +212,8 @@
               "type": "object"
             },
             "risk": "read",
-            "scope": "workspace:read"
+            "scope": "workspace:read",
+            "view_state": false
           }
         ]
       },
@@ -235,7 +240,8 @@
               "type": "object"
             },
             "risk": "read",
-            "scope": "workspace:read"
+            "scope": "workspace:read",
+            "view_state": false
           }
         ]
       },
@@ -268,7 +274,8 @@
               "type": "array"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -313,7 +320,8 @@
               "type": "array"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -358,7 +366,8 @@
               "type": "array"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -407,7 +416,8 @@
               ]
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -463,7 +473,8 @@
               "type": "string"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -526,7 +537,8 @@
               "type": "string"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -590,7 +602,8 @@
               "type": "string"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -653,7 +666,8 @@
               "type": "string"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           },
           {
             "errors": [],
@@ -671,7 +685,8 @@
               "type": "string"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -747,7 +762,8 @@
               "type": "object"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -815,7 +831,8 @@
               "type": "string"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -884,7 +901,8 @@
               "type": "string"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -947,7 +965,8 @@
               "type": "string"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -1010,7 +1029,8 @@
               "type": "string"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -1075,7 +1095,8 @@
               "type": "string"
             },
             "risk": "read",
-            "scope": "diff:write"
+            "scope": "diff:write",
+            "view_state": false
           },
           {
             "errors": [],
@@ -1090,7 +1111,8 @@
               "type": "string"
             },
             "risk": "mutate-own",
-            "scope": "diff:write"
+            "scope": "diff:write",
+            "view_state": false
           },
           {
             "errors": [],
@@ -1105,7 +1127,8 @@
               "type": "string"
             },
             "risk": "mutate-shared",
-            "scope": "diff:write"
+            "scope": "diff:write",
+            "view_state": false
           },
           {
             "errors": [],
@@ -1120,7 +1143,8 @@
               "type": "string"
             },
             "risk": "execute",
-            "scope": "diff:write"
+            "scope": "diff:write",
+            "view_state": false
           },
           {
             "errors": [],
@@ -1135,7 +1159,8 @@
               "type": "string"
             },
             "risk": "send-external",
-            "scope": "diff:write"
+            "scope": "diff:write",
+            "view_state": false
           },
           {
             "errors": [],
@@ -1150,7 +1175,8 @@
               "type": "string"
             },
             "risk": "destructive",
-            "scope": "diff:write"
+            "scope": "diff:write",
+            "view_state": false
           }
         ],
         "types": {
@@ -1210,7 +1236,8 @@
               "type": "string"
             },
             "risk": "money",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -1269,7 +1296,8 @@
               "type": "string"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -1333,7 +1361,8 @@
               "type": "string"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -1397,7 +1426,8 @@
               "type": "string"
             },
             "risk": "read",
-            "scope": "diff:write"
+            "scope": "diff:write",
+            "view_state": false
           }
         ],
         "types": {
@@ -1461,7 +1491,8 @@
               "type": "string"
             },
             "risk": "read",
-            "scope": "fs:write"
+            "scope": "fs:write",
+            "view_state": false
           }
         ],
         "types": {
@@ -1526,7 +1557,8 @@
               "type": "string"
             },
             "risk": "read",
-            "scope": "process:spawn:git"
+            "scope": "process:spawn:git",
+            "view_state": false
           }
         ],
         "types": {
@@ -1586,7 +1618,8 @@
               "type": "string"
             },
             "risk": "read",
-            "scope": "diff:use"
+            "scope": "diff:use",
+            "view_state": false
           }
         ],
         "types": {
@@ -1647,7 +1680,8 @@
             },
             "risk": "read",
             "scope": "diff:read",
-            "scope_class": "standard"
+            "scope_class": "standard",
+            "view_state": false
           }
         ],
         "types": {
@@ -1707,7 +1741,8 @@
               "type": "string"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -1767,7 +1802,8 @@
               "type": "string"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           },
           {
             "errors": [],
@@ -1782,7 +1818,8 @@
               "type": "string"
             },
             "risk": "read",
-            "scope": "diff:read"
+            "scope": "diff:read",
+            "view_state": false
           }
         ],
         "types": {
@@ -2010,7 +2047,7 @@
       ],
       "name": "auth ack, then a call",
       "send": [
-        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiXSwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJleHAiOjQxMDI0NDQ4MDAsImlhdCI6MTcwMDAwMDAwMH0.W9jo-7-h0DhYz89rrQ3_WVmWU7QlEoIOJDn2Ai1dBSO-DYgN-pqwvEXhmWy_baMklZSOBSjNIPtU2mLtLtjfDA\"}",
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiLCJoZWxsbzp3cml0ZSIsIm9wOmNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LmFkbWluIl0sImF1ZCI6ImNvbS5leGFtcGxlLmhlbGxvIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.r7P748Ut4vJJvtqKgevSRDOxq_FfvWT-nv9ernNzZaXPyxpl5_VhZoRqrYB73BeFS9b8cu3Dgd-N8DL__tj9AA\"}",
         "{\"t\":\"call\",\"id\":1,\"op\":\"com.example.hello.greet.say\",\"params\":{\"name\":\"v\"}}"
       ]
     },
@@ -2029,7 +2066,7 @@
       ],
       "name": "invalid params",
       "send": [
-        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiXSwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJleHAiOjQxMDI0NDQ4MDAsImlhdCI6MTcwMDAwMDAwMH0.W9jo-7-h0DhYz89rrQ3_WVmWU7QlEoIOJDn2Ai1dBSO-DYgN-pqwvEXhmWy_baMklZSOBSjNIPtU2mLtLtjfDA\"}",
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiLCJoZWxsbzp3cml0ZSIsIm9wOmNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LmFkbWluIl0sImF1ZCI6ImNvbS5leGFtcGxlLmhlbGxvIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.r7P748Ut4vJJvtqKgevSRDOxq_FfvWT-nv9ernNzZaXPyxpl5_VhZoRqrYB73BeFS9b8cu3Dgd-N8DL__tj9AA\"}",
         "{\"t\":\"call\",\"id\":1,\"op\":\"com.example.hello.greet.say\",\"params\":{\"name\":1}}"
       ]
     },
@@ -2048,7 +2085,7 @@
       ],
       "name": "an op not in the IR",
       "send": [
-        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiXSwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJleHAiOjQxMDI0NDQ4MDAsImlhdCI6MTcwMDAwMDAwMH0.W9jo-7-h0DhYz89rrQ3_WVmWU7QlEoIOJDn2Ai1dBSO-DYgN-pqwvEXhmWy_baMklZSOBSjNIPtU2mLtLtjfDA\"}",
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiLCJoZWxsbzp3cml0ZSIsIm9wOmNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LmFkbWluIl0sImF1ZCI6ImNvbS5leGFtcGxlLmhlbGxvIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.r7P748Ut4vJJvtqKgevSRDOxq_FfvWT-nv9ernNzZaXPyxpl5_VhZoRqrYB73BeFS9b8cu3Dgd-N8DL__tj9AA\"}",
         "{\"t\":\"call\",\"id\":1,\"op\":\"com.example.hello.greet.shout\",\"params\":{}}"
       ]
     },
@@ -2067,7 +2104,7 @@
       ],
       "name": "an event stream not in the IR",
       "send": [
-        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiXSwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJleHAiOjQxMDI0NDQ4MDAsImlhdCI6MTcwMDAwMDAwMH0.W9jo-7-h0DhYz89rrQ3_WVmWU7QlEoIOJDn2Ai1dBSO-DYgN-pqwvEXhmWy_baMklZSOBSjNIPtU2mLtLtjfDA\"}",
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiLCJoZWxsbzp3cml0ZSIsIm9wOmNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LmFkbWluIl0sImF1ZCI6ImNvbS5leGFtcGxlLmhlbGxvIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.r7P748Ut4vJJvtqKgevSRDOxq_FfvWT-nv9ernNzZaXPyxpl5_VhZoRqrYB73BeFS9b8cu3Dgd-N8DL__tj9AA\"}",
         "{\"t\":\"sub\",\"id\":1,\"stream\":\"com.example.hello.greet.nope\"}"
       ]
     },
@@ -2106,7 +2143,7 @@
       ],
       "name": "seq starts at 1",
       "send": [
-        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiXSwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJleHAiOjQxMDI0NDQ4MDAsImlhdCI6MTcwMDAwMDAwMH0.W9jo-7-h0DhYz89rrQ3_WVmWU7QlEoIOJDn2Ai1dBSO-DYgN-pqwvEXhmWy_baMklZSOBSjNIPtU2mLtLtjfDA\"}",
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiLCJoZWxsbzp3cml0ZSIsIm9wOmNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LmFkbWluIl0sImF1ZCI6ImNvbS5leGFtcGxlLmhlbGxvIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.r7P748Ut4vJJvtqKgevSRDOxq_FfvWT-nv9ernNzZaXPyxpl5_VhZoRqrYB73BeFS9b8cu3Dgd-N8DL__tj9AA\"}",
         "{\"t\":\"sub\",\"id\":1,\"stream\":\"com.example.hello.greet.ticks\"}"
       ]
     },
@@ -2125,7 +2162,7 @@
       ],
       "name": "the connecting side may not open an even stream id",
       "send": [
-        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiXSwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJleHAiOjQxMDI0NDQ4MDAsImlhdCI6MTcwMDAwMDAwMH0.W9jo-7-h0DhYz89rrQ3_WVmWU7QlEoIOJDn2Ai1dBSO-DYgN-pqwvEXhmWy_baMklZSOBSjNIPtU2mLtLtjfDA\"}",
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiLCJoZWxsbzp3cml0ZSIsIm9wOmNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LmFkbWluIl0sImF1ZCI6ImNvbS5leGFtcGxlLmhlbGxvIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.r7P748Ut4vJJvtqKgevSRDOxq_FfvWT-nv9ernNzZaXPyxpl5_VhZoRqrYB73BeFS9b8cu3Dgd-N8DL__tj9AA\"}",
         "{\"t\":\"open\",\"id\":1,\"stream\":2,\"op\":\"com.example.hello.greet.say\"}"
       ]
     },
@@ -2144,7 +2181,7 @@
       ],
       "name": "open of an op that is not a stream op",
       "send": [
-        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiXSwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJleHAiOjQxMDI0NDQ4MDAsImlhdCI6MTcwMDAwMDAwMH0.W9jo-7-h0DhYz89rrQ3_WVmWU7QlEoIOJDn2Ai1dBSO-DYgN-pqwvEXhmWy_baMklZSOBSjNIPtU2mLtLtjfDA\"}",
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiLCJoZWxsbzp3cml0ZSIsIm9wOmNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LmFkbWluIl0sImF1ZCI6ImNvbS5leGFtcGxlLmhlbGxvIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.r7P748Ut4vJJvtqKgevSRDOxq_FfvWT-nv9ernNzZaXPyxpl5_VhZoRqrYB73BeFS9b8cu3Dgd-N8DL__tj9AA\"}",
         "{\"t\":\"open\",\"id\":1,\"stream\":1,\"op\":\"com.example.hello.greet.say\"}"
       ]
     },
@@ -2163,8 +2200,260 @@
       ],
       "name": "an id above 2^53-1 is a bad message",
       "send": [
-        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiXSwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJleHAiOjQxMDI0NDQ4MDAsImlhdCI6MTcwMDAwMDAwMH0.W9jo-7-h0DhYz89rrQ3_WVmWU7QlEoIOJDn2Ai1dBSO-DYgN-pqwvEXhmWy_baMklZSOBSjNIPtU2mLtLtjfDA\"}",
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiLCJoZWxsbzp3cml0ZSIsIm9wOmNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LmFkbWluIl0sImF1ZCI6ImNvbS5leGFtcGxlLmhlbGxvIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.r7P748Ut4vJJvtqKgevSRDOxq_FfvWT-nv9ernNzZaXPyxpl5_VhZoRqrYB73BeFS9b8cu3Dgd-N8DL__tj9AA\"}",
         "{\"t\":\"call\",\"id\":9007199254740992,\"op\":\"com.example.hello.greet.say\",\"params\":{\"name\":\"x\"}}"
+      ]
+    },
+    {
+      "decision": "29",
+      "expect": [
+        {
+          "id": 0,
+          "t": "ok"
+        },
+        {
+          "id": 1,
+          "t": "ok",
+          "value": {
+            "message": "waved at a"
+          }
+        }
+      ],
+      "name": "valid gesture",
+      "send": [
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiLCJoZWxsbzp3cml0ZSIsIm9wOmNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LmFkbWluIl0sImF1ZCI6ImNvbS5leGFtcGxlLmhlbGxvIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.r7P748Ut4vJJvtqKgevSRDOxq_FfvWT-nv9ernNzZaXPyxpl5_VhZoRqrYB73BeFS9b8cu3Dgd-N8DL__tj9AA\"}",
+        "{\"gesture\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtZ2VzdHVyZStqd3QifQ.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJvcCI6ImNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LndhdmUiLCJleHAiOjQxMDI0NDQ4MDAsImp0aSI6Imp0aS1nb29kIn0.gnivNV4jQ6n6siPyJnPM5UQ0AZQ1G2alhOY0ugzvrutHjHqA0OzShOgzXMpP3aOkMFGT2D6OCkjSq-rim0U_Cw\",\"id\":1,\"op\":\"com.example.hello.greet.wave\",\"params\":{\"name\":\"a\"},\"t\":\"call\"}"
+      ]
+    },
+    {
+      "decision": "29",
+      "expect": [
+        {
+          "id": 0,
+          "t": "ok"
+        },
+        {
+          "code": "cmux.protocol.forbidden",
+          "details": {
+            "reason": "gesture_required"
+          },
+          "id": 1,
+          "t": "err"
+        }
+      ],
+      "name": "missing gesture",
+      "send": [
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiLCJoZWxsbzp3cml0ZSIsIm9wOmNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LmFkbWluIl0sImF1ZCI6ImNvbS5leGFtcGxlLmhlbGxvIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.r7P748Ut4vJJvtqKgevSRDOxq_FfvWT-nv9ernNzZaXPyxpl5_VhZoRqrYB73BeFS9b8cu3Dgd-N8DL__tj9AA\"}",
+        "{\"id\":1,\"op\":\"com.example.hello.greet.wave\",\"params\":{\"name\":\"a\"},\"t\":\"call\"}"
+      ]
+    },
+    {
+      "decision": "29",
+      "expect": [
+        {
+          "id": 0,
+          "t": "ok"
+        },
+        {
+          "code": "cmux.protocol.forbidden",
+          "details": {
+            "reason": "gesture_required"
+          },
+          "id": 1,
+          "t": "err"
+        }
+      ],
+      "name": "expired gesture",
+      "send": [
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiLCJoZWxsbzp3cml0ZSIsIm9wOmNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LmFkbWluIl0sImF1ZCI6ImNvbS5leGFtcGxlLmhlbGxvIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.r7P748Ut4vJJvtqKgevSRDOxq_FfvWT-nv9ernNzZaXPyxpl5_VhZoRqrYB73BeFS9b8cu3Dgd-N8DL__tj9AA\"}",
+        "{\"gesture\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtZ2VzdHVyZStqd3QifQ.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJvcCI6ImNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LndhdmUiLCJleHAiOjE3MDAwMDAwMDAsImp0aSI6Imp0aS1vbGQifQ.GzFwx0yBsoIrTiB4Rnmehai-NsmuefuVIBFBYXU_d5Gjo3-nZLtNMP6U_W7-7moi_cieDZObxcIHxdjVQhLZAA\",\"id\":1,\"op\":\"com.example.hello.greet.wave\",\"params\":{\"name\":\"a\"},\"t\":\"call\"}"
+      ]
+    },
+    {
+      "decision": "29",
+      "expect": [
+        {
+          "id": 0,
+          "t": "ok"
+        },
+        {
+          "code": "cmux.protocol.forbidden",
+          "details": {
+            "reason": "gesture_required"
+          },
+          "id": 1,
+          "t": "err"
+        }
+      ],
+      "name": "gesture for another op",
+      "send": [
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiLCJoZWxsbzp3cml0ZSIsIm9wOmNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LmFkbWluIl0sImF1ZCI6ImNvbS5leGFtcGxlLmhlbGxvIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.r7P748Ut4vJJvtqKgevSRDOxq_FfvWT-nv9ernNzZaXPyxpl5_VhZoRqrYB73BeFS9b8cu3Dgd-N8DL__tj9AA\"}",
+        "{\"gesture\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtZ2VzdHVyZStqd3QifQ.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJvcCI6ImNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LnNheSIsImV4cCI6NDEwMjQ0NDgwMCwianRpIjoianRpLW9wIn0.9jJliSiye5n0xtrzccH8QTswR8DsJ-sCKoB8Ne9EZV_zl3DTFSafOWeQZoWgOeVpVj0MFRv1BEiwzQ9u-Qv_Cg\",\"id\":1,\"op\":\"com.example.hello.greet.wave\",\"params\":{\"name\":\"a\"},\"t\":\"call\"}"
+      ]
+    },
+    {
+      "decision": "29",
+      "expect": [
+        {
+          "id": 0,
+          "t": "ok"
+        },
+        {
+          "code": "cmux.protocol.forbidden",
+          "details": {
+            "reason": "gesture_required"
+          },
+          "id": 1,
+          "t": "err"
+        }
+      ],
+      "name": "gesture for another provider",
+      "send": [
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiLCJoZWxsbzp3cml0ZSIsIm9wOmNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LmFkbWluIl0sImF1ZCI6ImNvbS5leGFtcGxlLmhlbGxvIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.r7P748Ut4vJJvtqKgevSRDOxq_FfvWT-nv9ernNzZaXPyxpl5_VhZoRqrYB73BeFS9b8cu3Dgd-N8DL__tj9AA\"}",
+        "{\"gesture\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtZ2VzdHVyZStqd3QifQ.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwiYXVkIjoiY211eC5naXQiLCJvcCI6ImNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LndhdmUiLCJleHAiOjQxMDI0NDQ4MDAsImp0aSI6Imp0aS1hdWQifQ.FHbmj6gKdiYj9rGuIU2hBASb-5_-C8WOkBQpb76P2hFcmp1fOR-QLU0vTxwgVjPwzvc853fJKarALu0BVcErCw\",\"id\":1,\"op\":\"com.example.hello.greet.wave\",\"params\":{\"name\":\"a\"},\"t\":\"call\"}"
+      ]
+    },
+    {
+      "decision": "29",
+      "expect": [
+        {
+          "id": 0,
+          "t": "ok"
+        },
+        {
+          "id": 1,
+          "t": "ok",
+          "value": {
+            "message": "waved at a"
+          }
+        },
+        {
+          "code": "cmux.protocol.forbidden",
+          "details": {
+            "reason": "gesture_required"
+          },
+          "id": 2,
+          "t": "err"
+        }
+      ],
+      "name": "replayed jti",
+      "send": [
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiLCJoZWxsbzp3cml0ZSIsIm9wOmNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LmFkbWluIl0sImF1ZCI6ImNvbS5leGFtcGxlLmhlbGxvIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.r7P748Ut4vJJvtqKgevSRDOxq_FfvWT-nv9ernNzZaXPyxpl5_VhZoRqrYB73BeFS9b8cu3Dgd-N8DL__tj9AA\"}",
+        "{\"gesture\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtZ2VzdHVyZStqd3QifQ.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJvcCI6ImNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LndhdmUiLCJleHAiOjQxMDI0NDQ4MDAsImp0aSI6Imp0aS1yZXBsYXkifQ.Ru7Q3LR2gUOegjvOLiByTB_7-iG5mK3i4YZXtOLeBvhJyO1AYxYhyI1mlLV1spoXYBbQBC6P8zjyuGWZnd31BQ\",\"id\":1,\"op\":\"com.example.hello.greet.wave\",\"params\":{\"name\":\"a\"},\"t\":\"call\"}",
+        "{\"gesture\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtZ2VzdHVyZStqd3QifQ.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJvcCI6ImNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LndhdmUiLCJleHAiOjQxMDI0NDQ4MDAsImp0aSI6Imp0aS1yZXBsYXkifQ.Ru7Q3LR2gUOegjvOLiByTB_7-iG5mK3i4YZXtOLeBvhJyO1AYxYhyI1mlLV1spoXYBbQBC6P8zjyuGWZnd31BQ\",\"id\":2,\"op\":\"com.example.hello.greet.wave\",\"params\":{\"name\":\"b\"},\"t\":\"call\"}"
+      ]
+    },
+    {
+      "decision": "29c",
+      "expect": [
+        {
+          "id": 0,
+          "t": "ok"
+        },
+        {
+          "code": "cmux.protocol.invalid_params",
+          "id": 1,
+          "t": "err"
+        },
+        {
+          "id": 2,
+          "t": "ok",
+          "value": {
+            "message": "waved at b"
+          }
+        }
+      ],
+      "name": "a refused call keeps the jti",
+      "send": [
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiLCJoZWxsbzp3cml0ZSIsIm9wOmNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LmFkbWluIl0sImF1ZCI6ImNvbS5leGFtcGxlLmhlbGxvIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.r7P748Ut4vJJvtqKgevSRDOxq_FfvWT-nv9ernNzZaXPyxpl5_VhZoRqrYB73BeFS9b8cu3Dgd-N8DL__tj9AA\"}",
+        "{\"gesture\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtZ2VzdHVyZStqd3QifQ.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJvcCI6ImNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LndhdmUiLCJleHAiOjQxMDI0NDQ4MDAsImp0aSI6Imp0aS1rZXB0In0._AfePFiT8GV3-D2ufBpo1V_sjqgTgPpomY2so_k-TOWqDbXrBKbkq1nc1IuaRDfyPFgo-F7nfDFjX571nEegCQ\",\"id\":1,\"op\":\"com.example.hello.greet.wave\",\"params\":{\"name\":1},\"t\":\"call\"}",
+        "{\"gesture\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtZ2VzdHVyZStqd3QifQ.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJvcCI6ImNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LndhdmUiLCJleHAiOjQxMDI0NDQ4MDAsImp0aSI6Imp0aS1rZXB0In0._AfePFiT8GV3-D2ufBpo1V_sjqgTgPpomY2so_k-TOWqDbXrBKbkq1nc1IuaRDfyPFgo-F7nfDFjX571nEegCQ\",\"id\":2,\"op\":\"com.example.hello.greet.wave\",\"params\":{\"name\":\"b\"},\"t\":\"call\"}"
+      ]
+    },
+    {
+      "decision": "29b",
+      "expect": [
+        {
+          "id": 0,
+          "t": "ok"
+        },
+        {
+          "code": "cmux.protocol.forbidden",
+          "details": {
+            "reason": "gesture_required"
+          },
+          "id": 1,
+          "t": "err"
+        }
+      ],
+      "name": "*view on a non-view op",
+      "send": [
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiLCJoZWxsbzp3cml0ZSIsIm9wOmNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LmFkbWluIl0sImF1ZCI6ImNvbS5leGFtcGxlLmhlbGxvIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.r7P748Ut4vJJvtqKgevSRDOxq_FfvWT-nv9ernNzZaXPyxpl5_VhZoRqrYB73BeFS9b8cu3Dgd-N8DL__tj9AA\"}",
+        "{\"gesture\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtZ2VzdHVyZStqd3QifQ.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJvcCI6Iip2aWV3IiwiZXhwIjo0MTAyNDQ0ODAwLCJqdGkiOiJqdGktdmlldyJ9.9QNyEx0f5omBXaw6Q86OOSg6tvTfyuhuFhPdD_WlyGMnjFgzSOqMku6PxE8AwxXqca4b8pr4_o0FRpGMcRtmDA\",\"id\":1,\"op\":\"com.example.hello.greet.wave\",\"params\":{\"name\":\"a\"},\"t\":\"call\"}"
+      ]
+    },
+    {
+      "decision": "29b",
+      "expect": [
+        {
+          "id": 0,
+          "t": "ok"
+        },
+        {
+          "id": 1,
+          "t": "ok",
+          "value": {
+            "message": "focused a"
+          }
+        }
+      ],
+      "name": "*view on a view-state op",
+      "send": [
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiLCJoZWxsbzp3cml0ZSIsIm9wOmNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LmFkbWluIl0sImF1ZCI6ImNvbS5leGFtcGxlLmhlbGxvIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.r7P748Ut4vJJvtqKgevSRDOxq_FfvWT-nv9ernNzZaXPyxpl5_VhZoRqrYB73BeFS9b8cu3Dgd-N8DL__tj9AA\"}",
+        "{\"gesture\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtZ2VzdHVyZStqd3QifQ.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwiYXVkIjoiY29tLmV4YW1wbGUuaGVsbG8iLCJvcCI6Iip2aWV3IiwiZXhwIjo0MTAyNDQ0ODAwLCJqdGkiOiJqdGktdmlldyJ9.9QNyEx0f5omBXaw6Q86OOSg6tvTfyuhuFhPdD_WlyGMnjFgzSOqMku6PxE8AwxXqca4b8pr4_o0FRpGMcRtmDA\",\"id\":1,\"op\":\"com.example.hello.greet.focus\",\"params\":{\"name\":\"a\"},\"t\":\"call\"}"
+      ]
+    },
+    {
+      "decision": "30",
+      "expect": [
+        {
+          "id": 0,
+          "t": "ok"
+        },
+        {
+          "code": "cmux.protocol.forbidden",
+          "details": {
+            "reason": "server_only"
+          },
+          "id": 1,
+          "t": "err"
+        }
+      ],
+      "name": "server-only op with a page token",
+      "send": [
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJwYWdlIjoiY211eC5hZ2VudC5wYWdlIiwiYXBwIjoiY211eC5hZ2VudCIsIm5zIjpbImNvbS5leGFtcGxlLmhlbGxvIl0sInNjb3BlcyI6WyJoZWxsbzpyZWFkIiwiaGVsbG86d3JpdGUiLCJvcDpjb20uZXhhbXBsZS5oZWxsby5ncmVldC5hZG1pbiJdLCJhdWQiOiJjb20uZXhhbXBsZS5oZWxsbyIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.I2wqQc_VdMKvOSHdxPEsddjmu0w2F6mbgQmfuybuHBF31X4rVBgD5yxD-47vAi9xq4BAbeL3829hRwOSDt6uDA\"}",
+        "{\"id\":1,\"op\":\"com.example.hello.greet.admin\",\"params\":{\"name\":\"a\"},\"t\":\"call\"}"
+      ]
+    },
+    {
+      "decision": "30",
+      "expect": [
+        {
+          "id": 0,
+          "t": "ok"
+        },
+        {
+          "id": 1,
+          "t": "ok",
+          "value": {
+            "message": "admin a"
+          }
+        }
+      ],
+      "name": "server-only op with a native token",
+      "send": [
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImhlbGxvOnJlYWQiLCJoZWxsbzp3cml0ZSIsIm9wOmNvbS5leGFtcGxlLmhlbGxvLmdyZWV0LmFkbWluIl0sImF1ZCI6ImNvbS5leGFtcGxlLmhlbGxvIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.r7P748Ut4vJJvtqKgevSRDOxq_FfvWT-nv9ernNzZaXPyxpl5_VhZoRqrYB73BeFS9b8cu3Dgd-N8DL__tj9AA\"}",
+        "{\"id\":1,\"op\":\"com.example.hello.greet.admin\",\"params\":{\"name\":\"a\"},\"t\":\"call\"}"
       ]
     }
   ],

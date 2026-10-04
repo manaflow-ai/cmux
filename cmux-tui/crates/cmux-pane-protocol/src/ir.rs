@@ -42,6 +42,8 @@ pub struct OpDecl {
     pub risk: crate::op::Risk,
     /// Whether a call needs a user gesture token.
     pub gesture: bool,
+    /// Whether a `*view` gesture covers the op (decision 29b).
+    pub view_state: bool,
     /// Derived from scope-classes.json: standard, sensitive or restricted.
     pub scope_class: String,
     /// Derived: the scope's rule is server-only.
@@ -186,6 +188,7 @@ impl CatalogBuilder {
             errors: O::ERRORS.iter().map(|code| (*code).to_owned()).collect(),
             risk: O::RISK,
             gesture: O::GESTURE,
+            view_state: O::VIEW_STATE,
             scope_class: String::new(),
             server_only: false,
             paths: O::PATH_PARAMS.iter().map(|name| (*name).to_owned()).collect(),

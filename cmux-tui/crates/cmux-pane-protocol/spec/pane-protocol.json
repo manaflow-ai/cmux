@@ -70,7 +70,8 @@
       "risk": "read",
       "scope": "git:read",
       "scope_class": "standard",
-      "secret_output": false
+      "secret_output": false,
+      "view_state": false
     },
     {
       "cli": {
@@ -104,7 +105,8 @@
       "risk": "read",
       "scope": "git:read",
       "scope_class": "standard",
-      "secret_output": false
+      "secret_output": false,
+      "view_state": false
     },
     {
       "errors": [
@@ -127,7 +129,8 @@
       "risk": "mutate-shared",
       "scope": "router:control",
       "scope_class": "sensitive",
-      "secret_output": false
+      "secret_output": false,
+      "view_state": false
     },
     {
       "errors": [
@@ -150,7 +153,8 @@
       "risk": "read",
       "scope": "router:read",
       "scope_class": "standard",
-      "secret_output": false
+      "secret_output": false,
+      "view_state": false
     },
     {
       "errors": [],
@@ -171,7 +175,8 @@
       "risk": "mutate-own",
       "scope": "router:write",
       "scope_class": "sensitive",
-      "secret_output": false
+      "secret_output": false,
+      "view_state": false
     },
     {
       "errors": [],
@@ -192,7 +197,8 @@
       "risk": "read",
       "scope": "router:read",
       "scope_class": "standard",
-      "secret_output": false
+      "secret_output": false,
+      "view_state": false
     },
     {
       "errors": [],
@@ -213,7 +219,33 @@
       "risk": "read",
       "scope": "router:read",
       "scope_class": "standard",
-      "secret_output": false
+      "secret_output": false,
+      "view_state": false
+    },
+    {
+      "errors": [
+        "cmux.router.no_provider"
+      ],
+      "gesture": false,
+      "kind": "mutation",
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "cmux.router.gesture.mint",
+      "owner": "first-party",
+      "params": {
+        "$ref": "#/types/GestureMintParams"
+      },
+      "paths": [],
+      "result": {
+        "$ref": "#/types/GestureMintResult"
+      },
+      "risk": "mutate-own",
+      "scope": "op:cmux.router.gesture.mint",
+      "scope_class": "sensitive",
+      "secret_output": false,
+      "server_only": true,
+      "view_state": false
     },
     {
       "errors": [],
@@ -234,7 +266,75 @@
       "risk": "read",
       "scope": "hello:read",
       "scope_class": "standard",
-      "secret_output": false
+      "secret_output": false,
+      "view_state": false
+    },
+    {
+      "errors": [],
+      "gesture": true,
+      "kind": "mutation",
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "com.example.hello.greet.wave",
+      "owner": "app:com.example.hello",
+      "params": {
+        "$ref": "#/types/HelloParams"
+      },
+      "paths": [],
+      "result": {
+        "$ref": "#/types/HelloResult"
+      },
+      "risk": "mutate-own",
+      "scope": "hello:write",
+      "scope_class": "sensitive",
+      "secret_output": false,
+      "view_state": false
+    },
+    {
+      "errors": [],
+      "gesture": true,
+      "kind": "mutation",
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "com.example.hello.greet.focus",
+      "owner": "app:com.example.hello",
+      "params": {
+        "$ref": "#/types/HelloParams"
+      },
+      "paths": [],
+      "result": {
+        "$ref": "#/types/HelloResult"
+      },
+      "risk": "mutate-own",
+      "scope": "hello:write",
+      "scope_class": "sensitive",
+      "secret_output": false,
+      "view_state": true
+    },
+    {
+      "errors": [],
+      "gesture": false,
+      "kind": "mutation",
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "com.example.hello.greet.admin",
+      "owner": "app:com.example.hello",
+      "params": {
+        "$ref": "#/types/HelloParams"
+      },
+      "paths": [],
+      "result": {
+        "$ref": "#/types/HelloResult"
+      },
+      "risk": "mutate-own",
+      "scope": "op:com.example.hello.greet.admin",
+      "scope_class": "sensitive",
+      "secret_output": false,
+      "server_only": true,
+      "view_state": false
     }
   ],
   "types": {
@@ -278,6 +378,50 @@
           "type": "string"
         }
       ]
+    },
+    "GestureMintParams": {
+      "additionalProperties": false,
+      "properties": {
+        "aud": {
+          "default": null,
+          "description": "The provider, required for `*view` (otherwise the op's provider).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "op": {
+          "description": "The op the gesture may be spent on, or `*view`.",
+          "type": "string"
+        },
+        "page": {
+          "description": "The page's current page token: it names the page instance.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page",
+        "op"
+      ],
+      "type": "object"
+    },
+    "GestureMintResult": {
+      "additionalProperties": false,
+      "properties": {
+        "exp": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "token": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "token",
+        "exp"
+      ],
+      "type": "object"
     },
     "GitDiff": {
       "additionalProperties": false,

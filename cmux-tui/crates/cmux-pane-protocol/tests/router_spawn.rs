@@ -77,6 +77,7 @@ async fn page_greets(router: &Router, info: &ProviderInfo) {
             op: "com.example.hello.greet.say".into(),
             params: json!({ "name": "router" }),
             cap: None,
+            gesture: None,
         },
     )
     .await;
@@ -219,6 +220,7 @@ async fn a_page_resolves_through_the_router_then_calls_the_provider_directly() {
             op: "cmux.router.resolve".into(),
             params: json!({ "namespace": APP_ID }),
             cap: None,
+            gesture: None,
         },
     )
     .await;
@@ -235,6 +237,7 @@ async fn a_page_resolves_through_the_router_then_calls_the_provider_directly() {
             op: "com.example.hello.greet.say".into(),
             params: json!({ "name": "x" }),
             cap: None,
+            gesture: None,
         },
     )
     .await;
@@ -256,6 +259,7 @@ async fn a_page_resolves_through_the_router_then_calls_the_provider_directly() {
             op: "com.example.hello.greet.say".into(),
             params: json!({ "name": "page" }),
             cap: None,
+            gesture: None,
         },
     )
     .await;

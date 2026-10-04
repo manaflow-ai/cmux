@@ -16,6 +16,7 @@ pub mod envelope;
 pub mod error;
 pub mod example;
 pub mod frame;
+pub mod gesture;
 pub mod git;
 pub mod ir;
 mod ir_merge;

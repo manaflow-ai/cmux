@@ -96,6 +96,9 @@ pub trait Op: 'static {
     const RISK: Risk;
     /// Whether a call needs a user gesture token.
     const GESTURE: bool = false;
+    /// Whether the op changes view state (focus, selection, windows,
+    /// navigation); a `*view` gesture covers it (decision 29b).
+    const VIEW_STATE: bool = false;
     /// MCP exposure; fail closed.
     const MCP: McpSpec = McpSpec::NEVER;
     /// The CLI verb, if any (zero or one entry).
@@ -132,6 +135,7 @@ macro_rules! pane_op {
         $(, aliases: [$($alias:literal),* $(,)?])?
         $(, risk: $risk:ident)?
         $(, gesture: $gesture:literal)?
+        $(, view_state: $view_state:literal)?
         $(, paths: [$($path:literal),* $(,)?])?
         $(, mcp: $expose:ident $(in $group:literal)?)?
         $(, cli: $cli:literal $(positional [$($positional:literal),* $(,)?])? $(visible $visible:literal)?)? $(,)?
@@ -148,6 +152,7 @@ macro_rules! pane_op {
             const PATH_PARAMS: &'static [&'static str] = &[$($($path),*)?];
             const RISK: $crate::op::Risk = $crate::__pane_risk!($kind $(, $risk)?);
             $(const GESTURE: bool = $gesture;)?
+            $(const VIEW_STATE: bool = $view_state;)?
             $(const MCP: $crate::op::McpSpec = $crate::op::McpSpec {
                 expose: $crate::op::McpExpose::$expose,
                 group: &[$($group)?],

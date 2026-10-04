@@ -21,6 +21,7 @@ use tokio::sync::mpsc;
 use crate::envelope::{AUTH_REPLY_ID, Envelope, Role};
 use crate::error::{self, AUTH_REFUSED_CLOSE_CODE, ErrorBody};
 use crate::frame::Message;
+use crate::gesture::{GestureCheck, PendingGesture, SpentJtis};
 use crate::op::{Event, Op};
 use crate::rpc::{CallFuture, Handler, Peer, SubscribeResult};
 use crate::token::{Claims, Verifier};
@@ -32,12 +33,28 @@ pub const EVENT_QUEUE: usize = 256;
 /// A connection that has not authenticated by then is closed.
 pub const AUTH_DEADLINE: Duration = Duration::from_secs(2);
 
-type Route = Box<dyn Fn(Arc<Claims>, Value) -> CallFuture + Send + Sync>;
+type Route = Box<dyn Fn(Arc<Claims>, Value, Option<PendingGesture>) -> CallFuture + Send + Sync>;
 type Source = Box<dyn Fn(Arc<Claims>, Option<Value>) -> SubscribeResult + Send + Sync>;
 
 struct Entry<T> {
     scope: &'static str,
     run: T,
+    /// The op needs a gesture token (decision 29).
+    gesture: bool,
+    /// A `*view` gesture covers it (decision 29b).
+    view_state: bool,
+    /// Its scope's rule is server-only: refused for page tokens (decision 30).
+    server_only: bool,
+}
+
+impl<T> Entry<T> {
+    fn plain(scope: &'static str, run: T) -> Self {
+        Self { scope, run, gesture: false, view_state: false, server_only: is_server_only(scope) }
+    }
+}
+
+fn is_server_only(scope: &str) -> bool {
+    crate::scope_class::classify(scope).is_ok_and(|(_, server_only)| server_only)
 }
 
 /// A provider's op and event table.
@@ -45,6 +62,7 @@ pub struct Provider {
     app_id: String,
     routes: HashMap<&'static str, Entry<Route>>,
     sources: HashMap<&'static str, Entry<Source>>,
+    spent: SpentJtis,
 }
 
 /// Read the first frame and check it is a valid `auth`. On refusal, send
@@ -153,7 +171,12 @@ fn refuse(code: &str, message: String) -> CallFuture {
 
 impl Provider {
     pub fn new(app_id: impl Into<String>) -> Self {
-        Self { app_id: app_id.into(), routes: HashMap::new(), sources: HashMap::new() }
+        Self {
+            app_id: app_id.into(),
+            routes: HashMap::new(),
+            sources: HashMap::new(),
+            spent: SpentJtis::default(),
+        }
     }
 
     pub fn app_id(&self) -> &str {
@@ -168,7 +191,7 @@ impl Provider {
         Fut: Future<Output = Result<O::Result, ErrorBody>> + Send + 'static,
     {
         let handler = Arc::new(handler);
-        let run: Route = Box::new(move |claims, params| {
+        let run: Route = Box::new(move |claims, params, gesture: Option<PendingGesture>| {
             let handler = handler.clone();
             Box::pin(async move {
                 let invalid = |e: serde_json::Error| {
@@ -178,12 +201,18 @@ impl Provider {
                 serde_json::from_value::<O::Params>(params.clone()).map_err(invalid)?;
                 let params = confine_params(&claims.roots, O::PATH_PARAMS, params).await?;
                 let params: O::Params = serde_json::from_value(params).map_err(invalid)?;
+                // Decision 29c: the jti is spent only now, after every check.
+                if let Some(gesture) = gesture {
+                    gesture.spend()?;
+                }
                 let result = handler(claims, params).await?;
                 serde_json::to_value(result)
                     .map_err(|e| ErrorBody::new(error::INVALID_RESULT, e.to_string()))
             })
         });
-        self.routes.insert(O::NAME, Entry { scope: O::SCOPE, run });
+        let entry =
+            Entry { gesture: O::GESTURE, view_state: O::VIEW_STATE, ..Entry::plain(O::SCOPE, run) };
+        self.routes.insert(O::NAME, entry);
     }
 
     /// Serve event stream `E`: `source` returns a receiver of event data
@@ -206,7 +235,7 @@ impl Provider {
             });
             Ok(crate::rpc::bounded_events(rx, EVENT_QUEUE))
         });
-        self.sources.insert(E::NAME, Entry { scope: E::SCOPE, run });
+        self.sources.insert(E::NAME, Entry::plain(E::SCOPE, run));
     }
 
     /// The ops this provider serves, sorted (sent in hello).
@@ -216,8 +245,21 @@ impl Provider {
         names
     }
 
-    /// Authorize and run one call.
+    /// Authorize and run one call without a gesture token.
     pub fn dispatch(&self, claims: &Arc<Claims>, op: &str, params: Value) -> CallFuture {
+        self.dispatch_call(claims, None, op, params, None)
+    }
+
+    /// Authorize and run one call. `router_key` checks the gesture token
+    /// of an op that needs one; without it such an op is refused.
+    pub fn dispatch_call(
+        &self,
+        claims: &Arc<Claims>,
+        router_key: Option<&[u8; 32]>,
+        op: &str,
+        params: Value,
+        gesture: Option<&str>,
+    ) -> CallFuture {
         let Some(entry) = self.routes.get(op) else {
             return refuse(error::UNKNOWN_OP, format!("no handler for {op}"));
         };
@@ -227,7 +269,36 @@ impl Provider {
                 format!("token does not grant {op} (scope {})", entry.scope),
             );
         }
-        (entry.run)(claims.clone(), params)
+        if entry.server_only && claims.page.is_some() {
+            let body = ErrorBody::new(
+                error::FORBIDDEN,
+                format!("{op} is server-only; a page may not call it"),
+            )
+            .with_details(json!({ "reason": "server_only" }));
+            return Box::pin(async move { Err(body) });
+        }
+        let pending = if entry.gesture {
+            let checked = match router_key {
+                None => Err(ErrorBody::new(error::FORBIDDEN, format!("{op} needs a user gesture"))
+                    .with_details(json!({ "reason": "gesture_required" }))),
+                Some(router_key) => GestureCheck {
+                    router_key,
+                    audience: &self.app_id,
+                    caller: claims,
+                    op,
+                    view_state: entry.view_state,
+                    now: crate::token::now(),
+                }
+                .check(gesture, &self.spent),
+            };
+            match checked {
+                Ok(pending) => Some(pending),
+                Err(body) => return Box::pin(async move { Err(body) }),
+            }
+        } else {
+            None
+        };
+        (entry.run)(claims.clone(), params, pending)
     }
 
     fn subscribe(
@@ -264,7 +335,9 @@ impl Provider {
             |claims: &Claims| json!({ "sub": claims.sub, "app": claims.app, "exp": claims.exp, "provider": provider_id }),
         )
         .await?;
-        let handler = Arc::new(Authorized { provider: self, claims: Arc::new(claims.clone()) });
+        let router_key = *verifier.public_key();
+        let handler =
+            Arc::new(Authorized { provider: self, claims: Arc::new(claims.clone()), router_key });
         let (_peer, task) = Peer::start(transport, Role::Accepting, handler);
         let _ = task.await;
         Ok(claims)
@@ -274,6 +347,7 @@ impl Provider {
 struct Authorized {
     provider: Arc<Provider>,
     claims: Arc<Claims>,
+    router_key: [u8; 32],
 }
 
 impl Authorized {
@@ -286,11 +360,17 @@ impl Authorized {
 }
 
 impl Handler for Authorized {
-    fn call(&self, op: String, params: Value) -> CallFuture {
+    fn call(&self, op: String, params: Value, gesture: Option<String>) -> CallFuture {
         if let Some(expired) = self.expired() {
             return Box::pin(async move { Err(expired) });
         }
-        self.provider.dispatch(&self.claims, &op, params)
+        self.provider.dispatch_call(
+            &self.claims,
+            Some(&self.router_key),
+            &op,
+            params,
+            gesture.as_deref(),
+        )
     }
 
     fn subscribe(&self, stream: String, filter: Option<Value>) -> SubscribeResult {

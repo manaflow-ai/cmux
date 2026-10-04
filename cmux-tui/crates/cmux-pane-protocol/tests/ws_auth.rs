@@ -62,6 +62,7 @@ async fn first_frame_token_authenticates_and_calls_go_direct() {
             op: "com.example.hello.greet.say".into(),
             params: json!({ "name": "lane-a" }),
             cap: None,
+            gesture: None,
         },
     )
     .await;
@@ -76,6 +77,7 @@ async fn first_frame_token_authenticates_and_calls_go_direct() {
             op: "com.example.hello.greet.say".into(),
             params: json!({ "name": 1 }),
             cap: None,
+            gesture: None,
         },
     )
     .await;
@@ -113,6 +115,7 @@ async fn first_frame_token_authenticates_and_calls_go_direct() {
             op: "com.example.hello.greet.shout".into(),
             params: json!({}),
             cap: None,
+            gesture: None,
         },
     )
     .await;
@@ -133,6 +136,7 @@ async fn a_call_before_auth_is_refused_and_closed() {
             op: "com.example.hello.greet.say".into(),
             params: json!({ "name": "x" }),
             cap: None,
+            gesture: None,
         },
     )
     .await;
@@ -188,6 +192,7 @@ async fn wrong_origin_scope_and_audience_are_refused() {
             op: "com.example.hello.greet.say".into(),
             params: json!({ "name": "x" }),
             cap: None,
+            gesture: None,
         },
     )
     .await;

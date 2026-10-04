@@ -286,3 +286,33 @@ crate::pane_op! {
         mcp: Never,
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GestureMintParams {
+    /// The page's current page token: it names the page instance.
+    pub page: String,
+    /// The op the gesture may be spent on, or `*view`.
+    pub op: String,
+    /// The provider, required for `*view` (otherwise the op's provider).
+    #[serde(default)]
+    pub aud: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GestureMintResult {
+    pub token: String,
+    pub exp: u64,
+}
+
+crate::pane_op! {
+    /// Mint a gesture token for a real user event (host only, decision 29a).
+    pub GestureMintOp {
+        name: "cmux.router.gesture.mint", kind: Mutation, scope: "op:cmux.router.gesture.mint",
+        params: GestureMintParams, result: GestureMintResult,
+        errors: ["cmux.router.no_provider"],
+        risk: MutateOwn,
+        mcp: Never,
+    }
+}

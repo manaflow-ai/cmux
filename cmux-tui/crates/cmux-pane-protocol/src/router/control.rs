@@ -9,8 +9,8 @@ use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
 use super::ops::{
-    HelloOp, InterfacesListOp, InterfacesListParams, PagesListOp, ResolveOp, ResolveParams,
-    TokenRefreshOp, TokenRefreshParams,
+    GestureMintOp, HelloOp, InterfacesListOp, InterfacesListParams, PagesListOp, ResolveOp,
+    ResolveParams, TokenRefreshOp, TokenRefreshParams,
 };
 use super::{Admission, Router};
 use crate::envelope::Role;
@@ -73,6 +73,13 @@ impl Control {
                 let params: InterfacesListParams = decode(params)?;
                 encode(router.interfaces_list(params.name.as_deref()))
             }
+            GestureMintOp::NAME => match self.admission {
+                Admission::Host => encode(router.mint_gesture(decode(params)?)?),
+                _ => {
+                    Err(ErrorBody::new(error::FORBIDDEN, "cmux.router.gesture.mint is server-only")
+                        .with_details(serde_json::json!({ "reason": "server_only" })))
+                }
+            },
             PagesListOp::NAME => {
                 let _: super::ops::PagesListParams = decode(params)?;
                 encode(router.pages_list())
@@ -91,7 +98,7 @@ impl Control {
 }
 
 impl Handler for Control {
-    fn call(&self, op: String, params: Value) -> CallFuture {
+    fn call(&self, op: String, params: Value, _gesture: Option<String>) -> CallFuture {
         let result = self.answer(&op, params);
         Box::pin(async move { result })
     }

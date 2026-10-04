@@ -266,6 +266,9 @@ fn check_mcp_and_cli(op: &Map<String, Value>, at: &str) -> Vec<String> {
     if !op.get("gesture").is_some_and(Value::is_boolean) {
         problems.push(format!("{at}.gesture must be a boolean"));
     }
+    if !op.get("view_state").is_some_and(Value::is_boolean) {
+        problems.push(format!("{at}.view_state must be a boolean"));
+    }
     for derived in ["scope_class", "server_only"] {
         if op.contains_key(derived) {
             problems.push(format!("{at}.{derived} is derived by emit-ir and may not be declared"));
@@ -665,7 +668,7 @@ mod tests {
         json!({
             "namespaces": [{ "name": "octo.diff_tools", "owner": "app:octo.diff_tools" }],
             "ops": [{
-                "name": "octo.diff_tools.diff.list", "kind": "read", "scope": "diff:read", "risk": "read", "gesture": false,
+                "name": "octo.diff_tools.diff.list", "kind": "read", "scope": "diff:read", "risk": "read", "gesture": false, "view_state": false,
                 "owner": "app:octo.diff_tools",
                 "params": { "$ref": "#/types/OctoListParams" }, "result": { "type": "array", "items": { "type": "string" } },
                 "errors": []
@@ -677,7 +680,7 @@ mod tests {
     fn first_party_alias(alias: &str) -> Value {
         json!({
             "ops": [{
-                "name": "cmux.workspace.list", "kind": "read", "scope": "workspace:read", "risk": "read", "gesture": false,
+                "name": "cmux.workspace.list", "kind": "read", "scope": "workspace:read", "risk": "read", "gesture": false, "view_state": false,
                 "owner": "first-party", "aliases": [alias],
                 "params": { "type": "object" }, "result": { "type": "object" }, "errors": []
             }]

@@ -9,7 +9,10 @@
 
 use std::time::Duration;
 
-use super::ops::{EndpointKind, PageManifest, PagesListResult, ResolveResult, TokenRefreshResult};
+use super::ops::{
+    EndpointKind, GestureMintParams, GestureMintResult, PageManifest, PagesListResult,
+    ResolveResult, TokenRefreshResult,
+};
 use super::{Admission, Router, State, first_party, forbidden, normalized_origin, refused, within};
 use crate::error::{self, ErrorBody};
 use crate::token::{Claims, ROUTER_AUDIENCE, verify_signature};
@@ -106,7 +109,7 @@ impl Router {
             page: Some(page_id.to_owned()),
             app: page.app_id.clone(),
             ns: Vec::new(),
-            scopes: page.scopes.clone(),
+            scopes: page_scopes(&page.scopes),
             roots,
             origin,
             aud: ROUTER_AUDIENCE.to_owned(),
@@ -114,6 +117,47 @@ impl Router {
             iat,
         };
         Ok(self.key.sign(&claims))
+    }
+
+    /// `cmux.router.gesture.mint` (decision 29a): a gesture token for the
+    /// page that `page_token` names, bound to `op` (or `*view` with an
+    /// explicit `aud`) at that op's provider. The host calls this only while
+    /// it handles a real user event.
+    pub fn mint_gesture(&self, params: GestureMintParams) -> Result<GestureMintResult, ErrorBody> {
+        let verifier = crate::token::Verifier::new(self.key.public_key(), ROUTER_AUDIENCE);
+        let caller = verifier
+            .verify(&params.page, crate::token::now(), None)
+            .map_err(|problem| forbidden(format!("bad page token: {problem}")))?;
+        let state = self.state();
+        let page = page_of(&state, &caller)?;
+        let aud = match (params.op.as_str(), params.aud) {
+            (crate::gesture::ANY_VIEW, Some(aud)) => aud,
+            (crate::gesture::ANY_VIEW, None) => {
+                return Err(ErrorBody::new(error::INVALID_PARAMS, "a *view gesture names its aud"));
+            }
+            (op, _) => {
+                let (live, provider_namespace) = state.live_for(op).ok_or_else(|| {
+                    ErrorBody::new(super::ops::NO_PROVIDER, format!("no live provider serves {op}"))
+                })?;
+                if !page.may_use(provider_namespace, provider_namespace, &live.interfaces) {
+                    return Err(forbidden(format!(
+                        "page {} does not consume {op}",
+                        page.manifest.id
+                    )));
+                }
+                live.app_id.clone()
+            }
+        };
+        let exp = crate::token::now() + crate::gesture::GESTURE_TTL_SECS;
+        let claims = crate::gesture::GestureClaims {
+            sub: caller.sub,
+            app: caller.app,
+            aud,
+            op: params.op,
+            exp,
+            jti: crate::gesture::new_jti(),
+        };
+        Ok(GestureMintResult { token: crate::gesture::sign(&self.key, &claims), exp })
     }
 
     pub fn pages_list(&self) -> PagesListResult {
@@ -162,7 +206,7 @@ impl Router {
                     page: page_claims.page.clone(),
                     app: page.app_id.clone(),
                     ns: vec![namespace.to_owned()],
-                    scopes: page.scopes.clone(),
+                    scopes: page_scopes(&page.scopes),
                     roots: page_claims.roots.clone(),
                     origin: page_claims.origin.clone(),
                     aud: live.app_id.clone(),
@@ -211,7 +255,7 @@ impl Router {
         fresh.iat = now;
         if old.aud == ROUTER_AUDIENCE {
             let page = page_of(&state, &old)?;
-            fresh.scopes = page.scopes.clone();
+            fresh.scopes = page_scopes(&page.scopes);
             fresh.exp = now + PAGE_TOKEN_TTL.as_secs();
             return Ok(TokenRefreshResult { exp: fresh.exp, token: self.key.sign(&fresh) });
         }
@@ -229,11 +273,24 @@ impl Router {
                     )));
                 }
             }
-            fresh.scopes.retain(|scope| page.scopes.contains(scope));
+            let allowed = page_scopes(&page.scopes);
+            fresh.scopes.retain(|scope| allowed.contains(scope));
         }
         fresh.exp = now + DATA_TOKEN_TTL.as_secs();
         Ok(TokenRefreshResult { exp: fresh.exp, token: self.sign_data(&state, fresh)? })
     }
+}
+
+/// A page's scopes without server-only ones (decision 30): the router never
+/// puts a server-only scope into a token minted for a page.
+fn page_scopes(scopes: &[String]) -> Vec<String> {
+    scopes
+        .iter()
+        .filter(|scope| {
+            !crate::scope_class::classify(scope).is_ok_and(|(_, server_only)| server_only)
+        })
+        .cloned()
+        .collect()
 }
 
 fn page_of<'a>(state: &'a State, claims: &Claims) -> Result<&'a Page, ErrorBody> {

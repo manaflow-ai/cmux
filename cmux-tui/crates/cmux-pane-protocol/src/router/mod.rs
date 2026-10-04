@@ -56,6 +56,9 @@ pub enum Admission {
     /// A page that authenticated with its page token; it may resolve,
     /// refresh and list, never say hello.
     Page(Claims),
+    /// The host (engine bridge) in the daemon's own process; the only
+    /// caller of server-only router ops such as `cmux.router.gesture.mint`.
+    Host,
 }
 
 #[derive(Debug, Clone)]
@@ -273,6 +276,7 @@ impl Router {
                 }
             }
             Admission::Page(_) => Err(forbidden("a page cannot say hello")),
+            Admission::Host => Err(forbidden("the host connection does not say hello")),
         }
     }
 

@@ -60,7 +60,8 @@ pub fn bounded_events(
 
 /// Answers a peer's incoming calls and subscriptions.
 pub trait Handler: Send + Sync + 'static {
-    fn call(&self, op: String, params: Value) -> CallFuture;
+    /// `gesture` is the call envelope's gesture token, if any.
+    fn call(&self, op: String, params: Value, gesture: Option<String>) -> CallFuture;
 
     /// Start event stream `stream`; events are sent until the receiver
     /// closes or the peer unsubscribes.
@@ -81,7 +82,7 @@ pub trait Handler: Send + Sync + 'static {
 pub struct NoHandler;
 
 impl Handler for NoHandler {
-    fn call(&self, op: String, _params: Value) -> CallFuture {
+    fn call(&self, op: String, _params: Value, _gesture: Option<String>) -> CallFuture {
         Box::pin(
             async move { Err(ErrorBody::new(error::UNKNOWN_OP, format!("no handler for {op}"))) },
         )
@@ -137,10 +138,20 @@ impl Peer {
     }
 
     pub async fn call(&self, op: &str, params: Value) -> Result<Value, ErrorBody> {
+        self.call_with_gesture(op, params, None).await
+    }
+
+    /// Call `op` carrying a gesture token (decision 29).
+    pub async fn call_with_gesture(
+        &self,
+        op: &str,
+        params: Value,
+        gesture: Option<String>,
+    ) -> Result<Value, ErrorBody> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (reply_tx, reply_rx) = oneshot::channel();
         self.pending.lock().await.insert(id, reply_tx);
-        let envelope = Envelope::Call { id, op: op.to_owned(), params, cap: None };
+        let envelope = Envelope::Call { id, op: op.to_owned(), params, cap: None, gesture };
         if !self.send(&envelope).await {
             self.pending.lock().await.remove(&id);
             return Err(Self::closed());
@@ -235,8 +246,8 @@ impl Peer {
                         .unwrap_or_else(|| ErrorBody::new(error::INTERNAL, ""));
                     self.resolve(id, Err(body)).await;
                 }
-                Envelope::Call { id, op, params, .. } => {
-                    let future = handler.call(op, params);
+                Envelope::Call { id, op, params, gesture, .. } => {
+                    let future = handler.call(op, params, gesture);
                     let peer = self.clone();
                     let task = tokio::spawn(async move {
                         let reply = match future.await {
@@ -338,7 +349,7 @@ mod tests {
     struct Echo;
 
     impl Handler for Echo {
-        fn call(&self, op: String, params: Value) -> CallFuture {
+        fn call(&self, op: String, params: Value, _gesture: Option<String>) -> CallFuture {
             Box::pin(async move {
                 if op == "test.echo.slow" {
                     tokio::time::sleep(std::time::Duration::from_secs(30)).await;

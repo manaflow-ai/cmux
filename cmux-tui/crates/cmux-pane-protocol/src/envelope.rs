@@ -28,6 +28,9 @@ pub enum Envelope {
         params: Value,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cap: Option<String>,
+        /// A gesture token (decision 29), for ops that need a user gesture.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        gesture: Option<String>,
     },
     Ok {
         id: u64,
@@ -252,7 +255,13 @@ mod tests {
         let envelope = Envelope::decode(r#"{"t":"call","id":7,"op":"cmux.git.status"}"#).unwrap();
         assert_eq!(
             envelope,
-            Envelope::Call { id: 7, op: "cmux.git.status".into(), params: json!({}), cap: None }
+            Envelope::Call {
+                id: 7,
+                op: "cmux.git.status".into(),
+                params: json!({}),
+                cap: None,
+                gesture: None
+            }
         );
         assert_eq!(envelope.encode(), r#"{"t":"call","id":7,"op":"cmux.git.status","params":{}}"#);
     }

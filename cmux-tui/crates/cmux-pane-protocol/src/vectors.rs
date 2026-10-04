@@ -223,12 +223,21 @@ fn test_claims() -> Claims {
 
 /// A data-plane token for the example provider, used by the session vectors.
 pub fn example_token() -> String {
+    example_token_for(None)
+}
+
+/// The same token, with a `page` claim when `page` is set.
+fn example_token_for(page: Option<&str>) -> String {
     let claims = Claims {
         sub: "session-vectors".into(),
-        page: None,
+        page: page.map(str::to_owned),
         app: "cmux.agent".into(),
         ns: vec![crate::example::APP_ID.into()],
-        scopes: vec![crate::example::SCOPE.into()],
+        scopes: vec![
+            crate::example::SCOPE.into(),
+            "hello:write".into(),
+            "op:com.example.hello.greet.admin".into(),
+        ],
         roots: Vec::new(),
         origin: None,
         aud: crate::example::APP_ID.into(),
@@ -451,6 +460,137 @@ fn validation_cases() -> Vec<Value> {
     cases
 }
 
+/// A gesture token for the session-vector caller, signed with the test key.
+fn gesture(op: &str, aud: &str, exp: u64, jti: &str) -> String {
+    let claims = crate::gesture::GestureClaims {
+        sub: "session-vectors".into(),
+        app: "cmux.agent".into(),
+        aud: aud.into(),
+        op: op.into(),
+        exp,
+        jti: jti.into(),
+    };
+    crate::gesture::sign(&SigningKey::from_seed(&TEST_SEED), &claims)
+}
+
+/// Decisions 29, 29b, 29c and 30, scripted against the example provider.
+fn gesture_session_cases() -> Vec<Value> {
+    let app = crate::example::APP_ID;
+    let wave = "com.example.hello.greet.wave";
+    let auth = |token: String| format!(r#"{{"t":"auth","token":"{token}"}}"#);
+    let call = |id: u64, op: &str, name: Value, gesture: Option<&str>| {
+        let mut envelope = json!({ "t": "call", "id": id, "op": op, "params": { "name": name } });
+        if let Some(gesture) = gesture {
+            envelope["gesture"] = json!(gesture);
+        }
+        envelope.to_string()
+    };
+    let ok =
+        |id: u64, message: &str| json!({ "t": "ok", "id": id, "value": { "message": message } });
+    let refused = |id: u64, reason: &str| json!({ "t": "err", "id": id, "code": "cmux.protocol.forbidden", "details": { "reason": reason } });
+    let ack = json!({ "t": "ok", "id": 0 });
+    let case =
+        |name: &str, decision: &str, token: String, sends: Vec<String>, expect: Vec<Value>| {
+            let mut send = vec![auth(token)];
+            send.extend(sends);
+            let mut all = vec![ack.clone()];
+            all.extend(expect);
+            json!({ "name": name, "decision": decision, "send": send, "expect": all })
+        };
+    let native = example_token;
+    let good = gesture(wave, app, TEST_EXP, "jti-good");
+    let again = gesture(wave, app, TEST_EXP, "jti-replay");
+    let kept = gesture(wave, app, TEST_EXP, "jti-kept");
+    let view = gesture(crate::gesture::ANY_VIEW, app, TEST_EXP, "jti-view");
+    vec![
+        case(
+            "valid gesture",
+            "29",
+            native(),
+            vec![call(1, wave, json!("a"), Some(&good))],
+            vec![ok(1, "waved at a")],
+        ),
+        case(
+            "missing gesture",
+            "29",
+            native(),
+            vec![call(1, wave, json!("a"), None)],
+            vec![refused(1, "gesture_required")],
+        ),
+        case(
+            "expired gesture",
+            "29",
+            native(),
+            vec![call(1, wave, json!("a"), Some(&gesture(wave, app, TEST_NOW, "jti-old")))],
+            vec![refused(1, "gesture_required")],
+        ),
+        case(
+            "gesture for another op",
+            "29",
+            native(),
+            vec![call(
+                1,
+                wave,
+                json!("a"),
+                Some(&gesture("com.example.hello.greet.say", app, TEST_EXP, "jti-op")),
+            )],
+            vec![refused(1, "gesture_required")],
+        ),
+        case(
+            "gesture for another provider",
+            "29",
+            native(),
+            vec![call(1, wave, json!("a"), Some(&gesture(wave, "cmux.git", TEST_EXP, "jti-aud")))],
+            vec![refused(1, "gesture_required")],
+        ),
+        case(
+            "replayed jti",
+            "29",
+            native(),
+            vec![call(1, wave, json!("a"), Some(&again)), call(2, wave, json!("b"), Some(&again))],
+            vec![ok(1, "waved at a"), refused(2, "gesture_required")],
+        ),
+        case(
+            "a refused call keeps the jti",
+            "29c",
+            native(),
+            vec![call(1, wave, json!(1), Some(&kept)), call(2, wave, json!("b"), Some(&kept))],
+            vec![
+                json!({ "t": "err", "id": 1, "code": "cmux.protocol.invalid_params" }),
+                ok(2, "waved at b"),
+            ],
+        ),
+        case(
+            "*view on a non-view op",
+            "29b",
+            native(),
+            vec![call(1, wave, json!("a"), Some(&view))],
+            vec![refused(1, "gesture_required")],
+        ),
+        case(
+            "*view on a view-state op",
+            "29b",
+            native(),
+            vec![call(1, "com.example.hello.greet.focus", json!("a"), Some(&view))],
+            vec![ok(1, "focused a")],
+        ),
+        case(
+            "server-only op with a page token",
+            "30",
+            example_token_for(Some("cmux.agent.page")),
+            vec![call(1, "com.example.hello.greet.admin", json!("a"), None)],
+            vec![refused(1, "server_only")],
+        ),
+        case(
+            "server-only op with a native token",
+            "30",
+            native(),
+            vec![call(1, "com.example.hello.greet.admin", json!("a"), None)],
+            vec![ok(1, "admin a")],
+        ),
+    ]
+}
+
 fn session_cases() -> Value {
     let auth = format!(r#"{{"t":"auth","token":"{}"}}"#, example_token());
     let ok_auth = json!({ "t": "ok", "id": 0 });
@@ -512,7 +652,7 @@ fn fragment_cases() -> Value {
     let fragment = json!({
         "namespaces": [{ "name": "octo.diff_tools", "owner": "app:octo.diff_tools" }],
         "ops": [{
-            "name": "octo.diff_tools.diff.list", "kind": "read", "scope": "diff:read", "risk": "read", "gesture": false,
+            "name": "octo.diff_tools.diff.list", "kind": "read", "scope": "diff:read", "risk": "read", "gesture": false, "view_state": false,
             "owner": "app:octo.diff_tools",
             "params": { "$ref": "#/types/OctoListParams" }, "result": { "type": "array", "items": { "type": "string" } },
             "errors": []
@@ -527,7 +667,7 @@ fn fragment_cases() -> Value {
     third_party_alias["ops"][0]["aliases"] = json!(["difftools.list"]);
     let first_party = |alias: &str| {
         json!({ "ops": [{
-            "name": "cmux.workspace.list", "kind": "read", "scope": "workspace:read", "risk": "read", "gesture": false,
+            "name": "cmux.workspace.list", "kind": "read", "scope": "workspace:read", "risk": "read", "gesture": false, "view_state": false,
             "owner": "first-party", "aliases": [alias],
             "params": { "type": "object" }, "result": { "type": "object" }, "errors": []
         }] })
@@ -543,7 +683,7 @@ fn fragment_cases() -> Value {
     // Decision 21: mcp, cli and secret_output.
     let op21 = |name: &str, mcp: Option<Value>, cli: Option<Value>, result: Value| {
         let mut op = json!({
-            "name": name, "kind": "read", "scope": "diff:read", "risk": "read", "gesture": false, "owner": "app:octo.diff_tools",
+            "name": name, "kind": "read", "scope": "diff:read", "risk": "read", "gesture": false, "view_state": false, "owner": "app:octo.diff_tools",
             "params": { "$ref": "#/types/OctoGetParams" }, "result": result, "errors": []
         });
         if let Some(mcp) = mcp {
@@ -715,6 +855,8 @@ fn admission_cases() -> Value {
 
 /// The vectors document.
 pub fn vectors() -> Value {
+    let mut sessions = session_cases().as_array().cloned().unwrap_or_default();
+    sessions.extend(gesture_session_cases());
     let mut list = envelope_cases();
     list.extend(data_frame_cases());
     list.extend(validation_cases());
@@ -727,7 +869,7 @@ pub fn vectors() -> Value {
         ],
         "unix_framing": unix_framing_cases(),
         "token": token_case(),
-        "session": session_cases(),
+        "session": sessions,
         "fragments": fragment_cases(),
         "roots": roots_cases(),
         "admission": admission_cases(),
