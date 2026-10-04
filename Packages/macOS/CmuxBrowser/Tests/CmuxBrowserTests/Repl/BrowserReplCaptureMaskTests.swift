@@ -256,6 +256,30 @@ struct BrowserReplCaptureMaskTests {
         #expect(captured)
     }
 
+    /// WebKit's frame tree can come back without some child frames (no
+    /// tree at all, only the main frame, or a child it cannot describe). A
+    /// frame missing from the list is never masked, so a secret in it would
+    /// show: the capture is refused instead.
+    @Test func aChildFrameMissingFromTheFrameListRefusesTheCapture() async throws {
+        let webView = await load("""
+            <iframe id=child srcdoc="<p>\(Self.value)</p><script>webkit.messageHandlers.frame.postMessage('child')</script>"></iframe>
+            \(Self.post)
+            """, posting: ["main", "child"])
+        let main = try #require(frames.infos["main"])
+        var captured = false
+        let error = await BrowserReplFrameGateTests.error {
+            try await mask.run(in: webView, frames: { [main] }) { captured = true }
+        }
+        #expect(error != nil, "a capture was taken while a child frame holding a secret was missing from the frame list")
+        #expect(!captured)
+        // The whole list lets it through.
+        let child = try #require(frames.infos["child"])
+        #expect(await BrowserReplFrameGateTests.error {
+            try await mask.run(in: webView, frames: { [main, child] }) { captured = true }
+        } == nil)
+        #expect(captured)
+    }
+
     // MARK: Blocked child frames
 
     /// A frame keeps its id when it navigates, so a child frame can show a
