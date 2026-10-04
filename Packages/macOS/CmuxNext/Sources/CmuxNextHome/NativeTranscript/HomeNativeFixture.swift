@@ -41,7 +41,6 @@ public final class HomeNativeFixture {
     private func load() async {
         guard let inbox = try? await source.inbox(), let id = inbox.conversations.first?.id, !Task.isCancelled else { return }
         let me = inbox.me.id
-        await store.open(id)
         let view = HomeNativeTranscriptView(conversation: id, me: me)
         view.frame = container.bounds
         view.autoresizingMask = [.width, .height]
@@ -50,6 +49,7 @@ public final class HomeNativeFixture {
         let binding = HomeStoreBinding(store: store, controller: view.controller)
         self.binding = binding
         view.connect(binding)
+        await binding.opened()
         if attachments { await addAttachments(to: view, in: id) }
     }
 

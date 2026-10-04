@@ -6,11 +6,18 @@ import Observation
 /// `update` (observed, no polling) and the controller's intents go to
 /// `HomeStore.perform` with their idempotency keys. Hosts that own their own
 /// plumbing can call `update` and handle `onIntent` themselves instead.
+///
+/// The binding owns its conversation's open/close pair: it opens the
+/// conversation on the store when it starts and `stop()` closes exactly
+/// that open, also when it stops while the first page loads (the store
+/// drops that page). Hosts do not call `HomeStore.open` themselves.
 @MainActor
 public final class HomeStoreBinding {
     public let store: HomeStore
     public let controller: HomeController
     private var stopped = false
+    /// The first page load this binding's open started.
+    private var opening: Task<Void, Never>?
     /// A refused op other than a send (a tapback now), on the main actor, so
     /// the host can say why (iOS: an alert with `HomeText.explanation(for:)`).
     /// A refused send restores its draft instead.
@@ -64,8 +71,16 @@ public final class HomeStoreBinding {
             guard let store else { return }
             Task { await store.loadOlder(id) }
         }
+        // Counted as shown at once, so the `close` in `stop()` always pairs with it.
+        opening = store.beginOpen(id)
         refresh()
         observe()
+    }
+
+    /// Returns once the conversation's first page is in (at once when it
+    /// already was), for hosts that draw only after it.
+    public func opened() async {
+        await opening?.value
     }
 
     /// Cancels my pending send `key` (an upload, a queued send or a failed
@@ -77,7 +92,8 @@ public final class HomeStoreBinding {
     }
 
     /// Stops forwarding (the conversation closed) and closes the
-    /// conversation on the store, pairing the host's `HomeStore.open`.
+    /// conversation on the store, pairing the binding's own open. A second
+    /// call does nothing.
     public func stop() {
         guard !stopped else { return }
         store.close(controller.conversation)
