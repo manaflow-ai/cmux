@@ -16,7 +16,7 @@ Run it only on a fleet GUI host (it opens a window); never on a laptop in use.
 Exit 1 on any failure. Evidence (JSON, proxy and listener logs, app log) goes to
 --out (default $NX_ARTIFACTS or a temp dir).
 """
-import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, threading, time
+import argparse, glob, json, os, plistlib, signal, socket, subprocess, sys, tempfile, threading, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -29,7 +29,8 @@ APP = next(iter(sorted(glob.glob(os.path.expanduser(
     f"~/Library/Developer/Xcode/DerivedData/cmux-{opts.tag}/Build/Products/Debug/cmux DEV {opts.tag}.app")))), None)
 if not APP:
     sys.exit(f"no tagged app for {opts.tag}")
-BINARY = os.path.join(APP, "Contents/MacOS", os.path.splitext(os.path.basename(APP))[0])
+with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
+    BINARY = os.path.join(APP, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 TMP = os.environ.get("TMPDIR", "/tmp")
