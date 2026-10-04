@@ -66,8 +66,12 @@ class FakePort implements SwitchPort {
   discard = (sessionId: string) => {
     this.calls.push(`discard ${sessionId}`);
   };
-  prewarm = (harness: string) => {
+  prewarmCwds: (string | undefined)[] = [];
+  supportsPrewarm = true;
+  prewarmSupported = () => this.supportsPrewarm;
+  prewarm = (harness: string, cwd?: string) => {
     this.calls.push(`prewarm ${harness}`);
+    this.prewarmCwds.push(cwd);
   };
 }
 
@@ -469,5 +473,29 @@ describe("harness switch: prewarm hints", () => {
     clock.advance(PREWARM_DEBOUNCE_MS);
     expect(port.calls).toEqual(["prewarm opencode"]);
     expect(clock.timers.filter((timer) => !timer.cancelled)).toEqual([]);
+  });
+
+  // acpmux keeps only the newest hint, so a harness hinted again after another one must go out
+  // again: only a repeat of the last hint is dropped.
+  test("a harness hinted again after another one is hinted again, for the shown chat's folder", () => {
+    const { store, port, clock } = setup();
+    port.session = { sessionId: "claude-1", harness: "claude", empty: false, cwd: "/work/app" };
+    for (const harness of ["codex", "opencode", "codex"]) {
+      store.hint(harness);
+      clock.advance(PREWARM_DEBOUNCE_MS);
+    }
+    expect(port.calls).toEqual(["prewarm codex", "prewarm opencode", "prewarm codex"]);
+    expect(port.prewarmCwds).toEqual(["/work/app", "/work/app", "/work/app"]);
+  });
+
+  // A remote-origin or pool-off connection cannot prewarm: a hover there starts no debounce timer.
+  test("a connection that cannot prewarm starts no timer for a hint", () => {
+    const { store, port, clock } = setup();
+    port.supportsPrewarm = false;
+    store.hint("codex");
+    store.hint("opencode");
+    expect(clock.timers).toEqual([]);
+    clock.advance(PREWARM_DEBOUNCE_MS);
+    expect(port.calls).toEqual([]);
   });
 });
