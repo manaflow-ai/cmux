@@ -96,9 +96,65 @@ pub enum Exposure {
     Excluded(Exclusion),
 }
 
-/// Decides whether `grant`'s agent may call `op`.
-pub fn agent_view(_op: &OpExposure, _grant: &AgentGrant) -> Exposure {
-    Exposure::Offered
+/// Scope families whose ops read or make secrets (PASSWORDS P2, identity
+/// "no secret ever handed to an agent").
+const SECRET_FAMILIES: &[&str] = &["passwords", "credentials", "accounts"];
+
+/// Scope families only the user may change.
+const USER_ONLY_FAMILIES: &[&str] = &["grants", "policy"];
+
+/// Ops only the user may run: app installs, updates and grants
+/// (app-platform.md section 15; agents may still hide and unhide apps).
+const USER_ONLY_OPS: &[&str] = &[
+    "cmux.apps.install",
+    "cmux.apps.uninstall",
+    "cmux.apps.update",
+    "cmux.apps.grant.set",
+    "cmux.apps.local.add",
+    "cmux.apps.local.remove",
+];
+
+/// Decides whether `grant`'s agent may call `op`. Exclusions are checked in
+/// a fixed order and always win over approvals; a standing approval never
+/// adds a scope or lifts an exclusion.
+pub fn agent_view(op: &OpExposure, grant: &AgentGrant) -> Exposure {
+    if let Some(reason) = exclusion(op, grant) {
+        return Exposure::Excluded(reason);
+    }
+    let risky = matches!(op.risk, Risk::Destructive | Risk::SendExternal | Risk::Money)
+        || op.scope_class == ScopeClass::Restricted;
+    if risky && !grant.standing_approvals.contains(&op.name) {
+        Exposure::NeedsApproval
+    } else {
+        Exposure::Offered
+    }
+}
+
+fn exclusion(op: &OpExposure, grant: &AgentGrant) -> Option<Exclusion> {
+    let (family, verb) = op.scope.split_once(':').unwrap_or((op.scope.as_str(), ""));
+    if op.secret_output || verb == "keys" || SECRET_FAMILIES.contains(&family) {
+        return Some(Exclusion::Secret);
+    }
+    if USER_ONLY_FAMILIES.contains(&family) || USER_ONLY_OPS.contains(&op.name.as_str()) {
+        return Some(Exclusion::UserOnly);
+    }
+    match op.mcp {
+        McpExpose::Never => return Some(Exclusion::NotOffered),
+        McpExpose::OptIn if !grant.opted_in.contains(&op.name) => {
+            return Some(Exclusion::OptInOff);
+        }
+        McpExpose::Default | McpExpose::OptIn => {}
+    }
+    if op.gesture_required {
+        return Some(Exclusion::GestureRequired);
+    }
+    if op.app_disabled {
+        return Some(Exclusion::AppDisabled);
+    }
+    if !grant.scopes.contains("*") && !grant.scopes.contains(&op.scope) {
+        return Some(Exclusion::NotGranted);
+    }
+    None
 }
 
 #[cfg(test)]
