@@ -29,9 +29,19 @@ extension WKWebView {
 
     /// WebKit's `_webView:takeFocus:`: moves AppKit focus to the window's
     /// next (`forward`) or previous key view, as WebKit does without a
-    /// delegate, unless automated input caused it.
+    /// delegate, but only when AppKit focus is in this web view, the window
+    /// is one the user works in, and no automated input is running.
+    ///
+    /// Focus that is elsewhere (the user's terminal next to a driven page)
+    /// cannot leave this web view: only keys sent to the web view directly
+    /// (automation) get here then, and WebKit may handle such a key after the
+    /// driver's round trip (a Tab queued behind Shift's flagsChanged), so
+    /// the containment flag alone does not cover it. The REPL's off-screen
+    /// render window keeps the web view first responder so the page stays
+    /// focused.
     public func browserTakeFocus(forward: Bool) {
-        guard !isContainingAutomationFocus, let window else { return }
+        guard !isContainingAutomationFocus, let window, !(window is BrowserOffscreenRenderPanel),
+              isFirstResponderInside(window) else { return }
         if forward {
             // WebKit treats the web view as having no subviews: the next key
             // view after the last view of its own key view loop.
@@ -39,6 +49,11 @@ extension WKWebView {
         } else {
             window.selectKeyView(preceding: self)
         }
+    }
+
+    private func isFirstResponderInside(_ window: NSWindow) -> Bool {
+        guard let view = window.firstResponder as? NSView else { return false }
+        return view === self || view.isDescendant(of: self)
     }
 
     private var lastViewInKeyViewLoop: NSView {
