@@ -1,0 +1,19 @@
+{
+  "$comment": "Shape recorded from web/app/api/vm/domains/[name]/verify/route.ts (no customer data).",
+  "request": {
+    "method": "POST",
+    "path": "/api/vm/domains/example.test/verify"
+  },
+  "status": 200,
+  "body": {
+    "domain": {
+      "id": "dom-test01",
+      "hostname": "example.test",
+      "verificationState": "verified",
+      "certificateState": "active",
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "dnsInstructions": null,
+      "publications": []
+    }
+  }
+}

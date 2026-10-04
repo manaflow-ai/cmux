@@ -1,0 +1,21 @@
+{
+  "$comment": "Shape recorded from web/app/api/vm/firewall/route.ts GET ?ruleId + VMFirewallRule (no customer data).",
+  "request": {
+    "method": "GET",
+    "path": "/api/vm/firewall?ruleId=fw-test01"
+  },
+  "status": 200,
+  "body": {
+    "id": "fw-test01",
+    "action": "allow",
+    "source": {
+      "public": true
+    },
+    "destination": {
+      "vmId": "vm-alpha01",
+      "port": 443,
+      "protocol": "tcp"
+    },
+    "description": "https"
+  }
+}

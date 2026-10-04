@@ -1,0 +1,12 @@
+{
+  "$comment": "Shape recorded from web/app/api/vm/firewall/route.ts DELETE (no customer data).",
+  "request": {
+    "method": "DELETE",
+    "path": "/api/vm/firewall?ruleId=fw-test01"
+  },
+  "status": 200,
+  "body": {
+    "deleted": true,
+    "ruleId": "fw-test01"
+  }
+}
