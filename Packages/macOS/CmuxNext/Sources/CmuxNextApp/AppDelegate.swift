@@ -181,6 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Agent-launched builds never take system-wide keys from the person's app.
         if !environment.noActivate { services.globalHotKeys.start() }
         services.cache.browserTabs.preference.follow(settings)
+        BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
         services.notifications.follow(settings)
         services.updater.follow(settings)
         services.startHibernation(settings: settings)

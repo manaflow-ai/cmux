@@ -422,6 +422,7 @@ fn a_headless_session_lists_no_start_tab() {
             origin: "cli".into(),
         },
         label: "start-tab".into(),
+        profile: cmux_browser_host::host::AGENT_PROFILE.into(),
     };
     let driver = engines.driver("headless", Arc::new(|_| {}), &session).expect("headless driver");
     let tabs = driver.call("tabs.list", &json!({})).expect("tabs.list");

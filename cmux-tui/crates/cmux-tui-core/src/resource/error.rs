@@ -184,6 +184,7 @@ pub(crate) const RESOURCE_ERROR_CODES: &[&str] = &[
     "mutation.indeterminate",
     "operation.failed",
     "operation.unsupported",
+    "origin.forbidden",
     "resource.not_found",
     "revision.conflict",
     "selector.ambiguous",

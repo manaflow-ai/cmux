@@ -22,8 +22,8 @@ extension WebKitTab: WKNavigationDelegate {
 
         let isUserLinkClick = navigationAction.navigationType == .linkActivated
         if isUserLinkClick, Self.isWebScheme(url) {
-            switch Self.linkClick(flags: navigationAction.modifierFlags, button: navigationAction.buttonNumber) {
-            case .navigate: break
+            switch LinkClick(navigationAction, in: self) {
+            case .pageDefault, .navigate: break
             case .open(let disposition):
                 decisionHandler(.cancel, preferences)
                 emit(.openURL(url, disposition))
@@ -118,13 +118,6 @@ extension WebKitTab: WKNavigationDelegate {
         apply(.processExited(BrowserProcessExit(reason: .crashed)))
     }
 
-    /// Where a page-created window goes when a modifier or the link menu
-    /// decided it; nil means the page's own request (a tab or a popup).
-    func newTabDisposition(for action: WKNavigationAction) -> BrowserNewTabDisposition? {
-        if let picked = takeContextMenuDisposition() { return picked }
-        if case .open(let disposition) = Self.linkClick(flags: action.modifierFlags, button: action.buttonNumber) { return disposition }
-        return nil
-    }
 
     static func isWebScheme(_ url: URL) -> Bool {
         switch url.scheme?.lowercased() {
@@ -144,8 +137,11 @@ extension WebKitTab: WKUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         // Without a host there is nowhere to show the page: block the popup.
-        guard hasDelegate, let child = makeChildTab(configuration: configuration) else { return nil }
-        if let explicit = newTabDisposition(for: navigationAction) {
+        // The link menu's pick, else the modified click's mapping.
+        let click = takeContextMenuDisposition().map(LinkClick.open) ?? LinkClick(navigationAction, in: self)
+        guard hasDelegate, !click.runsInOpener(navigationAction.request, tab: self),
+              let child = makeChildTab(configuration: configuration) else { return nil }
+        if case .open(let explicit) = click {
             emit(.adoptTab(child, explicit))
         } else if windowFeatures.width != nil || windowFeatures.height != nil {
             // A sized popup (OAuth, payment): a floating panel, with opener.

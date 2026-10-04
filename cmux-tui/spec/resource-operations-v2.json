@@ -31,6 +31,77 @@
     "git_checkpoint"
   ],
   "types": {
+    "RequestOrigin": {
+      "kind": "enum",
+      "values": [
+        "page",
+        "agent",
+        "app",
+        "user"
+      ]
+    },
+    "OriginForbiddenDetails": {
+      "kind": "object",
+      "fields": {
+        "derived": {
+          "required": true,
+          "description": "The request's origin: derived from its connection, then narrowed by its claim.",
+          "type": {
+            "kind": "ref",
+            "name": "RequestOrigin"
+          }
+        },
+        "required": {
+          "required": false,
+          "description": "The origin the operation needs.",
+          "type": {
+            "kind": "ref",
+            "name": "RequestOrigin"
+          }
+        },
+        "claim": {
+          "required": false,
+          "description": "The refused origin claim.",
+          "type": {
+            "kind": "ref",
+            "name": "RequestOrigin"
+          }
+        },
+        "reason": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        }
+      },
+      "extra": false
+    },
+    "OriginConfirmation": {
+      "kind": "object",
+      "fields": {
+        "token": {
+          "required": true,
+          "description": "Opaque single-use confirmation token: 32 random bytes, base64url without padding.",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 43,
+            "max_length": 43
+          }
+        },
+        "expires_at": {
+          "required": true,
+          "description": "Expiry in milliseconds since the Unix epoch.",
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        }
+      },
+      "extra": false
+    },
     "JsonValue": {
       "kind": "primitive",
       "name": "json"
@@ -7912,6 +7983,13 @@
         "extra": false
       }
     },
+    "origin.forbidden": {
+      "retryable": false,
+      "details": {
+        "kind": "ref",
+        "name": "OriginForbiddenDetails"
+      }
+    },
     "resource.not_found": {
       "retryable": false,
       "details": {
@@ -8285,6 +8363,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8360,6 +8439,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -8415,6 +8495,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -8495,6 +8576,7 @@
         "cursor.gap",
         "cursor.invalid",
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8551,6 +8633,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -8607,6 +8690,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -8663,6 +8747,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -8702,6 +8787,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -8787,6 +8873,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -8901,6 +8988,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -8964,6 +9052,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -9060,6 +9149,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -9101,6 +9191,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -9164,6 +9255,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -9220,6 +9312,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -9269,6 +9362,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -9334,6 +9428,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -9382,6 +9477,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -9412,6 +9508,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -9442,6 +9539,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -9473,6 +9571,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -9544,6 +9643,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -9579,6 +9679,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -9631,6 +9732,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -9686,6 +9788,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -9766,6 +9869,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -9863,6 +9967,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -9900,6 +10005,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -9979,6 +10085,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -10130,6 +10237,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -10245,6 +10353,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -10333,6 +10442,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -10410,6 +10520,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -10492,6 +10603,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -10567,6 +10679,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -10669,6 +10782,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -10731,6 +10845,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -10780,6 +10895,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -10805,6 +10921,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -10830,6 +10947,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "validation.invalid"
       ]
     },
@@ -10893,6 +11011,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -10946,6 +11065,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -11033,6 +11153,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -11077,10 +11198,76 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
         "validation.invalid"
+      ]
+    },
+    "origin.confirmation.issue": {
+      "class": "connection_control",
+      "idempotency": "forbidden",
+      "target": "client",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "operation": {
+            "required": true,
+            "description": "The cmux.protocol/2 operation the token confirms, exactly as the relay sends it.",
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "params_sha256": {
+            "required": true,
+            "description": "64 lowercase hex digits: SHA-256 of the exact request params in canonical JSON (object keys sorted by code point at every depth, no whitespace, UTF-8, no escaping of / or non-ASCII). The digest is over serde_json's compact re-serialization of the received params; a client must hash the exact encoding it sends. Floats whose shortest form differs between encoders (for example exponent notation) make the digest differ, and the claim fails closed with origin.forbidden; confirmed page operations carry integer params.",
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 64,
+              "max_length": 64
+            }
+          },
+          "relay_connection_id": {
+            "required": true,
+            "description": "The page relay connection's connection_id from its client-hello.",
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "OriginConfirmation"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Only a verified cmux app connection (client-hello role main plus a proof) may call it; every other connection gets origin.forbidden. No connection is verified before peer verification ships, so until then it is refused everywhere.",
+        "A page relay connection may never call it.",
+        "relay_connection_id must name a live page relay connection of the same peer as the caller (peer key install:<id> when proven, else token:<pid>.<pid version>).",
+        "The token is 32 random bytes in base64url without padding, valid for 60 seconds of monotonic time (a wall clock step neither extends nor cuts it; expires_at is wall-clock time for display only) and single use: the relay presents it once as origin {claim: user, confirmation: <token>} on a request with exactly this operation and params; any other presentation consumes it and is refused.",
+        "The token is a host-to-daemon value; page JavaScript never sees it."
       ]
     },
     "pairing_request.list": {
@@ -11108,6 +11295,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -11163,6 +11351,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -11215,6 +11404,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -11303,6 +11493,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -11354,6 +11545,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -11417,6 +11609,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -11452,6 +11645,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -11488,6 +11682,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -11535,6 +11730,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -11596,6 +11792,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -11746,6 +11943,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -11867,6 +12065,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -11935,6 +12134,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -12007,6 +12207,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -12066,6 +12267,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -12124,6 +12326,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -12159,6 +12362,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "transport.closed",
         "validation.invalid"
       ],
@@ -12242,6 +12446,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -12306,6 +12511,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -12373,6 +12579,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -12406,6 +12613,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -12465,6 +12673,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -12522,6 +12731,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -12569,6 +12779,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -12682,6 +12893,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -12735,6 +12947,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -12776,6 +12989,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -12836,6 +13050,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -12900,6 +13115,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -12951,6 +13167,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -13019,6 +13236,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -13068,6 +13286,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -13101,6 +13320,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -13133,6 +13353,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -13201,6 +13422,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -13244,6 +13466,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -13300,6 +13523,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -13361,6 +13585,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -13441,6 +13666,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -13507,6 +13733,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -13580,6 +13807,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -13618,6 +13846,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -13651,6 +13880,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -13712,6 +13942,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -13765,6 +13996,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -13842,6 +14074,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -13881,6 +14114,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -13937,6 +14171,7 @@
         "cursor.gap",
         "cursor.invalid",
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -13965,6 +14200,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -13988,6 +14224,7 @@
         "idempotency.conflict",
         "operation.failed",
         "operation.unsupported",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -14005,7 +14242,7 @@
         "extra": false
       },
       "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "JournalCheckpointCreateResult"}]},
-      "errors": ["idempotency.conflict", "operation.failed", "operation.unsupported", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "errors": ["idempotency.conflict", "operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.checkpoint.list": {
       "class": "read",
@@ -14018,7 +14255,7 @@
         "extra": false
       },
       "result": {"kind": "ref", "name": "JournalCheckpointListResult"},
-      "errors": ["operation.failed", "operation.unsupported", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "errors": ["operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.hook.list": {
       "class": "read",
@@ -14034,6 +14271,7 @@
       "errors": [
         "operation.failed",
         "operation.unsupported",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -14057,6 +14295,7 @@
         "idempotency.conflict",
         "operation.failed",
         "operation.unsupported",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -14077,6 +14316,7 @@
       "errors": [
         "operation.failed",
         "operation.unsupported",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -14100,6 +14340,7 @@
         "idempotency.conflict",
         "operation.failed",
         "operation.unsupported",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -14119,7 +14360,7 @@
         "extra": false
       },
       "result": {"kind": "ref", "name": "JournalRestorePreview"},
-      "errors": ["operation.failed", "operation.unsupported", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "errors": ["operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.segment.list": {
       "class": "read",
@@ -14132,7 +14373,7 @@
         "extra": false
       },
       "result": {"kind": "ref", "name": "JournalSegmentListResult"},
-      "errors": ["operation.failed", "operation.unsupported", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "errors": ["operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.segment.seal": {
       "class": "mutation",
@@ -14147,7 +14388,7 @@
         "extra": false
       },
       "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "JournalSegmentSealResult"}]},
-      "errors": ["idempotency.conflict", "operation.failed", "operation.unsupported", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+      "errors": ["idempotency.conflict", "operation.failed", "operation.unsupported", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.subscribe": {
       "class": "stream_open",
@@ -14231,6 +14472,7 @@
         "cursor.invalid",
         "operation.failed",
         "operation.unsupported",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -14261,6 +14503,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -14305,6 +14548,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -14333,6 +14577,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -14377,6 +14622,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -14436,6 +14682,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -14464,6 +14711,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -14607,6 +14855,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -14652,6 +14901,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -14704,6 +14954,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -14756,6 +15007,7 @@
         "cursor.gap",
         "cursor.invalid",
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -14826,6 +15078,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -14856,6 +15109,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -14909,6 +15163,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -14956,6 +15211,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -15018,6 +15274,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -15048,6 +15305,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -15105,6 +15363,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -15204,6 +15463,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -15302,6 +15562,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -15355,6 +15616,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -15392,6 +15654,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -15430,6 +15693,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -15510,6 +15774,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -15566,6 +15831,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -15659,6 +15925,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -15712,6 +15979,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -15814,6 +16082,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -15888,6 +16157,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -15944,6 +16214,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -16021,6 +16292,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -16059,6 +16331,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -16100,6 +16373,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -16168,6 +16442,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -16230,6 +16505,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -16283,6 +16559,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -16360,6 +16637,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -16448,6 +16726,7 @@
         "cursor.gap",
         "cursor.invalid",
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -16505,6 +16784,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -16557,6 +16837,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -16595,6 +16876,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -16650,6 +16932,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -16715,6 +16998,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -16777,6 +17061,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -16844,6 +17129,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -16960,6 +17246,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -17051,6 +17338,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -17092,6 +17380,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -17174,6 +17463,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -17233,6 +17523,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -17278,6 +17569,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -17368,6 +17660,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -17418,6 +17711,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -17461,6 +17755,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -17499,6 +17794,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -17547,6 +17843,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -17612,6 +17909,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -17680,6 +17978,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -17735,6 +18034,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -17786,6 +18086,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -17855,6 +18156,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -17888,6 +18190,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -17964,6 +18267,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -18013,6 +18317,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -18099,6 +18404,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -18138,6 +18444,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -18183,6 +18490,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -18213,6 +18521,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -18266,6 +18575,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -18298,6 +18608,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -18350,6 +18661,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -18419,6 +18731,7 @@
         "home.pinned_first",
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -18452,6 +18765,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -18506,6 +18820,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -18651,6 +18966,7 @@
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
+        "origin.forbidden",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
@@ -18736,6 +19052,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -18819,6 +19136,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -18872,6 +19190,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -18914,6 +19233,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -18974,6 +19294,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -19063,6 +19384,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -19139,6 +19461,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -19186,6 +19509,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -19231,6 +19555,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -19277,6 +19602,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -19344,6 +19670,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -19401,6 +19728,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
@@ -19434,6 +19762,7 @@
       },
       "errors": [
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
@@ -19515,6 +19844,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",

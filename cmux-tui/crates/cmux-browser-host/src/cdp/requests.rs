@@ -9,6 +9,14 @@ use crate::protocol::DriverError;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
 
+/// A paused request: its CDP session, id, owning tab ("" for none) and URL.
+pub(super) struct PausedRequest {
+    session: String,
+    request_id: String,
+    target: String,
+    url: String,
+}
+
 /// Every request, at the request stage.
 fn patterns() -> Value {
     json!({"patterns": [{"urlPattern": "*", "requestStage": "Request"}]})
@@ -19,17 +27,17 @@ fn patterns() -> Value {
 pub(super) fn start_worker(
     conn: Arc<CdpConnection>,
     filter: Arc<Mutex<Option<RequestFilter>>>,
-) -> Result<mpsc::Sender<(String, String, String)>, DriverError> {
-    let (tx, rx) = mpsc::channel::<(String, String, String)>();
+) -> Result<mpsc::Sender<PausedRequest>, DriverError> {
+    let (tx, rx) = mpsc::channel::<PausedRequest>();
     std::thread::Builder::new()
         .name("cmux-browser-host-cdp-requests".into())
         .spawn(move || {
-            for (session, request_id, url) in rx {
+            for PausedRequest { session, request_id, target, url } in rx {
                 let decision = filter
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
                     .clone()
-                    .and_then(|f| f(&url));
+                    .and_then(|f| f(&target, &url));
                 let (method, params) = match decision {
                     Some(_) => (
                         "Fetch.failRequest",
@@ -63,11 +71,14 @@ impl Inner {
         let Some(session) = event.session_id.clone() else { return };
         let request_id = event.params["requestId"].as_str().unwrap_or("").to_owned();
         let url = event.params["request"]["url"].as_str().unwrap_or("").to_owned();
-        let _ = self
-            .paused
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .send((session, request_id, url));
+        // The tab the session belongs to (its page or one of its frames).
+        let target = self.lock().target_for_session(&session).unwrap_or("").to_owned();
+        let _ = self.paused.lock().unwrap_or_else(PoisonError::into_inner).send(PausedRequest {
+            session,
+            request_id,
+            target,
+            url,
+        });
     }
 
     /// Installs or removes the filter and turns interception on or off in

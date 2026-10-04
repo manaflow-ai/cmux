@@ -1661,6 +1661,7 @@
     "install.revoke",
     "install.sign_out",
     "integration.revoke",
+    "origin.confirmation.issue",
     "pairing_request.list",
     "pairing_request.resolve",
     "pane.close",

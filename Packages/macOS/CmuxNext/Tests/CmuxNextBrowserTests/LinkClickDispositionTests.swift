@@ -12,7 +12,7 @@ import Testing
 struct LinkClickDispositionTests {
     @Test func modifiersPickWhereALinkOpens() {
         typealias A = WebKitTab.LinkClick
-        #expect(WebKitTab.linkClick(flags: [], button: 0) == A.navigate)
+        #expect(WebKitTab.linkClick(flags: [], button: 0) == A.pageDefault)
         #expect(WebKitTab.linkClick(flags: [.command], button: 0) == A.open(.backgroundTab))
         #expect(WebKitTab.linkClick(flags: [], button: 2) == A.open(.backgroundTab))
         #expect(WebKitTab.linkClick(flags: [.command, .shift], button: 0) == A.open(.foregroundTab))
