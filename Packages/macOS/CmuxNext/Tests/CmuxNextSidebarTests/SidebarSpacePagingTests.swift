@@ -100,4 +100,17 @@ import Testing
         let siblings = list.superview?.subviews ?? []
         #expect((siblings.firstIndex(of: page) ?? -1) > (siblings.firstIndex(of: list) ?? Int.max))
     }
+
+    /// Live run (sbr99-v1): the kept page of a slide drew no text (an image
+    /// of layer-backed rows). It is now a page of the old space's real rows.
+    @Test func aSlideKeepsTheOldSpacesRealRows() throws {
+        let (view, window) = Self.sidebar()
+        defer { window.close() }
+        let old = view.model.sections
+        view.model.sections = view.model.spaceSections?(Self.keys[2]) ?? []
+        view.switchSpace(from: Self.keys[1], to: Self.keys[2], profiles: view.model.profiles, oldSections: old)
+        let kept = try #require(view.spacePaging.snapshotView as? SpacePageView)
+        #expect(kept.list?.displayed.row(for: .workspace(WorkspaceID("ws-b"))) != nil, "the old space's rows")
+        #expect(kept.superview === view.scrollView.superview)
+    }
 }
