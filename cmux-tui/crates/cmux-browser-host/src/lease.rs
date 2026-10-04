@@ -11,16 +11,41 @@ use std::collections::{BTreeMap, BTreeSet};
 /// connection, never from the caller's request body.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LeaseOp {
-    Acquire { target: String },
-    Act { target: String },
-    Observe { target: String },
-    Release { target: String },
+    Acquire {
+        target: String,
+    },
+    Act {
+        target: String,
+    },
+    Observe {
+        target: String,
+    },
+    Release {
+        target: String,
+    },
     SessionEnd,
-    UserInput { target: String },
-    TakeOver { target: String },
-    HandBack { target: String },
-    Stop { target: String },
-    Allow { session: String },
+    UserInput {
+        target: String,
+    },
+    TakeOver {
+        target: String,
+    },
+    HandBack {
+        target: String,
+    },
+    Stop {
+        target: String,
+    },
+    /// The person allows a stopped principal again (`allow {actor}` in the
+    /// shared vectors; the principal is an `on_behalf_of` or an `actor`).
+    Allow {
+        actor: String,
+    },
+    /// Host-local, not in the shared vectors: the target is gone (its tab
+    /// closed), so its lease ends with no origin check and a null frame.
+    TargetGone {
+        target: String,
+    },
 }
 
 /// Who sent an operation.
@@ -33,7 +58,42 @@ pub struct LeaseCaller {
     pub origin: String,
     /// The agent's task label (badge text).
     pub label: String,
+    /// The caller named no session and the host substituted its default.
+    pub implicit_session: bool,
+    /// The target's engine: `headless`, `cef`, `webkit`, `desktop`, or empty.
+    pub engine: String,
 }
+
+impl LeaseCaller {
+    /// A caller with an explicit session on an engine's target.
+    pub fn new(
+        session: impl Into<String>,
+        actor: impl Into<String>,
+        on_behalf_of: Option<String>,
+        origin: impl Into<String>,
+        label: impl Into<String>,
+        engine: impl Into<String>,
+    ) -> LeaseCaller {
+        LeaseCaller {
+            session: session.into(),
+            actor: actor.into(),
+            on_behalf_of,
+            origin: origin.into(),
+            label: label.into(),
+            implicit_session: false,
+            engine: engine.into(),
+        }
+    }
+
+    /// The principal a stop applies to: `on_behalf_of` when present, else `actor`.
+    pub fn stop_key(&self) -> &str {
+        self.on_behalf_of.as_deref().unwrap_or(&self.actor)
+    }
+}
+
+/// Engines whose targets are the person's own tabs: they refuse the
+/// implicit shared session.
+const PROVIDER_ENGINES: [&str; 2] = ["cef", "webkit"];
 
 /// A refused operation, by its contract error code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +103,7 @@ pub enum LeaseError {
     UserDriving,
     StaleAfterHandBack,
     StoppedByUser,
+    SessionRequired,
     NotLeaseHolder,
     NoLease,
     NotPaused,
@@ -58,6 +119,7 @@ impl LeaseError {
             LeaseError::UserDriving => "user_driving",
             LeaseError::StaleAfterHandBack => "stale_after_hand_back",
             LeaseError::StoppedByUser => "stopped_by_user",
+            LeaseError::SessionRequired => "session_required",
             LeaseError::NotLeaseHolder => "not_lease_holder",
             LeaseError::NoLease => "no_lease",
             LeaseError::NotPaused => "not_paused",
@@ -84,6 +146,8 @@ pub struct LeaseFrame {
 #[derive(Debug, Default)]
 pub struct LeaseTable {
     leases: BTreeMap<String, LeaseRecord>,
+    /// Stopped principals (`on_behalf_of`, else `actor`): a new session name
+    /// cannot dodge a stop.
     stopped: BTreeSet<String>,
 }
 
@@ -136,7 +200,12 @@ impl LeaseTable {
     ) -> Result<(), LeaseError> {
         match op {
             LeaseOp::Acquire { target } | LeaseOp::Act { target } => {
-                if self.stopped.contains(&caller.session) {
+                if caller.implicit_session && PROVIDER_ENGINES.contains(&caller.engine.as_str()) {
+                    return Err(LeaseError::SessionRequired);
+                }
+                let stopped =
+                    |principal: Option<&str>| principal.is_some_and(|p| self.stopped.contains(p));
+                if stopped(Some(&caller.actor)) || stopped(caller.on_behalf_of.as_deref()) {
                     return Err(LeaseError::StoppedByUser);
                 }
                 let Some(record) = self.leases.get(target) else {
@@ -196,10 +265,14 @@ impl LeaseTable {
             }
             LeaseOp::Stop { target } => {
                 let record = self.leases.remove(target).ok_or(LeaseError::NoLease)?;
-                self.stopped.insert(record.lease.session);
+                let lease = record.lease;
+                self.stopped.insert(lease.on_behalf_of.unwrap_or(lease.actor));
             }
-            LeaseOp::Allow { session } => {
-                self.stopped.remove(session);
+            LeaseOp::Allow { actor } => {
+                self.stopped.remove(actor);
+            }
+            LeaseOp::TargetGone { target } => {
+                self.leases.remove(target);
             }
         }
         Ok(())
