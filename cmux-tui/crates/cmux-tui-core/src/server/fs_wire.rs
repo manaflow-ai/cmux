@@ -56,13 +56,20 @@ pub(super) fn try_handle(
         return None;
     }
     frame_command(message)?;
-    // The principal is checked for this frame: a remote client needs a bound
-    // peer whose install may keep its streams (a revoke or the 72 h limit
-    // refuses it before its stream closes). No principal: permission denied.
-    let principal = mux.frame_principal(client);
-    let allowed = transport_allows_fs(mux, client) || principal.is_some();
-    let owner = mux.conversation_principal(client);
-    let reply = answer_line(crate::fs_ops::installed(), allowed, &owner, message);
+    // The transport first, then the principal of this frame: a remote client
+    // needs a bound peer whose install may keep its streams (a revoke or the
+    // 72 h limit refuses it before its stream closes). Either one missing:
+    // permission denied.
+    let owner = transport_allows_fs(mux, client)
+        .then(|| mux.frame_principal(client))
+        .flatten()
+        .map(super::remote_relay::Principal::participant);
+    let reply = answer_line(
+        crate::fs_ops::installed(),
+        owner.is_some(),
+        owner.as_deref().unwrap_or(super::remote_relay::NO_PRINCIPAL),
+        message,
+    );
     Some(writer.send_control(&reply).is_ok())
 }
 

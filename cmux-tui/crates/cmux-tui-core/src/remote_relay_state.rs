@@ -166,8 +166,7 @@ pub(crate) fn lock_checked<T>(
     mutex: &Mutex<T>,
     lock: RelayLock,
 ) -> Result<MutexGuard<'_, T>, RelayStateError> {
-    let _ = lock;
-    Ok(mutex.lock().unwrap_or_else(PoisonError::into_inner))
+    mutex.lock().map_err(|_| RelayStateError::Poisoned(lock))
 }
 
 /// The remote-relay state on the conversation host.
@@ -186,8 +185,9 @@ impl RemoteRelayState {
         Ok(lock_checked(&self.peers, RelayLock::Peers)?.get(&client).cloned())
     }
 
-    /// The peer record of `client`. A poisoned peers lock gives `None`: no
-    /// peer record means no principal, which fails closed.
+    /// The peer record of `client` (tests). A poisoned peers lock gives
+    /// `None`.
+    #[cfg(test)]
     pub(crate) fn peer(&self, client: u64) -> Option<LinkPeer> {
         self.peer_checked(client).ok().flatten()
     }
