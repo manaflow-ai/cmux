@@ -119,7 +119,7 @@ test("slack.post: the draft pins the workspace and channel ids; a new last-activ
     env.state.slackChannels = [{ id: "C01GEN0001", name: "general", is_private: false, topic: { value: "" }, num_members: 42 }, { id: "C09NEW0009", name: "eng", is_private: false, topic: { value: "" }, num_members: 900 }];
     await s.value("sites.slack.post(pD.id, { confirm: true })");
     assert.deepEqual(env.state.slackPosts.at(-1), { team: "T01ACME", channel: "C02ENG0002", text: "Deploy at 4pm", thread_ts: null });
-    assert.deepEqual(await s.value("pD.preview"), { team: { id: "T01ACME", name: "Acme" }, channel: { id: "C02ENG0002", name: "eng" }, threadTs: null, text: "Deploy at 4pm" });
+    assert.deepEqual(await s.value("pD.preview"), { team: { id: "T01ACME", name: "Acme" }, user: { id: "U01ADA", name: "ada" }, channel: { id: "C02ENG0002", name: "eng" }, threadTs: null, text: "Deploy at 4pm" });
   } finally {
     env.state.slackChannels = null;
     await run(setSlackLastActive("T01ACME"));

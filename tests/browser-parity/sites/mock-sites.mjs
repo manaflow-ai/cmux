@@ -428,12 +428,16 @@ const SLACK_TEAMS = {
   T02askr: { id: "T02askr", name: "Side Project", domain: "sidep", url: "https://sidep.slack.com/", token: "xoxc-other-secret", user_id: "U02ADA" },
 };
 export const SLACK_SEED = { teams: SLACK_TEAMS, lastActiveTeamId: "T01ACME" };
+// Another member of the Acme workspace whose session can replace Ada's in
+// the shared profile (same workspace id, another token and user id).
+export const SLACK_MALLORY = { token: "xoxc-mallory-secret", user_id: "U09MAL" };
+const slackMember = (team, token) => (team && token === team.token ? team.user_id : team && team.id === "T01ACME" && token === SLACK_MALLORY.token ? SLACK_MALLORY.user_id : null);
 
 function slackApp(req, url, body, state) {
   // The web client calls the Web API same-origin; the token picks the workspace.
   if (url.pathname.startsWith("/api/")) {
     const form = parseForm(req, body);
-    const team = Object.values(SLACK_TEAMS).find((t) => t.token === form.token);
+    const team = Object.values(SLACK_TEAMS).find((t) => slackMember(t, form.token));
     return slackApi(req, new URL(team ? `https://${team.domain}.slack.com${url.pathname}` : url.href), body, state, true);
   }
   if (url.pathname === "/robots.txt") return { status: 200, headers: { "content-type": "text/plain" }, body: "User-agent: *\n" };
@@ -467,7 +471,8 @@ function slackApi(req, url, body, state, sameOrigin = false) {
   const form = parseForm(req, body);
   const team = Object.values(SLACK_TEAMS).find((t) => url.hostname === `${t.domain}.slack.com`);
   const reply = (json) => ({ status: 200, headers: { ...cors, "content-type": "application/json" }, body: JSON.stringify(json) });
-  if (!team || form.token !== team.token || cookieOf(req, "d") !== SECRETS.slackCookie) return reply({ ok: false, error: "invalid_auth" });
+  const member = slackMember(team, form.token);
+  if (!member || cookieOf(req, "d") !== SECRETS.slackCookie) return reply({ ok: false, error: "invalid_auth" });
   const defaults = [
     { id: "C01GEN0001", name: "general", is_private: false, topic: { value: "Company-wide" }, num_members: 42 },
     { id: "C02ENG0002", name: "eng", is_private: true, topic: { value: "" }, num_members: 7 },
@@ -491,7 +496,7 @@ function slackApi(req, url, body, state, sameOrigin = false) {
     case "users.info":
       return reply({ ok: true, user: { id: form.user, name: "bob", real_name: "Bob Builder", tz: "America/Los_Angeles", is_bot: false, profile: { display_name: "bob", title: "Engineer" } } });
     case "auth.test":
-      return reply({ ok: true, url: team.url, team: team.name, user: "ada", team_id: team.id, user_id: team.user_id });
+      return reply({ ok: true, url: team.url, team: team.name, user: member === SLACK_MALLORY.user_id ? "mallory" : "ada", team_id: team.id, user_id: member });
     case "chat.postMessage":
       state.slackPosts.push({ team: team.id, channel: form.channel, text: form.text, thread_ts: form.thread_ts || null });
       return reply({ ok: true, channel: form.channel, ts: "1790000009.000900", message: { text: form.text } });

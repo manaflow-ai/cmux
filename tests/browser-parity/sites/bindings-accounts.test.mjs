@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createSitesEnv } from "./harness.mjs";
-import { GOOGLE_ACCOUNT_ROWS, NOTION_MALLORY } from "./mock-sites.mjs";
+import { GOOGLE_ACCOUNT_ROWS, NOTION_MALLORY, SLACK_MALLORY, SLACK_SEED } from "./mock-sites.mjs";
 
 const env = await createSitesEnv();
 test.after(() => env.close());
@@ -95,5 +95,31 @@ test("notion.append: the write names the drafted user, so a switch after the con
   } finally {
     env.state.notionUser = null;
     env.state.notionSwitchOnSync = null;
+  }
+});
+
+// Another session signs a different member of the same Acme workspace in to
+// the shared profile: Slack's web config keeps the workspace id with that
+// member's token.
+const setSlackMember = (member) => `
+  const slackTab = await tabs.open("https://app.slack.com/robots.txt", { background: true });
+  await slackTab.evaluate((m) => {
+    const c = JSON.parse(localStorage.getItem("localConfig_v2") || "null") || ${JSON.stringify(SLACK_SEED)};
+    c.teams.T01ACME = { ...c.teams.T01ACME, token: m.token, user_id: m.user_id };
+    localStorage.setItem("localConfig_v2", JSON.stringify(c));
+  }, ${JSON.stringify(member)});
+  await slackTab.close();
+`;
+
+test("slack.post: the draft names the member; another member of the same workspace at confirmation posts nothing", async () => {
+  try {
+    await s.run('var slD = await sites.slack.post({ team: "T01ACME", channel: "#eng", text: "From Ada only" })');
+    await s.run(setSlackMember(SLACK_MALLORY));
+    const posts = env.state.slackPosts.length;
+    assert.match(await s.error("sites.slack.post(slD.id, { confirm: true })"), /account_changed|U09MAL/);
+    assert.equal(env.state.slackPosts.length, posts, "nothing was posted as mallory");
+    assert.deepEqual((await s.value("slD.preview")).user, { id: "U01ADA", name: "ada" });
+  } finally {
+    await s.run(setSlackMember({ token: SLACK_SEED.teams.T01ACME.token, user_id: SLACK_SEED.teams.T01ACME.user_id }));
   }
 });
