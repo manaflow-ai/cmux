@@ -48,6 +48,10 @@ enum HomeStrings {
     static var read: String { String(localized: "receipt.read", defaultValue: "Read", bundle: .module) }
     static var delivered: String { String(localized: "receipt.delivered", defaultValue: "Delivered", bundle: .module) }
     static var notDelivered: String { String(localized: "label.notDelivered", defaultValue: "Not Delivered", bundle: .module) }
+    /// A send that got no answer after it reached the owner: it may be there.
+    static var mayNotBeDelivered: String {
+        String(localized: "label.mayNotBeDelivered", defaultValue: "May Not Be Delivered", bundle: .module)
+    }
     static var unsentMine: String { String(localized: "row.unsent.mine", defaultValue: "You unsent a message", bundle: .module) }
     static var unsentTheirs: String {
         String(localized: "row.unsent.theirs", defaultValue: "A message was unsent", bundle: .module)
