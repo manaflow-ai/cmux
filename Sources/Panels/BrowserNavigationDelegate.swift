@@ -341,6 +341,28 @@ import WebKit
             label: "BrowserNavigationDelegate.navigationAction"
         ).closure
 
+        // A tab a browser REPL session created loads nothing while the
+        // session's content rules for its latest policy compile: the page
+        // would load its subresources under the previous rules. The
+        // navigation is judged once they are on the tab, and refused when
+        // WebKit refused them (BrowserReplNavigationGuard.hold).
+        if let owner {
+            switch BrowserReplNavigationGuard.shared.hold(panelID: owner.id, url: navigationAction.request.url) {
+            case .none:
+                break
+            case .refused:
+                decisionHandler(.cancel)
+                return
+            case .untilRulesSettle(let sessionID):
+                BrowserReplNavigationGuard.shared.whenRulesSettle(sessionID: sessionID) { [weak self, weak webView] in
+                    // A dropped decision cancels (the guard's fallback).
+                    guard let self, let webView else { return }
+                    self.webView(webView, decidePolicyFor: navigationAction, decisionHandler: decisionHandler)
+                }
+                return
+            }
+        }
+
         // A browser REPL session's domain policy: a tab the session created
         // never loads a page the policy blocks (links, redirects, scripts).
         if navigationAction.targetFrame?.isMainFrame == true,

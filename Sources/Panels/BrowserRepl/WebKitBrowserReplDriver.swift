@@ -86,23 +86,29 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     private static let closedError = BrowserReplDriverError(code: "closed", message: "the REPL session was closed")
 
+    /// Publishes `policy` to the navigation checks before it returns
+    /// (``BrowserReplPolicyBoard``): the next navigation or popup of the
+    /// session's tabs is judged by it. WebKit compiles its content rules
+    /// afterwards; until they are on the tabs, the session's calls wait
+    /// (`dispatchAttached`) and its tabs' navigations wait
+    /// (`BrowserReplNavigationGuard.hold`).
     func setDomainPolicy(_ policy: BrowserReplDomainPolicy) {
         lock.lock()
         domainPolicy = policy
+        let generation = BrowserReplPolicyBoard.shared.publish(policy, sessionID: sessionID)
         let previous = policyTask
         let task = Task { @MainActor [weak self] in
             await previous?.value
-            await self?.applyDomainPolicy(policy)
+            await self?.applyDomainPolicy(policy, generation: generation)
         }
         policyTask = task
         lock.unlock()
     }
 
-    /// Puts the policy's content rules on the tabs the session created and
-    /// gives the navigation guard the policy.
+    /// Puts the policy's content rules on the tabs the session created, then
+    /// releases the navigations that waited for them.
     @MainActor
-    private func applyDomainPolicy(_ policy: BrowserReplDomainPolicy) async {
-        BrowserReplNavigationGuard.shared.setPolicy(policy, sessionID: sessionID)
+    private func applyDomainPolicy(_ policy: BrowserReplDomainPolicy, generation: Int) async {
         frameGate.policy = policy
         var options = contextOptions ?? BrowserReplContextOptions()
         do {
@@ -119,10 +125,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 "invalid",
                 "the domain policy could not be applied: WebKit refused its content rules (\(reason)); set a policy that compiles (session.allowedDomains, session.prohibitedDomains, session.blockIPAddresses), or reset the session if the policy is locked"
             )
+            BrowserReplPolicyBoard.shared.rulesFailed(sessionID: sessionID, generation: generation, reason: reason)
             return
         }
         contextOptions = options
         BrowserReplTabAttachments.shared.setContext(options, forSession: sessionID)
+        BrowserReplPolicyBoard.shared.rulesInstalled(sessionID: sessionID, generation: generation)
     }
 
     private var currentPolicy: BrowserReplDomainPolicy { lock.withLock { domainPolicy } }
@@ -160,7 +168,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         let sessionID = self.sessionID
         Task { @MainActor in
-            BrowserReplNavigationGuard.shared.removeSession(sessionID)
+            BrowserReplPolicyBoard.shared.removeSession(sessionID)
             BrowserReplTabAttachments.shared.detach(sessionID: sessionID)
             // The compiled domain-policy list must not outlive the session
             // in WebKit's persistent rule list store.

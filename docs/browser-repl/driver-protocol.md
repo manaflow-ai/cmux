@@ -327,10 +327,19 @@ native (`BrowserReplBoundary` in the session, and the driver):
   content rules, every driver call of the session fails with `invalid`
   (`the domain policy could not be applied: ...`) until the session sets a
   policy that compiles (a locked one needs a reset); the tabs keep the last
-  rule list that compiled. The policy setters (`session.allowedDomains`
-  and the like) return once the native session holds the policy, before
-  WebKit compiles it, so the error reaches the agent on the session's next
-  call.
+  rule list that compiled, and every navigation (of any frame) in a tab the
+  session created is cancelled (`navigation.blocked`). The policy setters
+  (`session.allowedDomains` and the like) return once the native session
+  holds the policy, before WebKit compiles it, so the error reaches the
+  agent on the session's next call. The navigation and popup checks use the
+  new policy from the moment the setter returns (the driver publishes it
+  synchronously to `BrowserReplPolicyBoard`), and until its content rules
+  are on the session's tabs, the session's driver calls wait and every
+  navigation in a tab the session created (its popups included) waits
+  before WebKit's navigation policy decision, then is judged under the new
+  policy: no page loads its subresources under the previous rules. A page
+  already loaded keeps running meanwhile, so its own script can still
+  start subresource loads under the previous rules until they are replaced.
 - Page clipboard: in a tab a session created, no page script writes the
   system clipboard. An agent's click, key or evaluated script gives the
   page a user gesture, and WebKit lets a page holding one write the system

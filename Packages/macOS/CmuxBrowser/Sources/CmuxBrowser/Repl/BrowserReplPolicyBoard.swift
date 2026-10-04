@@ -1,61 +1,112 @@
-public import Foundation
+import Foundation
 
-/// The REPL sessions' domain policies as the navigation checks read them.
+/// The REPL sessions' domain policies as the navigation checks read them,
+/// and whether each session's content rules are on its tabs.
 ///
-/// Models the driver as it is: the checks get a policy only once its
-/// content rules are installed, and nothing waits for them.
+/// A policy setter (`session.prohibitedDomains` and the like) returns once
+/// the native session holds the policy, before WebKit compiles its content
+/// rules. The board takes the policy at once (``publish(_:sessionID:)``,
+/// from any thread), so the next navigation or popup the checks judge
+/// already uses it. Until the rules that match the latest policy are on the
+/// session's tabs (``rulesInstalled(sessionID:generation:)``), its tabs'
+/// navigations wait (``whenRulesSettle(sessionID:_:)``): a page loaded then
+/// would load its subresources under the previous rules. When WebKit
+/// refuses the rules (``rulesFailed(sessionID:generation:reason:)``), the
+/// policy is not in force for subresources, and the waiting navigations
+/// learn it, to refuse.
 public final class BrowserReplPolicyBoard: @unchecked Sendable {
     public enum RuleState: Equatable, Sendable {
+        /// The rules of the latest policy are on the tabs, or the session
+        /// has no policy.
         case installed
+        /// WebKit is compiling the rules of the latest policy.
         case pending
+        /// WebKit refused the rules of the latest policy.
         case failed(String)
     }
 
+    private struct Entry {
+        var policy: BrowserReplDomainPolicy
+        var generation: Int
+        var state: RuleState
+    }
+
     private let lock = NSLock()
-    private var pending: [String: (policy: BrowserReplDomainPolicy, generation: Int)] = [:]
-    private var installed: [String: BrowserReplDomainPolicy] = [:]
+    private var entries: [String: Entry] = [:]
+    /// Navigations waiting for a session's rules, run on the main actor.
+    private var waiters: [String: [@MainActor (RuleState) -> Void]] = [:]
     private var nextGeneration = 0
 
     public init() {}
 
+    /// Makes `policy` the session's policy now; its rules are pending until
+    /// the call that compiles them reports this generation.
     @discardableResult
     public func publish(_ policy: BrowserReplDomainPolicy, sessionID: String) -> Int {
         lock.withLock {
             nextGeneration += 1
-            pending[sessionID] = (policy, nextGeneration)
+            entries[sessionID] = Entry(policy: policy, generation: nextGeneration, state: .pending)
             return nextGeneration
         }
     }
 
+    /// The session's latest policy, or nil when it has none in force.
     public func policy(for sessionID: String) -> BrowserReplDomainPolicy? {
-        lock.withLock { installed[sessionID] }
+        lock.withLock {
+            guard let policy = entries[sessionID]?.policy, policy.isActive else { return nil }
+            return policy
+        }
     }
 
     public func ruleState(for sessionID: String) -> RuleState {
-        .installed
+        lock.withLock { entries[sessionID]?.state ?? .installed }
     }
 
+    /// Runs `body` once the session's rules are no longer pending: now, or
+    /// when the latest policy's rules are installed or refused, or the
+    /// session ends.
     @MainActor
     public func whenRulesSettle(sessionID: String, _ body: @escaping @MainActor (RuleState) -> Void) {
-        body(.installed)
+        let state: RuleState? = lock.withLock {
+            let state = entries[sessionID]?.state ?? .installed
+            guard state == .pending else { return state }
+            waiters[sessionID, default: []].append(body)
+            return nil
+        }
+        if let state { body(state) }
     }
 
+    /// The rules of the policy published as `generation` are on the tabs.
+    /// A later policy's rules are still pending; this releases nothing then.
     @MainActor
     public func rulesInstalled(sessionID: String, generation: Int) {
-        lock.withLock {
-            guard let entry = pending[sessionID], entry.generation == generation else { return }
-            installed[sessionID] = entry.policy.isActive ? entry.policy : nil
+        settle(sessionID: sessionID, generation: generation, state: .installed)
+    }
+
+    /// WebKit refused the rules of the policy published as `generation`.
+    @MainActor
+    public func rulesFailed(sessionID: String, generation: Int, reason: String) {
+        settle(sessionID: sessionID, generation: generation, state: .failed(reason))
+    }
+
+    /// The session ended: its tabs are no longer its, and nothing waits.
+    @MainActor
+    public func removeSession(_ sessionID: String) {
+        let released = lock.withLock {
+            entries.removeValue(forKey: sessionID)
+            return waiters.removeValue(forKey: sessionID) ?? []
         }
+        for body in released { body(.installed) }
     }
 
     @MainActor
-    public func rulesFailed(sessionID: String, generation: Int, reason: String) {}
-
-    @MainActor
-    public func removeSession(_ sessionID: String) {
-        lock.withLock {
-            pending.removeValue(forKey: sessionID)
-            installed.removeValue(forKey: sessionID)
+    private func settle(sessionID: String, generation: Int, state: RuleState) {
+        let released: [@MainActor (RuleState) -> Void] = lock.withLock {
+            guard var entry = entries[sessionID], entry.generation == generation else { return [] }
+            entry.state = state
+            entries[sessionID] = entry
+            return waiters.removeValue(forKey: sessionID) ?? []
         }
+        for body in released { body(state) }
     }
 }
