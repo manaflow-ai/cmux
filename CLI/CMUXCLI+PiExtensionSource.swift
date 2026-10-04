@@ -1,3 +1,9 @@
 extension CMUXCLI {
-    static let piExtensionSource = piExtensionSourcePart1 + "\n" + piExtensionSourcePart2
+    static let piExtensionSource = [
+        piExtensionSourcePart1,
+        piExtensionSourceDiagnostics,
+        piExtensionSourceDispatch,
+        piExtensionSourceMetadata,
+        piExtensionSourcePart2,
+    ].joined(separator: "\n")
 }

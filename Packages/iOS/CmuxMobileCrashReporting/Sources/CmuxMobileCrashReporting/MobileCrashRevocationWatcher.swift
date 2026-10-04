@@ -1,4 +1,4 @@
-internal import CmuxMobileAnalytics
+internal import CMUXMobileCore
 internal import Foundation
 
 // Safety: the app composition root is the single owner that calls `arm`.

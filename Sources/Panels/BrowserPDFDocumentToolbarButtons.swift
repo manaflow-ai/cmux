@@ -10,7 +10,7 @@ struct BrowserPDFDocumentToolbarButtons: View {
             Button(action: {
                 panel.downloadRenderedPDFDocument()
             }) {
-                CmuxSystemSymbolImage(systemName: "square.and.arrow.down", pointSize: iconPointSize, weight: .medium)
+                CmuxSystemSymbolImage(systemName: "square.and.arrow.down", pointSize: iconPointSize, weight: .medium, tint: .primary)
                     .frame(width: hitSize, height: hitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -21,7 +21,7 @@ struct BrowserPDFDocumentToolbarButtons: View {
             Button(action: {
                 panel.printRenderedPDFDocument()
             }) {
-                CmuxSystemSymbolImage(systemName: "printer", pointSize: iconPointSize, weight: .medium)
+                CmuxSystemSymbolImage(systemName: "printer", pointSize: iconPointSize, weight: .medium, tint: .primary)
                     .frame(width: hitSize, height: hitSize, alignment: .center)
                     .contentShape(Rectangle())
             }

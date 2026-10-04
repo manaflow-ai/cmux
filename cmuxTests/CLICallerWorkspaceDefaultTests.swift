@@ -83,11 +83,151 @@ struct CLICallerWorkspaceDefaultTests {
         #expect(params["tab_id"] as? String == Self.otherWorkspaceId)
     }
 
+    /// `close-surface` with an explicit but blank `--workspace` or `--window` (for example
+    /// an unset `--workspace "$VAR"`) must fail closed instead of closing the focused
+    /// workspace's focused surface. Only an omitted flag may use the caller's context.
+    @Test(arguments: [
+        ["close-surface", "--workspace", " "],
+        ["close-surface", "--window", " "],
+        ["--window", " ", "close-surface"],
+    ])
+    func closeSurfaceBlankRoutingFlagFailsClosed(arguments: [String]) throws {
+        let (requests, result) = try runCloseSurface(arguments: arguments)
+
+        #expect(result.status != 0, Comment(rawValue: "expected nonzero exit, got \(result.status)"))
+        let methods = requests.compactMap { $0["method"] as? String }
+        #expect(!methods.contains("surface.close"), Comment(rawValue: methods.joined(separator: ",")))
+    }
+
+    /// `identify` must carry its live descriptor TTY when the restored shell has
+    /// no injected workspace or surface identity, ignoring stale ambient names.
+    @Test func identifyWithoutCallerIdsSendsCallerTTY() throws {
+        let (requests, result) = try runIdentify(arguments: [], callerWorkspaceId: nil)
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        let identify = try #require(requests.first { $0["method"] as? String == "system.identify" })
+        let params = try #require(identify["params"] as? [String: Any])
+        #expect(params["caller"] == nil)
+        let callerTTY = try #require(params["caller_tty"] as? String)
+        #expect(callerTTY.hasPrefix("ttys"))
+        #expect(callerTTY != "ttys9999999")
+    }
+
+    /// An explicit caller selector must fail closed on the server instead of
+    /// silently falling back to the ambient terminal when that selector is stale.
+    @Test func identifyExplicitCallerSelectorsSuppressCallerTTY() throws {
+        let workspaceRun = try runIdentify(
+            arguments: ["--workspace", Self.otherWorkspaceId],
+            callerWorkspaceId: nil
+        )
+        let surfaceRun = try runIdentify(
+            arguments: ["--surface", Self.callerSurfaceId],
+            callerWorkspaceId: Self.callerWorkspaceId
+        )
+
+        for (requests, result) in [workspaceRun, surfaceRun] {
+            #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+            let identify = try #require(requests.last { $0["method"] as? String == "system.identify" })
+            let params = try #require(identify["params"] as? [String: Any])
+            #expect(params["caller"] != nil)
+            #expect(params["caller_tty"] == nil)
+        }
+    }
+
+    func runIdentify(
+        arguments: [String],
+        callerWorkspaceId: String?
+    ) throws -> ([[String: Any]], ProcessRunResult) {
+        let socketPath = Self.makeSocketPath("identify-tty")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            guard method == "system.identify" else {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+            return Self.v2Response(id: id, ok: true, result: [
+                "socket_path": socketPath,
+                "focused": NSNull(),
+                "caller": NSNull(),
+            ])
+        }
+
+        var environment = cliEnvironment(socketPath: socketPath, callerWorkspaceId: callerWorkspaceId)
+        environment["CMUX_CLI_TTY_NAME"] = "/dev/ttys9999999"
+        environment["CMUX_TTY_NAME"] = "/dev/ttys9999999"
+        environment["TTY"] = "/dev/ttys9999999"
+        environment["SSH_TTY"] = "/dev/ttys9999999"
+        let cliPath = try Self.bundledCLIPath()
+        let result = Self.runProcess(
+            executablePath: "/usr/bin/script",
+            arguments: ["-q", "/dev/null", cliPath, "identify"] + arguments,
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        return (try state.requestObjects(), result)
+    }
+
+    /// Drives the CLI with `arguments` (a `close-surface` invocation) against a mock socket that accepts any
+    /// request, so a wrong-target close would show up as a recorded `surface.close`.
+    private func runCloseSurface(arguments: [String]) throws -> ([[String: Any]], ProcessRunResult) {
+        let socketPath = Self.makeSocketPath("close-sf")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            return Self.v2Response(id: id, ok: true, result: [
+                "workspace_id": Self.focusedWorkspaceId,
+                "surface_id": Self.callerSurfaceId,
+            ])
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: arguments,
+            environment: cliEnvironment(socketPath: socketPath, callerWorkspaceId: Self.callerWorkspaceId),
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+
+        return (try state.requestObjects(), result)
+    }
+
     /// Drives `mark-notification-read --workspace <argument>` against a mock socket and
     /// returns the recorded JSON-RPC requests plus the process result. The mock answers
     /// `workspace.current` with `focusedWorkspaceId` so that, pre-fix, the command would
     /// visibly retarget there. Pass `callerWorkspaceId: nil` to omit `CMUX_WORKSPACE_ID`.
-    private func runMarkNotificationRead(
+    func runMarkNotificationRead(
         workspaceArgument: String,
         focusedWorkspaceId: String,
         callerWorkspaceId: String?
@@ -95,6 +235,7 @@ struct CLICallerWorkspaceDefaultTests {
         let socketPath = Self.makeSocketPath("caller-ws")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
         defer {
+            CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
@@ -134,7 +275,7 @@ struct CLICallerWorkspaceDefaultTests {
         return (try state.requestObjects(), result)
     }
 
-    private func cliEnvironment(socketPath: String, callerWorkspaceId: String?) -> [String: String] {
+    func cliEnvironment(socketPath: String, callerWorkspaceId: String?) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
@@ -151,18 +292,18 @@ struct CLICallerWorkspaceDefaultTests {
         return environment
     }
 
-    private static let callerWorkspaceId = "11111111-1111-1111-1111-111111111111"
-    private static let callerSurfaceId = "22222222-2222-2222-2222-222222222222"
-    private static let focusedWorkspaceId = "99999999-9999-9999-9999-999999999999"
-    private static let otherWorkspaceId = "44444444-4444-4444-4444-444444444444"
+    static let callerWorkspaceId = "11111111-1111-1111-1111-111111111111"
+    static let callerSurfaceId = "22222222-2222-2222-2222-222222222222"
+    static let focusedWorkspaceId = "99999999-9999-9999-9999-999999999999"
+    static let otherWorkspaceId = "44444444-4444-4444-4444-444444444444"
 
-    private final class CLICallerWorkspaceDefaultBundleToken {}
+    final class CLICallerWorkspaceDefaultBundleToken {}
 
-    // Records socket callbacks from a background queue; `lock` guards both arrays.
-    private final class ServerState: @unchecked Sendable {
-        private let lock = NSLock()
-        private var requestLines: [String] = []
-        private var errors: [String] = []
+    // Records socket callbacks from background threads; `lock` guards both arrays.
+    final class ServerState: @unchecked Sendable {
+        let lock = NSLock()
+        var requestLines: [String] = []
+        var errors: [String] = []
 
         func record(_ line: String) {
             lock.lock()
@@ -182,6 +323,12 @@ struct CLICallerWorkspaceDefaultTests {
             return errors
         }
 
+        func linesSnapshot() -> [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return requestLines
+        }
+
         func requestObjects() throws -> [[String: Any]] {
             lock.lock()
             let lines = requestLines
@@ -192,25 +339,25 @@ struct CLICallerWorkspaceDefaultTests {
         }
     }
 
-    private struct ProcessRunResult {
+    struct ProcessRunResult {
         let status: Int32
         let stdout: String
         let stderr: String
         let timedOut: Bool
     }
 
-    private static func bundledCLIPath() throws -> String {
+    static func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: CLICallerWorkspaceDefaultBundleToken.self)
     }
 
-    private static func makeSocketPath(_ name: String) -> String {
+    static func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
         return URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cli-\(name.prefix(6))-\(shortID).sock")
             .path
     }
 
-    private static func bindUnixSocket(at path: String) throws -> Int32 {
+    static func bindUnixSocket(at path: String) throws -> Int32 {
         unlink(path)
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
@@ -252,56 +399,33 @@ struct CLICallerWorkspaceDefaultTests {
         return fd
     }
 
-    private static func startMockServer(
+    static func startMockServer(
         listenerFD: Int32,
         state: ServerState,
         handler: @escaping @Sendable (String) -> String
     ) -> DispatchSemaphore {
         let handled = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            defer { handled.signal() }
-
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { pointer in
-                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+        CLIMockAcceptLoopRegistry.shared.start(
+            listenerFD: listenerFD,
+            onConnection: { clientFD in
+                defer {
+                    Darwin.close(clientFD)
+                    handled.signal()
                 }
-            }
-            guard clientFD >= 0 else {
-                state.recordError("mock socket server failed to accept a client")
-                return
-            }
-            defer { Darwin.close(clientFD) }
-
-            var pending = Data()
-            var buffer = [UInt8](repeating: 0, count: 4096)
-            while true {
-                let count = Darwin.read(clientFD, &buffer, buffer.count)
-                if count < 0 {
-                    if errno == EINTR { continue }
-                    state.recordError("mock socket server read failed with errno \(errno)")
-                    return
-                }
-                if count == 0 { return }
-                pending.append(buffer, count: count)
-
-                while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                    pending.removeSubrange(0...newlineRange.lowerBound)
-                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                cliMockServeLineFramedConnection(clientFD: clientFD) { line in
                     state.record(line)
-                    let response = handler(line) + "\n"
-                    _ = response.withCString { pointer in
-                        Darwin.write(clientFD, pointer, strlen(pointer))
-                    }
+                    return handler(line)
                 }
+            },
+            onListenerClosed: {
+                state.recordError("mock socket server failed to accept a client")
+                handled.signal()
             }
-        }
+        )
         return handled
     }
 
-    private static func v2Response(
+    static func v2Response(
         id: String,
         ok: Bool,
         result: [String: Any]? = nil,
@@ -314,7 +438,7 @@ struct CLICallerWorkspaceDefaultTests {
         return String(data: data ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
     }
 
-    private static func malformedRequestResponse(id: String? = nil, raw: String) -> String {
+    static func malformedRequestResponse(id: String? = nil, raw: String) -> String {
         v2Response(
             id: id ?? "unknown",
             ok: false,
@@ -322,37 +446,36 @@ struct CLICallerWorkspaceDefaultTests {
         )
     }
 
-    private static func jsonObject(_ line: String) -> [String: Any]? {
+    static func jsonObject(_ line: String) -> [String: Any]? {
         guard let data = line.data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
     }
 
-    private static func runProcess(
+    static func runProcess(
         executablePath: String,
         arguments: [String],
         environment: [String: String],
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        directory: URL? = nil
     ) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
+        process.currentDirectoryURL = directory
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exitSignal.signal() }
+
         do {
             try process.run()
         } catch {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
-        }
-
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
         }
 
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut

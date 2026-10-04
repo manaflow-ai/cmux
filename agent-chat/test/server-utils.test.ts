@@ -21,6 +21,7 @@ import {
   resolveFileDiffPath,
   sendPromptForTest,
   stripAuthPrefixForTest,
+  stripQueuedMessages,
   themeCssVars,
   themeMtimesChangedForTest,
   themeMessageForTest,
@@ -57,6 +58,10 @@ try {
   if (priorDev === undefined) delete process.env.CMUX_AGENT_UI_DEV;
   else process.env.CMUX_AGENT_UI_DEV = priorDev;
 }
+
+const listedSession = stripQueuedMessages({ id: "s1", status: "running", queuedMessages: [{ id: "m1", body: "private" }] });
+assert(!("queuedMessages" in listedSession), "session listings must not expose queued message bodies");
+assert(listedSession.id === "s1" && listedSession.status === "running", "session listing redaction must preserve summary fields");
 
 const cwd = "/tmp/agent-chat-path-test";
 assert(stripAuthPrefixForTest("/secret/app.js", "secret") === "/app.js", "token-prefixed route should be accepted and stripped");
@@ -237,6 +242,9 @@ assert(attributed.map((f) => f.path).join("|") === "changed.txt|new.txt", `basel
 const noFilesRoot = join(import.meta.dir, "..", "scratch", "no-files-baseline-test");
 await rm(noFilesRoot, { recursive: true, force: true });
 await mkdir(noFilesRoot, { recursive: true });
+// Its own repository: inside the cmux checkout, git status on the whole
+// checkout can outlast the 500 ms budget below.
+await run(["git", "init"], noFilesRoot);
 const noFilesSession = {
   cwd: noFilesRoot,
   internal: {

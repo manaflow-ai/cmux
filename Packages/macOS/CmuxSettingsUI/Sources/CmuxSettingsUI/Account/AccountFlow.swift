@@ -12,7 +12,7 @@ import Foundation
 /// `currentIdentity` / `availableTeams` / `selectedTeamID` from view
 /// bodies. Use `@Observable` so SwiftUI tracks changes.
 @MainActor
-public protocol AccountFlow: AnyObject {
+public protocol AccountFlow: AccountTeamManagement {
     /// The currently signed-in user, or `nil` if signed out.
     var currentIdentity: AccountIdentity? { get }
 
@@ -21,7 +21,11 @@ public protocol AccountFlow: AnyObject {
     var availableTeams: [AccountTeamSummary] { get }
 
     /// Identifier of the currently selected team, or `nil` if none.
-    var selectedTeamID: String? { get set }
+    var selectedTeamID: String? { get }
+
+    /// Selects a team through the host's shared auth mutation path.
+    /// - Parameter id: A member team id, or `nil` to clear the explicit choice.
+    func selectTeam(id: String?) async throws
 
     /// Whether the host is currently in the middle of a sign-in or
     /// sign-out network round trip. The UI disables interaction while

@@ -1,6 +1,8 @@
+import AppKit
 import CmuxFoundation
 import Foundation
 import Testing
+import struct CmuxSettings.NotificationsCatalogSection
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -82,6 +84,80 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
         }
     }
 
+    @Test
+    func malformedPaneFlashColorDoesNotSkipLaterNotificationSettings() throws {
+        let defaults = UserDefaults.standard
+        let notifications = NotificationsCatalogSection()
+        let paneFlashColorKey = notifications.paneFlashColorHex.userDefaultsKey
+        let agentTurnCompleteKey = notifications.agentTurnComplete.userDefaultsKey
+        try preservingDefaults(keys: [
+            paneFlashColorKey,
+            agentTurnCompleteKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.set("never", forKey: agentTurnCompleteKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "notifications": {
+                "paneFlashColor": "not-a-color",
+                "agentTurnComplete": "always"
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            #expect(defaults.string(forKey: agentTurnCompleteKey) == "always")
+        }
+    }
+
+    @Test
+    func malformedNotificationSoundDoesNotSkipPaneFlashColor() throws {
+        let defaults = UserDefaults.standard
+        let paneFlashColorKey = NotificationsCatalogSection().paneFlashColorHex.userDefaultsKey
+        try preservingDefaults(keys: [
+            NotificationSoundSettings.key,
+            paneFlashColorKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.set("#112233", forKey: paneFlashColorKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "notifications": {
+                "sound": "not-a-system-sound",
+                "paneFlashColor": "#ff69b4"
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            #expect(defaults.string(forKey: paneFlashColorKey) == "#FF69B4")
+        }
+    }
+
     @Test @MainActor
     func focusControllerSeedsBonsplitHintEligibilityFromDisabledSetting() throws {
         let defaults = UserDefaults.standard
@@ -127,5 +203,57 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
         )
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+}
+
+@Suite("Pane attention color")
+struct PaneAttentionColorTests {
+    @Test
+    func fallsBackToInjectedAccentWhenUnset() {
+        assertUsesInjectedAccent(configuredHex: nil)
+    }
+
+    @Test
+    func usesConfiguredHex() {
+        #expect(
+            WorkspaceAttentionColor(configuredHex: "#ff69b4").nsColor.hexString() == "#FF69B4"
+        )
+    }
+
+    @Test
+    func flashFollowsThemeForegroundWhenUnset() {
+        let accent = CmuxAccentColor()
+        let color = WorkspaceAttentionColor(
+            configuredHex: nil,
+            accent: accent,
+            themeForeground: NSColor(hex: "#CDD6F4"),
+            useThemeForeground: true
+        )
+        #expect(color.flashNSColor.hexString() == "#CDD6F4")
+        #expect(color.flashNSColor.alphaComponent == 1)
+        // Unread rings keep the accent.
+        #expect(color.nsColor.hexString() == accent.dynamicNSColor.hexString())
+    }
+
+    @Test
+    func configuredHexOverridesThemeForegroundForFlash() {
+        let color = WorkspaceAttentionColor(configuredHex: "#ff69b4", themeForeground: .white, useThemeForeground: true)
+        #expect(color.flashNSColor.hexString() == "#FF69B4")
+        #expect(color.flashNSColor.alphaComponent == 1)
+    }
+
+    @Test(arguments: ["not-a-color", "#FFZZZZ", "FF69B4", "#FF69B4AA"])
+    func rejectsValuesOutsideSchema(configuredHex: String) {
+        assertUsesInjectedAccent(configuredHex: configuredHex)
+    }
+
+    private func assertUsesInjectedAccent(configuredHex: String?) {
+        for mode in CmuxAccentColorMode.allCases {
+            let accent = CmuxAccentColor(mode: mode)
+            #expect(
+                WorkspaceAttentionColor(configuredHex: configuredHex, accent: accent).nsColor.hexString() ==
+                    accent.dynamicNSColor.hexString()
+            )
+        }
     }
 }

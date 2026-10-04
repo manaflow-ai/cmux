@@ -59,6 +59,9 @@ extension TerminalController {
         for index in windows.indices {
             var workspaces = windows[index]["workspaces"] as? [[String: Any]] ?? []
             let appProcessPIDs = Set(v2TopIntArray(windows[index]["app_process_pids"]))
+            // Launch evidence for TTY ownership: a process the app forked onto a surface
+            // TTY is the surface's, an arbitrary off-TTY parent proves nothing. (#11004)
+            let cmuxOwnedPIDs = processSnapshot.expandedPIDs(rootPIDs: appProcessPIDs)
             var windowPIDs = appProcessPIDs
             var windowTopLevelPIDs: Set<Int> = []
             var windowForegroundProcessGroupIDs: Set<Int> = []
@@ -68,6 +71,7 @@ extension TerminalController {
                         &workspaces[workspaceIndex],
                         processSnapshot: processSnapshot,
                         browserPIDOccurrences: browserPIDOccurrences,
+                        cmuxOwnedPIDs: cmuxOwnedPIDs,
                         includeProcesses: includeProcesses
                     )
                 )
@@ -92,6 +96,7 @@ extension TerminalController {
         _ workspace: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
         browserPIDOccurrences: [Int: Int],
+        cmuxOwnedPIDs: Set<Int>,
         includeProcesses: Bool
     ) -> Set<Int> {
         var workspacePIDs: Set<Int> = []
@@ -105,6 +110,7 @@ extension TerminalController {
                     &panes[paneIndex],
                     processSnapshot: processSnapshot,
                     browserPIDOccurrences: browserPIDOccurrences,
+                    cmuxOwnedPIDs: cmuxOwnedPIDs,
                     includeProcesses: includeProcesses
                 )
             )
@@ -137,6 +143,7 @@ extension TerminalController {
         _ pane: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
         browserPIDOccurrences: [Int: Int],
+        cmuxOwnedPIDs: Set<Int>,
         includeProcesses: Bool
     ) -> Set<Int> {
         var panePIDs: Set<Int> = []
@@ -149,6 +156,7 @@ extension TerminalController {
                     &surfaces[surfaceIndex],
                     processSnapshot: processSnapshot,
                     browserPIDOccurrences: browserPIDOccurrences,
+                    cmuxOwnedPIDs: cmuxOwnedPIDs,
                     includeProcesses: includeProcesses
                 )
             )
@@ -166,12 +174,14 @@ extension TerminalController {
         _ surface: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
         browserPIDOccurrences: [Int: Int],
+        cmuxOwnedPIDs: Set<Int>,
         includeProcesses: Bool
     ) -> Set<Int> {
         var rootPIDs: Set<Int> = []
         var surfacePIDs: Set<Int> = []
+        let surfaceID = v2TopUUID(surface["id"])
 
-        if let surfaceID = v2TopUUID(surface["id"]) {
+        if let surfaceID {
             let cmuxPIDs = processSnapshot.pids(forCMUXSurfaceID: surfaceID)
             surface["cmux_process_pids"] = cmuxPIDs.sorted()
             rootPIDs.formUnion(cmuxPIDs)
@@ -180,13 +190,28 @@ extension TerminalController {
             surface["cmux_process_pids"] = []
         }
 
+        // Sharing the surface's TTY is not ownership. A process reparented to launchd
+        // keeps the terminal's controlling TTY, so promoting the whole TTY population to
+        // roots charges a detached REPL or dev server to cmux. Attribute only what the
+        // snapshot can prove, and report the rest separately. (#11004)
+        var unattributedRootPIDs: Set<Int> = []
         if let ttyName = surface["tty"] as? String {
-            let ttyPIDs = processSnapshot.pids(forTTYName: ttyName)
-            surface["tty_process_pids"] = ttyPIDs.sorted()
-            rootPIDs.formUnion(ttyPIDs)
-            surfacePIDs.formUnion(processSnapshot.expandedPIDs(rootPIDs: ttyPIDs))
+            let ownership = processSnapshot.ttyOwnership(
+                ttyPIDs: processSnapshot.pids(forTTYName: ttyName),
+                surfaceID: surfaceID,
+                cmuxOwnedPIDs: cmuxOwnedPIDs,
+                provenPIDs: surfacePIDs
+            )
+            surface["tty_process_pids"] = ownership.provenPIDs.sorted()
+            surface["unattributed_tty_process_pids"] = ownership.unattributedPIDs.sorted()
+            surface["tty_ownership_reasons"] = ownership.reasonPayload()
+            rootPIDs.formUnion(ownership.provenPIDs)
+            surfacePIDs.formUnion(processSnapshot.expandedPIDs(rootPIDs: ownership.provenPIDs))
+            unattributedRootPIDs = ownership.unattributedPIDs
         } else {
             surface["tty_process_pids"] = []
+            surface["unattributed_tty_process_pids"] = []
+            surface["tty_ownership_reasons"] = [String: String]()
         }
 
         var webviews = surface["webviews"] as? [[String: Any]] ?? []
@@ -205,10 +230,20 @@ extension TerminalController {
         }
         surface["webviews"] = webviews
 
+        // Resolved once the webview roots are in, so a launchd-parented WebKit process is
+        // never mistaken for an unattributed TTY collision.
+        let unattributedPIDs = processSnapshot
+            .expandedPIDs(rootPIDs: unattributedRootPIDs)
+            .subtracting(surfacePIDs)
+
         surface["root_pids"] = rootPIDs.sorted()
         surface["top_level_pids"] = processSnapshot.topLevelPIDs(for: surfacePIDs).sorted()
         surface["foreground_pgids"] = processSnapshot.foregroundProcessGroupIDs(for: surfacePIDs).sorted()
         surface["resources"] = processSnapshot.summaryPayload(for: surfacePIDs, rootPIDs: rootPIDs)
+        surface["unattributed_resources"] = processSnapshot.summaryPayload(
+            for: unattributedPIDs,
+            rootPIDs: unattributedRootPIDs
+        )
         surface["processes"] = includeProcesses ? processSnapshot.processTreePayload(for: surfacePIDs, rootPIDs: rootPIDs) : []
         return surfacePIDs
     }
@@ -400,9 +435,15 @@ extension TerminalController {
             let commonOwnerSourceSpecificity = commonOwnerSourceSpecificityByPID[pid]
             let existingSourceSpecificity = commonOwnerSourceSpecificity ?? existingSpecificity
             let mergedSourceSpecificity = max(existingSourceSpecificity, newSpecificity)
-            if let commonOwner = v2TopMemoryAttributionCommonOwner(existing, attribution),
+            if let commonOwner = existing.owner.commonOwner(with: attribution.owner),
                commonOwnerSourceSpecificity != nil || newSpecificity == existingSourceSpecificity {
-                result[pid] = commonOwner
+                let sharedReason: String
+                switch commonOwner.specificity {
+                case 3: sharedReason = "shared-surface-process-tree"
+                case 2: sharedReason = "shared-pane-process-tree"
+                default: sharedReason = "shared-workspace-process-tree"
+                }
+                result[pid] = CmuxTopProcessAttribution(owner: commonOwner, reason: sharedReason)
                 commonOwnerSourceSpecificityByPID[pid] = mergedSourceSpecificity
             } else if newSpecificity > existingSourceSpecificity {
                 result[pid] = attribution
@@ -417,62 +458,8 @@ extension TerminalController {
         }
     }
 
-    private nonisolated func v2TopMemoryAttributionCommonOwner(
-        _ lhs: CmuxTopProcessAttribution,
-        _ rhs: CmuxTopProcessAttribution
-    ) -> CmuxTopProcessAttribution? {
-        guard let workspaceID = lhs.workspaceID, workspaceID == rhs.workspaceID else {
-            return nil
-        }
-        let workspaceRef = lhs.workspaceRef ?? rhs.workspaceRef
-        if let paneID = lhs.paneID, paneID == rhs.paneID {
-            let paneRef = lhs.paneRef ?? rhs.paneRef
-            if let surfaceID = lhs.surfaceID, surfaceID == rhs.surfaceID {
-                return CmuxTopProcessAttribution(
-                    workspaceID: workspaceID,
-                    workspaceRef: workspaceRef,
-                    paneID: paneID,
-                    paneRef: paneRef,
-                    surfaceID: surfaceID,
-                    surfaceRef: lhs.surfaceRef ?? rhs.surfaceRef,
-                    surfaceType: lhs.surfaceType ?? rhs.surfaceType,
-                    reason: "shared-surface-process-tree"
-                )
-            }
-            return CmuxTopProcessAttribution(
-                workspaceID: workspaceID,
-                workspaceRef: workspaceRef,
-                paneID: paneID,
-                paneRef: paneRef,
-                surfaceID: nil,
-                surfaceRef: nil,
-                surfaceType: nil,
-                reason: "shared-pane-process-tree"
-            )
-        }
-        return CmuxTopProcessAttribution(
-            workspaceID: workspaceID,
-            workspaceRef: workspaceRef,
-            paneID: nil,
-            paneRef: nil,
-            surfaceID: nil,
-            surfaceRef: nil,
-            surfaceType: nil,
-            reason: "shared-workspace-process-tree"
-        )
-    }
-
     private nonisolated func v2TopMemoryAttributionSpecificity(_ attribution: CmuxTopProcessAttribution) -> Int {
-        if attribution.surfaceID != nil {
-            return 3
-        }
-        if attribution.paneID != nil {
-            return 2
-        }
-        if attribution.workspaceID != nil {
-            return 1
-        }
-        return 0
+        attribution.owner.specificity
     }
 
     nonisolated func v2AttachTopApplicationProcess(

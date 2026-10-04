@@ -8,6 +8,6 @@ struct CanvasMinimapAutoHideClock: Sendable {
     init<C: Clock & Sendable>(_ clock: C) where C.Duration == Duration {
         let start = clock.now
         now = { start.duration(to: clock.now) }
-        sleep = { duration in try await clock.sleep(for: duration) }
+        sleep = { @Sendable duration in try await clock.sleep(for: duration) }
     }
 }

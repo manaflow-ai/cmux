@@ -1,7 +1,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
-import { Link } from "@/i18n/navigation";
+import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { Callout } from "@/app/[locale]/components/callout";
 import settingsSchema from "@/data/cmux.schema.json";
@@ -57,6 +57,7 @@ const sectionOrder = [
 
 type ConfigurationTranslation = ReturnType<typeof useTranslations>;
 
+/** Builds the localized JSONC example, including customizable editor shortcuts. */
 function buildSettingsFileExample(t: ConfigurationTranslation) {
   return `{
   "$schema": "${schemaUrl}",
@@ -67,6 +68,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "menuBarOnly": false,
   //   "newWorkspacePlacement": "afterCurrent",
   //   "windowTitleTemplate": "[cmux:{windowToken}] {activeWorkspace}",
+  //   "paneResizeStepPixels": 20,
   //   "confirmQuit": "always",
   //   "openSupportedFilesInCmux": true,
   //   "workspaceInheritWorkingDirectory": true,
@@ -141,6 +143,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "bindings": {
   //     "toggleSidebar": "cmd+b",
   //     "toggleFileExplorer": "cmd+opt+b",
+  //     "toggleFileEditorWordWrap": "opt+z",
   //     "newTab": ["ctrl+b", "c"],
   //     "commandPalettePrevious": null
   //   }
@@ -478,8 +481,10 @@ working-directory = ~/code`}</CodeBlock>
       <ul>
         <li>
           <code>sidebarFocus</code>, <code>browserFocus</code>, <code>markdownFocus</code>,{" "}
-          <code>filePreviewTextEditorFocus</code>, <code>terminalFocus</code>,{" "}
+          <code>filePreviewTextEditorFocus</code>, <code>simulatorFocus</code>,{" "}
+          <code>terminalFocus</code>,{" "}
           <code>commandPaletteVisible</code>, <code>terminalFindVisible</code>,{" "}
+          <code>terminalAlternateScreen</code>,{" "}
           <code>workspaceCanvasLayout</code> &mdash; {t("shortcutsWhenBooleanKeys")}
         </li>
         <li>

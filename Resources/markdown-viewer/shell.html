@@ -246,6 +246,12 @@ html { scroll-behavior: smooth; }
 {{highlightJS}}
 </script>
 <script>
+{{viewerNavigationJS}}
+</script>
+<script>
+{{markdownSanitizerJS}}
+</script>
+<script>
 (function() {
   var contentEl = document.getElementById('content');
   var lightSheet = document.getElementById('hljs-light');
@@ -265,8 +271,8 @@ html { scroll-behavior: smooth; }
   window.onunhandledrejection = function(ev) {
     showBootError((ev.reason && ev.reason.stack) || ev.reason || 'unhandled rejection');
   };
-  if (!window.marked || !window.hljs) {
-    showBootError('marked/highlight libraries did not load');
+  if (!window.marked || !window.hljs || !window.CmuxMarkdownSanitizer) {
+    showBootError('marked/highlight/sanitizer libraries did not load');
   }
   var cmuxStrings = {{localizedStringsJSON}};
   function cmuxString(key, fallback, replacements) {
@@ -687,17 +693,41 @@ html { scroll-behavior: smooth; }
     return true;
   }
 
-  function loadApprovedRemoteImage(href) {
-    remoteImageAllowedURLs[href] = true;
+  function remoteImagesForHref(href) {
+    var matches = [];
     contentEl.querySelectorAll('img[data-cmux-remote-src]').forEach(function(img) {
       var raw = unescapeDataAttribute(img.getAttribute('data-cmux-remote-src'));
       var info = remoteImageInfo(raw);
       if (info && remoteImageCanOfferLoad(info) && info.href === href) {
-        loadRemoteImage(img);
+        matches.push(img);
       }
     });
+    return matches;
+  }
+
+  // The host keeps the authoritative per-view approval record: its
+  // cmux-remote-image handler fetches only URLs the reader approved here.
+  function loadApprovedRemoteImage(href) {
+    var images = remoteImagesForHref(href);
+    images.forEach(function(img) { setRemoteImageLoadingState(img, true); });
+    try {
+      window.webkit.messageHandlers.cmuxLib.postMessage({ action: 'approveRemoteImage', url: href });
+    } catch (e) {
+      images.forEach(function(img) { setRemoteImageLoadingState(img, false); });
+      return false;
+    }
     return true;
   }
+
+  window.__cmuxRemoteImageApproved = function(href) {
+    remoteImageAllowedURLs[href] = true;
+    remoteImagesForHref(href).forEach(loadRemoteImage);
+  };
+
+  window.__cmuxRemoteImageRejected = function(href) {
+    delete remoteImageAllowedURLs[href];
+    remoteImagesForHref(href).forEach(function(img) { setRemoteImageLoadingState(img, false); });
+  };
 
   function appendRemoteImageText(placeholder, key, fallback, replacements) {
     var detail = document.createElement('span');
@@ -732,7 +762,9 @@ html { scroll-behavior: smooth; }
   }
 
   function openRemoteImageURL(href) {
-    window.open(href, '_blank', 'noopener');
+    try {
+      window.webkit.messageHandlers.cmuxLib.postMessage({ action: 'openRemoteImage', url: href });
+    } catch (e) { /* no bridge */ }
   }
 
   function temporarilySetButtonLabel(button, label, restoreLabel) {
@@ -882,104 +914,66 @@ html { scroll-behavior: smooth; }
     }
   }
 
-  function sanitizeRenderedHTML(html) {
-    var template = document.createElement('template');
-    template.innerHTML = String(html || '');
-
-    var blockedTags = {
-      script: true,
-      iframe: true,
-      object: true,
-      embed: true,
-      link: true,
-      style: true,
-      meta: true,
-      base: true,
-      audio: true,
-      form: true,
-      button: true,
-      picture: true,
-      source: true,
-      textarea: true,
-      track: true,
-      video: true,
-      select: true,
-      option: true,
-      svg: true,
-      math: true
-    };
-
-    var walker = document.createTreeWalker(template.content, NodeFilter.SHOW_ELEMENT);
-    var elements = [];
-    while (walker.nextNode()) {
-      elements.push(walker.currentNode);
+  // Every rendered fragment goes through the shared allowlist sanitizer
+  // (markdown-sanitizer.js). It parses in an inert document and returns DOM
+  // nodes, which are inserted directly so nothing is re-parsed live.
+  var markdownSanitizerProfile = CmuxMarkdownSanitizer.markdownProfile({
+    extraAttributes: { div: ['data-vega-mode'] },
+    inlineSVGAsImage: true,
+    url: function(ctx) {
+      var value = String(ctx.value == null ? '' : ctx.value);
+      if (ctx.tag === 'img' && ctx.name === 'src') {
+        // Remote images become consent placeholders in the element hook.
+        if (remoteImageInfo(value)) { return null; }
+        return isSafeURLAttribute('src', value) ? value : null;
+      }
+      if (ctx.tag === 'a' && ctx.name === 'href') {
+        return isSafeURLAttribute('href', value) ? value : null;
+      }
+      return null;
+    },
+    element: function(source, clean) {
+      var tag = clean.localName;
+      if (tag === 'img') {
+        var remoteInfo = remoteImageInfo(source.getAttribute('src'));
+        if (remoteInfo) {
+          clean.setAttribute('data-cmux-remote-src', escapeDataAttribute(remoteInfo.href));
+          clean.setAttribute('data-cmux-remote-host', escapeDataAttribute(remoteInfo.host));
+          if (!remoteInfo.https) {
+            clean.setAttribute('data-cmux-remote-blocked-reason', 'https-only');
+          }
+        }
+      }
+      if (tag === 'div' && clean.hasAttribute('data-vega-mode')) {
+        var mode = clean.getAttribute('data-vega-mode');
+        if (mode !== 'vega' && mode !== 'vega-lite') {
+          clean.removeAttribute('data-vega-mode');
+        }
+      }
+      return true;
     }
+  });
+  var diagramSanitizerProfile = CmuxMarkdownSanitizer.diagramProfile();
 
-    elements.forEach(function(el) {
-      var tag = String(el.tagName || '').toLowerCase();
-      if (blockedTags[tag]) {
-        el.remove();
-        return;
-      }
-
-      if (tag === 'input') {
-        var inputType = String(el.getAttribute('type') || '').toLowerCase();
-        if (inputType !== 'checkbox') {
-          el.remove();
-          return;
-        }
-        Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
-          var name = String(attr.name || '').toLowerCase();
-          if (name !== 'type' && name !== 'checked' && name !== 'disabled') {
-            el.removeAttribute(attr.name);
-          }
-        });
-        el.setAttribute('disabled', '');
-        return;
-      }
-
-      Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
-        var name = String(attr.name || '').toLowerCase();
-        if (name.indexOf('data-cmux-') === 0) {
-          el.removeAttribute(attr.name);
-          return;
-        }
-        if (
-          name.indexOf('on') === 0 ||
-          name === 'style' ||
-          name === 'background' ||
-          name === 'srcset' ||
-          name === 'srcdoc' ||
-          name === 'autofocus' ||
-          name === 'formaction' ||
-          name === 'xlink:href'
-        ) {
-          el.removeAttribute(attr.name);
-          return;
-        }
-        if (tag === 'img' && name === 'src') {
-          var remoteInfo = remoteImageInfo(attr.value);
-          if (remoteInfo) {
-            el.setAttribute('data-cmux-remote-src', escapeDataAttribute(remoteInfo.href));
-            el.setAttribute('data-cmux-remote-host', escapeDataAttribute(remoteInfo.host));
-            if (!remoteInfo.https) {
-              el.setAttribute('data-cmux-remote-blocked-reason', 'https-only');
-            }
-            el.removeAttribute(attr.name);
-            return;
-          }
-        }
-        if ((name === 'href' || name === 'src') && !isSafeURLAttribute(name, attr.value)) {
-          el.removeAttribute(attr.name);
-        }
-      });
-
-      if (tag === 'a') {
-        el.setAttribute('rel', 'noopener noreferrer');
-      }
+  function sanitizeMarkdownFragment(html) {
+    return CmuxMarkdownSanitizer.sanitizeToFragment(html, {
+      document: document,
+      profile: markdownSanitizerProfile
     });
+  }
 
-    return template.innerHTML;
+  function sanitizeDiagramFragment(svg) {
+    return CmuxMarkdownSanitizer.sanitizeToFragment(svg, {
+      document: document,
+      profile: diagramSanitizerProfile
+    });
+  }
+
+  function renderErrorBox(el, label, message) {
+    var box = document.createElement('div');
+    box.className = 'cmux-render-error';
+    box.textContent = label + ': ' + String(message);
+    el.replaceChildren(box);
   }
 
   // Configure marked: GitHub-flavored, with custom renderers for
@@ -990,7 +984,9 @@ html { scroll-behavior: smooth; }
   // calls these methods with the *legacy* positional signature
   // (text, level, raw / code, lang, escaped / href, title, text)
   // — NOT a single token object. Inline children are already
-  // rendered to HTML and passed in as `text`.
+  // rendered to HTML and passed in as `text`. Codespan text is the
+  // exception below: processAllTokens replaces marked's pre-escaped
+  // text with normalized raw source before the renderer escapes it once.
   var headingSlugCounts = Object.create(null);
   function uniqueHeadingSlug(raw) {
     var base = String(raw || '').toLowerCase()
@@ -1003,14 +999,90 @@ html { scroll-behavior: smooth; }
     return count === 0 ? base : base + '-' + count;
   }
 
+  function normalizedCodespanText(token) {
+    // Invalid boundaries mean marked's token contract changed. Never fall back
+    // to token.text here: a future version may supply either raw or pre-escaped
+    // text. A diagnostic sentinel keeps the failure visible and span-local; the
+    // renderer still escapes it before inserting it into HTML.
+    if (!token || typeof token.raw !== 'string') {
+      return '\uFFFD';
+    }
+    var openingDelimiter = token.raw.match(/^`+/);
+    if (!openingDelimiter) {
+      return '\uFFFD';
+    }
+    var delimiter = openingDelimiter[0];
+    if (
+      token.raw.length < delimiter.length * 2 ||
+      token.raw.slice(-delimiter.length) !== delimiter
+    ) {
+      return '\uFFFD';
+    }
+
+    // Own codespan normalization here instead of relying on marked's token.text,
+    // which marked 13.0.3 has already HTML-escaped. This mirrors CommonMark's
+    // newline and single outer-space normalization before our renderer performs
+    // the one and only HTML escape.
+    var text = token.raw.slice(delimiter.length, -delimiter.length)
+      .replace(/\n/g, ' ');
+    if (/[^ ]/.test(text) && /^ /.test(text) && / $/.test(text)) {
+      text = text.slice(1, -1);
+    }
+    return text;
+  }
+
+  function normalizeCodespanTokens(tokens) {
+    // marked's public walkTokens helper accumulates callback results with
+    // repeated Array.concat calls, making a registered walkTokens hook
+    // quadratic in the number of tokens. Traverse the token tree directly so
+    // normalization remains linear for large, untrusted markdown documents.
+    var pendingArrays = [tokens];
+    var visitedArrays = new WeakSet();
+    while (pendingArrays.length > 0) {
+      var siblings = pendingArrays.pop();
+      if (!Array.isArray(siblings) || visitedArrays.has(siblings)) {
+        continue;
+      }
+      visitedArrays.add(siblings);
+
+      for (var i = siblings.length - 1; i >= 0; i--) {
+        var token = siblings[i];
+        if (Array.isArray(token)) {
+          pendingArrays.push(token);
+          continue;
+        }
+        if (!token || typeof token !== 'object') {
+          continue;
+        }
+        if (token.type === 'codespan') {
+          token.text = normalizedCodespanText(token);
+        }
+
+        var keys = Object.keys(token);
+        for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+          var child = token[keys[keyIndex]];
+          if (Array.isArray(child)) {
+            pendingArrays.push(child);
+          }
+        }
+      }
+    }
+    return tokens;
+  }
+
   marked.use({
     gfm: true,
     breaks: false,
     pedantic: false,
+    hooks: {
+      processAllTokens: function(tokens) {
+        return normalizeCodespanTokens(tokens);
+      }
+    },
     renderer: {
       codespan(code) {
-        var raw = code || '';
-        return '<code>' + escapeHtml(raw) + '</code>';
+        var text = code || '';
+        return '<code>' + escapeHtml(text) + '</code>';
       },
       code(code, infostring, escaped) {
         var raw = code || '';
@@ -1085,7 +1157,7 @@ html { scroll-behavior: smooth; }
     var sel = libName === 'mermaid' ? '.cmux-mermaid' : '.cmux-vega';
     contentEl.querySelectorAll(sel + ':not([data-rendered])').forEach(function(el) {
       el.setAttribute('data-rendered', '1');
-      el.innerHTML = '<div class="cmux-render-error">' + libName + ': ' + escapeHtml(msg) + '</div>';
+      renderErrorBox(el, libName, msg);
     });
   }
 
@@ -1107,6 +1179,13 @@ html { scroll-behavior: smooth; }
     return Math.max(0, Math.min(markdownMaxScrollY(), y));
   }
 
+  // `setMarkdownScrollY` is the viewer's only programmatic scroll, so the
+  // position it last wrote is the position the viewer is in unless something
+  // else moved it: the reader, a find match, an anchor jump. Recording it lets
+  // the scroll listener below tell those apart from a reflow, which moves
+  // content under a stationary viewer without scrolling it.
+  var markdownScrollYWeWrote = null;
+
   function setMarkdownScrollY(y) {
     var targetY = clampScrollY(y);
     var scroller = markdownScroller();
@@ -1120,6 +1199,7 @@ html { scroll-behavior: smooth; }
       }
     } finally {
       root.style.scrollBehavior = previousBehavior;
+      markdownScrollYWeWrote = markdownScrollY();
     }
   }
 
@@ -1152,8 +1232,55 @@ html { scroll-behavior: smooth; }
     };
   }
 
+  // The restore runs once synchronously, then again on the next two animation
+  // frames so late layout (images, web fonts, Mermaid) that moves the anchor is
+  // still corrected. Those follow-up passes must keep making that correction,
+  // but must never fight a scroll that happened after the content update: a
+  // queued pass that fires once the reader -- or a find match, or an anchor
+  // jump -- has already moved the viewer would yank it back to the pre-update
+  // position.
+  //
+  // The two cases are told apart causally, not by comparing positions. A reflow
+  // moves content under a stationary viewer and fires no scroll event, so the
+  // correction still runs -- that is the whole reason the frames exist. A real
+  // scroll fires one, and since `setMarkdownScrollY` is the viewer's only
+  // programmatic scroll, any scroll that leaves the viewer somewhere other than
+  // the position we last wrote came from someone else, and this transaction
+  // stands down. A new content update also cancels the frames the previous one
+  // queued.
+  //
+  // The synchronous pass is the authoritative one. Nothing in the viewer, and
+  // nothing in its tests, may treat an animation frame as the completion signal
+  // for a render: a window that is not on an active display never gets one.
+  var markdownScrollRestoreFrame = 0;
+  var markdownScrollRestoreAbandoned = true;
+  var markdownScrollListenerInstalled = false;
+
+  function installMarkdownScrollListenerIfNeeded() {
+    if (markdownScrollListenerInstalled) { return; }
+    markdownScrollListenerInstalled = true;
+    window.addEventListener('scroll', function() {
+      if (markdownScrollRestoreAbandoned) { return; }
+      if (markdownScrollYWeWrote === null) { return; }
+      if (Math.abs(markdownScrollY() - markdownScrollYWeWrote) > 1) {
+        cancelPendingMarkdownScrollRestore();
+      }
+    }, { passive: true });
+  }
+
+  function cancelPendingMarkdownScrollRestore() {
+    if (markdownScrollRestoreFrame) {
+      window.cancelAnimationFrame(markdownScrollRestoreFrame);
+    }
+    markdownScrollRestoreFrame = 0;
+    markdownScrollRestoreAbandoned = true;
+  }
+
   function restoreMarkdownScrollState(state) {
+    cancelPendingMarkdownScrollRestore();
     if (!state) { return; }
+    installMarkdownScrollListenerIfNeeded();
+    markdownScrollRestoreAbandoned = false;
     function apply() {
       var targetY;
       if (state.nearTop) {
@@ -1171,15 +1298,28 @@ html { scroll-behavior: smooth; }
       }
       setMarkdownScrollY(targetY);
     }
-    apply();
-    window.requestAnimationFrame(function() {
+    function reapplyUnlessAbandoned() {
+      markdownScrollRestoreFrame = 0;
+      if (markdownScrollRestoreAbandoned) { return false; }
       apply();
-      window.requestAnimationFrame(apply);
+      return true;
+    }
+    apply();
+    markdownScrollRestoreFrame = window.requestAnimationFrame(function() {
+      if (!reapplyUnlessAbandoned()) { return; }
+      markdownScrollRestoreFrame = window.requestAnimationFrame(function() {
+        reapplyUnlessAbandoned();
+      });
     });
   }
 
   var mermaidInitialized = false;
   var cmuxMarkdownZoom = 1;
+  // Whether this engine's pageZoom scales the whole CSS viewport (newer WebKit,
+  // where fixed-px SVG bounds already track the prose) or only text metrics
+  // (older WebKit, where Mermaid SVGs need manual compensation). Unknown until
+  // the first non-default zoom supplies both host and CSS viewport widths.
+  var cmuxEngineScalesSVG = null;
   var mermaidResizeObserver = null;
   var mermaidObservedWidth = 0;
 
@@ -1271,16 +1411,17 @@ html { scroll-behavior: smooth; }
     return { width: width, height: height };
   }
 
-  function mermaidCurrentBaseSize(svg, natural) {
+  function mermaidCurrentBaseSize(svg, natural, containerScale) {
     var container = svg.closest ? svg.closest('.cmux-mermaid') : svg.parentElement;
     var rect = container && container.getBoundingClientRect ? container.getBoundingClientRect() : null;
     var containerWidth = rect ? rect.width : NaN;
     if (!Number.isFinite(containerWidth) || containerWidth <= 0) {
       containerWidth = container ? container.clientWidth : NaN;
     }
+    var scale = Number.isFinite(containerScale) && containerScale > 0 ? containerScale : 1;
     var width = natural.width;
     if (Number.isFinite(containerWidth) && containerWidth > 0) {
-      width = Math.min(containerWidth, natural.width);
+      width = Math.min(containerWidth * scale, natural.width);
     }
     return { width: width, height: width * (natural.height / natural.width) };
   }
@@ -1320,10 +1461,24 @@ html { scroll-behavior: smooth; }
       svg.setAttribute('data-cmux-mermaid-zoom', '1');
       return;
     }
-    var base = mermaidCurrentBaseSize(svg, natural);
-    // WKWebView pageZoom scales markdown text metrics here, but Mermaid SVG bounds stay fixed.
-    var width = Math.max(1, base.width * cmuxMarkdownZoom);
-    var height = Math.max(1, base.height * cmuxMarkdownZoom);
+    var width;
+    var height;
+    if (cmuxEngineScalesSVG === true) {
+      // This engine's pageZoom scales the whole viewport: the container's CSS
+      // width is already divided by the zoom, and the engine multiplies any
+      // CSS size we set. Pin the zoom-1 fitted size (letting a wide diagram
+      // overflow and scroll at its enlarged size) and let the engine scale it;
+      // multiplying here as well renders the diagram zoom-squared.
+      var pinned = mermaidCurrentBaseSize(svg, natural, cmuxMarkdownZoom);
+      width = Math.max(1, pinned.width);
+      height = Math.max(1, pinned.height);
+    } else {
+      // Older WKWebView pageZoom scales markdown text metrics but leaves fixed
+      // px SVG bounds alone, so the shell must size the diagram up itself.
+      var base = mermaidCurrentBaseSize(svg, natural, 1);
+      width = Math.max(1, base.width * cmuxMarkdownZoom);
+      height = Math.max(1, base.height * cmuxMarkdownZoom);
+    }
     svg.style.maxWidth = '';
     svg.setAttribute('data-cmux-mermaid-scaled', '1');
     svg.style.width = width + 'px';
@@ -1338,8 +1493,34 @@ html { scroll-behavior: smooth; }
     Array.prototype.forEach.call(scope.querySelectorAll('.cmux-mermaid svg'), applyMermaidZoomToSVG);
   }
 
-  window.__cmuxSetMarkdownZoom = function(zoom) {
+  function detectPageZoomViewportScaling(zoom, hostViewportWidth) {
+    var hostWidth = Number(hostViewportWidth);
+    var cssWidth = window.innerWidth;
+    if (
+      !Number.isFinite(hostWidth) ||
+      hostWidth <= 0 ||
+      !Number.isFinite(cssWidth) ||
+      cssWidth <= 0 ||
+      Math.abs(zoom - 1) <= 0.0001
+    ) {
+      return null;
+    }
+    var expectedViewportWidth = hostWidth / zoom;
+    var viewportDistance = Math.abs(cssWidth - expectedViewportWidth);
+    var legacyDistance = Math.abs(cssWidth - hostWidth);
+    var tolerance = Math.max(2, Math.max(hostWidth, expectedViewportWidth) * 0.02);
+    if (Math.min(viewportDistance, legacyDistance) > tolerance) { return null; }
+    return viewportDistance < legacyDistance;
+  }
+
+  window.__cmuxSetMarkdownZoom = function(zoom, hostViewportWidth) {
     cmuxMarkdownZoom = normalizedMarkdownZoom(zoom);
+    // Native supplies the current WKWebView width after setting pageZoom. A
+    // single contemporaneous sample distinguishes the engine generations:
+    // newer WebKit reports hostWidth / zoom, while older WebKit reports the
+    // unscaled hostWidth. No resize-sensitive historical baseline is needed.
+    var detectedScaling = detectPageZoomViewportScaling(cmuxMarkdownZoom, hostViewportWidth);
+    if (detectedScaling !== null) { cmuxEngineScalesSVG = detectedScaling; }
     mermaidObservedWidth = mermaidContentWidth(null);
     applyMermaidZoom(contentEl);
   };
@@ -1366,16 +1547,15 @@ html { scroll-behavior: smooth; }
       var id = 'cmux-mermaid-' + Date.now() + '-' + i + '-' + Math.floor(Math.random() * 1e6);
       try {
         mermaid.render(id, src).then(function(res) {
-          el.innerHTML = res.svg;
+          // Generated SVG is untrusted output of untrusted input. Interactive
+          // bindings are intentionally not attached.
+          el.replaceChildren(sanitizeDiagramFragment(res.svg));
           applyMermaidZoom(el);
-          if (res.bindFunctions) { try { res.bindFunctions(el); } catch (e) {} }
         }).catch(function(err) {
-          el.innerHTML = '<div class="cmux-render-error">Mermaid: '
-            + escapeHtml(String((err && err.message) || err)) + '</div>';
+          renderErrorBox(el, 'Mermaid', (err && err.message) || err);
         });
       } catch (err) {
-        el.innerHTML = '<div class="cmux-render-error">Mermaid: '
-          + escapeHtml(String((err && err.message) || err)) + '</div>';
+        renderErrorBox(el, 'Mermaid', (err && err.message) || err);
       }
     });
   }
@@ -1470,16 +1650,22 @@ html { scroll-behavior: smooth; }
         if (externalRef) {
           throw new Error('external resource references are not allowed at ' + externalRef);
         }
-        el.innerHTML = '';
         var opts = { mode: mode, actions: false, renderer: 'svg' };
         if (isDark) { opts.theme = 'dark'; }
-        vegaEmbed(el, spec, opts).catch(function(err) {
-          el.innerHTML = '<div class="cmux-render-error">Vega: '
-            + escapeHtml(String((err && err.message) || err)) + '</div>';
+        // Render off-document, export static SVG, and insert only the
+        // sanitized result.
+        var host = document.createElement('div');
+        vegaEmbed(host, spec, opts).then(function(result) {
+          return result.view.toSVG().then(function(svg) {
+            el.replaceChildren(sanitizeDiagramFragment(svg));
+          }).finally(function() {
+            try { result.finalize(); } catch (e) { /* ignore */ }
+          });
+        }).catch(function(err) {
+          renderErrorBox(el, 'Vega', (err && err.message) || err);
         });
       } catch (e) {
-        el.innerHTML = '<div class="cmux-render-error">Vega spec: '
-          + escapeHtml(String((e && e.message) || e)) + '</div>';
+        renderErrorBox(el, 'Vega spec', (e && e.message) || e);
       }
     });
   }
@@ -1652,12 +1838,16 @@ html { scroll-behavior: smooth; }
     try {
       headingSlugCounts = Object.create(null);
       var documentParts = extractFrontmatter(md || '');
-      var html = renderFrontmatter(documentParts.frontmatter)
-        + sanitizeRenderedHTML(marked.parse(documentParts.body || ''));
+      // Frontmatter and body share one sanitizer pass.
+      var fragment = sanitizeMarkdownFragment(
+        renderFrontmatter(documentParts.frontmatter) + marked.parse(documentParts.body || '')
+      );
+      // Serialized only to detect an unchanged document; never re-parsed.
+      var html = CmuxMarkdownSanitizer.serializeFragment(fragment, document);
       var didReplaceContent = contentEl.innerHTML !== html;
       var scrollState = didReplaceContent ? captureMarkdownScrollState() : null;
       if (didReplaceContent) {
-        contentEl.innerHTML = html;
+        contentEl.replaceChildren(fragment);
       }
       rewriteLocalImageSources();
       rewriteRemoteImageSources();
@@ -1666,10 +1856,17 @@ html { scroll-behavior: smooth; }
         restoreMarkdownScrollState(scrollState);
       }
     } catch (e) {
-      contentEl.innerHTML =
-        '<div style="color:#f85149;font-family:ui-monospace,monospace;white-space:pre-wrap;padding:8px 12px;border:1px solid #f85149;border-radius:6px;margin-bottom:12px">'
-        + 'markdown render error: ' + escapeHtml(String((e && e.message) || e))
-        + '</div><pre><code>' + escapeHtml(md || '') + '</code></pre>';
+      var errorBox = document.createElement('div');
+      errorBox.setAttribute(
+        'style',
+        'color:#f85149;font-family:ui-monospace,monospace;white-space:pre-wrap;padding:8px 12px;border:1px solid #f85149;border-radius:6px;margin-bottom:12px'
+      );
+      errorBox.textContent = 'markdown render error: ' + String((e && e.message) || e);
+      var sourcePre = document.createElement('pre');
+      var sourceCode = document.createElement('code');
+      sourceCode.textContent = md || '';
+      sourcePre.appendChild(sourceCode);
+      contentEl.replaceChildren(errorBox, sourcePre);
     }
   };
 
@@ -1769,6 +1966,13 @@ html { scroll-behavior: smooth; }
     darkMql.addListener(window.__cmuxApplyTheme);
   }
   window.__cmuxApplyTheme();
+  window.__cmuxPerformViewerNavigationAction = function(action) {
+    return CmuxViewerNavigation.performAction(action, markdownScroller());
+  };
+  CmuxViewerNavigation.installManualInputReset({
+    target: document,
+    getScroller: markdownScroller
+  });
 })();
 </script>
 </body>

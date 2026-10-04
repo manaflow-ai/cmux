@@ -1,5 +1,7 @@
+import CmuxRemoteSession
 import AppKit
 import Bonsplit
+import CmuxControlSocket
 import Testing
 
 #if canImport(cmux_DEV)
@@ -51,6 +53,43 @@ import Testing
         #expect(harness.workspace.panels.count == panelsBefore + 1)
     }
 
+    /// A mirrored pane lives in the mirror's nested Bonsplit tree, so its drop
+    /// context names a pane the workspace tree has never seen. The mirror must
+    /// own that target: without an owner every Finder file drop snapped back
+    /// (https://github.com/manaflow-ai/cmux/issues/14896).
+    @Test func mirrorPaneDropContextResolvesToTheWindowMirror() throws {
+        let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness()
+        defer { harness.tearDown() }
+        let tmuxPaneID = try #require(harness.mirror.paneIDsInOrder.last)
+        let panel = try #require(harness.mirror.panel(forPane: tmuxPaneID))
+        let paneID = try #require(harness.mirror.paneIdByPaneId[tmuxPaneID])
+        let context = PaneDropContext(
+            workspaceId: harness.workspace.id,
+            panelId: panel.id,
+            paneId: paneID
+        )
+
+        let container = try #require(harness.appDelegate.paneDropContainer(for: context))
+
+        #expect(container === harness.mirror)
+        #expect(container.fileDropTextDestinationKind(in: paneID, hasHostedTerminal: false) == .terminal)
+        #expect(!container.canPerformPortalPaneDrop(
+            PaneDragTransfer(
+                tabId: UUID(),
+                sourcePaneId: UUID(),
+                sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
+            ),
+            source: .surface
+        ))
+
+        let otherPanel = try #require(harness.mirror.panel(forPane: 11))
+        #expect(harness.appDelegate.paneDropContainer(for: PaneDropContext(
+            workspaceId: harness.workspace.id,
+            panelId: otherPanel.id,
+            paneId: paneID
+        )) == nil)
+    }
+
     @Test func windowMirrorSplitRejectsWhileConnecting() {
         let connection = RemoteTmuxControlConnection(host: RemoteTmuxHost(destination: "user@host"), sessionName: "work")
         let mirror = RemoteTmuxWindowMirror(
@@ -62,7 +101,88 @@ import Testing
             makePanel: { _ in nil }
         )
 
-        #expect(!mirror.requestSplit(fromPane: 7, vertical: true))
+        #expect(!mirror.requestSplit(
+            fromPane: 7,
+            vertical: true,
+            focusIntent: .focusCreatedPane
+        ))
+    }
+
+    @Test func focusedSplitRequestsTheCreatedPaneID() {
+        #expect(
+            RemoteTmuxSplitFocusIntent.focusCreatedPane.command(
+                vertical: false,
+                windowID: 2,
+                paneID: 4
+            ) == "split-window -P -F '#{pane_id}' -h -t @2.%4"
+        )
+    }
+
+    @Test func projectedForkSplitPreservesBeforePlacementAndRemoteLaunchContext() throws {
+        let command = try #require(
+            RemoteTmuxSplitFocusIntent.focusCreatedPane.agentForkCommand(
+                vertical: true,
+                windowID: 2,
+                paneID: 4,
+                insertBefore: true,
+                shellCommand: "claude --fork-session abc",
+                workingDirectory: "/tmp/remote fork"
+            )
+        )
+
+        #expect(command.hasPrefix("split-window -P -F '#{pane_id}' -v -b -t @2.%4"))
+        #expect(command.contains("-c '/tmp/remote fork'"))
+        #expect(command.hasSuffix("'claude --fork-session abc'"))
+    }
+
+    /// `new-split --focus false` must ask tmux to create the pane detached.
+    /// Without `-d`, tmux selects the new pane and its authoritative active-pane
+    /// publication also changes the mirror's internal focus (#7733).
+    @Test func backgroundControlSplitPreservesTheRemoteActivePane() throws {
+        let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness(
+            connectedTransport: true
+        )
+        defer { harness.tearDown() }
+        let activePaneBefore = harness.mirror.activePaneId
+        let tmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+        let surfaceID = try #require(harness.mirror.panel(forPane: tmuxPaneID)?.id)
+
+        let result = TerminalController.shared.controlSurfaceSplit(
+            routing: harness.routing(),
+            inputs: ControlSurfaceSplitInputs(
+                directionRaw: "right",
+                typeRaw: nil,
+                urlRaw: nil,
+                requestedSourceSurfaceID: surfaceID,
+                workingDirectory: nil,
+                initialCommand: nil,
+                tmuxStartCommand: nil,
+                remotePTYSessionID: nil,
+                remoteContextRaw: nil,
+                startupEnvironment: [:],
+                clientUnsupportedRemoteTmuxOptions: [],
+                requestedFocus: false,
+                initialDividerPosition: nil
+            )
+        )
+
+        guard case .routedToRemote = result else {
+            Issue.record("Expected background split to route to remote tmux: \(result)")
+            return
+        }
+        let writer = try #require(harness.controlWriter)
+        let pipe = try #require(harness.controlPipe)
+        writer.close()
+        let commands = try #require(String(
+            bytes: try pipe.fileHandleForReading.readToEnd() ?? Data(),
+            encoding: .utf8
+        ))
+        let splitCommands = commands.split(separator: "\n").filter {
+            $0.hasPrefix("split-window ")
+        }
+        #expect(splitCommands.count == 1)
+        #expect(splitCommands.first?.split(separator: " ").contains("-d") == true)
+        #expect(harness.mirror.activePaneId == activePaneBefore)
     }
 
     @Test func windowMirrorConfigurationTracksWorkspaceAppearanceAndEmbeddedPolicy() {

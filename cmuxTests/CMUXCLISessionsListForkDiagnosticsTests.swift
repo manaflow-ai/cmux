@@ -144,6 +144,23 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["fork_startup_input_available"] as? Bool == false)
     }
 
+    @Test func testSessionsListFailsClosedForRejectedLaunchCapture() throws {
+        let session = try sessionsListDiagnosticSession(
+            launcher: "codex",
+            executablePath: "/usr/local/bin/codex",
+            arguments: [],
+            environment: ["CODEX_HOME": "/tmp/cmux/rejected-codex-home"],
+            source: "rejected",
+            rejectionReason: "argvDecodeFailed"
+        )
+
+        #expect(session["hook_record_restorable"] as? Bool == false)
+        #expect(session["fork_command_available"] as? Bool == false)
+        #expect(session["fork_supported"] as? Bool == false)
+        #expect(session["fork_unavailable_reason"] as? String == "record_marked_non_restorable")
+        #expect(session["fork_startup_input_available"] as? Bool == false)
+    }
+
     @Test func testSessionsListIgnoresUntrustedLaunchCaptureForStartupInput() throws {
         let hugeCodexHome = "/tmp/" + String(repeating: "codex-home-", count: 100)
         let session = try sessionsListDiagnosticSession(
@@ -244,7 +261,7 @@ extension CMUXCLIErrorOutputRegressionTests {
     func sessionsListDiagnosticSession(
         agent: String = "codex", launcher: String, executablePath: String, arguments: [String],
         environment: [String: String] = [:], workingDirectory: String = "/tmp/cmux/debug", pid: Int? = nil,
-        transcriptPath: String? = nil
+        transcriptPath: String? = nil, source: String = "environment", rejectionReason: String? = nil
     ) throws -> [String: Any] {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -253,6 +270,17 @@ extension CMUXCLIErrorOutputRegressionTests {
         try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let sessionId = "019ef275-74e3-7777-9773-9dcb118ed5aa"
+        var launchCommand: [String: Any] = [
+            "launcher": launcher,
+            "executablePath": executablePath,
+            "arguments": arguments,
+            "workingDirectory": workingDirectory,
+            "environment": environment,
+            "source": source,
+        ]
+        if let rejectionReason {
+            launchCommand["rejectionReason"] = rejectionReason
+        }
         var record: [String: Any] = [
             "sessionId": sessionId,
             "workspaceId": "33B0D372-292E-42BF-97B6-E37CCA79AB84",
@@ -260,14 +288,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             "cwd": workingDirectory,
             "startedAt": 1_781_996_800.0,
             "updatedAt": 1_781_996_867.0,
-            "launchCommand": [
-                "launcher": launcher,
-                "executablePath": executablePath,
-                "arguments": arguments,
-                "workingDirectory": workingDirectory,
-                "environment": environment,
-                "source": "environment",
-            ],
+            "launchCommand": launchCommand,
         ]
         if let pid { record["pid"] = pid }
         if let transcriptPath { record["transcriptPath"] = transcriptPath }
@@ -282,11 +303,65 @@ extension CMUXCLIErrorOutputRegressionTests {
         processEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         processEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
         let result = runProcess(executablePath: cliPath, arguments: ["sessions", "list", "--agent", agent, "--session", sessionId, "--json"], environment: processEnvironment, timeout: 5)
-        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        // Require rather than expect: letting a failed process fall through makes every caller fail
+        // on JSON parsing instead of on the real reason. Report both streams because the runner keeps
+        // stderr out of JSON stdout. An unknown-agent fixture otherwise read as a decoding problem.
+        try #require(!result.timedOut, Comment(rawValue: result.diagnostics))
+        try #require(result.status == 0, Comment(rawValue: result.diagnostics))
         let outputData = try #require(result.stdout.data(using: .utf8))
         let object = try #require(JSONSerialization.jsonObject(with: outputData) as? [String: Any])
         let sessions = try #require(object["sessions"] as? [[String: Any]])
         return try #require(sessions.first)
+    }
+
+    @Test func testSessionsListFailsClosedForUnverifiedPiFamilyVersions() throws {
+        for agent in ["pi", "omp"] {
+            let session = try sessionsListDiagnosticSession(
+                agent: agent,
+                launcher: agent,
+                executablePath: agent,
+                arguments: [agent, "--session", "session-id"]
+            )
+            #expect(session["fork_command_available"] as? Bool == true)
+            #expect(session["fork_supported"] as? Bool == false)
+            #expect(session["fork_unavailable_reason"] as? String == "\(agent)_version_unverified")
+            #expect(session["fork_startup_input_available"] as? Bool == true)
+        }
+    }
+
+    @Test func testSessionsListUsesRequestedPiFamilyAgentBeforeExecutableBasename() throws {
+        let session = try sessionsListDiagnosticSession(
+            agent: "omp",
+            launcher: "omp",
+            executablePath: "/tmp/pi",
+            arguments: ["/tmp/pi", "--session", "session-id"]
+        )
+
+        #expect(session["fork_command_available"] as? Bool == true)
+        #expect(session["fork_supported"] as? Bool == false)
+        #expect(session["fork_unavailable_reason"] as? String == "omp_version_unverified")
+    }
+
+    @Test func testSessionsListDoesNotInferPiFamilyFromBasenameWhenStructuredIdentityDisagrees() throws {
+        // The agent and the launcher have to be a matched pair: a captured launch command is
+        // only used when its launcher describes the requested agent, and an unmatched pair is
+        // dropped, which leaves the record with no fork argv at all instead of exercising the
+        // rule below. "omo" is opencode's wrapper launcher, so this record is forkable and its
+        // structured identity is opencode, while the executable basename is still "pi" — that
+        // disagreement is what must not promote the record into the pi family. Nothing stats
+        // /tmp/pi here, because the omo launcher answers fork support before the opencode
+        // executable probe.
+        let session = try sessionsListDiagnosticSession(
+            agent: "opencode",
+            launcher: "omo",
+            executablePath: "/tmp/pi",
+            arguments: ["/tmp/pi", "omo"]
+        )
+
+        #expect(session["fork_command_available"] as? Bool == true)
+        #expect(session["fork_supported"] as? Bool == true)
+        #expect(session["fork_unavailable_reason"] as? String == "available")
+        #expect(session["fork_startup_input_available"] as? Bool == true)
     }
 
     @Test func testSessionsListForkStartupInputCountsSelectedEnvironment() throws {

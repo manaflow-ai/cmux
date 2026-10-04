@@ -1,14 +1,17 @@
 import AppKit
+import CmuxAgentChat
+import CmuxBrowser
 import SwiftUI
 import WebKit
 
 struct MarkdownWebRenderer: NSViewRepresentable {
-    static let localImageURLScheme = "cmux-local-image"
-    static let remoteImageURLScheme = "cmux-remote-image"
+    static let localImageURLScheme = MarkdownWebViewerScheme.localImage.rawValue
+    static let remoteImageURLScheme = MarkdownWebViewerScheme.remoteImage.rawValue
 
     let markdown: String
     let theme: MarkdownWebTheme
     let backgroundColor: NSColor
+    let isVisibleInUI: Bool
     let panelId: UUID
     let workspaceId: UUID
     let filePath: String
@@ -21,6 +24,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let maxContentWidth: Double
     let session: MarkdownRendererSession
     let onRequestPanelFocus: () -> Void
+    /// Called after the renderer view is attached to a window. A panel can
+    /// request focus before SwiftUI mounts its WebKit view, so the panel uses
+    /// this lifecycle signal to complete that request without polling.
+    var onViewAttachedToWindow: () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
         session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
@@ -32,6 +39,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.removeFromSuperview()
             }
             webView.onPointerDown = onRequestPanelFocus
+            webView.onAttachToWindow = onViewAttachedToWindow
+            webView.setVisibleInUI(isVisibleInUI)
             webView.onLeaveWindow = { [weak coordinator = context.coordinator] in
                 coordinator?.handleViewLeftWindow()
             }
@@ -50,6 +59,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         let config = WKWebViewConfiguration()
         config.suppressesIncrementalRendering = false
+        WebSurfaceSelectionReader.installTracking(in: config.userContentController)
         // Bridge: JS posts to `cmuxLib` to request lazy-loaded libraries
         // (mermaid / vega-lite). Swift fetches the bundled source from the
         // app bundle and injects it via evaluateJavaScript.
@@ -64,6 +74,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         )
         let webView = MarkdownWebView(frame: .zero, configuration: config)
         webView.onPointerDown = onRequestPanelFocus
+        webView.onAttachToWindow = onViewAttachedToWindow
+        webView.setVisibleInUI(isVisibleInUI)
         webView.onLeaveWindow = { [weak coordinator = context.coordinator] in
             coordinator?.handleViewLeftWindow()
         }
@@ -98,6 +110,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         // the panel-owned renderer session kept the same coordinator.
         context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
+        (nsView as? MarkdownWebView)?.setVisibleInUI(isVisibleInUI)
         applyBackground(to: nsView)
         applyAppearance(to: nsView, isDark: theme.isDark)
         context.coordinator.setFontSize(fontSize)
@@ -114,6 +127,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         nsView.navigationDelegate = nil
         nsView.uiDelegate = nil
         (nsView as? MarkdownWebView)?.onPointerDown = nil
+        (nsView as? MarkdownWebView)?.onAttachToWindow = nil
         (nsView as? MarkdownWebView)?.onLeaveWindow = nil
         (nsView as? MarkdownWebView)?.onReenterWindow = nil
         coordinator.cancelImageLoads()
@@ -139,6 +153,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKURLSchemeHandler {
         var webView: MarkdownWebView?
+        private let surfaceSelectionReader = WebSurfaceSelectionReader()
+        /// Fired after each successful markdown render push (initial shell
+        /// load included). Re-rendering replaces the content DOM, so an active
+        /// find-in-page search must re-run to restore its highlights.
+        var onMarkdownRendered: (() -> Void)?
         var panelId: UUID = UUID()
         var workspaceId: UUID = UUID()
         var filePath: String = ""
@@ -176,6 +195,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
         }
         private var imageLoads: [ObjectIdentifier: ImageLoad] = [:]
+        /// Remote images the reader approved in the current shell document.
+        /// The scheme handler fetches only these exact URLs.
+        private var remoteImageApprovals = MarkdownRemoteImageApprovals()
+        /// Base URL of the shell document being loaded, consumed by the first
+        /// main-frame navigation decision after `loadShell`.
+        private var pendingShellBaseURL: URL?
+        private let navigationPolicy = MarkdownViewerNavigationPolicy()
 
 #if DEBUG
         var isShellLoadingForTesting: Bool {
@@ -206,7 +232,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             let zoom = MarkdownFontSizeSettings.pageZoom(forPointSize: lastFontSize)
             let shouldSyncShell = forceShellSync || abs(webView.pageZoom - zoom) > 0.0001
             if abs(webView.pageZoom - zoom) > 0.0001 { webView.pageZoom = zoom }
-            if shouldSyncShell { webView.evaluateJavaScript("window.__cmuxSetMarkdownZoom && window.__cmuxSetMarkdownZoom(\(Double(zoom)));", completionHandler: nil) }
+            if shouldSyncShell { webView.evaluateJavaScript("window.__cmuxSetMarkdownZoom && window.__cmuxSetMarkdownZoom(\(Double(zoom)), \(Double(webView.bounds.width)));", completionHandler: nil) }
         }
 
         /// Records the desired body prose font and applies it as an inline
@@ -259,6 +285,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.navigationDelegate = nil
                 webView.uiDelegate = nil
                 webView.onPointerDown = nil
+                webView.onAttachToWindow = nil
                 webView.onLeaveWindow = nil
                 webView.onReenterWindow = nil
             }
@@ -269,6 +296,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             shellWasHealthyWhenDetached = false
             cancelImageLoads()
             requestedLibs.removeAll()
+            remoteImageApprovals.revokeAll()
+            pendingShellBaseURL = nil
         }
 
         func loadShell(theme: MarkdownWebTheme, initialMarkdown: String) {
@@ -278,8 +307,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             requestedLibs.removeAll()
             isLoaded = false
             isShellLoading = true
+            remoteImageApprovals.revokeAll()
             let html = MarkdownViewerAssets.shared.shellHTML(isDark: theme.isDark)
             let baseURL = URL(fileURLWithPath: filePath)
+            pendingShellBaseURL = baseURL
 #if DEBUG
             NSLog("MarkdownPanel.loadShell filePath=\(filePath) baseURL=\(baseURL.absoluteString) htmlBytes=\(html.utf8.count)")
 #endif
@@ -340,6 +371,18 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             return await evaluateString("window.__cmuxRenderedText && window.__cmuxRenderedText()")
         }
 
+        func readSurfaceSelection(filePath: String) async -> SurfaceSelectionReadResult {
+            let normalizedPath = URL(fileURLWithPath: filePath).standardizedFileURL.path
+            guard isLoaded, let webView else {
+                return .snapshot(.none(kind: .markdown, filePath: normalizedPath))
+            }
+            return await surfaceSelectionReader.read(
+                webView: webView,
+                kind: .markdown,
+                filePath: normalizedPath
+            )
+        }
+
         private func evaluateString(_ script: String) async -> String? {
             guard let webView else { return nil }
             do {
@@ -383,12 +426,15 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             NSLog("MarkdownPanel.pushMarkdown bytes=\(markdown.utf8.count)")
 #endif
             guard let js = Self.renderMarkdownScript(markdown) else { return }
-            webView.evaluateJavaScript(js) { _, error in
+            webView.evaluateJavaScript(js) { [weak self] _, error in
 #if DEBUG
                 if let error {
                     NSLog("MarkdownPanel: pushMarkdown evaluateJavaScript failed: \(error)")
                 }
 #endif
+                if error == nil {
+                    self?.onMarkdownRendered?()
+                }
             }
         }
 
@@ -456,6 +502,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                     if let resolved = resolvedMarkdownFilePath(rawPath) {
                         openMarkdownFile(resolved)
                     }
+                case "approveRemoteImage":
+                    guard let rawURL = body["url"] as? String else { return }
+                    approveRemoteImage(rawURL)
+                case "openRemoteImage":
+                    guard let rawURL = body["url"] as? String,
+                          let url = MarkdownRemoteImageApprovals.openableRemoteImageURL(rawURL) else { return }
+                    handleExternalLink(url)
                 default:
                     break
                 }
@@ -463,6 +516,20 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 
         private var requestedLibs: Set<String> = []
+
+        /// Records the reader's "Load this image" choice for exactly `rawURL`
+        /// and tells the shell whether it may now request that image.
+        private func approveRemoteImage(_ rawURL: String) {
+            let approved = remoteImageApprovals.approve(rawURL) != nil
+            guard let webView,
+                  let data = try? JSONSerialization.data(withJSONObject: [rawURL]),
+                  let literal = String(data: data, encoding: .utf8) else { return }
+            let callback = approved ? "__cmuxRemoteImageApproved" : "__cmuxRemoteImageRejected"
+            webView.evaluateJavaScript(
+                "window.\(callback) && window.\(callback)(\(literal)[0]);",
+                completionHandler: nil
+            )
+        }
 
         // MARK: WKURLSchemeHandler
 
@@ -535,10 +602,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
 
             if scheme == MarkdownWebRenderer.remoteImageURLScheme {
-                let remoteURL = MarkdownRemoteImageSecurity.remoteImageURL(from: requestURL)
+                let remoteURL = remoteImageApprovals.approvedRemoteImageURL(for: requestURL)
                 return Task.detached(priority: .userInitiated) {
                     guard let remoteURL,
-                          let fetched = await MarkdownRemoteImageFetcher.fetch(remoteURL) else {
+                          let fetched = await MarkdownRemoteImageFetcher().fetch(remoteURL) else {
                         return ImageLoadResult(data: Data(), mimeType: "image/png")
                     }
                     return ImageLoadResult(data: fetched.data, mimeType: fetched.mimeType)
@@ -793,25 +860,44 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
-            // The first load (loadHTMLString) has navigationType = .other —
-            // allow it. Anything the user clicks (links, anchors, ...) we
-            // route through the cmux tab/browser machinery.
-            if navigationAction.navigationType == .linkActivated,
-               let url = navigationAction.request.url {
-#if DEBUG
-                NSLog("MarkdownPanel.nav linkActivated url=\(url.absoluteString)")
-#endif
-                if isInPageFragment(url) {
-                    // Same-document fragment navigation (heading anchors)
-                    // scrolls the panel — keep it native.
-                    decisionHandler(.allow)
-                    return
-                }
-                handleExternalLink(url)
-                decisionHandler(.cancel)
-                return
+            let decisionHandler = BrowserNavigationActionDecisionHandler(
+                decisionHandler,
+                fallbackPolicy: WKNavigationActionPolicy.cancel,
+                label: "MarkdownWebRenderer.Coordinator.navigationAction"
+            ).closure
+
+            // The shell load (loadHTMLString) is the only navigation allowed
+            // without user activation. Activated links route through the cmux
+            // tab/browser machinery; everything else rendered content might
+            // trigger (script navigation, forms, refresh) is cancelled.
+            let url = navigationAction.request.url
+            let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? true
+            var isShellDocumentLoad = false
+            if isMainFrame, let shellBaseURL = pendingShellBaseURL {
+                pendingShellBaseURL = nil
+                isShellDocumentLoad = url.map {
+                    navigationPolicy.isShellDocumentURL($0, shellBaseURL: shellBaseURL)
+                } ?? false
             }
-            decisionHandler(.allow)
+            let decision = navigationPolicy.decide(
+                url: url,
+                isUserLinkActivation: navigationAction.navigationType == .linkActivated,
+                isMainFrame: isMainFrame,
+                isInPageFragment: url.map(isInPageFragment) ?? false,
+                isShellDocumentLoad: isShellDocumentLoad
+            )
+#if DEBUG
+            NSLog("MarkdownPanel.nav type=\(navigationAction.navigationType.rawValue) url=\(url?.absoluteString ?? "nil") decision=\(decision)")
+#endif
+            switch decision {
+            case .allow:
+                decisionHandler(.allow)
+            case .openExternally(let externalURL):
+                handleExternalLink(externalURL)
+                decisionHandler(.cancel)
+            case .cancel:
+                decisionHandler(.cancel)
+            }
         }
 
         func webView(
@@ -820,8 +906,15 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             for navigationAction: WKNavigationAction,
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
-            // target=_blank / window.open from inside the rendered markdown.
-            if let url = navigationAction.request.url {
+            // target=_blank links from inside the rendered markdown. Script
+            // `window.open` calls are not user link activations and are dropped.
+            if case .openExternally(let url) = navigationPolicy.decide(
+                url: navigationAction.request.url,
+                isUserLinkActivation: navigationAction.navigationType == .linkActivated,
+                isMainFrame: true,
+                isInPageFragment: false,
+                isShellDocumentLoad: false
+            ) {
                 handleExternalLink(url)
             }
             return nil

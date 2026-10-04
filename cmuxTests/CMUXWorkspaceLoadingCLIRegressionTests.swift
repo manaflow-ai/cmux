@@ -39,6 +39,7 @@ import Testing
         let workspaceId = UUID().uuidString
 
         defer {
+            CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
@@ -95,10 +96,21 @@ import Testing
         #expect(result.stdout == "before=OFF;after=ON\n")
 
         let commands = state.snapshot()
-        let workspaceListPayload = try #require(
-            commands.compactMap(v2Payload).first { $0["method"] as? String == "workspace.list" }
-        )
-        #expect((workspaceListPayload["params"] as? [String: Any])?["window_id"] as? String == windowId)
+        // The ref resolves client-side (#13964). This host lists the ref in every
+        // `workspace.list`, so one listing resolves it: the parameterless snapshot
+        // read, or a read scoped to the one window. A second listing would mean the
+        // CLI kept scanning after the ref was already found.
+        let workspaceListPayloads = commands.compactMap(v2Payload).filter {
+            $0["method"] as? String == "workspace.list"
+        }
+        #expect(workspaceListPayloads.count == 1, Comment(rawValue: commands.joined(separator: "\n")))
+        for payload in workspaceListPayloads {
+            let params = payload["params"] as? [String: Any] ?? [:]
+            #expect(
+                params.isEmpty || (params.count == 1 && params["window_id"] as? String == windowId),
+                Comment(rawValue: "unexpected workspace.list params: \(params)")
+            )
+        }
         #expect(commands.last == "workspace_loading manual on --tab=\(workspaceId)")
     }
 
@@ -178,46 +190,22 @@ import Testing
         handler: @escaping @Sendable (String) -> String
     ) -> DispatchSemaphore {
         let handled = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+        CLIMockAcceptLoopRegistry.shared.start(
+            listenerFD: listenerFD,
+            onConnection: { clientFD in
+                defer {
+                    Darwin.close(clientFD)
+                    handled.signal()
                 }
-            }
-            guard clientFD >= 0 else {
-                handled.signal()
-                return
-            }
-            defer {
-                Darwin.close(clientFD)
-                handled.signal()
-            }
-
-            var pending = Data()
-            var buffer = [UInt8](repeating: 0, count: 4096)
-            while true {
-                let count = Darwin.read(clientFD, &buffer, buffer.count)
-                if count < 0 {
-                    if errno == EINTR { continue }
-                    return
-                }
-                if count == 0 { return }
-                pending.append(buffer, count: count)
-
-                while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                    pending.removeSubrange(0...newlineRange.lowerBound)
-                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                cliMockServeLineFramedConnection(clientFD: clientFD) { line in
                     state.append(line)
-                    let response = handler(line) + "\n"
-                    _ = response.withCString { ptr in
-                        Darwin.write(clientFD, ptr, strlen(ptr))
-                    }
+                    return handler(line)
                 }
+            },
+            onListenerClosed: {
+                handled.signal()
             }
-        }
+        )
         return handled
     }
 
@@ -254,16 +242,13 @@ import Testing
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exitSignal.signal() }
+
         do {
             try process.run()
         } catch {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
-        }
-
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
         }
 
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut

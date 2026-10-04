@@ -8,9 +8,8 @@ import UIKit
 /// This is the thin compatibility surface the mobile packages call into
 /// (``append(_:)`` from the synchronous ``MobileDebugLog.anchormux(_:)`` helper, and
 /// ``copyToPasteboard(prepending:)`` from the debug menu). The actual buffer
-/// and its synchronization live in ``MobileDebugLogSink`` (an `actor`), so this
-/// type holds no mutable state of its own; it only bridges synchronous callers
-/// into the actor.
+/// and its synchronization live in ``MobileDebugLogSink`` (an `actor`); a
+/// bounded admission queue preserves ordering for synchronous producers.
 ///
 /// - Note: The ``shared`` instance is a TRANSITIONAL (iOS refactor) shim so the
 ///   many existing render/IO-thread call sites stay one-liners. The intended
@@ -26,18 +25,71 @@ public struct MobileDebugLog: Sendable {
             sink: MobileDebugLogSink(
                 fileURL: logFileURL,
                 fileHeader: fileHeader,
-                installCrashCapture: true
+                installCrashCapture: true,
+                startsFileLoggingEnabled: Self.startsFileLoggingEnabled
             )
         )
     }()
 
-    /// Default DEBUG-build file location for the durable iOS debug log.
-    ///
-    /// DEBUG builds write to `Application Support/cmux-debug.log` inside the app
-    /// container. Release builds always return `nil`, so callers cannot enable
-    /// durable debug logging by accident.
-    public static let logFileURL: URL? = {
+    /// UserDefaults key for the user-visible verbose-log opt-in. Release
+    /// builds write to disk only while this is set; DEBUG builds always log.
+    public static let verboseLogDefaultsKey = "cmux.diagnostics.verbose-log-enabled"
+
+    private static var startsFileLoggingEnabled: Bool {
         #if DEBUG
+        true
+        #else
+        UserDefaults.standard.bool(forKey: verboseLogDefaultsKey)
+        #endif
+    }
+
+    /// Turns durable file logging on or off for the shared sink and persists
+    /// the choice for the next launch. Returns whether the sink accepted it;
+    /// a failed enable is not persisted, so the toggle cannot claim to be
+    /// recording when no file could be opened.
+    @discardableResult
+    public func setFileLogging(enabled: Bool) async -> Bool {
+        guard await appendCoordinator.flush() else { return false }
+        let accepted = await sink.setFileLogging(enabled: enabled)
+        if accepted {
+            UserDefaults.standard.set(enabled, forKey: Self.verboseLogDefaultsKey)
+        }
+        return accepted
+    }
+
+    /// Waits until every previously admitted synchronous debug-log write has
+    /// reached the sink and its observers. Export uses this barrier before it
+    /// snapshots the supplemental verbose generations.
+    @discardableResult
+    public func flush() async -> Bool {
+        await appendCoordinator.flush()
+    }
+
+    /// Captures durable verbose generations through the sink actor so export
+    /// never races a file append or rotation.
+    public func snapshotPersistedLogData() async -> [Data]? {
+        await sink.snapshotPersistedLogData()
+    }
+
+    /// Clears both the in-memory buffer and the durable verbose-log file.
+    @discardableResult
+    public func clearPersistedLog() async -> Bool {
+        guard await appendCoordinator.flush() else { return false }
+        let wasFileLoggingEnabled = await sink.isFileLoggingEnabled()
+        await sink.clear()
+        let isFileLoggingEnabled = await sink.clearPersistedLog()
+        if wasFileLoggingEnabled {
+            UserDefaults.standard.set(isFileLoggingEnabled, forKey: Self.verboseLogDefaultsKey)
+        }
+        return isFileLoggingEnabled
+    }
+
+    /// File location for the durable iOS debug log.
+    ///
+    /// All builds resolve `Application Support/cmux-debug.log` inside the app
+    /// container; whether anything is WRITTEN there is controlled separately
+    /// (always in DEBUG, only behind the user's verbose-log opt-in in Release).
+    public static let logFileURL: URL? = {
         let fileManager = FileManager.default
         guard let applicationSupportURL = fileManager.urls(
             for: .applicationSupportDirectory,
@@ -51,24 +103,37 @@ public struct MobileDebugLog: Sendable {
                 withIntermediateDirectories: true
             )
             let fileURL = applicationSupportURL.appendingPathComponent("cmux-debug.log")
+            #if DEBUG
             NSLog("cmux debug log file: %@", fileURL.path)
+            #endif
             return fileURL
         } catch {
             return nil
         }
-        #else
-        return nil
-        #endif
     }()
+
+    /// All durable verbose-log generations, with the active file first.
+    /// Crash-time records and lines written before the app-log mirror was
+    /// installed are included in the unified diagnostics export through this
+    /// list.
+    public static var logFileURLs: [URL] {
+        guard let logFileURL else { return [] }
+        return [
+            logFileURL,
+            URL(fileURLWithPath: logFileURL.path + ".1"),
+        ].filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
 
     /// The actor that owns the ring buffer and broadcast stream.
     public let sink: MobileDebugLogSink
+    private let appendCoordinator: MobileDebugLogAppendCoordinator
 
     /// Wrap an existing sink.
     ///
     /// - Parameter sink: The actor-backed buffer to bridge synchronous calls to.
     public init(sink: MobileDebugLogSink) {
         self.sink = sink
+        self.appendCoordinator = MobileDebugLogAppendCoordinator(sink: sink)
     }
 
     /// Append one line, dispatching the write into the actor.
@@ -76,8 +141,11 @@ public struct MobileDebugLog: Sendable {
     /// Safe to call from any thread (Ghostty IO/render). The write is enqueued
     /// on the actor and does not block the caller.
     public func append(_ message: String) {
-        let sink = sink
-        Task { await sink.append(message) }
+        appendCoordinator.enqueue(message)
+    }
+
+    func appendBatch(_ messages: [String]) {
+        appendCoordinator.enqueueBatch(messages)
     }
 
     /// Identifies the running build so a pasted log proves which reload it came
@@ -117,6 +185,7 @@ public struct MobileDebugLog: Sendable {
     @MainActor
     @discardableResult
     public func copyToPasteboard(prepending: String? = nil) async -> Int {
+        guard await appendCoordinator.flush() else { return 0 }
         let (count, body) = await sink.snapshotWithCount()
         var header = "cmux iOS debug log — \(count) lines · \(Self.buildStamp)\n"
         if let logFileURL = Self.logFileURL {

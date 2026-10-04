@@ -9,7 +9,7 @@ export function createTestflightUser({
     primaryEmail: "Pro@Example.com",
     displayName: "Pro User",
     clientReadOnlyMetadata: {},
-    update: async () => undefined,
+    update: async (_options: { clientReadOnlyMetadata: unknown }): Promise<void> => {},
   };
   Object.defineProperty(user, testflightEligibilityKey, {
     value: eligible,

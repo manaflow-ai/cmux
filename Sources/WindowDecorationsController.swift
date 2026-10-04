@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import CmuxTestSupport
 
@@ -59,7 +60,7 @@ final class WindowDecorationsController {
         for name in TitlebarWindowGeometryNotifications.names {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main, using: handler))
         }
-        observers.append(center.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+        observers.append(center.addUserDefaultsObserver(object: nil) { [weak self] in
             self?.applyDefaultsDrivenDecorationChangeIfNeeded()
         })
     }
@@ -334,35 +335,48 @@ final class WindowDecorationsController {
         }
         #endif
 
-        Task { @MainActor [weak window] in
-            guard let window else { return }
+        let windowIdentifier = ObjectIdentifier(window)
+        Task { @MainActor in
+            guard let window = NSApp.windows.first(where: { ObjectIdentifier($0) == windowIdentifier }),
+                  let appDelegate = AppDelegate.shared,
+                  let context = appDelegate.prepareSenderRelativeMainWindowAction(in: window) else {
+                return
+            }
             switch slot {
             case .toggleSidebar:
-                _ = AppDelegate.shared?.toggleSidebarInActiveMainWindow(preferredWindow: window)
+                context.sidebarState.toggle()
             case .showNotifications:
                 let resolvedAnchorView = NotificationsAnchorRegistry.shared.closestAnchor(
                     in: window,
                     to: locationInWindow
                 ) ?? anchorView
-                AppDelegate.shared?.toggleNotificationsPopover(animated: true, anchorView: resolvedAnchorView)
+                appDelegate.toggleNotificationsPopover(animated: true, anchorView: resolvedAnchorView)
             case .newTab:
-                let targetTabManager = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: window)
-                _ = AppDelegate.shared?.performNewWorkspaceAction(
-                    tabManager: targetTabManager,
+                _ = appDelegate.performNewWorkspaceAction(
+                    tabManager: context.tabManager,
                     debugSource: "titlebar.minimalSidebarControl"
                 )
-            case .cloudVM:
-                guard let anchorView else { return }
-                _ = AppDelegate.shared?.showNewWorkspaceContextMenu(
-                    anchorView: anchorView,
-                    debugSource: "titlebar.minimalSidebar.cloudMenu"
-                )
+            case .newWorkspaceMenu:
+                if let anchorView {
+                    _ = appDelegate.showNewWorkspaceContextMenu(
+                        anchorView: anchorView,
+                        debugSource: "titlebar.minimalSidebarControl.newWorkspaceMenu"
+                    )
+                } else if let contentView = window.contentView {
+                    // Window-monitor path: no control view exists yet, so drop
+                    // the menu where the click landed.
+                    _ = appDelegate.showNewWorkspaceContextMenu(
+                        anchorView: contentView,
+                        at: contentView.convert(locationInWindow, from: nil),
+                        debugSource: "titlebar.minimalSidebarControl.newWorkspaceMenu"
+                    )
+                }
             case .focusHistoryBack:
-                guard focusHistoryNavigationAvailability(preferredWindow: window).canNavigateBack else { return }
-                AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: window)?.navigateBack()
+                guard context.tabManager.canNavigateBack else { return }
+                context.tabManager.navigateBack()
             case .focusHistoryForward:
-                guard focusHistoryNavigationAvailability(preferredWindow: window).canNavigateForward else { return }
-                AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: window)?.navigateForward()
+                guard context.tabManager.canNavigateForward else { return }
+                context.tabManager.navigateForward()
             }
         }
     }
@@ -408,9 +422,11 @@ final class WindowDecorationsController {
         target.isEnabled = true
         target.requiresRevealedState = true
         target.telemetryPrefix = "minimalSidebarTitlebarClickTarget"
-        target.onAction = { [weak self, weak window, weak target] slot, _, locationInWindow in
+        let windowIdentifier = ObjectIdentifier(window)
+        target.onAction = { [weak self, weak target] slot, _, locationInWindow in
             let anchorView = target
-            guard let self, let window else { return }
+            guard let self,
+                  let window = NSApp.windows.first(where: { ObjectIdentifier($0) == windowIdentifier }) else { return }
             self.performMinimalModeSidebarControlAction(
                 slot,
                 window: window,

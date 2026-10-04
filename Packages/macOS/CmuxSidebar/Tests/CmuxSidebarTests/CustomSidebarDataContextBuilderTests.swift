@@ -28,7 +28,8 @@ struct CustomSidebarDataContextBuilderTests {
     private func minimalWorkspace(
         id: UUID = UUID(),
         index: Int = 0,
-        surfaces: [CustomSidebarSurfaceSnapshot] = []
+        surfaces: [CustomSidebarSurfaceSnapshot] = [],
+        taskStatus: String = "todo"
     ) -> CustomSidebarWorkspaceSnapshot {
         CustomSidebarWorkspaceSnapshot(
             id: id,
@@ -50,7 +51,8 @@ struct CustomSidebarDataContextBuilderTests {
             latestConversationMessage: nil,
             latestSubmittedMessage: nil,
             latestSubmittedAt: nil,
-            remote: nil
+            remote: nil,
+            taskStatus: taskStatus
         )
     }
 
@@ -141,7 +143,8 @@ struct CustomSidebarDataContextBuilderTests {
             latestConversationMessage: nil,
             latestSubmittedMessage: nil,
             latestSubmittedAt: nil,
-            remote: nil
+            remote: nil,
+            taskStatus: "todo"
         )
 
         let value = builder.workspaceValue(workspace)
@@ -188,7 +191,8 @@ struct CustomSidebarDataContextBuilderTests {
             latestConversationMessage: "",
             latestSubmittedMessage: "",
             latestSubmittedAt: nil,
-            remote: nil
+            remote: nil,
+            taskStatus: "todo"
         )
 
         let value = builder.workspaceValue(workspace)
@@ -223,7 +227,8 @@ struct CustomSidebarDataContextBuilderTests {
             latestConversationMessage: "hi",
             latestSubmittedMessage: "do it",
             latestSubmittedAt: Date(timeIntervalSince1970: 100),
-            remote: .init(target: "host", stateRawValue: "connected", isConnected: true)
+            remote: .init(target: "host", stateRawValue: "connected", isConnected: true),
+            taskStatus: "todo"
         )
 
         let value = builder.workspaceValue(workspace)
@@ -268,7 +273,8 @@ struct CustomSidebarDataContextBuilderTests {
             latestConversationMessage: nil,
             latestSubmittedMessage: nil,
             latestSubmittedAt: nil,
-            remote: nil
+            remote: nil,
+            taskStatus: "todo"
         )
 
         let progress = builder.workspaceValue(workspace).member("progress")
@@ -307,5 +313,251 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(bare.member("directory") == nil)
         #expect(bare.member("branch") == nil)
         #expect(bare.member("ports") == nil)
+    }
+
+    @Test("Agents are omitted when empty and project all fields when present")
+    func agentFields() {
+        let builder = CustomSidebarDataContextBuilder()
+
+        let bare = builder.workspaceValue(minimalWorkspace())
+        #expect(bare.member("agents") == nil)
+
+        let panelId = UUID()
+        let surfaceId = UUID()
+        let full = CustomSidebarAgentSnapshot(
+            sessionId: "sess-1",
+            kind: "claude",
+            name: "Claude",
+            status: "working",
+            stateSince: Date(timeIntervalSince1970: 100),
+            lastActivityAt: Date(timeIntervalSince1970: 160),
+            title: "Fix the crash",
+            panelId: panelId,
+            surfaceId: surfaceId,
+            workingDirectory: "/repo",
+            transcriptPath: "/tmp/sess-1.jsonl",
+            pid: 4242
+        )
+        let value = builder.agentValue(full)
+        #expect(value.member("id") == .string("sess-1"))
+        #expect(value.member("kind") == .string("claude"))
+        #expect(value.member("name") == .string("Claude"))
+        #expect(value.member("status") == .string("working"))
+        #expect(value.member("sinceEpoch") == .int(100))
+        #expect(value.member("lastActivityAt") == .int(160))
+        #expect(value.member("title") == .string("Fix the crash"))
+        #expect(value.member("panelId") == .string(panelId.uuidString))
+        #expect(value.member("surfaceId") == .string(surfaceId.uuidString))
+        #expect(value.member("directory") == .string("/repo"))
+        #expect(value.member("transcriptPath") == .string("/tmp/sess-1.jsonl"))
+        #expect(value.member("pid") == .int(4242))
+        // No children -> the key is omitted entirely.
+        #expect(value.member("children") == nil)
+    }
+
+    @Test("Agent children project running and settled runs")
+    func agentChildrenProject() {
+        let builder = CustomSidebarDataContextBuilder()
+        let agent = CustomSidebarAgentSnapshot(
+            sessionId: "sess-3",
+            kind: "claude",
+            name: "Claude",
+            status: "working",
+            stateSince: Date(timeIntervalSince1970: 100),
+            lastActivityAt: Date(timeIntervalSince1970: 160),
+            title: nil,
+            panelId: nil,
+            surfaceId: nil,
+            workingDirectory: nil,
+            transcriptPath: nil,
+            pid: nil,
+            children: [
+                CustomSidebarAgentChildSnapshot(
+                    id: "task-1",
+                    label: "Explore the pipeline",
+                    isRunning: true,
+                    startedAt: Date(timeIntervalSince1970: 120),
+                    endedAt: nil
+                ),
+                CustomSidebarAgentChildSnapshot(
+                    id: "task-2",
+                    label: nil,
+                    isRunning: false,
+                    startedAt: Date(timeIntervalSince1970: 110),
+                    endedAt: Date(timeIntervalSince1970: 150)
+                ),
+            ]
+        )
+
+        let value = builder.agentValue(agent)
+        guard case let .array(children)? = value.member("children") else {
+            Issue.record("children missing")
+            return
+        }
+        #expect(children.count == 2)
+        #expect(children[0].member("id") == .string("task-1"))
+        #expect(children[0].member("label") == .string("Explore the pipeline"))
+        #expect(children[0].member("running") == .bool(true))
+        #expect(children[0].member("startedEpoch") == .int(120))
+        #expect(children[0].member("endedEpoch") == nil)
+        #expect(children[1].member("label") == nil)
+        #expect(children[1].member("running") == .bool(false))
+        #expect(children[1].member("endedEpoch") == .int(150))
+    }
+
+    @Test("Agent optional fields are omitted when absent")
+    func agentOptionalFieldsOmitted() {
+        let builder = CustomSidebarDataContextBuilder()
+        let minimal = CustomSidebarAgentSnapshot(
+            sessionId: "sess-2",
+            kind: "codex",
+            name: "Codex",
+            status: "idle",
+            stateSince: nil,
+            lastActivityAt: Date(timeIntervalSince1970: 5),
+            title: "",
+            panelId: nil,
+            surfaceId: nil,
+            workingDirectory: nil,
+            transcriptPath: "",
+            pid: nil
+        )
+
+        let value = builder.agentValue(minimal)
+
+        #expect(value.member("status") == .string("idle"))
+        #expect(value.member("sinceEpoch") == nil)
+        #expect(value.member("title") == nil)
+        #expect(value.member("panelId") == nil)
+        #expect(value.member("surfaceId") == nil)
+        #expect(value.member("directory") == nil)
+        #expect(value.member("transcriptPath") == nil)
+        #expect(value.member("pid") == nil)
+
+        let workspace = CustomSidebarWorkspaceSnapshot(
+            id: UUID(),
+            title: "W",
+            isSelected: false,
+            isPinned: false,
+            index: 0,
+            directory: "/",
+            listeningPorts: [],
+            unreadCount: 0,
+            surfaces: [],
+            surfaceCount: 0,
+            customDescription: nil,
+            customColor: nil,
+            gitBranch: nil,
+            gitIsDirty: false,
+            pullRequestValues: [],
+            progress: nil,
+            latestConversationMessage: nil,
+            latestSubmittedMessage: nil,
+            latestSubmittedAt: nil,
+            remote: nil,
+            agents: [minimal],
+            taskStatus: "todo"
+        )
+        let agents = builder.workspaceValue(workspace).member("agents")
+        #expect(agents?.iterationValues?.count == 1)
+        #expect(agents?.iterationValues?.first?.member("id") == .string("sess-2"))
+    }
+
+    @Test("Groups project id/name/state and workspaces carry their group id")
+    func groupFields() {
+        let builder = CustomSidebarDataContextBuilder()
+        let groupId = UUID()
+        let anchorId = UUID()
+        let group = CustomSidebarGroupSnapshot(
+            id: groupId,
+            name: "Infra",
+            isCollapsed: true,
+            isPinned: false,
+            anchorWorkspaceId: anchorId,
+            customColor: "#FF8800",
+            iconSymbol: nil
+        )
+
+        let value = builder.groupValue(group)
+        #expect(value.member("id") == .string(groupId.uuidString))
+        #expect(value.member("name") == .string("Infra"))
+        #expect(value.member("collapsed") == .bool(true))
+        #expect(value.member("pinned") == .bool(false))
+        #expect(value.member("anchorId") == .string(anchorId.uuidString))
+        #expect(value.member("color") == .string("#FF8800"))
+        #expect(value.member("icon") == nil)
+    }
+
+    @Test("Surface prompt and unread fields project per surface")
+    func surfacePromptFields() {
+        let builder = CustomSidebarDataContextBuilder()
+        let id = UUID()
+        let submittedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let waiting = CustomSidebarSurfaceSnapshot(
+            panelId: id,
+            title: "agent",
+            isFocused: false,
+            isPinned: false,
+            directory: nil,
+            gitBranch: nil,
+            gitIsDirty: false,
+            listeningPorts: [],
+            latestSubmittedMessage: "run the migration",
+            latestSubmittedAt: submittedAt,
+            hasUnreadNotification: true
+        )
+
+        let value = builder.surfaceValue(waiting)
+
+        #expect(value.member("latestPrompt") == .string("run the migration"))
+        #expect(value.member("latestAt") == .int(1_700_000_000))
+        #expect(value.member("hasUnread") == .bool(true))
+
+        let bare = builder.surfaceValue(minimalSurface(id: id))
+        #expect(bare.member("latestPrompt") == nil)
+        #expect(bare.member("latestAt") == nil)
+        #expect(bare.member("hasUnread") == .bool(false))
+    }
+
+    @Test("Empty surface prompt is omitted like the workspace-level field")
+    func surfaceEmptyPromptOmitted() {
+        let builder = CustomSidebarDataContextBuilder()
+        let blank = CustomSidebarSurfaceSnapshot(
+            panelId: UUID(),
+            title: "agent",
+            isFocused: false,
+            isPinned: false,
+            directory: nil,
+            gitBranch: nil,
+            gitIsDirty: false,
+            listeningPorts: [],
+            latestSubmittedMessage: "",
+            latestSubmittedAt: nil,
+            hasUnreadNotification: false
+        )
+
+        #expect(builder.surfaceValue(blank).member("latestPrompt") == nil)
+    }
+
+    @Test("Workspace status projects the resolved lane")
+    func workspaceStatusProjects() {
+        let builder = CustomSidebarDataContextBuilder()
+
+        for lane in ["todo", "working", "needs-attention", "review", "done"] {
+            let workspace = minimalWorkspace(taskStatus: lane)
+            #expect(builder.workspaceValue(workspace).member("status") == .string(lane))
+        }
+    }
+
+    // `status` is an always-present key, not an optional one: a sidebar reads
+    // it without `if let`, so it must survive a workspace that carries nothing
+    // else worth showing.
+    @Test("Workspace status is present even on an otherwise empty workspace")
+    func workspaceStatusAlwaysPresent() {
+        let builder = CustomSidebarDataContextBuilder()
+        let value = builder.workspaceValue(minimalWorkspace())
+
+        #expect(value.member("status") == .string("todo"))
+        #expect(value.member("branch") == nil)
     }
 }

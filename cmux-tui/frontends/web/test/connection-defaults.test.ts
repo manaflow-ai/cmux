@@ -8,16 +8,20 @@ describe("WebSocket URL defaults", () => {
   });
 
   it("uses the documented secure port beside a remotely hosted frontend", () => {
-    expect(defaultWebSocketUrl("lawrences-macbook-pro-2.tail137216.ts.net"))
-      .toBe("wss://lawrences-macbook-pro-2.tail137216.ts.net:8443");
+    expect(defaultWebSocketUrl("my-mac.tail0000.ts.net"))
+      .toBe("wss://my-mac.tail0000.ts.net:8443");
   });
 
-  it("gives an explicit query URL priority over remembered and host defaults", () => {
+  it("takes the socket URL from the query and the token only from the fragment", () => {
     const storage = { getItem: () => "wss://remembered.test:8443" };
+    const location = {
+      hostname: "remote.test",
+      search: "?ws=ws%3A%2F%2F127.0.0.1%3A7682&token=query-secret",
+      hash: "#token=fragment-secret",
+    };
     expect(initialConnectionConfig(
-      { hostname: "remote.test", search: "?ws=ws%3A%2F%2F127.0.0.1%3A7682&token=t" },
+      location,
       storage,
-    )).toEqual({ url: "ws://127.0.0.1:7682", token: "t" });
+    )).toEqual({ url: "ws://127.0.0.1:7682", token: "fragment-secret" });
   });
 });
-

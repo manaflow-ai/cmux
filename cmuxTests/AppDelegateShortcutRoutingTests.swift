@@ -1,4 +1,5 @@
 import XCTest
+import CmuxBrowser
 import CmuxTerminal
 import AppKit
 import Carbon.HIToolbox
@@ -25,6 +26,7 @@ private final class FakeTextBoxSubmitSurface: TextBoxSubmitSurfaceControlling {
     var sendTextResult = true
     var sendNamedKeyResult: TerminalSurface.NamedKeySendResult = .sent
     var performBindingActionResult = true
+    var performExplicitInputBindingActionHandler: (() -> Bool)?
     private(set) var sentText: [String] = []
     private(set) var sentKeys: [String] = []
 
@@ -54,6 +56,13 @@ private final class FakeTextBoxSubmitSurface: TextBoxSubmitSurfaceControlling {
     func performBindingAction(_ action: String) -> Bool {
         sentKeys.append(action)
         return performBindingActionResult
+    }
+
+    @discardableResult
+    func performExplicitInputBindingAction(_ action: String) -> Bool {
+        sentKeys.append(action)
+        return performExplicitInputBindingActionHandler?()
+            ?? performBindingActionResult
     }
 
     func completeClipboardRead() {
@@ -198,7 +207,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         AppDelegate.shared?.debugCloseMainWindowConfirmationHandler = nil
-        AppDelegate.shared?.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
         if AppDelegate.shared?.dismissNotificationsPopoverIfShown() == true {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         }
@@ -1012,7 +1020,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(workspace.panels.count, initialPanelCount, "Unmatched chord suffix must not trigger the action")
     }
 
-    func testCreateMainWindowDoesNotDisallowFullScreenTilingByDefault() {
+    func testCreateMainWindowAllowsFullScreenTilingByDefault() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -1030,41 +1038,95 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertFalse(
             window.collectionBehavior.contains(.fullScreenDisallowsTiling),
-            "Main windows should still support standard macOS Split View when not created from a fullscreen source"
+            "Main windows should allow macOS Full Screen Tile unless they are spawned from a native fullscreen source"
         )
     }
 
-    func testCreateMainWindowTemporarilyDisallowsFullScreenTilingFromFullscreenSource() {
+    func testCreateMainWindowAppliesFullscreenSourceTilingOptOut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
 
-        appDelegate.debugCreateMainWindowSourceIsNativeFullScreenOverride = true
+        let sourceWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .resizable, .fullScreen],
+            backing: .buffered,
+            defer: false
+        )
+        sourceWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.test-source")
+        sourceWindow.isReleasedWhenClosed = false
+        defer { sourceWindow.close() }
 
-        let newWindowId = appDelegate.createMainWindow()
-        defer {
-            closeWindow(withId: newWindowId)
-        }
+        let windowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: sourceWindow)
+        defer { closeWindow(withId: windowId) }
 
-        guard let newWindow = window(withId: newWindowId) else {
-            XCTFail("Expected new window")
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
             return
         }
 
         XCTAssertTrue(
-            newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling),
-            "New windows should temporarily opt out of fullscreen tiling while opening from a fullscreen source"
+            window.collectionBehavior.contains(.fullScreenDisallowsTiling),
+            "A window created from native fullscreen should temporarily opt out of tiling"
         )
+    }
 
-        appDelegate.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
-        waitUntil(timeout: 1.0) {
-            !newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling)
+    func testCreateMainWindowTemporarilyDisallowsFullScreenTilingFromFullscreenSource() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let controller = MainWindowController(window: window)
+        defer {
+            window.close()
         }
 
+        controller.disallowFullscreenTilingUntilPresentation()
+        XCTAssertTrue(
+            window.collectionBehavior.contains(.fullScreenDisallowsTiling),
+            "A window spawned from native fullscreen should opt out while it is being presented"
+        )
+
+        controller.windowDidBecomeKey(Notification(name: NSWindow.didBecomeKeyNotification, object: window))
+
         XCTAssertFalse(
-            newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling),
-            "The fullscreen tiling opt-out should be cleared after initial presentation so Split View keeps working"
+            window.collectionBehavior.contains(.fullScreenDisallowsTiling),
+            "The fullscreen tiling opt-out should be cleared when presentation makes the window key"
+        )
+    }
+
+    func testFullscreenTilingOptOutOnlyAppliesToNativeFullscreenSources() {
+        let sourceWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .resizable, .fullScreen],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            sourceWindow.close()
+        }
+
+        XCTAssertTrue(
+            MainWindowController.shouldTemporarilyDisallowFullscreenTiling(
+                sourceWindow: sourceWindow,
+                restoringSessionWindow: false
+            )
+        )
+        XCTAssertFalse(
+            MainWindowController.shouldTemporarilyDisallowFullscreenTiling(
+                sourceWindow: sourceWindow,
+                restoringSessionWindow: true
+            )
+        )
+        XCTAssertFalse(
+            MainWindowController.shouldTemporarilyDisallowFullscreenTiling(
+                sourceWindow: nil,
+                restoringSessionWindow: false
+            )
         )
     }
 
@@ -1149,6 +1211,56 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testSenderRelativeSidebarActionKeysItsOriginatingWindowBeforeMutation() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let originatingWindowId = appDelegate.createMainWindow()
+        let previouslyFocusedWindowId = appDelegate.createMainWindow()
+
+        defer {
+            closeWindow(withId: originatingWindowId)
+            closeWindow(withId: previouslyFocusedWindowId)
+        }
+
+        guard let originatingWindow = window(withId: originatingWindowId),
+              let previouslyFocusedWindow = window(withId: previouslyFocusedWindowId),
+              let originatingVisibilityBefore = appDelegate.sidebarVisibility(windowId: originatingWindowId),
+              let previouslyFocusedVisibilityBefore = appDelegate.sidebarVisibility(windowId: previouslyFocusedWindowId) else {
+            XCTFail("Expected both window contexts to exist")
+            return
+        }
+
+        originatingWindow.orderFront(nil)
+        previouslyFocusedWindow.makeKeyAndOrderFront(nil)
+        // A key-window change lands on a later run-loop turn, and a loaded
+        // runner can take several; wait for it instead of a fixed 50 ms.
+        XCTAssertTrue(
+            waitForCondition(timeout: 5) { appDelegate.shortcutRoutingKeyWindow === previouslyFocusedWindow }
+        )
+
+        XCTAssertTrue(
+            appDelegate.toggleSidebarInActiveMainWindow(preferredWindow: originatingWindow)
+        )
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 5) { appDelegate.shortcutRoutingKeyWindow === originatingWindow },
+            "An in-window action must request key status for its originating window before mutating window state"
+        )
+        XCTAssertEqual(
+            appDelegate.sidebarVisibility(windowId: originatingWindowId),
+            !originatingVisibilityBefore,
+            "The originating window should receive the sidebar mutation"
+        )
+        XCTAssertEqual(
+            appDelegate.sidebarVisibility(windowId: previouslyFocusedWindowId),
+            previouslyFocusedVisibilityBefore,
+            "The previously focused window must remain unchanged"
+        )
+    }
+
     func testWelcomeWindowSidebarShortcutsUseSharedToggleCommands() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -1187,6 +1299,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        // This test owns the window through ARC, so AppKit must not release it as well when the
+        // deferred performClose() below runs. Leaving the default on drops the last retain a
+        // runloop turn later while the delegate's window context and the focus-capture swizzle
+        // still hold weak references to that address, which aborts the whole test host instead
+        // of failing one test. Every other closed window in this file does the same.
+        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
 
         let tabManager = TabManager()
@@ -1665,7 +1783,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
-        defer { AppDelegate.shared = previousAppDelegate }
+        defer {
+            AppDelegate.shared = previousAppDelegate
+            // AppDelegate.init() points the shared surface registry's route retirer at itself, and
+            // the registry holds that collaborator weakly. Restoring `shared` alone leaves the
+            // retirer nil once this temporary delegate dies, so every later test in this host runs
+            // against a registry that never sweeps retired main-window routes.
+            if let previousAppDelegate {
+                GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(previousAppDelegate)
+            }
+        }
 
         let orphanWindowId = UUID()
         let orphanManager = TabManager()
@@ -1736,10 +1863,25 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             )
             orphanWindow = nil
         }
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: orphanWindowId)
+        }
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(
+            waitForCondition {
+                appDelegate.mainWindow(for: orphanWindowId) == nil
+            },
+            "Test precondition: orphaned context should not have a live window"
+        )
 
-        XCTAssertNil(appDelegate.mainWindow(for: orphanWindowId), "Test precondition: orphaned context should not have a live window")
+        // The workspace route only guarantees eager pruning for the stale active
+        // context before it falls back to a live key/main window. Model that exact
+        // state; an unrelated orphan is intentionally not swept by every shortcut.
+        let previousTabManager = appDelegate.tabManager
+        appDelegate.tabManager = orphanManager
+        defer {
+            appDelegate.tabManager = previousTabManager
+        }
 
         let orphanCount = orphanManager.tabs.count
         let remappedCmdT = StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
@@ -1760,11 +1902,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #else
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         }
 
         XCTAssertEqual(orphanManager.tabs.count, orphanCount, "Orphaned manager must not receive a new workspace from remapped Cmd+T")
-        XCTAssertNil(appDelegate.tabManagerFor(windowId: orphanWindowId), "Remapped Cmd+T should prune the orphaned context after failed resolution")
+        XCTAssertTrue(
+            waitForCondition {
+                appDelegate.tabManagerFor(windowId: orphanWindowId) == nil
+            },
+            "Remapped Cmd+T should prune the orphaned context after failed resolution"
+        )
 
         let createdWindowIds = mainWindowIds().subtracting(existingWindowIds)
         for windowId in createdWindowIds {
@@ -2037,8 +2183,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let originalPanelIds = Set(workspace.panels.keys)
+        // createMainWindow copies the size of the current main window, and
+        // earlier tests in the host leave 320-point windows behind. Split
+        // admission then correctly refuses the second side-by-side split this
+        // test makes, so give the window and its split container a realistic
+        // size first (same fix as #15434).
+        window.setContentSize(NSSize(width: 1_000, height: 700))
+        window.contentView?.layoutSubtreeIfNeeded()
+        workspace.bonsplitController.setContainerFrame(CGRect(x: 0, y: 0, width: 1_000, height: 700))
 
-        guard let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+        guard let rightPanel = newTerminalSplitForSplitAdmissionTesting(window: window, workspace: workspace, from: leftPanelId, orientation: .horizontal) else {
             XCTFail("Expected split terminal panels")
             return
         }
@@ -2174,10 +2328,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let windowId = appDelegate.createMainWindow()
         defer { closeWindow(withId: windowId) }
 
-        guard let targetWindow = window(withId: windowId) else {
-            XCTFail("Expected test window")
+        guard let targetWindow = window(withId: windowId),
+              let workspace = appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected test window and focused panel")
             return
         }
+        // Close Window only asks when something would be lost.
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
 
         var promptedWindow: NSWindow?
         appDelegate.debugCloseMainWindowConfirmationHandler = { candidate in
@@ -2890,7 +3048,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // The same window shape MobilePairingWindowController creates, keyed by
         // the same identifier constant, so this test fails if the pairing
         // window's identifier ever drops out of cmuxAuxiliaryWindowIdentifiers
-        // (the regression: Cmd+W on "Pair iPhone" closed a terminal tab in the
+        // (the regression: Cmd+W on "Mobile Pairing" closed a terminal tab in the
         // main window behind it instead of the pairing window).
         let pairingWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 800),
@@ -2929,7 +3087,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        XCTAssertFalse(pairingWindow.isVisible, "Cmd+W should close the Pair iPhone window")
+        XCTAssertFalse(pairingWindow.isVisible, "Cmd+W should close the Mobile Pairing window")
         XCTAssertNotNil(self.window(withId: windowId), "Cmd+W in the pairing window should not close the main window")
         XCTAssertEqual(manager.tabs.count, mainWorkspaceCount, "Cmd+W in the pairing window should not close a terminal tab")
         XCTAssertNotEqual(
@@ -3175,8 +3333,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let windowId = appDelegate.createMainWindow(sessionWindowSnapshot: snapshot)
         defer { closeWindow(withId: windowId) }
 
-        guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            XCTFail("Expected tab manager for created window")
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected window and tab manager for created window")
             return
         }
 
@@ -3193,6 +3352,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // collapsed sidebar, but the selected workspace's live Bonsplit inset is stale.
         sourceWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset = 0
 
+        // This API deliberately routes to the focused window. Reassert focus after
+        // draining the run loop so unrelated window activity cannot redirect the test.
+        window.makeKeyAndOrderFront(nil)
         guard let createdWorkspace = appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "test.issue2737") else {
             XCTFail("Expected workspace creation to route to the test window")
             return
@@ -3284,6 +3446,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("Expected main window")
             return
         }
+
+        XCTAssertFalse(
+            window.titlebarAccessoryViewControllers.contains {
+                $0.view.identifier?.rawValue == "cmux.titlebarMobileConnect"
+            },
+            "Account, Upgrade, and Mobile controls belong exclusively in the sidebar footer"
+        )
 
         let titlebarAccessory: () -> NSTitlebarAccessoryViewController? = {
             window.titlebarAccessoryViewControllers.first {
@@ -4300,6 +4469,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        // Ghostty's imported goto_split:next binding (⌘] in its macOS defaults) is
+        // a compatibility fallback that matches the physical ANSI `]` key (keyCode
+        // 30) once Focus Forward / Browser Forward are unbound. It is unrelated to
+        // digit coercion, so take it out of the picture the way the Cmd+Shift+]
+        // sibling does for `.nextSurface`.
+        let originalGhosttyPrevious = appDelegate.ghosttyGotoSplitPreviousShortcut
+        let originalGhosttyNext = appDelegate.ghosttyGotoSplitNextShortcut
+        appDelegate.ghosttyGotoSplitPreviousShortcut = nil
+        appDelegate.ghosttyGotoSplitNextShortcut = nil
+        defer {
+            appDelegate.ghosttyGotoSplitPreviousShortcut = originalGhosttyPrevious
+            appDelegate.ghosttyGotoSplitNextShortcut = originalGhosttyNext
+        }
+
         withTemporaryShortcut(
             action: .showNotifications,
             shortcut: StoredShortcut(key: "8", command: true, shift: false, option: false, control: false)
@@ -4325,6 +4508,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                     }
 
 #if DEBUG
+                    XCTAssertFalse(
+                        appDelegate.debugMatchesConfiguredShortcut(event: event, action: .showNotifications),
+                        "Cmd+* on the ANSI ] key must not match the Cmd+8 digit shortcut"
+                    )
                     XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
 #else
                     XCTFail("debugHandleCustomShortcut is only available in DEBUG")
@@ -4580,6 +4767,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
+        }
+
+        // French AZERTY types "$" on kVK_ANSI_RightBracket and "*" with Shift.
+        appDelegate.shortcutLayoutCharacterProvider = { keyCode, flags in
+            guard keyCode == 30 else { return nil }
+            return flags.contains(.shift) ? "*" : "$"
+        }
+        defer {
+            appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         }
 
         withTemporaryShortcut(action: .nextSurface) {
@@ -5949,6 +6145,22 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testBrowserFirstDocumentEditingRoutingIncludesPaste() {
+        // Cmd+V must reach focused web content before cmux's terminal text box
+        // fallback when the text-box beta is enabled (issue #6380).
+        let event = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "v",
+            charactersIgnoringModifiers: "v",
+            keyCode: 9 // kVK_ANSI_V
+        )
+
+        XCTAssertTrue(
+            shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(event),
+            "Cmd+V must be routed through web content first while a browser pane is focused"
+        )
+    }
+
     func testBrowserFirstDocumentEditingRoutingStillExcludesPlainShortcuts() {
         // Guard against over-broadening the editing allowlist: a bare Cmd+I with no
         // browser semantics is the only italics addition; an unrelated combo such as
@@ -6186,7 +6398,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
-    func testPrintableOptionTextBypassesConfiguredShortcutRouting() throws {
+    func testConfiguredOptionShortcutWinsBeforeTextInputRouting() throws {
 #if DEBUG
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -6228,21 +6440,68 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 return
             }
 
-            XCTAssertFalse(
+            XCTAssertTrue(
                 appDelegate.debugHandleCustomShortcut(event: event),
-                "Option+Q that produces @ on Turkish Q should pass through as text input"
+                "An exact Option+Q binding should remain routable on layouts where Option+Q produces text"
             )
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
             XCTAssertEqual(
                 manager.tabs.count,
-                workspaceCountBefore,
-                "Printable Option text should not trigger the remapped New Workspace shortcut"
+                workspaceCountBefore + 1,
+                "The registered cmux shortcut should win before unmatched Option input reaches AppKit"
             )
         }
 #else
         throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
 #endif
+    }
+
+    func testWindowSendEventPreservesFirstCloudKeyBeforePortalMount() throws {
+        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+        let window = try XCTUnwrap(window(withId: windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panel = coldCloudTerminalPanel(workspace: workspace)
+        _ = try workspace.insertCloudManualMirrorPanel(
+            panel, at: .workspace(id: workspace.id, placement: .tab), focus: true, isLoading: false
+        )
+        // Keep the real manual pane unmounted and cold. Early typing must reach
+        // its actual input queue without depending on renderer availability.
+        TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
+        panel.hostedView.removeFromSuperview()
+        _ = window.makeFirstResponder(nil)
+        let view = panel.hostedView.surfaceView
+        XCTAssertFalse(view.window === window)
+        XCTAssertFalse(panel.surface.hasLiveSurface)
+        XCTAssertTrue(panel.surface.canCreateRuntimeSurface)
+        XCTAssertEqual(workspace.focusedTerminalInputTarget()?.0, panel.id)
+#if DEBUG
+        let specification = try XCTUnwrap(SyntheticKeyEventFactory.parseShortcutCombo("e"))
+        let event = try XCTUnwrap(SyntheticKeyEventFactory.keyEvent(
+            specification: specification, keyDown: true, timestamp: ProcessInfo.processInfo.systemUptime
+        ))
+        window.sendEvent(event)
+        XCTAssertEqual(pendingKeyEvents(in: view).map(\.type), [.keyDown])
+        XCTAssertEqual(pendingKeyEvents(in: view).map(\.keyCode), [14])
+        let keyUp = try XCTUnwrap(SyntheticKeyEventFactory.keyEvent(
+            specification: specification, keyDown: false, timestamp: ProcessInfo.processInfo.systemUptime
+        ))
+        window.sendEvent(keyUp)
+        XCTAssertEqual(pendingKeyEvents(in: view).map(\.type), [.keyDown, .keyUp])
+        XCTAssertEqual(pendingKeyEvents(in: view).map(\.keyCode), [14, 14])
+#endif
+    }
+
+    private func pendingKeyEvents(in view: GhosttyNSView) -> [NSEvent] {
+        view.pendingInputReplayActions.compactMap { action in
+            switch action {
+            case .keyDown(let event), .keyUp(let event): return event
+            case .paste: return nil
+            }
+        }
     }
 
     func testWindowSendEventRepairsLostFirstResponderForFocusedTerminalTyping() throws {
@@ -6303,6 +6562,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         XCTAssertEqual(repairProbe.repairCount(), 1, "window.sendEvent should run the focused terminal repair path")
         XCTAssertTrue(repairProbe.repairResponder() === orphanResponder, "Repair should evaluate the simulated stranded responder")
+        // Forwarding the repaired keyDown into libghostty only happens once the runtime surface is
+        // live, and the headless xctest host does not always spin one up. Skip rather than wrap the
+        // assertion in `if hasLiveSurface`: a conditional makes the oracle vanish on a host without a
+        // surface and the test still reports green, so the forwarding would be unverified without
+        // anything saying so. A skip says it out loud. The repair routing asserted above is checked
+        // either way, and runs before this point.
+        try XCTSkipUnless(
+            terminalPanel.surface.hasLiveSurface,
+            "No live libghostty surface on this host, so keyDown forwarding cannot be observed"
+        )
         XCTAssertGreaterThan(
             repairProbe.forwardedKeyDownCount(),
             0,
@@ -6413,6 +6682,69 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(menuProbe.callCount, 0, "A stale menu equivalent must not keep consuming cleared Cmd+D")
         XCTAssertEqual(probeView.keyDownCallCount, 1, "Cleared Cmd+D should be forwarded into the terminal")
+        XCTAssertEqual(probeView.lastKeyDownCharactersIgnoringModifiers, "d")
+    }
+
+    func testWindowPerformKeyEquivalentResolvesHostedSurfaceDescendantAsTerminalOwner() {
+        let previousMainMenu = NSApp.mainMenu
+        let probeWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
+        let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let hostedView = GhosttySurfaceScrollView(surfaceView: probeView)
+        hostedView.frame = contentView.bounds
+        let descendantResponder = FocusableTestView(frame: NSRect(x: 8, y: 8, width: 40, height: 40))
+        let menuProbe = MenuActionProbe()
+
+        defer {
+            NSApp.mainMenu = previousMainMenu
+            probeWindow.orderOut(nil)
+        }
+
+        let staleMenu = NSMenu(title: "Test")
+        let staleSplitItem = NSMenuItem(
+            title: "Split Right",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: "d"
+        )
+        staleSplitItem.keyEquivalentModifierMask = [.command]
+        staleSplitItem.target = menuProbe
+        staleMenu.addItem(staleSplitItem)
+        NSApp.mainMenu = staleMenu
+
+        probeWindow.contentView = contentView
+        contentView.addSubview(hostedView)
+        hostedView.addSubview(descendantResponder)
+        probeWindow.makeKeyAndOrderFront(nil)
+        probeWindow.displayIfNeeded()
+        XCTAssertTrue(
+            probeWindow.makeFirstResponder(descendantResponder),
+            "Expected hosted surface descendant to own first responder"
+        )
+
+        guard let event = makeKeyDownEvent(
+            key: "d",
+            modifiers: [.command],
+            keyCode: 2,
+            windowNumber: probeWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+D event")
+            return
+        }
+
+        withTemporaryShortcut(action: .splitRight, shortcut: .unbound) {
+            XCTAssertTrue(
+                probeWindow.performKeyEquivalent(with: event),
+                "Command equivalents from hosted surface descendants should route as terminal-owned"
+            )
+        }
+
+        XCTAssertEqual(menuProbe.callCount, 0, "A stale menu equivalent must not consume cleared Cmd+D")
+        XCTAssertEqual(probeView.keyDownCallCount, 1, "Cmd+D should be forwarded into the hosted terminal surface")
         XCTAssertEqual(probeView.lastKeyDownCharactersIgnoringModifiers, "d")
     }
 
@@ -6833,6 +7165,18 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         XCTAssertEqual(repairProbe.repairCount(), 1, "window.sendEvent should run the focused terminal repair path")
         XCTAssertTrue(repairProbe.repairResponder() === strayView, "Repair should evaluate the simulated wrong same-window responder")
+        // A cold surface queues the repaired keyDown and requests an input-demand
+        // runtime start, so the forward into libghostty lands only after that
+        // asynchronous start completes. Give it a chance before judging, and skip
+        // loudly (as the stranded-responder sibling does) when this host never
+        // spins a runtime surface up, so the oracle cannot silently vanish.
+        waitUntil(timeout: 5.0) {
+            repairProbe.forwardedKeyDownCount() > 0
+        }
+        try XCTSkipUnless(
+            terminalPanel.surface.hasLiveSurface,
+            "No live libghostty surface on this host, so keyDown forwarding cannot be observed"
+        )
         XCTAssertGreaterThan(
             repairProbe.forwardedKeyDownCount(),
             0,
@@ -6872,8 +7216,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         window.displayIfNeeded()
         terminalPanel.hostedView.setVisibleInUI(true)
         terminalPanel.hostedView.setActive(true)
-        terminalPanel.hostedView.moveFocus()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitFor(timeout: 1.0, until: { terminalView.window === window })
+        XCTAssertTrue(terminalView.window === window, "Expected terminal surface to mount in the test window")
+        XCTAssertTrue(window.makeFirstResponder(terminalView), "Expected initial terminal focus to be accepted")
 
         XCTAssertTrue(
             terminalPanel.hostedView.isSurfaceViewFirstResponder(),
@@ -7032,7 +7377,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+              let terminalPanel = workspace.terminalPanel(for: panelId),
+              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
             XCTFail("Expected focused terminal panel")
             return
         }
@@ -7047,7 +7393,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         window.displayIfNeeded()
         terminalPanel.hostedView.setVisibleInUI(true)
         terminalPanel.hostedView.setActive(true)
+        // The portal mounts the terminal surface asynchronously after the window
+        // is created; Escape can only hand focus back to a mounted surface, and
+        // `focusTerminalSurface` bails out without scheduling a retry otherwise.
+        waitFor(timeout: 1.0, until: { terminalView.window === window })
+        XCTAssertTrue(terminalView.window === window, "Expected terminal surface to mount in the test window")
         terminalPanel.hostedView.moveFocus()
+        waitFor(
+            timeout: 1.0,
+            until: { terminalPanel.hostedView.isSurfaceViewFirstResponder() }
+        )
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to own first responder before TextBox focus"
+        )
         terminalPanel.registerTextBoxInputView(textBoxView)
         XCTAssertTrue(terminalPanel.toggleTextBoxInput())
         waitFor(
@@ -7081,7 +7440,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
               let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
               let leftPanel = workspace.terminalPanel(for: leftPanelId),
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false) else {
+              let rightPanel = newTerminalSplitForSplitAdmissionTesting(window: window, workspace: workspace, from: leftPanelId, orientation: .horizontal, focus: false) else {
             XCTFail("Expected split terminal panels")
             return
         }
@@ -7326,7 +7685,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
               let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
               let leftPanel = workspace.terminalPanel(for: leftPanelId),
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+              let rightPanel = newTerminalSplitForSplitAdmissionTesting(window: window, workspace: workspace, from: leftPanelId, orientation: .horizontal) else {
             XCTFail("Expected split terminal panels")
             return
         }
@@ -7407,7 +7766,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxPendingFocusRunsWhenTextViewMovesToWindow() {
         let terminalPanel = TerminalPanel(workspaceId: UUID())
-        defer { terminalPanel.surface.teardownSurface() }
+        defer { terminalPanel.surface.teardownHostedSurfaceForTesting() }
 
         XCTAssertTrue(terminalPanel.focusTextBoxInputOrTerminal())
 #if DEBUG
@@ -7459,7 +7818,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxFocusShortcutReportsUnhandledWhenTerminalCannotReceiveFocus() {
         let terminalPanel = TerminalPanel(workspaceId: UUID())
-        defer { terminalPanel.surface.teardownSurface() }
+        defer { terminalPanel.surface.teardownHostedSurfaceForTesting() }
 
         XCTAssertTrue(terminalPanel.focusTextBoxInputOrTerminal())
         XCTAssertFalse(
@@ -7552,7 +7911,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(bareDollarQuery?.trigger, "$")
         XCTAssertEqual(bareDollarQuery?.query, "")
 
-        let emailPrompt = "mail lawrence@example.com"
+        let emailPrompt = "mail user@example.com"
         XCTAssertNil(TextBoxMentionCompletionDetector.query(
             in: emailPrompt,
             selectedRange: NSRange(location: (emailPrompt as NSString).length, length: 0)
@@ -8081,11 +8440,126 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 completed = true
             }
 
+            waitFor(timeout: 5.0, until: {
+                surface.sentKeys == ["paste_from_clipboard"]
+            })
             XCTAssertEqual(surface.sentKeys, ["paste_from_clipboard"])
-            waitFor(timeout: 1.0, until: { completed })
+            waitFor(timeout: 5.0, until: { completed })
 
             XCTAssertTrue(completed)
             XCTAssertEqual(pasteboard.string(forType: .string), "user clipboard")
+        }
+#else
+        throw XCTSkip("debugRunDispatchEvents is only available in DEBUG")
+#endif
+    }
+
+    func testTextBoxSubmitFileBindingAndRestoreStayInsideClipboardOrder()
+        async throws {
+#if DEBUG
+        try await withPreservedGeneralPasteboard {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            XCTAssertTrue(
+                pasteboard.setString(
+                    "user clipboard",
+                    forType: .string
+                )
+            )
+            let firstRead = try XCTUnwrap(
+                GhosttyApp.terminalPasteboard.reserveClipboardRead(
+                    from: GHOSTTY_CLIPBOARD_STANDARD
+                )
+            )
+            let firstReadIsReady = await firstRead.waitUntilReady()
+            XCTAssertTrue(firstReadIsReady)
+
+            let imageURL = try makeTemporaryPNGFile(named: "ordered.png")
+            let surface = FakeTextBoxSubmitSurface()
+            let bindingEvents = AsyncStream<Void>.makeStream()
+            var bindingIterator = bindingEvents.stream.makeAsyncIterator()
+            var dependentRead: TerminalPasteboardReadLease?
+            var boundFileURLs: [URL] = []
+            surface.performExplicitInputBindingActionHandler = {
+                boundFileURLs = PasteboardFileURLReader.fileURLs(
+                    from: pasteboard
+                )
+                dependentRead = GhosttyApp.terminalPasteboard
+                    .reserveClipboardRead(
+                        from: GHOSTTY_CLIPBOARD_STANDARD
+                    )
+                bindingEvents.continuation.yield()
+                bindingEvents.continuation.finish()
+                return dependentRead != nil
+            }
+
+            var completed = false
+            TextBoxSubmit.debugRunDispatchEvents(
+                [.pasteFilePath(imageURL.path)],
+                via: surface
+            ) { _ in
+                completed = true
+            }
+
+            XCTAssertEqual(surface.sentKeys, [])
+            XCTAssertEqual(
+                pasteboard.string(forType: .string),
+                "user clipboard"
+            )
+
+            firstRead.finish()
+            _ = await bindingIterator.next()
+
+            XCTAssertEqual(
+                boundFileURLs.map(\.standardizedFileURL),
+                [imageURL.standardizedFileURL]
+            )
+            let read = try XCTUnwrap(dependentRead)
+            let dependentReadIsReady = await read.waitUntilReady()
+            XCTAssertTrue(dependentReadIsReady)
+            XCTAssertEqual(
+                PasteboardFileURLReader.fileURLs(from: pasteboard)
+                    .map(\.standardizedFileURL),
+                [imageURL.standardizedFileURL]
+            )
+            XCTAssertTrue(completed)
+
+            read.finish()
+            XCTAssertEqual(
+                pasteboard.string(forType: .string),
+                "user clipboard"
+            )
+        }
+#else
+        throw XCTSkip("debugRunDispatchEvents is only available in DEBUG")
+#endif
+    }
+
+    func testTextBoxSubmitCancellationRestoresAppliedFilePasteMutation()
+        throws {
+#if DEBUG
+        try withPreservedGeneralPasteboard {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            XCTAssertTrue(
+                pasteboard.setString(
+                    "user clipboard",
+                    forType: .string
+                )
+            )
+            let surface = FakeTextBoxSubmitSurface()
+
+            TextBoxSubmit.debugRunDispatchEvents(
+                [.pasteFilePath("/tmp/cmux-cancelled-file-paste.png")],
+                via: surface
+            )
+            TextBoxSubmit.debugResetForTesting()
+
+            XCTAssertEqual(surface.sentKeys, [])
+            XCTAssertEqual(
+                pasteboard.string(forType: .string),
+                "user clipboard"
+            )
         }
 #else
         throw XCTSkip("debugRunDispatchEvents is only available in DEBUG")
@@ -8119,7 +8593,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 completions.append("second")
             }
 
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            waitFor(timeout: 5.0, until: {
+                surface.sentKeys == ["paste_from_clipboard"]
+            })
             XCTAssertEqual(surface.sentText, [])
             XCTAssertEqual(completions, [])
             XCTAssertEqual(surface.sentKeys, ["paste_from_clipboard"])
@@ -8138,6 +8614,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testTextBoxSubmitSerializesPasteboardRunsAcrossSurfaces() throws {
 #if DEBUG
         try withPreservedGeneralPasteboard {
+            // A previous app-host batch may have been interrupted while a
+            // pasteboard lane was awaiting its fake read. Start this isolated
+            // cross-surface ordering check from an empty debug runner.
+            TextBoxSubmit.debugResetForTesting()
             let firstSurface = FakeTextBoxSubmitSurface()
             let secondSurface = FakeTextBoxSubmitSurface()
             let pasteboard = NSPasteboard.general
@@ -8174,7 +8654,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 completions.append("second")
             }
 
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            waitFor(timeout: 5.0, until: {
+                firstSurface.sentKeys == ["paste_from_clipboard"]
+            })
             XCTAssertEqual(firstSurface.sentKeys, ["paste_from_clipboard"])
             XCTAssertEqual(secondSurface.sentKeys, [])
             XCTAssertEqual(completions, [])
@@ -8204,10 +8686,28 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testTextBoxSubmitKeepsQueuedRunForStillActiveSurfaceWhenAnotherSurfaceFinishes() throws {
 #if DEBUG
         try withPreservedGeneralPasteboard {
+            // A previous app-host batch may have been interrupted while a
+            // pasteboard lane was awaiting its fake read, which leaves the
+            // process-wide pasteboard run reserved and silently queues this
+            // run instead of starting it. Start from an empty debug runner.
+            TextBoxSubmit.debugResetForTesting()
             let activeSurface = FakeTextBoxSubmitSurface()
             let finishingSurface = FakeTextBoxSubmitSurface()
             TextBoxSubmit.debugWaitTimeoutSecondsOverride = 10
             defer { TextBoxSubmit.debugWaitTimeoutSecondsOverride = nil }
+            // The file paste publishes through the managed pasteboard lane,
+            // whose previous-contents capture runs in a re-exec'd helper
+            // process. Wait on the binding callback itself instead of a
+            // wall-clock deadline sized for a warm spawn: on a loaded CI host
+            // that cold helper launch alone has been observed taking longer
+            // than the old 5s poll, which turned a correct run into a failure.
+            let bindingPerformed = expectation(
+                description: "file paste performs the clipboard paste binding"
+            )
+            activeSurface.performExplicitInputBindingActionHandler = {
+                bindingPerformed.fulfill()
+                return true
+            }
             let imageURL = try makeTemporaryPNGFile(named: "moon.png")
             var completions: [String] = []
 
@@ -8235,13 +8735,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 completions.append("finishing")
             }
 
-            waitFor(timeout: 1.0, until: { completions == ["finishing"] })
+            // The binding callback is the real signal that the lane published
+            // the temporary clipboard; the timeout only bounds the failure path.
+            wait(for: [bindingPerformed], timeout: 60.0)
+            XCTAssertEqual(completions, ["finishing"])
             XCTAssertEqual(finishingSurface.sentText, ["finishing"])
             XCTAssertEqual(activeSurface.sentText, [])
             XCTAssertEqual(activeSurface.sentKeys, ["paste_from_clipboard"])
 
             activeSurface.completeClipboardRead()
-            waitFor(timeout: 1.0, until: {
+            waitFor(timeout: 5.0, until: {
                 completions == ["finishing", "active-first", "active-second"]
             })
 
@@ -9928,7 +10431,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             case .insertText(let text):
                 textView.insertText(text, replacementRange: textView.selectedRange())
                 return true
-            case .reject:
+            case .reject, .rejectOversizedImage:
                 return false
             }
         }
@@ -9975,6 +10478,51 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTAssertEqual(
                 textView.submissionText(),
                 expectedImageSubmission(before: "hello ", url: replacementURL, after: " world")
+            )
+        }
+    }
+
+    func testTextBoxSelectedAttachmentCopyWritesEveryFileURL() throws {
+        let firstURL = try makeTemporaryPNGFile(named: "moon.png")
+        let secondURL = try makeTemporaryPNGFile(named: "sun.png")
+        let attachments = [firstURL, secondURL].map { fileURL in
+            TextBoxAttachment(
+                localURL: fileURL,
+                submissionText: TextBoxAttachment.submissionText(
+                    forLocalFileURL: fileURL
+                )
+            )
+        }
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 30)
+        )
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+
+        guard let copyEvent = makeKeyDownEvent(
+            key: "c",
+            modifiers: .command,
+            keyCode: UInt16(kVK_ANSI_C),
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct copy event")
+            return
+        }
+
+        try withPreservedGeneralPasteboard {
+            textView.insertAttachments(attachments)
+            textView.setSelectedRange(
+                NSRange(location: 0, length: textView.attributedString().length)
+            )
+
+            XCTAssertTrue(textView.performKeyEquivalent(with: copyEvent))
+            let copiedFileURLs = NSPasteboard.general.pasteboardItems?
+                .compactMap { $0.string(forType: .fileURL) }
+                .compactMap(URL.init(string:))
+                .map(\.standardizedFileURL.path)
+            XCTAssertEqual(
+                copiedFileURLs,
+                [firstURL.path, secondURL.path]
             )
         }
     }
@@ -10926,7 +11474,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let searchState = TerminalSurface.SearchState(needle: "")
         terminalPanel.surface.searchState = searchState
         terminalPanel.hostedView.setSearchOverlay(searchState: searchState)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        // The overlay mounts its SwiftUI-hosted text field on a deferred main-queue
+        // hop and only realizes the field after a layout pass, so poll (forcing
+        // layout each tick) instead of assuming one fixed spin is enough.
+        waitUntil(timeout: 2.0) {
+            terminalPanel.hostedView.layoutSubtreeIfNeeded()
+            return findEditableTextField(in: terminalPanel.hostedView) != nil
+        }
 
         guard let searchField = findEditableTextField(in: terminalPanel.hostedView) else {
             XCTFail("Expected mounted terminal search field")
@@ -10942,6 +11496,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             firstResponderOwnsTextField(window.firstResponder, textField: searchField),
             "Expected terminal search field to own first responder before drift"
         )
+
+        // Real Cmd+F leaves the search field as the panel's active focus target.
+        // Focusing the hosted terminal during setup fires the surface focus callback,
+        // which flips the intent back to .terminal while a search overlay is open, so
+        // establish the search-field intent explicitly before simulating the drift.
+        terminalPanel.hostedView.preparePanelFocusIntentForActivation(.findField)
 
         let strayView = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
         installSearchResponderDriftForTesting(
@@ -11259,6 +11819,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             restorePasteboardItems(snapshots, to: pasteboard)
         }
         try body()
+    }
+
+    private func withPreservedGeneralPasteboard(
+        _ body: () async throws -> Void
+    ) async throws {
+        let pasteboard = NSPasteboard.general
+        let snapshots = snapshotPasteboardItems(pasteboard)
+        defer {
+            restorePasteboardItems(snapshots, to: pasteboard)
+        }
+        try await body()
     }
 
     private func snapshotPasteboardItems(_ pasteboard: NSPasteboard) -> [PasteboardItemSnapshot] {
@@ -11845,6 +12416,54 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(harness.panel.isBrowserFocusModeExitArmed)
     }
 
+    // Regression for https://github.com/manaflow-ai/cmux/issues/9677 in browser
+    // focus mode: the focus-mode branch of CmuxWebView.performKeyEquivalent
+    // consumes every Command chord after the page declines it, so a resent
+    // Cmd+Z must run the web view's own editing undo there instead of being
+    // swallowed.
+    func testBrowserFocusModeCmdZPerformsWebContentUndoWhenPageDeclines() {
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+        // Model WebKit's resend of a page-unhandled chord: the web view
+        // declines the key equivalent while focus mode forwards it.
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, _ in
+            guard currentWebView === harness.webView else { return nil }
+            return false
+        }
+        defer { cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil }
+
+        XCTAssertTrue(
+            harness.panel.setBrowserFocusModeActive(true, reason: "unit.undoRedo", focusWebView: false)
+        )
+
+        final class WebContentUndoSpy {
+            var undoCount = 0
+        }
+        let spy = WebContentUndoSpy()
+        guard let undoManager = harness.webView.undoManager else {
+            XCTFail("Expected web view undo manager")
+            return
+        }
+        undoManager.registerUndo(withTarget: spy) { $0.undoCount += 1 }
+        XCTAssertTrue(undoManager.canUndo)
+
+        guard let commandZ = makeKeyDownEvent(
+            key: "z",
+            modifiers: [.command],
+            keyCode: UInt16(kVK_ANSI_Z),
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Z event")
+            return
+        }
+
+        XCTAssertTrue(harness.window.performKeyEquivalent(with: commandZ))
+        XCTAssertEqual(spy.undoCount, 1)
+        XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
+    }
+
     func testBrowserFocusModeStaleExitArmRearmsOnNextEscape() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -12149,9 +12768,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         workspace.focusPanel(browserPanel.id)
-        if webView.superview == nil {
-            webView.frame = window.contentView?.bounds ?? .zero
-            window.contentView?.addSubview(webView)
+        if webView.cmuxBrowserViewportAttachmentSuperview == nil,
+           let contentView = window.contentView {
+            let presentationView = webView.cmuxBrowserViewportPresentationView
+            contentView.addSubview(presentationView)
+            webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
         }
         window.makeKeyAndOrderFront(nil)
         XCTAssertTrue(window.makeFirstResponder(webView), file: file, line: line)

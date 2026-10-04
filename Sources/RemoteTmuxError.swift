@@ -12,6 +12,9 @@ enum RemoteTmuxError: Error, Sendable, Equatable {
     /// The remote host is not reachable / the SSH master could not be opened.
     case unreachable(String)
 
+    /// cmux could not create the local window requested for a dedicated mirror.
+    case windowCreationFailed
+
     /// The remote tmux is older than ``RemoteTmuxVersion/minimumSupported``, so the
     /// control-mode mirror would attach into a broken/degraded state (no live pane
     /// subscriptions, or no `%begin`/`%end` framing). Carries the detected version
@@ -65,6 +68,11 @@ extension RemoteTmuxError {
                 defaultValue: "host unreachable: %@"
             )
             return String(format: format, Self.sanitizedDetail(detail))
+        case .windowCreationFailed:
+            return String(
+                localized: "remoteTmux.error.windowCreationFailed",
+                defaultValue: "cmux could not create a new window"
+            )
         case let .unsupportedTmux(detected):
             let format = String(
                 localized: "remoteTmux.error.unsupportedVersion",
