@@ -88,6 +88,7 @@ record(
         "force_proxy": os.environ.get("CMUX_CUA_MCP_FORCE_PROXY"),
         "external_permission_flow": os.environ.get("CMUX_CUA_EXTERNAL_PERMISSION_FLOW"),
         "auth_present": bool(os.environ.get("CMUX_CUA_SOCKET_AUTH_TOKEN")),
+        "auth_matches": os.environ.get("CMUX_CUA_SOCKET_AUTH_TOKEN") == "cmux-test-auth-token",
         "daemon_app": os.environ.get("CMUX_CUA_DAEMON_APP"),
         "permissions_gate": os.environ.get("CMUX_CUA_PERMISSIONS_GATE"),
     },
@@ -188,10 +189,24 @@ def receive(stream):
     return json.loads(body.decode("utf-8"))
 
 
+# Codex builds a stdio MCP server environment from this allow-list, the
+# names listed in `env_vars`, and the literal `env` table. Nothing else from
+# the Codex process environment reaches the server.
+CODEX_DEFAULT_MCP_ENV_VARS = [
+    "HOME", "LOGNAME", "PATH", "SHELL", "USER", "__CF_USER_TEXT_ENCODING",
+    "LANG", "LC_ALL", "TERM", "TMPDIR", "TZ",
+]
+
 args = sys.argv[1:]
 with open(ARGS_LOG, "w", encoding="utf-8") as stream:
     for arg in args:
         stream.write(arg + "\n")
+record(
+    "codex:env",
+    {
+        "auth_matches": os.environ.get("CMUX_CUA_SOCKET_AUTH_TOKEN") == "cmux-test-auth-token",
+    },
+)
 
 if os.environ.get("FAKE_MCP_HANDSHAKE") == "1":
     command_raw = config("mcp_servers.cmux-cua.command=", args)
@@ -201,7 +216,11 @@ if os.environ.get("FAKE_MCP_HANDSHAKE") == "1":
         raise SystemExit(42)
     command = json.loads(command_raw)
     mcp_args = json.loads(mcp_args_raw)
-    child_env = os.environ.copy()
+    forwarded = list(CODEX_DEFAULT_MCP_ENV_VARS)
+    env_vars_raw = config("mcp_servers.cmux-cua.env_vars=", args)
+    if env_vars_raw:
+        forwarded.extend(json.loads(env_vars_raw))
+    child_env = {name: os.environ[name] for name in forwarded if name in os.environ}
     env_prefix = "mcp_servers.cmux-cua.env."
     for arg in args:
         if not arg.startswith(env_prefix):
@@ -354,6 +373,7 @@ def expect_scrubbed_mcp_env(
     force_proxy = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_MCP_FORCE_PROXY=")
     external_flow = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_EXTERNAL_PERMISSION_FLOW=")
     auth_token = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_SOCKET_AUTH_TOKEN=")
+    forwarded_env = arg_value(args, "mcp_servers.cmux-cua.env_vars=")
     default_session = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_DEFAULT_SESSION=")
     state_owner_pid = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_STATE_OWNER_PID=")
     permissions_gate = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_PERMISSIONS_GATE=")
@@ -370,7 +390,22 @@ def expect_scrubbed_mcp_env(
     expect(permissions_gate is None, f"{context}: proxy must not own the daemon permission gate: {args}", failures)
     expect(force_proxy is not None, f"{context}: missing forced proxy config in {args}", failures)
     expect(external_flow is not None, f"{context}: missing proxy permission-wait config in {args}", failures)
-    expect(auth_token is not None, f"{context}: missing daemon authentication config in {args}", failures)
+    expect(
+        auth_token is None,
+        f"{context}: daemon credential must not be passed as an argv env override",
+        failures,
+    )
+    expect(
+        not any("cmux-test-auth-token" in arg for arg in args),
+        f"{context}: daemon credential value is visible in the Codex argv (ps can read it)",
+        failures,
+    )
+    expect(
+        forwarded_env is not None
+        and "CMUX_CUA_SOCKET_AUTH_TOKEN" in json.loads(forwarded_env),
+        f"{context}: MCP server must receive CMUX_CUA_SOCKET_AUTH_TOKEN through env_vars, got {forwarded_env!r}",
+        failures,
+    )
     expect(default_session is not None, f"{context}: missing CMUX_CUA_DEFAULT_SESSION config in {args}", failures)
     expect(state_owner_pid is not None, f"{context}: missing stable state owner PID in {args}", failures)
     expect(telemetry is not None, f"{context}: missing telemetry opt-out config in {args}", failures)
@@ -402,8 +437,6 @@ def expect_scrubbed_mcp_env(
             f"{context}: proxy must honor the helper's external permission flow, got {external_flow}",
             failures,
         )
-    if auth_token is not None:
-        expect(json.loads(auth_token) == "cmux-test-auth-token", f"{context}: unexpected daemon auth token", failures)
     if telemetry is not None:
         expect(json.loads(telemetry) == "false", f"{context}: expected telemetry disabled, got {telemetry}", failures)
     if update_check is not None:
@@ -911,6 +944,7 @@ def test_codex_fresh_session_handshakes_before_first_user_turn(failures: list[st
         and helper_env.get("force_proxy") == "1"
         and helper_env.get("external_permission_flow") == "1"
         and helper_env.get("auth_present") is True
+        and helper_env.get("auth_matches") is True
         and helper_env.get("daemon_app") is None
         and helper_env.get("permissions_gate") is None,
         f"fresh helper must retain forced proxy/TCC boundary environment, got {helper_env!r}",
@@ -1402,14 +1436,64 @@ def test_codex_computer_use_wrapper_is_a_pure_proxy(failures: list[str]) -> None
     )
 
 
+def codex_received_credential_in_env(skill: dict[str, object]) -> bool:
+    return any(
+        event.get("event") == "codex:env"
+        and isinstance(event.get("payload"), dict)
+        and event["payload"].get("auth_matches") is True
+        for event in trace_events(skill)
+    )
+
+
 def test_codex_reads_private_daemon_credential_file(failures: list[str]) -> None:
-    code, args, stderr, _ = run_wrapper(
+    code, args, stderr, skill = run_wrapper(
         ["hello"],
         auth_token=False,
         auth_token_file=True,
     )
     expect(code == 0, f"auth file wrapper exited {code}: {stderr}", failures)
     expect_scrubbed_mcp_env(args, failures, "private daemon credential file", helper_owned=True)
+    expect(
+        codex_received_credential_in_env(skill),
+        "credential from the private file must reach Codex through its environment",
+        failures,
+    )
+
+
+def test_codex_credential_reaches_mcp_server_only_through_environment(
+    failures: list[str],
+) -> None:
+    code, args, stderr, skill = run_wrapper(
+        ["hello"],
+        auth_token=False,
+        auth_token_file=True,
+        mcp_handshake=True,
+    )
+    expect(code == 0, f"env-forwarded credential handshake exited {code}: {stderr}", failures)
+    expect(
+        not any("cmux-test-auth-token" in arg for arg in args),
+        "daemon credential value is visible in the Codex argv (ps can read it)",
+        failures,
+    )
+    expect("cmux-test-auth-token" not in stderr, "stderr must not disclose the daemon credential", failures)
+    expect(
+        codex_received_credential_in_env(skill),
+        "Codex process environment must carry the daemon credential",
+        failures,
+    )
+    helper_env = next(
+        (
+            event.get("payload")
+            for event in trace_events(skill)
+            if event.get("event") == "helper:started"
+        ),
+        None,
+    )
+    expect(
+        isinstance(helper_env, dict) and helper_env.get("auth_matches") is True,
+        f"MCP server must receive the exact credential through env_vars, got {helper_env!r}",
+        failures,
+    )
 
 
 def test_codex_rejects_proxy_only_cmux_cua_override(failures: list[str]) -> None:
@@ -1637,6 +1721,7 @@ def main() -> int:
     test_codex_global_skill_can_be_disabled_explicitly(failures)
     test_codex_computer_use_wrapper_is_a_pure_proxy(failures)
     test_codex_reads_private_daemon_credential_file(failures)
+    test_codex_credential_reaches_mcp_server_only_through_environment(failures)
     test_codex_rejects_proxy_only_cmux_cua_override(failures)
     test_codex_rejects_cmux_cua_override_under_world_writable_ancestor(failures)
     test_codex_skips_when_driver_unavailable(failures)
