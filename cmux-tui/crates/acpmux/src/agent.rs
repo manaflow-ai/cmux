@@ -70,7 +70,9 @@ pub type Response = oneshot::Receiver<Result<Value, RpcError>>;
 
 /// The agent runs under an `__agent-host` process (durable sessions).
 struct Hosted {
-    link: Arc<crate::agent_host::link::Link>,
+    /// The current owner connection; replaced by `reattach`.
+    link: std::sync::RwLock<Arc<crate::agent_host::link::Link>>,
+    inbound: mpsc::Sender<Inbound>,
     exited: std::sync::atomic::AtomicBool,
     /// Set before a detach: the connection's end is a hand-off, not the
     /// agent's death, so pending requests stay open for the next daemon.
@@ -81,6 +83,12 @@ struct Hosted {
     /// The reader stopped (an entry could not be logged): the agent is not
     /// usable through this link; the next request adopts the host again.
     broken: std::sync::atomic::AtomicBool,
+}
+
+impl Hosted {
+    fn link(&self) -> Arc<crate::agent_host::link::Link> {
+        self.link.read().unwrap().clone()
+    }
 }
 
 /// How a hosted agent was reached.
@@ -461,7 +469,7 @@ impl ChildAgent {
     /// included). Never waits on a lock or a pipe without a deadline.
     pub async fn terminate(&self, grace: std::time::Duration) {
         if let Some(h) = &self.hosted {
-            if h.exited.load(Ordering::SeqCst) || h.link.is_closed() {
+            if h.exited.load(Ordering::SeqCst) || h.link().is_closed() {
                 return;
             }
             let exited = h.exit.notified();
@@ -470,7 +478,7 @@ impl ChildAgent {
             if h.exited.load(Ordering::SeqCst) {
                 return;
             }
-            if h.link.terminate(grace).await.is_ok() {
+            if h.link().terminate(grace).await.is_ok() {
                 // The host's exit entry ends the wait; the bound covers a
                 // host that cannot report it.
                 let _ =
@@ -508,7 +516,7 @@ impl ChildAgent {
         if let Some(h) = &self.hosted {
             return !h.exited.load(Ordering::SeqCst)
                 && !h.broken.load(Ordering::SeqCst)
-                && !h.link.is_closed();
+                && !h.link().is_closed();
         }
         let mut guard = self.child.lock().await;
         match guard.as_mut() {
@@ -520,7 +528,7 @@ impl ChildAgent {
     async fn write(&self, msg: &Message) -> Result<()> {
         if let Some(h) = &self.hosted {
             // The host writes it and logs it back as an `out` entry.
-            return h.link.line(msg.to_value()).await;
+            return h.link().line(msg.to_value()).await;
         }
         (self.tap)(Direction::Out, msg, None);
         if let Some(tr) = &self.translator {
@@ -621,7 +629,8 @@ impl ChildAgent {
                 config_options: tr.config_options_value().await,
             });
         }
-        let reply = self.hosted.as_ref()?.link.query().await.ok()?;
+        let link = self.hosted.as_ref()?.link();
+        let reply = link.query().await.ok()?;
         Some(ClaudeState {
             session_id: reply.claude_session_id,
             modes: reply.modes?,
@@ -630,8 +639,32 @@ impl ChildAgent {
     }
 
     /// The host record when this agent runs under a host.
-    pub fn host_record(&self) -> Option<&crate::agent_host::HostRecord> {
-        self.hosted.as_ref().map(|h| &h.link.record)
+    pub fn host_record(&self) -> Option<crate::agent_host::HostRecord> {
+        self.hosted.as_ref().map(|h| h.link().record.clone())
+    }
+
+    /// The reader stopped because an entry could not be logged.
+    pub fn is_broken(&self) -> bool {
+        self.hosted.as_ref().is_some_and(|h| h.broken.load(Ordering::SeqCst))
+    }
+
+    /// Reconnect to the same host after the reader stopped, keeping every
+    /// open request, answer waiter and turn of this process: resume after
+    /// the last logged entry on a new owner connection. No recovery runs:
+    /// this process still holds the state the recovery would rebuild.
+    pub async fn reattach(self: &Arc<Self>) -> Result<()> {
+        use crate::agent_host::link::{Connect, connect};
+        let Some(h) = &self.hosted else { return Ok(()) };
+        let record = h.link().record.clone();
+        let after = *h.logged.borrow();
+        let link: Arc<crate::agent_host::link::Link> = match connect(record, after).await? {
+            Connect::Ready(link, _) => Arc::from(link),
+            Connect::Incompatible { .. } => return Err(anyhow!("agent host refused this build")),
+        };
+        *h.link.write().unwrap() = link.clone();
+        h.broken.store(false, Ordering::SeqCst);
+        self.start_reader(link);
+        Ok(())
     }
 
     /// Leave a hosted agent running and let go of it (daemon shutdown or
@@ -640,7 +673,7 @@ impl ChildAgent {
         match &self.hosted {
             Some(h) => {
                 h.detached.store(true, Ordering::SeqCst);
-                let _ = tokio::time::timeout(grace, h.link.detach()).await;
+                let _ = tokio::time::timeout(grace, h.link().detach()).await;
             }
             None => self.terminate(grace).await,
         }
@@ -657,12 +690,13 @@ impl ChildAgent {
         tap: Tap,
     ) -> Result<Attached> {
         use crate::agent_host::link::{Connect, connect};
-        let (link, adopted) = match connect(record, resume_after).await? {
-            Connect::Ready(link, adopted) => (Arc::from(link), adopted),
-            Connect::Incompatible { min, max, host_build } => {
-                return Ok(Attached::Incompatible { min, max, host_build });
-            }
-        };
+        let (link, adopted): (Arc<crate::agent_host::link::Link>, _) =
+            match connect(record, resume_after).await? {
+                Connect::Ready(link, adopted) => (Arc::from(link), adopted),
+                Connect::Incompatible { min, max, host_build } => {
+                    return Ok(Attached::Incompatible { min, max, host_build });
+                }
+            };
         // Never reuse an id the harness may still answer.
         let (stdin_tx, _unused) = mpsc::channel::<String>(1);
         // Answers to requests a previous controller sent may be among the
@@ -675,56 +709,59 @@ impl ChildAgent {
             responses.push(rx);
         }
         let pending = Arc::new(Mutex::new(Pending { map, orphans: Default::default() }));
-        let detached = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let agent = Arc::new(Self {
             name: name.to_owned(),
             child: Mutex::new(None),
             stdin_tx,
             next_id: AtomicI64::new(adopted.max_out_id.max(0) + 1),
-            pending: pending.clone(),
-            tap: tap.clone(),
+            pending,
+            tap,
             pid: adopted.harness_pid,
             translator: None,
             hosted: Some(Hosted {
-                link: link.clone(),
-                detached: detached.clone(),
+                link: std::sync::RwLock::new(link.clone()),
+                inbound,
+                detached: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 logged: tokio::sync::watch::channel(resume_after).0,
                 broken: std::sync::atomic::AtomicBool::new(false),
                 exited: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
             }),
         });
-        let reader = agent.clone();
+        agent.start_reader(link);
+        Ok(Attached::Ready(agent, adopted, responses))
+    }
+
+    /// Read `link`'s entries: log each, act on it, then acknowledge it.
+    fn start_reader(self: &Arc<Self>, link: Arc<crate::agent_host::link::Link>) {
+        let reader = self.clone();
         tokio::spawn(async move {
+            let Some(hosted) = reader.hosted.as_ref() else { return };
             let mut entries = link.entries.lock().await;
             while let Some((h, entry)) = entries.recv().await {
-                if !reader.on_host_entry(h, entry, &inbound).await {
-                    // Not stored: never acknowledge it or anything after it;
-                    // the next daemon resumes before it.
+                if !reader.on_host_entry(h, entry, &hosted.inbound).await {
+                    // Not stored: never acknowledge it or anything after it.
+                    // Open requests stay open; the next request reattaches.
                     tracing::warn!(agent = %reader.name, "agent host entry {h} not logged; acks stop");
-                    if let Some(hosted) = &reader.hosted {
-                        hosted.broken.store(true, Ordering::SeqCst);
-                    }
-                    break;
+                    hosted.broken.store(true, Ordering::SeqCst);
+                    return;
                 }
-                if let Some(hosted) = &reader.hosted {
-                    hosted.logged.send_replace(h);
-                }
+                hosted.logged.send_replace(h);
                 if link.ack(h).await.is_err() {
                     break;
                 }
             }
-            // The connection ended: superseded, or the host died. A detach
-            // hands the agent and its open requests to the next daemon.
-            if detached.load(Ordering::SeqCst) {
+            // A detach hands the agent and its open requests to the next
+            // daemon; a replaced link hands them to its own reader.
+            if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), &link) {
                 return;
             }
-            let mut p = pending.lock().await;
+            // The host died or another owner took it.
+            let mut p = reader.pending.lock().await;
             for (_, tx) in p.map.drain() {
                 let _ = tx.send(Err(RpcError::internal("agent process closed")));
             }
         });
-        Ok(Attached::Ready(agent, adopted, responses))
     }
 
     /// Log one host entry, then act on it. Returns whether its record was

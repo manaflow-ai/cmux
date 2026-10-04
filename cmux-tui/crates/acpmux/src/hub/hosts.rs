@@ -64,6 +64,16 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
     ) -> Option<Arc<ChildAgent>> {
+        // A reader that stopped in this process: reconnect only. This process
+        // still holds the open requests, prompts and turn; recovery would
+        // handle them a second time.
+        let current = session.child.lock().await.clone();
+        if let Some(child) = current.filter(|c| c.is_broken()) {
+            if let Err(e) = child.reattach().await {
+                tracing::warn!(session = %session.id, "agent host reattach failed: {e:#}");
+            }
+            return Some(child);
+        }
         let dir = agent_host::hosts_dir();
         let (good, _) = agent_host::load_records(&dir).ok()?;
         let (_, record) = good.into_iter().find(|(_, r)| r.session_id == session.id)?;

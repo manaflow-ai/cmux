@@ -452,8 +452,11 @@ impl State {
                 ),
             });
             // An answer that cannot be carried still ends its request.
-            if self.translator.is_none()
-                && let Ok(v) = serde_json::from_str::<Value>(&line)
+            if let Some(tr) = self.translator.clone() {
+                for m in tr.fail_pending("agent answer was over the size limit").await {
+                    self.push(Entry::In { msg: m.to_value() });
+                }
+            } else if let Ok(v) = serde_json::from_str::<Value>(&line)
                 && let Some(id) = v.get("id").filter(|_| v.get("method").is_none())
             {
                 let err = crate::rpc::RpcError::internal("agent answer was over the size limit");
