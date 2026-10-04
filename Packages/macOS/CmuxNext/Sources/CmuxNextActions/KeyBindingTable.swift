@@ -94,15 +94,22 @@ public nonisolated struct KeyBindingTable: Sendable {
     public func resolve(_ keys: [Shortcut], in context: KeyContext, isRunnable: (ActionID) -> Bool) -> Resolution {
         var resolution = Resolution(winner: nil, candidates: [])
         guard let first = keys.first else { return resolution }
+        // An entry meant for this context (its `when` holds) that cannot run
+        // ends the search: the key never falls through to a less specific
+        // entry on the same keys (R88). An entry with no `when` that cannot
+        // run lets the search go on, so a disabled general action never eats
+        // a key.
+        var blocked = false
         for offset in (byFirstKey[first] ?? []).reversed() where entries[offset].keys == keys {
             let entry = entries[offset]
             let verdict: Verdict
-            if resolution.winner != nil {
+            if resolution.winner != nil || blocked {
                 verdict = .shadowed
             } else if !entry.applies(in: context) {
                 verdict = .whenFalse
             } else if !isRunnable(entry.command) {
                 verdict = .notRunnable
+                blocked = entry.when != nil
             } else {
                 verdict = .won
                 resolution.winner = entry
