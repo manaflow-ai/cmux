@@ -27,6 +27,8 @@ export const PasswordCodes = {
   userOnly: "cmux.passwords.user_only",
   notFound: "cmux.passwords.not_found",
   authFailed: "cmux.passwords.auth_failed",
+  /** Export while `browser.passwords.allowExport` is off. */
+  exportOff: "cmux.passwords.export_off",
   /** The person declined the native sheet. */
   cancelled: "cmux.page.cancelled",
 } as const;
@@ -50,6 +52,8 @@ export interface StateResult {
   /** The profile shown first. */
   profile: string;
   sections: Sections;
+  /** `browser.passwords.allowExport` (default off): Export works only while it is on. */
+  export_allowed: boolean;
 }
 
 export interface SavedPassword {

@@ -128,7 +128,13 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
             type="button"
             className="pw-button pw-export"
             disabled={!snap.sections.export || disconnected}
-            title={snap.sections.export ? undefined : t("passwords.page.availableAfterUpdate")}
+            title={
+              !snap.sections.export
+                ? t("passwords.page.availableAfterUpdate")
+                : snap.exportAllowed
+                  ? undefined
+                  : t("passwords.page.exportOff")
+            }
             onClick={() => void store.exportAll()}
           >
             {t("passwords.page.export")}

@@ -7255,6 +7255,49 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.passwords",
+        "text" : "Passwords"
+      },
+      "help" : {
+        "key" : "settings.browser.passwords.allowExport.help",
+        "text" : "Export writes every saved password to a plain text file."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.passwords.allowExport",
+      "keywords" : [
+        "passwords",
+        "export",
+        "csv",
+        "backup"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "browser",
+        "passwords",
+        "allowExport"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.passwords.allowExport",
+        "text" : "Allow Password Export"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "keystroke",
         "click",
         "focus",
@@ -8579,7 +8622,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "1246a57c0f306b301fc162f9bf1471cb47558b84697fa935ab11269a8531c4d4",
+  "schema_hash" : "bd10551e6c8a8ceb549c3bb522ee7cdbd22575e315c1e448c7175bdea4a62088",
   "sections" : [
     {
       "id" : "general",

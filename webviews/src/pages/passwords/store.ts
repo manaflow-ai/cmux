@@ -28,6 +28,8 @@ export interface PasswordsSnapshot {
   profiles: Profile[];
   profile: string;
   sections: Sections;
+  /** `browser.passwords.allowExport`. */
+  exportAllowed: boolean;
   passwords: SavedPassword[];
   passkeys: SavedPasskey[];
   exceptions: PasswordException[];
@@ -61,6 +63,7 @@ export class PasswordsStore {
       profiles: [],
       profile: "default",
       sections: NO_SECTIONS,
+      exportAllowed: false,
       passwords: [],
       passkeys: [],
       exceptions: [],
@@ -141,6 +144,7 @@ export class PasswordsStore {
         profiles: state.profiles,
         profile,
         sections,
+        exportAllowed: state.export_allowed === true,
         passwords: passwords?.passwords ?? [],
         passkeys: passkeys?.passkeys ?? [],
         exceptions: exceptions?.exceptions ?? [],

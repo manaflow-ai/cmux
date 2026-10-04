@@ -118,8 +118,18 @@ import Testing
         #expect(f.store.savedPasswords["default"]?.first { $0.id == "p1" }?.username == "a", "the opid applied once")
     }
 
+    @Test func exportIsRefusedWhileTheSettingIsOff() async throws {
+        let f = make()
+        #expect(try await f.provider.call(PasswordOps.state, params: [:], context: script)["export_allowed"] == false)
+        #expect(await code { try await f.provider.call(PasswordOps.export, params: [:], context: person) } == PasswordOps.exportOffCode)
+        #expect(f.sheet.shown.isEmpty && f.auth.reasons.isEmpty && f.surface.destinationAsks == 0)
+        f.provider.exportAllowed = { true }
+        #expect(try await f.provider.call(PasswordOps.state, params: [:], context: script)["export_allowed"] == true)
+    }
+
     @Test func exportWarnsThenAuthenticatesThenAsksWhere() async throws {
         let f = make()
+        f.provider.exportAllowed = { true }
         var steps: [String] = []
         f.sheet.onShow = { steps.append("sheet") }
         f.auth.onAsk = { steps.append("auth") }

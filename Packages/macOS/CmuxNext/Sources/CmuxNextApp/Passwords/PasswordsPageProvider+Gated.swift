@@ -71,7 +71,7 @@ extension PasswordsPageProvider {
         return ["copied": true]
     }
 
-    /// Export: a native warning that the file is plain text, device owner authentication, the
+    /// Export (only while `browser.passwords.allowExport` is on): a native warning that the file is plain text, device owner authentication, the
     /// save panel, then the store writes the CSV. A cancel at any step writes nothing.
     func export(_ params: JSONValue, _ context: PageCallContext) async throws -> JSONValue {
         let profile = try self.profile(params)

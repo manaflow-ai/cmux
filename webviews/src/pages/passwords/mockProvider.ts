@@ -19,6 +19,7 @@ import {
 export interface MockData {
   profiles: Profile[];
   sections: Sections;
+  exportAllowed: boolean;
   passwords: Record<string, SavedPassword[]>;
   passkeys: Record<string, SavedPasskey[]>;
   exceptions: Record<string, PasswordException[]>;
@@ -51,6 +52,7 @@ export function sampleData(sections: Partial<Sections> = {}): MockData {
       { id: "work", name: "Work" },
     ],
     sections: { passwords: true, passkeys: true, exceptions: true, export: true, ...sections },
+    exportAllowed: true,
     passwords: {
       default: [
         row("p1", "github.com", "octo@example.com", { times_used: 41 }),
@@ -70,7 +72,7 @@ export function sampleData(sections: Partial<Sections> = {}): MockData {
 
 /** Sample data with every section the build cannot serve yet, as the app ships before fork API 18. */
 export function shippingData(): MockData {
-  return sampleData({ passwords: false, exceptions: false, export: false });
+  return { ...sampleData({ passwords: false, exceptions: false, export: false }), exportAllowed: false };
 }
 
 export class MockPasswordsProvider implements PageClient {
@@ -133,6 +135,7 @@ export class MockPasswordsProvider implements PageClient {
           profiles: this.data.profiles,
           profile: this.data.profiles[0]?.id ?? "default",
           sections: this.data.sections,
+          export_allowed: this.data.exportAllowed,
         } satisfies StateResult;
       case PasswordOps.list:
         this.need("passwords");
@@ -192,6 +195,7 @@ export class MockPasswordsProvider implements PageClient {
       case PasswordOps.export:
         this.gate();
         this.need("export");
+        if (!this.data.exportAllowed) throw pageError(PasswordCodes.exportOff, "Password export is off.");
         this.sheet();
         this.auth();
         this.exported += 1;

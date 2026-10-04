@@ -66,7 +66,9 @@ enum BrowserProfileHandlers {
         bind("browserProfile.delete") { invocation in
             let record = try context.browserProfile(invocation)
             guard !record.isDefault else { throw ActionFailure.invalidTarget(BrowserProfileAppStrings.defaultCannotBeDeleted) }
-            try profiles.delete(record.id)
+            guard !BrowserProfileSecretsGuard.isPerson(invocation.origin) else { return try profiles.delete(record.id) }
+            // Automation may delete only a profile that holds no passwords and no passkeys.
+            registry.track(BrowserProfileSecretsGuard.deleteIfNoSecrets(record.id, context: context))
         }
         BrowserProfileOpenHandlers.bind(bind, context: context)
     }

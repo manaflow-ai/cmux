@@ -4,10 +4,11 @@ import CmuxNextDesign
 import UniformTypeIdentifiers
 
 /// The app's ``PasswordSecretSurface``. The reveal sheet uses a private dialog center, so the
-/// DEBUG `debug.dialog` verb (which reads `CmuxDialogCenter.shared`) never lists the password.
+/// DEBUG `debug.dialog` verb (which reads `CmuxDialogCenter.shared`) never lists the password, and
+/// its window is left out of screen capture while the password shows.
 @MainActor
 final class NativePasswordSecretSurface: PasswordSecretSurface {
-    private let center = CmuxDialogCenter()
+    private let center = CmuxDialogCenter(host: CaptureExcludedDialogHost())
     private let pasteboard: ConcealedPasteboard
 
     init(pasteboard: ConcealedPasteboard = ConcealedPasteboard()) {
@@ -36,5 +37,30 @@ final class NativePasswordSecretSurface: PasswordSecretSurface {
         return await withCheckedContinuation { (continuation: CheckedContinuation<URL?, Never>) in
             panel.beginForCmux(in: anchor?.window) { continuation.resume(returning: $0) }
         }
+    }
+}
+
+/// Shows dialogs on the app's overlay host and leaves their window out of screen capture and
+/// screen sharing (`NSWindow.sharingType = .none`) while they show, so a recording, a screenshot
+/// or an agent's screen capture never contains a revealed password. The window's own sharing
+/// type comes back when the dialog hides.
+@MainActor
+final class CaptureExcludedDialogHost: CmuxDialogHosting {
+    private let inner: any CmuxDialogHosting
+    private var restore: [ObjectIdentifier: (window: NSWindow, sharing: NSWindow.SharingType)] = [:]
+
+    init(inner: any CmuxDialogHosting = CmuxDialogOverlayHost()) {
+        self.inner = inner
+    }
+
+    func show(_ dialog: CmuxDialogView, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {
+        inner.show(dialog, in: scope, scopeGone: scopeGone)
+    }
+
+    func hide(_ dialog: CmuxDialogView) {
+        if let previous = restore.removeValue(forKey: ObjectIdentifier(dialog)) {
+            previous.window.sharingType = previous.sharing
+        }
+        inner.hide(dialog)
     }
 }

@@ -11,7 +11,8 @@ public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
         general + UpdateSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
             + PickerSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors
-            + SidebarSectionSettingsSchema.descriptors + BrowserSettingsSchema.descriptors + NotificationSettingsSchema.descriptors
+            + SidebarSectionSettingsSchema.descriptors + BrowserSettingsSchema.descriptors + [PasswordExportSetting.descriptor]
+            + NotificationSettingsSchema.descriptors
             + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors
     }
 

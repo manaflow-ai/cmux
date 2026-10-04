@@ -31,6 +31,8 @@ final class PasswordsPageProvider: PageProvider {
     let secrets: any PasswordSecretSurface
     /// The page view: the sheets attach to its window.
     var anchor: () -> NSView? = { nil }
+    /// `browser.passwords.allowExport` (default off): export is refused while it is off.
+    var exportAllowed: @MainActor () -> Bool = { false }
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
     private var revision = 0
@@ -113,6 +115,7 @@ final class PasswordsPageProvider: PageProvider {
                 "passwords": .bool(capabilities.passwords), "passkeys": .bool(capabilities.passkeys),
                 "exceptions": .bool(capabilities.exceptions), "export": .bool(capabilities.export),
             ],
+            "export_allowed": .bool(exportAllowed()),
         ]
     }
 
@@ -204,4 +207,5 @@ nonisolated enum PasswordOps {
     static let notFoundCode = "cmux.passwords.not_found"
     static let failedCode = "cmux.passwords.failed"
     static let authFailedCode = "cmux.passwords.auth_failed"
+    static let exportOffCode = "cmux.passwords.export_off"
 }

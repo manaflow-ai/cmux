@@ -80,6 +80,21 @@ nonisolated enum PasswordStrings {
     static var deleteProfilePasskeysUnknown: String {
         String(localized: "passwords.profileDelete.passkeysUnknown", defaultValue: "Its passkeys stop working.", table: "Passwords", bundle: .module)
     }
+    static var profileDeleteHoldsSecrets: String {
+        String(localized: "passwords.profileDelete.refusedSecrets",
+               defaultValue: "This browser profile holds saved passwords or passkeys. Only you can delete it, in the cmux app.",
+               table: "Passwords", bundle: .module)
+    }
+    static var profileDeleteMayHoldSecrets: String {
+        String(localized: "passwords.profileDelete.refusedUnknown",
+               defaultValue: "This browser profile may hold saved passwords. Only you can delete it, in the cmux app.",
+               table: "Passwords", bundle: .module)
+    }
+    static var exportOff: String {
+        String(localized: "passwords.error.exportOff",
+               defaultValue: "Password export is off. Turn on “Allow Password Export” in Settings > Browser.",
+               table: "Passwords", bundle: .module)
+    }
     static var deleteProfileButton: String {
         String(localized: "passwords.profileDelete.delete", defaultValue: "Delete", table: "Passwords", bundle: .module)
     }

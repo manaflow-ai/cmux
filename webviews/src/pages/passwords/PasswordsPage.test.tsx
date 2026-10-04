@@ -123,6 +123,15 @@ describe("PasswordsPage", () => {
     expect(text()).toContain("No matches");
   });
 
+  test("Export stays off until the setting allows it, and says where to turn it on", async () => {
+    const data = sampleData();
+    data.exportAllowed = false;
+    await render(new MockPasswordsProvider(data));
+    const button = $(".pw-export") as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toBe("Turn on “Allow Password Export” in Settings > Browser to export.");
+  });
+
   test("the profile menu appears only with more than one profile", async () => {
     await render();
     expect($(".pw-profile")).not.toBeNull();

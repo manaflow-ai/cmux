@@ -129,6 +129,8 @@ extension SettingsSchema {
     /// Keys an agent may not set or reset, with the reason.
     public static let agentRefusedKeys: [String: AgentRefusal] = [
         "picker.pinned": .userOnly,
+        // Export writes every saved password to a plain text file (passwords.md P3).
+        "browser.passwords.allowExport": .privacy,
         "history.terminalCommands": .privacy,
         "feed.mirrorNotifications.agents": .privacy,
         "feed.mirrorNotifications.terminal": .privacy,
