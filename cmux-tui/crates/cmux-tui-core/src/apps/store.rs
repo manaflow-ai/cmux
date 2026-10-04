@@ -3,7 +3,10 @@
 //! The supervisor owns them; params, results and events are Rust types with
 //! `schemars`, so they enter the one IR through emit-ir (pane-protocol.md).
 //! Install, uninstall, grant changes, updates and local apps need origin
-//! user and a live gesture; agents are refused until the actor stamp lands.
+//! user; agents are refused until the actor stamp lands. Install, uninstall,
+//! update and grant.set always go through a native Swift confirmation sheet
+//! (app name, scopes with risk class): only that sheet stamps origin user;
+//! user activation in page JavaScript is not a gesture proof.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -14,8 +17,11 @@ pub struct StoreOp {
     pub name: &'static str,
     pub scope: &'static str,
     pub mutation: bool,
-    /// Origin user with a gesture token; never an agent or a script.
+    /// Origin user; never an agent or a script.
     pub user_only: bool,
+    /// The supervisor asks the client for the native confirmation sheet
+    /// before it runs the op.
+    pub native_confirmation: bool,
     pub stream: bool,
 }
 
@@ -41,7 +47,8 @@ pub const STORE_OPS: &[StoreOp] = &[
 ];
 
 const fn op(name: &'static str, scope: &'static str, mutation: bool, user_only: bool, stream: bool) -> StoreOp {
-    StoreOp { name, scope, mutation, user_only, stream }
+    let confirm = matches!(name.as_bytes(), b"cmux.apps.install" | b"cmux.apps.uninstall" | b"cmux.apps.update" | b"cmux.apps.grant.set");
+    StoreOp { name, scope, mutation, user_only, stream, native_confirmation: confirm }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -177,7 +184,11 @@ pub struct VersionInfo {
 pub struct AssetGetParams {
     pub app: String,
     /// A path the manifest names (icon, screenshots, notices); never another file.
-    pub path: String,
+    pub path: Option<String>,
+    /// The manifest's symbol icon at this pixel size. A Mac host renders it to
+    /// PNG; other hosts answer `apps.asset.unavailable` and the client draws a
+    /// generic glyph (SF Symbols never ship as web SVGs).
+    pub symbol_png: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -368,6 +379,7 @@ mod tests {
             assert!(op.name.starts_with("cmux.apps."), "{}", op.name);
             assert!(names.insert(op.name), "{} twice", op.name);
             assert!(!op.user_only || op.mutation, "{}", op.name);
+            assert!(!op.native_confirmation || op.user_only, "{}", op.name);
         }
     }
 
