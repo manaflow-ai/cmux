@@ -301,7 +301,10 @@ fn an_item_a_downgraded_daemon_reopened_leaves_v2_at_the_next_upgrade() {
     }
     open_schema(&mut connection);
     connection
-        .execute("DELETE FROM closed_history WHERE closed_id IN ('closed_full1', 'closed_full10')", [])
+        .execute(
+            "DELETE FROM closed_history WHERE closed_id IN ('closed_full1', 'closed_full10')",
+            [],
+        )
         .unwrap();
     insert_v1(&connection, "full51", 51);
     open_schema(&mut connection);
