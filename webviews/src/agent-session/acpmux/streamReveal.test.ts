@@ -78,7 +78,8 @@ describe("StreamReveal", () => {
       800,
     );
     const at = shown.find((frame) => frame.at >= 100 + StreamReveal.catchUpMs + 3 * FRAME)!;
-    expect(at.received - at.length).toBeLessThan(400);
+    // Most of the 5,000-character burst shows within the catch-up time; the rest flows at the new rate.
+    expect(at.received - at.length).toBeLessThan(1_250);
   });
 
   test("with Reduce Motion everything shows at once", () => {

@@ -27,6 +27,8 @@ export function useStreamReveal(text: string, streaming: boolean): string {
     if (current.settled && shown >= text.length) return;
     let handle = 0;
     const tick = (now: number) => {
+      // Text that arrived while the page was hidden shows at once; nobody watched it arrive.
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") current.flush();
       const length = current.advance(latest.current.text, now, !latest.current.streaming);
       setShown(length);
       if (!current.settled) handle = revealFrames.request(tick);

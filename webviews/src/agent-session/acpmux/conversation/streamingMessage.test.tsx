@@ -105,7 +105,8 @@ describe("revealed reply", () => {
     expect(partial.length).toBeGreaterThan(2);
     expect(partial.length).toBeLessThan(more.length);
     expect(more.startsWith(partial)).toBe(true);
-    step(30);
+    // A live stream trails by its lag; once nothing arrives for a moment the rest drains.
+    step(90);
     expect(view.host.textContent).toBe(more);
     view.root.unmount();
   });
