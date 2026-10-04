@@ -16,7 +16,7 @@ public final class CmuxDialogView: NSView {
     /// Text fields, choices, check boxes, then buttons: the focus order.
     private(set) var focusables: [NSView] = []
     private let stack = NSStackView()
-    private(set) var surface: OverlaySurfaceView!
+    private(set) var surface: OverlaySurfaceView?
 
     public init(spec: CmuxDialogSpec) {
         self.spec = spec

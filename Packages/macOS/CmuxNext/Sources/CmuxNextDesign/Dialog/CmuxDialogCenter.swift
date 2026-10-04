@@ -73,7 +73,7 @@ public final class CmuxDialogCenter {
             entry.closeObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.willCloseNotification, object: window, queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated { _ = self?.dismiss(id) }
+                Task { @MainActor in _ = self?.dismiss(id) }
             }
         }
         entries[id] = entry
