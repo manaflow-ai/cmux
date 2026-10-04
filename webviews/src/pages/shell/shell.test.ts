@@ -71,12 +71,20 @@ let contexts: Record<string, ShellContext>;
 let unmounts: string[];
 let nextCallId = 1000;
 
+let mounts: string[];
+let paints: string[];
+let resumes: { id: string; context: unknown; route: string }[];
+
 function probe(id: string): ShellPage {
   const module: ShellPageModule = {
     mount(root, ctx) {
       contexts[id] = ctx;
+      mounts.push(id);
       root.textContent = id;
-      return { unmount: () => void unmounts.push(id) };
+      return {
+        unmount: () => void unmounts.push(id),
+        resume: (context: unknown, route: string) => void resumes.push({ id, context, route }),
+      } as ReturnType<ShellPageModule["mount"]>;
     },
   };
   return { id, load: async () => module };
@@ -107,12 +115,16 @@ beforeEach(async () => {
   client = new BridgePageClient(host, dom.window as unknown as Record<string, unknown>);
   contexts = {};
   unmounts = [];
+  mounts = [];
+  paints = [];
+  resumes = [];
   shell = new PageShell({
     client,
     root: dom.window.document.getElementById("root")!,
     pages: [probe("cmux.a"), probe("cmux.b")],
     win: dom.window as any,
     languages: () => ["en"],
+    painted: () => void paints.push(shell.current ?? ""),
   });
   await shell.preload();
 });
@@ -213,4 +225,44 @@ test("the shell's own boot globals survive a reset", async () => {
   await hostCall(ShellOps.reset);
   expect((dom.window as any).bootGlobal).toBe(1);
   expect(typeof (dom.window as any).__cmuxPageReceive).toBe("function");
+});
+
+test("a prepared page is mounted with no context, and the claim only resumes it", async () => {
+  const prepared = await hostCall(ShellOps.claim, { page: "cmux.a", route: "", context: null, prepare: true });
+  expect(prepared).toEqual({ t: "ok", id: prepared.id, value: { page: "cmux.a", prepared: true } });
+  expect(contexts["cmux.a"].context).toBeNull();
+  const reply = await hostCall("page.resume", { page: "cmux.a", route: "#/x", context: { session: 1 } });
+  expect(reply.value).toEqual({ page: "cmux.a" });
+  // No second mount: the claim only hands the session to the mounted page.
+  expect(mounts).toEqual(["cmux.a"]);
+  expect(resumes).toEqual([{ id: "cmux.a", context: { session: 1 }, route: "#/x" }]);
+});
+
+test("resuming a page that is not the prepared one is refused", async () => {
+  await hostCall(ShellOps.claim, { page: "cmux.a", prepare: true });
+  const reply = await hostCall("page.resume", { page: "cmux.b", context: {} });
+  expect(reply.t).toBe("err");
+  expect(resumes).toEqual([]);
+});
+
+test("a resume that arrives while its prepare claim waits for the last reset waits for it", async () => {
+  await hostCall(ShellOps.claim, { page: "cmux.a" });
+  // The reset leaves cleanup pending, so the prepare claim mounts later.
+  client.receive({ t: "call", id: 7001, op: ShellOps.reset, params: {} });
+  client.receive({ t: "call", id: 7002, op: ShellOps.claim, params: { page: "cmux.b", prepare: true } });
+  client.receive({ t: "call", id: 7003, op: "page.resume", params: { page: "cmux.b", context: { s: 2 } } });
+  for (let i = 0; i < 20 && !host.replies.some((reply) => reply.id === 7003); i++)
+    await new Promise((r) => setTimeout(r, 0));
+  expect(host.replies.find((reply) => reply.id === 7003)?.value).toEqual({ page: "cmux.b" });
+  expect(resumes).toEqual([{ id: "cmux.b", context: { s: 2 }, route: "" }]);
+});
+
+test("the host hears of the first frame after a claim and after a resume, never after a prepare", async () => {
+  await hostCall(ShellOps.claim, { page: "cmux.a" });
+  expect(paints).toEqual(["cmux.a"]);
+  await hostCall(ShellOps.reset);
+  await hostCall(ShellOps.claim, { page: "cmux.b", prepare: true });
+  expect(paints).toEqual(["cmux.a"]);
+  await hostCall("page.resume", { page: "cmux.b", context: {} });
+  expect(paints).toEqual(["cmux.a", "cmux.b"]);
 });

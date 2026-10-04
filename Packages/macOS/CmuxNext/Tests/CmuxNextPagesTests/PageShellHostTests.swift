@@ -125,6 +125,22 @@ import WebKit
         #expect(new["t"] == "ok")
     }
 
+    @Test func theTitleBarActionFollowsTheBindingAndSurvivesARebind() async {
+        let router = PageRouter(descriptor: PageShellFixture.iconPicker, routes: [])
+        var actions = 0
+        router.titleBarDoubleClick = { actions += 1 }
+        let call: JSONValue = ["t": "call", "id": 1, "op": .string(PageNativeOp.titleBarDoubleClick), "params": [:]]
+        router.unbind()
+        #expect(await router.handle(call)["code"] == "cmux.protocol.unknown_op")
+        #expect(actions == 0)
+        router.bind(.history, routes: [PageRoute(prefix: "cmux.history.", provider: Provider())])
+        #expect(await router.handle(call)["t"] == "ok")
+        #expect(actions == 1)
+        // The host still refuses an origin or a confirmation from the newly bound page.
+        let forged: JSONValue = ["t": "call", "id": 2, "op": "cmux.history.entries.list", "params": ["confirmed": true]]
+        #expect(await router.handle(forged)["code"] == "cmux.protocol.invalid_params")
+    }
+
     @Test func anUnboundRouterAdmitsNothingNotEvenTheBuiltInStreams() async {
         let provider = Provider()
         let router = PageRouter(descriptor: PageShellFixture.iconPicker, routes: [PageRoute(prefix: "cmux.iconPicker.", provider: provider)])
@@ -153,7 +169,10 @@ import WebKit
         #expect(PageRegistry.pages(id: "cmux.icon-picker").contains { $0 === host })
         #expect(!PageRegistry.pages(id: "cmux.shell").contains { $0 === host })
         #expect(host.router.descriptor.id == "cmux.icon-picker")
-        #expect(host.webKitView.configuration.userContentController.userScripts.count == 1)
+        // The previous page's script is gone; the theme bootstrap and the paint probe stay.
+        let scripts = host.webKitView.configuration.userContentController.userScripts.map(\.source)
+        #expect(scripts == [WebTheme.bootstrapScript, PagePaintProbe.script])
+        #expect(!host.hasPainted)
         #expect(host.themeSurface == nil)
         #expect(host.route == "#/emoji")
         // The trust check still reads the shell origin.

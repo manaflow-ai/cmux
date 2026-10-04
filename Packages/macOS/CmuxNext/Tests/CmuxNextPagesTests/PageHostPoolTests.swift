@@ -66,8 +66,16 @@ import WebKit
         };
       });
     } catch { idb = false; }
+    let cache = false;
+    try {
+      if (globalThis.caches) {
+        const opened = await caches.open('a-cache');
+        await opened.put('/a', new Response('secret'));
+        cache = true;
+      }
+    } catch { cache = false; }
     await ctx.client.subscribe('cmux.shell.probe.events', () => { document.documentElement.dataset.lateEvent = '1'; });
-    return idb;
+    return JSON.stringify({ idb, cache });
     """
 
     static let pendingCall = """
@@ -75,12 +83,30 @@ import WebKit
     catch (error) { return error.code || 'other'; }
     """
 
+    /// Page B opens A's database by name: a fresh database (old version 0, no store) means A's
+    /// rows are gone; null means IndexedDB is not there.
     static let pageB = """
     let databases = null;
-    try { databases = indexedDB.databases ? (await indexedDB.databases()).map((d) => d.name) : null; } catch { databases = null; }
+    try { if (indexedDB.databases) databases = (await indexedDB.databases()).map((d) => d.name); } catch { databases = null; }
+    let cacheKeys = null;
+    try { if (globalThis.caches) cacheKeys = await caches.keys(); } catch { cacheKeys = null; }
+    const idbLeaked = await new Promise((resolve) => {
+      let fresh = false;
+      let open;
+      try { open = indexedDB.open('a-db'); } catch { resolve(null); return; }
+      open.onupgradeneeded = (event) => { fresh = event.oldVersion === 0; };
+      open.onerror = () => resolve(null);
+      open.onsuccess = () => {
+        const db = open.result;
+        const had = db.objectStoreNames.contains('s');
+        db.close();
+        indexedDB.deleteDatabase('a-db');
+        resolve(had && !fresh);
+      };
+    });
     return JSON.stringify({
       local: localStorage.length, session: sessionStorage.length, global: typeof globalThis.leakedByA,
-      databases, late: document.documentElement.dataset.lateEvent ?? null,
+      idbLeaked, databases, cacheKeys, late: document.documentElement.dataset.lateEvent ?? null,
       mounted: document.querySelectorAll('[data-shell-page]').length
     });
     """
@@ -89,7 +115,9 @@ import WebKit
         var local: Int
         var session: Int
         var global: String
+        var idbLeaked: Bool?
         var databases: [String]?
+        var cacheKeys: [String]?
         var late: String?
         var mounted: Int
     }
@@ -145,6 +173,22 @@ import WebKit
         return window
     }
 
+    /// Waits for the pool's spare (the test fails at the deadline).
+    static func spareReady(_ pool: PageHostPool) async {
+        if pool.isSpareReady { return }
+        _ = await PageTestWait.value("spare ready") { (done: @escaping (Bool) -> Void) in
+            pool.onSpareReady = { _ in done(true) }
+        }
+    }
+
+    /// A pool with a short quiet period and no outside activity.
+    static func pool() -> PageHostPool {
+        PageID.registerBundledRoot(PageShellFixture.webviewsApp, for: PageDescriptor.shell.id)
+        var policy = PageHostPool.Policy()
+        policy.idleInput = .milliseconds(5)
+        return PageHostPool(policy: policy, activity: { 0 }, isTrackingMenu: { false })
+    }
+
     static func loadedHost() async throws -> PageWebView {
         PageID.registerBundledRoot(PageShellFixture.webviewsApp, for: PageDescriptor.shell.id)
         let host = try #require(PageWebView(pooledHost: .shell))
@@ -157,7 +201,12 @@ import WebKit
     /// returns its host): B reads nothing of A, A's stream is cancelled, A's pending call is closed.
     func checkNothingLeaks(provider: ProbeProvider, host: PageWebView, leave: () async -> Void,
                            next: () async throws -> PageWebView) async throws {
-        let wroteIDB = try await Self.js(host, Self.pageA) as? Bool ?? false
+        struct Wrote: Decodable { var idb: Bool; var cache: Bool }
+        let wroteText = try await Self.js(host, Self.pageA) as? String ?? "{}"
+        let wrote = try JSONDecoder().decode(Wrote.self, from: Data(wroteText.utf8))
+        // IndexedDB must work in a page host, or this test proves nothing about it.
+        #expect(wrote.idb, "page A could not open IndexedDB")
+        print("PAGE_TEST_STAGE storage in page A: indexedDB \(wrote.idb), cache storage \(wrote.cache)")
         let outcome = Task { try await Self.js(host, Self.pendingCall) as? String }
         await provider.waitForSlow()
         #expect(host.router.subscriptionCount == 1)
@@ -175,7 +224,10 @@ import WebKit
         #expect(seen.global == "undefined")
         #expect(seen.late == nil)
         #expect(seen.mounted == 1)
-        if wroteIDB { #expect(seen.databases == []) }
+        #expect(seen.idbLeaked == false, "page B saw page A's IndexedDB rows (or had no IndexedDB)")
+        // indexedDB.databases(), when WebKit has it: page B's own probe database only, deleted again.
+        if let databases = seen.databases { #expect(databases.isEmpty, "indexedDB.databases() in page B: \(databases)") }
+        if wrote.cache { #expect(seen.cacheKeys == [], "page B saw page A's Cache Storage") }
         // A's pending call: closed in the same host; gone with its document on a retired host.
         if b === host { #expect(try await outcome.value == "cmux.protocol.closed") } else { outcome.cancel() }
     }
@@ -222,11 +274,13 @@ import WebKit
             await spare()
             let b = try await Self.claim(pool, .shellProbe, window: window)
             #expect(b !== a)
+            // A retired host's non-persistent data store is never reused.
+            #expect(b.webKitView.configuration.websiteDataStore !== a.webKitView.configuration.websiteDataStore)
             return b
         })
-        #expect(pool.spans.contains { $0.name == "pool.makeSpare" })
+        #expect(pool.spans.contains { $0.name == "pool.makeSpare.create" })
         pool.dropSpare()
-        pool.claimedHost.map(pool.release)
+        pool.claimedHosts.forEach(pool.release)
         window.close()
     }
 
@@ -251,7 +305,10 @@ import WebKit
         pool.release(first)
         #expect(pool.spareHost === first)
         #expect(pool.isSpareReady)
-        #expect(first.descriptor.id == "cmux.shell")
+        // Reset, then prepared again with the last claimed page (decision a).
+        await PageHostPrepareTests.prepared(pool, "cmux.shell.probe")
+        #expect(first.descriptor.id == "cmux.shell.probe")
+        #expect(!first.touched)
         // One op: never recycled.
         let second = try await Self.claim(pool, .shellProbe, window: window)
         #expect(second === first)
