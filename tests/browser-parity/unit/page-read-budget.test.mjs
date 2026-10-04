@@ -88,3 +88,25 @@ test("markdown: an oversized page stops at the page-read budget with a note, and
     await servers.close();
   }
 });
+
+test("snapshot: DOM read beside the walk (visible-box checks, aria-owns, labels) counts against the walk's node budget", async () => {
+  // `_maxNodes` lowers the budget for the test; each page holds far more
+  // nodes than it outside the part the walk visits.
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});`);
+      const pages = {
+        box: `document.body.innerHTML = '<button>First</button><a id="zero" href="#" style="display:block;width:0;height:0"></a>'; const z = document.getElementById("zero"); for (let i = 0; i < 5000; i++) z.appendChild(document.createElement("span"));`,
+        owns: `document.body.innerHTML = '<button>First</button><div role="listbox" aria-label="L"></div><div id="x">x</div>'; document.querySelector("[role=listbox]").setAttribute("aria-owns", "x ".repeat(100000));`,
+        labels: `document.body.innerHTML = '<input id="a"><div id="hidden" style="display:none"></div>'; document.getElementById("hidden").innerHTML = '<label for="a">L</label>'.repeat(5000);`,
+      };
+      for (const [name, setup] of Object.entries(pages)) {
+        const r = await run(`await page.evaluate(() => { ${setup} }); const s = await snapshot({ maxChars: Infinity, _maxNodes: 1000 }); console.log("@@" + JSON.stringify(s.tree.split("\\n").slice(-1)[0]));`);
+        assert.match(JSON.parse(r.value), /^# the page is too large to read whole: the snapshot stopped after 1,000 nodes/, `${name}: the snapshot read past its budget without saying so`);
+      }
+    });
+  } finally {
+    await servers.close();
+  }
+});
