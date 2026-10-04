@@ -108,3 +108,37 @@ fn answers_and_errors_map_as_the_request_file_says() {
     let err = decode_answer("fs.stat", b"not json").unwrap_err();
     assert_eq!(err.code, "cmux.cloud.bad_response");
 }
+
+/// A cancel ends the dial child at once (the op answers long before its
+/// 30 s bound) and the child does not outlive the op.
+#[cfg(unix)]
+#[test]
+fn a_cancel_ends_the_dial_child() {
+    let script = r#"printf '%s\n' '{"ok":true,"path_state":"direct"}' >&2
+echo $$ > "$OUT"
+exec sleep 30"#;
+    let (target, pid_file) = sh_target(script, "cancel");
+    let cancel = Cancel::default();
+    let worker_cancel = cancel.clone();
+    let started = std::time::Instant::now();
+    let worker = std::thread::spawn(move || {
+        LinkDaemonFiles.call(&target, "fs.stat", json!({ "path": "/a" }), &worker_cancel)
+    });
+    // Wait until the child runs (tests may sleep).
+    for _ in 0..200 {
+        if std::fs::read_to_string(&pid_file).is_ok_and(|p| !p.trim().is_empty()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    cancel.cancel();
+    let outcome = worker.join().expect("worker");
+    assert!(outcome.is_err(), "a cancelled op is an error");
+    assert!(started.elapsed() < std::time::Duration::from_secs(10), "it ended at once");
+    let pid = std::fs::read_to_string(&pid_file).unwrap();
+    let alive = std::process::Command::new("/bin/kill")
+        .args(["-0", pid.trim()])
+        .status()
+        .is_ok_and(|s| s.success());
+    assert!(!alive, "the dial child {pid} was ended");
+}
