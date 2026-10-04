@@ -14,6 +14,9 @@ public final class WebKitEngine: BrowserEngine {
     public let faviconLoader: any BrowserFaviconLoading
     /// Where downloads go. Read when each download starts.
     public var downloadsDirectory: URL
+    /// Hosts whose untrusted certificate the user chose to proceed past, per
+    /// browser profile, until the app quits (never written to disk).
+    var certificateExceptions: [BrowserProfileID: Set<String>] = [:]
     /// Per-profile site permissions, shared with the Chromium engine.
     public var siteSettings: SiteSettingsRegistry = .shared
     /// Appended to WebKit's user agent, e.g. "cmux/1.0 Safari/605.1.15".

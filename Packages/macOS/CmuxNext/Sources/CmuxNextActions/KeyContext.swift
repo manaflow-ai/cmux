@@ -94,8 +94,9 @@ extension ActionContext {
         (.textBoxFocused, "textBoxFocused"), (.paletteOpen, "paletteOpen"), (.signedIn, "signedIn"),
         (.signedOut, "signedOut"), (.cloudWorkspace, "cloudWorkspace"), (.agentPaneFocused, "agentPaneFocused"),
         (.checkpointCaptureAvailable, "checkpointCaptureAvailable"), (.recordingShortcut, "recordingShortcut"),
+        (.omnibarFocused, "omnibarFocused"),
     ]
 
     /// The bits a window's focus decides; the rest are app-wide facts.
-    public nonisolated static let focusBits: ActionContext = [.terminalFocused, .browserFocused, .agentPaneFocused]
+    public nonisolated static let focusBits: ActionContext = [.terminalFocused, .browserFocused, .agentPaneFocused, .omnibarFocused]
 }
