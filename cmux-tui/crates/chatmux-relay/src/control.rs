@@ -494,7 +494,7 @@ mod tests {
     /// number hits that other socket ("EOF on self-pipe" across the suite).
     #[tokio::test]
     async fn the_descriptor_end_shuts_down_stays_owned_after_the_peer_closes() {
-        fn inode(fd: std::os::fd::RawFd) -> Option<(u64, u64)> {
+        fn inode(fd: std::os::fd::RawFd) -> Option<(libc::dev_t, libc::ino_t)> {
             let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
             // SAFETY: fstat writes a stat into the buffer on success.
             if unsafe { libc::fstat(fd, stat.as_mut_ptr()) } != 0 {
@@ -502,7 +502,7 @@ mod tests {
             }
             // SAFETY: fstat succeeded.
             let stat = unsafe { stat.assume_init() };
-            Some((stat.st_dev as u64, stat.st_ino as u64))
+            Some((stat.st_dev, stat.st_ino))
         }
         let dir = std::env::temp_dir().join(format!("crs-{}-{}", std::process::id(), line!()));
         let _ = std::fs::remove_dir_all(&dir);
