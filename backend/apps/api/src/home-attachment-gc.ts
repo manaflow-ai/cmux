@@ -26,8 +26,10 @@ export const attachmentWakeAt = (sql: Pick<SqlStore, "exec">): number | null => 
 export const runAttachmentWake = async (deps: AttachmentGcDeps, entity: string | undefined, now: number): Promise<void> => {
   await expireSlots(deps, now)
   await drainDrops(deps)
+  // A reference released earlier in this wake marks the sweep dirty at Date.now(), which may be later than the wake's `now`.
+  const at = Math.max(now, Date.now())
   const due = store.nextSweepAt(deps.sql)
-  if (due !== null && due <= now) await sweepAttachments(deps, now)
+  if (due !== null && due <= at) await sweepAttachments(deps, at)
   const purge = store.purgeAt(deps.sql)
   if (purge !== null && purge <= now && entity) {
     await deletePrefix(deps.env, entity)
