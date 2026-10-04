@@ -4,7 +4,7 @@ mod common;
 
 use cmux_cloud::api::models::{Machine, MachineStatus};
 use cmux_cloud::api::upstream_key;
-use cmux_cloud::ops::Change;
+use cmux_cloud::ops::WatchEvent;
 use cmux_cloud::{Origin, Request, Server};
 use common::FakeControlPlane;
 use serde_json::json;
@@ -162,8 +162,10 @@ fn a_mutation_updates_the_projection_at_once() {
     assert_eq!(s.projection().revision(), before + 1);
     let events = s.take_events();
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].change, Change::Upsert);
-    assert_eq!(events[0].machine.as_deref(), Some("vm-alpha01"));
+    assert!(
+        matches!(&events[0], WatchEvent::Upsert { machine, .. } if machine.id == "vm-alpha01"),
+        "{events:?}"
+    );
     assert_eq!(s.control_plane().count("GET", "/api/vm"), 1, "no extra list read");
     s.handle(
         &Request::new(

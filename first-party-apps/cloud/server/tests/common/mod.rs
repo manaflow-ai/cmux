@@ -50,6 +50,20 @@ impl FakeControlPlane {
         self.routes.insert((method, path), (status, fixture["body"].clone()));
     }
 
+    /// Sets the answer of one route directly (for example a list without a
+    /// machine the last list had).
+    pub fn respond(&mut self, method: &str, path: &str, status: u16, body: Value) {
+        self.routes.insert((method.to_owned(), path.to_owned()), (status, body));
+    }
+
+    /// The body of a fixture, for tests that change it.
+    pub fn fixture_body(name: &str) -> Value {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fixtures/{name}.json"));
+        let raw = std::fs::read_to_string(&path).expect("fixture");
+        serde_json::from_str::<Value>(&raw).expect("fixture JSON")["body"].clone()
+    }
+
     pub fn count(&self, method: &str, path: &str) -> usize {
         self.calls.iter().filter(|c| c.method == method && c.path == path).count()
     }

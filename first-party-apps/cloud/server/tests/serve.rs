@@ -1,5 +1,5 @@
 //! The op loop end to end over the JSON-lines channel: result first, then the
-//! projection events; stray relay answers get no reply.
+//! `cloud.machine.watch` events; stray relay answers get no reply.
 
 use cmux_cloud::api::{HostRelay, serve};
 use serde_json::Value;
@@ -27,11 +27,16 @@ fn a_mutation_answers_then_emits_its_event() {
         .map(|l| serde_json::from_str(l).expect("JSON line"))
         .collect();
     let kinds: Vec<&str> = lines.iter().map(|l| l["type"].as_str().expect("type")).collect();
-    assert_eq!(kinds, ["relay.request", "result", "event"], "{lines:?}");
+    // The list fills an empty projection: one upsert per machine, one revision.
+    assert_eq!(kinds, ["relay.request", "result", "event", "event"], "{lines:?}");
     assert_eq!(lines[0]["path"], "/api/vm");
     assert_eq!(lines[1]["id"], "1");
     assert_eq!(lines[1]["ok"], true);
-    assert_eq!(lines[2]["event"], "cloud.machine.changed");
-    assert_eq!(lines[2]["change"], "reset");
-    assert_eq!(lines[2]["revision"], 1);
+    assert_eq!(lines[1]["result"]["revision"], 1);
+    for (line, id) in lines[2..].iter().zip(["vm-alpha01", "vm-beta02"]) {
+        assert_eq!(line["event"], "cloud.machine.watch");
+        assert_eq!(line["data"]["type"], "upsert");
+        assert_eq!(line["data"]["revision"], 1);
+        assert_eq!(line["data"]["machine"]["id"], id);
+    }
 }
