@@ -95,6 +95,11 @@ nonisolated final class CloudHomeSource: HomeSource {
         /// A read or op failed in a way that leaves intents unconfirmed; the
         /// next sign that the cloud is reachable publishes `.ownerRecovered`.
         var degraded = false
+        #if DEBUG
+        /// Test seam: awaited by `snapshot(of:)` after it marks the
+        /// conversation viewed and before it subscribes.
+        var snapshotWillSubscribe: (@Sendable () async -> Void)?
+        #endif
     }
 
     private let state = Mutex(State())
@@ -372,6 +377,12 @@ nonisolated final class CloudHomeSource: HomeSource {
     #if DEBUG
     /// Conversations queued for or in a hydration read (tests).
     var queuedHydrations: Int { state.withLock { $0.hydrating.count } }
+
+    /// Runs `seam` inside every later `snapshot(of:)`, between marking the
+    /// conversation viewed and subscribing it (tests).
+    func setSnapshotWillSubscribe(_ seam: (@Sendable () async -> Void)?) {
+        state.withLock { $0.snapshotWillSubscribe = seam }
+    }
     #endif
 
     /// The cloud part of the inbox as this source knows it now (no read).
@@ -384,6 +395,9 @@ nonisolated final class CloudHomeSource: HomeSource {
             state.closed.remove(conversation)
             state.viewed.insert(conversation)
         }
+        #if DEBUG
+        if let seam = state.withLock({ $0.snapshotWillSubscribe }) { await seam() }
+        #endif
         await subscribe(conversation, commands: commands, generation: generation)
         let page = try await reply(for: identity) { try await commands.snapshot(conversation.rawValue, tail: tail) }
         let summary = CloudHomeMapping.summary(page.conversation, identity: identity)

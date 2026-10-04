@@ -41,6 +41,24 @@ import Testing
         store.stop()
     }
 
+    /// A source reads off the main actor, so a close can reach it before
+    /// the read set anything up (round-6 review, finding 1): the cloud
+    /// source then ends nothing, and the read subscribes after it. The store
+    /// closes the source again once a read of a closed transcript returns.
+    @Test func aCloseDuringAReadClosesTheSourceAgainAfterTheReadReturns() async {
+        let (store, source) = await started()
+        source.hold()
+        let opening = Task { await store.open(id) }
+        await waitUntil { source.waiting == 1 }
+        store.close(id)
+        source.release()
+        await opening.value
+        #expect(source.journal.last == .close(id), "nothing closed what the read set up after the close: \(source.journal)")
+        #expect(source.journal.firstIndex(of: .readReturned(id)).map { $0 < source.journal.count - 1 } == true)
+        #expect(store.viewers[id] == nil)
+        store.stop()
+    }
+
     @Test func anOpenDuringAReadThatAClosePrecededReadsAgain() async {
         let (store, source) = await started()
         source.hold()

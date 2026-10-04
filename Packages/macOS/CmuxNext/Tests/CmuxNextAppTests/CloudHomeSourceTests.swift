@@ -692,6 +692,25 @@ import Testing
         #expect(!daemon.subscribed.contains(dm), "the daemon streams a closed conversation: \(daemon.calls)")
     }
 
+    /// The store calls the source off the main actor, so its close can run
+    /// after the read marked the conversation viewed and before it
+    /// subscribed (round-6 review, finding 1). That close ends nothing; the
+    /// store closes again when the read returns, which ends the
+    /// subscription the read made.
+    @Test @MainActor func aCloseBeforeTheReadSubscribesNeverLeavesTheDaemonSubscribed() async throws {
+        let (source, daemon, tape) = await configured(.init(heads: [dm: F.head(dm)]))
+        #expect(await signedIn(tape))
+        let store = HomeStore(source: source)
+        let id = ConversationID(dm)
+        source.setSnapshotWillSubscribe { await MainActor.run { store.close(id) } }
+        await store.open(id)
+        source.setSnapshotWillSubscribe(nil)
+        #expect(daemon.calls.contains(.subscribe(dm)))
+        #expect(await daemon.wait { $0.contains(.unsubscribe(dm)) }, "the daemon streams a closed conversation: \(daemon.calls)")
+        #expect(!daemon.subscribed.contains(dm))
+        #expect(!listed(source, dm), "a closed unlisted conversation stayed in the inbox")
+    }
+
     /// An edit made outside a transcript (mark read from the inbox, a
     /// quick reply) subscribes its conversation so the edit can go out;
     /// with no transcript showing it, the subscription ends after the op.
