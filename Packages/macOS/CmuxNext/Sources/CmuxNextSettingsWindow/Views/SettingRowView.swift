@@ -73,6 +73,8 @@ struct SettingControl: View {
         case .sound: SoundControl(model: model, descriptor: descriptor)
         case .url: AddressControl(model: model, descriptor: descriptor)
         case .hostList: HostListControl(model: model, descriptor: descriptor)
+        case .folderList:
+            HostListControl(model: model, descriptor: descriptor, placeholder: SettingsWindowStrings.folderPlaceholder, normalize: { $0 })
         case .timeRange: TimeRangeControl(model: model, descriptor: descriptor)
         case .theme: AppThemeControl(model: model, descriptor: descriptor)
         case .fontFamily: FontFamilyControl(model: model, descriptor: descriptor)

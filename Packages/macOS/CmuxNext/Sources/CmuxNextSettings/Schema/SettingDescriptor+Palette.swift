@@ -63,7 +63,7 @@ extension SettingDescriptor {
                 options.append(SettingOption(value: .string(text), title: text, swatches: [selected], isCurrent: true))
             }
             return options
-        case .sound, .url, .hostList, .timeRange, .theme, .fontFamily:
+        case .sound, .url, .hostList, .folderList, .timeRange, .theme, .fontFamily:
             return []
         }
     }

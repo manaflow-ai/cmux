@@ -31,10 +31,13 @@ struct AddressControl: View {
     }
 }
 
-/// Hosts as removable chips plus a field to add one.
+/// Hosts (or folder paths) as removable chips plus a field to add one.
 struct HostListControl: View {
     let model: SettingsWindowModel
     let descriptor: SettingDescriptor
+    var placeholder = SettingsWindowStrings.hostPlaceholder
+    /// Host names are lowercased; paths are kept as typed.
+    var normalize: (String) -> String = { $0.lowercased() }
     @State private var draft = ""
 
     var body: some View {
@@ -48,7 +51,7 @@ struct HostListControl: View {
                 }
             }
             HStack(spacing: Metrics.space2) {
-                TextField(SettingsWindowStrings.hostPlaceholder, text: $draft)
+                TextField(placeholder, text: $draft)
                     .textFieldStyle(.roundedBorder).frame(width: Metrics.sidebarWidth * 0.75)
                     .onSubmit(add)
                 Button(SettingsWindowStrings.add, action: add).buttonStyle(SettingsButtonStyle())
@@ -58,7 +61,7 @@ struct HostListControl: View {
     }
 
     private func add() {
-        let host = draft.trimmingCharacters(in: .whitespaces).lowercased()
+        let host = normalize(draft.trimmingCharacters(in: .whitespaces))
         guard !host.isEmpty else { return }
         let hosts = (model.value(descriptor)?.arrayValue ?? []).compactMap(\.stringValue)
         if !hosts.contains(host) { write(hosts + [host]) }

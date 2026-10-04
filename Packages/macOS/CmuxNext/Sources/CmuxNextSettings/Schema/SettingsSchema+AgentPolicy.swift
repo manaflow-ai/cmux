@@ -14,6 +14,9 @@ extension SettingsSchema {
         case network
         /// The key can end terminals or other work.
         case destructive
+        /// The person decides it; agents do not, in v1 (`picker.pinned`:
+        /// which folders the picker offers first).
+        case userOnly
     }
     /// Keys an agent may set and reset: the table below plus every
     /// `appearance.surfaces.<surface>.color|opacity` row (looks only, R55).
@@ -118,6 +121,7 @@ extension SettingsSchema {
 
     /// Keys an agent may not set or reset, with the reason.
     public static let agentRefusedKeys: [String: AgentRefusal] = [
+        "picker.pinned": .userOnly,
         "history.terminalCommands": .privacy,
         "feed.mirrorNotifications.agents": .privacy,
         "feed.mirrorNotifications.terminal": .privacy,

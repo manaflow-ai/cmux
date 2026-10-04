@@ -32,6 +32,9 @@ nonisolated enum SettingsSchemaSamples {
         case .hostList:
             return ([.array([]), .array([.string("localhost"), .string("*.example.com")])],
                     [.string("localhost"), .array([.number(1)])])
+        case .folderList:
+            return ([.array([]), .array([.string("/Users/ada/src"), .string("~/notes")])],
+                    [.string("/Users/ada/src"), .array([.string("relative/path")]), .array([.number(1)])])
         case .timeRange:
             return ([.object(["start": .string("22:00"), "end": .string("07:30")])],
                     [.object(["start": .string("25:00"), "end": .string("07:00")]), .object(["start": .string("22:00")]),
