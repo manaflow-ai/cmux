@@ -1,10 +1,11 @@
 import { env, exports } from "cloudflare:workers"
-import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
+import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { userIdFor } from "../src/domains/user.ts"
 import { conversationMutate } from "../src/home-routes.ts"
 import { recordingEnv } from "./reach-recorder.ts"
+import { fireAlarm } from "./setup/alarm.ts"
 
 /**
  * Home rate limits on ops that resolve human reach (home-messaging.md section 9): the caller's
@@ -204,7 +205,7 @@ describe("Home rate limits before reach", { timeout: 120_000 }, () => {
     const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(dm))
     const peerOf = () => inDO(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(ola.user)), async (i) => (await i.readInbox(ola.user, sessionPrincipal(ola), "inbox.dm_peer", { peer: pam.user })).value?.conversation)
     for (let n = 0; n < 100 && (await peerOf()) !== dm; n++) {
-      await runDurableObjectAlarm(conv)
+      await fireAlarm(conv)
       await new Promise((r) => setTimeout(r, 20))
     }
     expect(await peerOf()).toBe(dm)

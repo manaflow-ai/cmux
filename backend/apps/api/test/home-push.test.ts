@@ -1,10 +1,11 @@
 import { env, exports } from "cloudflare:workers"
-import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
+import { runInDurableObject } from "cloudflare:test"
 import type { Principal } from "@cmux/ownership"
 import type { PushTarget } from "@cmux/protocol"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import type { ApnsMessage, SendResult } from "../src/push/apns.ts"
+import { quiesce } from "./setup/alarm.ts"
 
 /**
  * Home push (home-messaging.md section 5 step 3, home-scale.md B10): the user's UserDO decides
@@ -343,16 +344,15 @@ describe("Home push: UserDO decides from each inbox.bump", () => {
 
   it("a throwing Home push drain does not skip the socket-close flush or the KRL notices, and the next wake is still scheduled", async () => {
     const { user, stub } = await pushUser("home-push-wake-isolation")
-    // Fire any alarm the runtime still has pending first, so none is due while the steps are patched.
-    await runDurableObjectAlarm(stub)
-    type WakeSteps = { flushCloses(now: number): Promise<void>; deliverKrlNotices(now: number): Promise<void>; drainHomePush(now: number): Promise<void>; alarm(): Promise<void>; systemDeliver: UserStub["systemDeliver"] }
+    type WakeSteps = { flushCloses(now: number): Promise<void>; deliverKrlNotices(now: number): Promise<void>; drainHomePush(now: number): Promise<void>; alarm(): Promise<void>; alarmIdle: Promise<void>; systemDeliver: UserStub["systemDeliver"] }
     const ran: Array<string> = []
     let alarm: number | null = 0
     await runInDurableObject(stub, async (instance: unknown, state: DurableObjectState) => {
       const o = instance as WakeSteps
-      // A queued push (delivered, not drained) keeps the object's next wake due; its alarm is removed at once.
+      await quiesce(o, state)
+      // A queued push (delivered, not drained) keeps the object's next wake due; quiesce again after that commit.
       expect((await o.systemDeliver(user, "conv:test", [bump(user, convId())])).done).toHaveLength(1)
-      await state.storage.deleteAlarm()
+      await quiesce(o, state)
       const flush = o.flushCloses.bind(o)
       const krl = o.deliverKrlNotices.bind(o)
       o.flushCloses = async (now) => (ran.push("flushCloses"), flush(now))
@@ -361,7 +361,7 @@ describe("Home push: UserDO decides from each inbox.bump", () => {
         ran.push("drainHomePush")
         throw new Error("drain failed")
       }
-      await state.storage.deleteAlarm()
+      await quiesce(o, state)
       await o.alarm()
       alarm = await state.storage.getAlarm()
     })
