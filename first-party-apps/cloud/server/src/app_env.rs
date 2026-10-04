@@ -192,8 +192,7 @@ pub(crate) fn write_private_with(
     // write as failed (the caller's memory would then differ from the file).
     #[cfg(unix)]
     {
-        let dir =
-            path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+        let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
         if let Err(e) = std::fs::File::open(dir).and_then(|d| d.sync_all()) {
             eprintln!("cmux-cloud: could not sync the folder of {}: {e}", path.display());
         }
