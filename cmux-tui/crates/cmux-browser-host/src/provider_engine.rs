@@ -878,6 +878,19 @@ mod tests {
             .unwrap();
         assert_eq!(open["engine"], "cef");
     }
+
+    /// A CEF tab's automation.input names the tab as the app knows it, so
+    /// the app routes the agent cursor (snake_case `target_id` too).
+    #[test]
+    fn cef_input_events_name_the_app_tab() {
+        let mut payload = json!({"session_id": "s1", "target_id": "CDP1",
+            "nested": {"targetId": "CDP1"}, "other": "CDP1"});
+        super::rename_target(&mut payload, "CDP1", "c1");
+        assert_eq!(
+            payload,
+            json!({"session_id": "s1", "target_id": "c1", "nested": {"targetId": "c1"}, "other": "CDP1"})
+        );
+    }
 }
 
 #[cfg(test)]

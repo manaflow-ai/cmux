@@ -145,8 +145,8 @@ fn a_dropped_link_does_not_keep_the_tee_alive() {
     drop(driver);
     tee(input(&valid_events()[0]));
     assert_eq!(seen.lock().unwrap_or_else(PoisonError::into_inner).len(), 1);
-    // The tee holds the link weakly: it never keeps a closed link alive.
-    let _ = weak;
+    // The tee holds the link weakly: it never keeps a dropped link alive.
+    assert!(weak.upgrade().is_none());
 }
 
 #[test]
