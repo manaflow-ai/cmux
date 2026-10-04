@@ -45,7 +45,7 @@ import Testing
         let header = try #require(h.sidebar.list.rowViews[.group(g1)] as? GroupHeaderRowView)
         header.layoutSubtreeIfNeeded()
         // The name aligns with workspace titles; the chevron trails.
-        #expect(header.titleFrame.minX == SidebarStyle.horizontalInset)
+        #expect(header.titleFrame.minX == SidebarStyle.horizontalInset + Metrics.space1)
         #expect(header.disclosureFrame.midX > header.bounds.midX)
         #expect(header.titleFont == SidebarStyle.headerFont)
     }
