@@ -155,6 +155,70 @@ final class BrowserReplResponseCounter: @unchecked Sendable {
     func increment() { lock.withLock { value += 1 } }
 }
 
+/// A driver whose typed-secret store, which the session reads every time
+/// it redacts, can be made to block once: it stands in for a redaction
+/// that takes a long time, and records whether it ran on the session's
+/// JavaScript thread.
+final class SlowRedactionDriver: BrowserReplDriver, @unchecked Sendable {
+    private let lock = NSLock()
+    private var sink: BrowserReplDriverEventSink?
+    private var armed = false
+    private var blockedWaiter: CheckedContinuation<Void, Never>?
+    private var isBlocked = false
+    private let release = DispatchSemaphore(value: 0)
+    private(set) var blockedThreadName: String?
+
+    var capabilities: [String] { [] }
+
+    func call(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
+        if method == "emitThenReturn" {
+            emit("console", #"{"targetId":"t1","type":"log","text":"before the result"}"#)
+        }
+        return .success("null")
+    }
+
+    func attach(eventSink: @escaping BrowserReplDriverEventSink) { lock.withLock { sink = eventSink } }
+
+    func detach() { lock.withLock { sink = nil } }
+
+    func emit(_ name: String, _ payload: String) {
+        let sink = lock.withLock { self.sink }
+        sink?(name, payload)
+    }
+
+    /// The next redaction blocks until `releaseRedaction()`.
+    func armBlockingRedaction() { lock.withLock { armed = true } }
+
+    func releaseRedaction() { release.signal() }
+
+    /// Returns once the armed redaction is blocked.
+    func waitUntilBlocked() async {
+        await withCheckedContinuation { continuation in
+            let resumeNow: Bool = lock.withLock {
+                if isBlocked { return true }
+                blockedWaiter = continuation
+                return false
+            }
+            if resumeNow { continuation.resume() }
+        }
+    }
+
+    func typedSecretRedaction() -> BrowserReplSecretStore? {
+        let waiter: CheckedContinuation<Void, Never>?? = lock.withLock {
+            guard armed else { return nil }
+            armed = false
+            isBlocked = true
+            blockedThreadName = Thread.current.name
+            defer { blockedWaiter = nil }
+            return .some(blockedWaiter)
+        }
+        guard let waiter else { return nil }
+        waiter?.resume()
+        release.wait()
+        return nil
+    }
+}
+
 @Suite("Browser REPL session resources", .serialized)
 struct BrowserReplSessionResourceTests {
     private func makeSession(_ driver: any BrowserReplDriver) -> BrowserReplSession {
@@ -309,6 +373,60 @@ struct BrowserReplSessionResourceTests {
         let delivered = Int(texts.last ?? "") ?? -1
         #expect(delivered >= 1 && delivered <= 64, "\(delivered) of 100 one-MiB events were queued: \(texts)")
         #expect(texts.contains { $0.contains("page events were dropped") }, "\(texts)")
+    }
+
+    /// A page controls its events' size, and the session masks secrets in
+    /// each before agent code sees it. That work must not hold the session's
+    /// JavaScript thread: a cell started meanwhile runs.
+    @Test("Masking secrets in a page event does not hold up the session's cells")
+    func eventRedactionRunsOffTheJavaScriptThread() async throws {
+        let driver = SlowRedactionDriver()
+        let session = makeSession(driver)
+        defer {
+            driver.releaseRedaction()
+            session.close()
+        }
+        #expect(await session.evaluate(code: "1;").error == nil)
+
+        driver.armBlockingRedaction()
+        driver.emit("console", #"{"targetId":"t1","type":"log","text":"page text"}"#)
+        await driver.waitUntilBlocked()
+        let result = await session.evaluate(code: "console.log(1 + 1);", timeout: .seconds(5))
+        driver.releaseRedaction()
+
+        #expect(result.error == nil, "\(result.error ?? "")")
+        #expect(result.lines.map(\.text) == ["2"])
+        #expect(driver.blockedThreadName != "com.cmux.browser-repl.\(session.id)", "the event was masked on the session's thread")
+    }
+
+    /// An event larger than the per-event limit arrives without its
+    /// content, as other outputs past their limits do, and still names its
+    /// tab, so masking never has to read it.
+    @Test("A page event past the per-event limit arrives withheld, naming its tab")
+    func oversizedEventIsWithheld() async throws {
+        let driver = RecordingReplDriver()
+        let runtime = resourceRuntime + #"""
+        globalThis.events = [];
+        globalThis.__cmuxHostOnEvent = (name, payload) => { globalThis.events.push([name, JSON.parse(payload)]); };
+        """#
+        let session = BrowserReplSession(
+            id: "events-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "events.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer { session.close() }
+        #expect(await session.evaluate(code: "globalThis.events = [];").error == nil)
+        let text = String(repeating: "x", count: 1 << 20)
+        driver.emit("console", #"{"targetId":"t1","type":"log","text":"\#(text)"}"#)
+        driver.emit("console", #"{"targetId":"t1","type":"log","text":"small"}"#)
+
+        let result = await session.evaluate(code: """
+        await driverOnce("tabs.list");
+        console.log(JSON.stringify(globalThis.events.map(([name, p]) => [name, p.targetId, p.text ?? null, typeof p.withheld])));
+        """)
+        let shown = try #require(result.lines.last?.text)
+        #expect(shown == #"[["console","t1",null,"string"],["console","t1","small","undefined"]]"#, "\(shown.prefix(300))")
     }
 
     @Test("A cell that times out cancels the fetches it started")
