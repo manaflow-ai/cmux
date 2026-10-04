@@ -10,6 +10,9 @@ public final class HomeStoreBinding {
     public let store: HomeStore
     public let controller: HomeController
     private var stopped = false
+    /// A refused op other than a send (a tapback now), on the main actor, so
+    /// the host can say why. Not called yet (the red test of item 9).
+    public var onRefusal: (HomeIntent, HomeRejection) -> Void = { _, _ in }
 
     public init(store: HomeStore, controller: HomeController) {
         self.store = store
