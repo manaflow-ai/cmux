@@ -7,7 +7,8 @@ conversations of a paired Mac mini over lane 12's `cmux link` overlay; the serve
 `MachineRegistry` kind `paired {install_id, name, path_state}`. This is the analysis that
 `skills/cmux-socket-policy/references/remote-relay-authorization.md` requires before code.
 Decided: D-A, the remote approval minimum with no waiver (section 6); D-B, a distinct
-`remote_<install>` participant added at pairing (section 5).
+`remote_<install>` participant added at pairing (section 5); D-C, a paired device is the same
+person; D-D, offline revocation limits 24 h / 72 h; D-E, the daemon-side PreToolUse hook.
 
 ## 1. Threat model
 
@@ -83,7 +84,7 @@ kinds for owned conversations leave it (section 8). Nothing reaches the remote w
 - **Remote participant (D-B).** Each paired install has a distinct participant
   `remote_<install>` with kind `human` and a new field **`person: "user_local"`** (the same human
   as the server's own user; display name "<owner name> (<device name>)").
-  - **Same person (DECISION, recommended yes):** the wake rule (home.md 2: with more than one human
+  - **Same person (D-C, decided yes):** the wake rule (home.md 2: with more than one human
     the Chief wakes only on a mention, a reply or a DM) and the participant budget
     (`MAX_PARTICIPANTS`) count distinct **persons**, not participant ids. A paired device therefore
     does not change how the Chief answers the owner's plain local messages, and devices do not use
@@ -104,7 +105,8 @@ kinds for owned conversations leave it (section 8). Nothing reaches the remote w
   - Every remote op and message carries `origin: {kind: "remote", install}` in the op ledger and on
     the message. This changes the `cmux-conversation` wire types and the conformance corpus that
     the cloud `ConversationDO` replays, so the change lands with a coordination line and the corpus
-    update in the same push.
+    update in the same push, agreed first with the `ConversationDO` owner (the backend lead)
+    through a coordination line.
 - Owned conversation: `remote_<install>` is a participant and the stamp's `user_id` is the server
   owner. The gate checks this for list, snapshot, history, typing and ops.
 
@@ -121,7 +123,7 @@ A `message.send` from a remote principal into a conversation with an agent start
    folder); for another agent it is the workspace root of its session. A tool the gate cannot
    classify needs an approval. Nothing lowers the minimum: not the remote, the model, a setting,
    `CLAUDE.md`, a hook config or a permission mode; there is no waiver.
-2. **Where it is enforced (DECISION, proposal):** in the daemon, not in the agent's permission
+2. **Where it is enforced (D-E, decided; the acpmux and agent-host owner confirms):** in the daemon, not in the agent's permission
    mode (Claude Code sets that per session, so a mixed session or a bypass-mode child would
    escape it).
    - Claude Code sessions (the Chief and every child it spawns): the agent host installs a
@@ -226,7 +228,7 @@ Turns and revocation:
   remote chain does not clear its mark; a bypass-mode child of a remote chain still asks.
 - no setting, `CLAUDE.md`, hook config or permission mode lowers the minimum; an unclassified tool
   asks; the hook's timeout or a daemon error denies.
-- revocation recheck with an injected clock: 1 hour -> new streams refused, 24 hours -> existing
+- revocation recheck with an injected clock: 24 hours -> new streams refused, 72 hours -> existing
   closed, unreachable cloud before that closes nothing.
 - revocation cancels the turn, its children, its open approvals and its outbox, and closes the
   stream; also while the server is offline from the cloud (section 10).
@@ -237,11 +239,11 @@ Turns and revocation:
   cloud connection; in one step the server deletes the pairing record of that install, runs
   `participants.remove_system` for its `remote_<install>`, closes its streams and cancels its
   remote-origin chains (section 6, rule 7).
-- Offline from the cloud (P2-C, DECISION, proposal): the link rechecks each paired install with
+- Offline from the cloud (D-D, decided): the link rechecks each paired install with
   the control plane every 5 minutes and on each new stream. An unreachable cloud is not a revoke:
-  - last good check older than **1 hour**: new streams from that install are refused, existing
+  - last good check older than **24 hours**: new streams from that install are refused, existing
     streams stay;
-  - last good check older than **24 hours**: existing streams are closed too;
+  - last good check older than **72 hours**: existing streams are closed too;
   - a check that says "revoked": everything at once, as above.
   Tests use an injected clock.
 
