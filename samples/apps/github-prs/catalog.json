@@ -16,7 +16,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/github-prs refresh",
+        "path": "refresh",
         "visible": true
       },
       "mcp": {

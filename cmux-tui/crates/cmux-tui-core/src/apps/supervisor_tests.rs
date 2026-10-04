@@ -157,8 +157,16 @@ fn write_app(root: &Path, dir: &str, id: &str, scopes: Value) {
             "export": export
         })
     };
-    let catalog =
-        json!({ "family": "demo", "operations": [op("demo.go", "go"), op("demo.crash", "crash")] });
+    // A third-party catalog family is the app's namespace (local.spy); a
+    // bare family such as `demo` is first-party only.
+    let family = if id.starts_with("cmux/") {
+        "demo".to_string()
+    } else {
+        cmux_app_manifest::app_namespace(id)
+    };
+    let name = |verb: &str| format!("{family}.{verb}");
+    let ops = [op(&name("go"), "go"), op(&name("crash"), "crash")];
+    let catalog = json!({ "family": family, "operations": ops });
     std::fs::write(app.join("catalog.json"), catalog.to_string()).unwrap();
     let mut manifest = json!({
         "manifestVersion": 2, "id": id, "name": "Demo", "version": "1.0.0", "description": "d",
