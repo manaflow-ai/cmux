@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SchemaValidator } from "../../tools/json-schema.ts"
 import { checkPalette, validatePackage } from "../../tools/validate-manifest.ts"
-import { generate, NEVER_OPS, scopeFor } from "../../tools/gen-cmux-global.ts"
+import { buildOps, generate, NEVER_OPS, paramsTypeOf, scopeFor } from "../../tools/gen-cmux-global.ts"
 import { loadAppCatalogs, schemaType } from "../../tools/app-catalogs.ts"
 
 const root = join(import.meta.dir, "../..")
@@ -133,6 +133,35 @@ describe("generator", () => {
     expect(scopes.never).toContain("cloud.billing.checkout")
     expect(scopes.ops["integration.connect"]).toBeUndefined()
     expect(scopes.never).toContain("integration.connect")
+  })
+  test("consumed backend ops are typed and scoped from the serving fragment", () => {
+    const backend = {
+      "cloud.machine.list": { class: "read", risk: "read", principals: ["session", "install"], docs: "backend", input_json_schema: {}, output_json_schema: {} },
+      "cloud.machine.link_token": { class: "mutation", risk: "execute", principals: ["session", "install"], docs: "mints a dial token" },
+      "cloud.usage.cap": { class: "mutation", risk: "money", principals: ["session", "install"], docs: "spends" },
+    }
+    const served = (consumes: string[], extra: object[] = []) => ({
+      app: "cloud",
+      consumes,
+      operations: [
+        { name: "cloud.machine.list", owner: "app:cmux/cloud", class: "read", risk: "read", docs: "from the server", input: { type: "object", properties: { team: { type: "string" } } }, output: { type: "array", items: { type: "string" } } },
+        ...extra,
+      ],
+    })
+    const ops = buildOps({}, backend, [served(["cloud.machine.list"])])
+    expect(ops["cloud.machine.list"]).toMatchObject({ source: "app", owner: "app:cmux/cloud", docs: "from the server" })
+    expect(paramsTypeOf(ops["cloud.machine.list"]!)).toBe("{ team?: string }")
+    // A consumed op that apps may never reach is refused, by name or by risk.
+    const linkToken = { name: "cloud.machine.link_token", owner: "app:cmux/cloud", class: "mutation", risk: "mutate-own", docs: "x", input: { type: "object" } }
+    expect(() => buildOps({}, backend, [served(["cloud.machine.link_token"], [linkToken])])).toThrow(/never/)
+    const cap = { name: "cloud.usage.cap", owner: "app:cmux/cloud", class: "mutation", risk: "mutate-own", docs: "x", input: { type: "object" } }
+    expect(() => buildOps({}, backend, [served(["cloud.usage.cap"], [cap])])).toThrow(/never/)
+    // One server per op; a consumed op must be a backend op the fragment declares.
+    expect(() => buildOps({}, backend, [served(["cloud.machine.list"]), { ...served(["cloud.machine.list"]), app: "other" }])).toThrow(/already/)
+    expect(() => buildOps({}, backend, [served(["cloud.nope"])])).toThrow(/not a backend op/)
+    expect(() => buildOps({}, backend, [{ app: "cloud", consumes: ["cloud.machine.list"], operations: [] }])).toThrow(/declare/)
+    // Without consumes, a fragment op that a backend op already owns is refused.
+    expect(() => buildOps({}, backend, [served([])])).toThrow(/already owns/)
   })
   test("first-party app catalog ops get scopes and typed clients", () => {
     const files = generate()
