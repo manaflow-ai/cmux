@@ -46,9 +46,13 @@ export class TeamVmLedger {
     return this.sql.exec<LedgerRow>(`SELECT ${COLUMNS} FROM team_vm_ledger WHERE name = ?`, name)[0]
   }
 
-  /** The open create intent for `epoch`, if an earlier attempt wrote one. */
-  intentFor(epoch: number): LedgerRow | undefined {
-    return this.sql.exec<LedgerRow>(`SELECT ${COLUMNS} FROM team_vm_ledger WHERE epoch = ? AND state = 'unconfirmed' ORDER BY created_at LIMIT 1`, epoch)[0]
+  /**
+   * The row an earlier create for `epoch` wrote, whatever reconcile made of it (unconfirmed,
+   * confirmed or absent; never deleted, and deletes never reach a future epoch): the next create
+   * for that epoch must ask for the same name, so a VM made under an older prefix is found again.
+   */
+  createRowFor(epoch: number): LedgerRow | undefined {
+    return this.sql.exec<LedgerRow>(`SELECT ${COLUMNS} FROM team_vm_ledger WHERE epoch = ? AND state IN ('unconfirmed', 'confirmed', 'absent') ORDER BY created_at LIMIT 1`, epoch)[0]
   }
 
   unconfirmed(): LedgerRow[] {
@@ -59,7 +63,7 @@ export class TeamVmLedger {
   recordIntent(row: { name: string; env: string; team: string; epoch: number; created_by: string; now: number }): void {
     this.sql.exec(
       `INSERT INTO team_vm_ledger (name, provider_id, env, team, epoch, created_by, created_at, state, deleted_at) VALUES (?, NULL, ?, ?, ?, ?, ?, 'unconfirmed', NULL)
-       ON CONFLICT (name) DO UPDATE SET state = 'unconfirmed' WHERE team_vm_ledger.state = 'absent'`,
+       ON CONFLICT (name) DO UPDATE SET state = 'unconfirmed', created_by = excluded.created_by, created_at = excluded.created_at WHERE team_vm_ledger.state = 'absent'`,
       row.name,
       row.env,
       row.team,
@@ -90,7 +94,11 @@ export class TeamVmLedger {
     if (this.byId(row.id)) return false
     const named = this.byName(row.name)
     if (named) {
-      if (named.provider_id !== null) return false
+      if (named.provider_id !== null) {
+        // Should not happen (deletes never reach a future epoch): the record's VM has a name another id holds.
+        console.error(JSON.stringify({ msg: "team vm ledger name holds another id", team: row.team, name: row.name, vm: row.id, ledger_id: named.provider_id }))
+        return false
+      }
       this.confirm(row.name, row.id)
       return true
     }

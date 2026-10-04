@@ -168,8 +168,12 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
    * second one and orphaning the first.
    */
   private createSlug(team: string, epoch: number, prefix: string, createdBy: string): string {
-    const open = this.vmLedger.intentFor(epoch)
-    if (open) return open.name
+    const earlier = this.vmLedger.createRowFor(epoch)
+    if (earlier) {
+      // An `absent` name opens again as an intent (the lookup may have run before the create landed).
+      if (earlier.state === "absent") this.vmLedger.recordIntent({ name: earlier.name, env: earlier.env, team, epoch, created_by: createdBy, now: Date.now() })
+      return earlier.name
+    }
     this.sqlStore.exec(`CREATE TABLE IF NOT EXISTS team_vm_create_attempt (epoch INTEGER PRIMARY KEY, slug TEXT NOT NULL)`)
     const tried = this.sqlStore.exec<{ slug: string }>(`SELECT slug FROM team_vm_create_attempt WHERE epoch = ?`, epoch)[0]
     const slug = tried?.slug ?? teamVmSlug(prefix, team, epoch)
@@ -241,7 +245,9 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     if (!row) return { ok: false, code: "team_vm.not_in_ledger", message: "only a VM in this team's ledger can be deleted" }
     if (row.state === "deleted") return { ok: true }
     if (row.state !== "confirmed" && row.state !== "backfilled") return { ok: false, code: "team_vm.not_in_ledger", message: `ledger row is ${row.state}` }
-    if (this.boundEngine?.currentState.vm === providerId) return { ok: false, code: "team_vm.in_use", message: "the team's current VM is deleted only with its owner" }
+    const state = this.boundEngine?.currentState
+    // The current VM, and any VM for a later epoch (the next create finds it by name and makes it current), are in use.
+    if (!state || state.vm === providerId || row.epoch > state.epoch) return { ok: false, code: "team_vm.in_use", message: "the team's current or next VM is deleted only with its owner" }
     const refusal = providerRefusal(this.env)
     const driver = refusal ? null : teamVmDriver(this.env, this.sqlStore)
     if (!driver) return { ok: false, code: refusal ?? "team_vm.not_configured", message: "no team VM provider is configured for this deployment" }
