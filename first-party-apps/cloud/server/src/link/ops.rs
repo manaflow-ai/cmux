@@ -58,6 +58,7 @@ pub(crate) fn run<C: ControlPlane>(
     raw: &Value,
     origin: Origin,
     key: Option<&str>,
+    open_token: Option<&OpenToken>,
 ) -> Result<Value, CloudError> {
     match name {
         CONNECT => {
@@ -73,7 +74,7 @@ pub(crate) fn run<C: ControlPlane>(
             let existed = attach.supervisor.disconnect(id);
             Ok(json!({ "machine": id, "disconnected": existed }))
         }
-        RESCUE_OPEN => rescue_open(server, raw, origin, key),
+        RESCUE_OPEN => rescue_open(server, raw, origin, key, open_token),
         _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
     }
 }
@@ -205,6 +206,7 @@ fn rescue_open<C: ControlPlane>(
     raw: &Value,
     origin: Origin,
     key: Option<&str>,
+    open_token: Option<&OpenToken>,
 ) -> Result<Value, CloudError> {
     let map = args::object(raw, &["machine", "cols", "rows", "focus"])?;
     let machine = args::id(map, "machine")?.to_owned();
@@ -220,6 +222,10 @@ fn rescue_open<C: ControlPlane>(
     if !server.attach_mut().rescue_route_available() {
         return Err(CloudError::new(codes::UNSUPPORTED, MISSING_ROUTE));
     }
+    // The host stamps its open token on the op line after the user's
+    // gesture; without one nothing starts and nothing opens.
+    let open_token = open_token.cloned().unwrap_or_else(|| OpenToken(String::new()));
+    open_token.check().map_err(backend_error)?;
     let start_key = key.map_or_else(
         || format!("rescue-{}/start", server.attach_mut().attempt_nonce()),
         |k| format!("{k}/start"),
@@ -234,10 +240,7 @@ fn rescue_open<C: ControlPlane>(
             kind: RESCUE_KIND.into(),
             terminal: terminal.clone(),
             target: machine.clone(),
-            // GAP: the host issues open tokens after the user's gesture; this
-            // op has no host token to pass on yet, so it passes none. The
-            // rescue backend does not check it (no route behind it today).
-            open_token: OpenToken(String::new()),
+            open_token,
             command: None,
             cwd: None,
             env: Vec::new(),

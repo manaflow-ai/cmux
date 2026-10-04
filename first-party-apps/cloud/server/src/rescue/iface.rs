@@ -211,6 +211,19 @@ impl fmt::Debug for ResumeToken {
 #[serde(transparent)]
 pub struct OpenToken(pub String);
 
+impl OpenToken {
+    /// The host's token is present: not empty and not only spaces. The
+    /// server checks presence only; the host checks expiry and reuse.
+    pub fn check(&self) -> Result<(), BackendError> {
+        if self.0.trim().is_empty() {
+            return Err(BackendError::Invalid {
+                reason: "open_token is missing: cmux issues one for each open".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
 impl fmt::Debug for OpenToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("OpenToken(..)")
