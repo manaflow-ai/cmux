@@ -1,7 +1,8 @@
 import CmuxNextDesign
 
 
-extension SettingsSchema {
+/// The Tabs rows of the General section (its own type: the schema type's line budget is per type).
+nonisolated enum TabSettingsSchema {
     /// `tabs.newTabKind`: what Cmd-T and the strip's + button open.
     static func newTabKind(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(
