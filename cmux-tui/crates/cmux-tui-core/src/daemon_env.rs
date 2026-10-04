@@ -66,25 +66,43 @@ pub(crate) fn merge_caller_env(
     env: &mut Vec<(String, String)>,
     caller: &[(String, String)],
 ) -> Vec<String> {
-    // RED SCAFFOLD: the old append; the fix lands in the next commit.
-    env.extend(caller.iter().cloned());
-    Vec::new()
+    let mut dropped = Vec::new();
+    for (key, value) in caller {
+        if is_daemon_owned(key) {
+            if !dropped.contains(key) {
+                dropped.push(key.clone());
+            }
+            continue;
+        }
+        set_env(env, key, value);
+    }
+    dropped
 }
 
 /// Remove the integration-owned keys from `env` before the daemon integrates
 /// the default shell. Returns the names of the removed keys.
 pub(crate) fn strip_integration_owned(env: &mut Vec<(String, String)>) -> Vec<String> {
-    // RED SCAFFOLD: nothing is removed yet.
-    let _ = env;
-    Vec::new()
+    let mut dropped = Vec::new();
+    env.retain(|(key, _)| {
+        let owned = INTEGRATION_OWNED_ENV_KEYS.contains(&key.as_str());
+        if owned && !dropped.contains(key) {
+            dropped.push(key.clone());
+        }
+        !owned
+    });
+    dropped
 }
 
 /// Put `shim_dir` first on the `PATH` in `env`, followed by the other
 /// entries in their order, with no second copy of `shim_dir`. Does nothing
 /// without a shim directory or a `PATH` entry.
 pub(crate) fn keep_shim_first_on_path(env: &mut Vec<(String, String)>, shim_dir: Option<&str>) {
-    // RED SCAFFOLD: PATH is left as merged.
-    let _ = (env, shim_dir);
+    let Some(shim_dir) = shim_dir.filter(|dir| !dir.is_empty()) else { return };
+    let Some(path) = env.iter().rev().find(|(key, _)| key == "PATH").map(|(_, value)| value.clone())
+    else {
+        return;
+    };
+    set_env(env, "PATH", &path_with_dir_first(&path, shim_dir));
 }
 
 fn path_with_dir_first(path: &str, dir: &str) -> String {
@@ -130,6 +148,35 @@ mod tests {
         assert!(lines[0].contains("CMUX_TUI_SOCKET"), "{}", lines[0]);
         assert!(!lines[0].contains("caller-secret-value"), "{}", lines[0]);
         assert!(!lines[0].contains("/daemon.sock"), "{}", lines[0]);
+    }
+
+    /// A caller value for a key the daemon does not own replaces the
+    /// daemon's entry, and only one entry stays for the key.
+    #[test]
+    fn a_caller_value_for_an_unowned_key_replaces_the_daemon_value() {
+        let mut env = pairs(&[("LANG", "C"), ("CMUX_TUI_HOOK", "/daemon/hook")]);
+        let dropped = merge_caller_env(
+            &mut env,
+            &pairs(&[("LANG", "en_US.UTF-8"), ("CMUX_TUI_HOOK", "/caller/hook")]),
+        );
+        assert_eq!(dropped, vec!["CMUX_TUI_HOOK".to_string()]);
+        assert_eq!(env, pairs(&[("CMUX_TUI_HOOK", "/daemon/hook"), ("LANG", "en_US.UTF-8")]));
+    }
+
+    /// Every integration-owned key is removed, and other keys stay.
+    #[test]
+    fn strip_integration_owned_removes_only_the_integration_keys() {
+        let mut env = INTEGRATION_OWNED_ENV_KEYS
+            .iter()
+            .map(|key| ((*key).to_string(), "caller".to_string()))
+            .collect::<Vec<_>>();
+        env.push(("HOME".into(), "/home/me".into()));
+        let mut removed = strip_integration_owned(&mut env);
+        removed.sort();
+        let mut expected = INTEGRATION_OWNED_ENV_KEYS.map(String::from).to_vec();
+        expected.sort();
+        assert_eq!(removed, expected);
+        assert_eq!(env, pairs(&[("HOME", "/home/me")]));
     }
 
     #[test]
