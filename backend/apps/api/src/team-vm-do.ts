@@ -392,10 +392,12 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     const ns = this.env.TEAM_VM_DO as unknown as DurableObjectNamespace
     const registry = ns.get(ns.idFromName(TEAM_VM_REGISTRY)) as unknown as { registryEvent(ev: RegistryEvent): Promise<void> }
     let failed = false
+    let delivered = false
     for (const r of rows) {
       try {
         await registry.registryEvent({ kind: r.kind, team: r.team, name: r.name, provider_id: r.provider_id })
         this.sqlStore.exec(`DELETE FROM team_vm_registry_outbox WHERE key = ?`, r.key)
+        delivered = true
       } catch (e) {
         // A failing event does not block the others (every event is idempotent by provider id).
         failed = true
@@ -404,6 +406,8 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
         console[level](JSON.stringify({ msg: level === "error" ? "team vm registry event given up" : "team vm registry event not delivered", kind: r.kind, team: r.team, error: String(e).slice(0, 200) }))
       }
     }
+    // The registry answers again: events given up during an outage get a new set of attempts.
+    if (delivered) this.sqlStore.exec(`UPDATE team_vm_registry_outbox SET attempts = 0 WHERE attempts >= ?`, REGISTRY_MAX_ATTEMPTS)
     if (failed && this.boundEngine) this.scheduleAlarm()
   }
 
