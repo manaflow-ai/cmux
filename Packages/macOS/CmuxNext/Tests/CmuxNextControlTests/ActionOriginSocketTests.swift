@@ -30,7 +30,28 @@ import Testing
             return
         }
         #expect(error.code == "invalid_params")
+        #expect(error.message == "origin must be cli, mcp, script or remote")
         #expect(invocation == nil)
+    }
+
+    /// `tab.focus` forwards the caller's params to `action.run` on the same
+    /// connection, so it gets the same refusal.
+    @Test func tabFocusFromTheSocketCannotClaimTheUserOrigin() async {
+        let registry = ActionRegistry.standard()
+        var ran = false
+        registry.bind("tab.focus", invoke: { _ in ran = true })
+        let router = ControlRouter(identity: testIdentity(), executor: RegistryControlBridge(registry: registry), settings: nil)
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+        let result = await router.handle(
+            ControlRequest(id: "1", method: "tab.focus", params: ["tab": "tab_1", "origin": "user"]),
+            connection: ControlConnectionID(rawValue: 7)
+        )
+        guard case .failure(let error) = result else {
+            Issue.record("tab.focus ran as the user from the socket")
+            return
+        }
+        #expect(error.code == "invalid_params")
+        #expect(!ran)
     }
 
     @Test(arguments: ["cli", "mcp", "script", "remote"])

@@ -2,8 +2,8 @@ public import CmuxNextSettings
 
 /// Who a control request says it acts for (`origin`), and who may say so
 /// (identity.md section 3, OWNERSHIP-PRINCIPLES). A caller on the control
-/// socket is never the in-app user: only in-process callers (the app's own
-/// pages and apps) may name `user`. `action.run` and `palette.run` share
+/// socket is never the in-app user: only in-process callers (cmux apps,
+/// whose engine sets `user` only after a gesture) may name `user`. `action.run` and `palette.run` share
 /// this one rule.
 public enum ControlOrigin {
     /// The origins any caller may name.

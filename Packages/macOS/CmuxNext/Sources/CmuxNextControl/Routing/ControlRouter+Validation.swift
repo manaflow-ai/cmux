@@ -35,7 +35,7 @@ extension ControlRouter {
     /// `connection` decides whether the caller may name the user
     /// (``ControlOrigin``): a socket caller never may.
     static func validatedRequest(for action: ControlActionInfo, params: [String: JSONValue], knownKinds: [String],
-                                 connection: ControlConnectionID = .inProcess) throws -> ControlActionRequest {
+                                 connection: ControlConnectionID) throws -> ControlActionRequest {
         var request = ControlActionRequest(actionID: action.id)
         if let origin = try ControlOrigin.validated(params["origin"], connection: connection) {
             request.origin = origin
