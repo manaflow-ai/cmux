@@ -15,6 +15,10 @@ export default defineConfig({
   ...cmuxCheckConfig({
     fmtIgnorePatterns: [
       "src/diff/generated/**",
+      // scripts/pane-protocol-codegen.ts --check owns these bytes.
+      "src/protocol/generated/**",
+      // Byte-identical copy of the Rust lane's emitted IR.
+      "src/protocol/ir/**",
       "**/*.css",
       "src/agent-session/acpmux/handoff/schema/acpmux-schema.json",
       "src/agent-session/acpmux/icons/cmuxIcons.json",
