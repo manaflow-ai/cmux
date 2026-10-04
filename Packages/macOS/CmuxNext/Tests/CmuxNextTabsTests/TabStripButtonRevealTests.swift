@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import Testing
 @testable import CmuxNextTabs
 
@@ -14,6 +15,7 @@ import Testing
         var intents: [TabStripIntent] = []
 
         init() {
+            DesignSettings.shared.animationSpeed = .off
             model = TabStripModel(
                 tabs: [TabItem(id: TabID("t0"), title: "Tab"), TabItem(id: TabID("t1"), title: "Other")],
                 selectedID: TabID("t0"),
@@ -29,7 +31,8 @@ import Testing
             strip.layoutSubtreeIfNeeded()
         }
 
-        var buttonsVisible: Bool { (strip.buttonGroup.layer?.opacity ?? 0) > 0 }
+        var buttonsVisible: Bool { strip.buttonGroup.alphaValue > 0 }
+        var plusVisible: Bool { strip.newTabButton.alphaValue > 0 }
 
         /// Window coordinates of a strip point (the strip is flipped).
         func windowPoint(_ point: CGPoint) -> NSPoint { strip.convert(point, to: nil) }
@@ -111,9 +114,18 @@ import Testing
         #expect(!h.buttonsVisible)
     }
 
-    @Test func thePlusButtonStaysVisible() {
+    /// R120: the plus button shows only while the tab bar is hovered, in
+    /// place, through the one hover-reveal mechanism (HoverReveal).
+    @Test func thePlusButtonRevealsOnlyOnHover() {
         let h = Harness()
+        let frame = h.strip.newTabButton.frame
         #expect(!h.strip.newTabButton.isHidden)
-        #expect((h.strip.newTabButton.layer?.opacity ?? 0) > 0)
+        #expect(!h.plusVisible)
+        h.enter()
+        #expect(h.plusVisible)
+        #expect(h.strip.newTabButton.frame == frame)
+        h.exit()
+        #expect(!h.plusVisible)
+        #expect(HoverReveal.owner(of: h.strip.newTabButton) === HoverReveal.owner(of: h.strip.buttonGroup))
     }
 }
