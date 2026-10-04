@@ -149,9 +149,8 @@ enum AgentHandlers {
                 case .newWorkspace:
                     let key = WorkspaceKey.generate()
                     workspace = key
-                    surface = try await repair.populating(key) {
-                        let created = try await connection.createWorkspace(key: key)
-                        return try await connection.createTerminal(in: created.key, cwd: options.cwd).surface
+                    surface = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: repair) { created in
+                        try await connection.createTerminal(in: created, cwd: options.cwd).surface
                     }
                 }
                 if let surface { try await connection.send(surface, text: line) }

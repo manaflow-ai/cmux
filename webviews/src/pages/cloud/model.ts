@@ -2,7 +2,7 @@
 // rows the list draws (OWNERSHIP-PRINCIPLES "Clients are projections": visible = mirror + pending
 // intents; an intent leaves the log on its echo or its reject). No I/O, no timers.
 import { format, L, type StringKey } from "./strings";
-import type { CloudMachine, CloudPlan, MachineEvent, MachineStats, MachineStatus } from "./ops";
+import type { CloudMachine, CloudPlan, MachineEvent, MachineSize, MachineStatus } from "./ops";
 
 /** The machine list layout (Debug setting `cloud.machines.layout`, README.md). */
 export type MachineLayout = "rows" | "cards";
@@ -11,7 +11,7 @@ export function parseLayout(value: string | null | undefined): MachineLayout {
   return value === "cards" ? "cards" : "rows";
 }
 
-export type IntentKind = "create" | "start" | "pause" | "rename" | "resize" | "delete" | "idle";
+export type IntentKind = "create" | "start" | "pause" | "rename" | "resize" | "delete" | "idle" | "upgrade";
 
 /** One typed intent the page sent and the owner has not echoed or rejected yet. */
 export interface PendingIntent {
@@ -21,7 +21,7 @@ export interface PendingIntent {
   name?: string;
   memoryMb?: number;
   idle?: number | null;
-  /** The machine id the owner answered for a create (or a restore or fork). */
+  /** The machine id the owner answered for a create (or a restore). */
   result_id?: string;
   /** The owner answered; its next event for the machine is the echo. */
   replied?: boolean;
@@ -35,15 +35,26 @@ export interface MachineRow {
   status: MachineStatus;
   machine?: CloudMachine;
   pending?: IntentKind;
+  /** Imported from cmux Cloud classic: read-only until upgraded (contract 4). */
+  classic?: boolean;
 }
 
 export function machineTitle(machine: CloudMachine): string {
-  return machine.displayName || machine.slug || machine.id;
+  return machine.name || machine.id;
 }
 
-const STATUSES = new Set<string>(["provisioning", "running", "failed", "paused", "destroyed", "unknown"]);
+const STATUSES = new Set<string>([
+  "provisioning",
+  "starting",
+  "running",
+  "pausing",
+  "paused",
+  "deleting",
+  "failed",
+  "unknown",
+]);
 
-/** A status the page does not know becomes `unknown`, like the Swift decoder. */
+/** A status the page does not know becomes `unknown`, like the server's decoder. */
 export function normalizeMachine(machine: CloudMachine): CloudMachine {
   return STATUSES.has(machine.status) ? machine : { ...machine, status: "unknown" };
 }
@@ -71,15 +82,17 @@ export function settled(intent: PendingIntent, machines: CloudMachine[], revisio
   if (!machine) return true;
   switch (intent.kind) {
     case "pause":
-      return machine.status === "paused";
+      return machine.status === "paused" || machine.status === "pausing";
     case "start":
-      return machine.status === "running" || machine.status === "provisioning";
+      return machine.status === "running" || machine.status === "starting";
     case "rename":
-      return machine.displayName === intent.name;
-    // The record carries no size or idle policy: these settle by revision only.
+      return machine.name === intent.name;
     case "resize":
+      return intent.memoryMb !== undefined && machine.size?.memory_mb === intent.memoryMb;
     case "idle":
-      return false;
+      return (machine.idle_policy?.idle_seconds ?? 0) === (intent.idle ?? 0);
+    case "upgrade":
+      return !machine.classic;
   }
 }
 
@@ -94,6 +107,7 @@ export function visibleRows(machines: CloudMachine[], pending: PendingIntent[]):
       status: machine.status,
       machine,
       pending: intents.at(-1)?.kind,
+      ...(machine.classic ? { classic: true } : {}),
     };
   });
   for (const intent of pending) {
@@ -106,10 +120,12 @@ export function visibleRows(machines: CloudMachine[], pending: PendingIntent[]):
 
 export const StatusLabel: Record<MachineStatus, StringKey> = {
   provisioning: L.statusProvisioning,
+  starting: L.statusStarting,
   running: L.statusRunning,
-  failed: L.statusFailed,
+  pausing: L.statusPausing,
   paused: L.statusPaused,
-  destroyed: L.statusDestroyed,
+  deleting: L.statusDeleting,
+  failed: L.statusFailed,
   unknown: L.statusUnknown,
 };
 
@@ -121,14 +137,25 @@ export const IntentLabel: Record<IntentKind, StringKey> = {
   resize: L.pendingResize,
   delete: L.pendingDelete,
   idle: L.pendingIdle,
+  upgrade: L.pendingUpgrade,
 };
 
+/** A status between two steady states: the dot shows it as in progress. */
+export function transitional(status: MachineStatus): boolean {
+  return status === "provisioning" || status === "starting" || status === "pausing" || status === "deleting";
+}
+
+/** A row the person may change: a real machine, no pending intent, not classic. */
+export function changeable(row: MachineRow): boolean {
+  return !!row.machine && !row.pending && !row.classic;
+}
+
 export function canPause(row: MachineRow): boolean {
-  return !!row.machine && !row.pending && (row.status === "running" || row.status === "provisioning");
+  return changeable(row) && (row.status === "running" || row.status === "starting");
 }
 
 export function canResume(row: MachineRow): boolean {
-  return !!row.machine && !row.pending && (row.status === "paused" || row.status === "failed");
+  return changeable(row) && (row.status === "paused" || row.status === "failed");
 }
 
 /** The next selectable row id for plain Up/Down. */
@@ -146,16 +173,16 @@ export function formatMegabytes(mb: number, t: (key: string) => string, language
   return format(t(L.gigabytes), { value });
 }
 
-/** "4 CPU · 8 GB · 64 GB" from the machine's stats (the record carries no size). */
-export function sizeSpec(stats: MachineStats, t: (key: string) => string, language: string): string {
+/** "4 CPU · 8 GB memory · 64 GB disk" from the machine record's size. */
+export function sizeSpec(size: MachineSize, t: (key: string) => string, language: string): string {
   return format(t(L.sizeSpec), {
-    cpu: stats.cpus ?? 0,
-    memory: formatMegabytes(stats.memoryTotalMb ?? 0, t, language),
-    storage: formatMegabytes(stats.diskTotalMb ?? 0, t, language),
+    cpu: size.cpu ?? 0,
+    memory: formatMegabytes(size.memory_mb ?? 0, t, language),
+    storage: formatMegabytes(size.disk_mb ?? 0, t, language),
   });
 }
 
-/** Idle policy choices in seconds; null = never pause. */
+/** Idle policy choices in seconds; null = never pause (sent as 0). */
 export const IDLE_CHOICES: readonly (number | null)[] = [null, 300, 900, 3600, 4 * 3600];
 
 export function idleLabel(seconds: number | null | undefined, t: (key: string) => string): string {
@@ -164,36 +191,31 @@ export function idleLabel(seconds: number | null | undefined, t: (key: string) =
   return format(t(L.idleMinutes), { count: Math.round(seconds / 60) });
 }
 
-/** The first memory size the plan allows; undefined lets the owner pick its default. */
+/** One memory size of the plan and whether the plan allows it (locked sizes show disabled). */
+export interface MemoryChoice {
+  mb: number;
+  allowed: boolean;
+}
+
+/** The plan's memory sizes, locked ones included and marked, smallest first. */
+export function memoryChoices(plan: CloudPlan | undefined): MemoryChoice[] {
+  if (!plan) return [];
+  const locked = new Set(plan.limits.locked_memory_options_mb);
+  const all = new Set([...plan.limits.memory_options_mb, ...plan.limits.locked_memory_options_mb]);
+  return [...all].sort((a, b) => a - b).map((mb) => ({ mb, allowed: !locked.has(mb) }));
+}
+
+/** The first memory size the plan allows; undefined when the plan did not load or allows none. */
 export function defaultMemory(plan: CloudPlan | undefined): number | undefined {
-  return plan?.memoryOptionsMb[0];
+  return memoryChoices(plan).find((choice) => choice.allowed)?.mb;
 }
 
-/** Machines that count against the plan's `maxActiveVms` (paused ones do not). */
-export function activeMachines(machines: CloudMachine[]): number {
-  return machines.filter((machine) => machine.status === "running" || machine.status === "provisioning").length;
-}
-
-export function atMachineLimit(plan: CloudPlan | undefined, machines: CloudMachine[]): boolean {
-  if (plan?.maxActiveVms === undefined || plan.maxActiveVms === null) return false;
-  return activeMachines(machines) >= plan.maxActiveVms;
-}
-
-/** Epoch milliseconds from a number or an ISO 8601 string; undefined for anything else. */
-export function toMs(value: number | string | null | undefined): number | undefined {
-  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
-  if (typeof value !== "string") return undefined;
-  const ms = Date.parse(value);
-  return Number.isNaN(ms) ? undefined : ms;
-}
-
-export function formatDate(value: number | string | null | undefined, language: string, withTime = true): string {
-  const ms = toMs(value);
-  if (!ms) return "";
+export function formatDate(value: number | null | undefined, language: string, withTime = true): string {
+  if (typeof value !== "number" || !Number.isFinite(value) || !value) return "";
   const options: Intl.DateTimeFormatOptions = withTime
     ? { dateStyle: "medium", timeStyle: "short" }
     : { dateStyle: "medium" };
-  return new Intl.DateTimeFormat(language, options).format(new Date(ms));
+  return new Intl.DateTimeFormat(language, options).format(new Date(value));
 }
 
 export function percent(used: number | null | undefined, total: number | null | undefined): number | undefined {
