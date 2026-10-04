@@ -1,0 +1,166 @@
+import AppKit
+@testable import CmuxNextDesign
+import Testing
+
+/// App overlays draw on one host panel per main window, above every Chromium
+/// page window. The CEF fork re-adds a page window above every child each
+/// time it shows; before, tooltips, in-window alerts and app panels shown
+/// before such a re-add were below the page.
+@MainActor
+@Suite(.serialized) struct WindowOverlayHostTests {
+    init() { _ = NSApplication.shared }
+
+    /// Off screen, but ordered in: child windows are ordered only under a visible parent.
+    private func makeMain() -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 800, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.orderFrontRegardless()
+        return window
+    }
+
+    /// A stand-in for a Chromium page window (a child window that is not a panel).
+    private func makePage() -> NSWindow {
+        let page = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 400, height: 500), styleMask: [.borderless],
+                            backing: .buffered, defer: false)
+        page.isReleasedWhenClosed = false
+        return page
+    }
+
+    private func close(_ windows: NSWindow...) {
+        for window in windows {
+            window.childWindows?.forEach { window.removeChildWindow($0); $0.orderOut(nil) }
+            window.close()
+        }
+    }
+
+    // MARK: Order
+
+    /// The fork removes a page window and adds it again above every child
+    /// (a tab shown again): the host panel is above it as soon as the
+    /// window's children change.
+    @Test func overlayStaysAbovePageWindowsAfterAReShow() {
+        let main = makeMain()
+        let page = makePage()
+        defer { close(main, page) }
+        main.addChildWindow(page, ordered: .above)
+        let host = WindowOverlayHost.host(for: main)
+        let tooltip = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 24)),
+                                   options: .tooltip(at: NSRect(x: 100, y: 400, width: 40, height: 20)))
+        #expect(host.isPanelAttached)
+        #expect(host.isAbovePages)
+
+        // What the fork's parent tracker does on every show and re-parent.
+        main.removeChildWindow(page)
+        main.addChildWindow(page, ordered: .above)
+        #expect(!host.isAbovePages, "the stand-in page went above the panel")
+        WindowOverlayHost.childWindowsDidChange(of: main)
+        #expect(host.isAbovePages, "the panel is back above the page")
+        #expect(main.childWindows?.last === host.panel)
+
+        tooltip.dismiss()
+        #expect(!host.isPanelAttached, "no overlay and no planes: no panel")
+    }
+
+    // MARK: Guard
+
+    /// Only the host panel and page windows may be children of a main
+    /// window; a presenter that adds a panel of its own is caught.
+    @Test func aPanelOutsideTheHostTripsTheGuard() {
+        let main = makeMain()
+        defer { close(main) }
+        ChildWindowPolicy.resetViolations()
+        let host = WindowOverlayHost.host(for: main)
+        #expect(ChildWindowPolicy.check(host.panel, parent: main))
+        #expect(ChildWindowPolicy.check(makePage(), parent: main))
+        #expect(!ChildWindowPolicy.check(UnlistedPresenterPanel(), parent: main))
+        #expect(ChildWindowPolicy.violations == ["UnlistedPresenterPanel"])
+        ChildWindowPolicy.resetViolations()
+    }
+
+    // MARK: Mouse
+
+    /// Tooltips never take the mouse; a popover takes it over itself; a
+    /// tab-region modal blocks input only inside its rect; a dimming dialog
+    /// blocks the whole window.
+    @Test func inputIsBlockedOnlyWhereAnOverlayNeedsIt() {
+        let main = makeMain()
+        defer { close(main) }
+        let host = WindowOverlayHost.host(for: main)
+        let tooltip = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 20)),
+                                   options: .tooltip(at: NSRect(x: 50, y: 300, width: 10, height: 10)))
+        #expect(host.interactiveRegions().isEmpty)
+        let popover = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)),
+                                   options: OverlayOptions(kind: .popover, anchor: NSRect(x: 300, y: 400, width: 20, height: 20)))
+        let center = NSPoint(x: popover.content.frame.midX, y: popover.content.frame.midY)
+        #expect(host.acceptsMouse(at: center))
+        #expect(!host.acceptsMouse(at: NSPoint(x: 20, y: 20)))
+        let region = NSRect(x: 0, y: 0, width: 150, height: 600)
+        let tabModal = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 60)),
+                                    options: OverlayOptions(kind: .dialog, anchor: region, modalRegion: region))
+        #expect(host.acceptsMouse(at: NSPoint(x: 20, y: 20)), "inside the tab region")
+        #expect(!host.acceptsMouse(at: NSPoint(x: 600, y: 50)), "the rest of the window stays usable")
+        let dialog = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 200)), options: .dialog())
+        #expect(host.acceptsMouse(at: NSPoint(x: 600, y: 50)), "a dimming dialog blocks the window")
+        for handle in [dialog, tabModal, popover, tooltip] { handle.dismiss() }
+        #expect(!host.hasPresentations)
+    }
+
+    // MARK: Modal
+
+    /// A modal overlay traps focus: its first field takes the keyboard, Tab
+    /// cycles inside it, Escape dismisses it, and the previous first
+    /// responder comes back.
+    @Test func modalOverlayTrapsFocusAndEscapeDismisses() {
+        let main = makeMain()
+        defer { close(main) }
+        let outside = NSTextField(frame: NSRect(x: 10, y: 10, width: 100, height: 22))
+        main.contentView?.addSubview(outside)
+        main.makeFirstResponder(outside)
+        let previous = main.firstResponder
+
+        let dialog = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
+        let first = NSTextField(frame: NSRect(x: 10, y: 70, width: 200, height: 22))
+        let second = NSTextField(frame: NSRect(x: 10, y: 30, width: 200, height: 22))
+        dialog.addSubview(first)
+        dialog.addSubview(second)
+        let host = WindowOverlayHost.host(for: main)
+        var dismissed = 0
+        let handle = host.present(dialog, options: .dialog())
+        handle.onDismiss = { dismissed += 1 }
+
+        #expect(host.panel.canBecomeKey, "a modal overlay may take the keyboard")
+        #expect(Self.owner(of: host.panel.firstResponder) === first)
+        host.panel.selectNextKeyView(nil)
+        #expect(Self.owner(of: host.panel.firstResponder) === second)
+        host.panel.selectNextKeyView(nil)
+        #expect(Self.owner(of: host.panel.firstResponder) === first, "Tab cycles inside the overlay")
+
+        host.panel.cancelOperation(nil)
+        #expect(handle.isDismissed)
+        #expect(dismissed == 1)
+        #expect(!host.panel.canBecomeKey)
+        #expect(main.firstResponder === previous, "the previous first responder is back")
+    }
+
+    /// Without a window (quit with every window closed) the app host shows
+    /// the same overlays in a panel of its own.
+    @Test func appHostPresentsWithoutAWindow() {
+        let host = WindowOverlayHost.appHost()
+        let handle = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 140)), options: .dialog(dimsContent: false))
+        #expect(host.hasPresentations)
+        #expect(host.panel.frame.size == NSSize(width: 320, height: 140))
+        handle.dismiss()
+        #expect(!host.hasPresentations)
+        #expect(!host.panel.isVisible)
+    }
+
+    /// The field editor stands in for a text field while it edits.
+    private static func owner(of responder: NSResponder?) -> NSResponder? {
+        if let editor = responder as? NSTextView, editor.isFieldEditor { return editor.delegate as? NSResponder }
+        return responder
+    }
+}
+
+/// A presenter panel that is neither the host panel nor a listed legacy panel.
+private final class UnlistedPresenterPanel: NSPanel {}
