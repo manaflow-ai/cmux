@@ -29,6 +29,22 @@ struct RestoredAgentNotificationPruneTests {
         }
     }
 
+    @Test func readNonAgentNotificationOnRestoredAgentPaneIsNotPruned() throws {
+        try withIsolatedNotificationStore { store in
+            let (restored, panelId) = try restoreWorkspace(
+                store: store,
+                hostsAgent: true,
+                notifications: [(body: "Read turn summary", isRead: true)],
+                nonAgentNotifications: [(body: "Build finished", isRead: true)]
+            )
+
+            restored.clearStaleAgentPIDs(refreshPorts: false)
+
+            let remaining = store.notifications(forTabId: restored.id, surfaceId: panelId)
+            #expect(remaining.map(\.body) == ["Build finished"])
+        }
+    }
+
     @Test func readNotificationPostedAfterRestoreIsNotPruned() throws {
         try withIsolatedNotificationStore { store in
             let (restored, panelId) = try restoreWorkspace(store: store, hostsAgent: true, notifications: [
@@ -115,7 +131,8 @@ struct RestoredAgentNotificationPruneTests {
     private func restoreWorkspace(
         store: TerminalNotificationStore,
         hostsAgent: Bool,
-        notifications: [(body: String, isRead: Bool)]
+        notifications: [(body: String, isRead: Bool)],
+        nonAgentNotifications: [(body: String, isRead: Bool)] = []
     ) throws -> (Workspace, UUID) {
         let suiteName = "cmux-restored-agent-notifications-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -139,17 +156,21 @@ struct RestoredAgentNotificationPruneTests {
                 panelId: panelId
             ))
         }
-        store.replaceNotificationsForTesting(notifications.enumerated().map { index, notification in
-            TerminalNotification(
+        let tagged = notifications.map { ($0.body, $0.isRead, true) }
+            + nonAgentNotifications.map { ($0.body, $0.isRead, false) }
+        store.replaceNotificationsForTesting(tagged.enumerated().map { index, notification in
+            let (body, isRead, isAgentEvent) = notification
+            return TerminalNotification(
                 id: UUID(),
                 tabId: workspace.id,
                 surfaceId: panelId,
                 panelId: panelId,
                 title: "Claude Code",
                 subtitle: "Completed",
-                body: notification.body,
+                body: body,
                 createdAt: Date(timeIntervalSince1970: 1_700_000_000 + Double(index)),
-                isRead: notification.isRead
+                isRead: isRead,
+                isAgentEvent: isAgentEvent
             )
         })
 
