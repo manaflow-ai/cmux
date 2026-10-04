@@ -40,8 +40,39 @@ impl Default for OpenSshTransfer {
 /// The `scp` arguments for `job`: no key material, the host key pinned by
 /// alias, the private agent only, no config file.
 pub fn scp_args(job: &TransferJob, agent_socket: &Path, known_hosts: &Path) -> Vec<String> {
-        todo!("C5 red: not built yet")
+    let option = |o: String| ["-o".to_owned(), o];
+    let escape = |p: &Path| p.to_string_lossy().replace('%', "%%");
+    let mut args = vec!["-F".to_owned(), "/dev/null".to_owned()];
+    args.extend(["-P".to_owned(), job.route.port().to_string()]);
+    for o in [
+        "StrictHostKeyChecking=yes".to_owned(),
+        "HostKeyAlgorithms=ssh-ed25519".to_owned(),
+        format!("HostKeyAlias={HOST_ALIAS}"),
+        format!("UserKnownHostsFile={}", escape(known_hosts)),
+        "GlobalKnownHostsFile=/dev/null".to_owned(),
+        format!("IdentityAgent={}", escape(agent_socket)),
+        "IdentitiesOnly=no".to_owned(),
+        "PreferredAuthentications=publickey".to_owned(),
+        "BatchMode=yes".to_owned(),
+        "LogLevel=ERROR".to_owned(),
+        "ConnectTimeout=15".to_owned(),
+        "ServerAliveInterval=15".to_owned(),
+        "ServerAliveCountMax=3".to_owned(),
+        "ControlMaster=no".to_owned(),
+        "ControlPath=none".to_owned(),
+        "ForwardAgent=no".to_owned(),
+    ] {
+        args.extend(option(o));
     }
+    let remote = format!("{}@{}:{}", job.endpoint.username, job.route.ip(), job.guest);
+    let local = job.local.to_string_lossy().into_owned();
+    args.push("--".to_owned());
+    match job.direction {
+        Direction::Push => args.extend([local, remote]),
+        Direction::Pull => args.extend([remote, local]),
+    }
+    args
+}
 
 /// An owner-only folder that is removed on drop.
 struct Scratch(PathBuf);

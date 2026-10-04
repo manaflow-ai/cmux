@@ -31,8 +31,19 @@ const HEAD_DEADLINE: Duration = Duration::from_secs(10);
 
 /// True when `host` names the machine itself (literal rule, no DNS).
 pub fn is_machine_host(host: &str) -> bool {
-        todo!("C5 red: not built yet")
+    let host = host.strip_suffix('.').unwrap_or(host).to_ascii_lowercase();
+    if host == "localhost" || host.ends_with(".localhost") {
+        return true;
     }
+    let bare = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(&host);
+    match bare.parse::<IpAddr>() {
+        Ok(IpAddr::V4(v4)) => v4.is_loopback(),
+        Ok(IpAddr::V6(v6)) => {
+            v6.is_loopback() || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback())
+        }
+        Err(_) => false,
+    }
+}
 
 /// A parsed request target.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,8 +78,43 @@ fn host_port(authority: &str, default: Option<u16>) -> Option<(String, u16)> {
 
 /// Parses a request head (everything up to and with the blank line).
 pub fn parse_head(head: &[u8]) -> Result<Target, Refusal> {
-        todo!("C5 red: not built yet")
+    let text = std::str::from_utf8(head).map_err(|_| refuse(400, "the request is not text"))?;
+    let mut lines = text.split("\r\n");
+    let first = lines.next().unwrap_or_default();
+    let mut parts = first.split(' ');
+    let (Some(method), Some(target), Some(version), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return Err(refuse(400, "bad request line"));
+    };
+    if !version.starts_with("HTTP/1.") || method.is_empty() {
+        return Err(refuse(400, "bad request line"));
     }
+    if method == "CONNECT" {
+        let (host, port) =
+            host_port(target, None).ok_or_else(|| refuse(400, "CONNECT needs host:port"))?;
+        return check(Target { host, port, forward_head: None });
+    }
+    let Some(rest) = target.strip_prefix("http://") else {
+        return Err(refuse(400, "only CONNECT and absolute http:// requests are proxied"));
+    };
+    let (authority, path) = rest.find('/').map_or((rest, "/"), |i| (&rest[..i], &rest[i..]));
+    if authority.contains('@') {
+        return Err(refuse(400, "credentials in the URL are not proxied"));
+    }
+    let (host, port) =
+        host_port(authority, Some(80)).ok_or_else(|| refuse(400, "bad host in the URL"))?;
+    let mut out = format!("{method} {path} {version}\r\n");
+    for line in lines.filter(|l| !l.is_empty()) {
+        let name = line.split(':').next().unwrap_or_default().trim().to_ascii_lowercase();
+        if !matches!(name.as_str(), "connection" | "proxy-connection" | "proxy-authorization") {
+            out.push_str(line);
+            out.push_str("\r\n");
+        }
+    }
+    out.push_str("Connection: close\r\n\r\n");
+    check(Target { host, port, forward_head: Some(out.into_bytes()) })
+}
 
 fn check(target: Target) -> Result<Target, Refusal> {
     if is_machine_host(&target.host) {
@@ -122,5 +168,32 @@ fn read_head(tcp: &mut TcpStream) -> Result<(Vec<u8>, Vec<u8>), Refusal> {
 
 /// The connection handler of a machine's proxy route.
 pub fn handler(tunnel: Arc<dyn PortTunnel>, carrier: Carrier) -> Handler {
-        todo!("C5 red: not built yet")
-    }
+    Arc::new(move |mut tcp: TcpStream, session: &Session| {
+        let target = read_head(&mut tcp).and_then(|(head, rest)| Ok((parse_head(&head)?, rest)));
+        let (target, rest) = match target {
+            Ok(found) => found,
+            Err(refusal) => return answer(&mut tcp, refusal.status, &refusal.reason),
+        };
+        let conn = match tunnel.open(&carrier, &target.host, target.port) {
+            Ok(conn) => conn,
+            Err(e) => {
+                let why = format!("cmux Cloud machine {}: {e}", carrier.target);
+                return answer(&mut tcp, 502, &why);
+            }
+        };
+        let first = match target.forward_head {
+            Some(mut head) => {
+                head.extend_from_slice(&rest);
+                head
+            }
+            None => {
+                if tcp.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n").is_err() {
+                    conn.abort.abort();
+                    return;
+                }
+                rest
+            }
+        };
+        session.splice(tcp, conn, first);
+    })
+}

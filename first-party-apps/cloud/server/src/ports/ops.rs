@@ -55,8 +55,49 @@ pub(crate) fn run<C: ControlPlane>(
     origin: Origin,
     key: Option<&str>,
 ) -> Result<Value, CloudError> {
-        todo!("C5 red: not built yet")
+    match name {
+        LIST => {
+            let map = args::object(raw, &["machine"])?;
+            let only =
+                if map.contains_key("machine") { Some(args::id(map, "machine")?) } else { None };
+            let (edge, links) = server.edge_parts();
+            edge.reconcile(links);
+            let forwards: Vec<Value> = edge
+                .forwards
+                .iter()
+                .filter(|((m, _), _)| only.is_none_or(|o| o == m))
+                .map(|((m, p), f)| record(m, *p, f))
+                .collect();
+            Ok(json!({ "forwards": forwards }))
+        }
+        FORWARD => {
+            let map = args::object(raw, &["machine", "port"])?;
+            let machine = args::id(map, "machine")?.to_owned();
+            let port = port_arg(map)?;
+            let carrier = link(server, &machine, origin, key)?;
+            let (edge, links) = server.edge_parts();
+            let at = (machine.clone(), port);
+            let forward = ensure(edge, links, &carrier, Slot::Forward(&at), port)?;
+            Ok(record(&machine, port, forward))
+        }
+        CLOSE => {
+            let map = args::object(raw, &["machine", "port"])?;
+            let machine = args::id(map, "machine")?.to_owned();
+            let port = port_arg(map)?;
+            let (edge, _) = server.edge_parts();
+            let closed = match edge.forwards.remove(&(machine.clone(), port)) {
+                Some(mut forward) => {
+                    forward.close("closed");
+                    true
+                }
+                None => false,
+            };
+            Ok(json!({ "machine": machine, "port": port, "closed": closed }))
+        }
+        BROWSER_OPEN => browser_open(server, raw, origin, key),
+        _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
     }
+}
 
 /// The machine's carrier, connecting (and starting a paused machine) when
 /// no link is up.

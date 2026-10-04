@@ -73,7 +73,50 @@ impl TunnelAbort for Shared {
 
 impl PortTunnel for LoopbackTunnel {
     fn open(&self, carrier: &Carrier, host: &str, port: u16) -> Result<TunnelConn, TunnelError> {
-        todo!("C5 red: not built yet")
+        let down = |e: io::Error| TunnelError::Down(e.to_string());
+        let socket = UnixStream::connect(&carrier.socket).map_err(down)?;
+        socket.set_read_timeout(Some(HANDSHAKE)).map_err(down)?;
+        let mut lines = BufReader::new(socket.try_clone().map_err(down)?);
+        let shared = Arc::new(Shared {
+            socket,
+            writing: Mutex::new(()),
+            credit: Mutex::new(Credit { bytes: 0, closed: false }),
+            ready: Condvar::new(),
+        });
+        let mut early = VecDeque::new();
+        let identity =
+            request(&shared, &mut lines, &mut early, json!({"id": 1, "cmd": "identify"}))?;
+        let capable = identity["capabilities"]
+            .as_array()
+            .is_some_and(|caps| caps.iter().any(|c| c == CAPABILITY));
+        if !capable {
+            return Err(TunnelError::Unsupported(format!(
+                "the machine's cmux-tui lacks {CAPABILITY}; update the machine's image"
+            )));
+        }
+        let info = json!({"id": 2, "cmd": "set-client-info", "name": "cmux-cloud port forward",
+            "kind": "loopback-forward", "capabilities": [CAPABILITY]});
+        request(&shared, &mut lines, &mut early, info)?;
+        let open = json!({"id": 3, "cmd": "loopback-open", "stream": STREAM, "host": host,
+            "port": port, "window": WINDOW});
+        let opened = request(&shared, &mut lines, &mut early, open)?;
+        let window = opened["window"].as_u64().and_then(|w| usize::try_from(w).ok()).unwrap_or(0);
+        shared.credit().bytes = window;
+        shared.socket.set_read_timeout(None).map_err(down)?;
+        let reader = Reader {
+            lines,
+            early,
+            buffer: Vec::new(),
+            at: 0,
+            ungranted: 0,
+            eof: false,
+            shared: Arc::clone(&shared),
+        };
+        Ok(TunnelConn {
+            reader: Box::new(reader),
+            writer: Box::new(Writer { shared: Arc::clone(&shared) }),
+            abort: shared,
+        })
     }
 }
 
