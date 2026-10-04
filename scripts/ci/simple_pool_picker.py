@@ -86,6 +86,18 @@ def owned_order(label: str) -> tuple[object, ...]:
     )
 
 
+def owned_xcode_app(label: str, configured: str) -> str:
+    """Return the toolchain path matching an owned label's embedded version."""
+    match = OWNED_FAMILY.fullmatch(label or "")
+    if not match:
+        return configured
+    version = match.group("version")
+    configured_match = re.search(r"/Xcode_([0-9]+(?:\.[0-9]+)*)\.app(?:/|$)", configured or "")
+    if configured_match and _version_key(configured_match.group(1)) == _version_key(version):
+        return configured
+    return f"/Applications/Xcode_{version}.app"
+
+
 @dataclasses.dataclass(frozen=True)
 class Pool:
     label: str
@@ -297,7 +309,7 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
             queued = sum(count(name, "queued") for name in pools if owned_family(str(name)) == family)
             free = max(0, idle - queued)
             owned.append(Pool(label, len(online), len(online) - idle, queued, free=free,
-                              xcode_app=env.get("CMUX_CI_XCODE_APP_PR", "")))
+                              xcode_app=owned_xcode_app(label, env.get("CMUX_CI_XCODE_APP_PR", ""))))
     counts = {label: {"running": count(label, "running"), "queued": count(label, "queued"),
                       "reserved": count(label, "reserved_queued")} for label in BLACKSMITH}
     blacksmith = tuple(Pool(label, CAPACITY[label], **counts[label],
