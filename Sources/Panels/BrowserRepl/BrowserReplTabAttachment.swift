@@ -1113,8 +1113,12 @@ final class BrowserReplTabAttachment {
     ///     tab, was handling: the popup goes to that session only and stays
     ///     the user's (`BrowserReplPopupRoute.inputSession`).
     ///   - announce: `false` opens a user's popup as a background tab and
-    ///     tells no session (``opensPopupsInBackground``).
+    ///     tells no session (``opensPopupsInBackground``). It never applies
+    ///     to a tab a session created, whose popups are always handed to
+    ///     that session before they load (``handsPopupsOverFirst(forInputSession:)``).
     func adoptPopup(request: URLRequest, configuration: WKWebViewConfiguration, forInputSession: String? = nil, announce: Bool = true) -> PopupAdoption? {
+        let handsOver = handsPopupsOverFirst(forInputSession: forInputSession)
+        let announce = announce || handsOver
         guard isAttached, let panel,
               let workspace = AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId)?
                 .tabs.first(where: { $0.id == panel.workspaceId }),
@@ -1152,7 +1156,7 @@ final class BrowserReplTabAttachment {
             // page clipboard guard are on it. Close it on this main-actor
             // turn, before WebKit decides that navigation, and let the
             // caller open the popup blank first (`handlePopup`).
-            if handsPopupsOverFirst(announce: announce, forInputSession: forInputSession) {
+            if handsOver {
                 created.webView.stopLoading()
                 _ = workspace.closePanel(created.id, force: true)
                 return nil
@@ -1169,8 +1173,9 @@ final class BrowserReplTabAttachment {
 
     /// Whether a popup becomes the creating session's tab, under its content
     /// rules and page clipboard guard, which must be on it before it loads.
-    private func handsPopupsOverFirst(announce: Bool, forInputSession: String?) -> Bool {
-        announce && forInputSession == nil && ownership.isSessionOwned && ownership.creatorSessionID != nil
+    /// Whether the sessions are told of it (`announce`) never changes this.
+    private func handsPopupsOverFirst(forInputSession: String?) -> Bool {
+        forInputSession == nil && ownership.isSessionOwned && ownership.creatorSessionID != nil
     }
 
     private func announcePopup(_ created: BrowserPanel, url: URL, forInputSession: String? = nil) {
@@ -1199,6 +1204,8 @@ final class BrowserReplTabAttachment {
     }
 
     func handlePopup(request: URLRequest, forInputSession: String? = nil, announce: Bool = true) -> Bool {
+        let handsOver = handsPopupsOverFirst(forInputSession: forInputSession)
+        let announce = announce || handsOver
         guard isAttached, let panel, let url = request.url,
               let workspace = AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId)?
                 .tabs.first(where: { $0.id == panel.workspaceId }),
@@ -1232,7 +1239,7 @@ final class BrowserReplTabAttachment {
             },
             load: { created, url in created.navigate(to: url) }
         )
-        return opening.open(url, handOverFirst: handsPopupsOverFirst(announce: announce, forInputSession: forInputSession)) != nil
+        return opening.open(url, handOverFirst: handsOver) != nil
     }
 
     // MARK: - Downloads
