@@ -31,7 +31,6 @@ if not APP:
     sys.exit(f"no tagged app for {opts.tag}")
 with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(APP, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
-CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 TMP = os.environ.get("TMPDIR", "/tmp")
 CONFIG = os.path.join(opts.out, "cmux.json")
@@ -39,7 +38,6 @@ with open(CONFIG, "w") as f:
     f.write("{}\n")
 BASE_ENV = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": TMP,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
-CLI_ENV = {**BASE_ENV, "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
 events = []
 lock = threading.Lock()
 
@@ -118,16 +116,24 @@ def proxy_handler(conn, peer):
 serve(proxy, proxy_handler)
 
 
-def cli(*args, timeout=30):
-    return subprocess.run([CLI, "--socket", SOCKET, *args], capture_output=True, text=True, timeout=timeout, env=CLI_ENV)
-
-
 def rpc(method, params=None):
-    r = cli("rpc", method, json.dumps(params or {}))
+    """One request on the tagged app's control socket (line JSON)."""
     try:
-        return json.loads(r.stdout)
-    except ValueError:
-        return {"error": (r.stdout + r.stderr).strip()}
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.settimeout(60)
+        conn.connect(SOCKET)
+        conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
+        buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = conn.recv(1 << 20)
+            if not chunk:
+                break
+            buf += chunk
+        conn.close()
+        reply = json.loads(buf)
+        return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
+    except (OSError, ValueError) as error:
+        return {"error": str(error)}
 
 
 def wait(predicate, seconds, step=0.25):
@@ -163,7 +169,7 @@ app = subprocess.Popen([BINARY], env=env, stdout=app_log, stderr=app_log, stdin=
 log("APP_STARTED", pid=app.pid, app=os.path.basename(APP), target_port=TARGET_PORT, proxy_port=PROXY_PORT)
 failures = []
 try:
-    if not wait(lambda: os.path.exists(SOCKET) and rpc("debug.surfaces").get("windows"), 90, 0.5):
+    if not wait(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), 90, 0.5):
         failures.append("tagged app did not come up")
     else:
         # Typed refusals first: none of them may open anything.
