@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 import Foundation
 public import CmuxNextDaemon
 public import CmuxNextTabs
@@ -23,7 +24,7 @@ public struct TabItemMapping {
             id: StripTabID(tab.id),
             title: title,
             subtitle: isConversation ? nil : isBrowser ? tab.url : tab.cwd.map(SidebarMapping.shared.abbreviate),
-            icon: .symbol(isConversation ? Self.conversationSymbol : isBrowser ? "globe" : (tab.dead ? "xmark.octagon" : "terminal")),
+            icon: icon(tab, isBrowser: isBrowser, isConversation: isConversation),
             isPinned: tab.pinned,
             isUnread: tab.hasUnread,
             isBusy: busy.state.isLoading || isReportingProgress(tab),
@@ -32,6 +33,16 @@ public struct TabItemMapping {
         if busy.state.isLoading { item.indicator = busy.state }
         item.busyStyle = busy.style
         return item
+    }
+
+    /// A live agent terminal wears its agent's brand mark (design/agent-icons); other
+    /// terminals, and agents without a mark, keep the terminal symbol.
+    func icon(_ tab: TabModel, isBrowser: Bool, isConversation: Bool) -> TabIcon {
+        if isConversation { return .symbol(Self.conversationSymbol) }
+        if isBrowser { return .symbol("globe") }
+        if tab.dead { return .symbol("xmark.octagon") }
+        if let brand = AgentBrandCatalog.brand(for: tab.agent?.agent) { return .agentMark(brand.rawValue) }
+        return .symbol("terminal")
     }
 
     /// A browser tab whose page was never shown keeps the record the daemon

@@ -33,6 +33,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
     private var appliedTheme: String?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
+    /// Answers the page's dynamic prefixes (``PageDescriptor/dynamicPrefixes``); the scheme
+    /// handler holds it weakly, so the view keeps it alive.
+    private let dynamicResources: (any PageDynamicResourceSource)?
     /// A navigation to any other origin (a link in the page): the host opens it in a browser tab.
     public var onOpenExternal: ((URL) -> Void)?
     /// Decides navigations outside the page's origin (``PageNavigation/policy(for:page:userClicked:mainFrame:hook:)``).
@@ -52,11 +55,20 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     public var pageID: String { descriptor.id }
 
-    /// Nil when the page is missing from the resource bundle.
+    /// Nil when the page is missing from the resource bundle and no root is registered for it
+    /// (``PageID/registerBundledRoot(_:for:)``).
     public convenience init?(descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil,
-                             documentAttributes: [String: String] = [:]) {
-        guard let root = Self.debugRoot(for: descriptor) ?? PageSchemeHandler.bundledRoot(for: descriptor) else { return nil }
-        self.init(descriptor: descriptor, root: root, routes: routes, route: route, documentAttributes: documentAttributes)
+                             documentAttributes: [String: String] = [:], surface: SurfaceKind? = nil,
+                             dynamicResources: (any PageDynamicResourceSource)? = nil) {
+        guard let root = Self.servedRoot(for: descriptor) else { return nil }
+        self.init(descriptor: descriptor, root: root, routes: routes, route: route, documentAttributes: documentAttributes,
+                  surface: surface, dynamicResources: dynamicResources)
+    }
+
+    /// The root a page is served from without an explicit one: the DEBUG override, else this
+    /// module's bundled directory, else the root registered for its id.
+    nonisolated static func servedRoot(for descriptor: PageDescriptor) -> URL? {
+        debugRoot(for: descriptor) ?? PageSchemeHandler.bundledRoot(for: descriptor) ?? PageID.bundledRoot(for: descriptor.id)
     }
 
     /// The script that sets `data-<name>` attributes on `<html>`; nil for none. Names keep only
@@ -99,17 +111,24 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// page's init: `["cloud-machines-layout": "cards"]` is `data-cloud-machines-layout`).
     ///
     /// `options` are engine options (``PageEngineOptions``); each engine maps the ones it has.
+    /// `surface` is the initial ``themeSurface`` (the diff page passes `.diff`, so
+    /// `appearance.surfaces.diff` reaches `--cmux-surface-background`); `dynamicResources` answers
+    /// the descriptor's dynamic prefixes (a 404 without one).
     public init?(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil,
-                 documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard) {
+                 documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
+                 surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
         guard Self.mayServe(descriptor, from: root) else { return nil }
         self.descriptor = descriptor
+        themeSurface = surface
+        self.dynamicResources = dynamicResources
         router = PageRouter(descriptor: descriptor, routes: routes)
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         if options.fullFrameRate {
             configuration.preferences.setWebKitFeature(PageEngineOptions.near60FPSFeature, enabled: false)
         }
-        configuration.setURLSchemeHandler(PageSchemeHandler(page: descriptor, root: root), forURLScheme: PageDescriptor.scheme)
+        configuration.setURLSchemeHandler(PageSchemeHandler(page: descriptor, root: root, dynamicSource: dynamicResources),
+                                          forURLScheme: PageDescriptor.scheme)
         configuration.userContentController.addUserScript(
             WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         if let script = Self.attributesScript(documentAttributes) {
@@ -225,11 +244,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     func applyTheme(force: Bool = false) {
         guard loaded else { return }
-        let theme = WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
-                             surface: themeSurface)
+        let theme = currentTheme()
         guard force || theme.payloadJSON != appliedTheme else { return }
         appliedTheme = theme.payloadJSON
         webView.evaluateJavaScript(theme.applyScript, completionHandler: nil)
+    }
+
+    /// The page theme from this view's scope and ``themeSurface``: the surface's override (from
+    /// `backgrounds`, the app's) replaces the page background; nil keeps the scope's own.
+    func currentTheme(backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> WebTheme {
+        WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+                 surface: themeSurface ?? .internalPage, backgrounds: backgrounds)
     }
 
     // MARK: WKNavigationDelegate

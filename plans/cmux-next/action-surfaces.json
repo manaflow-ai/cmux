@@ -5377,6 +5377,29 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "tab new-from-text",
+      "context_menu" : "duplicateOfDefault",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "newTab.submit",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "title" : "New Tab from Text",
+      "title_key" : "action.newTab.submit",
+      "title_table" : "NewTabActions"
+    },
+    {
       "cli" : "focusMove",
       "cli_name" : "tab focus-location",
       "context_menu" : "focusMove",
@@ -10573,6 +10596,29 @@
       },
       "title" : "Restart VS Code Inline Server",
       "title_key" : "action.palette.vscodeServeWebRestart",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action browser-allow-agent-with-extensions",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.allowAgentWithExtensions",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Allow Agents in This Tab…",
+      "title_key" : "action.browser.allowAgentWithExtensions",
       "title_table" : "ActionCatalog"
     },
     {

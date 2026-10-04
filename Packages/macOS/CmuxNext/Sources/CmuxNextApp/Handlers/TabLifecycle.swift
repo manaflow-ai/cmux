@@ -68,7 +68,8 @@ enum TabLifecycle {
             kind = NewTabKind.resolve(setting, sameKind: sameKind, recent: ctx.services.newTabKinds.recent(in: folder))
         }
         // Agent tabs and the page live in a shown pane; elsewhere, a terminal.
-        if controller == nil, kind == .agent || kind == .page { kind = .terminal }
+        // A build without the agent page has no new tab page either.
+        if controller == nil || !ctx.services.agentTabs.canHostChat, kind == .agent || kind == .page { kind = .terminal }
         switch kind {
         case .terminal:
             newTerminal(ctx, invocation)
@@ -131,6 +132,13 @@ enum TabLifecycle {
             }
             url = resolved
         }
+        let rawProfile = invocation["profile"]?.stringValue
+        guard let profileRequest = AgentBrowserProfile.request(rawProfile) else {
+            return ctx.refuse(MiscHandlerStrings.unknownBrowserProfile(rawProfile ?? ""))
+        }
+        if case .explicit(let id) = profileRequest, !ctx.services.browserProfiles.isKnown(id) {
+            return ctx.refuse(MiscHandlerStrings.unknownBrowserProfile(id))
+        }
         guard let pane = ctx.daemonPane(invocation) else { return }
         let engine = invocation["engine"]?.stringValue
         // A refused engine is not remembered, or Auto would repeat the refusal on every Cmd-T in the folder.
@@ -142,6 +150,22 @@ enum TabLifecycle {
         var agentTab: (@MainActor (SurfaceID) -> Void)?
         if [.cli, .mcp, .script].contains(invocation.origin) {
             agentTab = { @MainActor [weak cache] surface in cache?.markAgentDriven(surface: surface) }
+        }
+        switch profileRequest {
+        case .cascade: break
+        case .explicit(let id): return openInProfile(ctx, pane: pane, url: url, engine: engine, profile: id, then: agentTab)
+        case .agent:
+            let profiles = ctx.services.browserProfiles
+            ctx.registry.track(Task { @MainActor in
+                do {
+                    let id = try await AgentBrowserProfile.ensure(profiles)
+                    openInProfile(ctx, pane: pane, url: url, engine: engine, profile: id, then: agentTab)
+                    return nil
+                } catch {
+                    return "agent-browser-profile: \(error)"
+                }
+            })
+            return
         }
         if let controller = ctx.services.paneController(for: pane) {
             // No URL given: what the selected tab works on (#16620).
@@ -164,6 +188,34 @@ enum TabLifecycle {
                 return nil
             } catch {
                 logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
+                return "new-frontend-browser-tab: \(error)"
+            }
+        })
+    }
+
+    /// A new browser tab in browser profile `profile` (openBrowser's
+    /// `profile` argument). Without a URL it opens the new tab page rather
+    /// than copying the selected tab, whose page belongs to another profile.
+    private static func openInProfile(_ ctx: AppActionContext, pane: PaneModel, url: URL?, engine: String?, profile: String,
+                                      then agentTab: (@MainActor (SurfaceID) -> Void)?) {
+        if let controller = ctx.services.paneController(for: pane) {
+            return controller.newBrowserTab(url: url, engine: engine, profile: profile, then: agentTab)
+        }
+        guard let browserTabs = ctx.services.cache.browserTabs, browserTabs.isAvailable() else {
+            return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs))
+        }
+        let choice: BrowserEngineChoice
+        switch browserTabs.resolve(requested: engine) {
+        case .refuse(let reason): return ctx.refuse(BrowserTabService.message(reason))
+        case .open(let resolved): choice = resolved
+        }
+        let handle = pane.handle, address = url?.absoluteString ?? ctx.services.newTabAddress(for: choice)
+        ctx.registry.track(Task {
+            do {
+                let surface = try await browserTabs.open(choice, in: handle, url: address, profile: profile)
+                agentTab?(surface)
+                return nil
+            } catch {
                 return "new-frontend-browser-tab: \(error)"
             }
         })

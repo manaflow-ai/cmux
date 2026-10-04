@@ -26,6 +26,12 @@ fn a_mutation_answers_then_emits_its_event() {
         .lines()
         .map(|l| serde_json::from_str(l).expect("JSON line"))
         .collect();
+    // The server asks for the link details before anything else.
+    assert_eq!(
+        lines[0],
+        serde_json::json!({ "t": "host.request", "id": 1, "op": "cmux.host.link.get", "params": {} })
+    );
+    let lines = &lines[1..];
     let kinds: Vec<&str> = lines.iter().map(|l| l["type"].as_str().expect("type")).collect();
     // The list fills an empty projection: one upsert per machine, one revision.
     assert_eq!(kinds, ["relay.request", "result", "event", "event"], "{lines:?}");

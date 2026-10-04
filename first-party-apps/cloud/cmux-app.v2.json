@@ -35,7 +35,8 @@
     "data": [{ "name": "projection", "class": "ephemeral" }],
     "lifecycle": { "start": "onDemand" },
     "scopes": {
-      "op:cmux.credential.relay": "Send each Cloud request to cmux, which adds your sign-in and calls the cmux Cloud API. The server never receives the sign-in token."
+      "op:cmux.credential.relay": "Send each Cloud request to cmux, which adds your sign-in and calls the cmux Cloud API. The server never receives the sign-in token.",
+      "op:cmux.host.link.get": "Ask cmux which link program, network hub and folders to use for the private link to your Cloud machines, and get told when they change."
     }
   },
   "implements": {

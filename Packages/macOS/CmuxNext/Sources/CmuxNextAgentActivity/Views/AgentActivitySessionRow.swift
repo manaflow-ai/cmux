@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 import AppKit
 import SwiftUI
 
@@ -11,6 +12,7 @@ struct AgentActivitySessionRow: View {
             AgentActivityChip(hex: session.colorHex, live: session.status.isLive).padding(.top, 3)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
+                    AgentBrandMark(agent: session.agentKind, size: 12)
                     Text(session.agentName).font(.system(size: 12, weight: .semibold)).lineLimit(1)
                     Spacer(minLength: 4)
                     Text(AgentActivityFormat.relative(session.lastActionAt))

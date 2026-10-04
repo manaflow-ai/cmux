@@ -81,7 +81,7 @@ impl LinkPaths {
 pub struct LinkCommand {
     pub binary: PathBuf,
     pub args: Vec<String>,
-    /// Added to a cleared environment (see the spawner).
+    /// The child's whole environment: the spawner clears everything else.
     pub env: Vec<(String, String)>,
     pub state_dir: PathBuf,
     pub local_socket: PathBuf,
@@ -91,8 +91,15 @@ fn arg(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// The `remote connect` argv for one machine.
-pub fn link_command(paths: &LinkPaths, machine: &str, endpoint: &AttachEndpoint) -> LinkCommand {
+/// The `remote connect` argv for one machine. `child_env` is the whole
+/// environment of the child apart from its state folder
+/// (crate::app_env::AppEnv::child_env).
+pub fn link_command(
+    paths: &LinkPaths,
+    machine: &str,
+    endpoint: &AttachEndpoint,
+    child_env: &[(String, String)],
+) -> LinkCommand {
     let local_socket = paths.link_socket(machine);
     let mut args: Vec<String> = vec![
         "remote".into(),
@@ -121,7 +128,11 @@ pub fn link_command(paths: &LinkPaths, machine: &str, endpoint: &AttachEndpoint)
     LinkCommand {
         binary: paths.binary.clone(),
         args,
-        env: vec![("CMUX_REMOTE_STATE_DIR".into(), arg(&paths.state_dir))],
+        env: child_env
+            .iter()
+            .cloned()
+            .chain([("CMUX_REMOTE_STATE_DIR".to_owned(), arg(&paths.state_dir))])
+            .collect(),
         state_dir: paths.state_dir.clone(),
         local_socket,
     }

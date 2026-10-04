@@ -255,6 +255,7 @@ impl TerminalBackend for RescueBackend {
 
     fn open(&mut self, request: OpenRequest) -> Result<Box<dyn ByteTerminal>, BackendError> {
         allow_kind(&self.kinds, &request.kind)?;
+        request.open_token.check()?;
         if request.command.is_some() {
             // The rescue shell runs the machine's login shell only.
             return Err(BackendError::Unsupported);

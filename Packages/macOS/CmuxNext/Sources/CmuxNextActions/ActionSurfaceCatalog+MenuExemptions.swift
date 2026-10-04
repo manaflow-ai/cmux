@@ -5,6 +5,10 @@ nonisolated extension ActionSurfaceCatalog {
     /// Why no right-click menu offers an action.
     static let contextMenuExemption: [ActionID: SurfaceExemption] = byReason(contextMenuExemptionsByReason)
     static let contextMenuExemptionsByReason: [SurfaceExemption: [ActionID]] = [
+        // The menus offer New Tab Page, whose field is this action's GUI form.
+        .duplicateOfDefault: [
+            "newTab.submit",
+        ],
         .secondaryEngine: [
             "openBrowser.webkit",
             "browser.openInWebKit",
@@ -24,7 +28,7 @@ nonisolated extension ActionSurfaceCatalog {
             "openSettings", "appearance.customize", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
             "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything", "globalSearch", "commandPalette",
             "palette.openTaskManager", "palette.sleepyMode", "keepMacAwake", "about", "manageLayouts",
-            "palette.findWork", "reopenClosedBrowserPanel", "palette.browserClearHistory", "importFromBrowser", "password.importCSV",
+            "palette.findWork", "reopenClosedBrowserPanel", "palette.browserClearHistory", "importFromBrowser", "password.importCSV", "browser.allowAgentWithExtensions",
             "palette.enableBrowser", "palette.disableBrowser", "toggleRightSidebar", "switchRightSidebarToFiles",
             "switchRightSidebarToFind", "switchRightSidebarToSessions", "switchRightSidebarToFeed",
             "switchRightSidebarToDock", "switchRightSidebarToMachines", "palette.toggleMatchTerminalBackground",

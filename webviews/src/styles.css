@@ -2000,6 +2000,10 @@ svg[data-icon-fill] {
   min-width: 0;
   display: flex;
 }
+/* Only listens for file row clicks; the tree keeps its own box. */
+.file-tree-activation {
+  display: contents;
+}
 .file-header {
   flex: 1 1 auto;
   min-width: 0;
@@ -2012,6 +2016,12 @@ svg[data-icon-fill] {
   line-height: var(--cmux-diff-ui-line-height);
   color: var(--cmux-diff-fg);
   white-space: nowrap;
+  cursor: pointer;
+}
+.file-header :where(.file-header-path) {
+  /* The path stays selectable; a drag-select never toggles the file. */
+  user-select: text;
+  -webkit-user-select: text;
 }
 .cmux-file-icon {
   flex: 0 0 auto;
@@ -2058,20 +2068,17 @@ svg[data-icon-fill] {
   align-items: center;
   justify-content: center;
   margin-left: -2px;
-  padding: 0;
-  border: 0;
   border-radius: 5px;
-  background: transparent;
   color: var(--cmux-diff-text-muted);
-  cursor: pointer;
 }
-.file-header-caret:hover {
+/* The whole bar is the toggle; the caret shows its hover and state. */
+.file-header:hover .file-header-caret {
   background: var(--cmux-diff-hover-bg);
   color: var(--cmux-diff-fg);
 }
-.file-header-caret:focus-visible {
+.file-header:focus-visible {
   outline: 2px solid var(--cmux-diff-accent);
-  outline-offset: -1px;
+  outline-offset: -2px;
 }
 .file-header-caret svg {
   width: 12px;

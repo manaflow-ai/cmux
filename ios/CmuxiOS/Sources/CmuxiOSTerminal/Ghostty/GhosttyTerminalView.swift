@@ -1,4 +1,5 @@
 import Foundation
+import GameController
 import GhosttyNextKit
 import UIKit
 
@@ -10,8 +11,30 @@ import UIKit
 @MainActor
 public final class GhosttyTerminalView: UIView, TerminalRenderer {
     public var onInput: ((Data) -> Void)?
+    /// The terminal drew a frame (the cursor may have moved).
+    public var onDraw: (() -> Void)?
 
-    private var surface: ghostty_surface_t?
+    private(set) var surface: ghostty_surface_t?
+    /// Keyboard input state (sticky modifiers, marked text); client view state.
+    var input = TerminalInputRouter()
+    /// UIKit's text input delegate (`UITextInput`).
+    public weak var inputDelegate: (any UITextInputDelegate)?
+    /// Hardware presses the router sent, by press, until their release.
+    var handledPresses: [ObjectIdentifier: [TerminalInputAction]] = [:]
+    /// The software keyboard (setting: `.asciiCapable` by default; the
+    /// default keyboard allows non-Latin input).
+    public var keyboardKind: UIKeyboardType = .asciiCapable
+    /// The key bar's keys (setting `ios.terminal.accessoryKeys`).
+    public var keyBarKeys: [TerminalKeyBarKey] = TerminalKeyBarKey.defaultKeys {
+        didSet { keyBarView = nil }
+    }
+    /// Option sends Meta (setting `ios.terminal.optionAsMeta`, default true).
+    public var optionAsMeta: Bool {
+        get { input.optionAsMeta }
+        set { input.optionAsMeta = newValue }
+    }
+    private var keyBarView: TerminalKeyBar?
+    private var keyboardObservers: [any NSObjectProtocol] = []
     private var app: GhosttyNextApp?
     /// The output functions (process_output, set_grid, restore and encode
     /// snapshot) run here: one serial queue, never the main thread
@@ -24,12 +47,22 @@ public final class GhosttyTerminalView: UIView, TerminalRenderer {
         super.init(frame: frame)
         backgroundColor = .black
         isOpaque = true
+        isAccessibilityElement = true
+        accessibilityLabel = TerminalText.terminalLabel
+        accessibilityTraits = .allowsDirectInteraction
+        // The key bar hides while a hardware keyboard is attached (device only).
+        for name in [NSNotification.Name.GCKeyboardDidConnect, .GCKeyboardDidDisconnect] {
+            keyboardObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) {
+                [weak self] _ in MainActor.assumeIsolated { self?.reloadInputViews() }
+            })
+        }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     isolated deinit {
+        for observer in keyboardObservers { NotificationCenter.default.removeObserver(observer) }
         guard let surface else { return }
         // Free only after every queued process_output returned (contract), and
         // keep the input box alive until free returns (io_write_cb may run).
@@ -107,6 +140,9 @@ public final class GhosttyTerminalView: UIView, TerminalRenderer {
         requestFrame()
     }
 
+    /// Draws again (marked text changed).
+    func requestRedraw() { requestFrame() }
+
     private func requestFrame() {
         guard let app, surface != nil else { return }
         app.requestDraw(self) { [weak self] in
@@ -114,6 +150,7 @@ public final class GhosttyTerminalView: UIView, TerminalRenderer {
             ghostty_surface_refresh(surface)
             ghostty_surface_draw(surface)
             self.draws += 1
+            self.onDraw?()
             let size = ghostty_surface_size(surface)
             self.diagnostics["draws"] = String(self.draws)
             self.diagnostics["grid"] = "\(size.columns)x\(size.rows) px \(size.width_px)x\(size.height_px)"
@@ -141,24 +178,80 @@ public final class GhosttyTerminalView: UIView, TerminalRenderer {
         return (Int(size.columns), Int(size.rows))
     }
 
-    // MARK: Keyboard (software keyboard text; hardware keys come later via pressesBegan)
+    // MARK: Keyboard (plans/cmux-next/ios-keyboard.md T1-T4)
 
     public override var canBecomeFirstResponder: Bool { true }
 
-    func sendText(_ text: String) {
-        guard let surface else { return }
-        let utf8 = Array(text.utf8CString)
-        utf8.withUnsafeBufferPointer { buffer in
-            guard let base = buffer.baseAddress else { return }
-            ghostty_surface_text_input(surface, base, UInt(buffer.count - 1))
+    @discardableResult
+    public override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned {
+            input.sticky.reset()
+            keyBarView?.modifiers = input.sticky
+            if input.markedText != nil { perform(input.setMarkedText(nil)) }
         }
+        return resigned
     }
-}
 
-extension GhosttyTerminalView: UIKeyInput {
-    public var hasText: Bool { true }
-    public func insertText(_ text: String) { sendText(text) }
-    public func deleteBackward() { sendText("\u{7F}") }
+    /// The key bar over the software keyboard; none while a hardware
+    /// keyboard is attached (ghostty-next section 5). The simulator always
+    /// shows it: GameController reports the host Mac's keyboard there even
+    /// while the software keyboard is up.
+    public override var inputAccessoryView: UIView? {
+        if Self.hardwareKeyboardAttached { return nil }
+        if let keyBarView { return keyBarView }
+        let bar = TerminalKeyBar(keys: keyBarKeys)
+        bar.onKey = { [weak self] key in self?.keyBarKey(key) }
+        bar.modifiers = input.sticky
+        keyBarView = bar
+        return bar
+    }
+
+    static var hardwareKeyboardAttached: Bool {
+        #if targetEnvironment(simulator)
+        false
+        #else
+        GCKeyboard.coalesced != nil
+        #endif
+    }
+
+    private func keyBarKey(_ key: TerminalKeyBarKey) {
+        switch key {
+        case .paste: paste(nil)
+        case .hideKeyboard: resignFirstResponder()
+        default: perform(input.keyBar(key, at: ProcessInfo.processInfo.systemUptime))
+        }
+        keyBarView?.modifiers = input.sticky
+    }
+
+    public override var keyCommands: [UIKeyCommand]? { navigationKeyCommands() }
+
+    public override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let unhandled = beginPresses(presses)
+        keyBarView?.modifiers = input.sticky
+        if !unhandled.isEmpty { super.pressesBegan(unhandled, with: event) }
+    }
+
+    public override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let unhandled = endPresses(presses)
+        if !unhandled.isEmpty { super.pressesEnded(unhandled, with: event) }
+    }
+
+    public override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let unhandled = endPresses(presses)
+        if !unhandled.isEmpty { super.pressesCancelled(unhandled, with: event) }
+    }
+
+    public override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(paste(_:)) { return UIPasteboard.general.hasStrings }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
+    /// Cmd-V, the edit menu and the key bar: a paste (bracketed when the app asked for it).
+    public override func paste(_ sender: Any?) {
+        guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
+        perform([.paste(text)])
+    }
 }
 
 /// Holds the input callback for the C trampoline (userdata pointer).

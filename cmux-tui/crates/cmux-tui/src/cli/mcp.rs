@@ -13,6 +13,7 @@
 mod action_tools;
 mod browser_tools;
 mod config;
+mod keybinding_tools;
 mod messages;
 mod schema;
 #[cfg(test)]
@@ -334,6 +335,9 @@ impl<B: Backend> Server<B> {
         tools
             .extend(browser_tools::tools().iter().map(browser_tools::BrowserTool::descriptor_json));
         tools.push(action_tools::window_list_tool());
+        tools.extend(
+            keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
+        );
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
         tools
     }
@@ -385,6 +389,17 @@ impl<B: Backend> Server<B> {
         }
         if name == action_tools::WINDOW_LIST {
             return Ok(self.call_window_list(&arguments));
+        }
+        if let Some(tool) = keybinding_tools::find(name) {
+            return Ok(match tool.params(&arguments) {
+                Ok(params) => {
+                    match self.backend.app(tool.method, params, super::app::READ_TIMEOUT, None) {
+                        Ok(value) => success(value, false),
+                        Err(failure) => failure_result(failure),
+                    }
+                }
+                Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
+            });
         }
         if !self.actions.iter().any(|tool| tool.name == name) {
             self.refresh_actions();

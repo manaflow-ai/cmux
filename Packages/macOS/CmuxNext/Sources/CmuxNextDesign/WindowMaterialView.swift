@@ -26,6 +26,7 @@ public final class WindowMaterialView: NSView {
     private let tintView = NSView()
     private let artView = NSView()
     private var loadedSelection: BackdropSelection?
+    private var loadedArt: BackdropArt?
     private var artImage: NSImage?
 
     /// Creates an opaque backdrop (no material view, no tint).
@@ -70,8 +71,9 @@ public final class WindowMaterialView: NSView {
     /// - Parameter tint: The theme background; its alpha is replaced by
     ///   the backdrop's tint opacity.
     public func apply(_ backdrop: WindowBackdrop, tint: NSColor) {
-        if loadedSelection != backdrop.selection {
+        if loadedSelection != backdrop.selection || loadedArt != backdrop.art {
             loadedSelection = backdrop.selection
+            loadedArt = backdrop.art
             artImage = backdrop.selection?.image() ?? backdrop.art?.image()
             artView.layer?.contents = artImage
         }

@@ -200,8 +200,10 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
                 await queue.push(step)
                 switch step {
                 case .replay: owner.value?.send(.replayDelivered(ref))
+                // A link's first READY is its replay; later ones are no-ops there.
+                case .snapshot(let frame) where frame.phase == .ready: owner.value?.send(.replayDelivered(ref))
                 case .grid(let columns, let rows): owner.value?.send(.gridAnnounced(ref, CellSize(cols: columns, rows: rows)))
-                case .output, .exited, .status: break
+                case .output, .snapshot, .exited, .status: break
                 }
             }
             if case .closed(let reason) = event {

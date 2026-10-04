@@ -115,7 +115,12 @@ export class BridgePageClient implements PageClient {
     if (message?.t === "ok" && message.id === envelope.id) return (message as { value?: unknown }).value;
     if (message?.t === "err") {
       const err = message as { code?: string; message?: string; retryable?: boolean; details?: unknown };
-      throw pageError(err.code ?? "cmux.protocol.error", err.message ?? "request failed", err.retryable ?? false, err.details);
+      throw pageError(
+        err.code ?? "cmux.protocol.error",
+        err.message ?? "request failed",
+        err.retryable ?? false,
+        err.details,
+      );
     }
     throw pageError("cmux.protocol.invalid_result", "malformed reply");
   }

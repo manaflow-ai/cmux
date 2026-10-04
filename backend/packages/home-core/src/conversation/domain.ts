@@ -1,5 +1,6 @@
 import { hashInviteSecret } from "../invites/token.ts"
 import { apply, targetMessageId } from "./apply.ts"
+import { attachmentRefWrites, checkAttachments, type AttachmentLookup } from "./attachments.ts"
 import { isOpen } from "./cloud.ts"
 import { withConsentMarkers } from "./consent.ts"
 import { create, summary } from "./create.ts"
@@ -13,6 +14,8 @@ import { actorOf, defaultParticipantPolicy, FALLBACK_NAME, stampParticipant, typ
 import type { OpRequest } from "./request.ts"
 import { SYSTEM_ACTOR, type ConversationHead, type ConversationKind, type Invite, type Message, type Op, type Participant } from "./types.ts"
 import { currentParticipant, safeDisplayName } from "./validate.ts"
+import { reduceSweep, SWEEP_OP } from "./sweep.ts"
+import { inviteWrites, msgKey, TABLE_INV, TABLE_INVHASH, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "./tables.ts"
 
 export { actorOf } from "./policy.ts"
 
@@ -26,6 +29,7 @@ export { actorOf } from "./policy.ts"
  * - `msgkey`: key = `<author>:<client_msg_id>`, row = { message_id } (one message per author and client id).
  * - `inv`: key = invite id, row = Invite (every invite, also closed ones).
  * - `invhash`: key = token hash, row = { invite_id }.
+ * - `attref`: key = `<hash>:<message id>`, row = { hash, message_id, seq } (private; attachments.ts).
  * - `consent`: key = author id, row = { at }; a DM author's private consent marker (consent.ts),
  *   never deleted by retention.
  *
@@ -38,14 +42,7 @@ export { actorOf } from "./policy.ts"
  * which the Domain hashes. A token hash seen in an event or row is useless,
  * and a proof appears only in the accept event, after its single use.
  */
-export const TABLE_MSG = "msg"
-export const TABLE_MSGKEY = "msgkey"
-export const TABLE_INV = "inv"
-export const TABLE_INVHASH = "invhash"
-/** Per-user unread and mention counts (key = user id), kept by the owner for inbox bumps; private. */
-export const TABLE_UNREAD = "unread"
-/** A recount (a cursor moved back, or a conversation older than the table) reads at most this many messages. */
-export const UNREAD_RECOUNT_LIMIT = 1000
+export { inviteWrites, msgKey, TABLE_INV, TABLE_INVHASH, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "./tables.ts"
 
 export type ConversationState = ConversationHead | null
 export type ConversationParams = Readonly<Record<string, unknown>>
@@ -60,11 +57,18 @@ export interface ConversationDomainOptions {
   readonly addressIdsFor?: (principal: Principal) => ReadonlyArray<string>
   /** Reach rules for `conversation.create`, `dm.open` and `participants.add`. Default: `defaultParticipantPolicy`. */
   readonly participantPolicy?: ParticipantPolicy
+  /**
+   * The conversation's verified uploads (the DO's attachment store, written only after the
+   * Worker hashed the bytes). An attachment part is accepted only when its hash is found here
+   * with the same type and size. Absent = no uploads: every attachment part is refused.
+   */
+  readonly attachmentFor?: AttachmentLookup
 }
 
-const refuse = (code: string): ReduceResult<ConversationState> => ({ ok: false, code, message: code })
+const NO_ATTACHMENTS: AttachmentLookup = () => undefined
+const MESSAGE_PART_OPS = new Set(["message.send", "message.edit", "message.retract"])
 
-export const msgKey = (author: string, clientMsgId: string) => `${author}:${clientMsgId}`
+const refuse = (code: string): ReduceResult<ConversationState> => ({ ok: false, code, message: code })
 
 const CREATE_OPS = new Set(["conversation.create", "dm.open"])
 
@@ -128,17 +132,6 @@ const loadInvite = (head: ConversationHead, ctx: ReduceContext, op: Op): Invite 
   if (op.kind === "invite.accept") id = rowsOf(ctx).get<{ invite_id: string }>(TABLE_INVHASH, op.token_hash)?.row.invite_id
   if (id === undefined || head.invites?.some((invite) => invite.id === id)) return undefined
   return rowsOf(ctx).get<Invite>(TABLE_INV, id)?.row
-}
-
-const inviteWrites = (before: ReadonlyArray<Invite>, after: ReadonlyArray<Invite>): Array<RowWrite> => {
-  const writes: Array<RowWrite> = []
-  for (const invite of after) {
-    const old = before.find((candidate) => candidate.id === invite.id)
-    if (old && JSON.stringify(old) === JSON.stringify(invite)) continue
-    writes.push({ table: TABLE_INV, op: "upsert", key: invite.id, n: null, row: invite })
-    if (!old) writes.push({ table: TABLE_INVHASH, op: "upsert", key: invite.token_hash, n: null, row: { invite_id: invite.id } })
-  }
-  return writes
 }
 
 /**
@@ -233,6 +226,8 @@ const reduceConversation = (
   if (IMPORT_OPS.has(op)) return reduceImport(state, op, params, ctx, actor, options.participantPolicy ?? defaultParticipantPolicy)
   if (CREATE_OPS.has(op)) return reduceCreate(state, op, params, ctx, actor, options.participantPolicy ?? defaultParticipantPolicy)
   if (!state) return refuse("unknown_conversation")
+  // Inside the wrapped reduce: a retention batch that deletes msgkey rows leaves the DM's consent markers (consent.ts).
+  if (op === SWEEP_OP) return reduceSweep(state, ctx, actor)
   const prepared = prepare(state, op, params, ctx, actor, options)
   if (typeof prepared === "string") return refuse(prepared)
   const coreOp = prepared.op
@@ -259,6 +254,14 @@ const reduceConversation = (
   if (!result.ok) return refuse(result.code)
   const { commit } = result
   const writes: Array<RowWrite> = []
+  if (commit.message && MESSAGE_PART_OPS.has(coreOp.kind)) {
+    // The author's own view: an uploader of the hash, or a referencing message above their floor.
+    const me = currentParticipant(head, actor)
+    const floor = head.settings?.history_visible === "since_join" ? (me?.joined_seq ?? 0) : 0
+    const bad = checkAttachments(commit.message.parts, options.attachmentFor ?? NO_ATTACHMENTS, actor, floor)
+    if (bad) return refuse(bad)
+    writes.push(...attachmentRefWrites(coreOp.kind === "message.send" ? null : (request.target ?? null), commit.message))
+  }
   if (commit.message) {
     writes.push({ table: TABLE_MSG, op: "upsert", key: commit.message.id, n: commit.message.seq, row: commit.message })
     if (coreOp.kind === "message.send") {

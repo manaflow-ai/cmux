@@ -6,6 +6,10 @@
 //! which is the outcome the caller asked for. A first delete of a missing
 //! resource, or a retry after a definite 4xx answer, stays `not_found`, so a
 //! wrong id is never hidden.
+//!
+//! "Gone" is the kind's own not-found code in the 404 answer, never any
+//! 404: a bare 404 (a missing route), a 404 with no code or with another
+//! kind's code stays the typed error.
 
 mod common;
 
@@ -25,6 +29,12 @@ struct Case {
     path: String,
     /// The `{ok: true}` answer of a successful delete.
     answer: Value,
+    /// The Cloud API's not-found code for this kind (the only 404 that
+    /// counts as gone) and the fixture that answers it.
+    gone: &'static str,
+    gone_fixture: &'static str,
+    /// Another kind's not-found code (never gone for this kind).
+    other: &'static str,
 }
 
 fn cases() -> Vec<Case> {
@@ -35,6 +45,9 @@ fn cases() -> Vec<Case> {
             fixture: "vm-delete",
             path: "/api/vm/vm-alpha01".into(),
             answer: json!({ "ok": true }),
+            gone: "vm_not_found",
+            gone_fixture: "vm-delete-gone",
+            other: "vm_snapshot_not_found",
         },
         Case {
             op: "cloud.snapshot.delete",
@@ -42,6 +55,9 @@ fn cases() -> Vec<Case> {
             fixture: "vm-snapshot-delete",
             path: "/api/vm/vm-alpha01/snapshots/snap-one".into(),
             answer: json!({ "ok": true }),
+            gone: "vm_snapshot_not_found",
+            gone_fixture: "vm-snapshot-delete-gone",
+            other: "vm_not_found",
         },
         Case {
             op: "cloud.firewall.delete",
@@ -49,6 +65,10 @@ fn cases() -> Vec<Case> {
             fixture: "firewall-delete",
             path: "/api/vm/firewall?ruleId=fw-test01".into(),
             answer: json!({ "ok": true }),
+            // `vm_not_found` here means the VM is missing, not the rule.
+            gone: "vm_firewall_rule_not_found",
+            gone_fixture: "firewall-delete-gone",
+            other: "vm_not_found",
         },
         Case {
             op: "cloud.publication.delete",
@@ -56,6 +76,9 @@ fn cases() -> Vec<Case> {
             fixture: "publication-delete",
             path: format!("/api/vm/publications/{PUB_1}"),
             answer: json!({ "ok": true }),
+            gone: "vm_publication_not_found",
+            gone_fixture: "publication-delete-gone",
+            other: "vm_not_found",
         },
         Case {
             op: "cloud.fs.remove",
@@ -63,6 +86,9 @@ fn cases() -> Vec<Case> {
             fixture: "fs-remove",
             path: "/api/vm/vm-alpha01/fs/remove?path=/home/cmux/old.txt".into(),
             answer: json!({ "ok": true, "path": "/home/cmux/old.txt" }),
+            gone: "vm_file_not_found",
+            gone_fixture: "fs-remove-gone",
+            other: "vm_not_found",
         },
     ]
 }
@@ -71,8 +97,82 @@ fn delete(case: &Case, key: &str) -> Request {
     Request::new(case.op, case.args.clone()).origin(Origin::User).key(key)
 }
 
+/// The Cloud API now answers 404 with the kind's own not-found code.
 fn not_found(s: &mut Server<FakeControlPlane>, case: &Case) {
-    s.control_plane_mut().respond("DELETE", &case.path, 404, json!({ "error": "not_found" }));
+    let body = FakeControlPlane::fixture_body(case.gone_fixture);
+    assert_eq!(body["error"], case.gone, "{}", case.gone_fixture);
+    s.control_plane_mut().serve(case.gone_fixture);
+}
+
+/// The first attempt reaches the Cloud API, but its answer is lost; then
+/// the route answers 404 with `body`.
+fn lost_then_404(case: &Case, key: &str, body: Value) -> Server<FakeControlPlane> {
+    let mut s = Server::new(FakeControlPlane::with(&[case.fixture]));
+    s.control_plane_mut().lose_next = 1;
+    let lost = s.handle(&delete(case, key)).unwrap_err();
+    assert_eq!(lost.code, "cmux.cloud.relay_unavailable", "{}", case.op);
+    s.control_plane_mut().respond("DELETE", &case.path, 404, body);
+    s
+}
+
+#[test]
+fn only_the_kinds_own_not_found_code_counts_as_gone() {
+    for case in cases() {
+        let mut s = lost_then_404(&case, "g-1", json!({}));
+        not_found(&mut s, &case);
+        assert_eq!(s.handle(&delete(&case, "g-1")), Ok(case.answer.clone()), "{}", case.op);
+    }
+}
+
+#[test]
+fn a_bare_404_after_a_lost_answer_stays_an_error() {
+    // A 404 with no code is a missing route (production has no fs routes
+    // today), not a gone resource. Every kind is checked before the assert,
+    // so a red run names each kind that fails.
+    let mut wrong = Vec::new();
+    for body in [json!({}), Value::Null] {
+        for case in cases() {
+            let mut s = lost_then_404(&case, "b-1", body.clone());
+            let retry = s.handle(&delete(&case, "b-1"));
+            if !matches!(&retry, Err(e) if e.code == "cmux.cloud.not_found") {
+                wrong.push(format!("{} with {body}: {retry:?}", case.op));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "a bare 404 counted as gone: {wrong:#?}");
+}
+
+#[test]
+fn a_404_with_another_kinds_code_after_a_lost_answer_stays_an_error() {
+    // Includes a firewall delete that gets `vm_not_found` (the VM is
+    // missing, not the rule).
+    let mut wrong = Vec::new();
+    for case in cases() {
+        let mut s = lost_then_404(&case, "o-1", json!({ "error": case.other }));
+        let retry = s.handle(&delete(&case, "o-1"));
+        let typed = matches!(&retry, Err(e) if e.code == "cmux.cloud.not_found"
+            && e.upstream_code.as_deref() == Some(case.other));
+        if !typed {
+            wrong.push(format!("{} with {}: {retry:?}", case.op, case.other));
+        }
+    }
+    assert!(wrong.is_empty(), "another kind's code counted as gone: {wrong:#?}");
+}
+
+#[test]
+fn the_error_header_decides_before_the_body() {
+    // The Cloud API sets `x-cmux-vm-error` to the same code as the body; when
+    // they differ, the header is the code the server reads.
+    for case in cases() {
+        let mut s = lost_then_404(&case, "h-1", json!({ "error": case.other }));
+        s.control_plane_mut().error_header = Some(case.gone.to_owned());
+        assert_eq!(s.handle(&delete(&case, "h-1")), Ok(case.answer.clone()), "{}", case.op);
+
+        let mut s = lost_then_404(&case, "h-2", json!({ "error": case.gone }));
+        s.control_plane_mut().error_header = Some(case.other.to_owned());
+        let retry = s.handle(&delete(&case, "h-2"));
+        assert!(matches!(&retry, Err(e) if e.code == "cmux.cloud.not_found"), "{}", case.op);
+    }
 }
 
 #[test]
@@ -156,7 +256,12 @@ fn a_gone_machine_is_removed_from_the_projection_exactly_once() {
     s.handle(&req).unwrap_err();
     assert!(s.take_events().is_empty(), "a lost answer changes nothing here");
     assert!(s.projection().get("vm-alpha01").is_some());
-    s.control_plane_mut().respond("DELETE", "/api/vm/vm-alpha01", 404, json!({}));
+    s.control_plane_mut().respond(
+        "DELETE",
+        "/api/vm/vm-alpha01",
+        404,
+        json!({ "error": "vm_not_found" }),
+    );
     assert_eq!(s.handle(&req), Ok(json!({ "ok": true })));
     let events = s.take_events();
     assert_eq!(events.len(), 1, "{events:?}");

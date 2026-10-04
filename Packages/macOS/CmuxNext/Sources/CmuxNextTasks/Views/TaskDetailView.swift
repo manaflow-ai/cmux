@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 import SwiftUI
 
 /// The selected task: title, status, agent session with its plan.
@@ -52,7 +53,7 @@ private struct SessionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Image(systemName: "sparkle").font(.system(size: 11, weight: .semibold)).foregroundStyle(colors.ansi(5))
+                AgentBrandMark(agent: session.agent.harness, size: 12).foregroundStyle(colors.ansi(5))
                 Text(session.agent.harness).font(.system(size: 12, weight: .medium)).foregroundStyle(colors.primary)
                 Text(TasksStrings.session(session.status)).font(.system(size: 11.5)).foregroundStyle(statusColor)
                 Spacer()

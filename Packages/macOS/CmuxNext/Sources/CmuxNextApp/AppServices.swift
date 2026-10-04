@@ -110,6 +110,8 @@ final class AppServices {
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
     let newTabChoices = NewTabChoiceMemory()
     let newTabTypeAhead = NewTabTypeAhead()
+    /// One prewarmed new tab page per window (instant open).
+    private(set) lazy var newTabSpares = NewTabSparePool(services: self)
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
     private(set) var tabBarButtons: TabBarButtonsController!
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.

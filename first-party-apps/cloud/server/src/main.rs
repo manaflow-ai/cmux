@@ -6,5 +6,7 @@ use cmux_cloud::api::{HostRelay, serve};
 use std::io::{self, BufReader};
 
 fn main() -> io::Result<()> {
-    serve(HostRelay::new(BufReader::new(io::stdin().lock()), io::stdout().lock()))
+    // The serve loop reads stdin on its own thread (a stdin lock cannot move
+    // there), so link events wake it while it waits for the host.
+    serve(HostRelay::new(BufReader::new(io::stdin()), io::stdout().lock()))
 }

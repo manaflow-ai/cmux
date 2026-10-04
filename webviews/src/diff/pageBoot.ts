@@ -5,18 +5,33 @@ import { installPageDiffComments } from "../comments/bridge";
 import type { DiffLanguageHostAPI } from "../diff-languages/host";
 import type { PageClient } from "../pages/shared/pageClient";
 import type { DiffViewerConfig } from "../types";
-import { DIFF_PAGE_COMMENTS_OP, diffPageServes, loadPageDiffConfig, startPageDiffLanguages } from "./page";
+import { diffConfigNeedsPick } from "../viewer-empty/ops";
+import {
+  DIFF_PAGE_COMMENTS_OP,
+  diffPageServes,
+  loadPageDiffConfig,
+  normalizePageDiffConfig,
+  startPageDiffLanguages,
+  type DiffPageConfig,
+} from "./page";
 
 /** Renders the viewer with its config and initial language pack, and installs the language API. */
 export type DiffSurfaceRender = (config: DiffViewerConfig, languages: unknown) => void;
+
+/** Shows the empty state for a config without a repository; resolves with the opened config. */
+export type DiffSurfacePick = (config: DiffPageConfig) => Promise<unknown>;
 
 export async function bootPageDiff(
   page: PageClient,
   render: DiffSurfaceRender,
   languageAPI: () => DiffLanguageHostAPI | undefined = () => globalThis.window?.cmuxDiffViewerLanguages,
   reload?: () => void,
+  pick?: DiffSurfacePick,
 ): Promise<DiffViewerConfig> {
-  const config = await loadPageDiffConfig(page);
+  let config = await loadPageDiffConfig(page);
+  // No repository yet (diff-host.md "Empty state"): the user picks one, `cmux.diff.open` answers
+  // its config, and the boot goes on with that.
+  if (pick && diffConfigNeedsPick(config)) config = normalizePageDiffConfig(await pick(config));
   // Comments, viewed files and prefs go to the host only when it serves the op; otherwise comments
   // stay hidden and the rest is local.
   installPageDiffComments(diffPageServes(config, DIFF_PAGE_COMMENTS_OP) ? page : null);

@@ -1,3 +1,4 @@
+import { cleanAttachmentPart } from "./attachments.ts"
 import { validAddressId, validParticipantId } from "./ids.ts"
 import { fail } from "./reject.ts"
 import {
@@ -113,7 +114,7 @@ const validShortText = (value: unknown, maxBytes: number): boolean =>
  * Validates parts and returns them with only the known fields, as a serde
  * round trip in the Rust crate would.
  */
-export const validateParts = (parts: unknown): ReadonlyArray<Part> => {
+export const validateParts = (parts: unknown, allowAttachments = false): ReadonlyArray<Part> => {
   if (!Array.isArray(parts) || parts.length === 0 || parts.length > MAX_PARTS) return fail("invalid_parts")
   let textBytes = 0
   const out: Array<Part> = []
@@ -158,6 +159,11 @@ export const validateParts = (parts: unknown): ReadonlyArray<Part> => {
         status: part.status as WorkStatus,
         ...(part.preview === undefined ? {} : { preview: part.preview as string })
       })
+    } else if (part.type === "attachment" && allowAttachments) {
+      // Cloud heads only: a local head (the Rust crate) has no attachment parts.
+      const clean = cleanAttachmentPart(part)
+      if (!clean) return fail("invalid_parts")
+      out.push(clean)
     } else {
       fail("invalid_parts")
     }

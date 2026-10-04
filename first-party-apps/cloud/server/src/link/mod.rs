@@ -3,19 +3,35 @@
 //! `cloud.rescue.open`) and [`Attach`], the attach state the server owns.
 
 mod argv;
+pub mod config;
 pub(crate) mod ops;
+mod park;
 mod spawner;
 mod supervisor;
 
 pub use argv::{AttachEndpoint, LinkCommand, LinkLine, LinkPaths, link_command, parse_line};
-pub use spawner::{LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag, ProcessSpawner};
+pub use spawner::{
+    LinkEvents, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag, LinkWake, ProcessSpawner,
+};
 pub use supervisor::{CONNECTOR_KIND, LinkFailure, LinkState, LinkSupervisor, READY_DEADLINE};
 
-use crate::connector::iface::{BackendId, LocalId, check_kinds};
+use crate::app_env::AppEnv;
+use crate::connector::iface::{BackendId, CarrierEvent, ConnectorEvent, LocalId, check_kinds};
 use crate::rescue::iface::ByteTerminal;
 use crate::rescue::{MissingRescueRoute, RescueBackend, RescueTransport};
-use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::collections::{BTreeMap, VecDeque};
+
+/// Link events each side holds until it takes them. A side that never
+/// takes them (no daemon connector) loses the oldest, never memory.
+const MAX_HELD_LINK_EVENTS: usize = 1024;
+
+fn hold<T>(queue: &mut VecDeque<T>, item: T, side: &str) {
+    if queue.len() == MAX_HELD_LINK_EVENTS {
+        queue.pop_front();
+        eprintln!("cmux-cloud: dropped the oldest held link event of the {side}");
+    }
+    queue.push_back(item);
+}
 
 /// The connector's implementation id (`app:cmux/cloud/machine`).
 pub const CONNECTOR_ID: &str = "machine";
@@ -24,18 +40,37 @@ pub const CONNECTOR_ID: &str = "machine";
 /// the rescue backend and its open terminals.
 pub struct Attach {
     pub(crate) supervisor: LinkSupervisor,
-    /// `None`: the host gave no link binary, hub or state directory, so
-    /// connect answers `cmux.cloud.link_unavailable`.
-    pub(crate) paths: Option<LinkPaths>,
+    /// The link details from the host (`cmux.host.link.get`). Until they
+    /// are `Ready`, connect answers a typed error.
+    pub(crate) link: config::LinkConfig,
+    /// The last attach endpoint of each machine, so a link-details change
+    /// respawns a live link without a new Cloud API call.
+    pub(crate) endpoints: BTreeMap<String, AttachEndpoint>,
+    /// The server's allowlisted environment; children get only
+    /// [`AppEnv::child_env`].
+    pub(crate) env: AppEnv,
     pub(crate) rescue: RescueBackend,
     pub(crate) rescue_terminals: BTreeMap<String, Box<dyn ByteTerminal>>,
     pub(crate) connector_id: BackendId,
     pub(crate) connector_kinds: Vec<LocalId>,
+    /// Link events for the host lines (`cloud.link.changed`), not taken yet.
+    host_link_events: VecDeque<CarrierEvent>,
+    /// `end` events for the connector, not taken yet.
+    connector_events: VecDeque<ConnectorEvent>,
+    /// The serve loop never waits for a link: a connect parks its op
+    /// instead (super::park). Off for direct callers, which wait.
+    pub(crate) park_link_waits: bool,
+    /// The link a connect just parked on, for the loop to pick up.
+    pub(crate) parked: Option<(String, u64)>,
+    /// Ops of the serve loop that wait for a link (bounded).
+    pub(crate) parked_ops: Vec<park::Parked>,
     next_terminal: u64,
     next_attempt: u64,
 }
 
 impl Attach {
+    /// `paths`: link details given directly (tests and embedders); `None`
+    /// waits for the host's `cmux.host.link.get` answer.
     pub fn new(
         spawner: Box<dyn LinkSpawner>,
         paths: Option<LinkPaths>,
@@ -45,7 +80,9 @@ impl Attach {
         check_kinds(&kinds).expect("valid kinds");
         Self {
             supervisor: LinkSupervisor::new(spawner),
-            paths,
+            link: paths.map_or(config::LinkConfig::Unrequested, config::LinkConfig::Ready),
+            endpoints: BTreeMap::new(),
+            env: AppEnv::default(),
             rescue: RescueBackend::new(rescue),
             rescue_terminals: BTreeMap::new(),
             connector_id: BackendId::app(
@@ -53,6 +90,11 @@ impl Attach {
                 &LocalId::new(CONNECTOR_ID).expect("valid id"),
             ),
             connector_kinds: kinds,
+            host_link_events: VecDeque::new(),
+            connector_events: VecDeque::new(),
+            park_link_waits: false,
+            parked: None,
+            parked_ops: Vec::new(),
             next_terminal: 0,
             next_attempt: 0,
         }
@@ -63,33 +105,46 @@ impl Attach {
         Self::new(Box::new(ProcessSpawner), None, Box::new(MissingRescueRoute))
     }
 
-    /// The real configuration, from the host:
-    /// `CMUX_CLOUD_TUI_BINARY` (the `cmux-tui` binary),
-    /// `CMUX_CLOUD_WG_HUB_SOCKET` (the WireGuard hub socket),
-    /// `CMUX_CLOUD_LINK_STATE_DIR` (owner-only state), optional
-    /// `CMUX_CLOUD_LINK_SOCKET_DIR` (default: the state directory) and
-    /// `CMUX_CLOUD_DEVICE_NAME` (default `cmux`). Paths must be absolute.
-    /// TODO(lane 12): `cmux link` replaces the binary and hub.
-    pub fn from_env() -> Self {
-        let path = |key: &str| std::env::var_os(key).map(PathBuf::from).filter(|p| p.is_absolute());
-        let paths = match (
-            path("CMUX_CLOUD_TUI_BINARY"),
-            path("CMUX_CLOUD_WG_HUB_SOCKET"),
-            path("CMUX_CLOUD_LINK_STATE_DIR"),
-        ) {
-            (Some(binary), Some(hub_socket), Some(state_dir)) => Some(LinkPaths {
-                binary,
-                hub_socket,
-                socket_dir: path("CMUX_CLOUD_LINK_SOCKET_DIR").unwrap_or_else(|| state_dir.clone()),
-                state_dir,
-                device_name: std::env::var("CMUX_CLOUD_DEVICE_NAME")
-                    .ok()
-                    .filter(|n| !n.is_empty() && !n.chars().any(char::is_control))
-                    .unwrap_or_else(|| "cmux".into()),
-            }),
-            _ => None,
-        };
-        Self::new(Box::new(ProcessSpawner), paths, Box::new(MissingRescueRoute))
+    /// The real link spawner and no rescue route; the link details come
+    /// from the host (`cmux.host.link.get`), never from the environment.
+    pub fn real() -> Self {
+        Self::new(Box::new(ProcessSpawner), None, Box::new(MissingRescueRoute))
+    }
+
+    /// The server's allowlisted environment (from the host's start).
+    pub fn with_env(mut self, env: AppEnv) -> Self {
+        self.env = env;
+        self
+    }
+
+    pub fn env(&self) -> &AppEnv {
+        &self.env
+    }
+
+    /// The one consumer of the supervisor's event queue: applies the link
+    /// process events that arrived and gives each carrier event to both
+    /// sides, the host lines and the connector. Only the loop thread (the
+    /// owner of the server) calls it.
+    pub(crate) fn drain_link_events(&mut self) {
+        self.supervisor.pump();
+        for event in self.supervisor.take_events() {
+            if let Some(end) = crate::connector::end_event(&event) {
+                hold(&mut self.connector_events, end, "connector");
+            }
+            hold(&mut self.host_link_events, event, "host lines");
+        }
+    }
+
+    /// Carrier events for the host lines since the last call, in order.
+    pub(crate) fn take_host_link_events(&mut self) -> Vec<CarrierEvent> {
+        self.drain_link_events();
+        self.host_link_events.drain(..).collect()
+    }
+
+    /// `end` events for the connector since the last call, in order.
+    pub(crate) fn take_connector_events(&mut self) -> Vec<ConnectorEvent> {
+        self.drain_link_events();
+        self.connector_events.drain(..).collect()
     }
 
     pub fn supervisor(&self) -> &LinkSupervisor {

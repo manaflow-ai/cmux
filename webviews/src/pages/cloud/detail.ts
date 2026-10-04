@@ -2,8 +2,10 @@
 // networks, firewall rules and this Mac's port forwards (the Files section is files.ts). Each section is read when the machine is selected and re-read after
 // a change the owner confirmed (or after a native confirmation the user accepted). No polling: the
 // stats refresh only on selection or the Refresh button. A reply for an older selection is dropped.
-// A section whose op the owner does not serve yet is reported to the host (`unsupported`), which
-// shows "Not available yet" for it.
+// A section whose op the owner does not serve yet, or whose Cloud API route answers a bare 404
+// (ops.ts `isRouteMissing`), is reported to the host (`unsupported`), which shows "Not available
+// yet" for it. A native delete answered with its kind's own 404 found the item gone: the section is
+// read again and no error shows.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import type { FilesView } from "./files";
 import {
@@ -28,6 +30,8 @@ import {
   type PortListResult,
   type PublicationListResult,
   type SnapshotListResult,
+  isGone,
+  isNotServed,
   isUnsupported,
 } from "./ops";
 
@@ -111,7 +115,7 @@ export class DetailReader {
     SECTIONS.forEach((section, index) => {
       const result = results[index];
       if (result.status === "fulfilled") Object.assign(detail, { [section]: result.value });
-      else if (isUnsupported(result.reason)) this.host.unsupported(SECTION_OPS[section]);
+      else if (isNotServed(SECTION_OPS[section], result.reason)) this.host.unsupported(SECTION_OPS[section]);
       else failed ??= result.reason;
     });
     this.host.set(detail);
@@ -240,7 +244,10 @@ export class DetailReader {
       });
       if (result?.confirmed !== false && section) await this.reload(section);
     } catch (error) {
-      this.reject(action, error);
+      // Already gone (the kind's own 404): the outcome the person asked for.
+      if (isGone(action, error)) {
+        if (section) await this.reload(section);
+      } else this.reject(action, error);
     }
   }
 
@@ -264,7 +271,7 @@ export class DetailReader {
   }
 
   private reject(op: string, error: unknown): void {
-    if (isUnsupported(error)) this.host.unsupported(op);
+    if (isNotServed(op, error)) this.host.unsupported(op);
     else this.host.fail(error);
   }
 

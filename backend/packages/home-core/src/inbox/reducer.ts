@@ -1,3 +1,4 @@
+import { PREVIEW_ATTACHMENT_KINDS, type PreviewAttachments } from "../conversation/attachments.ts"
 import type { ConversationKind } from "../conversation/types.ts"
 import { inboxSortKey } from "./order.ts"
 
@@ -19,6 +20,8 @@ export interface InboxEntry {
   readonly last_seq: number
   readonly last_at: string
   readonly preview: string
+  /** Attachments of the last message ({kind, count}); absent when it has none. */
+  readonly preview_attachments?: PreviewAttachments
   readonly dm_peer?: string
   /** The user left or was removed; kept as a tombstone so an older bump cannot resurrect it. */
   readonly removed: boolean
@@ -48,10 +51,17 @@ export interface InboxBumpParams {
   readonly last_seq: number
   readonly last_at: string
   readonly preview: string
+  readonly preview_attachments?: PreviewAttachments
   readonly unread?: number
   readonly mentions?: number
   readonly dm_peer?: string
   readonly removed?: boolean
+  /** Push facts of the last message (fanout.ts InboxBump); read by the UserDO push decision, never stored in the entry. */
+  readonly last_author?: string
+  readonly last_author_kind?: "human" | "agent"
+  readonly last_approval?: boolean
+  readonly last_mention?: boolean
+  readonly joined_seq?: number
 }
 
 /** The small per-user head next to the entry rows. */
@@ -118,6 +128,12 @@ const isCount = (value: unknown): value is number => Number.isInteger(value) && 
 export const MAX_PIN_POSITION = Number.MAX_SAFE_INTEGER - 1
 const isText = (value: unknown, max: number): value is string => typeof value === "string" && value.length <= max
 
+const validPreviewAttachments = (v: unknown): v is PreviewAttachments => {
+  if (typeof v !== "object" || v === null) return false
+  const o = v as Record<string, unknown>
+  return Object.keys(o).length === 2 && PREVIEW_ATTACHMENT_KINDS.includes(o.kind as never) && Number.isInteger(o.count) && (o.count as number) > 0 && (o.count as number) <= 16
+}
+
 export const validBump = (params: unknown): params is InboxBumpParams => {
   if (typeof params !== "object" || params === null) return false
   const p = params as Record<string, unknown>
@@ -131,12 +147,18 @@ export const validBump = (params: unknown): params is InboxBumpParams => {
     isCount(p.last_seq) &&
     isText(p.last_at, 32) &&
     isText(p.preview, 1024) &&
+    (p.preview_attachments === undefined || validPreviewAttachments(p.preview_attachments)) &&
     (p.unread === undefined || isCount(p.unread)) &&
     (p.mentions === undefined || isCount(p.mentions)) &&
     (p.unread === undefined) === (p.mentions === undefined) &&
     (p.dm_peer === undefined || isText(p.dm_peer, 128)) &&
     (p.removed === undefined || typeof p.removed === "boolean") &&
-    (p.user === undefined || isText(p.user, 128))
+    (p.user === undefined || isText(p.user, 128)) &&
+    (p.last_author === undefined || isText(p.last_author, 128)) &&
+    (p.last_author_kind === undefined || p.last_author_kind === "human" || p.last_author_kind === "agent") &&
+    (p.last_approval === undefined || typeof p.last_approval === "boolean") &&
+    (p.last_mention === undefined || typeof p.last_mention === "boolean") &&
+    (p.joined_seq === undefined || isCount(p.joined_seq))
   )
 }
 
@@ -148,6 +170,7 @@ const conversationFields = (bump: InboxBumpParams) => ({
   last_seq: bump.last_seq,
   last_at: bump.last_at,
   preview: bump.preview,
+  ...(bump.preview_attachments === undefined ? {} : { preview_attachments: { kind: bump.preview_attachments.kind, count: bump.preview_attachments.count } }),
   ...(bump.dm_peer === undefined ? {} : { dm_peer: bump.dm_peer }),
   removed: bump.removed === true
 })
@@ -175,7 +198,7 @@ export const bumpEntry = (entry: InboxEntry | undefined, bump: InboxBumpParams):
   }
   let next = entry
   if (bump.rev > entry.rev) {
-    const { dm_peer: _peer, ...withoutPeer } = entry
+    const { dm_peer: _peer, preview_attachments: _files, ...withoutPeer } = entry
     next = { ...withoutPeer, ...conversationFields(bump) }
   }
   // Checked for every bump, also a stale one, so the result does not depend on arrival order.

@@ -39,7 +39,7 @@ strip_trailing_line_whitespace() {
 
 normalize_webviews_output() {
   out_dir="$1"
-  strip_trailing_line_whitespace "$out_dir/main.mjs" "$out_dir/agent-session.html" "$out_dir/diff-page.html"
+  strip_trailing_line_whitespace "$out_dir/main.mjs" "$out_dir/agent-session.html" "$out_dir/diff-page.html" "$out_dir/markdown-page.html"
 }
 
 if [ "${1:-}" = "--check" ]; then

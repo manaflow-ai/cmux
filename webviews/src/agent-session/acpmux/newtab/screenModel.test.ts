@@ -111,3 +111,15 @@ test("chat cards: the three newest, waiting chats first, a dropped chat as an er
   expect(cards[2]).toMatchObject({ title: "Dropped", state: "error" });
   expect(cards[0]).toMatchObject({ state: "input" });
 });
+
+test("two installed harnesses with one name are told apart by their id", () => {
+  const twins = [
+    { id: "claude", name: "Claude Code" },
+    { id: "claude-sr", name: "Claude Code" },
+    { id: "codex", name: "Codex" },
+  ];
+  const names = screenRows("fix it", "ask", { agents: twins, omnibar }).flatMap((row) =>
+    row.type === "agent" ? [row.name] : [],
+  );
+  expect(names).toEqual(["Claude Code (claude)", "Claude Code (claude-sr)", "Codex"]);
+});

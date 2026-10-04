@@ -47,7 +47,7 @@ public final class HistoryPageHostView: NSView {
 
     private func resolveColors() {
         let colors = performWithTheme {
-            let background = Palette.paneFill
+            let background = Palette.surfaceOverride(.internalPage) ?? Palette.paneFill
             layer?.backgroundColor = nil
             return HistoryPageColors(
                 background: Color(nsColor: Self.fixed(background)), primary: Color(nsColor: Self.fixed(Palette.textPrimary)),

@@ -7,6 +7,9 @@ public enum TabIcon: Hashable, Sendable {
     case symbol(String)
     /// A full-color image such as a favicon. Drawn as is.
     case image(TabImage)
+    /// An agent's brand mark (a CmuxAgentBrands brand id such as "claude"),
+    /// tinted to the tab's text color like a symbol.
+    case agentMark(String)
 }
 
 /// A full-color tab image (favicon). Compared by identity so that updating

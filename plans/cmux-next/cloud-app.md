@@ -420,3 +420,41 @@ Queue:
 2. Next server slice: file transfers on a worker thread with completion events.
 3. Next page slice: a route 404 shows "Not available yet" (localized), not "gone"; full webviews
    `bun test` before the push.
+4. C10 (waits for the apps lead's choice between a host-only op such as `cloud.link.configure` and
+   AppHostCapabilities; no code before that answer): remove `Attach::from_env` and every env read outside
+   the allowlist `CMUX_APP_ID`, `CMUX_APP_DATA_DIR`, `TMPDIR`, `LANG` (hits: serve.rs:13, link/mod.rs:73-88,
+   link/spawner.rs:81, fs/openssh.rs:125). Child processes get an env built only from configured values
+   (absolute binary path, a private HOME under `CMUX_APP_DATA_DIR`, TMPDIR, LANG). OpenSSH children take
+   their config and known_hosts paths explicitly (`-F <path>`, `-o UserKnownHostsFile=<path>`), never an
+   implicit `~/.ssh`; a test proves the ssh child gets no implicit `~/.ssh` path. File transfers move to a
+   worker thread in the same slice. Red tests first.
+   Apps lead decision (2026-10-04): link details come from the host-only op `cmux.host.link.get {}` ->
+   `{binary, hub_socket, state_dir, socket_dir, device_name}` (answered by the supervisor; scope
+   `op:cmux.host.link.get`, server-only, first-party only) and the event `cmux.host.link.changed` (same
+   shape). Wire on the server JSON-lines channel, one shape for every host-only op: request
+   `{"t":"host.request","id":n,"op":...,"params":{}}`; reply `{"t":"host.result","id":n,"value":{}}` or
+   `{"t":"host.error","id":n,"code":...,"message":...,"retryable":bool}`; event
+   `{"t":"host.event","op":...,"data":{}}`. The credential relay (`cmux.credential.relay`) uses the same
+   frames later. `connect` answers `link_unavailable` until `link.get` answers; `link.changed` makes the
+   server re-read and respawn or rebind. Every ssh/scp child gets `-F <data>/ssh/config -o
+   UserKnownHostsFile=<data>/ssh/known_hosts -o GlobalKnownHostsFile=/dev/null -o
+   StrictHostKeyChecking=yes`; new host keys only through the user's host key sheet; anything that needs
+   the user's own SSH identity goes through the host-owned SSH channel.
+5. C13 (after C12 and the `cmux-tui/crates/cmux-terminal-iface` crate land): swap the mirror traits for
+   the crate (sync, pull-based; one credit data plane: `data{channel, offset, bytes}`,
+   `credit{channel, direction, bytes}`, `end{channel, exit|lost}`; `push(Frame)` and `take_frames()`;
+   no filesystem path crosses the app boundary; the host assigns every channel id). Connector open goes
+   APP SERVER -> HOST: a user gesture runs a Cloud op with origin user; the supervisor stamps
+   `open_token` into the op line (the client never holds it; cli, mcp, script and remote origins get
+   none); the Cloud server opens its carrier and sends `host.request cmux.terminal.connector.open {kind,
+   target, open_token}`; the host consumes the token (any attempt burns it), checks the kind, assigns
+   the channel and answers `{channel, window_bytes}`; frames then flow on that channel; close is a
+   `host.event connector.close {channel}` or an app `end` frame. A second open for the same (app, kind,
+   target) while the channel is up answers the same channel (the token is still consumed). The wire
+   method `connect` is removed; `close {channel}` stays. After a daemon restart a restored Cloud tree
+   shows "disconnected, click to connect" (no auto-reconnect in v1). The Cloud server runs a per-channel
+   pump between the cmux-tui link's local socket and the frames (credit window, backpressure, end
+   exactly once). Server-side tests: a client-supplied `open_token` on the op line is not used unless
+   the supervisor stamped it; a non-user origin with no token is refused before any host request; a
+   second open answers the same channel; a refused (burned) token surfaces the host's typed error; after
+   a restart the machine shows the disconnected state.
