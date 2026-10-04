@@ -38,6 +38,11 @@ nonisolated final class CloudHomeSource: HomeSource {
         /// Bumps on every configure; work started under an older one is dropped.
         var generation: UInt64 = 0
         var entries: [ConversationID: CloudInboxEntry] = [:]
+        /// The inbox stream seq of the newest inbox event per conversation.
+        /// An inbox list reply at an older revision keeps these
+        /// conversations as the events left them. Emptied when the account
+        /// changes and on an inbox reset (a new seq sequence).
+        var touched: [ConversationID: UInt64] = [:]
         /// Conversations this source created (`dm.open`, `conversation.create`)
         /// whose UserDO entry has not arrived yet. Listed until it does.
         var created: Set<ConversationID> = []
@@ -148,6 +153,7 @@ nonisolated final class CloudHomeSource: HomeSource {
             state.hydrationWorkers = 0
             if cleared {
                 state.entries = [:]
+                state.touched = [:]
                 state.created = []
                 state.removed = []
                 state.heads = [:]
@@ -181,7 +187,10 @@ nonisolated final class CloudHomeSource: HomeSource {
         case .resynced(let resynced): apply(resynced)
         case .inboxChanged(let changed): apply(changed)
         case .inboxReset:
-            let generation = state.withLock { $0.generation }
+            let generation = state.withLock { state in
+                state.touched = [:]
+                return state.generation
+            }
             // task-owner: one inbox list; ends with its reply
             Task { [weak self] in await self?.reloadInbox(generation: generation) }
         case .subscriptionState(let report): apply(report)
@@ -268,8 +277,13 @@ nonisolated final class CloudHomeSource: HomeSource {
         let (inbox, missing, unlisted, current) = state.withLock { state -> (InboxSnapshot, [ConversationID], [ConversationID],
                                                                              (any CloudConversationCommands)?) in
             guard state.generation == generation else { return (snapshot(&state), [], [], nil) }
-            let entries = Dictionary(list.entries.filter(\.isListed).map { (ConversationID($0.conversation), $0) },
+            var entries = Dictionary(list.entries.filter(\.isListed).map { (ConversationID($0.conversation), $0) },
                                      uniquingKeysWith: { $1 })
+            if let revision = Self.revision(list.revision) {
+                // An inbox event newer than this reply wins: its entry, or its absence.
+                for (id, seq) in state.touched where seq > revision { entries[id] = state.entries[id] }
+                state.touched = state.touched.filter { $0.value > revision }
+            }
             state.created.subtract(entries.keys)
             state.removed.subtract(entries.keys)
             let gone = state.entries.keys.filter { entries[$0] == nil && !state.created.contains($0) }
@@ -529,6 +543,7 @@ nonisolated final class CloudHomeSource: HomeSource {
             let id = ConversationID(entry.conversation)
             publish { state in
                 guard state.identity != nil else { return nil }
+                state.touched[id] = max(state.touched[id] ?? 0, changed.seq)
                 generation = state.generation
                 commands = state.commands
                 state.inboxRev += 1
@@ -865,6 +880,16 @@ nonisolated final class CloudHomeSource: HomeSource {
             default: break
             }
             for continuation in state.continuations.values { continuation.yield(event) }
+        }
+    }
+
+    /// An inbox list's revision as the inbox stream seq (UserDO sends
+    /// `String(currentSeq)`); nil when it is not one.
+    static func revision(_ value: JSONValue?) -> UInt64? {
+        switch value {
+        case .string(let text): UInt64(text)
+        case .number(let number) where number >= 0 && number < 1.8e19 && number.rounded() == number: UInt64(number)
+        default: nil
         }
     }
 
