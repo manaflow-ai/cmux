@@ -323,6 +323,12 @@ mod unix {
             self.shared.read_done.notified().await;
         }
 
+        /// The descriptor `end()` shuts down.
+        #[cfg(test)]
+        pub(crate) fn shutdown_descriptor(&self) -> std::os::fd::RawFd {
+            self.raw_fd
+        }
+
         #[cfg(test)]
         pub(crate) fn arm_reader_waiting(&self) -> oneshot::Receiver<()> {
             let (sender, receiver) = oneshot::channel();
@@ -471,6 +477,55 @@ mod tests {
             .expect("join control peer test server");
         assert!(written.is_empty(), "nothing is written to a refused listener");
         let _ = std::fs::remove_file(socket_path);
+    }
+
+    /// `end()` shuts the socket down through a descriptor the handle owns.
+    /// When the peer closes first, the reader and writer halves drop and close
+    /// the stream's own descriptor; its number can then be reused (tokio's
+    /// signal driver uses a socket pair), and a shutdown through the stale
+    /// number hits that other socket ("EOF on self-pipe" across the suite).
+    #[tokio::test]
+    async fn the_descriptor_end_shuts_down_stays_owned_after_the_peer_closes() {
+        fn inode(fd: std::os::fd::RawFd) -> Option<(u64, u64)> {
+            let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+            // SAFETY: fstat writes a stat into the buffer on success.
+            if unsafe { libc::fstat(fd, stat.as_mut_ptr()) } != 0 {
+                return None;
+            }
+            // SAFETY: fstat succeeded.
+            let stat = unsafe { stat.assume_init() };
+            Some((stat.st_dev as u64, stat.st_ino as u64))
+        }
+        let dir = std::env::temp_dir().join(format!("crs-{}-{}", std::process::id(), line!()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket_path = dir.join("c.sock");
+        let listener = UnixListener::bind(&socket_path).expect("bind stale fd test socket");
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept stale fd test socket");
+            drop(stream);
+        });
+        let control = unix::connect_control_for_test(&socket_path, 3_000)
+            .await
+            .expect("connect stale fd test socket");
+        let fd = control.shutdown_descriptor();
+        let socket = inode(fd).expect("the control socket is open after connect");
+        server.await.expect("join stale fd test server");
+        // The reader and the writer both exit on the peer's close; the bug
+        // closes the descriptor once both halves drop.
+        for _ in 0..200 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            if inode(fd) != Some(socket) {
+                break;
+            }
+        }
+        assert_eq!(
+            inode(fd),
+            Some(socket),
+            "end() would shut down a descriptor the handle no longer owns"
+        );
+        control.end();
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]
