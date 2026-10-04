@@ -105,13 +105,18 @@ fn migrate_v1(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Copied v1 rows that a downgraded v1 daemon removed since the copy. A
-/// v1 daemon removes a row when it reopens it, or when it evicts its oldest
-/// rows past 50. A removed row at least as new as the oldest remaining v1
-/// row was reopened, so its group goes too (never reopened twice); an
-/// empty v1 table means every removed row was reopened (eviction keeps 50).
-/// A row older than every remaining row may only have been evicted, so its
-/// group stays (history is kept). The ledger forgets every removed row.
+/// The most rows a v1 daemon keeps; it evicts its oldest rows past this.
+const V1_MAX_ITEMS: usize = 50;
+
+/// Copied v1 rows that a downgraded v1 daemon removed since the copy. A v1
+/// daemon removes a row when it reopens it, or when it evicts its oldest
+/// rows past [`V1_MAX_ITEMS`]. When the rows now in v1 plus the removed
+/// ones fit in that bound, the table never overflowed, so every removed row
+/// was reopened and its group goes too (never reopened twice). Otherwise a
+/// removed row at least as new as the oldest remaining row was reopened
+/// (eviction takes the oldest), and an older one may only have been
+/// evicted, so its group stays (history is kept). The ledger forgets every
+/// removed row.
 fn reconcile_v1(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     let removed = {
         let mut statement = transaction.prepare(
@@ -125,10 +130,14 @@ fn reconcile_v1(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     if removed.is_empty() {
         return Ok(());
     }
-    let oldest: Option<i64> =
-        transaction.query_row("SELECT MIN(closed_at_ms) FROM closed_history", [], |row| row.get(0))?;
+    let (present, oldest): (i64, Option<i64>) = transaction.query_row(
+        "SELECT COUNT(*), MIN(closed_at_ms) FROM closed_history",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    let never_overflowed = usize::try_from(present)? + removed.len() <= V1_MAX_ITEMS;
     for (closed_id, closed_at_ms) in removed {
-        if oldest.is_none_or(|oldest| closed_at_ms >= oldest) {
+        if never_overflowed || oldest.is_none_or(|oldest| closed_at_ms >= oldest) {
             transaction.execute("DELETE FROM closed_groups WHERE closed_id = ?1", [&closed_id])?;
         }
         transaction.execute("DELETE FROM closed_v1_copied WHERE closed_id = ?1", [&closed_id])?;

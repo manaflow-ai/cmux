@@ -273,27 +273,41 @@ fn group_ids(connection: &rusqlite::Connection) -> Vec<Value> {
 
 /// A downgraded v1 daemon reopens a copied item (its v1 row goes): the next
 /// upgrade removes that group too, so the item is never reopened twice. A
-/// row older than every remaining v1 row may only have been evicted (v1
-/// keeps its newest 50), so its group stays: history is kept.
+/// v1 daemon also evicts its oldest rows past 50; a row older than every
+/// remaining row of a full table may only have been evicted, so its group
+/// stays (history is kept).
 #[test]
 fn an_item_a_downgraded_daemon_reopened_leaves_v2_at_the_next_upgrade() {
     let mut connection = rusqlite::Connection::open_in_memory().unwrap();
     connection.execute_batch(V1_TABLE).unwrap();
-    insert_v1(&connection, "a", 1);
-    insert_v1(&connection, "b", 2);
-    insert_v1(&connection, "c", 3);
+    for sequence in 1..=3 {
+        insert_v1(&connection, &format!("small{sequence}"), sequence);
+    }
     open_schema(&mut connection);
-    assert_eq!(group_ids(&connection).len(), 3);
+    // The table never overflowed: every removed row was reopened.
+    connection.execute("DELETE FROM closed_history WHERE closed_id = 'closed_small1'", []).unwrap();
+    open_schema(&mut connection);
+    assert_eq!(group_ids(&connection), vec![json!("closed_small3"), json!("closed_small2")]);
+    open_schema(&mut connection);
+    assert_eq!(group_ids(&connection).len(), 2, "a second upgrade changes nothing");
 
-    // The older daemon reopens b and evicts a (its oldest row).
-    connection.execute("DELETE FROM closed_history WHERE closed_id IN ('closed_a', 'closed_b')", []).unwrap();
-    open_schema(&mut connection);
-    assert_eq!(group_ids(&connection), vec![json!("closed_c"), json!("closed_a")]);
-    open_schema(&mut connection);
-    assert_eq!(group_ids(&connection), vec![json!("closed_c"), json!("closed_a")]);
-
-    // Eviction never empties v1: an empty v1 means every row was reopened.
+    // A full table: the older daemon closes one more item (evicting its
+    // oldest row, full1) and reopens full10.
     connection.execute("DELETE FROM closed_history", []).unwrap();
     open_schema(&mut connection);
-    assert_eq!(group_ids(&connection), vec![json!("closed_a")]);
+    assert!(group_ids(&connection).is_empty(), "an empty v1 means all were reopened");
+    for sequence in 1..=50 {
+        insert_v1(&connection, &format!("full{sequence}"), sequence);
+    }
+    open_schema(&mut connection);
+    connection
+        .execute("DELETE FROM closed_history WHERE closed_id IN ('closed_full1', 'closed_full10')", [])
+        .unwrap();
+    insert_v1(&connection, "full51", 51);
+    open_schema(&mut connection);
+    let ids = group_ids(&connection);
+    assert_eq!(ids.len(), 50);
+    assert_eq!(ids[0], json!("closed_full51"));
+    assert!(ids.contains(&json!("closed_full1")), "an evicted row keeps its group");
+    assert!(!ids.contains(&json!("closed_full10")), "a reopened row loses its group");
 }
