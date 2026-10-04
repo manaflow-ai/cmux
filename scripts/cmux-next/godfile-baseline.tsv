@@ -52,7 +52,7 @@ rust-file	cmux-tui/crates/cmux-tui-core/src/layout.rs	1638	82
 rust-file	cmux-tui/crates/cmux-tui-core/src/model.rs	1030	68
 rust-file	cmux-tui/crates/cmux-tui-core/src/mux.rs	33997	1014
 rust-file	cmux-tui/crates/cmux-tui-core/src/mux/resource_content.rs	1286	17
-rust-file	cmux-tui/crates/cmux-tui-core/src/mux/resource_topology.rs	6819	144
+rust-file	cmux-tui/crates/cmux-tui-core/src/mux/resource_topology.rs	6772	142
 rust-file	cmux-tui/crates/cmux-tui-core/src/mux/screen_groups.rs	1040	37
 rust-file	cmux-tui/crates/cmux-tui-core/src/mux/tab_groups.rs	1048	32
 rust-file	cmux-tui/crates/cmux-tui-core/src/platform.rs	1375	86
@@ -61,7 +61,7 @@ rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/content.rs	2820	83
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/topology.rs	1938	46
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_selector.rs	1139	33
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource.rs	1126	30
-rust-file	cmux-tui/crates/cmux-tui-core/src/server.rs	27575	785
+rust-file	cmux-tui/crates/cmux-tui-core/src/server.rs	27552	785
 rust-file	cmux-tui/crates/cmux-tui-core/src/server/loopback_forward.rs	1091	46
 rust-file	cmux-tui/crates/cmux-tui-core/src/surface.rs	10411	434
 rust-file	cmux-tui/crates/cmux-tui-core/src/terminal_host_protocol.rs	1234	54
@@ -104,10 +104,10 @@ rust-file	cmux-tui/crates/cmux-tui/src/ui/graphics_writer.rs	2870	124
 rust-file	cmux-tui/crates/cmux-tui/src/ui/graphics.rs	2302	107
 rust-file	cmux-tui/crates/cmux-tui/src/ui/terminal_grid.rs	1115	43
 rust-file	cmux-tui/crates/cmux-tui/tests/cli.rs	3870	122
-rust-file	cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs	5584	110
+rust-file	cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs	5573	109
 rust-file	cmux-tui/crates/ghostty-vt/src/kitty.rs	1368	64
 rust-file	cmux-tui/crates/ghostty-vt/src/terminal.rs	3335	168
-swift-type	CmuxNextApp/WindowManager	1131	0
+swift-type	CmuxNextApp/WindowManager	1129	0
 swift-type	CmuxNextDaemon/DaemonConnection	1450	0
 swift-type	CmuxNextTabs/TabStripView	2116	0
 swift-type	CmuxNextTerminal/TerminalSurfaceView	1106	0

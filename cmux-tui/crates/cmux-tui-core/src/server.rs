@@ -115,7 +115,6 @@ mod conversations;
 mod frontend_browser_history;
 mod home;
 mod launch_snapshot;
-mod pending_handoff;
 mod personal;
 mod raw_tab;
 #[cfg(unix)]
