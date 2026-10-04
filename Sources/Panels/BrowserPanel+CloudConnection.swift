@@ -91,7 +91,10 @@ extension BrowserPanel {
         guard activate else { return }
         guard let provider = catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider,
               let known = catalog.resources[resource] else {
-            cloudAccess.showUnavailable(String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect."))
+            showCloudRestoreUnavailable(
+                resource,
+                message: String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect.")
+            )
             return
         }
         switch CloudPortRoutePlan.plan(resource: known, privateAddress: provider.info.privateAddress) {
@@ -102,7 +105,24 @@ extension BrowserPanel {
                     resourceID: resource)
                 if configured { pendingCloudRestoreURL = nil }
             }
-        case .unsupported(let message): cloudAccess.showUnavailable(message)
+        case .unsupported(let message):
+            // The provider owns the retry because it can refresh the machine's
+            // private address before trying to materialize the saved projection.
+            // This is the same recovery path used by a live port row.
+            provider.showPortUnavailable(message, resourceID: resource, browser: self)
+        }
+    }
+
+    /// Keep a restored Cloud pane recoverable while its provider is being
+    /// discovered. Session restore can run before the machine list has
+    /// registered the provider or before its first resource snapshot arrives.
+    private func showCloudRestoreUnavailable(_ resource: SurfaceResourceID, message: String) {
+        let preferredURL = pendingCloudRestoreURL
+        cloudAccess.showUnavailable(message) { [weak self] request in
+            guard let self else { return }
+            _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true)
+            guard self.cloudAccess.isCurrentUnavailableRetry(request) else { return }
+            self.restoreCloudResource(resource, preferredURL: preferredURL)
         }
     }
 

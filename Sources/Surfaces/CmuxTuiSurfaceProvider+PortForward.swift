@@ -141,7 +141,10 @@ extension CmuxTuiSurfaceProvider {
     /// was unavailable at materialization time (most commonly a withdrawn
     /// private address). The browser card therefore always has a real retry
     /// action instead of leaving the user on a dead loading surface.
-    private func showPortUnavailable(_ message: String, resourceID: SurfaceResourceID, browser: BrowserPanel) {
+    /// Leaves a recoverable placeholder when a route cannot be materialized yet.
+    /// The retry refreshes the machine metadata before resolving the resource,
+    /// which repairs stale or missing private addresses during session restore.
+    func showPortUnavailable(_ message: String, resourceID: SurfaceResourceID, browser: BrowserPanel) {
         browser.cloudAccess.showUnavailable(message) { [weak self, weak browser] request in
             guard let self, let browser, self.isRegisteredInCatalog() else { return }
             let lifecycle = self.currentLifecycleGeneration
@@ -155,7 +158,9 @@ extension CmuxTuiSurfaceProvider {
                 switch CloudPortRoutePlan.plan(resource: resource, privateAddress: self.info.privateAddress) {
                 case .privateDirect(let raw):
                     guard let url = URL(string: raw) else { throw ProviderError.invalidPreviewURL }
-                    self.configureBrowser(browser, url: url)
+                    let restoredURL = browser.cloudRestoreURL(on: url)
+                    let configured = self.configureBrowser(browser, url: restoredURL, resourceID: resourceID)
+                    if configured { browser.pendingCloudRestoreURL = nil }
                 case .unsupported(let nextMessage):
                     self.showPortUnavailable(nextMessage, resourceID: resourceID, browser: browser)
                 }
