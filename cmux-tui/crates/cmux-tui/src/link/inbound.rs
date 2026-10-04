@@ -31,7 +31,7 @@ pub(super) enum InboundRefused {
 /// The daemon entry a link stream may reach for the session listening on
 /// `session_socket`: its remote entry, never the session socket itself.
 pub(super) fn daemon_entry(session_socket: &Path) -> PathBuf {
-    session_socket.to_path_buf() // RED stub: hands the stream to the local socket.
+    cmux_link::entry_path::remote_entry_socket_path(session_socket)
 }
 
 /// Check `stream` from the peer with WireGuard key `peer_key` and overlay
