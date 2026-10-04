@@ -638,6 +638,18 @@
       "title" : "Padding",
       "type" : "number"
     },
+    "layout.paneSeparation" : {
+      "default" : "borders",
+      "description" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them.",
+      "enum" : [
+        "none",
+        "dividers",
+        "borders",
+        "cards"
+      ],
+      "title" : "Separation",
+      "type" : "string"
+    },
     "layout.rows" : {
       "default" : true,
       "description" : "Off hides New Row and fits a column's existing rows into it without scrolling.",

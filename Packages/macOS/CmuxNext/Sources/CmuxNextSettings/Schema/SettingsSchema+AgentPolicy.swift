@@ -61,6 +61,7 @@ extension SettingsSchema {
         "layout.panePadding",
         "layout.paneCornerRadius",
         "layout.paneBorder",
+        "layout.paneSeparation",
         "layout.paneBorderColor",
         "layout.paneBorderWidth",
         "focusRing.enabled",
