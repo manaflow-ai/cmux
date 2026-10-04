@@ -5,7 +5,9 @@
 
 use crate::agent::{ChildAgent, Tap};
 use crate::agent_host::link::{Adopted, TestWire};
-use crate::agent_host::{ControllerFrame, Entry, HostRecord, PROTOCOL_MAX, PROTOCOL_MIN, RECORD_VERSION};
+use crate::agent_host::{
+    ControllerFrame, Entry, HostRecord, PROTOCOL_MAX, PROTOCOL_MIN, RECORD_VERSION,
+};
 use std::sync::Arc;
 
 fn record() -> HostRecord {
@@ -46,7 +48,8 @@ async fn an_exit_is_reported_only_after_its_ack_is_written() {
     let (inbound, mut drain) = tokio::sync::mpsc::channel(16);
     tokio::spawn(async move { while drain.recv().await.is_some() {} });
     let tap: Tap = Arc::new(|_, _, _| true);
-    let (child, _) = ChildAgent::from_link("t", Arc::new(link), &adopted, 0, Vec::new(), inbound, tap);
+    let (child, _) =
+        ChildAgent::from_link("t", Arc::new(link), &adopted, 0, Vec::new(), inbound, tap);
 
     wire.entries.send((1, Entry::Exit { code: Some(0) })).await.unwrap();
     settle().await;

@@ -355,4 +355,3 @@ impl TestWire {
         out
     }
 }
-
