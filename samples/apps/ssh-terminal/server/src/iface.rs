@@ -194,8 +194,15 @@ pub enum Close {
     Now,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A bearer credential for one session: `Debug` hides the value.
+#[derive(Clone, PartialEq, Eq)]
 pub struct ResumeToken(pub String);
+
+impl fmt::Debug for ResumeToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ResumeToken(..)")
+    }
+}
 
 /// `open_token`: issued by the host for one open or resume of one terminal
 /// after the user's gesture. The backend passes it on and never mints it.
@@ -348,6 +355,10 @@ pub enum ChannelEvent {
 /// handle, dials, checks the host key the user pinned (else `HostKey`) and
 /// authenticates with the user's credential. The backend never sees the
 /// host name, a key or a signature, and there is no signing op.
+///
+/// Contract: no op waits (a full buffer is `Unavailable {retryable: true}`)
+/// and no op calls back into the backend. The sample calls these ops while
+/// it holds a session lock.
 pub trait HostChannels: Send + Sync {
     /// `connection.channel.open`.
     fn open(&self, request: ChannelOpenRequest) -> Result<ChannelId, BackendError>;

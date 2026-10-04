@@ -80,16 +80,28 @@ fn buffer_full() -> BackendError {
     BackendError::Unavailable { reason: "the input buffer is full".into(), retryable: true }
 }
 
-/// Keeps far-end text within [`MAX_EXIT_MESSAGE`] bytes, on a char boundary.
-fn bounded(mut status: ExitStatus) -> ExitStatus {
-    if let Some(message) = &mut status.message
-        && message.len() > MAX_EXIT_MESSAGE
-    {
-        let mut end = MAX_EXIT_MESSAGE;
-        while !message.is_char_boundary(end) {
+/// Longest signal name the host may send (`exit.signal`).
+const MAX_SIGNAL_NAME: usize = 32;
+
+/// Cuts host text to at most `max` bytes, on a char boundary.
+fn cut(text: &mut String, max: usize) {
+    if text.len() > max {
+        let mut end = max;
+        while !text.is_char_boundary(end) {
             end -= 1;
         }
-        message.truncate(end);
+        text.truncate(end);
+    }
+}
+
+/// Keeps far-end and host text bounded: the message within
+/// [`MAX_EXIT_MESSAGE`] bytes, the signal name within 32 bytes.
+fn bounded(mut status: ExitStatus) -> ExitStatus {
+    if let Some(message) = &mut status.message {
+        cut(message, MAX_EXIT_MESSAGE);
+    }
+    if let Some(signal) = &mut status.signal {
+        cut(signal, MAX_SIGNAL_NAME);
     }
     status
 }
@@ -126,14 +138,12 @@ impl Session {
                 Command::Resize(cols, rows) => self.host.resize(&self.channel, *cols, *rows),
                 Command::Signal(signal) => self.host.signal(&self.channel, *signal),
             };
+            let is_data = matches!(command, Command::Data(_));
             match sent {
-                Ok(()) => {
-                    if let Some(Command::Data(bytes)) = state.outbox.ready.pop_front() {
-                        state.outbox.bytes -= bytes.len();
-                    }
-                }
                 Err(BackendError::Unavailable { retryable: true, .. }) => return,
-                Err(error) => {
+                // A refused resize or signal (a server that ignores a window
+                // change or a signal) leaves the shell running: it is dropped.
+                Err(error) if is_data => {
                     // The channel cannot take more. Read what the host still
                     // has (often the exit); without an end, it is lost.
                     state.outbox.clear();
@@ -144,6 +154,11 @@ impl Session {
                     });
                     self.release(state);
                     return;
+                }
+                Ok(()) | Err(_) => {
+                    if let Some(Command::Data(bytes)) = state.outbox.ready.pop_front() {
+                        state.outbox.bytes -= bytes.len();
+                    }
                 }
             }
         }
@@ -166,7 +181,8 @@ impl Session {
                     retryable: false,
                 }),
                 ChannelEvent::Exit(status) => state.output.finish(ByteEvent::Exit(bounded(status))),
-                ChannelEvent::Dropped { reason, retryable } => {
+                ChannelEvent::Dropped { mut reason, retryable } => {
+                    cut(&mut reason, MAX_EXIT_MESSAGE);
                     state.output.finish(ByteEvent::Lost { reason, retryable });
                 }
             }
@@ -270,8 +286,10 @@ impl Session {
         let _already = session.close(Close::Now);
     }
 
-    pub fn has_ended(&self) -> bool {
-        self.lock().output.has_ended()
+    /// Ended, and the attached terminal took the end event (or none is
+    /// attached). Only then may a new session take its terminal id.
+    pub fn is_finished(&self) -> bool {
+        self.lock().output.is_finished()
     }
 
     pub fn detach(&self) {
@@ -337,7 +355,7 @@ impl Registry {
             let mut inner = self.lock();
             if let Some(old) = inner.sessions.get(&session.terminal) {
                 let detached = inner.detached.iter().any(|d| Arc::ptr_eq(d, old));
-                if !detached && !old.has_ended() {
+                if !detached && !old.is_finished() {
                     return Err(BackendError::invalid(format!(
                         "terminal {} is open",
                         session.terminal
@@ -362,7 +380,7 @@ impl Registry {
         inner
             .sessions
             .get(terminal)
-            .is_some_and(|s| !s.has_ended() && !inner.detached.iter().any(|d| Arc::ptr_eq(d, s)))
+            .is_some_and(|s| !s.is_finished() && !inner.detached.iter().any(|d| Arc::ptr_eq(d, s)))
     }
 
     pub fn remove(&self, session: &Arc<Session>) {
