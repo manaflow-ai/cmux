@@ -13,6 +13,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     /// Debug (Help menu): hides the "new" badge in every layout.
     private(set) var hidesNewBadge = false
     private var lastSliderShowsFeatureList = false
+    private var lastSliderListUsesDots = false
     private weak var lastParent: NSWindow?
     /// Launch presentation is considered once, at the first main window. A
     /// window opened later (Cmd+N an hour in) must not pop the welcome up just
@@ -43,11 +44,12 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     }
 
     /// The slider layout is a debug choice while it is designed; launch uses the default.
-    func present(over parent: NSWindow?, sliderShowsFeatureList: Bool = false) {
+    func present(over parent: NSWindow?, sliderShowsFeatureList: Bool = false, sliderListUsesDots: Bool = false) {
         window?.close()
         lastSliderShowsFeatureList = sliderShowsFeatureList
+        lastSliderListUsesDots = sliderListUsesDots
         lastParent = parent
-        let window = makeWindow(sliderShowsFeatureList: sliderShowsFeatureList)
+        let window = makeWindow(sliderShowsFeatureList: sliderShowsFeatureList, sliderListUsesDots: sliderListUsesDots)
         self.window = window
         position(window, over: parent)
         NSApp.activate(ignoringOtherApps: true)
@@ -57,13 +59,18 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     /// Debug: flips the badge and reopens the welcome in the layout last shown.
     func toggleNewBadge() {
         hidesNewBadge.toggle()
-        present(over: lastParent ?? NSApp.mainWindow, sliderShowsFeatureList: lastSliderShowsFeatureList)
+        present(
+            over: lastParent ?? NSApp.mainWindow,
+            sliderShowsFeatureList: lastSliderShowsFeatureList,
+            sliderListUsesDots: lastSliderListUsesDots
+        )
     }
 
-    private func makeWindow(sliderShowsFeatureList: Bool) -> NSWindow {
+    private func makeWindow(sliderShowsFeatureList: Bool, sliderListUsesDots: Bool) -> NSWindow {
         let rootView = CloudWelcomeAccountView(
             accountFlow: AppDelegate.shared?.auth?.accountFlow,
             sliderShowsFeatureList: sliderShowsFeatureList,
+            sliderListUsesDots: sliderListUsesDots,
             showsNewBadge: !hidesNewBadge,
             onNotNow: { [weak self] in self?.dismiss() },
             onNext: { [weak self] step in self?.perform(step) }
@@ -155,6 +162,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
 private struct CloudWelcomeAccountView: View {
     let accountFlow: HostAccountFlow?
     let sliderShowsFeatureList: Bool
+    let sliderListUsesDots: Bool
     let showsNewBadge: Bool
     let onNotNow: () -> Void
     let onNext: (CloudWelcomeNextStep) -> Void
@@ -169,6 +177,7 @@ private struct CloudWelcomeAccountView: View {
             onNotNow: onNotNow,
             onNext: onNext,
             sliderShowsFeatureList: sliderShowsFeatureList,
+            sliderListUsesDots: sliderListUsesDots,
             showsNewBadge: showsNewBadge
         )
         .task {

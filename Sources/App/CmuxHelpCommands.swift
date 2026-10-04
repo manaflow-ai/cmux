@@ -47,6 +47,13 @@ extension cmuxApp {
             Button(String(localized: "debug.menu.showCloudWelcomeList", defaultValue: "Show Cloud Welcome (List)…")) {
                 AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow, sliderShowsFeatureList: true)
             }
+            Button(String(localized: "debug.menu.showCloudWelcomeListDots", defaultValue: "Show Cloud Welcome (List + Dots)…")) {
+                AppDelegate.shared?.cloudWelcomeWindowController.present(
+                    over: NSApp.mainWindow,
+                    sliderShowsFeatureList: true,
+                    sliderListUsesDots: true
+                )
+            }
             Button(String(localized: "debug.menu.toggleCloudWelcomeBadge", defaultValue: "Toggle Cloud Welcome “New” Badge")) {
                 AppDelegate.shared?.cloudWelcomeWindowController.toggleNewBadge()
             }
