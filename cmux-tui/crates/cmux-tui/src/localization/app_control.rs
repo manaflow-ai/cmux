@@ -22,12 +22,14 @@ pub(crate) struct AppControlMessages {
     pub acp_open_usage: &'static str,
     pub browser_page_usage: &'static str,
     pub keybinding_usage: &'static str,
+    pub settings_confirm_hint: &'static str,
+    pub settings_declined: &'static str,
 }
 
 pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     action_describe_usage: "usage: cmux action describe <action id or CLI name>",
     action_run_usage: "usage: cmux action run <action id or CLI name> [--target ID] [--<argument> VALUE]... [--wait]",
-    settings_usage: "usage: cmux settings get [PATH] | set PATH VALUE | unset PATH",
+    settings_usage: "usage: cmux settings get [PATH] | set PATH VALUE [--confirm] | reset PATH [--confirm] | unset PATH [--confirm]",
     events_after_invalid: "--after needs an event sequence number, not \"{value}\"",
     scope_usage: "usage: cmux {scope} <action>; `cmux action list --noun {scope}` lists the actions",
     handles_unstable: "account handles change after restart: Keychain unavailable",
@@ -41,6 +43,8 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     invalid_response: "the cmux app sent an answer this cmux cannot read",
     acp_open_usage: "usage: cmux acp open SESSION [--pane PANE]",
     browser_page_usage: "usage: cmux browser <tab_…|page> navigate URL | back | forward | reload | state | eval SCRIPT | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value SELECTOR | fill|type SELECTOR TEXT",
+    settings_confirm_hint: "this setting needs your confirmation; run it again with --confirm, and confirm in the app",
+    settings_declined: "the setting was not changed: the confirmation was declined in the app",
     keybinding_usage: "usage: cmux keybinding list [--query TEXT] [--command ID] [--source default|app|user] | resolve KEYS [--window ID] | context [--window ID]",
     root_scopes: "APP SCOPES (the cmux app)\n  app           ping, identify, capabilities, and app actions (`cmux app new-window`)\n  window        List the app's windows\n  action        List, describe, and run registered actions\n  settings      Read and change cmux.json settings\n  events        Stream app events as JSON lines\n  history       List and search the app's history (list, search <text>)\n  bookmark      List and search browser bookmarks (list, search <text>)\n  keybinding    Read key bindings (list, resolve <keys>, context)\n  <noun> <verb> Any action by its CLI name (`cmux action list`)\n  --app-socket <path>  Connect to an exact app control socket\n",
 };
@@ -48,7 +52,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
 pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     action_describe_usage: "使い方: cmux action describe <アクション ID または CLI 名>",
     action_run_usage: "使い方: cmux action run <アクション ID または CLI 名> [--target ID] [--<引数> 値]... [--wait]",
-    settings_usage: "使い方: cmux settings get [パス] | set パス 値 | unset パス",
+    settings_usage: "使い方: cmux settings get [パス] | set パス 値 [--confirm] | reset パス [--confirm] | unset パス [--confirm]",
     events_after_invalid: "--after にはイベント番号が必要です (「{value}」は不正)",
     scope_usage: "使い方: cmux {scope} <アクション>。`cmux action list --noun {scope}` で一覧を表示",
     handles_unstable: "アカウントのハンドルは再起動後に変わります: キーチェーンを使用できません",
@@ -62,6 +66,8 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     invalid_response: "cmux アプリの応答を読み取れません",
     acp_open_usage: "使い方: cmux acp open セッション [--pane ペイン]",
     browser_page_usage: "使い方: cmux browser <tab_…|page> navigate URL | back | forward | reload | state | eval スクリプト | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value セレクタ | fill|type セレクタ テキスト",
+    settings_confirm_hint: "この設定にはあなたの確認が必要です。--confirm を付けて再実行し、アプリで確認してください",
+    settings_declined: "設定は変更されていません: アプリで確認が拒否されました",
     keybinding_usage: "使い方: cmux keybinding list [--query テキスト] [--command ID] [--source default|app|user] | resolve キー [--window ID] | context [--window ID]",
     root_scopes: "アプリのスコープ (cmux アプリ)\n  app           ping、identify、capabilities とアプリのアクション (`cmux app new-window`)\n  window        アプリのウィンドウ一覧\n  action        登録済みアクションの一覧、説明、実行\n  settings      cmux.json の設定の読み取りと変更\n  events        アプリのイベントを JSON 行で表示\n  history       アプリの履歴の一覧と検索 (list、search <テキスト>)\n  bookmark      ブラウザのブックマークの一覧と検索 (list、search <テキスト>)\n  keybinding    キーバインドの読み取り (list、resolve <キー>、context)\n  <名詞> <動詞> CLI 名で任意のアクションを実行 (`cmux action list`)\n  --app-socket <パス>  指定したアプリ制御ソケットに接続\n",
 };

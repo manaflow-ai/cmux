@@ -326,3 +326,59 @@ fn keybinding_reads_call_the_app_read_ops() {
     assert!(parse(&args(&["keybinding"])).is_err());
     assert!(parse(&args(&["keybinding", "list", "--nope", "x"])).is_err());
 }
+
+/// RED: `--confirm` sends `confirm: true` and waits long enough for the
+/// app's native sheet; without it nothing changes. `reset` exists too.
+#[test]
+fn settings_confirm_sends_confirm_and_waits_for_the_sheet() {
+    let command =
+        parse(&args(&["settings", "set", "history.terminalCommands", "false", "--confirm"]))
+            .unwrap()
+            .unwrap();
+    let AppCommand::Call { method, params, timeout, .. } = command else { panic!("a call") };
+    assert_eq!(method, "settings.set");
+    assert_eq!(params, json!({ "path": "history.terminalCommands", "value": false, "confirm": true }));
+    assert_eq!(timeout, settings::CONFIRM_TIMEOUT);
+    let (method, params) =
+        call(parse(&args(&["settings", "reset", "--confirm", "appearance.theme"])).unwrap().unwrap());
+    assert_eq!((method, params), ("settings.reset", json!({ "path": "appearance.theme", "confirm": true })));
+    let command = parse(&args(&["settings", "unset", "appearance.theme"])).unwrap().unwrap();
+    let AppCommand::Call { params, timeout, .. } = command else { panic!("a call") };
+    assert_eq!((params, timeout), (json!({ "path": "appearance.theme" }), READ_TIMEOUT));
+    for bad in [
+        &["settings", "set", "a", "b", "--confirm", "--confirm"][..],
+        &["settings", "reset"],
+        &["settings", "unset", "a", "b"],
+    ] {
+        assert!(parse(&args(bad)).is_err(), "{bad:?}");
+    }
+}
+
+/// RED: a user-only refusal tells the person to run again with --confirm; a
+/// declined sheet says the setting was not changed. Both exit non-zero.
+#[test]
+fn a_user_only_refusal_and_a_declined_sheet_explain_themselves() {
+    let messages = &crate::localization::catalog().app_control;
+    let refused = json!({ "id": 1, "ok": false, "error": { "code": "setting_user_only",
+        "message": "history.terminalCommands can be changed only by you",
+        "data": { "key": "history.terminalCommands" } } });
+    let (socket, app) = fake_app(vec![refused.clone()]);
+    let command = parse(&args(&["settings", "set", "history.terminalCommands", "false"])).unwrap().unwrap();
+    assert_eq!(run(&global_for(&socket), command), 1);
+    let sent = app.join().unwrap();
+    assert!(sent[0][0]["params"].get("confirm").is_none(), "no confirm without the flag");
+    assert_eq!(settings::refusal_hint(&refused["error"]), Some(messages.settings_confirm_hint));
+
+    let declined = json!({ "id": 1, "ok": false, "error": { "code": "setting_user_only",
+        "message": "history.terminalCommands was not changed: the confirmation was declined",
+        "data": { "key": "history.terminalCommands", "declined": true } } });
+    let (socket, app) = fake_app(vec![declined.clone()]);
+    let command = parse(&args(&["settings", "set", "history.terminalCommands", "false", "--confirm"]))
+        .unwrap()
+        .unwrap();
+    assert_eq!(run(&global_for(&socket), command), 1);
+    let sent = app.join().unwrap();
+    assert_eq!(sent[0][0]["params"]["confirm"], json!(true));
+    assert_eq!(settings::refusal_hint(&declined["error"]), Some(messages.settings_declined));
+    assert_eq!(settings::refusal_hint(&json!({ "code": "busy" })), None);
+}

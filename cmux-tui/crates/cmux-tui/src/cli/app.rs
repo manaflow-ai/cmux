@@ -25,6 +25,7 @@ pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
 
 mod keybinding;
 mod run;
+mod settings;
 
 /// Scopes that belong to the app, whatever follows.
 pub(super) const APP_SCOPES: &[&str] = &[
@@ -132,15 +133,8 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             [path] => call("settings.get", json!({ "path": path })),
             _ => return Err(UsageError::new(messages.settings_usage)),
         },
-        ("settings", Some("set")) => {
-            let [path, value] = positional::<2>(&rest[1..], messages.settings_usage)?;
-            // A JSON value when it parses as one, else the literal string.
-            let value = serde_json::from_str(&value).unwrap_or(Value::String(value));
-            call("settings.set", json!({ "path": path, "value": value }))
-        }
-        ("settings", Some("unset")) => {
-            let [path] = positional::<1>(&rest[1..], messages.settings_usage)?;
-            call("settings.unset", json!({ "path": path }))
+        ("settings", Some(verb @ ("set" | "reset" | "unset"))) => {
+            settings::parse(verb, &rest[1..])?
         }
         // The app's durable page, location, closed and agent history
         // (plans/cmux-next/history.md): `history list|search`.
@@ -657,6 +651,11 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         Err(mut error) => {
             report.annotate(&mut error, global.output);
             let code = super::wire::print_local_error(&error, global.output, 1);
+            if let Some(hint) = settings::refusal_hint(&error)
+                && matches!(global.output, OutputMode::Human | OutputMode::Quiet)
+            {
+                eprintln!("{hint}");
+            }
             report.finish(global.output);
             Ran::Done(code)
         }
