@@ -25,6 +25,10 @@ struct ShortcutListSearchBar: View {
                     text: $query.text
                 )
                 .textFieldStyle(.plain)
+                .accessibilityLabel(String(
+                    localized: "settings.shortcuts.search.placeholder",
+                    defaultValue: "Search shortcuts"
+                ))
                 .accessibilityIdentifier("SettingsShortcutSearchField")
             }
             .padding(.horizontal, 8)
@@ -57,6 +61,10 @@ struct ShortcutListSearchBar: View {
                 localized: "settings.shortcuts.detector.accessibilityLabel",
                 defaultValue: "Find shortcut by keys"
             ))
+            .accessibilityValue(query.keys.map { shortcutDisplayString($0, numbered: false) } ?? String(
+                localized: "settings.shortcuts.detector.prompt",
+                defaultValue: "Listening…"
+            ))
             .accessibilityIdentifier("SettingsShortcutDetector")
 
             Button {
@@ -67,7 +75,7 @@ struct ShortcutListSearchBar: View {
                     .imageScale(.medium)
             }
             .buttonStyle(.borderless)
-            .disabled(query.isEmpty)
+            .disabled(query.isEmpty && !RecorderHostButton.isActivelyRecording)
             .help(String(localized: "settings.shortcuts.search.clear", defaultValue: "Clear search"))
             .accessibilityLabel(String(localized: "settings.shortcuts.search.clear", defaultValue: "Clear search"))
             .accessibilityIdentifier("SettingsShortcutSearchClearButton")

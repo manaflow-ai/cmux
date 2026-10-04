@@ -32,6 +32,20 @@ struct ShortcutListSearchTests {
         #expect(titled < captioned)
     }
 
+    @Test func titleMatchesOutrankCaptionOnlyWordsForMultiWordQueries() throws {
+        let titleMatch = try #require(ShortcutListSearch.textScore(
+            "browser hunk",
+            title: "Browser Hunk",
+            details: []
+        ))
+        let captionMatch = try #require(ShortcutListSearch.textScore(
+            "browser hunk",
+            title: "Next Hunk",
+            details: ["Only while a browser pane is focused"]
+        ))
+        #expect(titleMatch < captionMatch)
+    }
+
     @Test func titleToleratesTyposButCaptionsDoNot() {
         #expect(ShortcutListSearch.textScore("surfce", title: "New Surface", details: []) != nil)
         #expect(ShortcutListSearch.textScore(

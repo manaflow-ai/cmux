@@ -260,6 +260,17 @@ public final class RecorderHostButton: NSButton {
         }
         target = self
         action = #selector(buttonClicked)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidResignKey(_:)),
+            name: NSWindow.didResignKeyNotification,
+            object: nil
+        )
+    }
+
+    @objc private func windowDidResignKey(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
+        stopRecording()
     }
 
     private func applyFont() {
@@ -370,7 +381,10 @@ public final class RecorderHostButton: NSButton {
     private func installEventMonitor() {
         guard eventMonitor == nil else { return }
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .systemDefined]) { [weak self] event in
-            guard let self, self.isRecording, self.window?.firstResponder === self else { return event }
+            guard let self,
+                  self.isRecording,
+                  event.window === self.window,
+                  self.window?.firstResponder === self else { return event }
             self.handleRecordingEvent(event)
             return nil
         }
@@ -481,6 +495,7 @@ public final class RecorderHostButton: NSButton {
         if let recordingTintColor {
             contentTintColor = isRecording ? recordingTintColor : nil
         }
+        setAccessibilityValue(title)
     }
 
 }

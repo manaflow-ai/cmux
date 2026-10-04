@@ -74,6 +74,7 @@ struct SettingsSearchMatcher: Sendable {
         let secondaryWordSet = Set(secondaryWords)
 
         var score = 0
+        var captionOnlyWordCount = 0
         for word in queryWords {
             if let titleScore = matchScore(token: word, text: normalizedTitle, words: titleWords, wordSet: titleWordSet) {
                 score += titleScore
@@ -84,6 +85,7 @@ struct SettingsSearchMatcher: Sendable {
                 wordSet: secondaryWordSet
             ), secondaryScore <= 30 {
                 score += secondaryScore + 100
+                captionOnlyWordCount += 1
             } else {
                 return nil
             }
@@ -94,6 +96,9 @@ struct SettingsSearchMatcher: Sendable {
         if titleText == normalizedQuery { score -= 1_000 }
         if titleText.hasPrefix(normalizedQuery) { score -= 800 }
         if containsAtWordBoundary(normalizedQuery, in: titleText) { score -= 700 }
+        // Keep title matches ahead of caption-only matches for multi-word
+        // queries, regardless of the fuzzy score of the title text.
+        score += captionOnlyWordCount * 1_000
         return score
     }
 
