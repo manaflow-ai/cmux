@@ -371,7 +371,7 @@ fn two_turns_and_two_nodes_through_local_acp() {
             let layout = cached_layout(&system, &view, &text, true);
             (layout.blocks, Some(layout.system), Some(turn_preset.clone()))
         } else {
-            (turn_blocks(&view, &[text.clone()]), None, None)
+            (turn_blocks(&view, std::slice::from_ref(&text)), None, None)
         };
         println!(
             "turn {n}: view {} characters, marks {marks:?}, {} blocks",
