@@ -857,7 +857,12 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
     ) -> Result<Arc<ChildAgent>, RpcError> {
-        if let Some(child) = session.child.lock().await.as_ref()
+        // `ensure_child` publishes the child before `initialize` and
+        // `session/load` answer (the inbound loop needs it to answer the
+        // agent's own requests meanwhile). A live child is ready only while
+        // no start holds the spawn lock; otherwise wait for that start below.
+        if let Ok(_idle) = session.spawn_lock.try_lock()
+            && let Some(child) = session.child.lock().await.as_ref()
             && child.is_alive().await
         {
             return Ok(child.clone());
