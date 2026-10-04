@@ -3,7 +3,9 @@
 //! Requests: `{id, cmd: "apps-…", origin?, …params}`; `origin` is
 //! `user|cli|mcp|script|remote`, absent = cli. Replies use the normal
 //! envelope: `{id, ok: true, data}` or `{id, ok: false, error, error_code}`.
-//! Only local (Unix socket) connections may use apps commands. A connection
+//! Only local (Unix socket) connections may use apps commands, and only the
+//! hosting app connection may send origin `user` (`apps.origin_forbidden`
+//! otherwise; see `apps::provider::hosting_app_connection`). A connection
 //! receives `apps-changed` and `apps-host` events after its first apps
 //! command; mount events go to the mounting connection only.
 
@@ -127,6 +129,23 @@ fn reply(
     send_response(writer, response)
 }
 
+/// What the daemon knows about `client` for the hosting-app check.
+fn claim_for(mux: &Mux, client: u64) -> crate::apps::ProviderClaim {
+    crate::apps::ProviderClaim {
+        // An agent's conversation binding; switches to the identity lane's
+        // terminal/acp_session actor with `agent` once it lands.
+        agent: mux.conversation_principal(client) != crate::conversation_store::LOCAL_USER,
+        app_kind: mux
+            .control_clients
+            .state
+            .lock()
+            .unwrap()
+            .clients
+            .get(&client)
+            .is_some_and(|record| record.kind.as_deref() == Some("app")),
+    }
+}
+
 /// Handles an `apps-*` command; `None` when the message is not one.
 pub(super) fn try_handle(
     mux: &Arc<Mux>,
@@ -158,6 +177,12 @@ pub(super) fn try_handle(
             request.id,
             Err(crate::apps::ApiError::new("apps.local", "apps commands need a local connection")),
         ));
+    }
+    // Origin `user` installs apps, grants scopes and mints gestures: only the
+    // hosting app connection may claim it (A2). Checked before anything else
+    // so a refused request changes nothing.
+    if let Err(e) = crate::apps::admit_origin(request.origin, &claim_for(mux, client)) {
+        return Some(reply(writer, request.id, Err(e)));
     }
     if crate::apps::advertised().is_none() {
         return Some(reply(
@@ -218,20 +243,7 @@ pub(super) fn try_handle(
         }
         Command::Logs { app, follow } => Ok(supervisor.logs(client, &app, follow)),
         Command::ProviderRegister { families } => {
-            let claim = crate::apps::ProviderClaim {
-                // An agent's conversation binding; switches to the identity
-                // lane's terminal/acp_session actor with `agent` once it lands.
-                agent: mux.conversation_principal(client) != crate::conversation_store::LOCAL_USER,
-                app_kind: mux
-                    .control_clients
-                    .state
-                    .lock()
-                    .unwrap()
-                    .clients
-                    .get(&client)
-                    .is_some_and(|record| record.kind.as_deref() == Some("app")),
-            };
-            supervisor.register_provider(client, claim, families)
+            supervisor.register_provider(client, claim_for(mux, client), families)
         }
         Command::ProviderResult { request_id, ok, body } => {
             supervisor.provider_result(client, request_id, ok, body)
@@ -243,6 +255,79 @@ pub(super) fn try_handle(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SurfaceOptions;
+    use crate::server::{BoundedOutbound, ClientTransport, QueuedSink};
+
+    /// A local connection with `kind`, bound to an agent when `agent`.
+    fn connection(mux: &Arc<Mux>, kind: Option<&str>, agent: bool) -> (u64, Arc<BoundedOutbound>) {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let client = mux.control_clients.register(ClientTransport::Unix, writer);
+        mux.control_clients.state.lock().unwrap().clients.get_mut(&client).unwrap().kind =
+            kind.map(str::to_string);
+        if agent {
+            mux.bind_conversation_principal(client, "agent:test".to_string());
+        }
+        (client, outbound)
+    }
+
+    /// Sends `request` on `client` and returns the reply's error code
+    /// (`None` when the reply is ok).
+    fn error_code(
+        mux: &Arc<Mux>,
+        client: u64,
+        outbound: &BoundedOutbound,
+        request: Value,
+    ) -> Option<String> {
+        let writer = mux.control_clients.state.lock().unwrap().clients[&client].writer.clone();
+        assert_eq!(try_handle(mux, client, &request.to_string(), &writer), Some(true));
+        let reply: Value = serde_json::from_str(&outbound.try_pop().expect("reply")).unwrap();
+        reply["error_code"].as_str().map(str::to_string)
+    }
+
+    fn install(origin: &str) -> Value {
+        json!({ "id": 1, "cmd": "apps-set", "origin": origin, "idempotency_key": "k1", "app": "cmux/demo", "installed": true })
+    }
+
+    fn grant(origin: &str) -> Value {
+        json!({ "id": 2, "cmd": "apps-set", "origin": origin, "idempotency_key": "k2", "app": "cmux/demo", "grant": { "scope": "workspace:write", "granted": true } })
+    }
+
+    const FORBIDDEN: Option<&str> = Some("apps.origin_forbidden");
+
+    #[test]
+    fn origin_user_needs_the_hosting_app_connection() {
+        let mux = Mux::new_for_test("apps-origin-gate", SurfaceOptions::default());
+        // An agent connection is refused even when it declared kind app.
+        let (agent, agent_out) = connection(&mux, Some("app"), true);
+        for request in [install("user"), grant("user")] {
+            assert_eq!(error_code(&mux, agent, &agent_out, request).as_deref(), FORBIDDEN);
+        }
+        // A local client that is not the app is refused too.
+        let (cli, cli_out) = connection(&mux, Some("cli"), false);
+        for request in [install("user"), grant("user")] {
+            assert_eq!(error_code(&mux, cli, &cli_out, request).as_deref(), FORBIDDEN);
+        }
+        // The hosting app passes the gate (the request then reaches the
+        // supervisor, or apps.unavailable in a daemon without an app host).
+        let (app, app_out) = connection(&mux, Some("app"), false);
+        for request in [install("user"), grant("user")] {
+            assert_ne!(error_code(&mux, app, &app_out, request).as_deref(), FORBIDDEN);
+        }
+    }
+
+    #[test]
+    fn other_origins_pass_from_any_local_connection() {
+        let mux = Mux::new_for_test("apps-origin-other", SurfaceOptions::default());
+        let (agent, out) = connection(&mux, None, true);
+        // Hiding works from any origin (D55); cli and script are unchanged.
+        for origin in ["cli", "script", "mcp"] {
+            let hide = json!({ "id": 3, "cmd": "apps-set", "origin": origin, "idempotency_key": format!("h-{origin}"), "app": "cmux/demo", "hidden": true });
+            assert_ne!(error_code(&mux, agent, &out, hide).as_deref(), FORBIDDEN);
+        }
+        let list = json!({ "id": 4, "cmd": "apps-list" });
+        assert_ne!(error_code(&mux, agent, &out, list).as_deref(), FORBIDDEN);
+    }
 
     fn parse(value: Value) -> Request {
         serde_json::from_value(value).expect("request")
