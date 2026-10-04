@@ -191,8 +191,8 @@ extension SidebarBridge {
     /// Puts daemon truth back after a refused or rejected intent.
     func resync() {
         guard let state else { return }
-        model.sections = Self.sections(services.machines,
-                                       members: services.windows.registry.members(of: state.id), profile: state.profileID)
+        model.sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id),
+                                       profile: state.profileID, hidesHome: Self.hidesHome(services.sidebarLayout.document))
         model.profiles = Self.profiles(services.machines.local.store)
     }
 
