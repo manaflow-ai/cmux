@@ -169,6 +169,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
 
     override func layout() {
         super.layout()
+        // The sidebar stays above Chromium pages and pane overlays (R126): an occluder of the window's overlay host.
+        if let window {
+            let shows = sidebar.frame.width > 0.5 && !sidebar.isHidden
+            WindowOverlayHost.existingHost(for: window)?.setOccluder(id: "sidebar", rect: shows ? sidebar.convert(sidebar.bounds, to: nil) : nil)
+        }
         TitlebarDragPolicy.layoutBandBlocker(titlebarBandBlocker, in: self)
         // The band depends only on the window's traffic lights and top row,
         // never on the sidebar, so the toggle keeps one frame (R68).

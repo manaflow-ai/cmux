@@ -4,7 +4,8 @@
 //!
 //! Every animation asks for a token: springs by response and damping
 //! fraction (`MotionSpring`), timed ease-out fades (`MotionFade`) and loops
-//! (`MotionLoop`). Springs retarget from their current value and velocity;
+//! (`MotionLoop`), and the hover marquee (`MotionPolicy::marquee`,
+//! `MarqueeTiming`). Springs retarget from their current value and velocity;
 //! fades restart from the value on screen. `ui.animationSpeed` (`set_speed`,
 //! or `CMUX2_ANIMATION_SPEED=fast|normal|off`) scales every time constant;
 //! Reduce Motion makes movement instant and caps fades at 0.1 s.
@@ -20,11 +21,13 @@
 //! `docs/motion.md`.
 
 mod clock;
+mod marquee;
 #[cfg(feature = "settings")]
 mod settings;
 mod spring;
 
 pub use clock::*;
+pub use marquee::*;
 #[cfg(feature = "settings")]
 pub use settings::*;
 pub use spring::*;
