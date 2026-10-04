@@ -3778,7 +3778,8 @@
         "execute",
         "send-external",
         "money",
-        "destructive"
+        "destructive",
+        "cloud-link"
       ]
     },
     "PairingCode": {
@@ -35062,7 +35063,8 @@
               "execute",
               "send-external",
               "money",
-              "destructive"
+              "destructive",
+              "cloud-link"
             ]
           },
           "Grant": {
@@ -35371,7 +35373,8 @@
               "execute",
               "send-external",
               "money",
-              "destructive"
+              "destructive",
+              "cloud-link"
             ]
           },
           "TeamId": {
