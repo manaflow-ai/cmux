@@ -266,7 +266,9 @@ public final class HomeStore {
     // MARK: Attachments
 
     /// Hashes a file (SHA-256, streamed), copies it into the blob cache and
-    /// reads its display size, duration and poster frame. Runs off the main actor.
+    /// reads its display size, duration and poster frame. Runs off the main
+    /// actor (`@concurrent`). Opens a security-scoped URL itself. An image
+    /// type the owner refuses (TIFF, HEIF) is converted to PNG or JPEG.
     public func prepareAttachment(fileURL: URL) async throws -> LocalAttachment {
         let root = blobCacheDirectory
         let prepared = try await AttachmentMedia.prepare(fileURL: fileURL, root: root)
@@ -293,6 +295,12 @@ public final class HomeStore {
     public func send(conversation: ConversationID, text: String, attachments: [LocalAttachment],
                      key: IdempotencyKey = .make()) async throws {
         guard isOnline else { throw HomeRejection.ownerUnreachable }
+        // The owner's spelling and ranges, also for refs built outside prepare.
+        let attachments = attachments.map { attachment -> LocalAttachment in
+            var attachment = attachment
+            attachment.ref = HomeAttachmentPolicy.normalized(attachment.ref)
+            return attachment
+        }
         var parts = attachments.map { MessagePart.attachment($0.ref) }
         if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(.text(text)) }
         guard !parts.isEmpty else { throw HomeRejection.invalid("empty_message") }
@@ -325,10 +333,14 @@ public final class HomeStore {
     /// A local file holding the variant's bytes: this client's own copy when
     /// it has one, else the source's (which caches). The source needs the
     /// message part that references the hash; this finds it in the loaded
-    /// transcripts (newest first). Idempotent and cancel-safe.
-    public func fetchAttachment(_ ref: AttachmentRef, variant: AttachmentVariant) async throws -> URL {
+    /// transcript of `conversation` (newest first), the conversation of the
+    /// row that shows it. Idempotent and cancel-safe.
+    public func fetchAttachment(_ ref: AttachmentRef, variant: AttachmentVariant,
+                                in conversation: ConversationID) async throws -> URL {
         if let local = try await localAttachment(ref, variant: variant) { return local }
-        guard let location = location(of: ref.hash) else { throw HomeRejection.invalid("attachment_not_loaded") }
+        guard let location = location(of: ref.hash, in: conversation) else {
+            throw HomeRejection.invalid("attachment_not_loaded")
+        }
         return try await source.fetch(ref, at: location, variant: variant)
     }
 
@@ -369,20 +381,20 @@ public final class HomeStore {
         }
     }
 
-    /// The newest committed message part that references `hash` (as the
-    /// bytes or as a video's poster).
-    func location(of hash: String) -> AttachmentLocation? {
-        for (conversation, window) in mirror.windows {
-            for message in window.messages.reversed() where !message.isRetracted {
-                for (index, part) in message.parts.enumerated() {
-                    guard case .attachment(let ref) = part, ref.hash == hash || ref.posterHash == hash else { continue }
-                    return AttachmentLocation(conversation: conversation, message: message.id, partIndex: index)
-                }
+    /// The newest committed message part in `conversation` that references
+    /// `hash` (as the bytes or as a video's poster).
+    func location(of hash: String, in conversation: ConversationID) -> AttachmentLocation? {
+        guard let window = mirror.windows[conversation] else { return nil }
+        for message in window.messages.reversed() where !message.isRetracted {
+            for (index, part) in message.parts.enumerated() {
+                guard case .attachment(let ref) = part, ref.hash == hash || ref.posterHash == hash else { continue }
+                return AttachmentLocation(conversation: conversation, message: message.id, partIndex: index)
             }
         }
         return nil
     }
 
+    @concurrent
     private nonisolated static func localThumbnail(_ files: LocalAttachmentFiles, ref: AttachmentRef,
                                                    maxPixel: Int) async throws -> URL {
         try AttachmentMedia.localThumbnail(of: files, ref: ref, maxPixel: maxPixel)
@@ -637,6 +649,7 @@ public final class HomeStore {
     /// `maxAge`, then the least recently used ones not in `keep` while the
     /// cache is over `maxBytes`. "Used" is the directory's modification
     /// date, which a local fetch refreshes.
+    @concurrent
     public nonisolated static func pruneBlobCache(at root: URL, keeping keep: Set<String>, now: Date,
                                                   maxAge: TimeInterval, maxBytes: Int, tempsBefore: Date) async {
         let fm = FileManager.default

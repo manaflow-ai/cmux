@@ -40,6 +40,74 @@ public enum HomeAttachmentPolicy {
         "text/x-markdown": "text/markdown", "application/x-zip-compressed": "application/zip",
     ]
 
+    /// A file name: at most this many characters (Unicode scalars, as the
+    /// owner counts them).
+    public static let maxNameCharacters = 255
+    /// Valid `width` and `height` of a part; other values are left out.
+    public static let dimensionRange = 1...100_000
+    /// Valid `duration_ms` of a part (24 hours); other values are left out.
+    public static let durationRange = 0...86_400_000
+
+    /// Extensions the owner refuses whatever the declared type (executables,
+    /// installers, scripts, active documents).
+    static let deniedExtensions: Set<String> = [
+        "exe", "dll", "msi", "msp", "msix", "appx", "bat", "cmd", "com", "scr", "pif", "cpl", "msc", "hta", "gadget", "lnk",
+        "reg", "inf", "ps1", "psm1", "vbs", "vbe", "js", "jse", "mjs", "cjs", "wsf", "wsh", "jar", "class",
+        "app", "dmg", "pkg", "mpkg", "command", "workflow", "action", "scpt", "applescript", "terminal", "tool", "kext", "dylib",
+        "so", "sh", "bash", "zsh", "csh", "fish", "ksh", "run", "bin", "elf", "apk", "aab", "ipa", "deb", "rpm", "appimage",
+        "snap", "flatpak", "html", "htm", "xhtml", "shtml", "svg", "svgz", "xml", "xsl", "mht", "mhtml", "webloc", "url",
+        "desktop", "iso", "img", "vhd", "vhdx",
+    ]
+
+    /// Characters a name may not hold: control characters, the line and
+    /// paragraph separators, and path separators.
+    private static func isForbidden(_ scalar: Unicode.Scalar) -> Bool {
+        scalar.properties.generalCategory == .control || scalar == "\u{2028}" || scalar == "\u{2029}"
+            || scalar == "/" || scalar == "\\"
+    }
+
+    /// The owner's name rule: 1 to 255 characters, none forbidden, not
+    /// blank, `.` or `..`.
+    public static func isValidName(_ name: String) -> Bool {
+        let count = name.unicodeScalars.count
+        return count > 0 && count <= maxNameCharacters && !name.unicodeScalars.contains(where: isForbidden)
+            && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && name != "." && name != ".."
+    }
+
+    /// True when the owner refuses the name's extension.
+    public static func isDeniedName(_ name: String) -> Bool {
+        guard let dot = name.lastIndex(of: ".") else { return false }
+        return deniedExtensions.contains(name[name.index(after: dot)...].lowercased())
+    }
+
+    /// A file's own name made valid: forbidden characters become `_`, a
+    /// name over 255 characters is cut before its extension, and a blank
+    /// name becomes `attachment`.
+    public static func sendableName(_ name: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        for scalar in name.unicodeScalars { scalars.append(isForbidden(scalar) ? "_" : scalar) }
+        var cleaned = String(scalars)
+        if cleaned.unicodeScalars.count > maxNameCharacters {
+            let ext = (cleaned as NSString).pathExtension
+            let suffix = ext.isEmpty || ext.unicodeScalars.count >= maxNameCharacters - 1 ? "" : "." + ext
+            let base = suffix.isEmpty ? cleaned : String(cleaned.dropLast(suffix.count))
+            let keep = maxNameCharacters - suffix.unicodeScalars.count
+            cleaned = String(String.UnicodeScalarView(base.unicodeScalars.prefix(keep))) + suffix
+        }
+        return isValidName(cleaned) ? cleaned : "attachment"
+    }
+
+    /// The ref as the owner accepts it: the canonical mime type, and no
+    /// width, height or duration outside the owner's ranges.
+    public static func normalized(_ ref: AttachmentRef) -> AttachmentRef {
+        var ref = ref
+        ref.mimeType = canonicalMimeType(ref.mimeType)
+        if let width = ref.width, !dimensionRange.contains(width) { ref.width = nil }
+        if let height = ref.height, !dimensionRange.contains(height) { ref.height = nil }
+        if let duration = ref.durationMs, !durationRange.contains(duration) { ref.durationMs = nil }
+        return ref
+    }
+
     /// The owner's spelling of a mime type (lowercased, aliases folded).
     public static func canonicalMimeType(_ mimeType: String) -> String {
         let lower = mimeType.lowercased()
@@ -48,7 +116,8 @@ public enum HomeAttachmentPolicy {
 
     /// Throws `HomeAttachmentError` when the owner would refuse the file.
     public static func check(mimeType: String, byteCount: Int, name: String) throws {
-        guard allowedTypes[canonicalMimeType(mimeType)] != nil else {
+        guard isValidName(name) else { throw HomeAttachmentError.invalidName(name: name) }
+        guard allowedTypes[canonicalMimeType(mimeType)] != nil, !isDeniedName(name) else {
             throw HomeAttachmentError.typeRefused(mimeType: mimeType, name: name)
         }
         guard byteCount <= maxBytes else { throw HomeAttachmentError.tooLarge(byteCount: byteCount, limit: maxBytes) }
@@ -59,8 +128,12 @@ public enum HomeAttachmentPolicy {
 /// Why the client refused an attachment before uploading it.
 public enum HomeAttachmentError: Error, Hashable, Sendable {
     /// Not on the allow list (images, PDF, plain text, Markdown, CSV, JSON,
-    /// ZIP, MP4, MOV, M4A, MP3, AAC, WAV).
+    /// ZIP, MP4, MOV, M4A, MP3, AAC, WAV), or an extension the owner refuses
+    /// (scripts, executables, HTML, SVG).
     case typeRefused(mimeType: String, name: String)
+    /// Over 255 characters, blank, `.` or `..`, or holding a control
+    /// character or a path separator.
+    case invalidName(name: String)
     /// Over `HomeAttachmentPolicy.maxBytes`.
     case tooLarge(byteCount: Int, limit: Int)
     /// A file with no bytes.

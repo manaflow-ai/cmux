@@ -102,7 +102,11 @@ public struct AttachmentRef: Hashable, Sendable, Codable {
         self.poster = poster
     }
 
-    /// The owner's wire part keys (snake_case); absent optionals are omitted.
+    /// The owner's attachment part fields (snake_case); absent optionals are
+    /// omitted. This is the ref's own body only: `MessagePart` uses
+    /// synthesized Codable, which wraps it as `{"attachment":{"_0":{...}}}`,
+    /// not the owner's `{"type":"attachment",...}`. A cloud source maps parts
+    /// to and from the owner's shape itself.
     enum CodingKeys: String, CodingKey {
         case hash, name, width, height, poster
         case mimeType = "mime_type"

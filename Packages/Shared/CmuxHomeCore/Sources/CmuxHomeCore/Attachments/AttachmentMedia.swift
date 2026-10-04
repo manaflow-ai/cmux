@@ -37,8 +37,11 @@ enum AttachmentMedia {
         return root.appendingPathComponent(hash, isDirectory: true).appendingPathComponent(name)
     }
 
-    /// Hashes and copies a file into the cache in one streamed pass.
-    static func ingest(fileURL: URL, root: URL) throws -> (hash: String, url: URL, byteCount: Int) {
+    /// Hashes and copies a file into the cache in one streamed pass. Stops
+    /// one byte past `maxBytes` (the file grew after its size was read) and
+    /// throws `tooLarge`, leaving nothing in the cache.
+    static func ingest(fileURL: URL, root: URL,
+                       maxBytes: Int = HomeAttachmentPolicy.maxBytes) throws -> (hash: String, url: URL, byteCount: Int) {
         let fm = FileManager.default
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         let temp = root.appendingPathComponent(".incoming-\(UUID().uuidString)")
@@ -51,11 +54,12 @@ enum AttachmentMedia {
         var hasher = SHA256()
         var count = 0
         do {
-            while let chunk = try input.read(upToCount: chunkSize), !chunk.isEmpty {
+            while let chunk = try input.read(upToCount: min(chunkSize, maxBytes + 1 - count)), !chunk.isEmpty {
                 try Task.checkCancellation()
                 hasher.update(data: chunk)
                 try output.write(contentsOf: chunk)
                 count += chunk.count
+                if count > maxBytes { throw HomeAttachmentError.tooLarge(byteCount: count, limit: maxBytes) }
             }
             try output.close()
         } catch {
@@ -187,6 +191,7 @@ enum AttachmentMedia {
 
     /// Duration, display size (preferred transform applied) and the first
     /// frame as a poster. Audio-only files get a duration only.
+    @concurrent
     static func inspectMovie(_ url: URL, posterMaxPixel: Int = 1280) async throws -> Movie {
         let asset = AVURLAsset(url: url)
         var movie = Movie()
@@ -218,24 +223,29 @@ enum AttachmentMedia {
         return HomeAttachmentPolicy.canonicalMimeType(mimeType(for: UTType(filenameExtension: ext)))
     }
 
-    /// Checks the policy, then copies the bytes into the cache and fills the ref.
+    /// Checks the policy, then copies the bytes into the cache and fills the
+    /// ref. Opens a security-scoped URL (the iOS file importer's) for the
+    /// copy. `@concurrent`: hashing 100 MB never runs on the caller's actor.
+    @concurrent
     static func prepare(fileURL: URL, root: URL) async throws -> LocalAttachment {
-        let name = fileURL.lastPathComponent
+        let scoped = fileURL.startAccessingSecurityScopedResource()
+        defer { if scoped { fileURL.stopAccessingSecurityScopedResource() } }
+        let name = HomeAttachmentPolicy.sendableName(fileURL.lastPathComponent)
         if let converted = try convertedImage({ CGImageSourceCreateWithURL(fileURL as CFURL, nil) },
                                               type: UTType(filenameExtension: fileURL.pathExtension.lowercased())) {
             let base = fileURL.deletingPathExtension().lastPathComponent
             return try await prepare(data: converted.data, typeIdentifier: converted.type.identifier, root: root,
-                                     name: "\(base).\(converted.fileExtension)")
+                                     name: HomeAttachmentPolicy.sendableName("\(base).\(converted.fileExtension)"))
         }
         let mime = mimeType(forExtension: fileURL.pathExtension)
         let size = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         try HomeAttachmentPolicy.check(mimeType: mime, byteCount: size, name: name)
         let (hash, cached, byteCount) = try ingest(fileURL: fileURL, root: root)
-        try HomeAttachmentPolicy.check(mimeType: mime, byteCount: byteCount, name: name) // the file may have grown
         return try await describe(cached: cached, hash: hash, byteCount: byteCount, name: name, mimeType: mime, root: root)
     }
 
     /// `name` defaults to `attachment.<ext>`.
+    @concurrent
     static func prepare(data: Data, typeIdentifier: String, root: URL, name: String? = nil) async throws -> LocalAttachment {
         let type = UTType(typeIdentifier)
         if let converted = try convertedImage({ CGImageSourceCreateWithData(data as CFData, nil) }, type: type) {
@@ -249,7 +259,7 @@ enum AttachmentMedia {
         let mime = HomeAttachmentPolicy.allowedTypes[typeMime] != nil || fileExtension.isEmpty
             ? typeMime
             : mimeType(forExtension: fileExtension)
-        let name = name ?? (fileExtension.isEmpty ? "attachment" : "attachment.\(fileExtension)")
+        let name = HomeAttachmentPolicy.sendableName(name ?? (fileExtension.isEmpty ? "attachment" : "attachment.\(fileExtension)"))
         try HomeAttachmentPolicy.check(mimeType: mime, byteCount: data.count, name: name)
         let (hash, cached) = try ingest(data: data, fileExtension: fileExtension, root: root)
         return try await describe(cached: cached, hash: hash, byteCount: data.count, name: name, mimeType: mime, root: root)
@@ -276,7 +286,7 @@ enum AttachmentMedia {
                 posterURL = url
             }
         }
-        return LocalAttachment(ref: ref, fileURL: cached, posterURL: posterURL)
+        return LocalAttachment(ref: HomeAttachmentPolicy.normalized(ref), fileURL: cached, posterURL: posterURL)
     }
 
     /// A cached thumbnail next to the blob (`thumb-<maxPixel>.jpg`).
