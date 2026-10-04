@@ -288,6 +288,7 @@ impl Mux {
 
     /// Spawn options and cell size for a new terminal: the owner's options
     /// with `cwd`, `command` and `env` applied, sized to the latest client.
+    /// Every terminal spawn that takes a caller `env` comes through here.
     pub(super) fn terminal_spawn_options(
         &self,
         cwd: Option<String>,
@@ -302,7 +303,18 @@ impl Mux {
         if command.is_some() {
             opts.command = command;
         }
-        opts.extra_env.extend(env.iter().cloned());
+        // The daemon owns some keys (its socket, the terminal identity, the
+        // hook helper...): a caller value for one of them is dropped, so the
+        // daemon value always wins. The warning names the key, never the value.
+        let dropped = crate::daemon_env::merge_caller_env(&mut opts.extra_env, env);
+        crate::daemon_env::warn_dropped(&dropped);
+        // After the merge: a caller PATH (the app's login-shell PATH) may
+        // replace the daemon PATH, but the `claude` shim directory stays first
+        // on it, so `claude` still starts with the session's agent hooks.
+        crate::daemon_env::keep_shim_first_on_path(
+            &mut opts.extra_env,
+            opts.claude_shim_dir.as_deref(),
+        );
         // Spawn at the latest client-owned size: starting at the default
         // 80x24 and resizing a frame later makes shells emit artifacts
         // (e.g. zsh's reverse-video %% partial-line marker).
