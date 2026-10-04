@@ -15,7 +15,7 @@
 //!   before, with no error.
 //! - Memory pressure (macOS) drops the spare.
 
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 use crate::terminal_host_runtime::StandbyTerminalHost;
 
@@ -25,6 +25,8 @@ struct StandbyState {
     wanted: bool,
     /// A refill job is queued or running.
     refilling: bool,
+    /// Memory pressure is warning or critical: keep no spare until normal.
+    suppressed: bool,
     host: Option<StandbyTerminalHost>,
 }
 
@@ -45,6 +47,12 @@ impl Default for StandbyHostSlot {
 }
 
 impl StandbyHostSlot {
+    /// The state; a poisoned lock still yields it (the memory-pressure
+    /// handler runs in a C callback, where a panic would abort the daemon).
+    fn state(&self) -> MutexGuard<'_, StandbyState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     pub(crate) fn with_spawner(spawn: fn() -> anyhow::Result<StandbyTerminalHost>) -> Self {
         Self {
             state: Mutex::default(),
@@ -59,7 +67,7 @@ impl StandbyHostSlot {
     /// before, with no error.
     pub(crate) fn take(&self) -> Option<StandbyTerminalHost> {
         let mut host = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state();
             state.wanted = true;
             state.host.take()?
         };
@@ -68,8 +76,8 @@ impl StandbyHostSlot {
 
     /// Whether a refill should start now; marks it started.
     fn begin_refill(&self) -> bool {
-        let mut state = self.state.lock().unwrap();
-        if !state.wanted || state.refilling || state.host.is_some() {
+        let mut state = self.state();
+        if !state.wanted || state.suppressed || state.refilling || state.host.is_some() {
             return false;
         }
         state.refilling = true;
@@ -80,9 +88,9 @@ impl StandbyHostSlot {
     /// (dropped meanwhile, or the slot filled) is killed as it drops.
     fn finish_refill(&self, spawned: Option<StandbyTerminalHost>) {
         let unused = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state();
             state.refilling = false;
-            if state.wanted && state.host.is_none() {
+            if state.wanted && !state.suppressed && state.host.is_none() {
                 state.host = spawned;
                 None
             } else {
@@ -92,20 +100,27 @@ impl StandbyHostSlot {
         drop(unused);
     }
 
-    /// Drops the spare (memory pressure); the next new tab refills it.
-    pub(crate) fn drop_spare(&self) {
-        let host = self.state.lock().unwrap().host.take();
+    /// Memory pressure changed: under warning or critical pressure the spare
+    /// is dropped and no new one starts; back to normal, the next new tab
+    /// refills it.
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn set_memory_pressure(&self, pressured: bool) {
+        let host = {
+            let mut state = self.state();
+            state.suppressed = pressured;
+            if pressured { state.host.take() } else { None }
+        };
         drop(host);
     }
 
     #[cfg(test)]
     pub(crate) fn has_spare(&self) -> bool {
-        self.state.lock().unwrap().host.is_some()
+        self.state().host.is_some()
     }
 
     #[cfg(test)]
     pub(crate) fn finish_refill_for_test(&self, host: StandbyTerminalHost) {
-        self.state.lock().unwrap().refilling = true;
+        self.state().refilling = true;
         self.finish_refill(Some(host));
     }
 
@@ -129,13 +144,14 @@ impl StandbyHostSlot {
             // A saturated pool: skip this refill rather than start a process
             // inline on the caller's thread; the next new tab tries again.
             drop(job);
-            self.state.lock().unwrap().refilling = false;
+            self.state().refilling = false;
         }
     }
 }
 
-/// Memory pressure through libdispatch (macOS): a warning or critical event
-/// drops the spare. Event-driven; no thread or timer of our own.
+/// Memory pressure through libdispatch (macOS): warning or critical drops the
+/// spare and stops refills until pressure is normal again. Event-driven; no
+/// thread or timer of our own.
 #[cfg(target_os = "macos")]
 mod memory_pressure {
     use std::ffi::c_void;
@@ -145,6 +161,7 @@ mod memory_pressure {
 
     #[allow(non_camel_case_types)]
     type dispatch_object_t = *mut c_void;
+    const DISPATCH_MEMORYPRESSURE_NORMAL: usize = 0x01;
     const DISPATCH_MEMORYPRESSURE_WARN: usize = 0x02;
     const DISPATCH_MEMORYPRESSURE_CRITICAL: usize = 0x04;
 
@@ -163,14 +180,22 @@ mod memory_pressure {
             handler: extern "C" fn(*mut c_void),
         );
         fn dispatch_resume(object: dispatch_object_t);
+        fn dispatch_source_get_data(source: dispatch_object_t) -> usize;
+    }
+
+    /// The source, for reading the pressure level in the handler.
+    struct Watch {
+        slot: Weak<StandbyHostSlot>,
+        source: dispatch_object_t,
     }
 
     extern "C" fn on_pressure(context: *mut c_void) {
-        // SAFETY: the context is the leaked `Weak` set in `watch`, alive for
-        // the source's lifetime (the process).
-        let slot = unsafe { &*(context as *const Weak<StandbyHostSlot>) };
-        if let Some(slot) = slot.upgrade() {
-            slot.drop_spare();
+        // SAFETY: the context is the leaked `Watch` set in `watch`, alive for
+        // the source's lifetime (the process); its source is that source.
+        let watch = unsafe { &*(context as *const Watch) };
+        let level = unsafe { dispatch_source_get_data(watch.source) };
+        if let Some(slot) = watch.slot.upgrade() {
+            slot.set_memory_pressure(level & DISPATCH_MEMORYPRESSURE_NORMAL == 0);
         }
     }
 
@@ -183,13 +208,15 @@ mod memory_pressure {
             let source = dispatch_source_create(
                 &raw const _dispatch_source_type_memorypressure,
                 0,
-                DISPATCH_MEMORYPRESSURE_WARN | DISPATCH_MEMORYPRESSURE_CRITICAL,
+                DISPATCH_MEMORYPRESSURE_NORMAL
+                    | DISPATCH_MEMORYPRESSURE_WARN
+                    | DISPATCH_MEMORYPRESSURE_CRITICAL,
                 queue,
             );
             if source.is_null() {
                 return;
             }
-            dispatch_set_context(source, Box::into_raw(Box::new(slot)).cast());
+            dispatch_set_context(source, Box::into_raw(Box::new(Watch { slot, source })).cast());
             dispatch_source_set_event_handler_f(source, on_pressure);
             dispatch_resume(source);
         }

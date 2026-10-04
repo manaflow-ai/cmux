@@ -204,14 +204,24 @@ impl Mux {
             // The spare host process, when one is ready (R81); the next one
             // starts in the background after this launch.
             let standby = self.terminal_work.standby.take();
-            let launched = Surface::prelaunch_hosted(
-                self.next_id(),
-                launch_opts.clone(),
-                Arc::downgrade(self),
-                terminal_id,
-                cell_pixels,
-                standby,
-            );
+            let used_spare = standby.is_some();
+            let launch = |standby| {
+                Surface::prelaunch_hosted(
+                    self.next_id(),
+                    launch_opts.clone(),
+                    Arc::downgrade(self),
+                    terminal_id,
+                    cell_pixels,
+                    standby,
+                )
+            };
+            let mut launched = launch(standby);
+            // A spare that died after its liveness check fails before
+            // bootstrap: launch on a fresh process, so the tab never fails
+            // or slows down because of the spare.
+            if launched.is_err() && used_spare {
+                launched = launch(None);
+            }
             self.terminal_work.standby.refill(&self.terminal_work);
             let mut host = launched?;
             debug_assert!(host.terminal_id() == terminal_id);

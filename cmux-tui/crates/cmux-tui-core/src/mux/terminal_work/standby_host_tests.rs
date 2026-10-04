@@ -99,7 +99,7 @@ fn a_spare_killed_before_adoption_falls_back_with_no_error() {
 }
 
 #[test]
-fn memory_pressure_drops_the_spare_and_kills_it() {
+fn memory_pressure_drops_the_spare_kills_it_and_stops_refills_until_normal() {
     let (slot, pool) = (slot(), TerminalWorkPool::default());
     let _ = slot.take();
     slot.refill(&pool);
@@ -110,7 +110,13 @@ fn memory_pressure_drops_the_spare_and_kills_it() {
         slot.finish_refill_for_test(spare);
         pid
     };
-    slot.drop_spare();
+    slot.set_memory_pressure(true);
     assert!(!slot.has_spare());
     assert!(wait_gone(pid), "a dropped spare process is killed");
+    slot.refill(&pool);
+    std::thread::sleep(Duration::from_millis(50));
+    assert!(!slot.has_spare(), "no refill under pressure");
+    slot.set_memory_pressure(false);
+    slot.refill(&pool);
+    assert!(wait_for_spare(&slot), "back to normal, the next new tab refills");
 }

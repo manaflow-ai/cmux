@@ -4,7 +4,6 @@
 //! adoption leaves the next tab launching as before, with no error.
 
 use super::super::*;
-use super::wait_for_process_and_group_absent;
 
 /// Host processes the daemon started (`__terminal-host`), by pid.
 fn daemon_host_pids(daemon: libc::pid_t) -> std::collections::BTreeSet<u32> {
@@ -79,20 +78,43 @@ fn the_second_new_tab_adopts_the_spare_host_with_its_own_environment() {
 
     let (first, _) = new_tab(&harness, 3, pane, "first");
     assert!(wait_for_screen(&harness.socket, first, "R81=[first]").contains("R81=[first]"));
-    let spare = wait_for_spare(&harness, daemon);
+    // The refill stores the spare in the slot just after its process starts,
+    // so a tab can race it on a loaded runner: allow three tabs to adopt one.
+    let mut adopted = false;
+    for (index, value) in ["second", "third", "fourth"].into_iter().enumerate() {
+        let spare = wait_for_spare(&harness, daemon);
+        std::thread::sleep(Duration::from_millis(100)); // harness: the slot takes the spare
+        let (surface, terminal) = new_tab(&harness, 4 + index as u64, pane, value);
+        let marker = format!("R81=[{value}]");
+        let screen = wait_for_screen(&harness.socket, surface, &marker);
+        assert!(screen.contains(&marker), "{screen}");
+        assert!(
+            !screen.contains("first"),
+            "a spare must not carry a previous tab's environment: {screen}"
+        );
+        if host_pid_of(&harness, &terminal) == spare {
+            adopted = true;
+            break;
+        }
+    }
+    assert!(adopted, "a new tab adopted the spare host process");
+}
 
-    let (second, terminal) = new_tab(&harness, 4, pane, "second");
-    let screen = wait_for_screen(&harness.socket, second, "R81=[second]");
-    assert!(screen.contains("R81=[second]"), "{screen}");
-    assert!(
-        !screen.contains("first"),
-        "the spare must not carry a previous tab's environment: {screen}"
-    );
-    assert_eq!(
-        host_pid_of(&harness, &terminal),
-        spare,
-        "the second tab's host is the spare process"
-    );
+/// A killed spare is a zombie (or gone once reaped).
+fn wait_for_dead_or_gone(pid: u32) {
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let state = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .expect("run ps");
+        let state = String::from_utf8_lossy(&state.stdout).trim().to_string();
+        if state.is_empty() || state.starts_with('Z') {
+            return;
+        }
+        assert!(Instant::now() < deadline, "killed spare {pid} is still running ({state})");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 #[test]
@@ -108,7 +130,9 @@ fn a_spare_killed_before_adoption_leaves_the_next_tab_launching_as_before() {
     let spare = wait_for_spare(&harness, daemon);
     // SAFETY: SIGKILL to the spare host process this daemon started.
     unsafe { libc::kill(spare as libc::pid_t, libc::SIGKILL) };
-    wait_for_process_and_group_absent(spare as libc::pid_t);
+    // The daemon reaps the spare only when the next tab looks at it, so it
+    // stays a zombie until then: wait for "dead", not "absent".
+    wait_for_dead_or_gone(spare);
 
     let (second, terminal) = new_tab(&harness, 4, pane, "second");
     let screen = wait_for_screen(&harness.socket, second, "R81=[second]");
