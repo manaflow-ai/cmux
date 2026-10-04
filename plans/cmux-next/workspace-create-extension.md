@@ -138,11 +138,17 @@ win. The set, from the daemon source at 1e1d1bf68b9:
 | `AGENT_BROWSER_PLUGINS` | `cmux-tui/src/agent_browser_provider.rs:46` | agent-browser plugin list |
 | `AGENT_BROWSER_SESSION` | `cmux-tui-core/src/surface.rs:6077` | per-terminal agent-browser session |
 | `CMUX_TUI_CLAUDE_WRAPPER_ACTIVE` | `cmux-tui/src/claude_wrapper.rs:33,67` | claude shim marker; a caller value disables hook injection |
-| `GHOSTTY_ZSH_ZDOTDIR` | `cmux-tui-core/src/shell_integration.rs:128` | shell integration (zsh) |
-| `GHOSTTY_BASH_ENV` | `cmux-tui-core/src/shell_integration.rs:143` | shell integration (bash) |
-| `GHOSTTY_BASH_INJECT` | `cmux-tui-core/src/shell_integration.rs:146` | shell integration (bash) |
-| `GHOSTTY_BASH_UNEXPORT_HISTFILE` | `cmux-tui-core/src/shell_integration.rs:153` | shell integration (bash) |
-| `GHOSTTY_SHELL_INTEGRATION_XDG_DIR` | `cmux-tui-core/src/shell_integration.rs:160` | shell integration (fish) |
+
+Integration-owned keys (not refused): `GHOSTTY_ZSH_ZDOTDIR`, `GHOSTTY_BASH_ENV`,
+`GHOSTTY_BASH_INJECT`, `GHOSTTY_BASH_UNEXPORT_HISTFILE`, `GHOSTTY_SHELL_INTEGRATION_XDG_DIR`
+(`cmux-tui-core/src/shell_integration.rs:128-160`). They belong to whoever integrates the shell.
+When the daemon integrates the default shell itself, it drops a caller value for each of them.
+When the caller gives the program (an explicit `SHELL` argv), the caller's values reach the shell
+unchanged. Reason: the app resolves Ghostty's shell integration itself under
+`terminal-frontend-shell-integration-v1` and sends these keys with an explicit `SHELL` argv
+(`CmuxNextDaemon/Launch/GhosttyShellIntegration.swift`), so a refusal would break every app
+workspace create. They give a caller no power beyond the argv, `ZDOTDIR` and `ENV` it already
+chooses. Both sets are constants in `cmux-tui-core/src/daemon_env.rs`.
 
 Keys that are NOT in the set, and why:
 
@@ -253,7 +259,8 @@ key, the terminal id and the env key count.
 5. R3: journal export, launch snapshot and diagnostics bundle contain no env value; the registry
    file is mode 0600.
 6. R4: each key of the daemon-owned set in `env` is `validation.invalid` naming the key and not
-   the value; a caller `PATH` keeps the shim directory first.
+   the value; a caller `PATH` keeps the shim directory first; an integration-owned key with an
+   explicit `SHELL` argv is accepted and reaches the shell unchanged.
 7. R5: a page request with `argv`, `env`, `cwd` or `keep` is `origin.forbidden`; a page default
    create without a gesture token is `origin.forbidden`; with one it succeeds once and a reuse of
    the token is refused; an app without `workspace:execute` cannot send `argv`.
