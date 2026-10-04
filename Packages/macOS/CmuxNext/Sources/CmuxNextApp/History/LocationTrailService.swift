@@ -4,6 +4,7 @@ import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 import Observation
@@ -58,7 +59,26 @@ final class LocationTrailService {
         }
     }
 
-    deinit { observation?.cancel() }
+    deinit {
+        observation?.cancel()
+        scopeObservation?.cancel()
+    }
+
+    private var scopeObservation: Task<Void, Never>?
+
+    /// Tells the observers when `navigation.historyScope` changes, so the titlebar buttons re-read
+    /// ``canNavigate(_:)`` with no trail change. Event driven (observation of the settings snapshot).
+    func watchScope(settings: SettingsController) {
+        scopeObservation?.cancel()
+        scopeObservation = Task { [weak self] in
+            var last: String?
+            for await scope in Observations({ settings.snapshot.navigationHistoryScope }) {
+                defer { last = scope }
+                guard let last, last != scope else { continue }
+                self?.notify()
+            }
+        }
+    }
 
     // MARK: Recording
 
