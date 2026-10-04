@@ -87,6 +87,18 @@ pub(super) enum Principal {
     Remote(LinkPeer),
 }
 
+impl Principal {
+    /// The participant id: `user_local`, the bound agent, or
+    /// `remote_<install>`.
+    pub(super) fn participant(self) -> String {
+        match self {
+            Self::Local => crate::conversation_store::LOCAL_USER.to_string(),
+            Self::Agent(participant) => participant,
+            Self::Remote(peer) => remote_participant(&peer.install),
+        }
+    }
+}
+
 impl super::ClientRegistry {
     /// The transport of a registered client, or `None` for an id the
     /// registry does not list (never registered, or already disconnected).
@@ -185,12 +197,7 @@ impl Mux {
     /// not trusted local) gets [`NO_PRINCIPAL`], which names no participant,
     /// so it fails closed and never falls back to `user_local`.
     pub(crate) fn conversation_principal(&self, client: u64) -> String {
-        match self.principal(client) {
-            Some(Principal::Local) => crate::conversation_store::LOCAL_USER.to_string(),
-            Some(Principal::Agent(participant)) => participant,
-            Some(Principal::Remote(peer)) => remote_participant(&peer.install),
-            None => NO_PRINCIPAL.to_string(),
-        }
+        self.principal(client).map_or_else(|| NO_PRINCIPAL.to_string(), Principal::participant)
     }
 
     /// Install the pairing records (`cmux server pair`) the owner scope
