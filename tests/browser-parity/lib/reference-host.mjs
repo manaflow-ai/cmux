@@ -549,6 +549,10 @@ export function createReferenceHost(ns, { host, driver }) {
   const vmCalls = [];
   async function hostedCall(method, params = {}) {
     vmCalls.push({ method, params: JSON.parse(JSON.stringify(params)) });
+    if (method === "input.insertText" && params && typeof params.secret === "string") {
+      const { secret, ...rest } = params;
+      params = { ...rest, text: { __secret: secret } };
+    }
     try {
       await rulesSync;
       if (method === "frame.evaluate" && params.world === "host") throw Object.assign(new Error("frame.evaluate: the host world is the host's"), { code: "forbidden" });
@@ -625,7 +629,9 @@ export function createReferenceHost(ns, { host, driver }) {
     name: driver.name,
     call: hostedCall,
     on: (event, handler) => driver.on(event, (payload) => handler(maskValue(payload))),
-    capabilities: () => (driver.capabilities ? driver.capabilities() : []),
+    // secret.insert: this host types a secret from input.insertText
+    // { secret: name } (main's shape), so agent code never holds a handle.
+    capabilities: () => [...(driver.capabilities ? driver.capabilities() : []), "secret.insert"],
     detach: () => (driver.detach ? driver.detach() : undefined),
   });
 
