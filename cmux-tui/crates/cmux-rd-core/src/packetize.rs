@@ -1,7 +1,7 @@
 //! Splits one encoded frame into `cmux.rd/1` datagrams: data shards sized to
 //! the session's `max_datagram`, then parity shards of the same size.
 
-use cmux_rd_proto::{DatagramHeader, DatagramKind, FrameBody, HEADER_LEN};
+use cmux_rd_proto::{DatagramHeader, DatagramKind, FrameBody, HEADER_LEN, MAX_FRAME_SHARDS};
 
 use crate::fec::{self, FecError, MAX_SHARDS};
 
@@ -27,7 +27,7 @@ pub struct PacketizedFrame {
 /// Why a frame cannot be packetized.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PacketizeError {
-    /// The frame needs more than 255 shards at this datagram size.
+    /// The frame needs more than `MAX_FRAME_SHARDS` shards at this datagram size.
     FrameTooLarge,
     Fec(FecError),
 }
@@ -63,9 +63,12 @@ impl Packetizer {
         let bytes = body.encode();
         let shard_len = self.shard_len();
         let data_shards = bytes.len().div_ceil(shard_len).max(1);
-        if data_shards + parity > MAX_SHARDS {
+        if data_shards > MAX_FRAME_SHARDS as usize {
             return Err(PacketizeError::FrameTooLarge);
         }
+        // A frame larger than one FEC block (a big keyframe) goes without parity; NACKs
+        // and recovery cover its losses.
+        let parity = if data_shards + parity > MAX_SHARDS { 0 } else { parity };
         let mut shards: Vec<Vec<u8>> = bytes.chunks(shard_len).map(<[u8]>::to_vec).collect();
         if shards.is_empty() {
             shards.push(Vec::new());

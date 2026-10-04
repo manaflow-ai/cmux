@@ -52,6 +52,9 @@ export type Body = {
 } | {
   readonly type: "steps"
   readonly steps: ReadonlyArray<Step>
+} | {
+  readonly type: "code"
+  readonly ref: CodeRef
 }
 
 export type Budget = {
@@ -61,8 +64,18 @@ export type Budget = {
   readonly tool_calls?: number
 }
 
+export type ChiefId = string
+
 /** 1 to 128 printable ASCII characters (idempotency key, client_msg_id). */
 export type ClientToken = string
+
+export type CodeRef = {
+  readonly commit: CommitSha
+  readonly path: string
+  readonly export?: string
+}
+
+export type CommitSha = string
 
 export type Concurrency = {
   readonly max: number
@@ -279,14 +292,17 @@ export type Grant = {
 export type GrantId = string
 
 export type HomeChief = {
-  readonly agent: AgentId
+  readonly id: ChiefId
   readonly owner_user: string
-  readonly name: string
-  readonly avatar?: string
-  readonly parent?: AgentId
-  readonly brain: "local" | "cloud"
-  readonly thread: ConversationId
-  readonly archived_at?: Timestamp
+  readonly display_name: string
+  readonly is_default: boolean
+  readonly brain: "cloud"
+  readonly main_conversation: ConversationId | null
+  readonly harness: string | null
+  readonly rev: number | "Infinity" | "-Infinity" | "NaN"
+  readonly created_at: Timestamp
+  readonly updated_at: Timestamp
+  readonly archived_at: Timestamp | null
 }
 
 /** rev after the op; seq and message_id for a new message; change is the committed Change. */
@@ -476,6 +492,7 @@ export type Install = {
   readonly created_at: number
   readonly revoked_at: number | null
   readonly bound_team?: TeamId
+  readonly sso_team?: TeamId
 }
 
 /** One app, CLI or daemon install with its own keypair. */
@@ -496,6 +513,8 @@ export type ManagedDevice = {
 }
 
 export type MessageId = string
+
+export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
 
 export type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
 
@@ -593,6 +612,16 @@ export type RunId = string
 
 export type RunState = "queued" | "running" | "sleeping" | "waiting" | "succeeded" | "failed" | "cancelled" | "skipped" | "dead"
 
+/** `human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28). */
+export type SshCertClass = "human" | "agent"
+
+export type SshPresenceProof = {
+  readonly install: InstallId
+  readonly nonce: string
+  readonly signature: string
+  readonly app_attest?: string
+}
+
 export type SsoConnection = {
   readonly id: SsoConnectionId
   readonly kind: "oidc"
@@ -661,6 +690,8 @@ export type TeamIntegrationPolicy = {
   readonly updated_at: number | null
   readonly updated_by: string | null
 }
+
+export type TeamJournalStream = "tasks" | "mail" | "memory" | "files"
 
 export type TeamMember = {
   readonly user: UserId
@@ -797,6 +828,32 @@ export type TeamPolicyVersion = {
   readonly rollback_of: number | null
 }
 
+export type TeamVmError = {
+  readonly code: string
+  readonly message: string
+  readonly at: number
+}
+
+export type TeamVmLeaseId = string
+
+/** Last observed state of the team VM. `none`: never created. `failed`: the last provider call failed for good; the next ensure_awake retries. */
+export type TeamVmStatus = "none" | "provisioning" | "starting" | "running" | "paused" | "failed"
+
+export type TeamVmView = {
+  readonly team: TeamId
+  readonly status: TeamVmStatus
+  readonly vm: string | null
+  readonly epoch: number
+  readonly leases: ReadonlyArray<{
+    readonly lease: TeamVmLeaseId
+    readonly holder: string
+    readonly reason: string
+    readonly expires_at: number
+  }>
+  readonly last_error: TeamVmError | null
+  readonly updated_at: number
+}
+
 /** RFC 3339 UTC with milliseconds. */
 export type Timestamp = string
 
@@ -840,6 +897,26 @@ export type TriggerInput = {
   readonly earliest?: CronSpec
 }
 
+export type UsageMeterLine = {
+  readonly meter: Meter
+  readonly unit: string
+  readonly quantity: number | "Infinity" | "-Infinity" | "NaN"
+  readonly usd: number | "Infinity" | "-Infinity" | "NaN"
+}
+
+export type UsageStopReason = "cap.reached" | "cap.not_configured"
+
+export type UsageSummary = {
+  readonly owner: TeamId | null
+  readonly month: string
+  readonly meters: ReadonlyArray<UsageMeterLine>
+  readonly total_usd: number | "Infinity" | "-Infinity" | "NaN"
+  readonly cap_usd: number | "Infinity" | "-Infinity" | "NaN"
+  readonly ceiling_usd: number | "Infinity" | "-Infinity" | "NaN"
+  readonly team_cap_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+  readonly stopped: UsageStopReason | null
+}
+
 /** A cmux user (Stack user id kept as an external id). */
 export type UserId = string
 
@@ -879,6 +956,15 @@ export interface CloudOps {
     readonly result: {
       readonly automation: string
     }
+  }
+  /** Pin a code automation to another commit of the team's code repository (the commit must contain <path>/dist/index.js). Later runs use it; started runs keep their commit. At most 50 code changes per team per UTC day. */
+  readonly "automation.deploy": {
+    readonly params: {
+      readonly automation: AutomationId
+      readonly commit: CommitSha
+      readonly expected_version?: number
+    }
+    readonly result: Automation
   }
   /** Read one automation. */
   readonly "automation.get": {
@@ -1006,29 +1092,45 @@ export interface CloudOps {
     }
     readonly result: unknown
   }
-  /** Archive a chief: its thread stays readable, it stops waking. */
+  /** Archive a chief (not the default): it stops waking; restorable for 30 days, then a tombstone keeps its id forever. */
   readonly "chief.archive": {
     readonly params: {
-      readonly agent: AgentId
+      readonly chief: ChiefId
+      readonly expected_rev: number | "Infinity" | "-Infinity" | "NaN"
     }
     readonly result: HomeChief
   }
-  /** Create a chief (or a subchief under parent): its agent principal and mux grant, its wake queue and its chief thread. */
+  /** Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level. */
   readonly "chief.create": {
     readonly params: {
-      readonly name: string
-      readonly parent?: AgentId
-      readonly avatar?: string
-      readonly brain: "local" | "cloud"
+      readonly display_name?: string
+      readonly is_default?: boolean
     }
     readonly result: HomeChief
   }
-  /** Rename a chief or change its avatar. */
+  /** The user's chiefs (active first, the default marked), archived ones on request, and tombstones. */
+  readonly "chief.list": {
+    readonly params: {
+      readonly include_archived?: boolean
+    }
+    readonly result: {
+      readonly chiefs: ReadonlyArray<HomeChief>
+      readonly tombstones: ReadonlyArray<{
+        readonly id: ChiefId
+        readonly owner_user: string
+        readonly archived_at: Timestamp
+      }>
+    }
+  }
+  /** Rename a chief, make it the default (clears the old default in the same commit), set its harness, or restore it within 30 days of archiving (archived: false). */
   readonly "chief.update": {
     readonly params: {
-      readonly agent: AgentId
-      readonly name?: string
-      readonly avatar?: string
+      readonly chief: ChiefId
+      readonly expected_rev: number | "Infinity" | "-Infinity" | "NaN"
+      readonly display_name?: string
+      readonly is_default?: true
+      readonly harness?: string | null
+      readonly archived?: false
     }
     readonly result: HomeChief
   }
@@ -1056,6 +1158,32 @@ export interface CloudOps {
       readonly next_before_seq: number | null
       readonly revision: string
     }
+  }
+  /** Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. */
+  readonly "conversation.import": {
+    readonly params: {
+      readonly id?: ConversationId
+      readonly source?: {
+        readonly kind: "mac"
+        readonly host: string
+        readonly local_id: string
+      }
+      readonly kind?: "group" | "chief"
+      readonly title?: string
+      readonly participants?: ReadonlyArray<HomeParticipantInput>
+      readonly after_seq?: number
+      readonly messages: ReadonlyArray<unknown>
+      readonly read_cursors?: unknown
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Finish an import: read cursors are clamped, normal ops open, each human gets one inbox entry. */
+  readonly "conversation.import.commit": {
+    readonly params: {
+      readonly id: ConversationId
+      readonly last_seq: number
+    }
+    readonly result: HomeConversationCommit
   }
   /** Change the chief wake policy, agent turn budget or history visibility (conversation owner). */
   readonly "conversation.settings.set": {
@@ -1472,6 +1600,7 @@ export interface CloudOps {
     readonly result: {
       readonly hits: ReadonlyArray<{
         readonly conversation: ConversationId
+        readonly title: string | null
         readonly seq: number
         readonly message_id: string
         readonly author: ParticipantId
@@ -2003,6 +2132,152 @@ export interface CloudOps {
     }
     readonly result: SsoConnection
   }
+  /** Create the team VM if it does not exist, resume it if it is paused, and hold it awake with a lease. The same holder and reason renew one lease. When the provider call fails for good, the op answers with that error (the lease stays until it expires). */
+  readonly "team_vm.ensure_awake": {
+    readonly params: {
+      readonly reason: string
+      readonly lease_seconds?: number
+    }
+    readonly result: {
+      readonly lease: TeamVmLeaseId
+      readonly expires_at: number
+      readonly status: TeamVmStatus
+      readonly vm: string | null
+      readonly epoch: number
+    }
+  }
+  /** Append one seq range (at most 100,000 seqs, 1 MiB) to a team journal stream; returns after the write is durable. A replay of the same range returns the stored acknowledgement. A writer whose reply was lost and whose epoch has since moved gets journal.stale_epoch even though its row is stored. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b). */
+  readonly "team_vm.journal.append": {
+    readonly params: {
+      readonly stream: TeamJournalStream
+      readonly epoch: number
+      readonly first_seq: number
+      readonly last_seq: number
+      readonly bytes: string
+      readonly sha256: string
+    }
+    readonly result: {
+      readonly stream: TeamJournalStream
+      readonly first_seq: number
+      readonly last_seq: number
+      readonly epoch: number
+      readonly high_water: number
+      readonly replayed: boolean
+    }
+  }
+  /** The last seq a team journal stream holds. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b). */
+  readonly "team_vm.journal.high_water": {
+    readonly params: {
+      readonly stream: TeamJournalStream
+    }
+    readonly result: {
+      readonly stream: TeamJournalStream
+      readonly high_water: number
+      readonly epoch: number
+    }
+  }
+  /** Whole journal entries from a seq on, for restore (up to about 4 MiB per call; `more` asks for the next call). Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b). */
+  readonly "team_vm.journal.read": {
+    readonly params: {
+      readonly stream: TeamJournalStream
+      readonly from_seq: number
+    }
+    readonly result: {
+      readonly entries: ReadonlyArray<{
+        readonly first_seq: number
+        readonly last_seq: number
+        readonly epoch: number
+        readonly sha256: string
+        readonly bytes: string
+      }>
+      readonly high_water: number
+      readonly more: boolean
+    }
+  }
+  /** Release a wake lease you hold, so the team VM may pause when no other lease is active. */
+  readonly "team_vm.lease.release": {
+    readonly params: {
+      readonly lease: TeamVmLeaseId
+    }
+    readonly result: {
+      readonly lease: TeamVmLeaseId
+      readonly released: boolean
+    }
+  }
+  /** The team SSH CA public keys and the current revocation list (KRL), for the team VM's sshd. */
+  readonly "team_vm.ssh_ca": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: TeamId
+      readonly generation: number
+      readonly trusted_ca_keys: ReadonlyArray<string>
+      readonly krl: string
+      readonly krl_version: number
+    }
+  }
+  /** Replace the team SSH CA key (owners and admins, in a person's session). Without `compromised`, certificates from the old key stay valid until they expire (at most 60 minutes). */
+  readonly "team_vm.ssh_ca.rotate": {
+    readonly params: {
+      readonly compromised?: boolean
+    }
+    readonly result: {
+      readonly generation: number
+      readonly ca_public_key: string
+      readonly previous_trusted_until: number | null
+    }
+  }
+  /** Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. Replaying the same idempotency key returns the same certificate, also after a crash. */
+  readonly "team_vm.ssh_cert": {
+    readonly params: {
+      readonly public_key: string
+      readonly validity_minutes?: number
+      readonly class?: SshCertClass
+      readonly presence?: SshPresenceProof
+    }
+    readonly result: {
+      readonly certificate: string
+      readonly serial: number
+      readonly key_id: string
+      readonly principals: ReadonlyArray<string>
+      readonly class: SshCertClass
+      readonly valid_after: number
+      readonly valid_before: number
+      readonly ca_generation: number
+      readonly ca_public_key: string
+    }
+  }
+  /** Start a full-shell SSH certificate request: returns a single-use presence challenge for one of your devices. Approve it there (Face ID, Touch ID or passcode), then call team_vm.ssh_cert with class human, the proof and the same request key. */
+  readonly "team_vm.ssh_cert.challenge": {
+    readonly params: {
+      readonly public_key: string
+      readonly validity_minutes?: number
+      readonly presence_install: InstallId
+      readonly request: string
+    }
+    readonly result: {
+      readonly sign: unknown
+      readonly message: string
+      readonly expires_at: number
+    }
+  }
+  /** Revoke unexpired team VM SSH certificates by serial, user or install; the revocation list (KRL) lists them at once. Members revoke their own certificates; owners and admins revoke anyone's. */
+  readonly "team_vm.ssh_cert.revoke": {
+    readonly params: {
+      readonly serial?: number
+      readonly user?: UserId
+      readonly install?: InstallId
+      readonly reason?: string
+    }
+    readonly result: {
+      readonly revoked: ReadonlyArray<number>
+      readonly krl_version: number
+    }
+  }
+  /** Show the team VM: its state, epoch and active wake leases. */
+  readonly "team_vm.status": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: TeamVmView
+  }
   /** Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token. */
   readonly "team.device.compliance": {
     readonly params: Readonly<Record<string, never>>
@@ -2188,6 +2463,21 @@ export interface CloudOps {
       readonly client_public_key: string
     }
   }
+  /** Set the team's own monthly hard cap for automations (team admins). The cap in force is the lower of it and the deployment ceiling. */
+  readonly "usage.cap.set": {
+    readonly params: {
+      readonly cap_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+    }
+    readonly result: {
+      readonly owner: TeamId | null
+      readonly team_cap_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+    }
+  }
+  /** This month's automation usage of the caller's team, its cost estimate and the hard cap that stops runs. */
+  readonly "usage.summary": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: UsageSummary
+  }
   /** Create or refresh the caller's user record from the Stack session. */
   readonly "user.ensure": {
     readonly params: Readonly<Record<string, never>>
@@ -2239,6 +2529,7 @@ export type CloudOpName = keyof CloudOps
 export const cloudOpMeta = {
   "automation.create": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.delete": { class: "mutation", owner: "cloud:SchedulerDO", risk: "destructive" },
+  "automation.deploy": { class: "mutation", owner: "cloud:SchedulerDO", risk: "execute" },
   "automation.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.list": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.run": { class: "mutation", owner: "cloud:SchedulerDO", risk: "execute" },
@@ -2253,9 +2544,12 @@ export const cloudOpMeta = {
   "calendar.events.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "chief.archive": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
   "chief.create": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "chief.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "chief.update": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "conversation.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.history": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
+  "conversation.import": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "conversation.import.commit": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.settings.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.snapshot": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "dm.open": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
@@ -2337,6 +2631,17 @@ export const cloudOpMeta = {
   "sso.connection.disable": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "sso.connection.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "sso.connection.set_secret": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team_vm.ensure_awake": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-shared" },
+  "team_vm.journal.append": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-own" },
+  "team_vm.journal.high_water": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
+  "team_vm.journal.read": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
+  "team_vm.lease.release": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-own" },
+  "team_vm.ssh_ca": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "team_vm.ssh_ca.rotate": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "team_vm.ssh_cert": { class: "mutation", owner: "cloud:TeamDO", risk: "execute" },
+  "team_vm.ssh_cert.challenge": { class: "mutation", owner: "cloud:TeamDO", risk: "execute" },
+  "team_vm.ssh_cert.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team_vm.status": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
   "team.device.compliance": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.device.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
   "team.device.policy": { class: "read", owner: "cloud:TeamDO", risk: "read" },
@@ -2355,6 +2660,8 @@ export const cloudOpMeta = {
   "tunnel.attach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "tunnel.detach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "tunnel.rotate-key": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "usage.cap.set": { class: "mutation", owner: "cloud:UsageMeterDO", risk: "money" },
+  "usage.summary": { class: "read", owner: "cloud:UsageMeterDO", risk: "read" },
   "user.ensure": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "user.presence_key.revoke": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "user.text_confirm.get": { class: "read", owner: "cloud:UserDO", risk: "read" },

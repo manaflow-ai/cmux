@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+public import CmuxNextSettings
 public import SwiftUI
 
 /// The appearance studio (`appearance.customize`, "Customize Appearance…"):
@@ -11,10 +12,19 @@ public import SwiftUI
 public struct AppearanceStudioView: View {
     let model: SettingsWindowModel
     let onClose: () -> Void
+    let onPeek: (AppearanceTuningAxis) -> Void
+    let onTuningChanged: (AppearanceTuning) -> Void
+    let initialTuning: AppearanceTuning
 
-    public init(model: SettingsWindowModel, onClose: @escaping () -> Void) {
+    public init(model: SettingsWindowModel, onClose: @escaping () -> Void,
+                onPeek: @escaping (AppearanceTuningAxis) -> Void = { _ in },
+                onTuningChanged: @escaping (AppearanceTuning) -> Void = { _ in },
+                initialTuning: AppearanceTuning = .identity) {
         self.model = model
         self.onClose = onClose
+        self.onPeek = onPeek
+        self.onTuningChanged = onTuningChanged
+        self.initialTuning = initialTuning
     }
 
     /// Draws the studio (and Settings, which shares its colors) in `scope`,
@@ -22,6 +32,11 @@ public struct AppearanceStudioView: View {
     @MainActor
     public static func followTheme(of scope: ThemeScope) {
         SettingsTheme.shared.follow(scope)
+    }
+
+    private var experimentalControlsEnabled: Bool {
+        guard let descriptor = SettingsSchema.descriptor(for: ExperimentalAppearanceSetting().configPath) else { return false }
+        return model.value(descriptor)?.boolValue == true
     }
 
     public var body: some View {
@@ -48,6 +63,11 @@ public struct AppearanceStudioView: View {
                 VStack(alignment: .leading, spacing: Metrics.space4) {
                     ThemeCard()
                     ThemePickerCard(model: model)
+                    if experimentalControlsEnabled {
+                        BackdropPickerCard(model: model)
+                        AppearanceTunerCard(model: model, onPeek: onPeek, onTuningChanged: onTuningChanged, initialTuning: initialTuning)
+                    }
+                    BackdropArtAttributionView()
                 }
                 .padding(.horizontal, Metrics.space4)
                 .padding(.bottom, Metrics.space4)

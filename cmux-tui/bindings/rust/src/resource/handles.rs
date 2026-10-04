@@ -14,7 +14,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
 mod agent;
-mod column_update;
+pub(crate) mod state_ops;
 
 fn receipt(value: &Value) -> Result<MutationReceipt> {
     wire::mutation_meta(value)

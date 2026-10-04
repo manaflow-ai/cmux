@@ -24,17 +24,28 @@ public final class SidebarRailColumnView: NSView {
     public var topInset: CGFloat = 0 {
         didSet { if oldValue != topInset { refresh() } }
     }
+    /// The App's accessory (the update circle), right above the bottom band
+    /// while `showsAccessory` holds; the top band makes room for it.
+    public var accessoryView: NSView? {
+        get { rail.accessoryView }
+        set { rail.accessoryView = newValue }
+    }
+    public var showsAccessory = false {
+        didSet { if oldValue != showsAccessory { refresh() } }
+    }
     private var observation: Task<Void, Never>?
 
     public init(model: SidebarModel) {
         self.model = model
         super.init(frame: .zero)
         rail.autoresizingMask = [.width, .height]
-        rail.onActivate = { [weak model] id in model?.send(.activateItem(id)) }
+        rail.onActivateWithModifiers = { [weak model] id, flags in
+            model?.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
+        }
         addSubview(rail)
         // task-owner: this view (cancelled in deinit); event-driven (Observation)
         observation = Task { [weak self, model] in
-            for await _ in Observations({ (model.layout, model.itemInfo, model.suppressedApps, model.activeProfileID, Metrics.sidebarRowHeight, Metrics.lineWidth(Metrics.dividerThickness)) }) {
+            for await _ in Observations({ (model.layout, model.itemInfo, model.suppressedApps, model.activeProfileID, Metrics.iconSize, Metrics.lineWidth(Metrics.dividerThickness)) }) {
                 self?.refresh()
             }
         }
@@ -56,9 +67,10 @@ public final class SidebarRailColumnView: NSView {
     }
 
     /// Sizes from the design tokens, read at layout time so density and
-    /// `appearance.borders` apply live.
+    /// `appearance.borders` apply live. Like the Codex rail: tiles twice the
+    /// icon size (32pt compact), a grid step apart.
     public static func metrics(width: CGFloat, topInset: CGFloat) -> SidebarRailMetrics {
-        SidebarRailMetrics(width: width, buttonSize: Metrics.sidebarRowHeight + Metrics.space2, buttonGap: Metrics.space1,
+        SidebarRailMetrics(width: width, buttonSize: Metrics.iconSize * 2 + Metrics.space2, buttonGap: Metrics.space4,
                            sectionGap: Metrics.space2, lineWidth: Metrics.lineWidth(Metrics.dividerThickness),
                            lineInset: Metrics.space3, topInset: topInset, bottomInset: Metrics.space3)
     }
@@ -76,7 +88,8 @@ public final class SidebarRailColumnView: NSView {
             }
         }
         rail.update(SidebarRailView.Content(document: document, room: model.activeProfileID?.rawValue, infos: model.itemInfo,
-                                            toolTips: toolTips, metrics: Self.metrics(width: bounds.width, topInset: topInset)))
+                                            toolTips: toolTips, metrics: Self.metrics(width: bounds.width, topInset: topInset),
+                                            accessory: showsAccessory))
     }
 
     override public func setFrameSize(_ newSize: NSSize) {

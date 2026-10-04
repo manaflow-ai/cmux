@@ -14,6 +14,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     let state: WindowState
     let sidebar: SidebarBridge
     let root: WindowRootView
+    /// The rail's update circle.
+    let updateIndicator: WindowUpdateIndicator
     /// This window's focus state machine (plans/cmux-next/focus.md); it
     /// lives in the window's `WindowState`.
     var focus: FocusCoordinator { state.focus }
@@ -45,6 +47,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let rail = WindowRailView(model: sidebar.model, registry: services.registry)
         // The rail's items take the sidebar's menus (pin, remove, reorder).
         rail.column.contextMenuProvider = { [weak sidebar] target in sidebar?.contextMenu(for: target) }
+        updateIndicator = WindowUpdateIndicator(updater: services.updater, registry: services.registry, column: rail.column)
         root = WindowRootView(sidebar: sidebar.container, rail: rail)
         let window = ShellWindow(
             contentRect: frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720),
@@ -60,14 +63,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.minSize = NSSize(width: 520, height: 320)
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
-        // Backdrop first: changing it while AppKit installs the content
-        // view puts the content above the titlebar (see WindowRootView).
-        root.applyBackdrop(to: window)
-        window.contentView = root
+        super.init(window: window)
+        // Kind, scope and backdrop before the content view (the root paints
+        // the backdrop: `WindowSurfacePainting`).
+        window.install(kind: .main, content: root, scope: themeScope)
         // contentRect grows by the titlebar; restore the saved frame exactly.
         if let frame { window.setFrame(frame, display: false) } else { window.center() }
-        super.init(window: window)
-        themeScope.adopt(window)
         window.delegate = self
         window.focus = focus
         focusApplier = FocusEffectApplier(controller: self)

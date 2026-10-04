@@ -1,31 +1,37 @@
 import CmuxHomeCore
+import CmuxHomeRender
 import CmuxiOSDesign
 import UIKit
 
-/// One conversation: the transcript (behind `TranscriptPresenting`) above a
-/// composer that rides the keyboard. Opens the conversation in the store,
-/// pages older history, marks read while the newest message is visible and
-/// announces new incoming messages to VoiceOver.
+/// One conversation: the title in the navigation bar over the transcript
+/// drawn by the shared render core (`HomeTranscriptView`), with a compose
+/// field that rides the keyboard. Opens the conversation in the store, binds
+/// the core to it (`HomeStoreBinding`: transcript, typing, read cursors,
+/// older pages), marks read while the newest message is visible, keeps the
+/// draft when the owner is offline and announces new incoming messages to
+/// VoiceOver.
 @MainActor
-final class ConversationViewController: UIViewController, TranscriptPresenterDelegate {
+final class ConversationViewController: UIViewController {
     let conversation: ConversationID
     private let store: HomeStore
-    private var focus: IdempotencyKey?
-    private let presenter: any TranscriptPresenting
-    private let composer = ComposerView()
+    private var transcript: HomeTranscriptView?
+    private var binding: HomeStoreBinding?
     private lazy var observation = StoreObservation { [weak self] in self?.render() }
-    private var shown: [TranscriptDisplayItem] = []
+    private var shown: [TranscriptItem] = []
     private var isVisible = false
-    private var hasLoaded = false
     private var openTask: Task<Void, Never>?
-    private var olderTask: Task<Void, Never>?
+    private var foregroundObservers: [any NSObjectProtocol] = []
 
-    init(store: HomeStore, conversation: ConversationID, focus: IdempotencyKey? = nil,
-         presenter: any TranscriptPresenting = InterimTranscriptView()) {
+    /// The search hit to open at, until its row is loaded and shown (nil
+    /// after that, or once the user scrolls).
+    private var pendingFocus: HomeTranscriptFocus?
+
+    /// `focus` is the search hit to show: the conversation opens scrolled to
+    /// it, loading older pages until its row exists.
+    init(store: HomeStore, conversation: ConversationID, focus: HomeTranscriptFocus? = nil) {
         self.store = store
         self.conversation = conversation
-        self.focus = focus
-        self.presenter = presenter
+        pendingFocus = focus
         super.init(nibName: nil, bundle: nil)
         hidesBottomBarWhenPushed = true
     }
@@ -35,132 +41,211 @@ final class ConversationViewController: UIViewController, TranscriptPresenterDel
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = HomePalette.background
+        view.backgroundColor = CmuxiOSDesign.HomePalette.background
         navigationItem.largeTitleDisplayMode = .never
-
-        let transcript = presenter.view
-        transcript.translatesAutoresizingMaskIntoConstraints = false
-        composer.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(transcript)
-        view.addSubview(composer)
-        NSLayoutConstraint.activate([
-            transcript.topAnchor.constraint(equalTo: view.topAnchor),
-            transcript.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            transcript.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            transcript.bottomAnchor.constraint(equalTo: composer.topAnchor),
-            composer.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
-            composer.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
-            composer.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
-        ])
-        view.keyboardLayoutGuide.usesBottomSafeArea = true
-        presenter.delegate = self
-        composer.onSend = { [weak self] text in self?.send(text) }
 
         let store = self.store
         let id = conversation
         openTask = Task { [weak self] in
             await store.open(id)
-            self?.hasLoaded = true
-            self?.observation.renderNow()
+            self?.attachTranscript()
         }
         observation.start()
+        let center = NotificationCenter.default
+        for (name, visible) in [(UIApplication.didEnterBackgroundNotification, false),
+                                (UIApplication.willEnterForegroundNotification, true)] {
+            foregroundObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.setVisible(visible && self?.viewIfLoaded?.window != nil) }
+            })
+        }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // The first layout with a real size can come after the transcript attached.
+        if pendingFocus != nil { revealFocus() }
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        isVisible = true
-        markReadIfVisible()
+        setVisible(true)
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        isVisible = false
+        setVisible(false)
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        guard isMovingFromParent || navigationController == nil else { return }
+        close()
+    }
+
+    /// Stops the binding and the observers (the screen left the stack).
+    private func close() {
+        openTask?.cancel()
+        binding?.stop()
+        observation.stop()
+        for o in foregroundObservers { NotificationCenter.default.removeObserver(o) }
+        foregroundObservers = []
+    }
+
+    private func setVisible(_ visible: Bool) {
+        isVisible = visible
+        transcript?.controller.isVisibleToUser = visible
+    }
+
+    // MARK: Transcript
+
+    /// Builds the transcript once the store has opened the conversation (`me` is known).
+    private func attachTranscript() {
+        guard transcript == nil, let me = store.me?.id else { return }
+        let view = HomeTranscriptView(conversation: conversation, me: me, traits: traitCollection)
+        view.frame = self.view.bounds
+        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        self.view.addSubview(view)
+        transcript = view
+        view.scroll.rowHost.failureActions = { [weak self] key in self?.failureActions(for: key) ?? [] }
+        view.scroll.rowHost.isOnline = { [weak self] in self?.store.isOnline ?? false }
+        // The core emits addReaction through onIntent; the binding performs
+        // it with the intent's idempotency key. The badge appears when the
+        // owner's update reaches the transcript (store -> binding -> core).
+        view.tapbacks.onChoose = { [weak view] target, tapback in _ = view?.controller.react(tapback, to: target) }
+        view.onRowsChange = { [weak self] in self?.revealFocus() }
+        view.scroll.panGestureRecognizer.addTarget(self, action: #selector(userScrolled))
+        // Sends, refusals (the draft comes back through `onRestoreDraft`),
+        // read cursors and older pages all go through the binding.
+        binding = HomeStoreBinding(store: store, controller: view.controller)
+        view.controller.isVisibleToUser = isVisible
+        observation.renderNow()
+        view.layoutIfNeeded()
+        revealFocus()
+    }
+
+    // MARK: Search hit
+
+    /// Scrolls to the search hit once its row exists. Until then each rows
+    /// change (an older page arrived) tries again, and the next older page
+    /// is requested while the history can still hold the hit.
+    private func revealFocus() {
+        guard let focus = pendingFocus, let controller = transcript?.controller, controller.size.width > 0 else { return }
+        let key = focus.seq.flatMap(controller.item(withSeq:)) ?? focus.key
+        if controller.scroll(to: key, anchor: .center) {
+            pendingFocus = nil
+            return
+        }
+        let oldest = store.transcript(for: conversation).lazy.compactMap(\.seq).min()
+        let olderCanHoldIt = switch (focus.seq, oldest) {
+        case (let seq?, let oldest?): seq < oldest
+        default: true
+        }
+        guard olderCanHoldIt, store.hasOlderMessages(in: conversation) else {
+            pendingFocus = nil
+            return
+        }
+        let store = self.store
+        let id = conversation
+        Task { await store.loadOlder(id) }
+    }
+
+    /// The user took over the scroll: stop moving to the hit.
+    @objc private func userScrolled(_ pan: UIPanGestureRecognizer) {
+        if pan.state == .began { pendingFocus = nil }
+    }
+
+    private func failureActions(for key: IdempotencyKey) -> [HomeMessageAction] {
+        guard let item = store.transcript(for: conversation).first(where: { $0.key == key }),
+              case .notDelivered = item.delivery else { return [] }
+        let store = self.store
+        return [
+            HomeMessageAction(title: HomeText.retry, image: UIImage(systemName: "arrow.clockwise")) {
+                Task { try? await store.retry(key) }
+            },
+            HomeMessageAction(title: HomeText.discard, image: UIImage(systemName: "trash"), isDestructive: true) {
+                store.discardFailed(key)
+            },
+        ]
     }
 
     // MARK: Rendering
 
-    /// Reads the transcript version, typing set, rows and connection, so any
-    /// change to them re-renders once per main-actor turn.
+    /// Reads the title row, the connection and the transcript version, so a
+    /// change to them renders once per main-actor turn. The rows themselves
+    /// reach the core through `HomeStoreBinding`.
     private func render() {
         _ = store.transcriptVersion[conversation]
         let row = store.rows.first { $0.id == conversation }
-        let isOnline = store.isOnline
-        let typingIDs = store.typing[conversation] ?? []
-        guard let me = store.me?.id else { return }
-
         title = row?.title ?? title
-        composer.disabledReason = isOnline ? nil : HomeText.composerOffline
-
-        let id = conversation
-        let items = store.transcript(for: id).displayItems(me: me, isGroup: row?.kind == .group) { [store] who in
-            store.participant(who, in: id)
+        let disabled = store.isOnline ? nil : HomeText.composerOffline
+        if transcript?.disabledReason != disabled {
+            // React comes and goes with the connection.
+            transcript?.scroll.rowHost.invalidateAccessibility()
+            if disabled != nil { transcript?.tapbacks.dismiss(animated: true) }
         }
-        let typingNames = typingIDs.compactMap { store.participant($0, in: id)?.displayName }.sorted()
-        announceNewIncoming(previous: shown, current: items)
+        transcript?.disabledReason = disabled
+        let items = store.transcript(for: conversation)
+        if let me = store.me?.id { announceNewIncoming(previous: shown, current: items, me: me) }
         shown = items
-        presenter.show(items, typingNames: typingNames, hasOlder: store.hasOlderMessages(in: id))
-
-        if hasLoaded, let key = focus, !items.isEmpty {
-            focus = nil
-            presenter.scroll(to: key, animated: false)
-        }
-        if (row?.unread ?? 0) > 0 { markReadIfVisible() }
-    }
-
-    private func markReadIfVisible() {
-        guard isVisible, presenter.isNearBottom else { return }
-        store.markRead(conversation)
     }
 
     /// Polite announcements: queued behind current speech, never moving focus.
-    private func announceNewIncoming(previous: [TranscriptDisplayItem], current: [TranscriptDisplayItem]) {
+    private func announceNewIncoming(previous: [TranscriptItem], current: [TranscriptItem], me: ParticipantID) {
         guard isVisible, UIAccessibility.isVoiceOverRunning else { return }
-        for item in current.newIncoming(since: previous) {
-            let name = item.author?.displayName ?? ""
-            let text = HomeText.announcement(author: name, text: item.item.plainText)
+        for item in current.newIncoming(since: previous, me: me) {
+            let name = store.participant(item.author, in: conversation)?.displayName ?? ""
+            let text = HomeText.announcement(author: name, text: item.plainText)
             let announcement = NSAttributedString(string: text, attributes: [.accessibilitySpeechQueueAnnouncement: true])
             UIAccessibility.post(notification: .announcement, argument: announcement)
         }
     }
 
-    // MARK: Sending
+    #if DEBUG
+    /// Returns when the transcript exists and its visible rows are drawn (screenshots).
+    func rendered() async {
+        await openTask?.value
+        await transcript?.rendered()
+    }
 
-    private func send(_ text: String) {
-        guard store.isOnline else { return }
-        composer.text = ""
-        let store = self.store
+    /// Opens the tapback picker on the newest visible incoming message that
+    /// can take one. With `choose`, first sends that tapback through the
+    /// real path and waits for the store's update, so the picker opens over
+    /// the drawn badge with the choice selected.
+    func debugTapback(choose: Reaction.Tapback?) async {
+        // A pushed screen loads its view during the transition; load it now
+        // so `openTask` exists before `rendered()` waits on it.
+        loadViewIfNeeded()
+        await rendered()
+        guard let transcript else { return }
+        let controller = transcript.controller
+        let hits = controller.hits(in: CGRect(origin: .zero, size: controller.size)).filter { !$0.isMine }
+        guard let hit = hits.reversed().first(where: { controller.reactionTarget(for: $0, isOnline: store.isOnline) != nil }),
+              let first = controller.reactionTarget(for: hit, isOnline: store.isOnline) else { return }
+        guard let choose else { return transcript.tapbacks.show(first) }
+        controller.react(choose, to: first)
         let id = conversation
-        Task { [weak self] in
-            do {
-                try await store.perform(.sendMessage(conversation: id, parts: [.text(text)]))
-            } catch HomeRejection.ownerUnreachable {
-                // Refused before it was logged (went offline): keep the draft.
-                if self?.composer.text.isEmpty == true { self?.composer.text = text }
-            } catch {
-                // Other refusals stay in the transcript as "Not Delivered".
-            }
+        let key = first.item
+        await HomeGallery.waitUntil(store) { store in
+            _ = store.transcriptVersion[id]
+            return store.transcript(for: id).first { $0.key == key }?.reactions.contains { $0.kind == .tapback(choose) } ?? false
         }
-        presenter.scrollToBottom(animated: !HomeMotion.reduceMotion)
+        await rendered()
+        // The store has the reaction; build the target from it so the choice
+        // shows selected even before the core's next update.
+        guard let item = store.transcript(for: id).first(where: { $0.key == key }),
+              let target = HomeReactionTarget(item: item, partIndex: first.partIndex, conversation: id, me: controller.me,
+                                              isOnline: store.isOnline) else { return }
+        transcript.tapbacks.show(target)
     }
+    #endif
+}
 
-    // MARK: TranscriptPresenterDelegate
-
-    func transcriptNeedsOlderMessages() {
-        guard olderTask == nil else { return }
-        let store = self.store
-        let id = conversation
-        olderTask = Task { [weak self] in
-            await store.loadOlder(id)
-            self?.olderTask = nil
-        }
-    }
-
-    func transcriptRetry(_ key: IdempotencyKey) {
-        let store = self.store
-        Task { try? await store.retry(key) }
-    }
-
-    func transcriptDiscard(_ key: IdempotencyKey) {
-        store.discardFailed(key)
+extension Array where Element == TranscriptItem {
+    /// Committed messages from others that appeared at the end since
+    /// `previous` was shown, for VoiceOver announcements.
+    func newIncoming(since previous: [TranscriptItem], me: ParticipantID) -> [TranscriptItem] {
+        guard let lastPrevious = previous.last?.key,
+              let start = lastIndex(where: { $0.key == lastPrevious }) else { return [] }
+        return self[(start + 1)...].filter { $0.author != me && $0.delivery == .committed }
     }
 }

@@ -1,0 +1,214 @@
+{
+  "family": "diffs",
+  "operations": [
+    {
+      "name": "diffs.open_changes",
+      "owner": "app:cmux/diffs",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "staged": {
+            "type": "boolean",
+            "default": false,
+            "description": "Staged changes instead of the working tree."
+          },
+          "path": {
+            "type": "string",
+            "description": "Select this repository-relative file."
+          }
+        },
+        "required": []
+      },
+      "cli": {
+        "path": "apps run cmux/diffs open-changes",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "palette": {
+        "title": "Open Changes"
+      },
+      "docs": "Open the working tree (or staged) changes of the current workspace's repository.",
+      "since": "diffs/1",
+      "export": "openChanges"
+    },
+    {
+      "name": "diffs.open_diff",
+      "owner": "app:cmux/diffs",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "repo": {
+            "type": "string",
+            "description": "Repository handle from git.status."
+          },
+          "base": {
+            "type": "string",
+            "description": "Base ref or commit."
+          },
+          "head": {
+            "type": "string",
+            "description": "Head ref or commit."
+          }
+        },
+        "required": [
+          "repo",
+          "base",
+          "head"
+        ]
+      },
+      "cli": {
+        "path": "apps run cmux/diffs open-diff",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "docs": "Open the diff between two refs of a repository.",
+      "since": "diffs/1",
+      "export": "openDiff"
+    },
+    {
+      "name": "diffs.review",
+      "owner": "app:cmux/diffs",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "item": {
+            "type": "string",
+            "description": "A feed review request (fi_…)."
+          },
+          "diff": {
+            "type": "string",
+            "description": "A diff resource (diff_…)."
+          },
+          "run": {
+            "type": "string",
+            "description": "An automation run whose diff to show (run_…)."
+          }
+        },
+        "required": []
+      },
+      "cli": {
+        "path": "apps run cmux/diffs review",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "docs": "Open a proposed diff (feed review request, diff resource or automation run) for review.",
+      "since": "diffs/1",
+      "export": "review",
+      "gesture": "optional"
+    },
+    {
+      "name": "diffs.review_latest",
+      "owner": "app:cmux/diffs",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "apps run cmux/diffs review-latest",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Review Latest Proposal"
+      },
+      "docs": "Open the latest proposed diff for review.",
+      "since": "diffs/1",
+      "export": "reviewLatest"
+    },
+    {
+      "name": "diffs.toggle_layout",
+      "owner": "app:cmux/diffs",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "apps run cmux/diffs toggle-layout",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Toggle Side-by-Side Diff"
+      },
+      "docs": "Switch the diff between inline and side-by-side.",
+      "since": "diffs/1",
+      "export": "toggleLayout"
+    },
+    {
+      "name": "diffs.cycle_variant",
+      "owner": "app:cmux/diffs",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "apps run cmux/diffs cycle-variant",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Next Diffs Variant"
+      },
+      "docs": "Switch to the next Diffs design variant (DEV and NIGHTLY).",
+      "since": "diffs/1",
+      "export": "cycleVariant"
+    }
+  ]
+}

@@ -21,9 +21,9 @@ public nonisolated enum AppPermissionPolicy {
         }
     }
 
-    /// The restricted scopes `tier` may never hold, given `reviewed`.
-    public static func restrictedScopes(for tier: AppTier, reviewed: Set<String> = []) -> Set<String> {
-        AppScopeKind.restrictedScopes.filter { !mayHold($0, tier: tier, reviewed: reviewed) }
+    /// The scopes of `scopes` that `tier` may never hold, given `reviewed`.
+    public static func refusedScopes(_ scopes: Set<String>, for tier: AppTier, reviewed: Set<String> = []) -> Set<String> {
+        scopes.filter { !mayHold($0, tier: tier, reviewed: reviewed) }
     }
 
     // MARK: Profile cap

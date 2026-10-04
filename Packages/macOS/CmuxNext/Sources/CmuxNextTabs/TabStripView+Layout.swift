@@ -141,13 +141,6 @@ extension TabStripView {
         let buttonWidth = metrics.newTabButtonWidth
         let buttonX = tabsClip.frame.minX + min(trailing - offset, viewportWidth)
         newTabButton.frame = CGRect(x: pixel(buttonX), y: tabY, width: buttonWidth, height: tabHeight)
-        let plus = newTabButton.isHidden ? 0 : buttonWidth
-        let runEnd = TabLocationFieldLayout.runEnd(current: buttonX + plus,
-                                                   target: tabsClip.frame.minX + min(result.contentWidth, viewportWidth) + plus)
-        let limit = buttonGroup.isHidden ? contentView.bounds.width - metrics.stripHorizontalPadding : buttonGroup.frame.minX
-        locationField.place(TabLocationFieldLayout.frame(runEnd: runEnd, limit: limit, naturalWidth: locationField.naturalWidth,
-                                                         gap: TabLocationFieldLayout.gap, reserve: actsAsTitlebar ? TabLocationFieldLayout.dragReserve : 0,
-                                                         y: tabY, height: tabHeight), toolTipHost: self)
         updateFadeMask()
         // Tabs moved (scroll, reflow, close): what is under a still pointer may differ.
         geometryDidChange()

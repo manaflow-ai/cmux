@@ -3,12 +3,13 @@ import CmuxNextLayout
 import CmuxNextBridge
 
 /// Up-front availability of column actions (every screen is a column strip):
-/// on a screen's only column, pinning, width presets and column moves are
-/// disabled with "Add a second column first", shown on the context menu
-/// item, instead of failing after the click. Lookups here never refuse.
+/// on a screen's only column, width presets and column moves are disabled
+/// with "Add a second column first", shown on the context menu item, instead
+/// of failing after the click. Docking stays enabled there: it moves the
+/// focused tab into a new docked column (DockColumnHandlers). Lookups here
+/// never refuse.
 enum ColumnAvailability {
     static let loneColumnDisabled: [ActionID] = [
-        "column.makeSticky", "column.makeStickyLeft", "column.toggleStickyOverlay",
         "column.widthOneThird", "column.widthHalf", "column.widthTwoThirds", "column.widthFull",
         "column.cycleWidth", "column.cycleWidthBack",
         "column.moveLeft", "column.moveRight", "column.focusLeft", "column.focusRight",
@@ -18,7 +19,7 @@ enum ColumnAvailability {
         for id in loneColumnDisabled {
             ActionTargetReasons.set(id, in: registry) { invocation in loneColumnReason(invocation, ctx) }
         }
-        ActionTargetReasons.set("column.unstick", in: registry) { invocation in
+        ActionTargetReasons.set("column.undock", in: registry) { invocation in
             guard let (_, column) = resolved(invocation, ctx), column.sticky == nil else { return nil }
             return RefusalStrings.columnNotSticky
         }

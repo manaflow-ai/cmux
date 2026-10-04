@@ -31,6 +31,9 @@ final class NotificationCenterService {
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     /// Recent arrivals and what was decided (for `debug.notifications`).
     @ObservationIgnored private(set) var log: [String] = []
+    /// Showcase captures seed the real daemon ledger without showing banners
+    /// or prompting for system authorization at launch.
+    @ObservationIgnored var desktopPostingEnabled = true
     /// The deadline clock; tests inject their own.
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
     /// Ghostty's `desktop-notifications`: off reads terminal notifications
@@ -43,6 +46,7 @@ final class NotificationCenterService {
 
     func start(services: AppServices) {
         self.services = services
+        desktopPostingEnabled = !services.environment.showcase
         feedBridge = Self.makeFeedBridge(services.feed)
         desktop.onOpen = { [weak self] _, surface in self?.open(surface: surface.map(SurfaceID.init(rawValue:))) }
         let store = services.daemon.store
@@ -58,14 +62,6 @@ final class NotificationCenterService {
         tasks.append(Task { [weak self] in
             for await count in Observations({ Self.unreadCount(store) }) {
                 self?.updateDockBadge(count)
-            }
-        })
-        // A tab read by any client (this app, the iPhone, `cmux` clear) reads its feed notices.
-        tasks.append(Task { [weak self] in
-            var previous: Set<String> = []
-            for await unread in Observations({ Self.unreadTabs(store) }) {
-                for tab in previous.subtracting(unread) { self?.feedBridge?.read(tab: tab) }
-                previous = unread
             }
         })
     }
@@ -173,10 +169,6 @@ final class NotificationCenterService {
         arrival.appActive = NSApp.isActive
         if let located {
             arrival.workspaceMuted = preferences.mutedWorkspaces.contains(located.workspace.id)
-        }
-        // Before the decision: an arrival the policy reads at once is posted, then read.
-        if !arrival.workspaceMuted { mirrorToFeed(notification, located: located) }
-        if let located {
             arrival.paneIsViewed = isViewed(located.tab.id)
             arrival.typedAgo = lastKeystroke[located.tab.id].map { Self.seconds(ContinuousClock.now - $0) }
         }
@@ -184,6 +176,10 @@ final class NotificationCenterService {
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
         let decision = NotificationPolicy.decide(arrival, prefs: preferences)
         note("arrived \(notification.notification.rawValue) \(source.rawValue) tab=\(located?.tab.id ?? "-") \(decision)")
+        guard desktopPostingEnabled else {
+            note("desktop posting suppressed")
+            return
+        }
         guard let located else {
             if decision.desktop { post(notification, tab: nil, workspace: nil, sound: decision.sound) }
             return
@@ -192,6 +188,9 @@ final class NotificationCenterService {
             acknowledge(located.tab)
             return
         }
+        // The feed (and the iPhone push) gets only what would alert on this Mac: muted
+        // workspaces, quiet hours and banners turned off are not mirrored.
+        if decision.desktop { mirrorToFeed(notification, source: source, located: located) }
         if decision.desktop { post(notification, tab: located.tab, workspace: located.workspace.id, sound: decision.sound) }
         if !decision.desktop, let sound = decision.sound { NotificationSounds.play(sound) }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }

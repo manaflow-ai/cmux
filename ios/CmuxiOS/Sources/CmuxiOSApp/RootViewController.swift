@@ -26,7 +26,13 @@ final class RootViewController: UIViewController {
         view.backgroundColor = HomePalette.background
         container.auth.onChange = { [weak self] state in self?.show(state) }
         container.devOptions.onChange = { [weak self] options in self?.home?.apply(options) }
+        container.onUpdateRequiredChange = { [weak self] requirement in self?.home?.updateRequired = requirement }
         #if DEBUG
+        if let minimum = ProcessInfo.processInfo.environment["CMUX_IOS_PREVIEW_UPDATE_REQUIRED"] {
+            // DEV preview (simulator screenshots): the update-required banner
+            // as a too-old refusal shows it; an empty value names no version.
+            container.setUpdateRequired(HomeUpdateRequired(minimumVersion: minimum.isEmpty ? nil : minimum))
+        }
         if ProcessInfo.processInfo.environment["CMUX_IOS_HOME_PREVIEW"] == "1" {
             // DEV preview: Home on the mock owner without an account, for
             // simulator screenshots of the prototypes. The mock needs no sign-in.
@@ -73,20 +79,30 @@ final class RootViewController: UIViewController {
     private func showHome(account: SignedInAccount) {
         let store = container.homeStore(for: account)
         let home = HomeViewController(store: store, options: container.devOptions.options)
+        home.updateRequired = container.updateRequired
         self.home = home
         let navigation = UINavigationController(rootViewController: home)
         navigation.navigationBar.prefersLargeTitles = true
         install(navigation)
         DebugLaunchTasks.homeShown(store: store, window: view.window)
         #if DEBUG
+        if let kind = ProcessInfo.processInfo.environment["CMUX_IOS_OPEN_CONVERSATION"] {
+            home.debugOpenFirstConversation(kind: kind, tapback: ProcessInfo.processInfo.environment["CMUX_IOS_OPEN_TAPBACK"])
+        }
+        if let query = ProcessInfo.processInfo.environment["CMUX_IOS_OPEN_SEARCH"] {
+            let index = ProcessInfo.processInfo.environment["CMUX_IOS_OPEN_SEARCH_HIT"].flatMap { Int($0) } ?? 0
+            home.debugOpenSearchHit(query: query, index: index)
+        }
+        if ProcessInfo.processInfo.environment["CMUX_IOS_PREVIEW_OFFLINE"] == "1",
+           let mock = store.source as? MockHomeSource {
+            // DEV preview (simulator screenshots): the mock owner drops its
+            // connection, so the offline banner shows (with any other banner).
+            Task { await mock.setOnline(false) }
+        }
         if ProcessInfo.processInfo.environment["CMUX_IOS_TERMINAL_PREVIEW"] == "1" {
             let terminal = DevTerminal.make()
             navigation.pushViewController(terminal, animated: false)
-            Task { @MainActor in
-                // Capture once the snapshot had time to arrive (debug capture only).
-                try? await Task.sleep(for: .seconds(3))
-                DevTerminal.writeDiagnostics(terminal)
-            }
+            DevTerminal.captureDiagnostics(terminal)
         }
         #endif
     }

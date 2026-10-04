@@ -6,7 +6,7 @@ struct TasksListView: View {
     @Environment(\.tasksColors) private var colors
 
     var body: some View {
-        let tasks = model.visibleTasks
+        let tasks = model.shownTasks
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 1, pinnedViews: [.sectionHeaders]) {
                 ForEach(model.statuses.filter { $0.category != .canceled }) { status in

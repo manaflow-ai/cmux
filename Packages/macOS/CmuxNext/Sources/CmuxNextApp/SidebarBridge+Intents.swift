@@ -39,6 +39,13 @@ extension SidebarBridge {
             guard !model.isPlaceholder(id) else { return }
             model.apply(intent)
             services.windows.show(workspaceID: id.rawValue, in: state)
+        case let .selectTab(_, tab):
+            _ = services.revealTab(tab.rawValue)
+        case .moveTab:
+            // Tab drags are committed by TabDragSession. Keep this intent
+            // conservative until a sidebar-only tab move has a daemon
+            // transaction path of its own.
+            resync()
         case .reorder(let ids, let position):
             let before = model.sections
             model.apply(intent)
@@ -57,6 +64,8 @@ extension SidebarBridge {
             // A double-click in a group's empty part, or its "+": the end of that group.
             let daemon = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }
                 ?? services.machines.daemon(machine: state.machineID)
+            // A machine turned off by policy (DisabledFeatures) gets nothing, not a local stand-in.
+            if machine != nil || state.machineID != MachineRegistry.localID, daemon == nil { return }
             services.windows.newWorkspace(in: state, on: daemon, at: group.map(WorkspaceSlot.endOfGroup))
         case .setColor(let ids, let color):
             model.apply(intent)
@@ -92,8 +101,8 @@ extension SidebarBridge {
         case .setPinned(let ids, let pinned):
             model.apply(intent)
             sendPinned(ids, pinned)
-        case .activateItem(let id):
-            activateLayoutItem(id)
+        case .activateItem(let id, let opensWorkspace):
+            activateLayoutItem(id, opensWorkspace: opensWorkspace)
         case .layout(let op):
             applyLayoutOp(op)
         case .toggleLayoutSection:

@@ -6180,6 +6180,343 @@
     }
    },
    "additional_properties": false
+  },
+  "ColumnPin": {
+   "kind": "object",
+   "fields": {
+    "edge": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "mode": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "SnapshotRequestHave": {
+   "kind": "object",
+   "fields": {
+    "generation": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "offset": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "snapshot_version": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "The snapshot state the viewer holds; a snapshot_version other than the host's is unsupported_version."
+   ]
+  },
+  "SnapshotRequestResult": {
+   "kind": "object",
+   "fields": {
+    "status": {
+     "type": {
+      "kind": "enum",
+      "values": [
+       "accepted",
+       "collapsed",
+       "snapshot_throttled"
+      ]
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "surface": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "retry_after_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "request_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "reason": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "accepted: the viewer's next attach event is a READY snapshot. collapsed: a snapshot is already pending and answers this request. snapshot_throttled: the viewer got a snapshot less than 500 ms ago; retry after retry_after_ms. Every status echoes request_id."
+   ]
+  },
+  "RowMarkerPoint": {
+   "kind": "object",
+   "fields": {
+    "row_marker": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "col": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "row_marker is a host row marker of the primary screen (terminal-history page markers)."
+   ]
+  },
+  "TerminalHistoryPage": {
+   "kind": "object",
+   "fields": {
+    "marker": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "rows": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "data": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "data is one base64 GHOSTSNP PAGE record (header, payload, CRC32C); marker is the page's first row."
+   ]
+  },
+  "TerminalHistoryPagesResult": {
+   "kind": "object",
+   "fields": {
+    "surface": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "marker_epoch": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "snapshot_version": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "pages": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "TerminalHistoryPage"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "next_before": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "done": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Pages are newest first; pass next_before as before for older pages until done."
+   ]
+  },
+  "TerminalReadRangeResult": {
+   "kind": "object",
+   "fields": {
+    "surface": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "text": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "truncated": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "NewRowResult": {
+   "additional_properties": false,
+   "fields": {
+    "pane": {
+     "nullable": false,
+     "presence": "required",
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     }
+    },
+    "surface": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true
+    },
+    "terminal_incarnation": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true
+    },
+    "transaction": {
+     "nullable": false,
+     "presence": "optional",
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     }
+    }
+   },
+   "kind": "object"
+  },
+  "RowHeight": {
+   "additional_properties": false,
+   "fields": {
+    "height": {
+     "constraints": [
+      {
+       "maximum": 1000,
+       "minimum": 100
+      }
+     ],
+     "nullable": false,
+     "presence": "required",
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     }
+    },
+    "row": {
+     "nullable": false,
+     "presence": "required",
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     }
+    }
+   },
+   "kind": "object"
   }
  },
  "commands": {
@@ -12235,13 +12572,44 @@
       "nullable": true,
       "default": null,
       "capability": "attach-identity-v1"
+     },
+     "snapshot": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "terminal-snapshot-v1"
+     },
+     "snapshot_version": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "terminal-snapshot-v1"
+     },
+     "viewer_backlog_bytes": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "terminal-snapshot-v1"
      }
     },
     "additional_properties": false,
     "constraints": [
      "cols and rows must be supplied together.",
      "Browser surfaces reject mode:render.",
-     "expected_generation and expected_terminal_id must be supplied together and match the current daemon and terminal."
+     "expected_generation and expected_terminal_id must be supplied together and match the current daemon and terminal.",
+     "snapshot \"ghostsnp\" with the host's snapshot_version starts the byte stream with a snapshot event instead of vt-state; another version gets the byte replay. viewer_backlog_bytes (default 8388608 = 8 MiB, set per attach, no daemon setting; clamped to 65536..8388608) bounds the viewer's backlog; overflow resyncs by snapshot."
     ]
    },
    "result": {
@@ -13332,6 +13700,15 @@
       "default": null
      },
      "owner": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "idempotency_key": {
       "type": {
        "kind": "scalar",
        "name": "string"
@@ -14467,6 +14844,28 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "sticky": {
+      "type": {
+       "kind": "ref",
+       "name": "ColumnPin"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "edge-docks-v1"
+     },
+     "respawn": {
+      "type": {
+       "kind": "ref",
+       "name": "SplitRespawn"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "tab-column-respawn-v1"
      },
      "transaction": {
       "type": {
@@ -16864,6 +17263,375 @@
    "constraints": [
     "Trusted local connections bound to the local user only. Mints a new token; the old one stops working. See spec/commands.md."
    ]
+  },
+  "snapshot-request": {
+   "authority": "frontend",
+   "since": 12,
+   "capability": "terminal-snapshot-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "reason": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "have": {
+      "type": {
+       "kind": "ref",
+       "name": "SnapshotRequestHave"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "request_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "SnapshotRequestResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Requires a snapshot attach (attach-surface with snapshot ghostsnp) of the same surface on this connection, else not_attached.",
+    "A request while a snapshot is pending collapses into it; at most one requested snapshot per viewer per 500 ms.",
+    "Raw v12 form of the terminal channel message snapshot_request (sync-and-transport.md).",
+    "reason, when present, is digest_mismatch, gap, generation_mismatch or attach; request_id is at most 128 bytes; otherwise invalid."
+   ]
+  },
+  "terminal-history": {
+   "authority": "control",
+   "since": 12,
+   "capability": "terminal-snapshot-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "before": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "marker_epoch": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "max_bytes": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "TerminalHistoryPagesResult"
+   },
+   "stream": null,
+   "constraints": [
+    "max_bytes defaults to 1048576 and must be 1..=8388608; at least one page is returned when any exists.",
+    "A before marker of another marker_epoch or one that left scrollback is range_evicted.",
+    "marker_epoch is required: the epoch of the caller's markers (from the snapshot event's marker_epoch or an earlier reply)."
+   ]
+  },
+  "terminal-read-range": {
+   "authority": "control",
+   "since": 12,
+   "capability": "terminal-snapshot-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "from": {
+      "type": {
+       "kind": "ref",
+       "name": "RowMarkerPoint"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "to": {
+      "type": {
+       "kind": "ref",
+       "name": "RowMarkerPoint"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "format": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "marker_epoch": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "max_bytes": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "TerminalReadRangeResult"
+   },
+   "stream": null,
+   "constraints": [
+    "format is text (default; unwrapped lines joined with newline) or vt.",
+    "Rows that left scrollback, or markers of another marker_epoch, answer range_evicted.",
+    "max_bytes defaults to 1048576 and must be 1..=8388608; a longer range is cut at a character boundary and answers truncated: true.",
+    "marker_epoch is required: the epoch of the caller's markers (from the snapshot event's marker_epoch or an earlier reply)."
+   ]
+  },
+  "new-row": {
+   "authority": "control",
+   "capability": "rows-v1",
+   "constraints": [
+    "Opens a new row of height_permille below the row of pane in that pane's column, holding one new pane with one new terminal. On a split screen the screen's tree first becomes the only row of one column.",
+    "transaction (1-128 printable ASCII) is echoed in the result and in the screen-changed delta of the commit.",
+    "See spec/commands.md for the result object and error codes."
+   ],
+   "request": {
+    "additional_properties": false,
+    "fields": {
+     "cols": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "cwd": {
+      "default": null,
+      "nullable": true,
+      "presence": "optional",
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "env": {
+      "default": null,
+      "nullable": true,
+      "presence": "optional",
+      "type": {
+       "kind": "map",
+       "values": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      }
+     },
+     "height_permille": {
+      "constraints": [
+       {
+        "maximum": 1000,
+        "minimum": 100
+       }
+      ],
+      "nullable": false,
+      "presence": "required",
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      }
+     },
+     "keep": {
+      "default": false,
+      "nullable": false,
+      "presence": "optional",
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      }
+     },
+     "pane": {
+      "nullable": false,
+      "presence": "required",
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     },
+     "rows": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "shell_args": {
+      "default": null,
+      "nullable": true,
+      "presence": "optional",
+      "type": {
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "kind": "array"
+      }
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       {
+        "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$",
+        "format": "terminal host id (UUIDv4 hex without dashes)"
+       }
+      ]
+     },
+     "transaction": {
+      "default": null,
+      "nullable": true,
+      "presence": "optional",
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     }
+    },
+    "kind": "object"
+   },
+   "result": {
+    "kind": "ref",
+    "name": "NewRowResult"
+   },
+   "since": 12,
+   "stream": null
+  },
+  "set-row-heights": {
+   "authority": "control",
+   "capability": "rows-v1",
+   "constraints": [
+    "heights names every row of column exactly once; a stale row set, a height outside 100..1000, or fit with a sum other than 1000 is refused and changes nothing.",
+    "transaction is echoed in the result and, as a decimal string, in the screen-changed delta.",
+    "See spec/commands.md for the result object and error codes."
+   ],
+   "request": {
+    "additional_properties": false,
+    "fields": {
+     "column": {
+      "nullable": false,
+      "presence": "required",
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     },
+     "fit": {
+      "default": false,
+      "nullable": false,
+      "presence": "optional",
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      }
+     },
+     "heights": {
+      "nullable": false,
+      "presence": "required",
+      "type": {
+       "items": {
+        "kind": "ref",
+        "name": "RowHeight"
+       },
+       "kind": "array"
+      }
+     },
+     "transaction": {
+      "default": null,
+      "nullable": true,
+      "presence": "optional",
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      }
+     }
+    },
+    "kind": "object"
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "since": 12,
+   "stream": null
   }
  },
  "events": {

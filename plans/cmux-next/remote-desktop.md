@@ -199,6 +199,7 @@ The client acknowledges complete frames in feedback. On loss, the host's next fr
 ## 7. macOS client
 
 - Pane: tab kind `remote_view {host, target: display:<id>|window:<id>|virtual, mode: view|control}` in the workspace store (layout record only; the stream is not stored). A native pane (`renderer: "native"`, first-party only).
+- Phase-1 record (coordinator decision 2026-10-03): the `remote_view` tab is a store browser tab record with the URL `cmux://remote-view?host=<host>&target=<target>&mode=<mode>` (the mechanism of `cmux://history` and `cmux://agent-activity`; no daemon change). One pure gate, `RemoteViewTabPolicy`, decides what such a tab shows: a record from a remote machine's tree never opens, in every build (`RemoteRelayPolicy.remoteBrowserURL` drops it before any page exists, and the policy refuses it again); builds without the pane show "not available"; a development build connects only to a loopback host (`mock`, `local`, `localhost`, 127.0.0.0/8); a local record that no person opened or confirmed in this process (CLI, MCP, scripts, agents, restore after relaunch) shows a Connect button and starts nothing until a person presses it; Connect starts view mode, and control stays the person's toggle in the pane. A confirmation binds to the exact record URL and lives only in the app process; automation runs (CLI, MCP, scripts, remote) cannot confirm, even through `bookmark.open`. Accepted for phase 1: Connect is a normal button, so an accessibility client of the same user can press it. The names `mock`, `local` and `localhost` are reserved: the transport connects to a literal 127.0.0.1 for them and never resolves them through the machine directory or DNS. Binding: before the pane leaves DEBUG, the tab moves to a store-native kind (`remote-view-tabs-v1` in cmux-tui-core, like `conversation-tabs-v1`: typed fields, an origin, browser operations refused), and records from this phase migrate to it.
 - Decode: VTDecompressionSession, hardware, real-time; output IOSurface-backed NV12; frames are decoded the moment the last packet arrives and the previous undisplayed frame is discarded.
 - Presentation variants (DEV switch `remoteDesktop.debug.presenter`, Lawrence picks after measurement): (A) `CALayer.contents` = the decoded IOSurface (zero copy, the window server converts color); (B) `CAMetalLayer` with `maximumDrawableCount` 2, a YUV shader and latest-frame-wins present on the next refresh; (C) `AVSampleBufferDisplayLayer` with display-immediately attachments (reported to backlog above 60 fps). Windowed composition can add a frame or more compared with a direct-to-display fullscreen surface, so the bench measures windowed and fullscreen, 60 and 120 Hz. Recommendation pending the measurement on a lit display (15.4); (B) is the default candidate because it gives explicit control of the present time with two drawables.
 - No display link while idle: the pane wakes only when a frame arrives.
@@ -288,6 +289,10 @@ The CLI verbs go through a request file (lane rule: the Swift CLI is frozen): `.
 - Clipboard: off for other people's sessions by default, on for own devices; every transfer is audited as type and size, never content.
 - Audit: session start and end, consent decisions, control grants and releases, clipboard and file transfers, policy changes; stored by the engine and appended to the `TeamDO` audit chain; visible in Settings and `cmux rd audit`.
 - Secure content: the capture excludes password manager and authentication windows on macOS (content filter list shared with computer use); on Linux and Windows nothing comparable exists, which the consent panel states.
+
+### 11.0 Phase-1 trust gap (binding until lane 12's link token)
+
+The landed host engine (`cmux-tui/crates/cmux-rd-host`) trusts the principal claims in its `hello` because the overlay link token does not exist yet. So, by coordinator decision (2026-10-03): the host binds loopback and refuses every non-loopback peer by default; only the explicit `--single-tenant-overlay 1` serves a private single-tenant overlay; the Mac `remote_view` pane is not exposed in Release builds and says "development only" where a connection is made. In addition (coordinator decision 2026-10-03): every host launch gets a 256-bit session token from its parent, the cmux daemon, through an inherited pipe (`--token-fd`; no file, environment variable or argv value); a hello without the exact token is refused before any frame (constant-time compare). The daemon hands the token out only through `secret.release` to the new `frontend` actor (the native cmux-next app, proved by its install key); terminal, acp_session and agent actors are always refused (identity lane, P8 slice 3). The viewer runs in the app process. Confirmed in the host (identity review, 2026-10-03): it binds loopback by default; the exact `--token-fd` token is required in the first message (the hello); and a connection whose first byte is not a control frame (for example an HTTP request from a browser page) is closed at once, before any parse or reply. Until P8 slice 3 (credential.verify and the actor stamp) lands, the host stays development only and the pane is not in Release builds. Lift these limits only when the link `hello` carries a verified token and the host checks it.
 
 ### 11.1 Remote relay analysis (required by the repo's remote relay rules)
 
@@ -389,6 +394,22 @@ PNGs in the lane's private scratch directory (`ui-variants/`, index.md lists eac
 7. The key code namespace must be explicit (USB HID usage, section 7); the size in the hello is a request the host may refuse (it answers with the real size); host CPU percentages state their scale.
 8. The tail on a real path is set by loss recovery, not by the codec: one lost packet of a small frame cost 240 to 730 ms over TCP (retransmission timeout). This is the measured reason for RD4: media on datagrams with FEC, NACK within the RTT, and "resend the newest frame state" instead of waiting for the lost one; on a TCP carrier (phase 1 fallback, DO relay) the engine sends a tiny follow-up packet after each frame (a tail-loss probe) so the receiver acknowledges and the sender can fast-retransmit.
 9. Session teardown through the userspace WireGuard hub can lose the FIN (the host kept a dead session); the engine uses keepalive and a user timeout, and the question goes to lane 12.
+
+### 15.7 Phase-1 engine (P10, cmux-rd-host + cmux-rd-core, 2026-10-03)
+
+Real engine, not the prototype: `cmux.rd/1` datagrams over UDP (or one TCP stream), FEC, frame gate, delay-based congestion control, exactly-once input, session table and policy, per-launch token. Linux bench client (openh264 decode, 1080p, x264 profile baseline for that decoder), marker and text workloads, 0 lost samples in every row.
+
+| Encoder | Path | Marker G2G p50 / p95 ms | Text scroll fps | Text G2G p50 / p95 ms | Text Mbit/s |
+| --- | --- | --- | --- | --- | --- |
+| x264 ultrafast zerolatency (default) | loopback, 32-vCPU Testbox | 3.1 / 3.6 | 39.6 | 6.7 / 20.7 | 6.0 |
+| x264 ultrafast zerolatency (default) | in-VPC Freestyle, 4 vCPU host, UDP | 9.4 / 11.8 | 37 | 24 / 45 | 10.3 |
+| x264 ultrafast zerolatency (default) | same, stream carrier | 9.4 / 11.8 | 36.9 | 28 / 51 | 9.9 |
+| openh264 screen mode | in-VPC, UDP | 19.9 / 25.3 | 0.19 (collapsed: 50 recovery keyframes) | n/a | n/a |
+| openh264 camera mode | loopback | 4.5 / 4.9 | 2.3 (collapsed) | 508 / 851 | 6.2 |
+
+Known limit (accepted, coordinator 2026-10-03): software x264 costs about ONE CORE per 1080p text-scroll stream on a 4-vCPU Cloud VM (93 % of a core in-VPC). Hosts without a hardware encoder therefore cap concurrent streams by cores. Next slice: VideoToolbox for macOS hosts as another implementation of the same `H264Encoder` trait (the earlier Mac selftest measured about 5 ms per 1080p frame in hardware), then VA-API/NVENC on GPU Linux hosts.
+
+Findings that changed the engine: a frame larger than one FEC block (a big text keyframe) must go without parity instead of failing; loss must come from transport-sequence gaps, not from a per-feedback count; congestion control takes one minimum-delay sample per feedback so a keyframe burst is not read as a queue; damage settles for 1 ms so an app that draws one change in several requests is not captured torn.
 
 ## 16. Settings (all documented, defaults tested against docs)
 

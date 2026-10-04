@@ -14,8 +14,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
     /// A settled transcript scroll's frame intervals in milliseconds, at
-    /// most ``maximumPacingFrames``; the pane picks its rendering rate from them.
+    /// most ``maximumPacingFrames``; returns the native display interval and rate mode.
     case framePacing([Double])
+    /// Applies the page's adaptive rate decision; fixed-rate panes ignore it.
+    case renderRate(Bool)
     /// The new tab page chose a terminal or browser: replace the tab with
     /// one, running or opening `text` (a command, a URL or a search), a
     /// terminal in `cwd` when the page picked a folder.
@@ -27,6 +29,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page's "default: X" toggle: what Cmd-T opens
     /// (`tabs.newTabKind`; the App checks the value).
     case setDefaultKind(String)
+    /// The new tab page asked the app to run a user facing action.
+    case runAction(String)
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
@@ -36,6 +40,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `file.open` with `{path, where}`: a changed file from the changes view,
     /// in a tab beside the agent or in the text editor.
     case openFile(path: String, target: AgentPaneFileTarget)
+    /// `browser.open` with `{url}`: a turn's local web page (its preview
+    /// card), in a browser tab of the pane. Only loopback http(s) pages
+    /// (`URL.isAgentPanePreview`); anything else is unsupported.
+    case openPreview(URL)
     /// The quick panel's page: Esc hides the panel, keeping its draft.
     case quickDismiss
     /// The quick panel's page: open its chat in the main window and hide
@@ -84,6 +92,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.renderRate":
+            if let full = params?["full"] as? Bool {
+                self = .renderRate(full)
+            } else {
+                self = .unsupported(method)
+            }
         case "tab.open":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)), kind != .agent {
                 let text = params?["text"] as? String ?? ""
@@ -111,6 +125,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
+        case "action.run":
+            if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
+                self = .runAction(id)
+            } else {
+                self = .unsupported(method)
+            }
         case "file.open":
             if let path = params?["path"] as? String, !path.isEmpty,
                let raw = params?["where"] as? String, let target = AgentPaneFileTarget(rawValue: raw) {
@@ -118,11 +138,18 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
+        case "browser.open":
+            if let text = params?["url"] as? String, text.count <= Self.maximumOpenTabText,
+               let url = URL(string: text), url.isAgentPanePreview {
+                self = .openPreview(url)
+            } else {
+                self = .unsupported(method)
+            }
         case "quick.dismiss": self = .quickDismiss
         case "quick.openInWindow":
             let id = params?["sessionId"] as? String
             self = .quickOpenInWindow(sessionId: id?.isEmpty == false ? id : nil)
-        case "git.diff", "git.status":
+        case "git.diff", "git.status", "file.search", "git.checkpoint.diff":
             if let git = AgentPaneGitRequest(method: method, params: params) {
                 self = .git(git)
             } else {
@@ -168,28 +195,24 @@ public nonisolated enum AgentPaneReply {
     }
 
     /// The handshake as the dictionary the page receives. Nil fields are left
-    /// out so the page sees `undefined`, as the TypeScript type expects.
+    /// out so the page sees `undefined`, as the TypeScript type expects. The
+    /// Codable DTO is encoded once at the bridge boundary; NewTab projection
+    /// and presentation limits belong to the web page.
     public static func handshake(_ handshake: AgentPaneHandshake) -> [String: Any] {
-        var value: [String: Any] = [
-            "protocolVersion": handshake.protocolVersion,
-            "transport": handshake.transport.rawValue,
-        ]
-        if let endpoint = handshake.endpoint { value["endpoint"] = endpoint }
-        if let token = handshake.token { value["token"] = token }
-        if let sessionId = handshake.sessionId { value["sessionId"] = sessionId }
-        if let newSession = handshake.newSession { value["newSession"] = newSession }
-        if let newTab = handshake.newTab { value["newTab"] = newTab.reply }
-        if let cwd = handshake.cwd { value["cwd"] = cwd }
-        if let draft = handshake.draft { value["draft"] = draft }
-        if let prompt = handshake.prompt { value["prompt"] = prompt }
-        if let adopt = handshake.adopt { value["adopt"] = adopt.reply }
-        if let surface = handshake.surface { value["surface"] = surface.rawValue }
-        if let linkScheme = handshake.linkScheme { value["linkScheme"] = linkScheme }
-        if let sessionMustExist = handshake.sessionMustExist { value["sessionMustExist"] = sessionMustExist }
-        if let revealTurn = handshake.revealTurn { value["revealTurn"] = revealTurn }
+        var value = encodedObject(handshake)
         value["handoffStrings"] = AgentPaneHandoffStrings().values
         value["checkpointStrings"] = AgentPaneCheckpointStrings().values
         return success(value)
+    }
+
+    private static func encodedObject<Value: Encodable>(_ value: Value) -> [String: Any] {
+        guard let data = try? JSONEncoder().encode(value),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let dictionary = object as? [String: Any] else {
+            assertionFailure("Agent pane bridge value must be JSON-compatible")
+            return [:]
+        }
+        return dictionary
     }
 }
 

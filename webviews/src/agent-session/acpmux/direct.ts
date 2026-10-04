@@ -1,9 +1,12 @@
 import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot } from "./model";
+import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
+import { promptBlocks, promptText, type ComposerAttachment } from "./attachments";
 import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
+import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
 import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
@@ -167,15 +170,19 @@ function placeDiffs(diffs: AcpmuxFileDiff[] | undefined, locations: any): Acpmux
 }
 
 /// A tool call folded with an update to it. ACP updates carry only the fields that changed;
-/// content, when present, replaces the call's content.
+/// content, when present, replaces the call's content. `at` is the event's time: the call
+/// starts at its first event and ends at the first that reports it completed or failed.
 export function mergeToolItem(
   previous: AcpmuxActivity | undefined,
   update: any,
   callId: string,
   output: string,
+  at?: number,
 ): AcpmuxActivity {
   const before = previous?.tool;
   const title = update.title ?? update.name;
+  const status = String(update.status ?? before?.status ?? "in_progress");
+  const ended = status === "completed" || status === "failed";
   return {
     kind: "tool",
     text: String(title ?? previous?.text ?? callId),
@@ -183,12 +190,14 @@ export function mergeToolItem(
       id: callId,
       title: String(update.title ?? before?.title ?? callId),
       kind: update.kind ?? before?.kind,
-      status: String(update.status ?? before?.status ?? "in_progress"),
+      status,
       inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
       output:
         output || formattedOutput(update.rawOutput) || (update.content === undefined ? before?.output : undefined),
       command: shellCommand(update.rawInput) ?? before?.command,
       exitCode: exitCode(update.rawOutput) ?? before?.exitCode,
+      startedAt: before?.startedAt ?? at,
+      endedAt: before?.endedAt ?? (ended ? at : undefined),
       locations: Array.isArray(update.locations) ? update.locations : before?.locations,
       diffs:
         update.content === undefined
@@ -497,14 +506,17 @@ export class AcpmuxDirectClient {
       if (!request) return;
       this.pending.delete(message.id);
       if (request.timer) clearTimeout(request.timer);
-      // The failure's code (`validation.invalid`, ...) rides along for callers that tell failures apart.
-      if (message.error)
+      // The failure's code (`validation.invalid`, ...) and details ride along for callers that
+      // tell failures apart.
+      if (message.error) {
+        const data = message.error.data as { code?: unknown; details?: unknown } | undefined;
         request.reject(
           Object.assign(new AcpmuxRpcError(message.error), {
-            code: (message.error.data as { code?: unknown } | undefined)?.code ?? message.error.code,
+            code: data?.code ?? message.error.code,
+            ...(data?.details === undefined ? {} : { details: data.details }),
           }),
         );
-      else request.resolve(message.result);
+      } else request.resolve(message.result);
       return;
     }
     const notification = message as Notification;
@@ -626,9 +638,19 @@ export class AcpmuxDirectClient {
     return this.request("acp.trust.set", { cwd, level });
   }
 
-  /// Files under `path` whose path matches `query`, best first (fileSearchModel.ts).
+  /// Files under `path` (else the selected session's folder) whose path matches `query`, best
+  /// first (fileSearchModel.ts). acpmux serves no file search: the native host runs it on the
+  /// session host as `git.files.search`, and mock mode's in-page daemon answers it.
   fileSearch(path: string | undefined, query: string, limit: number): Promise<unknown> {
-    return this.request("file.search", { ...(path ? { path } : {}), query, limit });
+    if (this.gitRoute === "daemon") return this.request("file.search", { ...(path ? { path } : {}), query, limit });
+    const sessionId = this.selectedSessionId;
+    const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
+    const entry = this.sessions.find((session) => session.sessionId === sessionId);
+    const cwd = path ?? text(summary?.cwd) ?? text(entry?.cwd);
+    if (!cwd) return Promise.reject(new Error("This chat has no working folder to search"));
+    if (hostKind(summary?.hostKind) === "cloud" || entry?.hostKind === "cloud")
+      return Promise.reject(new Error("This chat runs on another machine, so its files can't be searched here yet"));
+    return postNative("file.search", { cwd, query, limit });
   }
 
   /// The selected session's repository changes in one git scope (changes/model.ts).
@@ -643,7 +665,15 @@ export class AcpmuxDirectClient {
 
   /// acpmux serves no git methods: the native host runs them on the session host in the selected
   /// session's folder, and mock mode's in-page daemon answers them by session.
-  private git(method: "git.diff" | "git.status", params: Record<string, unknown>): Promise<unknown> {
+  /// One turn's repository changes: checkpoint `from` against checkpoint `to`.
+  gitCheckpointDiff(from: string, to: string): Promise<unknown> {
+    return this.git("git.checkpoint.diff", { from, to, include_patch: true });
+  }
+
+  private git(
+    method: "git.diff" | "git.status" | "git.checkpoint.diff",
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
     const sessionId = this.selectedSessionId;
     const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
     const entry = this.sessions.find((session) => session.sessionId === sessionId);
@@ -915,6 +945,7 @@ export class AcpmuxDirectClient {
           }
         }
         this.rows.delete("typing");
+        const checkpoint = event.kind === "turn_result" ? readSummaryCheckpoint(msg) : undefined;
         if (event.kind === "turn_result")
           this.rows.set(`summary-${event.seq}`, {
             id: `summary-${event.seq}`,
@@ -925,6 +956,7 @@ export class AcpmuxDirectClient {
             ...this.turnTotals(event.at),
             status: String(msg.status ?? "completed"),
             error: msg.errorText,
+            ...(checkpoint ? { checkpoint } : {}),
           });
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;
@@ -990,7 +1022,7 @@ export class AcpmuxDirectClient {
       const existing = this.rows.get(id);
       const items = [...(existing?.items ?? [])];
       const itemIndex = items.findIndex((item) => item.tool?.id === callId);
-      const item = mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text);
+      const item = mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text, event.at);
       if (itemIndex >= 0) items[itemIndex] = item;
       else items.push(item);
       this.rows.set(id, {
@@ -1067,6 +1099,7 @@ export class AcpmuxDirectClient {
             harness: summary.harness,
             model: summary.model,
             effort: effort?.currentValue,
+            promptCapabilities: summary.agentCapabilities?.promptCapabilities,
             status: summary.status,
             enforcement: sessionEnforcement(summary.enforcement),
             modes: summary.modes,
@@ -1121,7 +1154,7 @@ export class AcpmuxDirectClient {
     if (!ids.length) return;
     await this.request("_acpmux/warm", { sessionIds: ids, limit }).catch(() => undefined);
   }
-  async send(text: string): Promise<string | undefined> {
+  async send(input: string, attachments: ComposerAttachment[] = []): Promise<string | undefined> {
     const record = this.handoff.state.record;
     if (
       this.handoffSupported &&
@@ -1135,6 +1168,7 @@ export class AcpmuxDirectClient {
       throw new Error("Review the continuation before sending a prompt.");
     const sessionId = await this.ensureSession();
     if (!sessionId) return undefined;
+    const text = promptText(input, attachments);
     const promptId = crypto.randomUUID();
     const rowId = `local-${promptId}`;
     const at = Date.now();
@@ -1145,7 +1179,7 @@ export class AcpmuxDirectClient {
     try {
       await this.request("session/prompt", {
         sessionId,
-        prompt: [{ type: "text", text }],
+        prompt: promptBlocks(input, attachments),
         _meta: { acpmux: { promptId } },
       });
     } catch (error) {
@@ -1297,7 +1331,12 @@ export class AcpmuxDirectClient {
   }
   /** The harness and model catalog. Server state the pane caches with TanStack Query (catalog.ts), so connect does not wait on it. */
   async harnesses(): Promise<AcpmuxSnapshot["catalog"]> {
-    return normalizeCatalog(await this.request("_acpmux/harnesses", {}));
+    // The harness list carries no models; acpmux serves the probed ones apart (modelCatalog.ts).
+    const [names, probed] = await Promise.all([
+      this.request("_acpmux/harnesses", {}),
+      this.request("_acpmux/models", {}).catch(() => undefined),
+    ]);
+    return mergeModelCatalog(names, probed);
   }
   /// Pages older transcript events in without reattaching, so the live summary,
   /// queue and permission stay as they are. A page that lands after the

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ce9a5e7f62b3f675e99bee009ceaaca54e1d348823fbc1670330ce4ce6e9a83e. */
+/* cmux-tui mux protocol 12, IR 84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -121,6 +121,11 @@ export type CloseTerminalResult = {
 };
 
 export type ColorHex = string;
+
+export type ColumnPin = {
+  "edge": string;
+  "mode": string;
+};
 
 export type CopyResult = {
   "mode": "screen" | "selection" | "scrollback";
@@ -387,6 +392,14 @@ export type MoveTerminalResult = {
   "workspace_key": string;
 };
 
+export type NewRowResult = {
+  "pane": Id;
+  "surface": Id;
+  "terminal_id"?: (string) | null;
+  "terminal_incarnation"?: (string) | null;
+  "transaction"?: string;
+};
+
 export type NoteSizeActivityResult = {
   "changed": boolean;
   "participant": string;
@@ -574,6 +587,16 @@ export type ResourceSelectors = {
   "tab"?: (string) | null;
   "terminal"?: (string) | null;
   "workspace"?: (string) | null;
+};
+
+export type RowHeight = {
+  "height": bigint;
+  "row": Id;
+};
+
+export type RowMarkerPoint = {
+  "col": number;
+  "row_marker": bigint;
 };
 
 export type RunResult = {
@@ -764,6 +787,20 @@ export type SizingIdentity = {
   "user_id"?: (string) | null;
 };
 
+export type SnapshotRequestHave = {
+  "generation"?: (bigint) | null;
+  "offset"?: (bigint) | null;
+  "snapshot_version"?: (number) | null;
+};
+
+export type SnapshotRequestResult = {
+  "reason"?: (string) | null;
+  "request_id"?: (string) | null;
+  "retry_after_ms"?: (bigint) | null;
+  "status": "accepted" | "collapsed" | "snapshot_throttled";
+  "surface": Id;
+};
+
 export type SplitDirection = "right" | "down";
 
 export type SplitRespawn = {
@@ -851,6 +888,21 @@ export type TerminalExitOutcome = ({ "kind": "exit" } & {
   "reason": string;
 });
 
+export type TerminalHistoryPage = {
+  "data": string;
+  "marker": bigint;
+  "rows": number;
+};
+
+export type TerminalHistoryPagesResult = {
+  "done": boolean;
+  "marker_epoch": bigint;
+  "next_before"?: (bigint) | null;
+  "pages": Array<TerminalHistoryPage>;
+  "snapshot_version": number;
+  "surface": Id;
+};
+
 export type TerminalKey = "unidentified" | "backquote" | "backslash" | "bracket-left" | "bracket-right" | "comma" | "digit0" | "digit1" | "digit2" | "digit3" | "digit4" | "digit5" | "digit6" | "digit7" | "digit8" | "digit9" | "equal" | "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" | "minus" | "period" | "quote" | "semicolon" | "slash" | "backspace" | "enter" | "space" | "tab" | "delete" | "end" | "home" | "insert" | "page-down" | "page-up" | "arrow-down" | "arrow-left" | "arrow-right" | "arrow-up" | "numpad0" | "numpad1" | "numpad2" | "numpad3" | "numpad4" | "numpad5" | "numpad6" | "numpad7" | "numpad8" | "numpad9" | "numpad-add" | "numpad-backspace" | "numpad-comma" | "numpad-decimal" | "numpad-divide" | "numpad-enter" | "numpad-equal" | "numpad-multiply" | "numpad-subtract" | "numpad-up" | "numpad-down" | "numpad-right" | "numpad-left" | "numpad-begin" | "numpad-home" | "numpad-end" | "numpad-insert" | "numpad-delete" | "numpad-page-up" | "numpad-page-down" | "escape" | "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" | "f10" | "f11" | "f12" | "f13" | "f14" | "f15" | "f16" | "f17" | "f18" | "f19" | "f20";
 
 export type TerminalKeyAction = "press" | "release" | "repeat";
@@ -894,6 +946,12 @@ export type TerminalPlacement = {
   "terminal_incarnation": (string) | null;
   "terminal_revision": bigint;
   "workspace": (Id) | null;
+};
+
+export type TerminalReadRangeResult = {
+  "surface": Id;
+  "text": string;
+  "truncated": boolean;
 };
 
 export type TerminalRecord = {

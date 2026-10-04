@@ -9,8 +9,6 @@ public final class AgentPaneModel {
     /// The session the page last reported, nil for a new chat that has not
     /// sent its first prompt.
     public private(set) var sessionId: String?
-    /// The last handshake failure shown to the page, for diagnostics.
-    public private(set) var lastError: String?
     /// Page projection of its single session-host Git capability read, never an authorization grant.
     public private(set) var checkpointAvailable = false
     @ObservationIgnored public var onCheckpointAvailability: ((Bool) -> Void)?
@@ -18,8 +16,10 @@ public final class AgentPaneModel {
     /// Called when the page switches to or creates a session, so the App can
     /// keep it with the tab.
     @ObservationIgnored public var onSessionChange: ((String) -> Void)?
-    /// Gets each settled transcript scroll's frame intervals (milliseconds).
-    @ObservationIgnored public var onFramePacing: (([Double]) -> Void)?
+    /// Reports each settled scroll and returns the native display settings to the page.
+    @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
+    /// Applies the page's adaptive rendering decision.
+    @ObservationIgnored public var onRenderRate: ((Bool) -> Void)?
     /// The new tab page this pane shows until it has a session, nil for a
     /// plain chat. Cleared once the page reports a session.
     public private(set) var newTab: AgentPaneNewTab?
@@ -31,10 +31,15 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onEditShortcut: ((AgentPaneTabKind) -> Void)?
     /// The new tab page's "default: X" toggle (`tab.setDefaultKind`).
     @ObservationIgnored public var onSetDefaultKind: ((String) -> Void)?
+    /// Runs an app action requested by an empty-state or new-tab control.
+    @ObservationIgnored public var onRunAction: ((String) -> Void)?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
+    /// Opens a turn's local web page in a browser tab beside the agent;
+    /// false when it could not.
+    @ObservationIgnored public var onOpenPreview: (@MainActor (URL) -> Bool)?
     /// The quick panel's page asked to hide the panel (`quick.dismiss`).
     @ObservationIgnored public var onQuickDismiss: (() -> Void)?
     /// The quick panel's page asked to open its chat in the main window
@@ -107,11 +112,9 @@ public final class AgentPaneModel {
                 handshake.revealTurn = pendingRevealTurn
                 pendingRevealTurn = nil
                 hasHandshake = true
-                lastError = nil
                 return AgentPaneReply.handshake(handshake)
             } catch {
                 let message = AgentPaneHostError.userMessage(for: error)
-                lastError = message
                 return AgentPaneReply.failure(code: "host_unavailable", message: message)
             }
         case .persistSession(let id):
@@ -126,11 +129,17 @@ public final class AgentPaneModel {
             setCheckpointAvailable(available)
             return AgentPaneReply.success()
         case .framePacing(let intervals):
-            onFramePacing?(intervals)
+            return AgentPaneReply.success(onFramePacing?(intervals) ?? [:])
+        case .renderRate(let full):
+            onRenderRate?(full)
             return AgentPaneReply.success()
         case .openTab(let kind, let text, let cwd):
             guard newTab != nil, let onOpenTab else { return Self.unsupported("tab.open") }
             onOpenTab(kind, text, cwd)
+            return AgentPaneReply.success()
+        case .runAction(let id):
+            guard id == "palette.welcomeChecklist", newTab != nil, let onRunAction else { return Self.unsupported("action.run") }
+            onRunAction(id)
             return AgentPaneReply.success()
         case .jump(let target, let id):
             guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }
@@ -157,6 +166,11 @@ public final class AgentPaneModel {
         case .quickDismiss:
             guard let onQuickDismiss else { return Self.unsupported("quick.dismiss") }
             onQuickDismiss()
+            return AgentPaneReply.success()
+        case .openPreview(let url):
+            guard let onOpenPreview, onOpenPreview(url) else {
+                return AgentPaneReply.failure(code: "open_failed", message: Self.openPreviewFailedMessage)
+            }
             return AgentPaneReply.success()
         case .quickOpenInWindow(let session):
             guard let onQuickOpenInWindow else { return Self.unsupported("quick.openInWindow") }

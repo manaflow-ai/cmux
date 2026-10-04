@@ -4,30 +4,15 @@ import { cloudOpByName, PENDING_CONNECTION_TTL_MS, type Connection, type Integra
 import { connectionsDomain, expiredForgets, githubRepoAllowed, lockNoticePending, lockOf, mayUse, pendingExpiries, policyOf, providerAllowed, type ConnectionsState } from "./domains/connections.ts"
 import { decodeParams } from "./domains/common.ts"
 import type { Env } from "./env.ts"
-import { aadFor, open, seal, type SealedSecret } from "./integrations/crypto.ts"
+import { createFallbackTable, loadCredential, nextResealAt, resealFallbacks, storeCredential } from "./integrations/credentials.ts"
+import type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
+import { createWatchTable, nextWatchAt, recordStopFailure, watchOf } from "./integrations/gmail-push.ts"
+import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWith, watchSoon, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
+import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
 import { ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 
-/** The HTTP shape of one op result (http.ts OpResponse). */
-export interface ExternalReply {
-  readonly ok: boolean
-  readonly op: string
-  readonly value?: unknown
-  readonly error?: { readonly code: string; readonly message: string; readonly retryable: boolean }
-  readonly transaction: string
-  readonly idempotency_key: string
-  readonly replayed: boolean
-  readonly stream: string
-  readonly sequence: number
-}
-
-export interface ProviderEvent {
-  readonly provider: IntegrationProvider
-  readonly account: string
-  readonly delivery_id: string
-  readonly event: string
-  readonly payload: unknown
-}
+export type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
 
 /** Synchronous, so the ledger check and insert happen in one turn with no await between. */
 const sha256 = (s: string) => createHash("sha256").update(s).digest("base64url")
@@ -67,6 +52,9 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       status TEXT NOT NULL, reply TEXT, created_at INTEGER NOT NULL, PRIMARY KEY (identity, idempotency_key))`)
     sql.exec(`CREATE INDEX IF NOT EXISTS external_calls_created ON external_calls (created_at)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS refused_system_ops (key TEXT PRIMARY KEY, code TEXT NOT NULL, at INTEGER NOT NULL)`)
+    createRevocationTable(sql)
+    createWatchTable(sql)
+    createFallbackTable(sql)
   }
 
   protected read(state: ConnectionsState, op: string, _params: unknown, principal: Principal): ReadResult {
@@ -105,6 +93,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const forget = expiredForgets(state).find((p) => !skip.has(`forget:${p.connection}`))
     if (forget) times.push(forget.at)
     if (lockNoticePending(state)) times.push(Math.max(_now, this.noticeRetryAt ?? _now))
+    for (const t of [nextRevocationAt(this.ctx.storage.sql), nextWatchAt(this.ctx.storage.sql), nextResealAt(this.ctx.storage.sql)]) if (t !== null) times.push(t)
     return times.length === 0 ? null : Math.min(...times)
   }
 
@@ -171,6 +160,9 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     if (!engine) return
     const entity = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]?.entity
     if (entity) await this.deliverLockNotice(entity, now)
+    await this.revokeAtProviders(now)
+    await runWatchWork(this.watchHost(), engine.currentState.connections, now)
+    await resealFallbacks(this.ctx.storage.sql, this.env, this.http, engine.currentState.connections, now)
     const skip = this.skipped()
     for (const p of pendingExpiries(engine.currentState)) {
       if (p.at > now) break
@@ -188,37 +180,36 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const result = frames.find((f) => f.t === "result")
     const c = result && result.t === "result" ? (result.value as Connection) : undefined
     if (!c || c.status !== "revoked") return
-    this.ctx.storage.sql.exec(`DELETE FROM credentials WHERE connection = ?`, c.id)
+    // Gmail: users.stop runs with the credential before the revoke (google-watches.ts onDisconnect).
+    const stopAlias = watchOf(this.ctx.storage.sql, c.id)?.alias ?? null
+    const taken = takeCredentialForRevocation(this.ctx.storage.sql, c, providers[c.provider], Date.now(), stopAlias)
+    // Arm the alarm now (afterCommit ran before this row existed), then try at once.
+    if (taken) this.scheduleAlarm()
+    if (taken) void this.revokeAtProviders(Date.now())
+    void onDisconnect(this.watchHost(), c.id, stopAlias, taken)
     if (c.account) void this.index(c.account.key).remove(c.owner, c.id).catch((e) => console.error(JSON.stringify({ msg: "account index remove failed", connection: c.id, error: String(e) })))
+  }
+
+  /** Provider-side revocations after disconnects (G5); the alarm retries what is left. */
+  private async revokeAtProviders(now: number) {
+    try {
+      await drainRevocations(this.ctx.storage.sql, this.env, this.http, providers, (key) => this.index(key).list(), now, (provider, cred, alias, connection) => stopWatchWith(this.env, this.http, provider, cred, alias, connection), (connection, alias, reason) => recordStopFailure(this.ctx.storage.sql, connection, alias, reason, Date.now()))
+      // A failed attempt outside an alarm still needs one: never move an earlier alarm later.
+      const next = nextRevocationAt(this.ctx.storage.sql)
+      if (next === null) return
+      const current = await this.ctx.storage.getAlarm()
+      if (current === null || current > next) await this.ctx.storage.setAlarm(next)
+    } catch (e) {
+      console.error(JSON.stringify({ msg: "revocation drain failed", error: e instanceof Error ? e.name : "unknown" }))
+    }
   }
 
   private index(account: string) {
     return this.env.ACCOUNT_INDEX_DO.get(this.env.ACCOUNT_INDEX_DO.idFromName(account))
   }
 
-  private async sealCredential(c: Connection, credential: Credential) {
-    const kek = this.env.INTEGRATIONS_KEK
-    if (!kek) throw new ProviderError("integration.unavailable", "integrations are not configured (no INTEGRATIONS_KEK)")
-    const row = this.ctx.storage.sql.exec<{ generation: number }>(`SELECT generation FROM credentials WHERE connection = ?`, c.id).toArray()[0]
-    const generation = (row?.generation ?? 0) + 1
-    const sealed = await seal(kek, JSON.stringify(credential), aadFor(c.id, c.owner, c.provider, generation))
-    this.ctx.storage.sql.exec(
-      `INSERT INTO credentials (connection, generation, sealed, updated_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT (connection) DO UPDATE SET generation = excluded.generation, sealed = excluded.sealed, updated_at = excluded.updated_at`,
-      c.id,
-      generation,
-      JSON.stringify(sealed),
-      Date.now()
-    )
-  }
-
-  private async openCredential(c: Connection): Promise<Credential> {
-    const kek = this.env.INTEGRATIONS_KEK
-    if (!kek) throw new ProviderError("integration.unavailable", "integrations are not configured (no INTEGRATIONS_KEK)")
-    const row = this.ctx.storage.sql.exec<{ generation: number; sealed: string }>(`SELECT generation, sealed FROM credentials WHERE connection = ?`, c.id).toArray()[0]
-    if (!row) throw new ProviderError("needs_reauth", "no stored credential")
-    return JSON.parse(await open(kek, JSON.parse(row.sealed) as SealedSecret, aadFor(c.id, c.owner, c.provider, Number(row.generation)))) as Credential
-  }
+  private sealCredential = (c: Connection, credential: Credential) => storeCredential(this.ctx.storage.sql, this.env, this.http, c, credential)
+  private openCredential = (c: Connection): Promise<Credential> => loadCredential(this.ctx.storage.sql, this.env, this.http, c)
 
   /**
    * An op with an external effect: `integration.complete` or a provider op.
@@ -332,7 +323,10 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     // Route webhooks first (idempotent), then seal, then commit. If the commit is refused (a
     // disconnect landed in between), undo both so no credential or route outlives it.
     await this.index(approved.account.key).add(c.owner, c.id)
-    await this.sealCredential(c, approved.credential)
+    await this.sealCredential(c, approved.credential).catch(async (e) => {
+      await this.index(approved.account.key).remove(c.owner, c.id).catch(() => undefined)
+      throw e instanceof ProviderError ? new ProviderError(e.code, `${e.message}; start again from Connect`, e.retryable) : e
+    })
     const res = this.submitSystem("connection.activate", {
         connection: c.id,
         account: approved.account,
@@ -343,11 +337,55 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     // An exchange that began inside the lifetime and finished after it still activates when the
     // expiry alarm has not run yet: the provider code is already spent, so refusing would only strand it.
     if (rej) {
-      this.ctx.storage.sql.exec(`DELETE FROM credentials WHERE connection = ?`, c.id)
+      // The provider granted access we will not use: revoke it there too (skipped while the grant serves another connection).
+      if (takeCredentialForRevocation(this.ctx.storage.sql, { ...c, account: approved.account }, impl, Date.now())) {
+        this.scheduleAlarm()
+        void this.revokeAtProviders(Date.now())
+      }
       await this.index(approved.account.key).remove(c.owner, c.id).catch(() => undefined)
       throw new ProviderError("integration.state_invalid", rej.message)
     }
-    return this.boundEngine!.currentState.connections[c.id]!
+    const active = this.boundEngine!.currentState.connections[c.id]!
+    // Gmail push for new-mail triggers (G3); a failure here retries from the alarm, never fails the link.
+    await startWatchSafely(this.watchHost(), active, Date.now())
+    this.scheduleAlarm()
+    return active
+  }
+
+  /** What the Gmail watch lifecycle needs from this object (integrations/google-watches.ts). */
+  private watchHost(): WatchHost {
+    return {
+      sql: this.ctx.storage.sql,
+      env: this.env,
+      http: this.http,
+      credential: (c) => this.usableCredential(c),
+      alias: async (op, alias, owner, connection) => void (await this.index(alias)[op](owner, connection)),
+      deliver: async (c, m) => {
+        const scheduler = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(c.owner))
+        await scheduler.deliverEvent(c.owner, { connection: c.id, sharing: c.sharing, created_by: c.created_by, provider: "gmail", event: "mail.message.received", delivery_id: m.message_id, payload: { connection: c.id, ...m } })
+      },
+      background: (work) => {
+        this.scheduleAlarm()
+        this.ctx.waitUntil(work)
+      },
+      status: (c, status, detail) => void this.submitSystem("connection.status", { connection: c.id, status, ...(detail ? { detail } : {}) }, `status:${c.id}:watch:${status}:${Date.now()}`)
+    }
+  }
+
+  /** RPC: renew this watch now (another connection's stop ended it) or catch up once after a dead-lettered push. */
+  async watchSoon(entity: string, connection: string, what: "renew" | "catch_up"): Promise<void> {
+    if (this.boundTo(entity)) await watchSoon(this.ctx.storage, connection, what, Date.now())
+  }
+
+  /** Whether this object already owns `entity` (RPCs from routes never create or rebind an object). */
+  private boundTo = (entity: string) => this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]?.entity === entity
+
+  /** RPC from the Google push routes (ingress/google-hooks.ts), after they verified the request. */
+  async googlePush(entity: string, push: GooglePush): Promise<{ status: string; delivered: number }> {
+    if (!this.boundTo(entity)) return { status: "ignored", delivered: 0 }
+    const c = this.bind(entity).currentState.connections[push.connection]
+    // Calendar channels arrive with slice G2; until then a calendar push is ignored.
+    return push.kind === "gmail" ? onGmailPush(this.watchHost(), c, push.historyId) : { status: "ignored", delivered: 0 }
   }
 
   /** The connection's credential, refreshed (and sealed) first when the provider says it expired. */

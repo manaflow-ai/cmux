@@ -88,7 +88,7 @@ The labels are the router's labels, shown as the router shows them. The server n
 
 ## Server (`cmux-usage serve`, proposed)
 
-Manifest block (needs the server schema of the platform branch plus `instances` and `data: "cache"`, gaps 2 and 3): `{kind: "native", binary: "cmux-usage", args: ["serve"], catalog: "catalog/account-catalog.json", hosts: ["local"], instances: "machine", data: "cache"}`. One instance per machine that has the app; it owns `account.*` (owner `app:cmux/usage`).
+Manifest block (needs the server schema of the platform branch plus `instances` and `data: "cache"`, gaps 2 and 3): `{kind: "native", binary: "cmux-usage", args: ["serve"], catalog: "proposed/usage-server-catalog.json", hosts: ["local"], instances: "machine", data: "cache"}`. One instance per machine that has the app; it owns `account.*` (owner `app:cmux/usage`).
 
 - Sources. The local router CLI: `sr status --json` (90 s timeout, no shell, fixed argv, the user's PATH from the login environment). It answers from the configured router server or the hosted service and reports `server`. Pooled accounts of the hosted router that the local router does not list come from the catalog op `coderouter.accounts.usage` (owner `cloud:coderouter`), called with the user's principal, never with a key of the server's own. Accounts are merged by provider and id; the fresher reading wins; each keeps `source`.
 - Demand. The server counts open `account.watch` streams by their `demand` filter and the mount's visibility (gap 7). `detail` visible (pane or section): read when the last reading is older than 60 s, then every 2 minutes. `glance` only: every 5 minutes while the user is active, 15 minutes after an hour without input. No visible subscriber, screen locked, display asleep or Low Power Mode: no reads at all. One-shot deadlines, no repeating timer.
@@ -113,16 +113,21 @@ The old design (a host service that reads each agent CLI's credential files and 
 
 CLI verbs requested from the CLI owner: `cmux usage get --json`, `cmux usage refresh` (the v2 catalog generators would produce them from the fragment below).
 
-## Platform v2
+## Manifest v2
 
-`cmux-app.v2.json` and `catalog/account-catalog.json` sketch this app on the converged model (app-platform plan section 12): ops in a catalog fragment owned by `app:cmux/usage` (V1), places as interfaces `cmux.status/1`, `cmux.section/1` (V2), server with `instances: "machine"` (V10), a `variants` block and `strings/` (V11), and a gesture token on `usage.show` (V11). The CLI paths in the fragment (`usage get`, `usage history`, `usage refresh`, `usage watch`, `usage status`) are what the v2 generators would produce. Today's runtime loads only `cmux-app.json`.
+`cmux-app.v2.json` is the manifest v2 that the daemon's app supervisor loads; it passes the one validator (`cmux-tui/crates/cmux-app-manifest`). It declares the same app as `cmux-app.json`: `runtime.main` `dist/main.js`, `cmux.status/1` (`renderStatus`, placement `statusStrip`), `cmux.section/1` (`renderSection`) and `cmux.pane/1` (`renderPane`), and the catalog fragment `catalog/usage-catalog.json`. Every v1 command is one catalog op of family `usage_app` (owner `app:cmux/usage`, `export` names the JS function, CLI `apps run cmux/usage <verb>`, palette title only for palette commands, MCP as v1 exposed it). The DEV/NIGHTLY `variant` setting is the `variants` block. `cmux-app.json` stays for today's in-app runtime.
+
+The v2 schema cannot hold these parts of the app, so the manifest leaves them out:
+
+1. The family is `usage_app`, not `usage`: host scope tables already map `usage.*` ops.
+2. The usage server (`cmux-usage serve`, `instances: machine`): cmux ships no `cmux-usage` binary yet, and its server scopes (`process:spawn:sr`, `op:coderouter.accounts.usage`) are not in the v2 scope grammar. The manifest declares no server; its `account.*` catalog is the proposal `proposed/usage-server-catalog.json`.
 
 ## Platform gaps (most important first)
 
 1. No menu bar placement. Proposal: `cmux.status/1` with `placement: "menuBar"`, an `NSStatusItem` whose button hosts the scene; a primary click opens the item's `Menu` items or a popover. The prototype declares `statusStrip`.
 2. Server schema: `server` exists only on the platform branch, with `data: durable | ephemeral`; this app needs `data: "cache"` and `instances: "machine"` (V10 names them, the schema does not have them yet).
 3. Server process rights: the server must run one user binary (`sr`). v2 has no rule for a server spawning a process; proposal `server.scopes: {"process:spawn:sr": reason}`, enforced by the server's OS sandbox profile, shown in consent.
-4. No pane interface in v2: V2 lists `cmux.status/1` and `cmux.section/1`, not a pane; the sketch uses `cmux.pane/1`.
+4. No pane interface in v2: V2 lists `cmux.status/1` and `cmux.section/1`, not a pane; the v2 manifest now uses `cmux.pane/1`, which the validator knows.
 5. No visibility signal. A mount cannot tell whether it is on screen, so the server cannot stop reads for hidden surfaces. Proposal: the host forwards mount visibility with each stream subscription.
 6. No relative-time text. Countdowns cost one VM wakeup per minute while a surface is mounted (one one-shot timer at the next change). Proposal: `Text` props `relativeTo` and `style: "countdown" | "age"`.
 7. No tinted meter and no container width: bars are rectangles of fixed width (status item, meters cards) or untinted `ProgressView`s. Proposal: `Meter {value, tone, marks}` that fills its container (V7 lists `Meter`).

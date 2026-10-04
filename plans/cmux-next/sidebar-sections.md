@@ -4,7 +4,7 @@
 > State: app side landed through cc5f77639e4 (sections, looks, actions, mirror + intent log, presence, emoji icons); store op PR https://github.com/manaflow-ai/cmux/pull/16842 (branch feat-cmux-next-sidebar-layout-store, head c745621e94f, testbox green except the known-flaky `durable_workspace_creation_supports_the_in_process_terminal_runtime`).
 > Next: retarget #16842 to feat-cmux-next when #16174 merges (owner ad349e7b1284e56a5 reviews); then SidebarAppSectionProvider (send SHA to app platform lead a8ea20892365dec47), blob.put/blob.get + blob-ref registry, Home active state + Cmd-1 when Home lands, review Leo's activateLayoutItem change.
 > After PR 16863 merges: regenerate ActionCatalogTests counts with `CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter ActionCatalogTests` (never hand-bump).
-> App sections: the app platform lead built SidebarAppSectionProvider (CmuxNextSidebar/Sections/SidebarAppSectionProvider.swift, SidebarView.appSections, row kind `.app`, SidebarRegionLayout `appHeights`) and the default bottom CodeRouter section (`sec_app_coderouter`) on 2026-10-03; do not build it again. The Rust store defaults must add the same section when #16842 lands.
+> App sections: the app platform lead built SidebarAppSectionProvider (CmuxNextSidebar/Sections/SidebarAppSectionProvider.swift, SidebarView.appSections, row kind `.app`, SidebarRegionLayout `appHeights`) on 2026-10-03; do not build it again. First-party apps are label items, not sections (Lawrence R36): the default top section holds Home, App Store, then `itm_app_coderouter` (`.app("cmux/coderouter")`), which runs `app.open` and opens the app's page tab. The Rust store defaults must add the same item when #16842 lands.
 > Open runs: none (testbox stopped, warmup cancelled). Worktrees: feat-cmux-next-sidebar-client (clean, all on origin), feat-cmux-next-sidebar-layout-store (PR branch).
 
 Status: design + phase 1 build, sidebar-sections lead, 2026-10-02. Binding: OWNERSHIP-PRINCIPLES.md,
@@ -18,9 +18,9 @@ The left sidebar is an ordered list of **sections** in three **regions**:
 
 | Region | Behavior | Default content |
 | --- | --- | --- |
-| Top | sticky under the titlebar row; never scrolls with the list | section (hidden title): Home, then the App Store, built-in look |
+| Top | sticky under the titlebar row; never scrolls with the list | section (hidden title, `max_rows` 4): Home, the App Store, History, Notifications, Settings, Customize Appearance, CodeRouter, built-in look. With the default rail (section 11) the first four are rail buttons and the rest sit under its More menu |
 | Middle | scrolls; the only region that takes all leftover height | the Workspaces section (pinned workspaces, machines, groups; Leo's stack + history layer lives here unchanged) |
-| Bottom | sticky above the space bar | section (hidden title), one line: Settings (icon + label) at the leading edge, the account avatar (icon only) at the trailing edge |
+| Bottom | sticky above the space bar | section (hidden title), one line: the account avatar (icon only); pinned to the rail's bottom by default |
 
 Every section has: an optional title (hidden titles draw no header), a region, an ordered item list, a
 **look** (`builtIn`: compact rows that read as app chrome, like Home; `list`: rows that look like
@@ -169,8 +169,8 @@ both.
 
 Client: the confirmed mirror is written only by `sidebar-layout-get` replies and events; pending ops
 form the intent log (visible = mirror + pending; an op leaves on echo or reject, reject animates
-back). Before the daemon serves the capability (it is `awaitingPin` until the next cmux-tui pin
-cut), the app shows the default layout and every layout action is disabled with the reason
+back). Before the daemon serves the capability (it is in `unservedByBundledDaemon` until the daemon half,
+PR #16842, lands), the app shows the default layout and every layout action is disabled with the reason
 "Needs a newer cmux-tui"; nothing queues and nothing is written to a local file. DEV builds may
 turn on `sidebar.sections.localPrototype` (Debug Settings) to edit an in-memory layout for
 prototyping; it is never persisted.
@@ -257,10 +257,12 @@ switch (descriptor titles are built once at launch).
 
 ## 9. Open decisions for Lawrence
 
-- Collapse state per window (recommended) or synced per user.
-- Whether sections subsume the space bar (spaces as an item) and the footer accessories.
+- (Decided, see 9a: collapse per window; the space bar stays.)
 
 ## 9a. Decisions (Lawrence, 2026-10-02)
+
+- Tab drags (coordinator, 2026-10-03): a workspace made from a moved tab takes the tab's name; from a workspace's last tab it keeps the old workspace's name when the user set one (a `workspace-N` name counts as the daemon default). The name rides on `move-tab-to-new-workspace` (`name` field, sidebar store window); a daemon without it gets a rename after the move. A dragged agent tab snaps back for now: agent tabs are app-local, so the daemon has no slot for them. The real fix is the daemon owning agent tabs (ownership-v2).
+- Section collapse state is per window (`WindowState.collapsedSections`, saved with the window), not synced per user. The space bar stays as its own control; sections do not subsume it (batch item 2, s9).
 
 - Default look quiet; name "sections"; spaces model A.
 - Bottom band: Settings and the account avatar on one line (above).
@@ -304,3 +306,36 @@ Lawrence (2026-10-02): sections subsume Leo's window rail (#16740). The rail bec
 look of sections: a leading vertical region whose sections draw as icon columns (the lines-icons
 look turned vertical). Leo's lane builds the rail look on top of the section layout; shared files go
 through the coordinator.
+
+Rail by default (Leo, 2026-10-03: keep Home and the App Store, but tuck them into a skinny strip like
+the Codex app). `window.rail` defaults to "leading": the rail sits at the window's leading edge and
+the sidebar beside it is an inset panel (rounded top leading corner, the theme's `stripStep` fill
+over the backdrop), starting directly with the workspace list. The rail draws the sticky bands: the
+top band from the top, the bottom band pinned to the bottom. In the rail look a section's
+`max_rows` caps its buttons; the rest go under a More ("...") button placed after that section's
+buttons (a short window also spills the last buttons into it, in document order). The default
+layout (section 1) gives:
+
+| Rail | Items |
+| --- | --- |
+| top | Home, App Store, History, Notifications |
+| More menu | Settings, Customize Appearance, CodeRouter |
+| bottom | Account |
+
+Settings sits under More like in the Codex app, where it is reached from a menu rather than the
+strip; ⌘, opens it anyway. Home's button takes the selected tile while the window shows the home
+workspace, and Notifications shows a dot while anything is unread (no count; VoiceOver carries
+it). Only the rail draws the dot: the sidebar's own icon looks keep hiding unread items. With
+`window.rail` "off" the same layout shows as sidebar bands (the top band four rows tall, then
+scrolling), and a stored pre-rail layout is not migrated.
+
+Migration: a stored layout whose sections equal the pre-rail default (top: Home, App Store,
+CodeRouter; bottom line: Settings, Account; `SidebarLayoutDocument.preRailDefaults`) is moved to the
+new default once per app session with ordinary ops through the owner (add History and Notifications,
+move Settings up, add Customize Appearance, set `max_rows` 4). Any other stored layout is the user's
+and is left alone. The Rust store's defaults must match `SidebarLayoutDocument.defaults` when #16842
+lands, and the shared fixture (`sidebar-layout-cases.json`) already expects the new default.
+The ops go out one by one, so an owner that refuses one of them leaves a layout that is neither
+old nor new, which is never retried; two clients migrating at once see `duplicate_id` refusals.
+Both wait on #16842 (no store serves the layout yet): the owner should take the migration as one
+batch, or run it itself.

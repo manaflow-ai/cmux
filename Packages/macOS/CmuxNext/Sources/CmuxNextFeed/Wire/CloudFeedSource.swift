@@ -139,9 +139,14 @@ public final class CloudFeedSource: FeedSource {
         }
     }
 
+    /// This app's version (`CFBundleShortVersionString`), sent on every wire connect.
+    static let clientVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+
     private func session(onSnapshot: () -> Void) async throws {
         var request = URLRequest(url: wireURL)
         request.setValue("cmux.wire.v1, bearer.\(try await token())", forHTTPHeaderField: "Sec-WebSocket-Protocol")
+        // updates.minimumVersion (enterprise P17-4): the server refuses older clients with client.too_old.
+        if let version = Self.clientVersion { request.setValue(version, forHTTPHeaderField: "x-cmux-client-version") }
         let task = URLSession.shared.webSocketTask(with: request)
         // A full snapshot is up to 1.5 MB (the owner's state bound); the default limit is 1 MiB.
         task.maximumMessageSize = 8 << 20

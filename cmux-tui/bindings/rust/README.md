@@ -108,6 +108,30 @@ Destructive layout undo returns `Error::ConfirmationRequired` with a typed
 preview token, revision, and panes. Retry with that token, its revision, and a
 new idempotency key.
 
+Shared state has typed calls: `Workspace::update` (title, color, icon with
+`Update::Set`, `Update::Clear`, or `Update::Unchanged`), `Tab::pin`,
+`Tab::unpin`, `Tab::update` (zoom, browser back and forward lists, frontend
+owner), `Screen::update_column` (`ColumnUpdateOptions::pin(edge, mode)`,
+`unpin()`, `width(w)`), and the per-window records of `window-records-v1`:
+`Session::window_records`, `put_window_record`, and `delete_window_record`.
+A window record's `expected_revision` is the record's own revision (`Some(0)`:
+the record must not exist); a mismatch is `Error::Protocol` with code
+`revision.conflict`.
+
+```rust,no_run
+use cmux::{ColumnEdge, ColumnMode, ColumnUpdateOptions, Update, WorkspaceUpdateOptions};
+# fn state(session: cmux::Session, column: String) -> cmux::Result<()> {
+let workspace = session.current_workspace();
+workspace.update(WorkspaceUpdateOptions { color: Update::Set("#FF8800".into()), ..Default::default() })?;
+let screen = workspace.current_screen();
+screen.update_column(column, ColumnUpdateOptions::pin(ColumnEdge::Right, ColumnMode::Docked))?;
+let frame = serde_json::json!({"frame": [0, 0, 1200, 800]});
+let record = session.put_window_record("install-a", "window-1", frame, Some(0))?;
+session.delete_window_record("install-a", "window-1", Some(record.value.revision))?;
+# Ok(())
+# }
+```
+
 All eight creation option types expose `correlation_key`. Values contain 1 to
 128 UTF-8 bytes and remain stable across creation attempts.
 
@@ -154,6 +178,15 @@ while let Some(item) = reader.next() {
 # Ok(())
 # }
 ```
+
+`cmux::raw::Client::create_frontend_browser_tab` creates a browser tab that
+the app renders (WebKit or CEF) with an idempotency key: a retry with the same
+key returns the first tab with `replayed: true`. It identifies the connection
+when needed and fails with `MissingCapability` before it sends anything to a
+daemon without `frontend-browser-tab-keys-v1`. `write_frontend_browser_tab`
+records the location the page reports. `request_raw` returns a
+`cmux.protocol/2` failure as `Error::Protocol` with its code, message,
+details, and retryability.
 
 The `socket-path-hash` feature (on by default) derives the SHA-256 socket
 path for session names too long for a Unix socket path. Embedders that always

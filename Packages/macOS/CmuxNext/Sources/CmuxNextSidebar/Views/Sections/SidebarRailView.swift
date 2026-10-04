@@ -21,9 +21,12 @@ final class SidebarRailView: NSView {
         /// alone where an item has none.
         var toolTips: [LayoutItemID: String]
         var metrics: SidebarRailMetrics
+        /// Keep the accessory slot (`accessoryView`).
+        var accessory = false
     }
 
     var onActivate: ((LayoutItemID) -> Void)?
+    var onActivateWithModifiers: ((LayoutItemID, NSEvent.ModifierFlags) -> Void)?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
     private(set) var layoutResult = SidebarRailLayout.empty
     private var content: Content?
@@ -31,6 +34,16 @@ final class SidebarRailView: NSView {
     /// Lists the top-band items a short rail has no room for.
     private(set) var moreView: SidebarItemRowView?
     private var lineLayers: [CALayer] = []
+    /// The App's accessory (the update circle), placed in the layout's
+    /// accessory slot while `Content.accessory` holds.
+    var accessoryView: NSView? {
+        didSet {
+            guard oldValue !== accessoryView else { return }
+            oldValue?.removeFromSuperview()
+            if let accessoryView { addSubview(accessoryView) }
+            needsLayout = true
+        }
+    }
 
     init() {
         super.init(frame: .zero)
@@ -64,7 +77,7 @@ final class SidebarRailView: NSView {
         super.layout()
         guard let content else { return }
         let result = SidebarRailLayout.make(document: content.document, room: content.room, height: bounds.height,
-                                            metrics: content.metrics)
+                                            metrics: content.metrics, accessory: content.accessory && accessoryView != nil)
         layoutResult = result
         let shown = Set(result.buttons.map(\.item))
         for (id, view) in itemViews where !shown.contains(id) {
@@ -98,13 +111,22 @@ final class SidebarRailView: NSView {
             lineLayers.append(line)
         }
         for (line, frame) in zip(lineLayers, result.separators) { line.frame = frame }
+        accessoryView?.isHidden = result.accessory == nil
+        if let frame = result.accessory { accessoryView?.frame = frame }
         CATransaction.commit()
         needsDisplay = true
     }
 
     private func makeItem(_ id: LayoutItemID) -> SidebarItemRowView {
         let view = SidebarItemRowView()
-        view.onPress = { [weak self] in self?.onActivate?(id) }
+        view.isRailButton = true
+        view.onPressWithModifiers = { [weak self] flags in
+            if let onActivateWithModifiers = self?.onActivateWithModifiers {
+                onActivateWithModifiers(id, flags)
+            } else {
+                self?.onActivate?(id)
+            }
+        }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)
@@ -116,6 +138,7 @@ final class SidebarRailView: NSView {
 
     private func makeMore() -> SidebarItemRowView {
         let view = SidebarItemRowView()
+        view.isRailButton = true
         view.onPress = { [weak self, weak view] in
             guard let self, let view else { return }
             overflowMenu().popUp(positioning: nil, at: NSPoint(x: view.bounds.maxX, y: view.bounds.minY), in: view)

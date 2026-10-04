@@ -17,6 +17,12 @@ share="${SRCROOT:?}/ghostty/zig-out/share"
 
 sync_dir() {
   local src="$1" dst="$2"
+  # File-system synchronized groups can materialize a same-named resource
+  # before this legacy script runs. Replace that placeholder with the
+  # directory this phase owns.
+  if [[ -e "$dst" && ! -d "$dst" ]]; then
+    rm -f "$dst"
+  fi
   mkdir -p "$dst"
   rsync -a --delete "$src/" "$dst/"
 }

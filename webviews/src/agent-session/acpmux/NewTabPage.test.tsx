@@ -60,6 +60,11 @@ test("the handshake's newTab becomes the page's kind, hotkeys and folder", () =>
   expect(newTabHost({ newTab: { kind: "spreadsheet" } })?.initialKind).toBe("agent");
 });
 
+test("the web bridge caps project folders while preserving their order", () => {
+  const projects = Array.from({ length: 45 }, (_, index) => `/src/project-${index}`);
+  expect(newTabHost({ newTab: { projects } })?.projects).toEqual(projects.slice(0, 40));
+});
+
 test("Tab cycles the kinds both ways, and recent sessions put the ones waiting on you first", () => {
   expect(cycleKind("terminal")).toBe("browser");
   expect(cycleKind("agent")).toBe("terminal");
@@ -331,5 +336,46 @@ test("Cmd-L brings the keyboard back to the field, and an untouched location is 
   });
   expect(dom.window.document.activeElement).toBe(field);
   expect([field.selectionStart, field.selectionEnd]).toEqual([0, field.value.length]);
+  await act(async () => root.unmount());
+});
+
+test("the project pill changes the cwd used by a new agent chat", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const submitted: Array<[string, string, string | undefined]> = [];
+  await act(async () =>
+    root.render(
+      createElement(NewTabPage, {
+        snapshot,
+        initialKind: "agent",
+        cwd: "/src/app",
+        projects: [
+          { cwd: "/src/app", label: "app" },
+          { cwd: "/src/web", label: "web" },
+        ],
+        onSubmit: (kind: string, text: string, cwd?: string) => submitted.push([kind, text, cwd]),
+        onOpenSession: () => {},
+        onShowAll: () => {},
+      }),
+    ),
+  );
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-project-button")!.click());
+  const web = [...container.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (node) => node.textContent === "web",
+  );
+  expect(web).toBeTruthy();
+  await act(async () =>
+    web!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+  );
+  const field = container.querySelector<HTMLInputElement>(".acpmux-newtab-field")!;
+  const setValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
+  await act(async () => {
+    setValue.call(field, "fix the build");
+    edited(field);
+  });
+  await act(async () => {
+    container.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+  });
+  expect(submitted).toEqual([["agent", "fix the build", "/src/web"]]);
   await act(async () => root.unmount());
 });

@@ -15,7 +15,9 @@ harness. The "brain" that P1 ports is the deterministic host around it (today `m
 1. Inbox: it reads the conversation owner's `conversation-changed` events, applies the wake rule
    (home.md section 5), and prompts the session (`promptId` = message id).
 2. Replies: it folds the session's acpmux events into turns and posts each turn's text as
-   `message.send` by `agent_mux` (key `turn:<session>:<turn seq>`); it sets typing during a turn.
+   `message.send` by `agent_mux` (key `turn:<session>:<turn seq>`, or `turn:<session>:<epoch>:<turn
+   seq>` after the acpmux log was reset; the epoch comes from the log itself, so a lost host.json or a
+   repeated import never reuses a key); it sets typing during a turn.
 3. Supervisor: it tracks child sessions tagged `mux.parent=mux`, posts and edits their `work`
    cards, and sends `[mux-event]` prompts when a child ends a turn or asks for a permission.
 4. Outbox: durable, ordered conversation ops; one retry after `agent_rate`; drop on any other
@@ -23,7 +25,7 @@ harness. The "brain" that P1 ports is the deterministic host around it (today `m
 5. Memory: the OptMem-style log (`LOG.txt`, `TREE/`), the Claude Code hooks that write it, and
    compaction through a summarizer session.
 6. Session setup: the session directory (CLAUDE.md, `.claude/settings.json`, hooks), the tool
-   servers, the pid lock, and catch-up after a reconnect.
+   servers, the host lock, and catch-up after a reconnect.
 
 ## 2. Process placement
 
@@ -42,8 +44,16 @@ Placement: the Chief is an actor in the session daemon process (the conversation
   hub in-process. The core does not change.
 - Lifecycle: the daemon starts the actor when the session has a `kind: home` workspace
   (`workspace.ensure_home`) and stops it with the session. One actor per `$MUX_HOME`: the actor takes
-  the same pid lock as the TypeScript host (`$MUX_HOME/state/host.lock`), so the two hosts never run
-  together. The daemon advertises capability `chief-v1`.
+  the same kernel lock as the TypeScript host, so the two hosts never run together. Lock protocol:
+  open `$MUX_HOME/state/host.lock` and take an exclusive non-blocking flock(2) (TypeScript: bun:ffi
+  `flock(LOCK_EX|LOCK_NB)`; Rust: `std::fs::File::try_lock`, which is flock on Unix), keep the
+  descriptor open for the host's life, never remove the file; the text `<pid>\n<start ms>\n` is
+  diagnostics only, with a `flock` mark line (branch feat-cmux-next-mux-lock). Upgrade check, REMOVE
+  AFTER ONE RELEASE: a lock text without the mark that names a live process whose OS start is no
+  later than the recorded start (or the file mtime) plus 1 s is an older host that holds the lock by
+  text only; the new host logs its pid and does not start. The Rust shell must write the same text
+  with the `flock` mark line, or a TypeScript host reads it as an older host. The daemon advertises
+  capability `chief-v1`.
 - Why not the acpmux process: the conversation owner is the single writer of conversations and its
   owner-stamped actor is the security boundary (home.md section 2). An in-process client of the
   owner removes the token handoff (the 0600 file and the "any same-uid process is user_local" gap
@@ -65,20 +75,38 @@ Both brains get the same sans-I/O core: `step(state, input, now) -> effects`. Ho
 - Rust: crate `cmux-tui/crates/cmux-chief` (core, memory, prompts; serde only, no I/O), plus the
   daemon shell `cmux-tui-core/src/server/chief/` (ports, timers, persistence).
 
-Inputs (tagged `kind`): `daemon_connected {conversation}`, `conversations_listed {summaries}`,
-`snapshot {summary, messages}`, `history {conversation, messages}`, `conversation_changed {event}`,
-`op_result {idempotency_key, ok | reject}`, `acpmux_connected {session_id, sessions, events}`,
-`acpmux_event {event}`, `session_changed {session}`, `permission_pending {session_id,
-permission_id, request}`, `child_events {session_id, events}`, `prompt_accepted {prompt_id}`,
-`timer {key}`, `disconnected {port}`.
+Inputs (tagged `kind`): `daemon_connected {conversation}`, `conversations_listed {conversations}`,
+`snapshot {conversation, messages}`, `history {conversation, messages}`, `conversation_changed
+{conversation, change}`, `op_result {idempotency_key, reason?, change?}` (`reason` set on a reject),
+`acpmux_connected {session_id, sessions, events, cursor_reset?}`, `acpmux_event {event}`,
+`session_changed {session}`, `permission_pending {session_id, permission_id, request}`,
+`sessions {sessions}`, `child_events {session_id, events}`, `prompt_settled {prompt_id}`,
+`timer {key}`, `disconnected {port}`. Every input carries `now` in milliseconds since the epoch. A
+failed daemon read (list, snapshot, history) is reported as `disconnected {port: daemon}`; the
+reconnect catches up again.
 
-Effects (tagged `kind`, in order): `conversation_op {conversation, idempotency_key, op}`,
-`typing {conversation, on}`, `prompt {prompt_id, text}`, `fetch_snapshot {conversation, tail}`,
-`fetch_history {conversation, before_seq, limit}`, `fetch_child_events {session_id, after}`,
-`reconnect {port}`, `arm_timer {key, at}`, `persist {state}`, `log {line}`.
+Effects (tagged `kind`, in order): `persist {state}` (first, when the step changed the durable
+state; the shell writes it before it runs the rest), `conversation_op {conversation,
+idempotency_key, op}`, `typing {conversation, on}`, `prompt {prompt_id, text}`, `list_conversations`,
+`fetch_snapshot {conversation, tail}`, `fetch_history {conversation, before_seq, limit}`,
+`fetch_sessions`, `fetch_child_events {session_id, after}`, `reconnect {port}`, `arm_timer {key,
+at}`, `ready`, `log {line}`.
 
 Durable state keeps the `host.json` shape of `mux/host/src/state.ts` (field names unchanged), so
 the Rust host takes over a TypeScript host's state and memory with no migration step.
+
+Conditions (Home lead, 2026-10-03, binding for P1):
+
+1. The TypeScript step core is the single behavior source. The corpus is generated from it; the
+   Rust core follows it, never the other way.
+2. `mux/host` keeps working until `cmux-chief` passes the corpus; then the Rust Chief replaces it in
+   one switch. The Mac never has two live brains (the shared kernel lock also enforces this).
+3. The Rust Chief acts as `agent_mux` with the agent principal, never `user_local` or the install
+   principal. In-process (section 2) the owner stamps the agent principal directly; any socket
+   client path binds with the minted agent token.
+4. Approval cards show the real op and params; the action key is derived from the confirm id,
+   inside the core (a later core feature, built in TypeScript first).
+5. No new raw daemon command lands without a coordination line in the lane file.
 
 ## 4. Shared behavior corpus
 
@@ -88,13 +116,19 @@ the TypeScript core must agree, and the generator records the full effects).
 
 ```
 {"format": "cmux-chief-corpus/1",
- "cases": [{"name", "state": <durable state before>, "volatile": <summaries, cursors, sessions>,
-            "steps": [{"now": RFC 3339 ms, "input": <Input>, "effects": [<Effect>]}],
+ "cases": [{"name", "state": <durable state before>,
+            "steps": [{"now": <ms since the epoch>, "input": <Input>, "effects": [<Effect>]}],
             "state_after": <durable state>}],
- "memory": [{"name", "fn": "to_lines"|"decompose"|"wake_cover"|"render_wake", "args", "result"}]}
+ "memory": [{"name", "fn": "to_lines"|"decompose"|"wake_cover"|"wake"|"zoom", "args", "result"}]}
 ```
 
-Rules: effects compare as JSON values in order; `persist` compares the whole state; times come only
+JSON text rule (coordinator, 2026-10-03): JSON that the cores render into prompt text (a
+permission's `rawInput`, the `turn_error` fallback) uses sorted keys in both languages. Number text
+still differs for integer-valued floats (TypeScript `1`, Rust `1.0`). This gap is accepted: corpus
+cases carry no floats in that JSON, one unit test per language pins the current text, and no code
+compares that text across the cores (compare parsed values only).
+
+Rules: effects compare as exact JSON values in order (`log` effects are not compared); `persist` compares the whole state; times come only
 from `now`. Case groups: wake rule (1:1, group, DM, mention, reply to the Chief, retracted, own
 message), catch-up from the read cursor with paging, turn folding (steer, queue, error, replay at or
 below the cursor), reply keys, typing, outbox (`agent_rate` once, `agent_budget` drop,
@@ -131,24 +165,29 @@ profile (group names and one line each), so the prompt and the tool list cannot 
 
 ## 6. `conversation.promote` (D10)
 
-A local conversation becomes a cloud `ConversationDO`. The local owner stays the single writer of
-the local copy; the cloud owner is the single writer of the new one.
+A local conversation becomes a cloud `ConversationDO` through lane 15's `conversation.import`
+(home-messaging.md section 22). The local owner stays the single writer of the local copy; the
+cloud owner is the single writer of the new one. The promoting user drives it from the app (it
+holds the account session); an agent never promotes.
 
-1. Local op `conversation.promote.begin {conversation, idempotency_key}` (actor `user_local`):
-   the owner freezes the conversation (writes refused with `promoted`) and returns the export
-   (summary, all messages, reactions, read cursors) and a deterministic target id
-   `conv_<base32(sha256("promote:" + local id + ":" + user id))[0..26]>`.
-2. The app (it holds the account session) calls the cloud op `conversation.import {id, source:
-   {owner: "local", conversation, rev}, participants, messages}` through Home ops routing. The import
-   maps `user_local` to the account's `user_<id>` and `agent_mux` to the user's Chief agent id
-   (home-messaging.md section 20 item 9). Import is idempotent by `id`.
-3. Local op `conversation.promote.commit {conversation, cloud_id}`: the local copy becomes read-only
-   with a pointer (`promoted_to`). A crash between 1 and 3 replays 2 (same id) and then 3.
-   `conversation.promote.abort` unfreezes when the import is refused.
+1. Local `conversation-promote-begin {conversation}` (actor `user_local`): the owner refuses a
+   conversation whose participants are not `user_local` plus agents of this Mac (`not_promotable`),
+   then freezes it (state `promoting`; every write refused with `promoting`) and returns the summary
+   and this daemon's host id. The app pages the frozen messages with `conversation-history`.
+2. The app maps `user_local` to the account's `user_<id>` and `agent_mux` to the user's default
+   chief id (section 9) before the call, and sends `conversation.import` with `source {kind: mac,
+   host, local_id}` and `kind: chief` (the owner and one owned mux agent) or `group`. The Worker
+   derives the cloud id from the signed-in user, host and local id; the app never chooses it.
+   Batches hold at most 500 messages and 1 MiB, in seq order (`after_seq` continues). Resume after a
+   crash: the same first call returns `{last_seq, state}` and the app continues after `last_seq`.
+   Then `conversation.import.commit {id, last_seq}`.
+3. Local `conversation-promote-commit {conversation, cloud_id}`: the local copy becomes read-only
+   with `promoted_to`. `conversation-promote-abort {conversation}` unfreezes it when the import is
+   refused (for example while chief imports fail closed, before the backend lead adds the
+   owner-record participant policy).
 
 The Chief follows the pointer: it stops waking on the local copy; the cloud brain owns the cloud
-copy. Dependencies: `conversation.import` in home-core (lane 15) and its Worker route (backend lead,
-urgent finding 2).
+copy. The local ops are daemon protocol changes (review subagent, cmux-tui window).
 
 ## 7. Migration and landing order
 
@@ -173,3 +212,47 @@ Done when: a tagged build answers in Home with no `CMUX_NEXT_MUX_HOST`; the corp
 - Compaction keeps the acpmux summarizer session (`MUX_COMPACT_HARNESS`, model `haiku`). Model
   calls in tests go through the subrouter only.
 - PATH for the Chief's tools stays the phase A stand-in until D26 (daemon login environment).
+
+## 9. Chief records in UserDO (for the backend lead)
+
+Record `chief` in `UserDO`, keyed by chief id. All fields are per user; P1 needs no per-install
+field (the Mac's local Chief is the participant `agent_mux` of that install's local owner, mapped at
+promote time to the user's default chief).
+
+| field | type | null | writer | note |
+| --- | --- | --- | --- | --- |
+| `id` | `agent_<26 base32>` | no | UserDO at create | never reused |
+| `owner_user` | `user_<id>` | no | UserDO at create | immutable |
+| `display_name` | string, 1...100 chars | no | user (`chief.create`, `chief.update`) | default "Chief" |
+| `is_default` | bool | no | user; UserDO keeps exactly one true | texts (H9) and promote use the default |
+| `brain` | `"cloud"` | no | UserDO at create | the brain that answers this chief's cloud conversations; only `"cloud"` in P1 (the Mac brain answers local conversations only) |
+| `main_conversation` | `conv_<26>` | yes | UserDO when it creates the chief's main conversation | |
+| `harness` | string | yes | user | null = deployment default |
+| `rev` | u64 | no | UserDO | +1 per committed op |
+| `created_at`, `updated_at` | RFC 3339 ms | no | UserDO | |
+| `archived_at` | RFC 3339 ms | yes | UserDO on `chief.archive` | |
+
+Ops (actor: the user's principal, from any install; the Mac Chief actor and the cloud MuxDO write
+none of these fields in P1, they only read `id`, `is_default` and `main_conversation`):
+
+| op | params | idempotency key | risk class | rules |
+| --- | --- | --- | --- | --- |
+| `chief.create` | `display_name?`, `is_default?` | required; the first default chief uses the fixed key `chief-default` | normal | the first chief of a user is the default |
+| `chief.update` | `chief`, `expected_rev`, `display_name?`, `is_default?`, `harness?`, `archived?` (false only: restore) | required | normal | setting `is_default` clears it on the old default in the same commit |
+| `chief.archive` | `chief`, `expected_rev` | required | destructive (text confirmation per H10, H11) | refused for the default chief (`chief_is_default`) |
+
+Retention: an archived chief stays readable and restorable (`chief.update` with `archived: false`)
+for 30 days, then becomes a tombstone `{id, owner_user, archived_at}` kept forever so the id is never
+reused; its conversations keep the participant (marked left). Memory deletion follows P2's memory
+owner, not this record.
+
+Presence: the Mac Chief does not need presence or the presence key.
+
+## 10. Memory scope in the UI
+
+One Chief identity spans the Mac and the cloud, but each brain keeps its own memory until P2 (Chief
+memory in the team VM); accepted by the coordinator, 2026-10-03. Every view that shows the Chief
+says so plainly. String for the Home lead's views (Mac and iOS), key
+`home.chief.memoryScope.deviceOnly`: en "This Chief remembers on this device only.", ja
+"この Chief はこのデバイスでのみ記憶します。" (other languages per check-l10n.sh, by the view owner).
+The note is removed when P2 lands shared memory.

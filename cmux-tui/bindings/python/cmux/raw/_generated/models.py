@@ -408,6 +408,13 @@ class CloseTerminalResult:
 
 
 @dataclass(frozen=True)
+class ColumnPin:
+    __cmux_schema_path__: ClassVar[str] = 'types/ColumnPin'
+    edge: str
+    mode: str
+
+
+@dataclass(frozen=True)
 class CopyResult:
     __cmux_schema_path__: ClassVar[str] = 'types/CopyResult'
     mode: Literal['screen', 'selection', 'scrollback']
@@ -746,6 +753,16 @@ class MoveTerminalResult:
 
 
 @dataclass(frozen=True)
+class NewRowResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/NewRowResult'
+    surface: Id
+    pane: Id
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class NoteSizeActivityResult:
     __cmux_schema_path__: ClassVar[str] = 'types/NoteSizeActivityResult'
     changed: bool
@@ -957,6 +974,20 @@ class ResourceSelectors:
     stream: Union[str, None, MissingType] = field(default=MISSING)
     tab: Union[str, None, MissingType] = field(default=MISSING)
     terminal: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class RowHeight:
+    __cmux_schema_path__: ClassVar[str] = 'types/RowHeight'
+    height: int
+    row: Id
+
+
+@dataclass(frozen=True)
+class RowMarkerPoint:
+    __cmux_schema_path__: ClassVar[str] = 'types/RowMarkerPoint'
+    col: int
+    row_marker: int
 
 
 @dataclass(frozen=True)
@@ -1186,6 +1217,24 @@ class SizingIdentity:
 
 
 @dataclass(frozen=True)
+class SnapshotRequestHave:
+    __cmux_schema_path__: ClassVar[str] = 'types/SnapshotRequestHave'
+    generation: Union[int, None, MissingType] = field(default=MISSING)
+    offset: Union[int, None, MissingType] = field(default=MISSING)
+    snapshot_version: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SnapshotRequestResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SnapshotRequestResult'
+    surface: Id
+    status: Literal['accepted', 'collapsed', 'snapshot_throttled']
+    reason: Union[str, None, MissingType] = field(default=MISSING)
+    request_id: Union[str, None, MissingType] = field(default=MISSING)
+    retry_after_ms: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SplitRespawn:
     __cmux_schema_path__: ClassVar[str] = 'types/SplitRespawn'
     kind: str
@@ -1294,6 +1343,25 @@ class TerminalExitOutcomeUnknown:
 
 
 @dataclass(frozen=True)
+class TerminalHistoryPage:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalHistoryPage'
+    data: str
+    marker: int
+    rows: int
+
+
+@dataclass(frozen=True)
+class TerminalHistoryPagesResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalHistoryPagesResult'
+    surface: Id
+    done: bool
+    marker_epoch: int
+    pages: List[TerminalHistoryPage]
+    snapshot_version: int
+    next_before: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class TerminalKeyInput:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalKeyInput'
     consumed_mods: TerminalModifiers
@@ -1336,6 +1404,14 @@ class TerminalPlacement:
     replayed: bool
     terminal_incarnation: Union[str, None]
     terminal_revision: int
+
+
+@dataclass(frozen=True)
+class TerminalReadRangeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalReadRangeResult'
+    surface: Id
+    text: str
+    truncated: bool
 
 
 @dataclass(frozen=True)
@@ -1500,6 +1576,9 @@ class AttachSurfaceRequest:
     expected_terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     mode: Union[Literal['bytes', 'render'], None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+    snapshot: Union[str, None, MissingType] = field(default=MISSING)
+    snapshot_version: Union[int, None, MissingType] = field(default=MISSING)
+    viewer_backlog_bytes: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2292,6 +2371,8 @@ class MoveTabToColumnRequest:
     pane: Union[Id, None, MissingType] = field(default=MISSING)
     screen: Union[Id, None, MissingType] = field(default=MISSING)
     after_column: Union[Id, None, MissingType] = field(default=MISSING)
+    respawn: Union[SplitRespawn, None, MissingType] = field(default=MISSING)
+    sticky: Union[ColumnPin, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
 
@@ -2398,6 +2479,7 @@ class NewFrontendBrowserTabRequest:
     pane: Union[Id, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     favicon_url: Union[str, None, MissingType] = field(default=MISSING)
+    idempotency_key: Union[str, None, MissingType] = field(default=MISSING)
     owner: Union[str, None, MissingType] = field(default=MISSING)
     profile_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
@@ -2429,6 +2511,21 @@ class NewPaneRightRequest:
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class NewRowRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/new-row/request'
+    pane: Id
+    height_permille: int
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    cols: Union[int, None, MissingType] = field(default=MISSING)
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
+    keep: Union[bool, MissingType] = field(default=MISSING)
+    rows: Union[int, None, MissingType] = field(default=MISSING)
+    shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2906,6 +3003,15 @@ class SetRatioRequest:
 
 
 @dataclass(frozen=True)
+class SetRowHeightsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-row-heights/request'
+    column: Id
+    heights: List[RowHeight]
+    fit: Union[bool, MissingType] = field(default=MISSING)
+    transaction: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SetScreenMetadataRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-screen-metadata/request'
     screen: Id
@@ -3025,6 +3131,15 @@ class SidebarPluginRequest:
 
 
 @dataclass(frozen=True)
+class SnapshotRequestRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/snapshot-request/request'
+    surface: Id
+    have: Union[SnapshotRequestHave, None, MissingType] = field(default=MISSING)
+    reason: Union[str, None, MissingType] = field(default=MISSING)
+    request_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SplitRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/split/request'
     pane: Id
@@ -3057,6 +3172,26 @@ class SwapPaneRequest:
 class TerminalEventsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/terminal-events/request'
     after_revision: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TerminalHistoryRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-history/request'
+    surface: Id
+    marker_epoch: int
+    before: Union[int, None, MissingType] = field(default=MISSING)
+    max_bytes: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TerminalReadRangeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-read-range/request'
+    surface: Id
+    from_: RowMarkerPoint = field(metadata={'wire_name': 'from'})
+    marker_epoch: int
+    to: RowMarkerPoint
+    format: Union[str, None, MissingType] = field(default=MISSING)
+    max_bytes: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3947,6 +4082,7 @@ __all__ = [
     'ClientInfo',
     'ClientSize',
     'CloseTerminalResult',
+    'ColumnPin',
     'CopyResult',
     'DeadPane',
     'DeclarativeLayoutLeaf',
@@ -3984,6 +4120,7 @@ __all__ = [
     'MachineUsageResult',
     'MintTerminalRendererResult',
     'MoveTerminalResult',
+    'NewRowResult',
     'NoteSizeActivityResult',
     'NotificationMarker',
     'NotifyResult',
@@ -4005,6 +4142,8 @@ __all__ = [
     'ResizeSurfaceResult',
     'ResolveTerminalResult',
     'ResourceSelectors',
+    'RowHeight',
+    'RowMarkerPoint',
     'RunResult',
     'Screen',
     'ServerStatsConnections',
@@ -4028,6 +4167,8 @@ __all__ = [
     'SizePolicy',
     'SizeState',
     'SizingIdentity',
+    'SnapshotRequestHave',
+    'SnapshotRequestResult',
     'SplitRespawn',
     'SurfaceResult',
     'Tab',
@@ -4039,9 +4180,12 @@ __all__ = [
     'TerminalExitOutcomeExit',
     'TerminalExitOutcomeSignal',
     'TerminalExitOutcomeUnknown',
+    'TerminalHistoryPage',
+    'TerminalHistoryPagesResult',
     'TerminalKeyInput',
     'TerminalModifiers',
     'TerminalPlacement',
+    'TerminalReadRangeResult',
     'TerminalRecord',
     'TerminalRegistryEvent',
     'TerminalResourceHost',
@@ -4169,6 +4313,7 @@ __all__ = [
     'NewFrontendBrowserTabRequest',
     'NewPaneRequest',
     'NewPaneRightRequest',
+    'NewRowRequest',
     'NewScreenRequest',
     'NewTabRequest',
     'NewWorkspaceRequest',
@@ -4225,6 +4370,7 @@ __all__ = [
     'SetPersonalWorkspaceRequest',
     'SetProfileFollowsRequest',
     'SetRatioRequest',
+    'SetRowHeightsRequest',
     'SetScreenMetadataRequest',
     'SetScreenPinnedRequest',
     'SetSizeCountsRequest',
@@ -4239,10 +4385,13 @@ __all__ = [
     'SetWorkspaceMetadataRequest',
     'ShutdownDaemonRequest',
     'SidebarPluginRequest',
+    'SnapshotRequestRequest',
     'SplitRequest',
     'SubscribeRequest',
     'SwapPaneRequest',
     'TerminalEventsRequest',
+    'TerminalHistoryRequest',
+    'TerminalReadRangeRequest',
     'TerminalResourcesRequest',
     'UndoLayoutRequest',
     'UngroupScreenGroupRequest',

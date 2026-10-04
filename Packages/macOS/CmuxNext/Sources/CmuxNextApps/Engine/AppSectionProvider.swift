@@ -35,7 +35,8 @@ public final class AppSectionProvider {
         let mount = host.mount(app.manifest, directory: app.bundle.directory, contribution: section, surface: "sidebarSection")
         let look = lookOverride ?? AppsTunables.sectionLook.value
         let root = AppSectionFrame(look: look, title: section.title?.resolved() ?? app.manifest.name.resolved(), symbol: section.symbol,
-                                   icon: app.manifest.icon, bundleDirectory: app.bundle.directory) {
+                                   icon: app.manifest.icon, bundleDirectory: app.bundle.directory,
+                                   showsHeader: false) {
             AppSceneView(model: mount.model, bundleDirectory: mount.bundleDirectory)
         }
         let view = AppSectionHostingView(rootView: root)

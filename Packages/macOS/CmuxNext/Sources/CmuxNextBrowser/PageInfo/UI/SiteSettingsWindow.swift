@@ -70,7 +70,7 @@ final class SiteSettingsWindow: PageInfoWindow {
         stack.setCustomSpacing(PageInfoStyle.inset * 2, after: deleteData)
         stack.edgeInsets = NSEdgeInsets(top: PageInfoStyle.inset * 1.5, left: PageInfoStyle.inset * 1.5,
                                         bottom: PageInfoStyle.inset * 1.5, right: PageInfoStyle.inset * 1.5)
-        contentView = stack
+        installContent(stack)
         observation = ObservationLoop { [weak self] in self?.syncMenus() }
         Task { [weak self, provider] in
             let data = await provider.pageInfoSiteData(pageHost: URL(string: origin)?.host())

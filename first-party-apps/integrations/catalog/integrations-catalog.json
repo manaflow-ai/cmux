@@ -1,0 +1,145 @@
+{
+  "family": "integrations",
+  "operations": [
+    {
+      "name": "integrations.open",
+      "owner": "app:cmux/integrations",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "type": "string",
+            "description": "Open this connection (conn_…)."
+          }
+        },
+        "required": []
+      },
+      "cli": {
+        "path": "apps run cmux/integrations open",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Open Integrations"
+      },
+      "docs": "Open the Integrations pane, or one connection.",
+      "since": "integrations/1",
+      "export": "openIntegrations"
+    },
+    {
+      "name": "integrations.connect",
+      "owner": "app:cmux/integrations",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "github",
+              "linear",
+              "slack"
+            ],
+            "description": "The provider to connect (Google Calendar and Gmail are coming)."
+          }
+        },
+        "required": [
+          "provider"
+        ]
+      },
+      "cli": {
+        "path": "apps run cmux/integrations connect",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Connect an Integration"
+      },
+      "docs": "Start connecting a provider; it completes only with a person at the provider.",
+      "since": "integrations/1",
+      "export": "connect"
+    },
+    {
+      "name": "integrations.import_api",
+      "owner": "app:cmux/integrations",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "A spec URL, or the JSON of an OpenAPI 3 document, a GraphQL introspection result or an MCP tool list."
+          }
+        },
+        "required": [
+          "source"
+        ]
+      },
+      "cli": {
+        "path": "apps run cmux/integrations import-api",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Add an API from a Spec"
+      },
+      "docs": "Add an API from an OpenAPI 3 document, a GraphQL introspection result or an MCP tool list.",
+      "since": "integrations/1",
+      "export": "importApi"
+    },
+    {
+      "name": "integrations.cycle_variant",
+      "owner": "app:cmux/integrations",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "apps run cmux/integrations cycle-variant",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Next Integrations Variant"
+      },
+      "docs": "Switch to the next Integrations design variant (DEV and NIGHTLY).",
+      "since": "integrations/1",
+      "export": "cycleVariant"
+    }
+  ]
+}

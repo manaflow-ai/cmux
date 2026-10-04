@@ -357,6 +357,7 @@ pub(crate) struct LayoutMessages {
     unknown_pane_split: &'static str,
     unrepresentable_viewport_width: &'static str,
     unrepresentable_viewport_ratio: &'static str,
+    pub row_split_readonly: &'static str,
     pub viewport_ratio_target_missing: &'static str,
     pub viewport_ratio_out_of_range: &'static str,
     pub viewport_column_missing: &'static str,
@@ -974,8 +975,7 @@ pub(crate) struct SidebarMessages {
     pub machine_replacement_not_pending: &'static str,
     pub machine_replacement_target_missing: &'static str,
     pub managed_ssh_requires_unix: &'static str,
-    /// Compact machine spend readout template: `{usd}` is the formatted
-    /// dollar amount and `{days}` the trailing window length.
+    /// Spend readout template: `{usd}` formatted dollars, `{days}` the window.
     pub machine_usage_readout: &'static str,
 }
 
@@ -1037,9 +1037,8 @@ impl SidebarMessages {
     }
 }
 
-/// Format a dollar amount with two decimals and thousands separators.
-/// Non-finite or negative inputs render as zero so a bad upstream number
-/// can never produce a misleading readout.
+/// Format a dollar amount with two decimals and thousands separators. Non-finite
+/// or negative inputs render as zero, so a bad number never misleads.
 pub(crate) fn format_usd(amount: f64) -> String {
     let amount = if amount.is_finite() && amount > 0.0 { amount } else { 0.0 };
     let cents = (amount * 100.0).round() as u64;
@@ -1213,8 +1212,7 @@ pub(crate) struct AgentWrapperMessages {
     pub agent_start_failed: &'static str,
 }
 
-/// `cmux app|action|settings|window|events` and action verbs: the scopes the
-/// cmux app owns (cli/app.rs).
+/// `cmux app|action|settings|window|events` and action verbs (cli/app.rs).
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct AppControlMessages {
     pub action_describe_usage: &'static str,
@@ -1655,6 +1653,7 @@ edits shell files. Authenticate with the configured host before retrying.
         unknown_pane_split: "unknown pane/split {pane}",
         unrepresentable_viewport_width: "split {split} ratio {ratio} implies viewport width {width}; width must be between 0.1 and 1",
         unrepresentable_viewport_ratio: "split {split} ratio {ratio} cannot be represented as a viewport width between 0.1 and 1",
+        row_split_readonly: "this split joins two rows; set row heights instead",
         viewport_ratio_target_missing: "the pane or split no longer exists",
         viewport_ratio_out_of_range: "the requested ratio cannot be represented by a viewport width between 0.1 and 1",
         viewport_column_missing: "the pane has no resizable viewport column",
@@ -1834,21 +1833,7 @@ OPTIONS:
         wireguard_hub_serve_failed: "could not serve the WireGuard hub socket: {error}",
         wireguard_hub_signal_failed: "could not wait for the hub shutdown signal: {error}",
         wg_hub_option_required: "wg hub requires {option}",
-        wg_hub_help: r#"USAGE: cmux wg hub --config PATH --socket PATH
-
-Own one in-process WireGuard tunnel and serve SOCKS5 CONNECT for other cmux
-processes on an owner-only Unix socket. A WireGuard key supports one live
-session, so every `remote connect --wireguard-hub PATH` sidecar on this machine
-shares this hub instead of handshaking on its own.
-
-  --config PATH  owner-only wg-quick file (PrivateKey, Address, AllowedIPs, Endpoint)
-  --socket PATH  Unix socket to serve; parent directory is created 0700, socket 0600
-
-Prints one JSON line `{"event":"hub-ready","socket":...,"routes":[...]}` when
-listening. Only literal IP targets inside AllowedIPs are dialed; other targets
-get SOCKS reply 0x02, names 0x08. Exits on SIGTERM or SIGINT and removes the
-socket.
-"#,
+        wg_hub_help: include_str!("localization/wg_hub_help.en.txt"),
         known_daemon_not_known: "daemon {fingerprint} is not known",
         known_daemon_forgotten: "Forgot daemon {fingerprint}.",
         known_daemons_empty: "No known daemons.",
@@ -2429,6 +2414,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         unknown_pane_split: "ペインまたは分割 {pane} が見つかりません",
         unrepresentable_viewport_width: "分割 {split} の比率 {ratio} ではビューポート幅が {width} になります。幅は 0.1 から 1 の範囲で指定してください",
         unrepresentable_viewport_ratio: "分割 {split} の比率 {ratio} は 0.1 から 1 の範囲のビューポート幅では表現できません",
+        row_split_readonly: "この分割は2つの行の境界です。行の高さを設定してください",
         viewport_ratio_target_missing: "対象のペインまたは分割が存在しません",
         viewport_ratio_out_of_range: "指定した比率は 0.1 から 1 の範囲のビューポート幅では表現できません",
         viewport_column_missing: "対象のペインにはサイズ変更可能なビューポート列がありません",
@@ -2605,20 +2591,7 @@ ID とセッション:
         wireguard_hub_serve_failed: "WireGuard ハブソケットを提供できませんでした: {error}",
         wireguard_hub_signal_failed: "ハブの終了シグナルを待機できませんでした: {error}",
         wg_hub_option_required: "wg hub には {option} が必要です",
-        wg_hub_help: r#"使用方法: cmux wg hub --config パス --socket パス
-
-プロセス内 WireGuard トンネルを 1 つ所有し、所有者のみ読める Unix ソケットで
-他の cmux プロセスに SOCKS5 CONNECT を提供します。WireGuard 鍵は 1 つの
-セッションしか維持できないため、このマシンの `remote connect --wireguard-hub パス`
-サイドカーはそれぞれハンドシェイクせず、このハブを共有します。
-
-  --config パス  所有者のみ読める wg-quick ファイル（PrivateKey、Address、AllowedIPs、Endpoint）
-  --socket パス  提供する Unix ソケット。親ディレクトリは 0700、ソケットは 0600 で作成します
-
-待ち受け開始時に JSON 1 行 `{"event":"hub-ready","socket":...,"routes":[...]}` を出力します。
-AllowedIPs 内のリテラル IP のみ接続します。それ以外は SOCKS 応答 0x02、名前は 0x08 です。
-SIGTERM または SIGINT で終了し、ソケットを削除します。
-"#,
+        wg_hub_help: include_str!("localization/wg_hub_help.ja.txt"),
         known_daemon_not_known: "デーモン {fingerprint} は登録されていません",
         known_daemon_forgotten: "デーモン {fingerprint} を削除しました。",
         known_daemons_empty: "登録済みのデーモンはありません。",

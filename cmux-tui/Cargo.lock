@@ -9,6 +9,7 @@ dependencies = [
  "anyhow",
  "base64",
  "clap",
+ "cmux-local-auth",
  "crossterm",
  "dirs",
  "futures",
@@ -24,6 +25,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
+ "toml",
  "tracing",
  "tracing-subscriber",
  "unicode-width",
@@ -786,6 +788,7 @@ name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
  "jsonschema",
+ "regex",
  "serde_json",
 ]
 
@@ -800,6 +803,15 @@ dependencies = [
  "serde_json",
  "sha1",
  "url",
+]
+
+[[package]]
+name = "cmux-chief"
+version = "0.1.0"
+dependencies = [
+ "cmux-conversation",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -831,6 +843,13 @@ name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
  "proptest",
+]
+
+[[package]]
+name = "cmux-local-auth"
+version = "0.1.0"
+dependencies = [
+ "subtle",
 ]
 
 [[package]]
@@ -1093,6 +1112,7 @@ dependencies = [
  "base64",
  "cmux-conversation",
  "cmux-layout-reducer",
+ "cmux-local-auth",
  "cmux-pty",
  "cmux-remote-protocol",
  "cmux-tui-cdp",

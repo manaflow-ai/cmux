@@ -45,7 +45,7 @@ public final class DesignSettings {
     /// `layout.splitSizing`: what a split does to its column.
     public var splitSizing: SplitSizing = .even
     /// `layout.stickyColumnEdge`, `layout.stickyColumnMode`.
-    public var stickyColumnEdge: StickyDefaultEdge = .right
+    public var stickyColumnEdge: StickyDefaultEdge = .nearest
     public var stickyColumnMode: StickyDefaultMode = .docked
     /// `layout.frameOrientation`: column-major (side docks full height) or
     /// row-major (top and bottom docks full width), plans/cmux-next/layout-model.md.
@@ -72,22 +72,19 @@ public final class DesignSettings {
     public var borders: BorderMode = .default
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .both
-    /// `appearance.tabBarBackground`: the tab strip's negative space.
-    public var tabBarBackground: TabBarBackground = .window
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler
     /// when `focusIndicator` marks tabs.
     public var inactiveTabStyle: InactiveTabStyle = .fade
 
     /// `focusIndicator` unless Debug Settings overrides it.
     public var effectiveFocusIndicator: FocusIndicator { FocusIndicatorTunables.indicator.override ?? focusIndicator }
-    /// `tabBarBackground` unless Debug Settings overrides it.
-    public var effectiveTabBarBackground: TabBarBackground { FocusIndicatorTunables.tabBarBackground.override ?? tabBarBackground }
     /// `inactiveTabStyle` unless Debug Settings overrides it.
     public var effectiveInactiveTabStyle: InactiveTabStyle { FocusIndicatorTunables.inactiveTabStyle.override ?? inactiveTabStyle }
     /// `window.titlebar`: minimal (no titlebar strip) or standard.
     public var titlebar: TitlebarStyle = .minimal
-    /// `window.rail`: the window's icon rail, off by default.
-    public var rail: WindowRailPlacement = .off
+    /// `window.rail`: the window's icon rail, at the leading edge by
+    /// default (`WindowRailSetting.fallback`).
+    public var rail: WindowRailPlacement = .leading
 
     public init() {}
 

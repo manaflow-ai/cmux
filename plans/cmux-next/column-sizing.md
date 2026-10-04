@@ -20,7 +20,8 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
 - `layout.newColumnWidth` (matchCurrent default, fitScreen, fixed; a number means fixed at that
   share) through `NewColumnWidth.plan(mode:)`; fixed keeps column-scroll.md W4 (a lone full-width column
   shrinks), the other modes never resize except fitScreen's visible scrolling columns.
-- `layout.stickyColumnEdge` (right), `layout.stickyColumnMode` (docked), `layout.minimumPaneWidth`
+- `layout.stickyColumnEdge` (nearest: Dock Column's nearest-edge rule; or right, left, top,
+  bottom), `layout.stickyColumnMode` (docked); when set they are Dock Column's defaults too, `layout.minimumPaneWidth`
   (200 pt), `layout.minimumPaneHeight` (64 pt): Settings window (General > Columns) and cmux.json;
   `ColumnLayoutSettingsTests` checks each default in the parser, the schema and `DesignSettings`.
 - New Column is Ctrl-Cmd-D (user decision 2026-10-02; no other cmux action has it, macOS's

@@ -5,7 +5,8 @@ import QuartzCore
 /// One item of a sticky section: a row (built-in or list look) or a tray
 /// tile. A pill shows on hover, while pressed and while the item is
 /// active, in the shared chrome fills (`ChromeHover.fillColor`), fading on
-/// pointer changes.
+/// pointer changes. The rail's icon-only items show unread items as a dot
+/// on the glyph instead of a count; the sidebar's own icon looks hide them.
 final class SidebarItemRowView: NSView {
     enum Style: Hashable {
         /// Bare glyph and label: reads as app chrome (Home).
@@ -22,7 +23,13 @@ final class SidebarItemRowView: NSView {
         var isIconOnly: Bool { self == .tile || self == .icon }
     }
 
+    /// A window rail button: a larger, brighter glyph on a rounder tile,
+    /// and unread items as a dot on the glyph (the Codex rail).
+    var isRailButton = false
     var onPress: (() -> Void)?
+    /// Modifier-aware activation for controls whose action has a one-shot
+    /// Option override. Plain activations continue through `onPress`.
+    var onPressWithModifiers: ((NSEvent.ModifierFlags) -> Void)?
     var onContextMenu: ((NSEvent, NSView) -> Void)?
 
     private(set) var info = SidebarItemInfo(title: "", symbol: "circle")
@@ -88,6 +95,10 @@ final class SidebarItemRowView: NSView {
 
     /// The unread badge draws (tests).
     var isBadgeShown: Bool { !badge.isHidden }
+    /// The glyph's frame (tests).
+    var glyphFrame: CGRect { icon.frame }
+    /// The badge's frame while it draws (tests).
+    var badgeFrame: CGRect? { badge.isHidden ? nil : badge.frame }
 
     func configure(_ info: SidebarItemInfo, style: Style) {
         guard info != self.info || style != self.style else { return }
@@ -95,8 +106,15 @@ final class SidebarItemRowView: NSView {
         self.style = style
         title.stringValue = info.title
         title.isHidden = style.isIconOnly
-        badge.configure(info.badge.map(UnreadState.count) ?? .none)
-        if style.isIconOnly { badge.isHidden = true }
+        // Icons have no room for a count: unread items show a dot at the
+        // glyph's top trailing corner (the rail, like the Codex app's).
+        let unread: UnreadState
+        if style.isIconOnly {
+            unread = isRailButton && (info.badge ?? 0) > 0 ? UnreadState.dot : UnreadState.none
+        } else {
+            unread = info.badge.map(UnreadState.count) ?? UnreadState.none
+        }
+        badge.configure(unread)
         // VoiceOver hears the count even where no badge draws (icons).
         setAccessibilityValue(info.badge.map { String($0) })
         toolTip = style.isIconOnly ? info.title : nil
@@ -114,7 +132,7 @@ final class SidebarItemRowView: NSView {
             chip.backgroundColor = style == .list ? (info.color.map(SidebarStyle.color) ?? Palette.hoverFill).cgColor : nil
             title.textColor = Palette.textPrimary
             icon.contentTintColor = style == .list && info.color != nil ? Palette.textOnPrimary
-                : info.isActive ? Palette.textPrimary : Palette.textSecondary
+                : info.isActive || isRailButton ? Palette.textPrimary : Palette.textSecondary
         }
     }
 
@@ -138,8 +156,8 @@ final class SidebarItemRowView: NSView {
         CATransaction.setDisableActions(true)
         let pillFrame = style.isIconOnly || style == .chip ? b : NSRect(x: inset, y: 0, width: max(0, b.width - inset * 2), height: b.height)
         pill.frame = pillFrame
-        pill.cornerRadius = SidebarStyle.rowCornerRadius
-        let side = SidebarStyle.iconBox
+        pill.cornerRadius = isRailButton ? SidebarStyle.railTileCornerRadius : SidebarStyle.rowCornerRadius
+        let side = isRailButton ? SidebarStyle.railIconBox : SidebarStyle.iconBox
         // The glyph lines up with the text of workspace rows (their inset plus the pill inset).
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
@@ -148,12 +166,19 @@ final class SidebarItemRowView: NSView {
         chip.cornerRadius = Metrics.space1 + 1
         CATransaction.commit()
 
-        let pointSize = style == .list ? Metrics.smallIconSize - Metrics.space2 : Metrics.smallIconSize - Metrics.space1
+        let pointSize = isRailButton ? SidebarStyle.railGlyphSize
+            : style == .list ? Metrics.smallIconSize - Metrics.space2 : Metrics.smallIconSize - Metrics.space1
         icon.image = NSImage(systemSymbolName: info.symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular))
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: pointSize, weight: isRailButton ? .medium : .regular))
         let glyph = style == .list ? iconFrame.insetBy(dx: 2, dy: 2) : iconFrame
         icon.frame = glyph
         title.font = SidebarStyle.titleFont
+        if style.isIconOnly {
+            let dot = SidebarStyle.dotSize
+            badge.frame = NSRect(x: iconFrame.maxX - dot / 2, y: iconFrame.minY - dot / 2, width: dot, height: dot)
+            title.frame = .zero
+            return
+        }
         let bh = SidebarStyle.badgeHeight
         let badgeWidth = badge.isHidden ? 0 : badge.preferredWidth
         let badgeX = style == .chip
@@ -186,7 +211,7 @@ final class SidebarItemRowView: NSView {
     override func mouseDown(with event: NSEvent) {
         guard pill.frame.contains(convert(event.locationInWindow, from: nil)) else { return super.mouseDown(with: event) }
         isPressed = true
-        onPress?()
+        if let onPressWithModifiers { onPressWithModifiers(event.modifierFlags) } else { onPress?() }
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -200,7 +225,7 @@ final class SidebarItemRowView: NSView {
     }
 
     override func accessibilityPerformPress() -> Bool {
-        onPress?()
+        if let onPressWithModifiers { onPressWithModifiers([]) } else { onPress?() }
         return true
     }
 }

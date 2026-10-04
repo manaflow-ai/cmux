@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// Unread badge: a count pill or a dot.
+/// Unread badge: a count in a small rounded rectangle, or a round dot.
 final class UnreadBadgeView: NSView {
     private(set) var state: UnreadState = .none
     private let label = NSTextField(labelWithString: "")
@@ -62,7 +62,7 @@ final class UnreadBadgeView: NSView {
                 layer.backgroundColor = Palette.badgeFill.cgColor
             }
         }
-        layer.cornerRadius = bounds.height / 2
+        layer.cornerRadius = state == .dot ? bounds.height / 2 : Metrics.chipCornerRadius(height: bounds.height)
     }
 
     override func layout() {

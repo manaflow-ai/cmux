@@ -92,11 +92,16 @@ pub fn encode(data: &[&[u8]], m: usize) -> Result<Vec<Vec<u8>>, FecError> {
 /// data shard is `Some`.
 pub fn reconstruct(shards: &mut [Option<Vec<u8>>], k: usize) -> Result<(), FecError> {
     let n = shards.len();
-    if k == 0 || k > n || n > MAX_SHARDS {
+    if k == 0 || k > n {
         return Err(FecError::BlockSize);
     }
+    // Complete data needs no decoding, whatever the block size (frames without parity
+    // may exceed one block).
     if shards[..k].iter().all(Option::is_some) {
         return Ok(());
+    }
+    if n > MAX_SHARDS {
+        return Err(FecError::BlockSize);
     }
     let m = n - k;
     let present: Vec<usize> = (0..n).filter(|&i| shards[i].is_some()).take(k).collect();

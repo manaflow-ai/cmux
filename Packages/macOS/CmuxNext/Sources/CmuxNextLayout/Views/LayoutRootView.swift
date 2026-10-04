@@ -30,6 +30,10 @@ public final class LayoutRootView: NSView {
     var scrollLock: ScrollLock = .idle
     var consumeMomentum = false
     var dragTab: TabID?
+    /// The drop preview's rect for the current tab drag target, in screen
+    /// coordinates; nil when nothing is highlighted. The drag session flies
+    /// the ghost to it, so the ghost lands where the preview showed (R47).
+    public internal(set) var tabDragHighlightOnScreen: CGRect?
 
     /// Everything the view reads from the model, observed as one value.
     private struct Snapshot: Equatable, Sendable {

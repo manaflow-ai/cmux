@@ -11,6 +11,9 @@ name: cmux-tui artifacts
 # Layout in R2:
 #   cmux-tui/<commit-sha>/cmux-tui-<rust-target>   immutable, commit-addressed
 #   cmux-tui/<commit-sha>/manifest.json
+#   cmux-tui/tree/<tree-key>/cmux-tui-aarch64-apple-darwin  immutable, source-addressed
+#   cmux-tui/tree/<tree-key>/cmux-tui-aarch64-apple-darwin.sha256
+#   cmux-tui/tree/<tree-key>/source.json           the commit and run that built it
 #   cmux-tui/latest/cmux-tui-<rust-target>         rolling, every main push
 #   cmux-tui/latest/manifest.json
 #   cmux-relay/<commit-sha>/cmux-relay-<rust-target> immutable, commit-addressed
@@ -31,11 +34,19 @@ on:
   # machines install the daemon from latest/manifest.json and the macOS app
   # bundles the matching client from it (scripts/install-cmux-tui-client.sh),
   # so latest must track main. Manual dispatch stays for re-publishing.
+  #
+  # cmux-next dogfood, tagged and nightly builds bundle the daemon built from
+  # their own cmux-tui source (scripts/cmux-next/pin-cmux-tui.sh --help): the
+  # tree key is the git tree hash of the cmux-tui tree and the ghostty
+  # gitlink. Pushes to the cmux-next branches, and to cmux-tui-pin-* helper
+  # branches that publish an unmerged branch's tree, publish
+  # cmux-tui/tree/<key>/ after the build and the cmux_next_ daemon tests pass.
   push:
-    branches: [main]
+    branches: [main, feat-cmux-next, "cmux-tui-pin-*"]
     paths:
       - "cmux-tui/**"
       - "ghostty"
+      - "ghostty-next"
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
   workflow_dispatch:
@@ -59,6 +70,12 @@ concurrency:
   cancel-in-progress: false
 
 permissions: {}
+
+env:
+  # libghostty-vt always builds from the ghostty-next gitlink: an empty
+  # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
+  # as unset).
+  CMUX_GHOSTTY_SRC: ""
 
 jobs:
   build:
@@ -88,6 +105,81 @@ jobs:
       # unless a dispatch names a runner. See docs/ci-runners.md.
       macos_runner: ${{ inputs.macos_runner || vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
 
+  # The daemon tests the cmux-next app relies on (Rust tests named
+  # cmux_next_), on the exact commit. publish-tree waits for them.
+  cmux-next-daemon-tests:
+    name: cmux_next_ daemon tests (macOS)
+    runs-on: ${{ inputs.macos_runner || vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Tree key
+        id: key
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          key="$(scripts/cmux-next/pin-cmux-tui.sh key)"
+          [[ "$key" =~ ^[0-9a-f]{40}$ ]]
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          echo "cmux-tui tree key: $key"
+
+      - name: Use short temporary directory for macOS socket tests
+        run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty ghostty-next
+
+      - name: Install zig
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-macos
+
+      - name: cargo test cmux_next_
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The filter must select runnable tests, or the gate proves nothing.
+          cargo test --workspace --locked cmux_next_ -- --list > "$RUNNER_TEMP/cmux-next-tests.txt"
+          if ! grep -qE ': test$' "$RUNNER_TEMP/cmux-next-tests.txt"; then
+            echo "::error::cmux_next_ selected no Rust tests" >&2
+            exit 1
+          fi
+          cargo test --workspace --locked cmux_next_
+
+  publish-ref-notice:
+    # A branch outside main / feat-cmux-next / cmux-tui-pin-* cannot use the
+    # artifacts environment, so its publish jobs are skipped, not failed.
+    name: publish skipped (branch not allowed)
+    if: github.event_name != 'pull_request' && !(github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))
+    needs: build
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 2
+    steps:
+      - name: Explain how to publish this commit
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          short="${SHA:0:12}"
+          echo "::notice title=publish skipped::${REF_NAME} is build-only. Use a cmux-tui-pin-* branch to publish: git push origin ${SHA}:refs/heads/cmux-tui-pin-${short}"
+
   publish:
     # R2 upload credentials only. A commit-addressed cmux-tui build is not a
     # production release: cmux-next pins daemon builds from helper branches.
@@ -96,9 +188,10 @@ jobs:
     # secrets stay in the release environment.
     environment: artifacts
     name: publish to R2
-    # PR runs of this workflow only validate the build; publishing is
-    # main-push or manual dispatch.
-    if: github.event_name != 'pull_request'
+    # PR runs of this workflow only validate the build. Only the refs the
+    # artifacts environment admits publish; a dispatch from any other branch
+    # is a green build-only run (publish-ref-notice says how to publish).
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))
     needs: build
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -204,7 +297,7 @@ jobs:
               # Keep distribution metadata next to the digest map. Consumers
               # can reject an artifact whose runtime contract they cannot
               # satisfy without guessing from the filename.
-              "license": "MIT",
+              "license": "GPL-3.0-or-later",
               # Runtime constraints are per binary. Some GNU target-named
               # files are compatibility-name copies of musl-linked binaries.
               # `libc` is explicit for every runtime. `none` marks platforms
@@ -462,7 +555,7 @@ jobs:
           manifest = {
               "commit": sys.argv[1],
               "builtAt": datetime.fromisoformat(sys.argv[3]).isoformat(),
-              "license": "MIT",
+              "license": "GPL-3.0-or-later",
               "runtimeByBinary": {path.name: runtime_for(path.name) for path in files},
               "binaries": {
                   path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in files
@@ -622,3 +715,121 @@ jobs:
               --machine-manifest \
               --artifact-base-url "https://files.cmux.com/chatmux-relay/latest"
           fi
+
+  # The source-addressed copy cmux-next dev, tagged and nightly builds fetch
+  # (scripts/cmux-next/pin-cmux-tui.sh fetch). Published only after the build,
+  # the commit-addressed publication and the cmux_next_ daemon tests of this
+  # commit pass. A key is published once: the first passing commit with a tree
+  # wins, and a later commit with the same tree keeps that binary.
+  publish-tree:
+    environment: artifacts
+    name: publish tree-addressed cmux-tui
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))
+    needs: [build, publish, cmux-next-daemon-tests]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    # One writer per key: a second commit with the same tree waits, then
+    # finds the key published and stops.
+    concurrency:
+      group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Download the macOS arm64 cmux-tui
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-aarch64-apple-darwin
+          path: assets/tree
+
+      - name: Upload to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          KEY: ${{ needs.cmux-next-daemon-tests.outputs.key }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$(scripts/cmux-next/pin-cmux-tui.sh key)" == "$KEY" ]] || {
+            echo "tree key $KEY does not match this checkout" >&2; exit 1; }
+          name=cmux-tui-aarch64-apple-darwin
+          binary="assets/tree/$name"
+          [[ -f "$binary" ]] || { echo "missing $binary" >&2; exit 1; }
+          fetch() { curl -fsSL --proto '=https' "$1?verify=$GITHUB_RUN_ID" -o "$2"; }
+          # The binary the commit-addressed manifest published for this commit.
+          fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json" manifest.json
+          manifest_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["binaries"][sys.argv[2]])' manifest.json "$name")"
+          sha="$(sha256sum "$binary" | awk '{print $1}')"
+          [[ "$sha" == "$manifest_sha" ]] || { echo "$binary does not match the commit manifest" >&2; exit 1; }
+          base="https://files.cmux.com/cmux-tui/tree/$KEY"
+          if fetch "$base/$name.sha256" existing.sha256 2>/dev/null; then
+            echo "tree $KEY is already published ($(cat existing.sha256)); an earlier commit with this tree built it"
+            exit 0
+          fi
+          upload() {
+            python3 scripts/ci/upload-r2-object.py --write-once \
+              --file "$1" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --bucket cmux-binaries \
+              --key "cmux-tui/tree/$KEY/$2" \
+              --cache-control "public, max-age=31536000, immutable"
+          }
+          mkdir -p tree
+          python3 - "$KEY" "$GITHUB_SHA" "$sha" > tree/source.json <<'PY'
+          import json, os, subprocess, sys
+          key, commit, sha = sys.argv[1:4]
+          def rev(spec):
+              return subprocess.check_output(["git", "rev-parse", spec], text=True).strip()
+          print(json.dumps({
+              "key": key,
+              "cmuxTuiTree": rev("HEAD:cmux-tui"),
+              "ghosttyCommit": rev("HEAD:ghostty"),
+              # libghostty-vt's source (cmux-tui builds it from ghostty-next).
+              "ghosttyNextCommit": rev("HEAD:ghostty-next"),
+              "commit": commit,
+              "run": os.environ["GITHUB_RUN_ID"],
+              "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              "binaries": {"cmux-tui-aarch64-apple-darwin": sha},
+          }, indent=2))
+          PY
+          # source.json goes first and decides the key's binary. When an earlier
+          # run of this key stopped part way, its source.json stands: that
+          # commit also passed the daemon tests with this tree, and its binary
+          # is at its commit-addressed URL. Finish that publication.
+          if ! upload tree/source.json source.json; then
+            fetch "$base/source.json" tree/source.json || { echo "source.json upload failed and none is published" >&2; exit 1; }
+            echo "completing the earlier publication: $(tr -d '\n' < tree/source.json)"
+          fi
+          read -r owner sha < <(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["commit"], d["binaries"][sys.argv[2]])' tree/source.json "$name")
+          [[ "$owner" =~ ^[0-9a-f]{40}$ && "$sha" =~ ^[0-9a-f]{64}$ ]] || { echo "published source.json is malformed" >&2; exit 1; }
+          if [[ "$owner" == "$GITHUB_SHA" ]]; then
+            cp "$binary" "tree/$name"
+          else
+            fetch "https://files.cmux.com/cmux-tui/$owner/$name" "tree/$name"
+          fi
+          [[ "$(sha256sum "tree/$name" | awk '{print $1}')" == "$sha" ]] || { echo "binary for $owner does not match source.json" >&2; exit 1; }
+          chmod 0755 "tree/$name"
+          upload "tree/$name" "$name"
+          printf '%s  %s\n' "$sha" "$name" > "tree/$name.sha256"
+          # The sha256 file goes last: its presence means the key is complete.
+          upload "tree/$name.sha256" "$name.sha256"
+          echo "Published: $base/$name ($sha, built by $owner)"
+
+      - name: Verify the tree publication
+        env:
+          KEY: ${{ needs.cmux-next-daemon-tests.outputs.key }}
+        run: |
+          set -euo pipefail
+          base="https://files.cmux.com/cmux-tui/tree/$KEY"
+          name=cmux-tui-aarch64-apple-darwin
+          curl -fsSL --proto '=https' -o published "$base/$name?verify=$GITHUB_RUN_ID"
+          published_sha="$(curl -fsSL --proto '=https' "$base/$name.sha256?verify=$GITHUB_RUN_ID" | awk 'NR==1{print $1}')"
+          [[ "$(sha256sum published | awk '{print $1}')" == "$published_sha" ]]
+          curl -fsSL --proto '=https' "$base/source.json?verify=$GITHUB_RUN_ID"
+          echo "Verified: $base/$name"

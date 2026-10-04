@@ -106,6 +106,32 @@ export class PairingDO extends DurableObject<Env> {
   }
 
   /**
+   * Does this approver already hold the claim on this live code? Read only. The
+   * Worker spends no rate-limit unit on such a request: it is a retry of an
+   * approval that already passed the limit, never a guess at another code.
+   */
+  async claimedBy(code: string, approver: string, now: number): Promise<boolean> {
+    const r = this.row(now)
+    return Boolean(r && r.code === code && r.approver === approver)
+  }
+
+  /**
+   * TeamDO refused the claimed approval (the approver lost the right to add
+   * servers) and revoked the install it had registered. The code is spent:
+   * forget it and tell the waiting server, which may begin again.
+   */
+  async abort(code: string, approver: string, now: number): Promise<{ ok: boolean }> {
+    const r = this.row(now)
+    if (!r || r.code !== code || r.approver !== approver || r.result !== null) return { ok: false }
+    for (const ws of this.ctx.getWebSockets()) {
+      ws.send(JSON.stringify({ t: "refused" }))
+      ws.close(4403, "refused")
+    }
+    this.ctx.storage.sql.exec(`DELETE FROM pairing`)
+    return { ok: true }
+  }
+
+  /**
    * Stores the approval once and pushes it to the waiting server. A repeat with
    * the same result is a no-op; a different result is refused (single use).
    */

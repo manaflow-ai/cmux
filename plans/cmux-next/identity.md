@@ -71,6 +71,7 @@ Shape:
 | `terminal` | terminal public id | `host`, `agent?` | a verified launch credential, or pid ancestry |
 | `acp_session` | acpmux session id | `host`, `agent?` | a verified launch credential |
 | `app` | app id (`<publisher>/<name>`) | `host`, `version`, `on_behalf_of` (a `user` actor) | ONLY the app supervisor; never accepted from a caller |
+| `frontend` | install id of the native app on THIS machine | `host` | a LOCAL-socket connection proved by the app's install key (below); remote links never count; agents cannot use it |
 
 Rules:
 - Every request may carry `credential` (the CLI and `cmux mcp` copy
@@ -99,6 +100,32 @@ Rules:
   id and credential. A restart that keeps the terminal public id keeps the old
   credential valid, because it still names the same terminal (checked in slice 3;
   if restart changes the id, the old credential is refused as closed).
+- Frontend proof (daemon owner review, accepted 2026-10-03). `DaemonLauncher`
+  passes the app's install key id to the daemon over an inherited pipe fd at
+  spawn (never argv or env). After an app restart the app proves itself with
+  `client.hello {install_id, proof}`, proof = HMAC-SHA256(Keychain install key,
+  daemon nonce). A daemon the app did not start has no frontend until the app
+  pairs again. Known gap: DEV builds are ad-hoc signed, so their Keychain item
+  ACL does not keep other same-uid processes out; only signed builds give a real
+  frontend proof.
+- Precedence on one request: request credential > connection identity
+  (`frontend`) > pid ancestry (slice 4) > `user`. Requests the app forwards for
+  someone else (for example `action.run` for a CLI call) carry `forwarded: true`
+  and are not the app's own.
+- Actor-gated secrets (first user: the remote desktop host's per-launch token).
+  `secret.register {name, allow: [kinds]}` (the secret's owner; `mcp.expose:
+  never`) and `secret.release {name, purpose}`:
+  - `allow` takes only positively proven kinds (today: `frontend`). `user` is
+    not valid. There is no `app_ids` until app identity has its own proof.
+  - `secret.release` refuses any request that carries a credential (valid or
+    not, so no unknown-kid fallback), any forwarded request, and (after slice 4)
+    any peer pid that descends from a terminal. It refuses an idempotency key: a
+    retry asks again.
+  - Secrets never go through `commit_state`: no journal payload, no replay
+    result. Values live in their own 0600 store or the Keychain. The journal
+    gets only an audit record `{op, name, purpose, actor}`.
+  - The remote desktop token's allow list is `frontend` only, and it ships only
+    after the frontend proof, the secret store and these refusals land.
 - The app (`action.run`) receives the credential, verifies it with the session
   host, and records the actor in `ActionInvocation`.
 - Local conversations keep `user_local` for unbound connections until their own
@@ -120,11 +147,43 @@ WebSocket handshake, before the protocol starts:
 
 | Listener | Token | Origin and Host |
 | --- | --- | --- |
-| cmux-tui daemon `--ws` | `--ws-token` or a pairing credential in the first frame; a pairing request needs the user's approval (both exist) | added |
-| acpmux web and WebSocket (`127.0.0.1:47811`) | made mandatory: a config with no token gets one; header or `?token=` | added; the dashboard page is the listener's own origin, the agent pane page needs `file://` (verified before it is allowed) |
-| cmux-remote workspace HTTP | bearer token file (exists) | added |
-| cmux-remote direct WebSocket `/v1/link` | link handshake (exists) | added |
+| cmux-tui daemon `--ws` | `--ws-token` or a pairing credential in the first frame; a pairing request needs the user's approval (both exist) | added; `--ws-allow-origin` / `--ws-allow-host` add a web frontend dev server or a `tailscale serve` name |
+| acpmux web and WebSocket (`127.0.0.1:47811`) | made mandatory: a config with no token gets one; header or `?token=` | added; own origin (dashboard), `cmux-agent://pane` (the agent pane, once it loads from that scheme: a `loadFileURL` page sends `Origin: null`, measured on macOS 27), and `websocket.allowed_origins` |
+| cmux-remote workspace HTTP | bearer token file (exists) | every `Origin` refused (no browser client); no `Host` rule, because it is meant to sit behind SSH forwarding or a TLS reverse proxy that keeps the public name |
+| cmux-remote direct WebSocket `/v1/link` | link handshake (exists) | already present (daemon.rs:1467, test browser_origin_is_rejected_by_direct_websocket_listener): every `Origin` refused; no `Host` rule, same reason |
 | HTTP MCP (new, section 7) | scoped MCP token | built in |
+
+Notes from the slice 2 review:
+- Origins are compared after normalization (`parse_origin`: lowercase, no
+  trailing slash, no default port). `--ws-allow-origin` and
+  `websocket.allowed_origins` refuse or skip values that are not
+  `scheme://host[:port]`.
+- acpmux reads `websocket.allowed_origins` and `websocket.allowed_hosts` when the
+  listener starts; a change needs a daemon restart.
+- The Debug agent pane dev server (`CMUX_NEXT_AGENT_PANE_DEV_URL`) sends its own
+  origin. A Debug app (only `#if DEBUG` resolves a dev server) starts acpmux with
+  `--allow-dev-origin <origin>`. Only the Swift side is Debug-only: the
+  `--allow-dev-origin` flag exists in EVERY acpmux build (Release included), so
+  anyone who can start `acpmux daemon run` can pass it. That is safe because the
+  flag accepts only an `http` origin whose host is loopback (`127.0.0.1`,
+  `localhost`, `[::1]`) with an explicit port (anything else is a start-up
+  error, so it can never admit a web site); the value is never saved to
+  config.json (this run only); and the token stays mandatory, so an allowed dev
+  origin still needs the token. Release apps never pass the flag. A daemon that
+  already runs keeps its origins, so restart it after changing the dev URL. No
+  manual config entry (coordinator decision 2026-10-03).
+- acpmux creates `daemon.log` with mode 0600, like its config file, and narrows
+  an older log with wider bits to 0600 when it opens it.
+- acpmux peers that connect with no token stop working once the remote side has
+  this change; `acpmux peer add ... --token T` or an ssh peer (which reads the
+  remote token) is required.
+- The acpmux dashboard reads a request head up to 32 KiB (large localhost
+  cookies); a larger head is refused.
+
+Raw TCP listeners (no HTTP) follow the same intent: loopback bind by default, a
+per-launch token before any frame, and an immediate close when the first bytes
+look like an HTTP request (a cross-protocol POST from a web page). The remote
+desktop host (`cmux-rd-host`, lane 17) gets its token over `--token-fd`.
 
 Out of scope, recorded so nobody adds them by mistake: port forwards that carry the
 user's own service (cmux-remote `LocalPortForward`, `loopback_forward`, the app's
@@ -165,7 +224,13 @@ risk class. Token ops are `mcp.expose: never`.
    acpmux and both cmux-remote listeners, with refusal tests.
 3. Launch key, `CMUX_LAUNCH_CREDENTIAL`, `credential.verify|mint|rotate`, the CLI
    and MCP send it, `WorkspaceMutation.actor`, the `resource_mutations` column and
-   the journal field.
+   the journal field. Then the `frontend` actor (launcher fd, `client.hello`
+   proof, `forwarded`) and `secret.register|release` with its own store and
+   audit record (daemon owner review with this slice).
+   - feed-local-handoff-begin and feed-local-handoff-done (lane 9's new
+     local-admin, Unix-only commands) are restricted to the frontend/user
+     actor; until then any local agent can call them (coordinator decision
+     2026-10-03).
 4. `terminal.for_pid` and pid-ancestry stamping; acpmux mints per ACP session.
 5. App side: `action.run` verifies the credential and records the actor.
 6. Tailnet mode. 7. HTTP MCP with scoped revocable tokens.

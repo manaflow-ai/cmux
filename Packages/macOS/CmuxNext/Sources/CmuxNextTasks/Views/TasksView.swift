@@ -8,13 +8,21 @@ struct TasksView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if case let .disconnected(reason) = model.connection {
-                OwnerBanner(text: reason)
-            }
-            switch layout {
-            case .list: TasksListView(model: model)
-            case .board: TasksBoardView(model: model)
-            case .inbox: TasksInboxView(model: model)
+            if model.neverConnected, case .disconnected = model.connection {
+                OwnerNotRunningView()
+            } else {
+                if case let .disconnected(reason) = model.connection {
+                    OwnerBanner(text: reason)
+                }
+                if model.scope == .mine {
+                    ScopeBar(model: model)
+                }
+                NewTaskField(model: model)
+                switch layout {
+                case .list: TasksListView(model: model)
+                case .board: TasksBoardView(model: model)
+                case .inbox: TasksInboxView(model: model)
+                }
             }
         }
         .background(colors.background)

@@ -33,6 +33,10 @@ public final class AgentPaneView: NSView {
             if shortcuts != oldValue { applyShortcuts() }
         }
     }
+    /// `labs.previewFeatures`: pushed like ``shortcuts``.
+    public var previewFeatures = false {
+        didSet { if previewFeatures != oldValue { applyPreviewFeatures() } }
+    }
     private let navigation = AgentPaneNavigation()
     /// The composer's mic; nothing runs until the user starts it.
     let dictation: AgentPaneDictation
@@ -71,6 +75,11 @@ public final class AgentPaneView: NSView {
             configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: false)
         }
         source.register(on: configuration)
+        // The shared web theme (`window.cmuxTheme`, `--cmux-*`): the page
+        // background is the one surface token, or clear over a see-through
+        // window (plans/cmux-next/windows.md).
+        configuration.userContentController.addUserScript(
+            WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let webView = WKWebView(frame: .zero, configuration: configuration)
         self.webView = webView
         dictation = AgentPaneDictation { [weak webView] script in webView?.evaluateJavaScript(script, completionHandler: nil) }
@@ -93,8 +102,10 @@ public final class AgentPaneView: NSView {
         // Web Inspector and profiling for the pane (debug.agent_pane).
         webView.isInspectable = true
         #endif
-        if renderRate == .adaptive {
-            model.onFramePacing = { [weak self] intervals in self?.recordFramePacing(intervals) }
+        model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
+        model.onRenderRate = { [weak self] full in
+            guard let self, self.renderRate == .adaptive else { return }
+            self.rendersAtFullRate = full
         }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
         navigation.view = self
@@ -143,17 +154,15 @@ public final class AgentPaneView: NSView {
     static let near60FPSFeature = "PreferPageRenderingUpdatesNear60FPSEnabled"
 
     public let renderRate: AgentPaneRenderRate
-    private var framePacing = AgentPaneFramePacing()
     /// The display's refresh rate when the pane has no window screen to ask
     /// (tests set it).
     var displayFramesPerSecond: () -> Int = { NSScreen.main?.maximumFramesPerSecond ?? 60 }
 
-    /// An adaptive pane's settled scroll: picks the rate for the next one.
-    func recordFramePacing(_ intervals: [Double], at now: Date = Date()) {
+    /// Display information stays native; the page owns adaptive rate policy.
+    func framePacingSettings() -> [String: Any] {
         let fps = window?.screen?.maximumFramesPerSecond ?? displayFramesPerSecond()
-        guard renderRate == .adaptive, fps > 0 else { return }
-        let full = framePacing.record(intervals: intervals, displayInterval: 1000 / Double(fps), at: now)
-        if full != rendersAtFullRate { rendersAtFullRate = full }
+        return ["adaptive": renderRate == .adaptive && fps > 0,
+                "displayInterval": fps > 0 ? 1000 / Double(fps) : 0]
     }
 
     /// Whether the page renders at the display's full rate. Setting it

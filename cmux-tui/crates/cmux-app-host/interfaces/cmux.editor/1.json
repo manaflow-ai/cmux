@@ -17,5 +17,37 @@
     "requestSave",
     "requestOpen"
   ],
+  "options": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "capabilities": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": {
+          "enum": [
+            "diff",
+            "readOnly",
+            "multiCursor",
+            "decorations"
+          ]
+        }
+      },
+      "paneCommands": {
+        "type": "array",
+        "uniqueItems": true,
+        "maxItems": 16,
+        "items": {
+          "enum": [
+            "save",
+            "revert",
+            "toggleReadOnly",
+            "focus"
+          ]
+        },
+        "description": "Commands the shell routes to the focused editor pane (palette, shortcut)."
+      }
+    }
+  },
   "status": "draft: shapes are refined with the first implementing app before the interface is public"
 }

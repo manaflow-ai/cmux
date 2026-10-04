@@ -19,6 +19,7 @@ extension SettingDescriptor {
     public func accepts(_ value: JSONValue) -> Bool {
         switch kind {
         case .choice(let choices):
+            if path == BackdropSelectionSetting().configPath { return BackdropSelectionSetting.accepts(value) }
             return value.stringValue.map { text in choices.contains { $0.value == text } } ?? false
         case .choiceOrNumber(let choices, let number):
             if let text = value.stringValue { return choices.contains { $0.value == text } }

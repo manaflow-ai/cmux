@@ -962,17 +962,23 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     assert!(!term.palette_overridden(7));
     assert!(term.palette_overridden(8), "query must not alter authored state");
 
+    // Protocol integers are plain ASCII decimal (ghostty-next lib/parse_int):
+    // no digit separators and no sign.
+    let default_eighteen = state.palette_color(18);
     term.vt_write(b"\x1b]21;1_8=#112233;_19=#ffffff;20_=#ffffff\x1b\\");
-    assert!(term.palette_overridden(18), "OSC 21 must accept Zig's embedded underscores");
+    assert!(!term.palette_overridden(18), "OSC 21 keys take no digit separators");
     assert!(!term.palette_overridden(19), "OSC 21 must reject a leading underscore");
     assert!(!term.palette_overridden(20), "OSC 21 must reject a trailing underscore");
     state.update(&mut term).unwrap();
-    assert_eq!(state.palette_color(18), Rgb { r: 0x11, g: 0x22, b: 0x33 });
+    assert_eq!(state.palette_color(18), default_eighteen);
 
     term.vt_write(b"\x1b]4;+19;#223344;-0;#001122;20_;#ffffff\x1b\\");
-    assert!(term.palette_overridden(19), "OSC 4 must accept Zig's positive sign grammar");
-    assert!(term.palette_overridden(0), "OSC 4 must accept Zig's negative zero grammar");
+    assert!(!term.palette_overridden(19), "OSC 4 indices take no sign");
+    assert!(!term.palette_overridden(0), "OSC 4 indices take no sign");
     assert!(!term.palette_overridden(20), "OSC 4 must reject a trailing underscore");
+    term.vt_write(b"\x1b]4;19;#223344;0;#001122\x1b\\");
+    assert!(term.palette_overridden(19));
+    assert!(term.palette_overridden(0));
     state.update(&mut term).unwrap();
     assert_eq!(state.palette_color(19), Rgb { r: 0x22, g: 0x33, b: 0x44 });
     assert_eq!(state.palette_color(0), Rgb { r: 0x00, g: 0x11, b: 0x22 });
@@ -1048,10 +1054,11 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     state.update(&mut term).unwrap();
     assert_eq!(state.palette_color(0), Rgb { r: 0x10, g: 0x10, b: 0x10 });
 
+    let default_sixteen = state.palette_color(16);
     term.vt_write(b"\x1b]4;16;#161616\x18");
-    assert!(term.palette_overridden(16), "CAN dispatches Ghostty's valid OSC prefix");
+    assert!(!term.palette_overridden(16), "CAN cancels the OSC (ghostty-next)");
     state.update(&mut term).unwrap();
-    assert_eq!(state.palette_color(16), Rgb { r: 0x16, g: 0x16, b: 0x16 });
+    assert_eq!(state.palette_color(16), default_sixteen);
     term.vt_write(b"\x1bPab\x1b]4;17;#171717\x07");
     assert!(term.palette_overridden(17), "ESC must leave DCS before the next OSC");
     state.update(&mut term).unwrap();
@@ -1072,8 +1079,14 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     );
     let revision_before_ris = term.color_revision();
     let reapply_before_ris = term.color_reapply_revision();
+    let default_four = {
+        let mut fresh = Terminal::new(80, 2, 0, Callbacks::default()).unwrap();
+        let mut fresh_state = RenderState::new().unwrap();
+        fresh_state.update(&mut fresh).unwrap();
+        fresh_state.palette_color(4)
+    };
     term.vt_write(b"\x1bc");
-    assert!(term.palette_overridden(4), "Ghostty RIS preserves palette overrides");
+    assert!(!term.palette_overridden(4), "RIS resets palette overrides (ghostty-next)");
     assert_ne!(term.color_revision(), revision_before_ris, "RIS must trigger frontend reapply");
     assert_ne!(
         term.color_reapply_revision(),
@@ -1081,7 +1094,7 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
         "RIS must advance the forced palette-reapply revision"
     );
     state.update(&mut term).unwrap();
-    assert_eq!(state.palette_color(4), Rgb { r: 1, g: 2, b: 3 });
+    assert_eq!(state.palette_color(4), default_four);
 }
 
 #[test]

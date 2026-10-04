@@ -90,3 +90,33 @@ import Testing
         #expect(seqs == Array(1...500))
     }
 }
+
+@MainActor
+@Suite struct HomeCoreGapTests {
+    @Test func typingIsSentButNeverLogged() async throws {
+        let store = HomeStore(source: MockHomeSource(options: .immediate))
+        store.start()
+        for _ in 0..<200 where !store.isOnline { await Task.yield() }
+        try await store.perform(.setTyping(conversation: ConversationID("conv_aziz"), on: true))
+        #expect(store.log.isEmpty)
+    }
+
+    @Test func transcriptItemsCarryReplyThreadAndEdit() {
+        let conv = ConversationID("c")
+        let edited = Date(timeIntervalSince1970: 5)
+        let message = Message(id: MessageID("m2"), conversation: conv, seq: 2, clientMessageID: IdempotencyKey("k2"),
+                              author: ParticipantID("u"), parts: [.location(LocationRef(latitude: 1, longitude: 2, label: "Office"))],
+                              createdAt: Date(timeIntervalSince1970: 1), editedAt: edited,
+                              replyTo: PartRef(message: MessageID("m1")), threadRoot: MessageID("m1"))
+        let item = TranscriptWindow(messages: [message]).items(pending: [], me: ParticipantID("me"))[0]
+        #expect(item.editedAt == edited)
+        #expect(item.replyTo == PartRef(message: MessageID("m1")))
+        #expect(item.threadRoot == MessageID("m1"))
+        #expect(item.plainText == "Office")
+    }
+
+    @Test func demoDataIsPublicAndPinsTheChief() {
+        let demo = HomeDemoData(now: Date(timeIntervalSince1970: 1_000_000))
+        #expect(demo.conversations.contains { $0.pinRank == 0 && $0.participants.contains(demo.chief) })
+    }
+}

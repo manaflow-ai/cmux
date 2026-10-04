@@ -47,6 +47,9 @@ final class PaneHostView: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// Height of the content's header (tab strip, toolbar); 0 without one.
+    var headerHeight: CGFloat { reporter?.paneHeaderHeight ?? 0 }
+
     /// The padded rect the content view fills, in this view's coordinates.
     var contentRect: CGRect { clipView.frame }
 
@@ -75,6 +78,11 @@ final class PaneHostView: NSView {
         style.paneCornerRadius = cornerRadius
         let rect = PaneChromeGeometry.contentRect(forCell: bounds, style: style)
         if clipView.frame != rect { clipView.frame = rect }
+        // A restored pane can be populated before its host receives the
+        // launch frame. AppKit does not reliably run the child's autoresizing
+        // pass when the clip view is resized manually, so keep the content
+        // frame in lockstep with the clip bounds here.
+        if content.frame != clipView.bounds { content.frame = clipView.bounds }
         let header = reporter?.paneHeaderHeight ?? 0
         let radius = PaneChromeGeometry.cornerRadius(for: PaneChromeGeometry.roundedRect(inPadded: rect, headerHeight: header), style: style)
         if let reporter {

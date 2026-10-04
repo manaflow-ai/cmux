@@ -71,16 +71,27 @@ func fakeJWT(_ claims: [String: Any]) -> String {
 }
 
 /// A Codex `auth.json` with ChatGPT tokens.
+/// A Codex `auth.json`. `workspace` and `user` are the ChatGPT workspace and
+/// user id claims (nil leaves the claim out); `tokens.account_id` is the
+/// workspace, as the CLI writes it.
 func codexAuth(email: String = "dev@example.com", plan: String = "pro", refresh: String = "fake-refresh-token",
-               accessExpiry: Double = 1_900_003_600) -> [String: Any] {
-    [
+               accessExpiry: Double = 1_900_003_600, workspace: String? = "acct-fixture", user: String? = "user-fixture") -> [String: Any] {
+    var auth: [String: Any] = ["chatgpt_plan_type": plan]
+    auth["chatgpt_account_id"] = workspace
+    auth["chatgpt_user_id"] = user
+    return [
         "OPENAI_API_KEY": NSNull(),
         "tokens": [
-            "id_token": fakeJWT(["email": email, "https://api.openai.com/auth": ["chatgpt_plan_type": plan]]),
+            "id_token": fakeJWT(["email": email, "https://api.openai.com/auth": auth]),
             "access_token": fakeJWT(["exp": accessExpiry]),
             "refresh_token": refresh,
-            "account_id": "acct-fixture",
+            "account_id": workspace.map { $0 as Any } ?? NSNull(),
         ],
         "last_refresh": "2026-09-30T00:00:00Z",
     ]
+}
+
+/// The handle every side must give the Codex sign-in of `workspace` + `user`.
+func codexHandle(workspace: String = "acct-fixture", user: String = "user-fixture") -> String {
+    fixtureLabeler.handle(namespace: "codex", identity: "codex:workspace:\(workspace):user:\(user)")
 }

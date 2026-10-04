@@ -44,6 +44,23 @@ struct EmptyWorkspaceTests {
         withExtendedLifetime((services, state)) {}
     }
 
+    /// The store's home workspace starts empty on purpose (workspace-kind-v1):
+    /// HomeService gives it the Chief conversation tab, never a terminal
+    /// (homenat7 snapshot: Home opened on a stray terminal).
+    @Test func theEmptyHomeWorkspaceGetsNoTerminal() async throws {
+        var home = WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: Self.key, name: "Home")
+        home.kind = "home"
+        let (services, recorder) = Self.services(workspaces: [home])
+        let workspace = try #require(services.daemon.store.workspaces.first)
+        let state = WindowState(workspaceID: workspace.id)
+        let controller = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
+        controller.applyCurrent()
+        await Self.settle { !recorder.keys.isEmpty }
+        #expect(recorder.keys.isEmpty)
+        controller.teardown()
+        withExtendedLifetime((services, state)) {}
+    }
+
     /// The app's own create-workspace + create-terminal answered, but the
     /// terminal's pane delta has not reached the mirror yet: the workspace
     /// still looks empty and must not get a second terminal.

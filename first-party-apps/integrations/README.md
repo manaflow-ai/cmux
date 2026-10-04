@@ -80,6 +80,25 @@ The pure core lives in `libs/integrations-core/` (`@cmux/integrations-core`, MIT
 
 The gateway adds what the app must not do: YAML parsing, fetching specs with the SSRF guard after DNS and redirects (the package's `egress.ts` is only the URL-text pre-check), the Streamable HTTP MCP client (no stdio), the `/v1/mcp` endpoint (names from `mcp-names.ts`), and invocation (executor `plugins/openapi/src/sdk/invoke.ts` is the next candidate to adapt into the package, under the same NOTICE).
 
+## Manifest v2
+
+`cmux-app.v2.json` is the manifest v2 that the daemon's app supervisor loads; it passes the one validator (`cmux-tui/crates/cmux-app-manifest`). It declares the same app as `cmux-app.json`: `runtime.main` `dist/main.js`, `cmux.section/1` (`renderSection`) and `cmux.pane/1` (`renderPane`); `files` ships `LICENSE-executor`, and the catalog fragment `catalog/integrations-catalog.json`. Every v1 command is one catalog op of family `integrations` (owner `app:cmux/integrations`, `export` names the JS function, CLI `apps run cmux/integrations <verb>`, palette title only for palette commands, MCP as v1 exposed it). The DEV/NIGHTLY `variant` setting is the `variants` block. `cmux-app.json` stays for today's in-app runtime.
+
+The v2 schema cannot hold these parts of the app, so the manifest leaves them out:
+
+1. `cmux.credential.provider/1` and `cmux.feed.source/1`: the app has no `pickCredential` or `renderFeedItem` export yet, so it does not claim them.
+2. `notices`: no manifest field; the license file is listed in `files` instead.
+3. Connection and credential handles (`conn`, `cred`): `handles` accepts only root, host, credential, document and diff, and the app does not ask for a handle today.
+
+Platform gaps found by the earlier v2 sketch (still open):
+
+- No secure input in the scene vocabulary: credential collection must stay a shell sheet (proposed integration.connect host behavior), never a TextField in an app.
+- No URL-open host capability for OAuth approval pages from an app with a gesture.
+- No Table or Segmented control in V7's component list: the Allow / Ask / Block control is three tappable Texts.
+- cmux.feed.source/1 has no schema yet for action buttons that answer with a policy change (Always allow).
+
+Update (2026-10-03): the manifest v2 extensions (app-platform.md 12.5) now hold the items above that this app needed; `cmux-app.v2.json` and its catalog declare them (scopes, handles, keyboard, gestures, presets, requires, lifecycle, documents, openWith, notices, drag/drop and `consumes` as applicable). Items that depend on missing runtime support (embed node, pane-routed commands, native servers) stay open.
+
 ## Platform gaps (most important first)
 
 1. No secure input and no URL open for apps: the secret sheet and the OAuth approval page must be host behavior on `integration.connect` (contract item 6); the app says when the host did not open the page.

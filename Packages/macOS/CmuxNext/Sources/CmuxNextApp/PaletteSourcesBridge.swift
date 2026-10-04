@@ -2,10 +2,21 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextPalette
+import CmuxNextSettings
 
 /// Feeds the palette's workspace and tab pages from the daemon store.
 enum PaletteSourcesBridge {
     static func make(services: AppServices) -> PaletteSources {
+        var sources = makeBase(services: services)
+        // cmux.json `palette.scopes.<id>.prefix`, read on every open.
+        sources.scopePrefixes = { [weak services] in
+            let assigned = services?.settings?.snapshot.paletteScopePrefixes.assigned ?? [:]
+            return Dictionary(uniqueKeysWithValues: assigned.map { (PaletteScopeID($0.key), $0.value) })
+        }
+        return sources
+    }
+
+    private static func makeBase(services: AppServices) -> PaletteSources {
         PaletteSources(workspaces: WorkspaceSource(services: services), tabs: TabSource(services: services),
                        targets: targetSource(services),
                        context: { [weak services] in services.map(capturedTargets) ?? [] },

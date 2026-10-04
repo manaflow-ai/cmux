@@ -1,10 +1,9 @@
 #!/bin/sh
-# Rebuilds the two committed web bundles from the current sources and stages
-# them: the agent pane page (scripts/cmux-next/build-agent-pane-web.sh) and the
-# webviews app (scripts/build-webviews-app.sh). Run it after merging
+# Rebuilds the committed web bundles from the current sources and stages
+# them: the agent pane, Agent Activity page, and the webviews app. Run it after merging
 # feat-cmux-next into a branch.
 #
-# .gitattributes routes both bundles through the `cmux-generated-v1` merge
+# .gitattributes routes the generated pages through the `cmux-generated-v1` merge
 # driver, which keeps this branch's copy when both sides changed one (a
 # minified bundle cannot be merged by lines). That copy is stale until this
 # script runs; CI's `--check` steps fail on it until then. Nothing runs this
@@ -22,8 +21,10 @@ cd "$ROOT/webviews"
 bun install --frozen-lockfile
 cd "$ROOT"
 "$ROOT/scripts/cmux-next/build-agent-pane-web.sh"
+"$ROOT/scripts/cmux-next/build-agent-activity-web.sh"
 "$ROOT/scripts/build-webviews-app.sh"
 # -A also stages chunks the new build dropped, which resolves a delete/modify
 # conflict the driver cannot.
-git add -A -- "$PANE" "$APP"
-git status --short -- "$PANE" "$APP"
+ACTIVITY="Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity"
+git add -A -- "$PANE" "$ACTIVITY" "$APP"
+git status --short -- "$PANE" "$ACTIVITY" "$APP"

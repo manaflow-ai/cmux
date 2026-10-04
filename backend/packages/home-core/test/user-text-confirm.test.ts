@@ -182,6 +182,82 @@ describe("per-user level and lowering with a device proof", () => {
   })
 })
 
+describe("presence proofs for another owner's request (full-shell team SSH certificates)", () => {
+  const team: Principal = { identity: "system:team:team_a", kind: "system" }
+  const purpose = (over: Record<string, unknown> = {}) => ({
+    op: "team_vm.ssh_cert",
+    team: "team_a",
+    request: "req-1",
+    key_fingerprint: `SHA256:${"A".repeat(43)}`,
+    principal: "lawrence",
+    validity_minutes: 30,
+    class: "human",
+    ...over
+  })
+  type Signed = Parameters<typeof proofMessage>[0]
+  const ask = (h: ReturnType<typeof ready>["h"], install: string, at: number, pp = purpose()) => {
+    const r = h.run("user.presence.challenge", { install, purpose: pp }, team, "script", at)
+    if (!r.ok) return r
+    const v = r.value as { sign: Signed; message: string; expires_at: number }
+    expect(Buffer.from(v.message, "base64url")).toEqual(proofMessage(v.sign))
+    return v
+  }
+
+  it("only a team's own object asks and asserts, for its own team", () => {
+    const { h, later } = ready()
+    for (const p of [mac, web, chief, system, { identity: "system:mux:agent_a", kind: "system" } as Principal])
+      expect(h.run("user.presence.challenge", { install: "inst_mac", purpose: purpose() }, p, "script", later)).toMatchObject({ ok: false, code: "forbidden" })
+    expect(h.run("user.presence.challenge", { install: "inst_mac", purpose: purpose({ team: "team_b" }) }, team, "script", later)).toMatchObject({ ok: false, code: "invalid_params" })
+    expect(h.run("user.presence.challenge", { install: "inst_mac", purpose: purpose({ class: "agent" }) }, team, "script", later)).toMatchObject({ ok: false, code: "invalid_params" })
+    expect(h.run("user.presence.challenge", { install: "inst_mac", purpose: { ...purpose(), extra: 1 } }, team, "script", later)).toMatchObject({ ok: false, code: "invalid_params" })
+  })
+
+  it("asserts a valid Mac proof of exactly the challenged purpose, once", () => {
+    const { h, macKey, later } = ready()
+    const v = ask(h, "inst_mac", later) as { sign: Signed; expires_at: number }
+    expect(v.sign).toMatchObject({ ...purpose(), user: USER, install: "inst_mac" })
+    const params = { install: "inst_mac", nonce: (v.sign as { nonce: string }).nonce, purpose: purpose(), presence_sig: presenceSig(macKey.priv, v.sign as ProofPayload) }
+    expect(h.run("user.presence.assert", params, team, "script", later + 1)).toMatchObject({ ok: true, value: { asserted: true, expires_at: v.expires_at } })
+    expect(h.run("user.presence.assert", params, team, "script", later + 2)).toMatchObject({ ok: false, code: "text_confirm.bad_nonce" })
+    // The level did not change and nothing was announced; the assertion is audited.
+    expect(userLevelOf(h.state)).toBe("strict")
+    expect(h.state.audit.at(-1)).toMatchObject({ kind: "presence_asserted", install: "inst_mac", purpose: "team_vm.ssh_cert@team_a" })
+  })
+
+  it("refuses another purpose, an expired proof, a bad signature and a cooling key, and spends the nonce", () => {
+    const { h, macKey, iosKey, attestKey, later } = ready()
+    const assert = (v: { sign: Signed }, over: Record<string, unknown>, at = later + 1) =>
+      h.run("user.presence.assert", { install: "inst_mac", nonce: (v.sign as { nonce: string }).nonce, purpose: purpose(), presence_sig: presenceSig(macKey.priv, v.sign as ProofPayload), ...over }, team, "script", at)
+    let v = ask(h, "inst_mac", later) as { sign: Signed; expires_at: number }
+    expect(assert(v, { purpose: purpose({ request: "req-2" }) })).toMatchObject({ ok: true, value: { asserted: false, code: "text_confirm.proof_mismatch" } })
+    expect(assert(v, {})).toMatchObject({ ok: false, code: "text_confirm.bad_nonce" })
+    v = ask(h, "inst_mac", later) as { sign: Signed; expires_at: number }
+    expect(assert(v, {}, later + CHALLENGE_TTL_MS)).toMatchObject({ value: { asserted: false, code: "text_confirm.proof_expired" } })
+    v = ask(h, "inst_mac", later) as { sign: Signed; expires_at: number }
+    expect(assert(v, { presence_sig: presenceSig(keypair().priv, v.sign as ProofPayload) })).toMatchObject({ value: { asserted: false, code: "text_confirm.bad_proof" } })
+    // A signature over the purpose with another op (a lowering) never asserts.
+    v = ask(h, "inst_mac", later) as { sign: Signed; expires_at: number }
+    expect(assert(v, { presence_sig: presenceSig(macKey.priv, { ...(v.sign as ProofPayload), op: LOWER_OP }) })).toMatchObject({ value: { asserted: false, code: "text_confirm.bad_proof" } })
+    // iOS needs the App Attest assertion too, with a growing counter.
+    const w = ask(h, "inst_ios", later) as { sign: Signed }
+    const base = { install: "inst_ios", nonce: (w.sign as { nonce: string }).nonce, purpose: purpose(), presence_sig: presenceSig(iosKey.priv, w.sign as ProofPayload) }
+    expect(h.run("user.presence.assert", { ...base, app_attest: assertion(attestKey.priv, w.sign as ProofPayload, 1) }, team, "script", later + 1)).toMatchObject({ value: { asserted: true } })
+    // A key in its 24 h cooldown cannot be asked.
+    h.run("user.presence_key.register", { install: "inst_x", jwk: keypair().jwk, platform: "mac" }, system, "script", later)
+    expect(h.run("user.presence.challenge", { install: "inst_x", purpose: purpose() }, team, "script", later + 1)).toMatchObject({ ok: false, code: "text_confirm.key_cooling_down" })
+  })
+
+  it("never mixes with lowering: an SSH nonce never lowers the level and a lowering nonce never asserts; neither evicts the other", () => {
+    const { h, macKey, later, challenge } = ready()
+    const lower = challenge(mac, "off")!
+    for (let i = 0; i < 12; i++) expect(h.run("user.presence.challenge", { install: "inst_mac", purpose: purpose({ team: `team_${i}` }) }, { identity: `system:team:team_${i}`, kind: "system" }, "script", later).ok).toBe(true)
+    const v = ask(h, "inst_mac", later) as { sign: Signed }
+    expect(h.run(LOWER_OP, { level: "off", nonce: (v.sign as { nonce: string }).nonce, presence_sig: presenceSig(macKey.priv, v.sign as ProofPayload) }, mac, "user", later + 1)).toMatchObject({ ok: false, code: "text_confirm.bad_nonce" })
+    expect(h.run("user.presence.assert", { install: "inst_mac", nonce: lower.nonce, purpose: purpose(), presence_sig: presenceSig(macKey.priv, lower) }, team, "script", later + 1)).toMatchObject({ ok: false, code: "text_confirm.bad_nonce" })
+    expect(h.run(LOWER_OP, { level: "off", nonce: lower.nonce, presence_sig: presenceSig(macKey.priv, lower) }, mac, "user", later + 1)).toMatchObject({ ok: true, value: { lowered: true } })
+  })
+})
+
 describe("chief projection authority (MuxDO)", () => {
   it("accepts a level only from the owner's UserDO", async () => {
     const { muxDomain, INITIAL_MUX_HEAD } = await import("../src/mux/domain.ts")

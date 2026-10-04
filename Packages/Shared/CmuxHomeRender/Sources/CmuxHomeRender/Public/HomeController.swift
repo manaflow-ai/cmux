@@ -45,6 +45,25 @@ public final class HomeController {
     /// resize their document and move their clip view (see `scrollGeometry`).
     public var onScrollGeometryChange: (ScrollGeometry) -> Void = { _ in }
     var lastPublishedGeometry: ScrollGeometry?
+    /// The conversation's summary changed (title, participants): hosts
+    /// refresh their header.
+    public var onSummaryChange: (ConversationSummary?) -> Void = { _ in }
+    /// A send the owner refused before logging it, in hosted-field mode:
+    /// the host puts `text` back into its own field if that is empty.
+    public var onRestoreDraft: (String) -> Void = { _ in }
+    /// The rows changed (not just the viewport): hosts post their platform's
+    /// layout-changed accessibility notification here.
+    public var onRowsChange: () -> Void = {}
+    let container = CALayer()
+    var hostSize: CGSize = .zero
+    var zoom: CGFloat = 1
+    var displayScale: CGFloat = Canvas.scale
+    /// The hosted field as the host gave it (host points).
+    var hostedFieldInHost: CGRect?
+    /// The latest summary from `update`.
+    public var conversationSummary: ConversationSummary? { summary }
+    /// The conversation has no message, here or older (a first-run state).
+    public var isEmpty: Bool { items.isEmpty && !hasOlder }
     /// The host shows this conversation to the user (window visible, app
     /// active). Read cursors advance only while it is true.
     public var isVisibleToUser = false {
@@ -63,27 +82,78 @@ public final class HomeController {
         currentDate = now
         scene = HomeScene(palette: palette)
         builder = RowBuilder(format: RowFormat(calendar: calendar, locale: locale))
+        container.actions = RowLayer.noActions
+        container.masksToBounds = true
+        container.addSublayer(scene.root)
         scene.requestWake = { [weak self] due in self?.scheduleWake(at: due) }
         scene.offsetMovedByModel = { [weak self] in self?.publishScrollGeometryIfChanged() }
         scene.compose.restartCaret(begin: scene.now, sent: false, motion: scene.motion)
     }
 
-    public var rootLayer: CALayer { scene.root }
-    public var size: CGSize { scene.size }
+    /// The host adds this layer and sets its frame to the view's bounds.
+    public var rootLayer: CALayer { container }
+    /// The viewport in host points.
+    public var size: CGSize { hostSize }
 
     public func resize(to size: CGSize) {
-        scene.resize(to: size) { self.rows(metrics: $0) }
+        hostSize = size
+        applyZoom()
+    }
+
+    /// Text size relative to the 13 pt reference (1 = Mac default; iOS
+    /// passes Dynamic Type's body size / 13, the Mac the user's text size).
+    /// The whole transcript scales with it (fonts, paddings, radii, gaps);
+    /// rows are re-measured and redrawn sharp at the new size.
+    public var textScale: CGFloat {
+        get { zoom }
+        set {
+            let value = max(0.5, min(5, newValue))
+            guard value != zoom else { return }
+            zoom = value
+            scene.setContentsScale(displayScale * zoom)
+            applyZoom()
+        }
+    }
+
+    /// Device pixels per point of the host (2 on Mac, 3 on most iPhones).
+    /// Row bitmaps are drawn at this times `textScale`.
+    public var contentsScale: CGFloat {
+        get { displayScale }
+        set {
+            guard newValue > 0, newValue != displayScale else { return }
+            displayScale = newValue
+            scene.setContentsScale(displayScale * zoom)
+        }
+    }
+
+    private func applyZoom() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        scene.root.anchorPoint = .zero
+        scene.root.position = .zero
+        scene.root.transform = CATransform3DMakeScale(zoom, zoom, 1)
+        CATransaction.commit()
+        if let field = hostedFieldInHost { scene.hostedField = toDesign(field) }
+        let design = CGSize(width: hostSize.width / zoom, height: hostSize.height / zoom)
+        scene.zoom = zoom
+        scene.resize(to: design) { self.rows(metrics: $0) }
         publishScrollGeometryIfChanged()
         afterViewportChange()
     }
 
+    /// Host points -> the core's design points (and back).
+    func toDesign(_ r: CGRect) -> CGRect { CGRect(x: r.minX / zoom, y: r.minY / zoom, width: r.width / zoom, height: r.height / zoom) }
+    func toHost(_ r: CGRect) -> CGRect { CGRect(x: r.minX * zoom, y: r.minY * zoom, width: r.width * zoom, height: r.height * zoom) }
+    func toDesign(_ p: CGPoint) -> CGPoint { CGPoint(x: p.x / zoom, y: p.y / zoom) }
+
     /// Space the host covers at the top (toolbar, safe area); rows scroll under it.
     public var topInset: CGFloat {
-        get { scene.topInset }
+        get { scene.topInset * zoom }
         set {
-            guard newValue != scene.topInset else { return }
+            let design = newValue / zoom
+            guard design != scene.topInset else { return }
             let anchor = scene.visibleAnchor()
-            scene.topInset = newValue
+            scene.topInset = design
             scene.restore(anchor)
         }
     }
@@ -133,7 +203,9 @@ public final class HomeController {
         var change = TranscriptChange.classify(old: items, new: newItems, me: me, typing: (oldOthersTyping, newOthersTyping),
                                                read: (Self.readByOthers(summary, me: me), Self.readByOthers(newSummary, me: me)))
         items = newItems
+        let summaryChanged = newSummary != summary
         summary = newSummary
+        if summaryChanged { onSummaryChange(newSummary) }
         typing = newTyping
         if newHasOlder != hasOlder || change == .prepend { olderRequested = false }
         hasOlder = newHasOlder
@@ -146,6 +218,7 @@ public final class HomeController {
         if change == .initial { scene.pinned = true }
         guard scene.size.width > 0 else { return }
         scene.commit(rows(metrics: scene.metrics), change: change, sendField: sendField)
+        onRowsChange()
         publishScrollGeometryIfChanged()
         askForOlderIfNeeded()
         reportReadIfNeeded()
@@ -153,9 +226,11 @@ public final class HomeController {
     }
 
     func rows(metrics: Metrics) -> [RowSpec] {
-        builder.rows(items, RowContext(me: me, now: currentDate(), metrics: metrics,
-                                       readByOthers: Self.readByOthers(summary, me: me),
-                                       othersTyping: !typing.subtracting([me]).isEmpty))
+        let names = Dictionary((summary?.participants ?? []).map { ($0.id, $0.displayName) }, uniquingKeysWith: { a, _ in a })
+        return builder.rows(items, RowContext(me: me, now: currentDate(), metrics: metrics,
+                                              readByOthers: Self.readByOthers(summary, me: me),
+                                              othersTyping: !typing.subtracting([me]).isEmpty,
+                                              names: names, showsNames: summary?.kind(me: me) == .group))
     }
 
     static func readByOthers(_ summary: ConversationSummary?, me: ParticipantID) -> Seq? {

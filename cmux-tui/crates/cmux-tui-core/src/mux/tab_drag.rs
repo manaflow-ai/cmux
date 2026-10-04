@@ -1,25 +1,24 @@
 //! Tab drag outcomes that create a pane: drop a tab on a pane edge (a new
 //! split) or between strip columns (a new column).
 //!
-//! Each outcome is one atomic resource commit. The mutation runs on a clone
-//! of the live [`State`] with the same in-memory helpers the existing split
-//! and move paths use, the complete tree is projected into one durable
-//! patch, and the clone replaces the live state only after that patch
-//! commits. A failed commit therefore leaves nothing behind.
+//! Each outcome is one atomic resource commit: the mutation runs on a clone
+//! of the live [`State`] (the split and move helpers), the tree is projected
+//! into one durable patch, and the clone replaces the live state only after
+//! that patch commits, so a failed commit leaves nothing behind.
 //!
-//! When the tab's origin pane survives on the same screen, the drag records
-//! one layout-undo entry that moves the tab back and removes the created
-//! pane; undo never closes the tab. Other drags fence that screen's undo
-//! history and report `undoable: false`.
+//! When the origin pane survives on the same screen, the drag records one
+//! layout-undo entry that moves the tab back and removes the created pane
+//! (undo never closes the tab). Other drags fence that screen's undo history
+//! and report `undoable: false`.
 
+use super::sticky_columns::reduce_column_sticky;
 use super::*;
 use crate::layout::DEFAULT_VIEWPORT_PANE_WIDTH;
-use crate::model::{LayoutColumn, LayoutUndoTabRestore};
+use crate::model::{ColumnSticky, LayoutColumn, LayoutUndoTabRestore};
 use cmux_layout_reducer::{Edge, LayoutOpKind, NewTab, TabContent};
 
-/// The fresh tab a split of a pane's only tab leaves in that pane
-/// (`move-tab-to-split` `respawn`, `tab-split-respawn-v1`): the same kind as
-/// the moved tab, never a copy of its state.
+/// The fresh tab a split of a pane's only tab leaves there (`respawn`,
+/// `tab-split-respawn-v1`): the moved tab's kind, never a copy of its state.
 #[derive(Debug, Clone)]
 pub enum SplitRespawn {
     /// A new terminal, spawned like `new-tab`.
@@ -28,8 +27,7 @@ pub enum SplitRespawn {
     Browser(crate::workspace_registry::FrontendBrowserRecord),
 }
 
-/// The source pane a respawn split expects at its commit: exactly the
-/// fresh tab and the dragged tab, in any order.
+/// The source pane a respawn split expects at commit: exactly these tabs.
 struct SourceGuard {
     pane: PaneId,
     tabs: [SurfaceId; 2],
@@ -46,6 +44,24 @@ impl SourceGuard {
         );
         Ok(())
     }
+}
+
+/// Where `move-tab-to-column` puts the tab: a new column after `after_column`
+/// (default: right of `pane`'s), `width` a viewport fraction, pinned at `sticky`.
+#[derive(Debug, Clone, Copy)]
+pub struct ColumnMove {
+    pub pane: PaneId,
+    pub after_column: Option<SplitId>,
+    pub width: Option<f32>,
+    pub sticky: Option<ColumnSticky>,
+}
+
+fn validated_column_width(width: Option<f32>) -> anyhow::Result<f32> {
+    let width = width.unwrap_or(DEFAULT_VIEWPORT_PANE_WIDTH);
+    if !width.is_finite() || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width) {
+        return Err(ViewportWidthError::OutOfRange { width }.into());
+    }
+    Ok(width)
 }
 
 fn validate_split_ratio(ratio: Option<f32>) -> anyhow::Result<()> {
@@ -94,13 +110,12 @@ impl TabDropEdge {
 /// Where a dragged tab lands.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TabDragDestination {
-    /// A new pane beside `pane` on `edge`. `ratio` is the new pane's share
-    /// of the split (default one half).
+    /// A new pane beside `pane` on `edge`, `ratio` of the split (default 1/2).
     Split { pane: PaneId, edge: TabDropEdge, ratio: Option<f32> },
-    /// A new strip column on the screen containing `pane`, after the column
-    /// `after_column` (default: after the last column), `width` wide as a
-    /// fraction of the frontend viewport.
-    Column { pane: PaneId, after_column: Option<SplitId>, width: f32 },
+    /// A new strip column on `pane`'s screen after `after_column` (default:
+    /// last), `width` a viewport fraction, pinned to an edge with `sticky` (a
+    /// screen-edge drop: a sticky column or a top or bottom dock).
+    Column { pane: PaneId, after_column: Option<SplitId>, width: f32, sticky: Option<ColumnSticky> },
 }
 
 impl From<TabDropEdge> for Edge {
@@ -131,7 +146,9 @@ impl TabDragDestination {
                 new_pane: ids.pane,
                 respawn: None,
             },
-            Self::Column { pane, after_column, width } => LayoutOpKind::MoveTabToColumn {
+            // The reducer models column structure, not pins: `sticky` is
+            // checked by `reduce_column_sticky` in `apply_tab_drag`.
+            Self::Column { pane, after_column, width, .. } => LayoutOpKind::MoveTabToColumn {
                 tab,
                 anchor: pane,
                 after_column,
@@ -152,11 +169,12 @@ impl TabDragDestination {
                 "edge": format!("{edge:?}"),
                 "ratio": ratio,
             }),
-            Self::Column { pane, after_column, width } => serde_json::json!({
+            Self::Column { pane, after_column, width, sticky } => serde_json::json!({
                 "kind": "column",
                 "pane": pane,
                 "after_column": after_column,
                 "width": width,
+                "sticky": sticky,
             }),
         }
     }
@@ -209,15 +227,12 @@ impl Mux {
     /// `move-tab-to-split` with `respawn`: split the tab's own pane, which
     /// holds only that tab, and leave a fresh tab of the given kind in it.
     ///
-    /// The layout reducer validates the whole op first (the moved tab plus
-    /// the explicitly created one, I1-I3). The fresh tab is created first,
-    /// so the source pane never empties; then the split commits with the
-    /// client transaction, and only while the pane still holds exactly the
-    /// dragged and the fresh tab (another client may have changed it in
-    /// between). If the split fails, the fresh tab is closed again, so a
-    /// failure leaves the layout as it was. A daemon that dies between the
-    /// two commits keeps the fresh tab beside the dragged one; no tab is
-    /// lost.
+    /// The layout reducer validates the whole op first (moved plus created
+    /// tab, I1-I3). The fresh tab is created first, so the pane never
+    /// empties; the split then commits with the client transaction only while
+    /// the pane holds exactly the dragged and the fresh tab. A failed split
+    /// closes the fresh tab again; a daemon that dies between the two commits
+    /// keeps both tabs, so no tab is lost.
     pub fn move_tab_to_split_respawning(
         self: &Arc<Self>,
         surface: SurfaceId,
@@ -249,21 +264,63 @@ impl Mux {
             }),
         };
         layout_invariants::model_result("tab.drag", &model, &kind)?;
+        let destination = TabDragDestination::Split { pane, edge, ratio };
+        self.commit_tab_drag_respawning(surface, pane, destination, respawn, transaction)
+    }
+
+    /// `move-tab-to-column` with `respawn` (`tab-column-respawn-v1`): move a
+    /// pane's only tab into a new (optionally sticky) column and leave a fresh
+    /// tab in its pane, guarded like [`Self::move_tab_to_split_respawning`].
+    /// Docking a screen's only tab uses it, so the strip keeps a column.
+    pub fn move_tab_to_column_respawning(
+        self: &Arc<Self>,
+        surface: SurfaceId,
+        destination: ColumnMove,
+        respawn: SplitRespawn,
+        transaction: Option<String>,
+    ) -> anyhow::Result<TabDragOutcome> {
+        let ColumnMove { pane, after_column, width, sticky } = destination;
+        let width = validated_column_width(width)?;
+        let source = self.with_state(|state| state.pane_of(surface));
+        let source = source.context("tab has no pane")?;
+        self.with_state(|state| {
+            anyhow::ensure!(
+                state.panes.get(&source).is_some_and(|candidate| candidate.tabs == [surface]),
+                "bad request: respawn applies only to a pane's only tab"
+            );
+            Ok(())
+        })?;
+        let destination = TabDragDestination::Column { pane, after_column, width, sticky };
+        self.commit_tab_drag_respawning(surface, source, destination, respawn, transaction)
+    }
+
+    /// Creates the fresh tab in `source` first (the pane never empties), then
+    /// commits while `source` holds exactly the fresh and the dragged tab. A
+    /// failed drag closes the fresh tab again.
+    fn commit_tab_drag_respawning(
+        self: &Arc<Self>,
+        surface: SurfaceId,
+        source: PaneId,
+        destination: TabDragDestination,
+        respawn: SplitRespawn,
+        transaction: Option<String>,
+    ) -> anyhow::Result<TabDragOutcome> {
         let size = self.surface(surface).map(|runtime| runtime.size());
         let fresh = match respawn {
-            SplitRespawn::Terminal(spawn) => self.new_tab_with_options(Some(pane), spawn, size)?,
+            SplitRespawn::Terminal(spawn) => {
+                self.new_tab_with_options(Some(source), spawn, size)?
+            }
             SplitRespawn::Browser(record) => {
-                self.new_frontend_browser_tab(Some(pane), record, size)?
+                self.new_frontend_browser_tab(Some(source), record, size)?
             }
         };
-        let destination = TabDragDestination::Split { pane, edge, ratio };
-        let guard = SourceGuard { pane, tabs: [fresh.id, surface] };
+        let guard = SourceGuard { pane: source, tabs: [fresh.id, surface] };
         match self.commit_tab_drag_guarded(surface, destination, transaction, Some(guard)) {
             Ok(outcome) => Ok(outcome),
             Err(error) => {
                 if let Err(close) = self.close_surface(fresh.id) {
                     eprintln!(
-                        "cmux-tui: respawn split could not close fresh tab {}: {close:#}",
+                        "cmux-tui: respawn drag could not close fresh tab {}: {close:#}",
                         fresh.id
                     );
                 }
@@ -279,17 +336,13 @@ impl Mux {
         pane: PaneId,
         after_column: Option<SplitId>,
         width: Option<f32>,
+        sticky: Option<ColumnSticky>,
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
-        let width = width.unwrap_or(DEFAULT_VIEWPORT_PANE_WIDTH);
-        if !width.is_finite()
-            || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
-        {
-            return Err(ViewportWidthError::OutOfRange { width }.into());
-        }
+        let width = validated_column_width(width)?;
         self.commit_tab_drag(
             surface,
-            TabDragDestination::Column { pane, after_column, width },
+            TabDragDestination::Column { pane, after_column, width, sticky },
             transaction,
         )
     }
@@ -558,13 +611,7 @@ pub(crate) fn apply_tab_drag(
                     screen.insert_layout_column_after(
                         anchor,
                         ids.base_column,
-                        LayoutColumn {
-                            id: ids.split,
-                            width,
-                            root: Node::Leaf(ids.pane),
-                            zellij_auto_layout: Some(vec![ids.pane]),
-                            sticky: None,
-                        },
+                        LayoutColumn::single(ids.split, width, ids.pane),
                     ),
                     "column anchor disappeared from its layout"
                 );
@@ -587,6 +634,20 @@ pub(crate) fn apply_tab_drag(
     stamp_pane_focus(mux, state, ids.pane);
     let (target_wi, target_si) =
         screen_location(state, target_screen).context("drag destination screen disappeared")?;
+    if let TabDragDestination::Column { sticky: Some(sticky), .. } = destination {
+        // Pinned after the move: the move may close the source column, and
+        // the same rules as `set-column-sticky` must hold on the result (one
+        // column per edge, the old holder scrolls again; one column scrolls).
+        // A refusal fails the whole drag on this projected copy.
+        let screen = &mut state.workspaces[target_wi].screens[target_si];
+        let index = screen.layout_columns.iter().position(|c| c.id == ids.split);
+        let index = index.context("new column disappeared")?;
+        let flags: Vec<_> = screen.layout_columns.iter().map(|c| c.sticky).collect();
+        let flags = reduce_column_sticky(&flags, index, Some(sticky))?;
+        for (column, flag) in screen.layout_columns.iter_mut().zip(flags) {
+            column.sticky = flag;
+        }
+    }
     if undoable {
         state.workspaces[target_wi].screens[target_si].record_tab_drag_change(
             before,
@@ -865,7 +926,7 @@ mod tests {
         let second = mux.new_tab(Some(origin), None, None).unwrap().id;
         let third = mux.new_tab(Some(origin), None, None).unwrap().id;
 
-        let column = mux.move_tab_to_column(third, origin, None, None, None).unwrap();
+        let column = mux.move_tab_to_column(third, origin, None, None, None, None).unwrap();
         assert!(column.undoable);
         let columns = mux.with_state(|state| {
             let (workspace, screen) = state.screen_of(origin).unwrap();
@@ -873,7 +934,7 @@ mod tests {
         });
         assert_eq!(columns, 2);
         assert_eq!(tabs(&mux, column.pane), vec![third]);
-        assert!(mux.move_tab_to_column(second, origin, None, Some(3.0), None).is_err());
+        assert!(mux.move_tab_to_column(second, origin, None, Some(3.0), None, None).is_err());
 
         // A cross-pane move on one screen is undoable too.
         let (moved, undoable) =

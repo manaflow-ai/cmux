@@ -7,22 +7,26 @@ public struct TabItemMapping {
     /// `fallbackTitle` names a tab whose program set no title yet
     /// (localized by the App), and a browser tab on the New Tab or blank
     /// page, whose recorded title is that page's address.
+    /// A conversation tab (conversation-tabs-v1) rides a frontend browser
+    /// record titled with the blank page's address: it shows `fallbackTitle`
+    /// (the conversation's) and this symbol.
+    public static let conversationSymbol = "bubble.left.and.bubble.right"
+
     public func item(_ tab: TabModel, fallbackTitle: String) -> StripTabItem {
         let isBrowser = tab.kind == .browser
-        let untitled = tab.displayTitle.isEmpty || (isBrowser && Self.isBlankPageAddress(tab.displayTitle))
+        let isConversation = tab.kind == .conversation
+        let untitled = tab.displayTitle.isEmpty || ((isBrowser || isConversation) && Self.isBlankPageAddress(tab.displayTitle))
         let title = untitled ? fallbackTitle : tab.displayTitle
         let busy = StatusMapping.shared.loading(tab)
         var item = StripTabItem(
             id: StripTabID(tab.id),
             title: title,
-            subtitle: isBrowser ? tab.url : tab.cwd.map(SidebarMapping.shared.abbreviate),
-            icon: .symbol(isBrowser ? "globe" : (tab.dead ? "xmark.octagon" : "terminal")),
+            subtitle: isConversation ? nil : isBrowser ? tab.url : tab.cwd.map(SidebarMapping.shared.abbreviate),
+            icon: .symbol(isConversation ? Self.conversationSymbol : isBrowser ? "globe" : (tab.dead ? "xmark.octagon" : "terminal")),
             isPinned: tab.pinned,
             isUnread: tab.hasUnread,
             isBusy: busy.state.isLoading || isReportingProgress(tab),
-            status: status(tab),
-            // The strip's location field: web pages only (`TabLocation`).
-            location: isBrowser ? TabLocation(address: tab.url) : nil
+            status: status(tab)
         )
         if busy.state.isLoading { item.indicator = busy.state }
         item.busyStyle = busy.style

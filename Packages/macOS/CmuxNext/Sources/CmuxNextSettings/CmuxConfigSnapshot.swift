@@ -63,6 +63,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserNewTabPage: URL?
     /// `browser.showBookmarksBar`; off when unset.
     public var browserShowBookmarksBar = false
+    /// `labs.previewFeatures`; off when unset.
+    public var previewFeatures = false
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.remoteLocalhost` and `browser.remoteLocalhostWorkspaces`.
@@ -96,6 +98,15 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.backgroundOpacity` and `appearance.backgroundBlur`; both
     /// nil (Ghostty's values) when unset or invalid.
     public var windowBackground = WindowBackgroundOverride()
+    /// `appearance.backdropArt`; nil disables the bundled painting.
+    public var backdropArt: BackdropArt?
+    /// `appearance.background`; nil leaves the desktop untouched.
+    public var backdropSelection: BackdropSelection?
+    /// `appearance.experimentalControls`; off unless explicitly enabled.
+    public var experimentalAppearance = false
+    /// `appearance.glassTransparency`, `appearance.hue` and
+    /// `appearance.saturation`; identity values when unset or invalid.
+    public var appearanceTuning = AppearanceTuningSetting.fallback
     /// `appearance.statusIndicator.*`.
     public var statusIndicator = StatusIndicatorSettings()
     /// `status.*`.
@@ -104,18 +115,22 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var borders: BorderMode = BordersSetting.fallback
     /// `appearance.focusIndicator`; "both" when unset or invalid.
     public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorFallback
-    /// `appearance.tabBarBackground`; "window" when unset or invalid.
-    public var tabBarBackground: TabBarBackground = PaneFocusSettings.tabBarBackgroundFallback
     /// `focus.inactiveTabStyle`; "fade" when unset or invalid.
     public var inactiveTabStyle: InactiveTabStyle = PaneFocusSettings.inactiveTabStyleFallback
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
-    /// `window.rail`; "off" when unset or invalid.
+    /// `window.rail`; "leading" when unset or invalid.
     public var rail: WindowRailPlacement = WindowRailSetting.fallback
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `tabs.newTabKind`; "same-kind" when unset or invalid.
     public var newTabKind: NewTabDefaultKind = NewTabDefaultKind.fallback
+    /// `newTerminal.opensWorkspace`; off when unset or invalid.
+    public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
+    /// `palette.scopes.<scope>.prefix`: user-assigned palette scope prefixes.
+    public var paletteScopePrefixes = PaletteScopePrefixes()
+    /// `tasks.layout`; "inbox" when unset or invalid.
+    public var tasksLayout: TasksLayoutPreference = TasksLayoutSetting().fallback
     /// `appearance.theme`: a Ghostty theme spec; nil (the Ghostty config's
     /// theme) when unset, empty or invalid.
     public var appTheme: String?
@@ -127,7 +142,12 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
+    /// `feed.github`: this Mac's opt-in GitHub inbox connection.
+    public var feedGitHub = FeedGitHubSettings()
     public var diagnostics: [SettingsDiagnostic]
+    /// Retired keys the file still sets (`SettingsSchema.retiredKeys`):
+    /// dropped without a diagnostic, listed for tooling.
+    public var retiredKeys: [String] = []
 
     public static let empty = CmuxConfigSnapshot(root: .object([:]), density: nil, metrics: [:], shortcuts: [:], diagnostics: [])
 
@@ -147,6 +167,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
             snapshot.diagnostics.append(SettingsDiagnostic(kind: .unreadableFile, path: "", message: "root is not an object"))
             return snapshot
         }
+        snapshot.retiredKeys = SettingsSchema.retiredKeys.keys.filter { root.value(at: $0.split(separator: ".").map(String.init)) != nil }.sorted()
         let tabBar = SurfaceTabBarParser.parse(root, configDirectory: configDirectory)
         snapshot.tabBar = tabBar.tabBar
         snapshot.commandActions = tabBar.actions
@@ -160,6 +181,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (showBar, showBarDiagnostic) = BookmarksBarSetting.parse(root)
         snapshot.browserShowBookmarksBar = showBar
         if let showBarDiagnostic { snapshot.diagnostics.append(showBarDiagnostic) }
+        let (preview, previewDiagnostic) = Self.parsePreviewFeatures(root)
+        snapshot.previewFeatures = preview
+        if let previewDiagnostic { snapshot.diagnostics.append(previewDiagnostic) }
         let (hibernation, hibernationDiagnostics) = BrowserHibernationSetting.parse(root)
         snapshot.browserHibernation = hibernation
         snapshot.diagnostics += hibernationDiagnostics
@@ -187,6 +211,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
         snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art }
+        snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)
@@ -196,10 +224,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
             root, at: PaneFocusSettings.focusIndicatorPath, fallback: PaneFocusSettings.focusIndicatorFallback)
         snapshot.focusIndicator = indicator
         if let indicatorDiagnostic { snapshot.diagnostics.append(indicatorDiagnostic) }
-        let (tabBarBackground, tabBarDiagnostic) = PaneFocusSettings.parse(
-            root, at: PaneFocusSettings.tabBarBackgroundPath, fallback: PaneFocusSettings.tabBarBackgroundFallback)
-        snapshot.tabBarBackground = tabBarBackground
-        if let tabBarDiagnostic { snapshot.diagnostics.append(tabBarDiagnostic) }
         let (inactiveTabStyle, inactiveTabDiagnostic) = PaneFocusSettings.parse(
             root, at: PaneFocusSettings.inactiveTabStylePath, fallback: PaneFocusSettings.inactiveTabStyleFallback)
         snapshot.inactiveTabStyle = inactiveTabStyle
@@ -216,10 +240,20 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (newTabKind, newTabKindDiagnostic) = NewTabDefaultKind.parse(root)
         snapshot.newTabKind = newTabKind
         if let newTabKindDiagnostic { snapshot.diagnostics.append(newTabKindDiagnostic) }
+        let (newTerminalOpensWorkspace, newTerminalOpensWorkspaceDiagnostic) = NewTerminalWorkspaceSetting.parse(root)
+        snapshot.newTerminalOpensWorkspace = newTerminalOpensWorkspace
+        if let newTerminalOpensWorkspaceDiagnostic { snapshot.diagnostics.append(newTerminalOpensWorkspaceDiagnostic) }
+        let (prefixes, prefixDiagnostics) = PaletteScopePrefixes.parse(root)
+        snapshot.paletteScopePrefixes = prefixes
+        snapshot.diagnostics += prefixDiagnostics
+        let (tasksLayout, tasksLayoutDiagnostic) = TasksLayoutSetting().parse(root)
+        snapshot.tasksLayout = tasksLayout
+        if let tasksLayoutDiagnostic { snapshot.diagnostics.append(tasksLayoutDiagnostic) }
         let (recordsCommands, commandsDiagnostic) = TerminalCommandHistorySetting.parse(root)
         snapshot.recordsTerminalCommands = recordsCommands
         if let commandsDiagnostic { snapshot.diagnostics.append(commandsDiagnostic) }
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.feedGitHub = FeedGitHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
         let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)
         snapshot.appTheme = appTheme
         if let appThemeDiagnostic { snapshot.diagnostics.append(appThemeDiagnostic) }

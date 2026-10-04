@@ -30,6 +30,25 @@ export interface Principal {
   readonly display_name?: string
   /** The install's registered kind (mac, ios, web, cli, daemon, vm), resolved by UserDO with the grant. */
   readonly install_kind?: string
+  /**
+   * Agents (chiefs) the user owns, resolved by the Worker from UserDO's chief records for ops
+   * that add participants (Home). Owners trust it only because the Worker builds every
+   * principal; frames and params never carry it.
+   */
+  /**
+   * Team whose SSO issued this session or registered this install, for sso.enforce (P17-4). Set
+   * only by the server: from TeamDO's record of the sessions its OIDC callback created (keyed by
+   * the Stack-signed refresh_token_id), or from the install record. Never from a token claim.
+   */
+  readonly sso_team?: string
+  /** The Stack session's refresh token id (Stack-signed claim `refresh_token_id`). */
+  readonly stack_session?: string
+  /**
+   * Install tokens only: the user's email domain when the token was minted (our own signed claim,
+   * from UserDO's record of the user's email), so sso.enforce can find the team that owns the domain.
+   */
+  readonly email_domain?: string
+  readonly owned_agents?: ReadonlyArray<{ readonly id: string; readonly display_name: string }>
   /** Op classes of the principal's grant, resolved by the grant's owner (UserDO) for other owners. */
   readonly grant_classes?: ReadonlyArray<string>
   /** Token expiry (ms); long-lived connections close at this time. */

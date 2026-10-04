@@ -112,6 +112,9 @@ if [[ -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
 fi
 
 if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; then
+  # 0. The cmux server helper's LaunchDaemon plist follows the FINAL bundle id
+  # (nightly and RC rename the bundle after the build); stable drops the helper.
+  "$SCRIPT_DIR/cmux-next/bundle-server-helper.sh" --stamp "$APP_PATH"
   # 1. CLI and private helpers
   for helper_dir in bin libexec; do
     for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
@@ -127,6 +130,12 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
       # BinaryDelta refuses to diff, so it would block delta updates.
       if ! /usr/bin/file -b "$helper" | grep -q 'Mach-O'; then
         echo "==> leaving non-Mach-O helper $(basename "$helper") to the bundle seal"
+        continue
+      fi
+      if [[ "$(basename "$helper")" == "cmux-server-helper" ]]; then
+        # A root LaunchDaemon gets no entitlements (no JIT, no library validation opt-out).
+        echo "==> signing root helper cmux-server-helper (no entitlements)"
+        /usr/bin/codesign "${COMMON[@]}" --identifier cmux-server-helper "$helper"
         continue
       fi
       echo "==> signing helper $(basename "$helper")"

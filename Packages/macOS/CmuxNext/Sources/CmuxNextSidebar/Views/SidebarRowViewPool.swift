@@ -29,6 +29,7 @@ struct SidebarRowViewPool {
     private static func rowClass(for key: SidebarRowKey) -> SidebarRowView.Type {
         switch key {
         case .workspace: WorkspaceRowView.self
+        case .tab: SidebarTabRowView.self
         case .group: GroupHeaderRowView.self
         case .section: SectionHeaderRowView.self
         case .emptySection: EmptySectionRowView.self

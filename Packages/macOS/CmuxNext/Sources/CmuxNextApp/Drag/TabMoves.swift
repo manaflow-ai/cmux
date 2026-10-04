@@ -1,5 +1,8 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
+import enum CmuxNextLayout.StickyEdge
+import enum CmuxNextLayout.StickyMode
 import Foundation
 
 /// Daemon commands for tab moves. With `tab-drag-v1` every outcome is one
@@ -118,6 +121,44 @@ enum TabMoves {
         })
     }
 
+    /// Moves the tab into a new column pinned to `edge` on `anchor`'s screen,
+    /// in one daemon commit (move-tab-to-column with `sticky`,
+    /// edge-docks-v1). The column that held the edge scrolls again. Top and
+    /// bottom are edge docks; `mode` nil uses `layout.stickyColumnMode`, and
+    /// `width` nil a third of the height for a band or the width of a new
+    /// column beside the anchor for a side.
+    static func toNewStickyColumn(_ tab: TabModel, anchor pane: PaneModel, edge: CmuxNextLayout.StickyEdge,
+                                  mode: CmuxNextLayout.StickyMode? = nil, width: Double? = nil, respawn: SplitRespawn? = nil,
+                                  services: AppServices,
+                                  transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
+        let daemon = services.machines.daemon(forTab: tab)
+        guard services.daemon(for: pane) === daemon, daemon.supports(DaemonCapabilities.shared.edgeDocks),
+              !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
+        let surface = tab.surface, paneHandle = pane.handle
+        let overlay = mode.map { $0 == .overlay } ?? (DesignSettings.shared.stickyColumnMode == .overlay)
+        let pin = StickySnapshot(edge: StickySnapshot.Edge(rawValue: edge.rawValue) ?? .right, mode: overlay ? .overlay : .docked)
+        // A band's size is a share of the screen height; a side column takes
+        // the width a new column next to the anchor would take.
+        let spawn = edge.isBand || width != nil ? nil
+            : services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
+        let width = width ?? spawn?.width ?? 0.3
+        services.registry.track(Task {
+            let ok = await daemon.request("move-tab-to-column") { connection -> Void in
+                if let respawn {
+                    let move = MoveTabToColumnRequest(surface: surface, target: .pane(paneHandle), width: width, sticky: pin,
+                                                      transaction: transaction)
+                    try await MoveTabToColumnRespawnRequest(move, respawn: respawn).send(on: connection)
+                } else {
+                    _ = try await connection.moveTabToColumn(surface, target: .pane(paneHandle), width: width, sticky: pin,
+                                                             transaction: transaction)
+                }
+            } != nil
+            if ok { spawn?.commit() }
+            completion(ok)
+            return ok ? nil : "move-tab-to-column failed (see the app log)"
+        })
+    }
+
     /// Moves the tab into a new workspace at root `index`. Returns the new
     /// workspace key, or nil on failure. Daemons without `tab-drag-v1`
     /// create it unplaced; it is then moved into place. Workspace groups are
@@ -128,6 +169,7 @@ enum TabMoves {
         let surface = tab.surface
         let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
         let before = Set(daemon.store.workspaces.compactMap(\.key))
+        let name = newWorkspaceName(for: tab, services: services)
         let key = await daemon.request("move-tab-to-new-workspace") { connection -> WorkspaceKey? in
             let result = try await connection.moveTabToNewWorkspace(surface, group: nil, index: index, transaction: echoes ? transaction : nil)
             let created: WorkspaceKey?
@@ -137,9 +179,39 @@ enum TabMoves {
                 created = try await connection.listWorkspaces().workspaces.compactMap(\.key).first { !before.contains($0) }
             }
             if !echoes, let created, let index { _ = try await connection.moveWorkspace(created, to: index) }
+            // The workspace takes the moved tab's name (R15). A second
+            // command until move-tab-to-new-workspace carries a name; the
+            // move already happened, so a failed rename leaves the default
+            // name and does not fail the move.
+            if let created, let name { _ = try? await connection.renameWorkspace(created, to: name) }
             return created
         }
         return key ?? nil
+    }
+
+    /// The name a workspace made from `tab` takes: the tab's, or, when
+    /// `tab` is its workspace's last daemon tab, the workspace's own name
+    /// when the user named it (the workspace closes behind the move).
+    static func newWorkspaceName(for tab: TabModel, services: AppServices) -> String? {
+        let input = nameInput(tab, services: services)
+        guard let source = services.workspaceID(ofTab: tab.id).flatMap(services.workspace(id:)),
+              source.screens.flatMap(\.panes).flatMap(\.tabs).count == 1 else { return NewWorkspaceName.forTab(input) }
+        return NewWorkspaceName.forLastTab(workspaceName: source.name, workspaceTitle: source.title, tab: input)
+    }
+
+    /// What `NewWorkspaceName` reads from `tab`: the browser's live page
+    /// title comes from the app's renderer, the rest from the store.
+    static func nameInput(_ tab: TabModel, services: AppServices) -> NewWorkspaceName.Tab {
+        let kind: NewWorkspaceName.Tab.Kind = switch tab.kind {
+        case .pty: .terminal
+        case .browser: .browser
+        case .remoteTerminal: .remoteTerminal
+        // A conversation or a kind this app does not know: its title still names it.
+        case .conversation, .other: .terminal
+        }
+        return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.title,
+                                    pageTitle: tab.kind == .browser ? services.cache.existingBrowser(tab.id)?.tab.state.title : nil,
+                                    url: tab.url, cwd: tab.cwd)
     }
 
     static func toWorkspace(_ tab: TabModel, workspace: WorkspaceModel, services: AppServices,

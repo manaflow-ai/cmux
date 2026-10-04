@@ -22,13 +22,7 @@ function runIcon(category: ToolRunCategory | undefined): ReactNode {
   }
 }
 
-export function ToolRun({
-  items,
-  renderItem,
-}: {
-  items: readonly AcpmuxActivity[];
-  renderItem: (item: AcpmuxActivity, index: number) => ReactNode;
-}) {
+export function ToolRun({ items, children }: { items: readonly AcpmuxActivity[]; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const list = useId();
   return (
@@ -50,7 +44,7 @@ export function ToolRun({
       </button>
       {open && (
         <div className="cv-tool-run" id={list}>
-          {items.map(renderItem)}
+          {children}
         </div>
       )}
     </>

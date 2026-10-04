@@ -1086,7 +1086,7 @@ jobs:
           set -euo pipefail
           unset CMUX_GHOSTTY_SRC
           CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
-          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty-next rev-parse HEAD)"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
           cargo build -p cmux-tui --bin cmux-tui --release --locked --target aarch64-apple-darwin
           cargo build -p acpmux --bin acpmux --release --locked --target aarch64-apple-darwin
@@ -1265,6 +1265,7 @@ jobs:
             ./scripts/install-cmux-tui-client.sh "$app" \
             --require-capability wireguard-hub \
             --require-acpmux
+          ./scripts/cmux-next/check-daemon-capabilities.sh --binary "$app/Contents/Resources/bin/cmux-tui"
 
       - name: Build immutable SSH daemon assets once for every app variant
         if: needs.decide.outputs.build_only != 'true'
@@ -1355,9 +1356,11 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
-    timeout-minutes: 30
+    # Waits up to 45 minutes for the artifacts workflow to publish this tree.
+    timeout-minutes: 55
     outputs:
       commit: ${{ steps.resolve.outputs.commit }}
+      key: ${{ steps.resolve.outputs.key }}
     steps:
       - name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1367,16 +1370,22 @@ jobs:
           submodules: false
 
       # The fast arm64 build bundles its own compiled client instead.
-      # The app ships the cmux-tui daemon it was built and tested against:
-      # scripts/cmux-next/cmux-tui.pin (the same pin every tagged build bundles).
+      # The nightly ships the daemon built from its own cmux-tui tree, as every
+      # tagged build does (scripts/cmux-next/pin-cmux-tui.sh --help): the commit
+      # that published this tree, whose attested manifest the sign job installs.
       - name: Resolve cmux-tui client commit
         id: resolve
         if: needs.decide.outputs.fast_build != 'true'
+        env:
+          CMUX_TUI_TREE_WAIT_SECONDS: "2700"
         run: |
           set -euo pipefail
-          cmux_tui_commit="$(awk -F= '$1=="commit"{print $2}' scripts/cmux-next/cmux-tui.pin)"
+          cmux_tui_key="$(scripts/cmux-next/pin-cmux-tui.sh key)"
+          cmux_tui_commit="$(scripts/cmux-next/pin-cmux-tui.sh resolve-commit)"
           [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]]
+          echo "cmux-tui tree $cmux_tui_key: commit $cmux_tui_commit"
           echo "commit=$cmux_tui_commit" >> "$GITHUB_OUTPUT"
+          echo "key=$cmux_tui_key" >> "$GITHUB_OUTPUT"
 
   build-sign-notarize-nightly:
     # Production secrets: GitHub releases them only to protected refs (the
@@ -1556,6 +1565,7 @@ jobs:
           # attestation with gh before trusting it.
           GH_TOKEN: ${{ github.token }}
           CMUX_TUI_CLIENT_COMMIT: ${{ needs.resolve-nightly-cmux-tui-client.outputs.commit }}
+          CMUX_TUI_CLIENT_KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.key }}
           # Per-job cache, so legs sharing a host never race on one download.
           CMUX_TUI_CLIENT_CACHE: ${{ runner.temp }}/cmux-tui-client
         run: |
@@ -1573,7 +1583,8 @@ jobs:
           # the client was bundled before the unsigned app was archived.
           # bin/cmux-tui and bin/acpmux are symlinks to bin/cmux.
           strip -S -x "$app/Contents/Resources/bin/cmux"
-          ./scripts/cmux-next/write-cmux-tui-version.sh "$app" "$cmux_tui_commit"
+          ./scripts/cmux-next/write-cmux-tui-version.sh "$app" "$cmux_tui_commit" "$CMUX_TUI_CLIENT_KEY"
+          ./scripts/cmux-next/check-daemon-capabilities.sh --binary "$app/Contents/Resources/bin/cmux-tui"
 
       - name: Run bundled Ghostty theme picker helper regression
         run: |

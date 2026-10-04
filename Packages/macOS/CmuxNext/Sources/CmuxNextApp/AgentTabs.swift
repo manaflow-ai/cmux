@@ -5,7 +5,6 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTabs
-
 /// Agent chat tabs (the React acpmux pane, CmuxNextAgentPane). cmux-tui has
 /// no agent tab kind yet, so like `LocalBrowserTab` they live only in this
 /// app session and are not restored after relaunch; the acpmux sessions they
@@ -54,6 +53,9 @@ final class AgentTabStore {
     /// The app shortcuts every agent page shows, kept current on rebinds.
     private var shortcuts = AgentPaneShortcuts()
     private var shortcutObservation: Task<Void, Never>?
+    /// `labs.previewFeatures`, pushed to every page like the shortcuts.
+    private var previewFeatures = false
+    private var previewObservation: Task<Void, Never>?
     private weak var actionRegistry: ActionRegistry?
     private var checkpointFocusTab: String?
     /// This build's URL scheme, handed to every page for the links it copies.
@@ -67,29 +69,18 @@ final class AgentTabStore {
     /// nil answers the page `native.not_connected`.
     private let git: AgentPaneGitLink?
 
+    /// `settings`, when given, is followed for `labs.previewFeatures`
+    /// (AppDelegate makes it before any agent tab).
     init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
-         linkScheme: String? = nil, git: AgentPaneGitLink? = nil) {
+         showcase: Bool = false, linkScheme: String? = nil, git: AgentPaneGitLink? = nil, settings: SettingsController? = nil) {
         actionRegistry = registry
         self.linkScheme = linkScheme
         self.git = git
-        let resolvedHost: any AgentPaneHostProviding
-        if environment["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" {
-            resolvedHost = MockAgentPaneHost()
-        } else {
-            let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-            resolvedHost = AcpmuxHost { AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment) }
-        }
+        let (resolvedSource, resolvedHost) = Self.resolvePane(tag: tag, environment: environment, showcase: showcase)
         host = resolvedHost
         // Start acpmux while the first pane is loading. The page still owns
         // the authenticated WebSocket handshake and session selection.
         Task { try? await resolvedHost.prewarm() }
-        // Release loads only the bundled page; the dev server is for Debug
-        // and tagged builds (webviews/src/agent-session/acpmux/README.md).
-        #if DEBUG
-        let allowsDevServer = true
-        #else
-        let allowsDevServer = false
-        #endif
         #if DEBUG
         switch environment["CMUX_NEXT_AGENT_PANE_FULL_RATE"] {
         case "1": renderRate = .full
@@ -99,9 +90,7 @@ final class AgentTabStore {
         #else
         renderRate = .adaptive
         #endif
-        source = AgentPaneSource.resolve(
-            environment: environment, bundledPage: AgentPaneView.bundledPage, allowsDevServer: allowsDevServer
-        )
+        source = resolvedSource
         customization = AgentPaneCustomizationWatcher(
             directory: AgentPaneCustomization.directory(configFile: CmuxConfigFile.defaultURL(environment: environment))
         )
@@ -118,6 +107,20 @@ final class AgentTabStore {
                 shortcuts = value
                 for view in views.values { view.shortcuts = value }
                 for view in standaloneViews.allObjects { view.shortcuts = value }
+            }
+        }
+        if let settings { follow(settings) }
+    }
+
+    /// Follows `labs.previewFeatures` in cmux.json.
+    func follow(_ settings: SettingsController) {
+        // task-owner: lives as long as the tabs; event-driven (Observation)
+        previewObservation = Task { [weak self] in
+            for await on in Observations({ settings.snapshot.previewFeatures }) {
+                guard let self else { return }
+                previewFeatures = on
+                for view in views.values { view.previewFeatures = on }
+                for view in standaloneViews.allObjects { view.previewFeatures = on }
             }
         }
     }
@@ -231,12 +234,16 @@ final class AgentTabStore {
         model.onJump = { [weak self] target, id in self?.newTabPages[key]?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPages[key]?.handler.editShortcut(kind) }
         model.onSetDefaultKind = { [weak self] kind in self?.newTabPages[key]?.handler.setDefaultKind(kind) }
+        model.onRunAction = { [weak self] id in
+            _ = self?.actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
+        }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         // A local session's folder is read by the local session host; the page refuses cloud sessions.
         if let git { model.onGit = { request in try await git.read(request) } }
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
         view.customization = customization.current
         view.shortcuts = shortcuts
+        view.previewFeatures = previewFeatures
         views[key] = view
         customization.start()
         return view
@@ -255,6 +262,7 @@ final class AgentTabStore {
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
         view.customization = customization.current
         view.shortcuts = shortcuts
+        view.previewFeatures = previewFeatures
         standaloneViews.add(view)
         customization.start()
         return view
@@ -345,33 +353,5 @@ final class AgentTabStore {
 
     private func stopCustomizationWhenUnused() {
         if views.isEmpty, standaloneViews.allObjects.isEmpty { customization.stop() }
-    }
-}
-
-extension PaneController {
-    /// New Agent Chat: a new agent tab in this pane, selected. It inherits
-    /// the selected tab's context (`agentSeedFromSelectedTab`, #16620).
-    func newAgentTab() {
-        showAgentTab(services.agentTabs.open(in: paneKey, of: daemon.store, seed: agentSeedFromSelectedTab()))
-    }
-
-    /// A `cmux://session/<id>` link no tab shows: a new agent tab in this
-    /// pane on that session, selected, as Duplicate Tab opens one; its page
-    /// refuses a session the daemon does not have. Returns its id.
-    @discardableResult
-    func openAgentSession(_ session: String) -> String {
-        let key = services.agentTabs.openLinked(session: session, in: paneKey, of: daemon.store)
-        showAgentTab(key)
-        return key
-    }
-
-    /// Duplicate Tab on an agent tab: the same session, right after it.
-    func duplicateAgentTab(_ key: String) {
-        showAgentTab(services.agentTabs.duplicate(key, in: paneKey, of: daemon.store))
-    }
-
-    func showAgentTab(_ key: String) {
-        apply(snapshot())
-        select(StripTabID(key))
     }
 }

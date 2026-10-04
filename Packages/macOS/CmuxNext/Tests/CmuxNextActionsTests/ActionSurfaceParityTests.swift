@@ -219,6 +219,10 @@ import Testing
             #expect(entry.english == descriptor.title, "\(descriptor.id)")
         }
         #expect(named * 10 >= catalog.count * 9, "only \(named) of \(catalog.count) titles name a key")
+        for category in ActionCategory.allCases {
+            let entry = titles.entry(key: category.titleKey, table: category.titleTable)
+            #expect(entry?.english == category.title, "palette section \(category.rawValue) names no string")
+        }
     }
 
     static func planURL(_ name: String) -> URL {

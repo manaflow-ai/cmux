@@ -1,5 +1,5 @@
 import { ProviderError, type ProviderImpl } from "./provider-core.ts"
-import { googleApi, googleAuthorizeUrl, googleComplete, googleConfigured, googleRefresh, oauthToken, refuseGoogleScopes } from "./google.ts"
+import { googleApi, googleAuthorizeUrl, googleComplete, googleConfigured, googleRefresh, googleGrantKeys, googleRevoke, oauthToken, refuseGoogleScopes } from "./google.ts"
 
 /**
  * Google Calendar provider (sensitive scopes only: verification, no CASA).
@@ -61,6 +61,8 @@ export const googleCalendar: ProviderImpl = {
   authorizeUrl: googleAuthorizeUrl,
   complete: googleComplete("google_calendar"),
   refresh: googleRefresh,
+  revoke: googleRevoke,
+  grantKeys: googleGrantKeys,
   scopesFor: (op) => SCOPES[op],
   call: async (_env, http, credential, op, params) => {
     const token = oauthToken(credential)

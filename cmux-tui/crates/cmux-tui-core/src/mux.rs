@@ -10,12 +10,14 @@ mod host_death_tests;
 mod idle_close;
 mod kitty_reservation;
 pub(crate) mod layout_invariants;
+mod layout_ratio_error;
 mod personal;
 mod presentation;
 mod public_projections;
 mod registry_viewport;
 mod resource_content;
 mod resource_topology;
+mod rows;
 mod screen_changed;
 pub(crate) mod screen_groups;
 mod session_paths;
@@ -40,18 +42,20 @@ use agent_hook_errors::{
 };
 
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
+pub use layout_ratio_error::LayoutRatioError;
 pub use presentation::{
     TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations, WorkspaceGroupChange,
 };
 pub(crate) use resource_content::ResourceEffectProjection;
 pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget};
+pub use rows::{RowHeightsOutcome, RowsError};
 pub(crate) use screen_groups::workspace_screen_groups;
 pub use screen_groups::{
     ScreenDestination, ScreenGroupOutcome, ScreenMoveOutcome, ScreenSpec, WorkspaceScreenGroup,
 };
 pub use sticky_columns::{ColumnStickyError, ColumnStickyOutcome, parse_column_sticky};
 use tab_drag::restore_dragged_tab;
-pub use tab_drag::{SplitRespawn, TabDragOutcome, TabDropEdge};
+pub use tab_drag::{ColumnMove, SplitRespawn, TabDragOutcome, TabDropEdge};
 pub(crate) use tab_groups::{PaneTabGroup, pane_tab_groups};
 pub use tab_groups::{TabGroupDestination, TabGroupOutcome};
 pub use terminal_reap::{
@@ -1801,40 +1805,6 @@ impl fmt::Display for LayoutUndoError {
 }
 
 impl std::error::Error for LayoutUndoError {}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum LayoutRatioError {
-    UnknownPaneSplit { pane: PaneId },
-    UnknownSplit { split: SplitId },
-    UnrepresentableViewportWidth { split: SplitId, ratio: f32, width: f32 },
-}
-
-impl LayoutRatioError {
-    pub const UNKNOWN_TARGET_CODE: &'static str = "layout-ratio-target-missing";
-    pub const OUT_OF_RANGE_CODE: &'static str = "layout-ratio-out-of-range";
-
-    pub fn code(&self) -> &'static str {
-        match self {
-            Self::UnknownPaneSplit { .. } | Self::UnknownSplit { .. } => Self::UNKNOWN_TARGET_CODE,
-            Self::UnrepresentableViewportWidth { .. } => Self::OUT_OF_RANGE_CODE,
-        }
-    }
-}
-
-impl fmt::Display for LayoutRatioError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::UnknownPaneSplit { pane } => write!(formatter, "unknown pane/split {pane}"),
-            Self::UnknownSplit { split } => write!(formatter, "unknown split {split}"),
-            Self::UnrepresentableViewportWidth { split, ratio, width } => write!(
-                formatter,
-                "split {split} ratio {ratio} implies viewport width {width}; width must be between {MIN_VIEWPORT_PANE_WIDTH} and {MAX_VIEWPORT_PANE_WIDTH}"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for LayoutRatioError {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ViewportWidthError {
@@ -16716,6 +16686,9 @@ impl Mux {
                 return Err(LayoutRatioError::UnknownSplit { split });
             }
             let screen = &state.workspaces[workspace_index].screens[screen_index];
+            if screen.layout_columns.iter().any(|column| column.is_row_split(split)) {
+                return Err(LayoutRatioError::RowSplitCompatReadonly { split });
+            }
             if let Some(index) = screen
                 .layout_columns
                 .iter()
@@ -20194,6 +20167,7 @@ mod tests {
 
     mod column_update;
     mod kitty_reservation;
+    mod rows;
     mod sticky_columns;
 
     use crate::layout::{DEFAULT_VIEWPORT_PANE_WIDTH, VirtualRect};
@@ -20643,6 +20617,7 @@ mod tests {
                             layout: first_column_layout,
                             auto_layout: None,
                             sticky: None,
+                            rows: Vec::new(),
                         },
                         RegistryViewportColumn {
                             id: boundary_split,
@@ -20650,6 +20625,7 @@ mod tests {
                             layout: RegistryLayoutNode::Leaf { pane: panes[3].clone() },
                             auto_layout: Some(vec![panes[3].clone()]),
                             sticky: None,
+                            rows: Vec::new(),
                         },
                     ],
                 },
@@ -29736,14 +29712,8 @@ mod tests {
                 panic!("test layout should have two stack branches");
             };
             screen.layout_columns = vec![
-                LayoutColumn {
-                    id: mux.next_id(),
-                    width: 1.0,
-                    root: *a,
-                    zellij_auto_layout: None,
-                    sticky: None,
-                },
-                LayoutColumn { id, width: 0.5, root: *b, zellij_auto_layout: None, sticky: None },
+                LayoutColumn::new(mux.next_id(), 1.0, *a, None),
+                LayoutColumn::new(id, 0.5, *b, None),
             ];
             screen.sync_layout_column_projection();
             Mux::rebuild_split_screen_index(&mut state);

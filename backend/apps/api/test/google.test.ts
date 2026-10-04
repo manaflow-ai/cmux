@@ -332,3 +332,86 @@ describe("Gmail connection end to end (workerd)", () => {
     expect((await op(token, "integration.complete", { state: await start(), code: "c3" })).json).toMatchObject({ ok: true, value: { status: "active", sharing: "team", account: { key: "google_calendar:77" } } })
   })
 })
+
+describe("disconnect revokes at Google (G5)", () => {
+  const connectGmail = async (stackUser: string, revokeStatus: () => number) => {
+    const { token, team } = await signedIn(stackUser)
+    const c = await op(token, "integration.connect", { provider: "gmail", scopes: ["gmail.send"] })
+    const conn = c.json.value.connection.id as string
+    const revoked: Array<string> = []
+    const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
+    await inDO(connections, async (instance) => {
+      instance.http = fakeHttp({
+        "https://oauth2.googleapis.com/token": () => ok({ access_token: "ya29.r", refresh_token: "1//revoke-me", expires_in: 3599, scope: `${G}gmail.send` }),
+        "https://openidconnect.googleapis.com/v1/userinfo": () => ok({ sub: `s-${stackUser}`, email: `${stackUser}@example.com`, email_verified: true }),
+        "https://oauth2.googleapis.com/revoke": async (req) => {
+          revoked.push(new URLSearchParams(await req.text()).get("token") ?? "")
+          return new Response("", { status: revokeStatus() })
+        }
+      }).http
+    })
+    const done = await op(token, "integration.complete", { state: new URL(c.json.value.authorize_url).searchParams.get("state")!, code: "c" })
+    expect(done.json.ok).toBe(true)
+    return { token, conn, connections, revoked }
+  }
+  const pending = (s: DurableObjectState) => s.storage.sql.exec("SELECT connection, attempts, first_at FROM pending_revocations").toArray() as Array<{ connection: string; attempts: number; first_at: number }>
+
+  it("revokes the refresh token and keeps nothing", async () => {
+    const { token, conn, connections, revoked } = await connectGmail("google-revoke-1", () => 200)
+    expect((await op(token, "integration.revoke", { connection: conn })).json.value.status).toBe("revoked")
+    await inDO(connections, async (instance, s) => {
+      await instance.revokeAtProviders(Date.now() + 5 * 60_000)
+      expect(s.storage.sql.exec("SELECT * FROM credentials").toArray()).toHaveLength(0)
+      expect(pending(s)).toHaveLength(0)
+    })
+    expect(revoked.length).toBeGreaterThanOrEqual(1)
+    expect(revoked.every((t) => t === "1//revoke-me")).toBe(true)
+  })
+
+  it("keeps a grant that another connection of the same Google user still uses, and revokes with the last one", async () => {
+    const { token, conn, connections, revoked } = await connectGmail("google-revoke-3", () => 200)
+    const cal = await op(token, "integration.connect", { provider: "google_calendar" })
+    await inDO(connections, async (instance) => {
+      const prior = instance.http
+      instance.http = fakeHttp({
+        "https://oauth2.googleapis.com/token": () => ok({ access_token: "ya29.c", refresh_token: "1//cal", expires_in: 3599, scope: `${G}calendar.events ${G}calendar.calendarlist.readonly` }),
+        "https://openidconnect.googleapis.com/v1/userinfo": () => ok({ sub: "s-google-revoke-3", email: "google-revoke-3@example.com", email_verified: true }),
+        "https://oauth2.googleapis.com/revoke": (req) => prior(req)
+      }).http
+    })
+    const calDone = await op(token, "integration.complete", { state: new URL(cal.json.value.authorize_url).searchParams.get("state")!, code: "c" })
+    expect(calDone.json.value.account.key).toBe("google_calendar:s-google-revoke-3")
+    await op(token, "integration.revoke", { connection: conn })
+    await inDO(connections, async (instance, s) => {
+      await instance.revokeAtProviders(Date.now() + 5 * 60_000)
+      expect(pending(s)).toHaveLength(0)
+    })
+    expect(revoked).toHaveLength(0)
+    await op(token, "integration.revoke", { connection: calDone.json.value.id })
+    await inDO(connections, async (instance) => {
+      await instance.revokeAtProviders(Date.now() + 5 * 60_000)
+    })
+    // The attempt right after the disconnect and the test's drain may both run; a second revoke is harmless (400 = done).
+    expect(revoked.length).toBeGreaterThanOrEqual(1)
+    expect(new Set(revoked)).toEqual(new Set(["1//cal"]))
+  })
+
+  it("retries a failed revocation from the alarm and gives up after a day", async () => {
+    let status = 503
+    const { token, conn, connections, revoked } = await connectGmail("google-revoke-2", () => status)
+    await op(token, "integration.revoke", { connection: conn })
+    await inDO(connections, async (instance, s) => {
+      await instance.revokeAtProviders(Date.now() + 5 * 60_000)
+      expect(s.storage.sql.exec("SELECT * FROM credentials").toArray()).toHaveLength(0)
+      const row = pending(s)[0]!
+      expect(row.connection).toBe(conn)
+      expect(row.attempts).toBeGreaterThanOrEqual(1)
+      expect(await s.storage.getAlarm()).not.toBeNull()
+      // Still failing a day later: the sealed copy is dropped anyway.
+      await instance.revokeAtProviders(row.first_at + 24 * 3600_000)
+      expect(pending(s)).toHaveLength(0)
+    })
+    expect(revoked.length).toBeGreaterThanOrEqual(2)
+    status = 200
+  })
+})

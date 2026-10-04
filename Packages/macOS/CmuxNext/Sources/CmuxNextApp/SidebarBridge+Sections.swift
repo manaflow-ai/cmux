@@ -27,16 +27,18 @@ extension SidebarBridge {
         .customize: "appearance.customize",
     ]
 
-    func activateLayoutItem(_ id: LayoutItemID) {
+    func activateLayoutItem(_ id: LayoutItemID, opensWorkspace: Bool = false) {
         guard let item = model.layout.item(id) else { return }
-        activate(item.ref)
+        activate(item.ref, opensWorkspace: opensWorkspace)
     }
 
     /// Runs a sidebar item (sidebar-sections.md 2): pinned tabs, pages and
     /// spaces are in SidebarBridge+PinnedItems.
-    func activate(_ ref: LayoutItemRef) {
+    func activate(_ ref: LayoutItemRef, opensWorkspace: Bool = false) {
         if let builtIn = ref.builtIn, let action = Self.builtInActions[builtIn] {
-            _ = services.registry.perform(action, invocation: ActionInvocation(origin: .user))
+            var invocation = ActionInvocation(origin: .user)
+            if opensWorkspace, builtIn == .newTerminal { invocation.arguments["toggleWorkspace"] = .bool(true) }
+            _ = services.registry.perform(action, invocation: invocation)
             return
         }
         switch ref.kind {
@@ -44,7 +46,9 @@ extension SidebarBridge {
         case LayoutItemRef.tabKind: revealPinnedTab(ref.value)
         case LayoutItemRef.urlKind: openPinnedPage(ref.value)
         case LayoutItemRef.roomKind: switchToPinnedSpace(ref.value)
-        case ChiefExperimentItem.kind: showChiefExperiment()
+        case LayoutItemRef.appKind:
+            // An app's label item opens its page as a tab (CodeRouter below the App Store).
+            _ = services.registry.perform("app.open", invocation: ActionInvocation(arguments: ["app": .string(ref.value)], origin: .user))
         default: break
         }
     }
@@ -57,17 +61,23 @@ extension SidebarBridge {
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         let service = services.sidebarLayout
         let apps = services.apps.registry
-        let chiefEnabled = ChiefExperimentItem.isEnabled
+        let home = services.home, store = services.machines.local.store
+        let window = state
         sectionsObservation = Task { [weak self] in
             // The app registry is observed too: hiding or installing an app
             // changes its item at once.
-            for await document in Observations({ _ = apps.apps; return service.document }) {
+            // So are the shown workspace (Home's selected tile) and the
+            // unread count (Notifications' dot).
+            for await (layout, homeShown, unread) in Observations({ () -> (SidebarLayoutDocument, Bool, Int) in
+                _ = apps.apps
+                let shown = window?.workspaceID
+                return (service.document, shown != nil && shown == home.homeWorkspace?.id, NotificationCenterService.unreadCount(store))
+            }) {
                 guard self != nil else { return }
-                let layout = ChiefExperimentItem.injected(into: document, enabled: chiefEnabled)
                 if model.layout != layout { model.layout = layout }
-                var infos = Self.itemInfo(for: layout, registered: { registry.action(for: $0) != nil },
+                let infos = Self.itemInfo(for: layout, registered: { registry.action(for: $0) != nil },
+                                          homeShown: homeShown, unread: unread,
                                           app: { Self.appInfo($0, registry: apps) })
-                if chiefEnabled { infos[ChiefExperimentItem.id] = ChiefExperimentItem.info }
                 if model.itemInfo != infos { model.itemInfo = infos }
                 let suppressed = AppPresence(apps.apps).suppressed
                 if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
@@ -76,8 +86,10 @@ extension SidebarBridge {
     }
 
     /// Presentation of every built-in item in `layout`; `registered` says
-    /// whether an action exists.
+    /// whether an action exists. Home is active while `homeShown`, and
+    /// Notifications carries `unread`.
     static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
+                         homeShown: Bool = false, unread: Int = 0,
                          app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) }) -> [LayoutItemID: SidebarItemInfo] {
         var infos: [LayoutItemID: SidebarItemInfo] = [:]
         for section in layout.sections {
@@ -89,6 +101,11 @@ extension SidebarBridge {
                 guard let builtIn = item.ref.builtIn else { continue }
                 var info = builtIn.defaultInfo
                 info.isMissing = !(builtInActions[builtIn].map(registered) ?? false)
+                switch builtIn {
+                case .home: info.isActive = homeShown
+                case .notifications: info.badge = unread > 0 ? unread : nil
+                default: break
+                }
                 infos[item.id] = info
             }
         }

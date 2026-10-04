@@ -57,8 +57,8 @@
     },
     {
       "path": "AttachSurfaceRequest.java",
-      "sha256": "52f9f53809ccd42d3b50a57d897991945b273a43c19e1d046add825262e40c81",
-      "size": 5612
+      "sha256": "f6ccfc67fc40031322c5e4a280c00fe01add93ad1a736a92b5e443b6f99068ba",
+      "size": 7981
     },
     {
       "path": "AttachSurfaceRequestMode.java",
@@ -346,14 +346,19 @@
       "size": 8564
     },
     {
+      "path": "ColumnPin.java",
+      "sha256": "9ce4adf9084766e8453bac3e5ab74f4edc865972090446f8413b6cb3afe2036d",
+      "size": 2433
+    },
+    {
       "path": "CommandMetadata.java",
       "sha256": "3e3320fe5a1bcaf9edf0e06424706fb95564716704af87bcdd3b531fb2de74dd",
       "size": 471
     },
     {
       "path": "Commands.java",
-      "sha256": "a6ce3197e1e89de11f41fb1e1ea7e104e13d3ac0c5b7aea5b410be4651a881ec",
-      "size": 54775
+      "sha256": "502fe193b48a6c672b3149bfd2bafd5855d35abc99d59e621ed878b7ab5f37c8",
+      "size": 56241
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -677,8 +682,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "51e5059e244191a272757d0d5bb9247a596d06771997932ed813443505635be9",
-      "size": 48317
+      "sha256": "397ee6498d4ad88ce37aba0fe87797bf3b388affc2e234433752aea8e59999af",
+      "size": 49511
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -1027,8 +1032,8 @@
     },
     {
       "path": "MoveTabToColumnRequest.java",
-      "sha256": "9380ac6c45facaf0196eaf8d84918c80a5ce946ddb2c3075b5d1ee93c2ba707d",
-      "size": 5393
+      "sha256": "60b05ec256e8df14c49dae80fc33a5014aedb0052d9d905aadbfe7d77ff7a5e2",
+      "size": 6667
     },
     {
       "path": "MoveTabToNewWorkspaceRequest.java",
@@ -1082,8 +1087,8 @@
     },
     {
       "path": "NewFrontendBrowserTabRequest.java",
-      "sha256": "cb0b814658523f7213c4c230a7d7f5517744fc0ca987f4f549573f2279f7890d",
-      "size": 7205
+      "sha256": "febc978c6c339a785413195a5d9d779d2a8bf8b1f03cf42403b7e626a49541df",
+      "size": 8008
     },
     {
       "path": "NewPaneRequest.java",
@@ -1094,6 +1099,16 @@
       "path": "NewPaneRightRequest.java",
       "sha256": "817a367ea368603d3588fbae8b4f13a6c3aad7021e2fd8b48843123df026f213",
       "size": 7191
+    },
+    {
+      "path": "NewRowRequest.java",
+      "sha256": "f414c43595164f5920d039df016fa56dc82f90d4cde297243617bd0994cb9694",
+      "size": 8048
+    },
+    {
+      "path": "NewRowResult.java",
+      "sha256": "5dc3bb6b7d1235649fd9c6e96c9fdba46623151fc61009e294a02c5414ea8f10",
+      "size": 4810
     },
     {
       "path": "NewScreenRequest.java",
@@ -1247,7 +1262,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "125d3cc7371d21223bb993669255247d67cb268a01efb55a408e88fc4038cdb4",
+      "sha256": "e2c49a137f5233fbbac95d93e09e357c875f087a1bca6394efc1272a8d7146b1",
       "size": 4943
     },
     {
@@ -1486,6 +1501,16 @@
       "size": 11972
     },
     {
+      "path": "RowHeight.java",
+      "sha256": "e8081d3b7311ddad62847126aa84000748a8b269ea46b618522d5ba9428f2d27",
+      "size": 2456
+    },
+    {
+      "path": "RowMarkerPoint.java",
+      "sha256": "9940e27b7667dc231356c9ebe40f09db5b19cf42499d286652e114fb8c26c698",
+      "size": 2551
+    },
+    {
       "path": "RunRequest.java",
       "sha256": "4f93b99bf9632c76fb89822db67fc41b7b4cab420bfcb9ea7d568c857f98720b",
       "size": 6763
@@ -1671,6 +1696,11 @@
       "size": 3186
     },
     {
+      "path": "SetRowHeightsRequest.java",
+      "sha256": "3acb33ef84068bdb6f6448f5d199ff6616f7cf71aa311611fd5ca82ac3ba5120",
+      "size": 4090
+    },
+    {
       "path": "SetScreenMetadataRequest.java",
       "sha256": "f373fc9a1f9b123bcb5eb3ca6a37866becae1b358dde99c541d8a138d8d49c37",
       "size": 3287
@@ -1819,6 +1849,26 @@
       "path": "SizingIdentity.java",
       "sha256": "4400a06671cd8cd93d476c093c90e558478861b461a98af8937583bc94c34a53",
       "size": 4680
+    },
+    {
+      "path": "SnapshotRequestHave.java",
+      "sha256": "9a477f5413d619c14b176aceaf9c4a00aefafd1e52d4f035d45e20a19321f0f4",
+      "size": 3435
+    },
+    {
+      "path": "SnapshotRequestRequest.java",
+      "sha256": "b1c9fcd28a42ef02ae9ae7949f2675fd077df425c041e122f3b6a2c02036c6d4",
+      "size": 4041
+    },
+    {
+      "path": "SnapshotRequestResult.java",
+      "sha256": "3e70a3d25ef768c8accf125165465593db7b3c03b7605d4da3da5dc147683fe0",
+      "size": 4833
+    },
+    {
+      "path": "SnapshotRequestResultStatus.java",
+      "sha256": "b92910b5440399a03c649bfe646dc5ad46e6ddc573d1957d1091e1bec328bcfc",
+      "size": 1015
     },
     {
       "path": "SplitDirection.java",
@@ -1981,6 +2031,21 @@
       "size": 2270
     },
     {
+      "path": "TerminalHistoryPage.java",
+      "sha256": "000d7bd2edb54dd962482f58f136442cee92486fe90cb87bc3d3eab7f9b9fb42",
+      "size": 3178
+    },
+    {
+      "path": "TerminalHistoryPagesResult.java",
+      "sha256": "025ede2069f5361b5b67e1b3839b0b01183b57555e6122c268dda91adfcb064c",
+      "size": 5818
+    },
+    {
+      "path": "TerminalHistoryRequest.java",
+      "sha256": "be333cc75b43e77ccdbc9e0d9d63e5752a81cee89bd6a793ed7b31899432d52e",
+      "size": 4186
+    },
+    {
       "path": "TerminalKey.java",
       "sha256": "8f72b2ea039793f3acac44fd4fca4e40b628ea19f3f89835f3acc0962e72be78",
       "size": 3275
@@ -2009,6 +2074,16 @@
       "path": "TerminalPlacement.java",
       "sha256": "dac1c0f9828e387d889a1a6cf097a2545f34d6f7b254f2aaef38f8d749c7553c",
       "size": 11717
+    },
+    {
+      "path": "TerminalReadRangeRequest.java",
+      "sha256": "373183a5c3ecd573bd0f9ee76ea39aab58e166d5193cb3b5811a7cbfb970b4b1",
+      "size": 5475
+    },
+    {
+      "path": "TerminalReadRangeResult.java",
+      "sha256": "f16efae06323f7a7ad20fceec3fea7545722258d99fc961841c19322be672c09",
+      "size": 3365
     },
     {
       "path": "TerminalReapedEvent.java",
@@ -2262,7 +2337,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "ce9a5e7f62b3f675e99bee009ceaaca54e1d348823fbc1670330ce4ce6e9a83e",
+  "ir_sha256": "84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

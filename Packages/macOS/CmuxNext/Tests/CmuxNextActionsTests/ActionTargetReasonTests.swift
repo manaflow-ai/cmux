@@ -8,26 +8,26 @@ import Testing
     @Test func aTargetReasonDisablesThatTargetOnlyAndIsReportedAsTheRefusal() {
         let registry = ActionRegistry.standard()
         var ran = 0
-        registry.bind("column.makeSticky", invoke: { _ in ran += 1 })
-        ActionTargetReasons.set("column.makeSticky", in: registry) { invocation in
+        registry.bind("column.widthHalf", invoke: { _ in ran += 1 })
+        ActionTargetReasons.set("column.widthHalf", in: registry) { invocation in
             invocation.target?.id == "lone" ? "Add a second column first" : nil
         }
         let lone = ActionInvocation(target: ActionTargetRef(kind: .column, id: "lone"))
         let other = ActionInvocation(target: ActionTargetRef(kind: .column, id: "c2"))
 
-        #expect(ActionTargetReasons.reason(for: "column.makeSticky", invocation: lone, in: registry) == "Add a second column first")
-        #expect(!ActionTargetReasons.canPerform("column.makeSticky", invocation: lone, in: registry))
-        #expect(registry.capturingRefusal { registry.perform("column.makeSticky", invocation: lone) } == "Add a second column first")
+        #expect(ActionTargetReasons.reason(for: "column.widthHalf", invocation: lone, in: registry) == "Add a second column first")
+        #expect(!ActionTargetReasons.canPerform("column.widthHalf", invocation: lone, in: registry))
+        #expect(registry.capturingRefusal { registry.perform("column.widthHalf", invocation: lone) } == "Add a second column first")
         #expect(ran == 0)
 
-        #expect(ActionTargetReasons.reason(for: "column.makeSticky", invocation: other, in: registry) == nil)
-        #expect(registry.perform("column.makeSticky", invocation: other))
+        #expect(ActionTargetReasons.reason(for: "column.widthHalf", invocation: other, in: registry) == nil)
+        #expect(registry.perform("column.widthHalf", invocation: other))
         #expect(ran == 1)
     }
 
     @Test func rebindingKeepsNoStaleReasonFromAnotherAction() {
         let registry = ActionRegistry.standard()
-        ActionTargetReasons.set("column.unstick", in: registry) { _ in "unbound" }
-        #expect(!registry.isBound("column.unstick"))
+        ActionTargetReasons.set("column.undock", in: registry) { _ in "unbound" }
+        #expect(!registry.isBound("column.undock"))
     }
 }

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "ce9a5e7f62b3f675e99bee009ceaaca54e1d348823fbc1670330ce4ce6e9a83e";
+pub const ir_sha256 = "84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -233,6 +233,11 @@ pub const CloseTerminalResult = struct {
 };
 
 pub const ColorHex = []const u8;
+
+pub const ColumnPin = struct {
+    edge: []const u8,
+    mode: []const u8,
+};
 
 pub const CopyResultMode = enum {
     screen,
@@ -747,6 +752,18 @@ pub const MoveTerminalResult = struct {
     workspace_key: []const u8,
 };
 
+pub const NewRowResult = struct {
+    pane: Id,
+    surface: Id,
+    terminal_id: wire.Field([]const u8) = .absent,
+    terminal_incarnation: wire.Field([]const u8) = .absent,
+    transaction: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "transaction",
+    };
+};
+
 pub const NoteSizeActivityResult = struct {
     changed: bool,
     participant: []const u8,
@@ -1084,6 +1101,16 @@ pub const ResourceSelectors = struct {
     workspace: wire.Field([]const u8) = .absent,
 };
 
+pub const RowHeight = struct {
+    height: u64,
+    row: Id,
+};
+
+pub const RowMarkerPoint = struct {
+    col: u16,
+    row_marker: u64,
+};
+
 pub const RunResult = struct {
     already_exited: bool,
     exit: wire.Nullable(TerminalExit),
@@ -1393,6 +1420,41 @@ pub const SizingIdentity = struct {
     user_id: wire.Field([]const u8) = .absent,
 };
 
+pub const SnapshotRequestHave = struct {
+    generation: wire.Field(u64) = .absent,
+    offset: wire.Field(u64) = .absent,
+    snapshot_version: wire.Field(u16) = .absent,
+};
+
+pub const SnapshotRequestResultStatus = enum {
+    accepted,
+    collapsed,
+    snapshot_throttled,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "accepted")) return .accepted;
+        if (std.mem.eql(u8, value, "collapsed")) return .collapsed;
+        if (std.mem.eql(u8, value, "snapshot_throttled")) return .snapshot_throttled;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .accepted => "accepted",
+            .collapsed => "collapsed",
+            .snapshot_throttled => "snapshot_throttled",
+        };
+    }
+};
+
+pub const SnapshotRequestResult = struct {
+    reason: wire.Field([]const u8) = .absent,
+    request_id: wire.Field([]const u8) = .absent,
+    retry_after_ms: wire.Field(u64) = .absent,
+    status: SnapshotRequestResultStatus,
+    surface: Id,
+};
+
 pub const SplitDirection = enum {
     right,
     down,
@@ -1595,6 +1657,21 @@ pub const TerminalExitOutcome = union(enum) {
         }
         return error.UnknownUnionVariant;
     }
+};
+
+pub const TerminalHistoryPage = struct {
+    data: []const u8,
+    marker: u64,
+    rows: u16,
+};
+
+pub const TerminalHistoryPagesResult = struct {
+    done: bool,
+    marker_epoch: u64,
+    next_before: wire.Field(u64) = .absent,
+    pages: []const TerminalHistoryPage,
+    snapshot_version: u16,
+    surface: Id,
 };
 
 pub const TerminalKey = enum {
@@ -2039,6 +2116,12 @@ pub const TerminalPlacement = struct {
     workspace: wire.Nullable(Id),
 };
 
+pub const TerminalReadRangeResult = struct {
+    surface: Id,
+    text: []const u8,
+    truncated: bool,
+};
+
 pub const TerminalRecord = struct {
     exit: wire.Nullable(TerminalExit),
     launch_spec: JsonValue,
@@ -2285,7 +2368,10 @@ pub const AttachSurfaceRequest = struct {
     expected_terminal_id: wire.Field([]const u8) = .absent,
     mode: wire.Field(AttachSurfaceRequestMode) = .absent,
     rows: wire.Field(u16) = .absent,
+    snapshot: wire.Field([]const u8) = .absent,
+    snapshot_version: wire.Field(u16) = .absent,
     surface: wire.Field(Id) = .absent,
+    viewer_backlog_bytes: wire.Field(u64) = .absent,
 };
 
 pub const AttachSurfaceResult = EmptyResult;
@@ -2303,6 +2389,9 @@ pub fn attachSurface(client: anytype, request: AttachSurfaceRequest) !client_run
                 .{ .name = "expected_terminal_id", .since = null, .capability = "attach-identity-v1" },
                 .{ .name = "mode", .since = 7, .capability = null },
                 .{ .name = "rows", .since = null, .capability = "attach-initial-size" },
+                .{ .name = "snapshot", .since = null, .capability = "terminal-snapshot-v1" },
+                .{ .name = "snapshot_version", .since = null, .capability = "terminal-snapshot-v1" },
+                .{ .name = "viewer_backlog_bytes", .since = null, .capability = "terminal-snapshot-v1" },
             },
         },
         request,
@@ -4480,7 +4569,9 @@ pub fn moveTabGroupToSplit(client: anytype, request: MoveTabGroupToSplitRequest)
 pub const MoveTabToColumnRequest = struct {
     after_column: wire.Field(Id) = .absent,
     pane: wire.Field(Id) = .absent,
+    respawn: wire.Field(SplitRespawn) = .absent,
     screen: wire.Field(Id) = .absent,
+    sticky: wire.Field(ColumnPin) = .absent,
     surface: Id,
     transaction: wire.Field([]const u8) = .absent,
     width: wire.Field(f32) = .absent,
@@ -4496,6 +4587,10 @@ pub fn moveTabToColumn(client: anytype, request: MoveTabToColumnRequest) !wire.D
             .authority = "control",
             .since = 12,
             .capability = "tab-drag-v1",
+            .fields = &.{
+                .{ .name = "respawn", .since = 12, .capability = "tab-column-respawn-v1" },
+                .{ .name = "sticky", .since = 12, .capability = "edge-docks-v1" },
+            },
         },
         request,
     );
@@ -4727,6 +4822,7 @@ pub const NewFrontendBrowserTabRequest = struct {
     cols: wire.Field(u16) = .absent,
     engine: []const u8,
     favicon_url: wire.Field([]const u8) = .absent,
+    idempotency_key: wire.Field([]const u8) = .absent,
     owner: wire.Field([]const u8) = .absent,
     pane: wire.Field(Id) = .absent,
     profile_id: wire.Field([]const u8) = .absent,
@@ -4820,6 +4916,36 @@ pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
             },
+        },
+        request,
+    );
+}
+
+pub const NewRowRequest = struct {
+    cols: wire.Field(u16) = .absent,
+    cwd: wire.Field([]const u8) = .absent,
+    env: wire.Field(wire.Map([]const u8)) = .absent,
+    height_permille: u64,
+    keep: ?bool = null,
+    pane: Id,
+    rows: wire.Field(u16) = .absent,
+    shell_args: wire.Field([]const []const u8) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+    transaction: wire.Field([]const u8) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "keep",
+    };
+};
+
+pub fn newRow(client: anytype, request: NewRowRequest) !wire.Decoded(NewRowResult) {
+    return client.callTyped(
+        NewRowResult,
+        .{
+            .name = "new-row",
+            .authority = "control",
+            .since = 12,
+            .capability = "rows-v1",
         },
         request,
     );
@@ -6026,6 +6152,32 @@ pub fn setRatio(client: anytype, request: SetRatioRequest) !wire.Decoded(SetRati
     );
 }
 
+pub const SetRowHeightsRequest = struct {
+    column: Id,
+    fit: ?bool = null,
+    heights: []const RowHeight,
+    transaction: wire.Field(u64) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "fit",
+    };
+};
+
+pub const SetRowHeightsResult = JsonValue;
+
+pub fn setRowHeights(client: anytype, request: SetRowHeightsRequest) !wire.Decoded(SetRowHeightsResult) {
+    return client.callTyped(
+        SetRowHeightsResult,
+        .{
+            .name = "set-row-heights",
+            .authority = "control",
+            .since = 12,
+            .capability = "rows-v1",
+        },
+        request,
+    );
+}
+
 pub const SetScreenMetadataRequest = struct {
     color: wire.Field([]const u8) = .absent,
     icon: wire.Field([]const u8) = .absent,
@@ -6340,6 +6492,26 @@ pub fn sidebarPlugin(client: anytype, request: SidebarPluginRequest) !wire.Decod
     );
 }
 
+pub const SnapshotRequestRequest = struct {
+    have: wire.Field(SnapshotRequestHave) = .absent,
+    reason: wire.Field([]const u8) = .absent,
+    request_id: wire.Field([]const u8) = .absent,
+    surface: Id,
+};
+
+pub fn snapshotRequest(client: anytype, request: SnapshotRequestRequest) !wire.Decoded(SnapshotRequestResult) {
+    return client.callTyped(
+        SnapshotRequestResult,
+        .{
+            .name = "snapshot-request",
+            .authority = "frontend",
+            .since = 12,
+            .capability = "terminal-snapshot-v1",
+        },
+        request,
+    );
+}
+
 pub const SplitRequest = struct {
     cols: wire.Field(u16) = .absent,
     cwd: wire.Field([]const u8) = .absent,
@@ -6457,6 +6629,50 @@ pub fn terminalEvents(client: anytype, request: TerminalEventsRequest) !wire.Dec
             .authority = "control",
             .since = 9,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const TerminalHistoryRequest = struct {
+    before: wire.Field(u64) = .absent,
+    marker_epoch: u64,
+    max_bytes: wire.Field(u64) = .absent,
+    surface: Id,
+};
+
+pub const TerminalHistoryResult = TerminalHistoryPagesResult;
+
+pub fn terminalHistory(client: anytype, request: TerminalHistoryRequest) !wire.Decoded(TerminalHistoryResult) {
+    return client.callTyped(
+        TerminalHistoryResult,
+        .{
+            .name = "terminal-history",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-snapshot-v1",
+        },
+        request,
+    );
+}
+
+pub const TerminalReadRangeRequest = struct {
+    format: wire.Field([]const u8) = .absent,
+    from: RowMarkerPoint,
+    marker_epoch: u64,
+    max_bytes: wire.Field(u64) = .absent,
+    surface: Id,
+    to: RowMarkerPoint,
+};
+
+pub fn terminalReadRange(client: anytype, request: TerminalReadRangeRequest) !wire.Decoded(TerminalReadRangeResult) {
+    return client.callTyped(
+        TerminalReadRangeResult,
+        .{
+            .name = "terminal-read-range",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-snapshot-v1",
         },
         request,
     );
@@ -7990,7 +8206,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 208;
+pub const command_count: usize = 213;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -8105,6 +8321,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "new-frontend-browser-tab", .authority = "control", .since = 12, .capability = "frontend-browser-tabs-v1", .stream = null },
     .{ .name = "new-pane", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "new-pane-right", .authority = "control", .since = 9, .capability = "viewport-splits-v1", .stream = null },
+    .{ .name = "new-row", .authority = "control", .since = 12, .capability = "rows-v1", .stream = null },
     .{ .name = "new-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "new-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "new-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -8159,6 +8376,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-personal-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "set-profile-follows", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "set-ratio", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "set-row-heights", .authority = "control", .since = 12, .capability = "rows-v1", .stream = null },
     .{ .name = "set-screen-metadata", .authority = "control", .since = 12, .capability = "screen-metadata-v1", .stream = null },
     .{ .name = "set-screen-pinned", .authority = "control", .since = 12, .capability = "screen-metadata-v1", .stream = null },
     .{ .name = "set-size-counts", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
@@ -8173,10 +8391,13 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-workspace-metadata", .authority = "control", .since = 12, .capability = "workspace-metadata-v1", .stream = null },
     .{ .name = "shutdown-daemon", .authority = "local-admin", .since = 9, .capability = null, .stream = null },
     .{ .name = "sidebar-plugin", .authority = "frontend", .since = 6, .capability = null, .stream = null },
+    .{ .name = "snapshot-request", .authority = "frontend", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "split", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "subscribe", .authority = "frontend", .since = 5, .capability = null, .stream = "subscribe" },
     .{ .name = "swap-pane", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "terminal-events", .authority = "control", .since = 9, .capability = null, .stream = null },
+    .{ .name = "terminal-history", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
+    .{ .name = "terminal-read-range", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-resources", .authority = "control", .since = 12, .capability = "terminal-resources-v1", .stream = null },
     .{ .name = "undo-layout", .authority = "control", .since = 9, .capability = "layout-undo-v1", .stream = null },
     .{ .name = "ungroup-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },

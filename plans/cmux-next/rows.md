@@ -337,8 +337,9 @@ Requirement (Lawrence): rows must be easy to turn off without affecting anything
 | `layout.centerFocusedRow.*` | Row centering modes | none | yes | `settings ...` | none (exemption: setting) | generated |
 
 CLI verbs go to session feat-cmux-next-99 (Swift CLI freeze). `debug.rows` reports row frames,
-offsets and scrollbars. All actions are disabled with the daemon's reason until the pinned
-cmux-tui serves `rows-v1` (awaitingPin until the pin owner cuts a pin).
+offsets and scrollbars. All actions are disabled with the daemon's reason until the bundled
+cmux-tui serves `rows-v1`; the capability lands in `optional` with its daemon half
+(scripts/cmux-next/check-daemon-capabilities.sh fails a build whose daemon lacks it).
 
 ## Verification
 
@@ -379,7 +380,7 @@ that run is green. `Destination::Row` is `MoveTabToRow` (no Destination enum exi
 3. Daemon: `LayoutColumn.rows`, storage and compat projection, commands, `rows-v1`, journal and
    undo, through the reducer check; hosted verification green.
 4. App: decode, `LayoutColumn.rows`, geometry, rendering, axis-generic strip reducer, row
-   scrollbar, awaitingPin gating (until the pin, no row op is ever sent).
+   scrollbar, capability gating (no row op is sent to a daemon without `rows-v1`).
 5. Surfaces: actions, drops, menus, palette, CLI request, `debug.rows`, settings.
 6. cmux-tui TUI rendering of rows (scrolling).
 

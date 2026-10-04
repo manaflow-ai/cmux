@@ -83,12 +83,17 @@ public final class MockTasksSource: TasksSource {
         for task in changed {
             sink(.event(TasksEvent(seq: seq, tx: intent.key, kind: "task.updated", change: .task(task))))
         }
+        for session in changedSessions {
+            sink(.event(TasksEvent(seq: seq, tx: intent.key, kind: "task.agent_session.created", change: .session(session))))
+        }
         changed.removeAll()
+        changedSessions.removeAll()
         sink(.settled(key: intent.key, reject: nil))
     }
 
     private var committed: Set<String> = []
     private var changed: [TaskItem] = []
+    private var changedSessions: [TaskSessionItem] = []
 
     private func index(_ id: String) -> Int? { snapshot.tasks.firstIndex { $0.id == id } }
 
@@ -129,12 +134,38 @@ public final class MockTasksSource: TasksSource {
             guard let i = index(task) else { return "unknown task" }
             snapshot.tasks[i].archived = true
             changed.append(snapshot.tasks[i])
+        case let .assign(task, person):
+            guard let i = index(task) else { return "unknown task" }
+            if let person, !person.hasPrefix("usr_") { return "assign agents with task.delegate" }
+            snapshot.tasks[i].assignee = person.map { TaskPrincipal(user: $0) }
+            changed.append(snapshot.tasks[i])
+        case let .delegate(task, session, harness):
+            return delegate(task: task, session: session, harness: harness)
         }
         return nil
     }
 }
 
 extension MockTasksSource {
+    /// `task.delegate` as the owner rules it: one active session per agent
+    /// and task; the person who delegates becomes the assignee when none.
+    private func delegate(task: String, session: String, harness: String) -> String? {
+        guard let i = index(task) else { return "unknown task" }
+        guard !snapshot.sessions.contains(where: { $0.id == session }) else { return "session id already used" }
+        let person = snapshot.me.stableID
+        let agent = TaskAgent(principal: "agt_\(harness)-\(snapshot.me.shortName)", harness: harness, onBehalfOf: person)
+        if snapshot.sessions.contains(where: { $0.task == task && $0.agent.principal == agent.principal && !$0.status.isTerminal }) {
+            return "\(agent.principal) already has an active session on this task"
+        }
+        let item = TaskSessionItem(id: session, task: task, agent: agent, status: .pending, plan: [])
+        snapshot.sessions.append(item)
+        snapshot.tasks[i].delegate = agent
+        if snapshot.tasks[i].assignee == nil { snapshot.tasks[i].assignee = TaskPrincipal(user: person) }
+        changed.append(snapshot.tasks[i])
+        changedSessions.append(item)
+        return nil
+    }
+
     /// A believable cmux team backlog with agents at work.
     public static func seed() -> TasksSnapshot {
         let statuses = [

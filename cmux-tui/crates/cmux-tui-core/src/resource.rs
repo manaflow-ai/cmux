@@ -71,47 +71,6 @@ impl<'de> Deserialize<'de> for RequestId {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct WireDecimal(u64);
-
-impl WireDecimal {
-    pub const fn new(value: u64) -> Self {
-        Self(value)
-    }
-
-    pub const fn get(self) -> u64 {
-        self.0
-    }
-}
-
-impl Serialize for WireDecimal {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.0.to_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for WireDecimal {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = String::deserialize(deserializer)?;
-        if value.len() > 20
-            || value.starts_with('+')
-            || (value.starts_with('0') && value.len() != 1)
-        {
-            return Err(serde::de::Error::custom("invalid unsigned decimal string"));
-        }
-        value
-            .parse::<u64>()
-            .map(Self)
-            .map_err(|_| serde::de::Error::custom("invalid unsigned decimal string"))
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EnvelopeType {
     #[serde(rename = "request")]
@@ -202,6 +161,8 @@ pub enum ResourceOperation {
     FrontendProjectionPut,
     #[serde(rename = "git.checkpoint.create")]
     GitCheckpointCreate,
+    #[serde(rename = "git.checkpoint.diff")]
+    GitCheckpointDiff,
     #[serde(rename = "git.checkpoint.get")]
     GitCheckpointGet,
     #[serde(rename = "git.checkpoint.list")]
@@ -212,6 +173,8 @@ pub enum ResourceOperation {
     GitCheckpointUnpin,
     #[serde(rename = "git.diff")]
     GitDiff,
+    #[serde(rename = "git.files.search")]
+    GitFilesSearch,
     #[serde(rename = "git.status")]
     GitStatus,
     #[serde(rename = "workspace.list")]
@@ -585,9 +548,11 @@ impl ResourceOperation {
                 | Self::ClientGet
                 | Self::PairingRequestList
                 | Self::FrontendProjectionGet
+                | Self::GitCheckpointDiff
                 | Self::GitCheckpointGet
                 | Self::GitCheckpointList
                 | Self::GitDiff
+                | Self::GitFilesSearch
                 | Self::GitStatus
                 | Self::WorkspaceList
                 | Self::WorkspaceGet
@@ -642,203 +607,10 @@ impl ResourceOperation {
 #[path = "resource/wire_name_tests.rs"]
 mod resource_operation_wire_name_tests;
 mod scope;
+mod wire_decimal;
+mod wire_name;
 
-impl ResourceOperation {
-    pub const fn wire_name(self) -> &'static str {
-        match self {
-            Self::MachineList => "machine.list",
-            Self::MachineGet => "machine.get",
-            Self::SessionList => "session.list",
-            Self::SessionOpen => "session.open",
-            Self::SessionGet => "session.get",
-            Self::SessionSnapshot => "session.snapshot",
-            Self::SessionCreationResolve => "session.creation.resolve",
-            Self::SessionEvents => "session.events",
-            Self::SessionJournalSubscribe => "session.journal.subscribe",
-            Self::SessionJournalProducerList => "session.journal.producer.list",
-            Self::SessionJournalProducerPut => "session.journal.producer.put",
-            Self::SessionJournalAppend => "session.journal.append",
-            Self::SessionJournalCheckpointCreate => "session.journal.checkpoint.create",
-            Self::SessionJournalCheckpointList => "session.journal.checkpoint.list",
-            Self::SessionJournalHookList => "session.journal.hook.list",
-            Self::SessionJournalHookPut => "session.journal.hook.put",
-            Self::SessionJournalRestorePreview => "session.journal.restore.preview",
-            Self::SessionJournalSegmentList => "session.journal.segment.list",
-            Self::SessionJournalSegmentSeal => "session.journal.segment.seal",
-            Self::SessionPing => "session.ping",
-            Self::SessionShutdown => "session.shutdown",
-            Self::SessionReloadConfig => "session.reload_config",
-            Self::SessionTerminalDefaultsUpdate => "session.terminal_defaults.update",
-            Self::ClientList => "client.list",
-            Self::ClientGet => "client.get",
-            Self::ClientMetadataUpdate => "client.metadata.update",
-            Self::ClientSizingSet => "client.sizing.set",
-            Self::ClientSizingRelease => "client.sizing.release",
-            Self::ClientCellPixelsSet => "client.cell_pixels.set",
-            Self::ClientDetach => "client.detach",
-            Self::SessionWindowTitleSet => "session.window.title.set",
-            Self::SessionWindowTitleClear => "session.window.title.clear",
-            Self::PairingRequestList => "pairing_request.list",
-            Self::PairingRequestResolve => "pairing_request.resolve",
-            Self::RequestCancel => "request.cancel",
-            Self::FrontendProjectionGet => "frontend_projection.get",
-            Self::FrontendProjectionPut => "frontend_projection.put",
-            Self::GitCheckpointCreate => "git.checkpoint.create",
-            Self::GitCheckpointGet => "git.checkpoint.get",
-            Self::GitCheckpointList => "git.checkpoint.list",
-            Self::GitCheckpointPin => "git.checkpoint.pin",
-            Self::GitCheckpointUnpin => "git.checkpoint.unpin",
-            Self::GitDiff => "git.diff",
-            Self::GitStatus => "git.status",
-            Self::WorkspaceList => "workspace.list",
-            Self::WorkspaceGet => "workspace.get",
-            Self::WorkspaceCreate => "workspace.create",
-            Self::WorkspaceEnsureHome => "workspace.ensure_home",
-            Self::WorkspaceRename => "workspace.rename",
-            Self::WorkspaceMove => "workspace.move",
-            Self::WorkspaceFocus => "workspace.focus",
-            Self::WorkspaceClose => "workspace.close",
-            Self::WorkspaceRun => "workspace.run",
-            Self::WorkspaceLayoutApply => "workspace.layout.apply",
-            Self::ScreenList => "screen.list",
-            Self::ScreenGet => "screen.get",
-            Self::ScreenCreate => "screen.create",
-            Self::ScreenRename => "screen.rename",
-            Self::ScreenFocus => "screen.focus",
-            Self::ScreenClose => "screen.close",
-            Self::ScreenLayoutExport => "screen.layout.export",
-            Self::ScreenLayoutUndo => "screen.layout.undo",
-            Self::PaneList => "pane.list",
-            Self::PaneGet => "pane.get",
-            Self::PaneCreate => "pane.create",
-            Self::PaneSplit => "pane.split",
-            Self::PaneRename => "pane.rename",
-            Self::PaneFocus => "pane.focus",
-            Self::PaneFocusDirection => "pane.focus_direction",
-            Self::PaneNeighborGet => "pane.neighbor.get",
-            Self::PaneSwap => "pane.swap",
-            Self::PaneZoom => "pane.zoom",
-            Self::PaneSplitRatioSet => "pane.split_ratio.set",
-            Self::PaneViewportWidthSet => "pane.viewport_width.set",
-            Self::ColumnUpdate => "column.update",
-            Self::PaneClose => "pane.close",
-            Self::PaneRun => "pane.run",
-            Self::TabList => "tab.list",
-            Self::TabGet => "tab.get",
-            Self::TabCreateTerminal => "tab.create_terminal",
-            Self::TabCreateBrowser => "tab.create_browser",
-            Self::TabRename => "tab.rename",
-            Self::TabMove => "tab.move",
-            Self::TabFocus => "tab.focus",
-            Self::TabClose => "tab.close",
-            Self::TerminalList => "terminal.list",
-            Self::TerminalGet => "terminal.get",
-            Self::TerminalInputWrite => "terminal.input.write",
-            Self::TerminalInputKeys => "terminal.input.keys",
-            Self::TerminalInputMouse => "terminal.input.mouse",
-            Self::TerminalInputFocus => "terminal.input.focus",
-            Self::TerminalScreenRead => "terminal.screen.read",
-            Self::TerminalStateRead => "terminal.state.read",
-            Self::TerminalHistoryRead => "terminal.history.read",
-            Self::TerminalHistoryClear => "terminal.history.clear",
-            Self::TerminalOutputRead => "terminal.output_read",
-            Self::TerminalWait => "terminal.wait",
-            Self::TerminalWaitExit => "terminal.wait_exit",
-            Self::TerminalCopy => "terminal.copy",
-            Self::TerminalProcessGet => "terminal.process.get",
-            Self::TerminalRendererGrantCreate => "terminal.renderer_grant.create",
-            Self::TerminalViewerResize => "terminal.viewer.resize",
-            Self::TerminalViewerRelease => "terminal.viewer.release",
-            Self::TerminalViewportScroll => "terminal.viewport.scroll",
-            Self::TerminalMove => "terminal.move",
-            Self::TerminalProject => "terminal.project",
-            Self::TerminalAttach => "terminal.attach",
-            Self::TerminalClose => "terminal.close",
-            Self::BrowserList => "browser.list",
-            Self::BrowserGet => "browser.get",
-            Self::BrowserNavigate => "browser.navigate",
-            Self::BrowserBack => "browser.back",
-            Self::BrowserForward => "browser.forward",
-            Self::BrowserReload => "browser.reload",
-            Self::BrowserActivate => "browser.activate",
-            Self::BrowserInputKey => "browser.input.key",
-            Self::BrowserInputText => "browser.input.text",
-            Self::BrowserInputMouse => "browser.input.mouse",
-            Self::BrowserInputWheel => "browser.input.wheel",
-            Self::BrowserViewerResize => "browser.viewer.resize",
-            Self::BrowserViewerRelease => "browser.viewer.release",
-            Self::BrowserAttach => "browser.attach",
-            Self::BrowserClose => "browser.close",
-            Self::NotificationList => "notification.list",
-            Self::NotificationCreate => "notification.create",
-            Self::NotificationAck => "notification.ack",
-            Self::NotificationClear => "notification.clear",
-            Self::AgentList => "agent.list",
-            Self::AgentReport => "agent.report",
-            Self::SidebarViewGet => "sidebar_view.get",
-            Self::SidebarViewEnsure => "sidebar_view.ensure",
-            Self::SidebarViewAttach => "sidebar_view.attach",
-            Self::SidebarViewInput => "sidebar_view.input",
-            Self::SidebarViewResize => "sidebar_view.resize",
-            Self::SidebarViewReload => "sidebar_view.reload",
-            Self::StreamCancel => "stream.cancel",
-            Self::ClosedList => "closed.list",
-            Self::ClosedReopen => "closed.reopen",
-            Self::WindowRecordList => "window_record.list",
-            Self::WindowRecordPut => "window_record.put",
-            Self::WindowRecordDelete => "window_record.delete",
-            Self::RoomCreate => "room.create",
-            Self::RoomDelete => "room.delete",
-            Self::RoomFollow => "room.follow",
-            Self::RoomList => "room.list",
-            Self::RoomMove => "room.move",
-            Self::RoomPin => "room.pin",
-            Self::RoomUnpin => "room.unpin",
-            Self::RoomUpdate => "room.update",
-            Self::SavedTabGroupDelete => "saved_tab_group.delete",
-            Self::SavedTabGroupList => "saved_tab_group.list",
-            Self::SavedTabGroupReopen => "saved_tab_group.reopen",
-            Self::SavedTabGroupSave => "saved_tab_group.save",
-            Self::ScreenMove => "screen.move",
-            Self::ScreenUpdate => "screen.update",
-            Self::ScreenGroupAddScreens => "screen_group.add_screens",
-            Self::ScreenGroupCreate => "screen_group.create",
-            Self::ScreenGroupGet => "screen_group.get",
-            Self::ScreenGroupList => "screen_group.list",
-            Self::ScreenGroupRemoveScreens => "screen_group.remove_screens",
-            Self::ScreenGroupUngroup => "screen_group.ungroup",
-            Self::ScreenGroupUpdate => "screen_group.update",
-            Self::TabPin => "tab.pin",
-            Self::TabUnpin => "tab.unpin",
-            Self::TabUpdate => "tab.update",
-            Self::TabGroupAddTabs => "tab_group.add_tabs",
-            Self::TabGroupClose => "tab_group.close",
-            Self::TabGroupCreate => "tab_group.create",
-            Self::TabGroupGet => "tab_group.get",
-            Self::TabGroupList => "tab_group.list",
-            Self::TabGroupMove => "tab_group.move",
-            Self::TabGroupRemoveTabs => "tab_group.remove_tabs",
-            Self::TabGroupUngroup => "tab_group.ungroup",
-            Self::TabGroupUpdate => "tab_group.update",
-            Self::WorkspacePlace => "workspace.place",
-            Self::WorkspacePlacementList => "workspace.placement.list",
-            Self::WorkspaceUpdate => "workspace.update",
-            Self::WorkspaceGroupCreate => "workspace_group.create",
-            Self::WorkspaceGroupDelete => "workspace_group.delete",
-            Self::WorkspaceGroupList => "workspace_group.list",
-            Self::WorkspaceGroupMove => "workspace_group.move",
-            Self::WorkspaceGroupUpdate => "workspace_group.update",
-            Self::WorkspaceLogAppend => "workspace_log.append",
-            Self::WorkspaceLogClear => "workspace_log.clear",
-            Self::WorkspaceLogList => "workspace_log.list",
-            Self::WorkspaceProgressClear => "workspace_progress.clear",
-            Self::WorkspaceProgressSet => "workspace_progress.set",
-            Self::WorkspaceStatusClear => "workspace_status.clear",
-            Self::WorkspaceStatusList => "workspace_status.list",
-            Self::WorkspaceStatusSet => "workspace_status.set",
-        }
-    }
-}
+pub use wire_decimal::WireDecimal;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

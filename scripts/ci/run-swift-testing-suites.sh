@@ -8,6 +8,20 @@ if [ "$#" -ne 1 ]; then
 fi
 
 package_path="$1"
+if [[ "${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:-}" == "export-settings" ]]; then
+  set -x
+  GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh
+  scripts/cmux-next/prefix-ghosttykit-archives.sh GhosttyKit.xcframework
+  CMUX_UPDATE_MDM_SCHEMA=1 swift test --package-path "$package_path" --filter ManagedPreferencesManifestTests
+  CMUX_UPDATE_ACTION_SURFACES=1 swift test --package-path "$package_path" --filter SettingsSchemaExportTests
+  for file in docs/mdm/com.manaflow.cmux.json docs/mdm/com.manaflow.cmux.plist docs/mdm/managed-preferences.md schemas/settings/settings-schema.json; do
+    echo "BEGIN_ARTIFACT:$file"
+    base64 < "$file" | tr -d "\n"
+    echo
+    echo "END_ARTIFACT:$file"
+  done
+  exit 0
+fi
 suite_timeout_seconds="${CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS:-300}"
 if ! [[ "$suite_timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
   echo "CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS must be a positive integer" >&2

@@ -83,7 +83,12 @@ final class RowLayer {
         if key != spec.key { clearAnimations(); applied = []; key = spec.key }
         let paletteChanged = paletteGeneration != bitmaps.paletteGeneration
         guard paletteChanged || self.spec != spec || self.metrics != metrics || self.viewportHeight != viewportHeight else { return }
-        if paletteChanged { applyPalette(bitmaps.palette); paletteGeneration = bitmaps.paletteGeneration }
+        if paletteChanged {
+            applyPalette(bitmaps.palette)
+            paletteGeneration = bitmaps.paletteGeneration
+            bitmap.contentsScale = bitmaps.scale
+            receiptOld.contentsScale = bitmaps.scale
+        }
         self.spec = spec
         self.metrics = metrics
         self.viewportHeight = viewportHeight

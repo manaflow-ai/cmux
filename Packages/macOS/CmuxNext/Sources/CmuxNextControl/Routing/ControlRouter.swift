@@ -48,6 +48,9 @@ public final class ControlRouter: Sendable {
     let idempotency = ControlIdempotencyCache()
     let executor: any ControlActionExecutor
     let settings: (any ControlSettingsStore)?
+    /// Writes schema settings through the settings owner; nil in tests
+    /// that only give a file (schema values are still validated).
+    let settingsWriter: (any ControlSettingsWriter)?
     private let state = Mutex(State())
 
     struct State {
@@ -74,12 +77,14 @@ public final class ControlRouter: Sendable {
         identity: ControlIdentity,
         executor: any ControlActionExecutor,
         settings: (any ControlSettingsStore)? = nil,
+        settingsWriter: (any ControlSettingsWriter)? = nil,
         configuration: Configuration = Configuration(),
         frameSource: any ControlFrameSource = MainQueueFrameSource()
     ) {
         self.identity = identity
         self.executor = executor
         self.settings = settings
+        self.settingsWriter = settingsWriter
         self.configuration = configuration
         self.workQueue = MainActorWorkQueue(limits: configuration.queueLimits, frameSource: frameSource)
         register(builtinMethods())

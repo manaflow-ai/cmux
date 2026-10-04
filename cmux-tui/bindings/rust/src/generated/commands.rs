@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR ce9a5e7f62b3f675e99bee009ceaaca54e1d348823fbc1670330ce4ce6e9a83e.
+// cmux-tui mux protocol 12, IR 84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -79,7 +79,13 @@ pub struct AttachSurfaceRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub snapshot: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub snapshot_version: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub viewer_backlog_bytes: Optional<u64>,
 }
 
 #[rustfmt::skip]
@@ -1307,7 +1313,11 @@ pub struct MoveTabToColumnRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub respawn: Optional<T::SplitRespawn>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub screen: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub sticky: Optional<T::ColumnPin>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<String>,
@@ -1481,6 +1491,8 @@ pub struct NewFrontendBrowserTabRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub favicon_url: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub idempotency_key: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub owner: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
@@ -1543,6 +1555,29 @@ pub struct NewPaneRightRequest {
 
 #[rustfmt::skip]
 pub type NewPaneRightResult = T::SurfaceResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewRowRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cols: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cwd: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub env: Optional<BTreeMap<String, String>>,
+    pub height_permille: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep: Option<bool>,
+    pub pane: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub shell_args: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -2236,6 +2271,20 @@ pub type SetRatioResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetRowHeightsRequest {
+    pub column: T::Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub fit: Option<bool>,
+    pub heights: Vec<T::RowHeight>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<u64>,
+}
+
+#[rustfmt::skip]
+pub type SetRowHeightsResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetScreenMetadataRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub color: Optional<String>,
@@ -2411,6 +2460,18 @@ pub struct SidebarPluginRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SnapshotRequestRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub have: Optional<T::SnapshotRequestHave>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub reason: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub request_id: Optional<String>,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SplitRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
@@ -2472,6 +2533,33 @@ pub type SwapPaneResult = T::EmptyResult;
 pub struct TerminalEventsRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub after_revision: Option<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalHistoryRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub before: Optional<u64>,
+    pub marker_epoch: u64,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub max_bytes: Optional<u64>,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type TerminalHistoryResult = T::TerminalHistoryPagesResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalReadRangeRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub format: Optional<String>,
+    pub from: T::RowMarkerPoint,
+    pub marker_epoch: u64,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub max_bytes: Optional<u64>,
+    pub surface: T::Id,
+    pub to: T::RowMarkerPoint,
 }
 
 #[rustfmt::skip]
@@ -2792,6 +2880,15 @@ impl CmuxClient {
         }
         if !request.rows.is_missing() {
             self.require_capability_field("attach-surface", "attach-initial-size")?;
+        }
+        if !request.snapshot.is_missing() {
+            self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
+        }
+        if !request.snapshot_version.is_missing() {
+            self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
+        }
+        if !request.viewer_backlog_bytes.is_missing() {
+            self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
         }
         self.execute_stream(&ATTACH_SURFACE_METADATA, &request)
     }
@@ -3247,6 +3344,14 @@ impl CmuxClient {
     }
 
     pub fn move_tab_to_column(&mut self, request: MoveTabToColumnRequest) -> Result<MoveTabToColumnResult> {
+        if !request.respawn.is_missing() {
+            self.require_protocol_field("move-tab-to-column", 12)?;
+            self.require_capability_field("move-tab-to-column", "tab-column-respawn-v1")?;
+        }
+        if !request.sticky.is_missing() {
+            self.require_protocol_field("move-tab-to-column", 12)?;
+            self.require_capability_field("move-tab-to-column", "edge-docks-v1")?;
+        }
         self.execute(&MOVE_TAB_TO_COLUMN_METADATA, &request)
     }
 
@@ -3360,6 +3465,10 @@ impl CmuxClient {
             self.require_capability_field("new-pane-right", "terminal-placement-env-v1")?;
         }
         self.execute(&NEW_PANE_RIGHT_METADATA, &request)
+    }
+
+    pub fn new_row(&mut self, request: NewRowRequest) -> Result<T::NewRowResult> {
+        self.execute(&NEW_ROW_METADATA, &request)
     }
 
     pub fn new_screen(&mut self, request: NewScreenRequest) -> Result<NewScreenResult> {
@@ -3673,6 +3782,10 @@ impl CmuxClient {
         self.execute(&SET_RATIO_METADATA, &request)
     }
 
+    pub fn set_row_heights(&mut self, request: SetRowHeightsRequest) -> Result<SetRowHeightsResult> {
+        self.execute(&SET_ROW_HEIGHTS_METADATA, &request)
+    }
+
     pub fn set_screen_metadata(&mut self, request: SetScreenMetadataRequest) -> Result<SetScreenMetadataResult> {
         self.execute(&SET_SCREEN_METADATA_METADATA, &request)
     }
@@ -3757,6 +3870,10 @@ impl CmuxClient {
         self.execute(&SIDEBAR_PLUGIN_METADATA, &request)
     }
 
+    pub fn snapshot_request(&mut self, request: SnapshotRequestRequest) -> Result<T::SnapshotRequestResult> {
+        self.execute(&SNAPSHOT_REQUEST_METADATA, &request)
+    }
+
     pub fn split(&mut self, request: SplitRequest) -> Result<SplitResult> {
         if !request.cwd.is_missing() {
             self.require_protocol_field("split", 12)?;
@@ -3798,6 +3915,14 @@ impl CmuxClient {
 
     pub fn terminal_events(&mut self, request: TerminalEventsRequest) -> Result<T::TerminalEventsResult> {
         self.execute(&TERMINAL_EVENTS_METADATA, &request)
+    }
+
+    pub fn terminal_history(&mut self, request: TerminalHistoryRequest) -> Result<TerminalHistoryResult> {
+        self.execute(&TERMINAL_HISTORY_METADATA, &request)
+    }
+
+    pub fn terminal_read_range(&mut self, request: TerminalReadRangeRequest) -> Result<T::TerminalReadRangeResult> {
+        self.execute(&TERMINAL_READ_RANGE_METADATA, &request)
     }
 
     pub fn terminal_resources(&mut self, request: TerminalResourcesRequest) -> Result<T::TerminalResourcesResult> {

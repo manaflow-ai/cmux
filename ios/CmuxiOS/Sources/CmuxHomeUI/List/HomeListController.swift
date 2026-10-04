@@ -33,6 +33,7 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
     private var models: [ConversationID: ConversationRowModel] = [:]
     private var density: HomeListDensity = .comfortable
     private var isOnline = true
+    private var updateRequired: HomeUpdateRequired?
     private var hasApplied = false
     private let time = HomeTimeFormatting()
 
@@ -94,6 +95,17 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
         dataSource.apply(snapshot, animatingDifferences: animate)
     }
 
+    /// Shows or clears the update-required banner (above the offline one).
+    func setUpdateRequired(_ requirement: HomeUpdateRequired?) {
+        guard requirement != updateRequired else { return }
+        updateRequired = requirement
+        updateBanner()
+    }
+
+    private var bannerState: HomeBannersView.State {
+        HomeBannersView.State(updateRequired: updateRequired, isOffline: !isOnline)
+    }
+
     /// Re-renders timestamps (after the clock crosses a day, for example).
     func refreshVisibleContent() {
         guard let dataSource else { return }
@@ -145,12 +157,20 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
         guard let layout = collectionView.collectionViewLayout as? UICollectionViewCompositionalLayout else { return }
         let topOffset = -collectionView.adjustedContentInset.top
         let wasAtTop = collectionView.contentOffset.y <= topOffset + 1
+        let state = bannerState
+        // Same cards, new minimum version: the header on screen re-renders in place.
+        if let kind = state.elementKind {
+            for indexPath in collectionView.indexPathsForVisibleSupplementaryElements(ofKind: kind) {
+                (collectionView.supplementaryView(forElementKind: kind, at: indexPath) as? HomeBannersView)?.configure(state)
+            }
+        }
         let configuration = UICollectionViewCompositionalLayoutConfiguration()
-        if !isOnline {
-            let banner = NSCollectionLayoutBoundarySupplementaryItem(
+        if let kind = state.elementKind {
+            // One header holds every banner: boundary items that share an
+            // alignment would overlap.
+            configuration.boundarySupplementaryItems = [NSCollectionLayoutBoundarySupplementaryItem(
                 layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .estimated(80)),
-                elementKind: OfflineBannerView.elementKind, alignment: .top)
-            configuration.boundarySupplementaryItems = [banner]
+                elementKind: kind, alignment: .top)]
         }
         layout.configuration = configuration
         if wasAtTop, hasApplied {
@@ -182,8 +202,11 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
             cell.configure(model, spokenTime: self.time.spokenLabel(for: model.timestamp, now: Date()),
                            actions: self.performer.accessibilityActions(actions.leading + actions.trailing, id: id))
         }
-        let bannerRegistration = UICollectionView.SupplementaryRegistration<OfflineBannerView>(
-            elementKind: OfflineBannerView.elementKind) { _, _, _ in }
+        let bannerRegistrations = Dictionary(uniqueKeysWithValues: HomeBannersView.elementKinds.map { kind in
+            (kind, UICollectionView.SupplementaryRegistration<HomeBannersView>(elementKind: kind) { [weak self] header, _, _ in
+                if let state = self?.bannerState { header.configure(state) }
+            })
+        })
 
         let dataSource = UICollectionViewDiffableDataSource<Section, Item>(collectionView: collectionView) {
             collectionView, indexPath, item in
@@ -194,8 +217,8 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
                 collectionView.dequeueConfiguredReusableCell(using: pinRegistration, for: indexPath, item: id)
             }
         }
-        dataSource.supplementaryViewProvider = { collectionView, _, indexPath in
-            collectionView.dequeueConfiguredReusableSupplementary(using: bannerRegistration, for: indexPath)
+        dataSource.supplementaryViewProvider = { collectionView, kind, indexPath in
+            bannerRegistrations[kind].map { collectionView.dequeueConfiguredReusableSupplementary(using: $0, for: indexPath) }
         }
         return dataSource
     }

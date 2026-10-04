@@ -51,6 +51,8 @@ enum HomeText {
 
     static var offlineTitle: String { String(localized: "home.offline.title", defaultValue: "Offline", bundle: .module) }
     static var offlineBody: String { String(localized: "home.offline.body", defaultValue: "You can read saved messages. Sending, invites and new Chiefs come back when cmux reconnects.", bundle: .module) }
+    static var updateRequiredTitle: String { String(localized: "home.updateRequired.title", defaultValue: "Update Required", bundle: .module) }
+    static var updateRequiredBodyNoVersion: String { String(localized: "home.updateRequired.bodyNoVersion", defaultValue: "Your team requires a newer version of cmux. Update cmux to keep notifications and replies working.", bundle: .module) }
     static var rejectionNotAuthorized: String { String(localized: "home.rejection.notAuthorized", defaultValue: "You don't have permission to do that here.", bundle: .module) }
     static var rejectionInvalid: String { String(localized: "home.rejection.invalid", defaultValue: "cmux couldn't accept that. Check it and try again.", bundle: .module) }
     static var rejectionRateLimited: String { String(localized: "home.rejection.rateLimited", defaultValue: "Too many requests. Try again in a moment.", bundle: .module) }
@@ -61,6 +63,12 @@ enum HomeText {
     static var searchPlaceholder: String { String(localized: "home.search.placeholder", defaultValue: "Search Messages", bundle: .module) }
     static var searchOfflineTitle: String { String(localized: "home.search.offlineTitle", defaultValue: "Search Is Unavailable Offline", bundle: .module) }
     static var searchOfflineBody: String { String(localized: "home.search.offlineBody", defaultValue: "Search runs on cmux. Try again when you're back online.", bundle: .module) }
+
+    /// The update-required banner body, naming the team's minimum when the owner sent it.
+    static func updateRequiredBody(minimumVersion: String?) -> String {
+        guard let minimumVersion, !minimumVersion.isEmpty else { return updateRequiredBodyNoVersion }
+        return String(localized: "home.updateRequired.body", defaultValue: "Your team requires cmux \(minimumVersion) or newer. Update cmux to keep notifications and replies working.", bundle: .module)
+    }
 
     static func searchNoResults(_ query: String) -> String {
         String(localized: "home.search.noResults", defaultValue: "No Results for “\(query)”", bundle: .module)

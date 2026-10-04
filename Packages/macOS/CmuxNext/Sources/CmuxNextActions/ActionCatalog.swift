@@ -75,6 +75,7 @@ public nonisolated enum ActionCatalog {
         PaneActionCatalog.self,
         TabActionCatalog.self,
         ResourceActionCatalog.self,
+        HomeActionCatalog.self,
         TabGroupActionCatalog.self,
         ScreenActionCatalog.self,
         ScreenGroupActionCatalog.self,
@@ -96,7 +97,7 @@ public nonisolated enum ActionCatalog {
         BookmarkActionCatalog.self,
         SidebarSectionActionCatalog.self,
         AppStoreActionCatalog.self,
-        ChiefActionCatalog.self,
+        TasksActionCatalog.self,
         LinkActionCatalog.self,
         ServerActionCatalog.self,
     ]

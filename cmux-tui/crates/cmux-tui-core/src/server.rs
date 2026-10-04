@@ -22,7 +22,9 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::mem::{offset_of, size_of};
-use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
+#[cfg(test)]
+use std::net::TcpListener;
+use std::net::{Shutdown, TcpStream};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -41,10 +43,8 @@ use regex::bytes::{Regex as BytesRegex, RegexBuilder as BytesRegexBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use tungstenite::protocol::CloseFrame;
-use tungstenite::protocol::WebSocketConfig;
-use tungstenite::protocol::frame::coding::CloseCode;
-use tungstenite::{Message, WebSocket, accept_with_config};
+#[cfg(test)]
+use tungstenite::WebSocket;
 use zeroize::Zeroize;
 
 use crate::browser::{
@@ -104,20 +104,27 @@ mod launch_snapshot;
 mod personal;
 mod raw_tab;
 mod responses;
+mod rows;
 mod screen_json;
 mod session_stream;
 mod split_respawn;
+mod tab_column;
+mod websocket_listener;
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
     start_launch_snapshot_writer_with,
 };
 use responses::{
-    send_bad_request, send_request_error, send_request_error_with_delivery, send_response,
+    response_error_code, send_bad_request, send_request_error, send_request_error_with_delivery,
+    send_response,
 };
 use screen_json::screen_json;
 use split_respawn::{SplitRespawnRequest, placement_spawn_options, shell_argv, split_tab};
 mod terminal_create;
+mod terminal_history;
 mod terminal_resources;
+mod terminal_snapshot;
+use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
 mod url_open;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
@@ -129,6 +136,11 @@ pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
 /// `set-column-sticky` and the optional `Screen.columns[].sticky` field: at
 /// most one viewport column per edge stays pinned while the others scroll.
 pub const STICKY_COLUMNS_CAPABILITY: &str = "sticky-columns-v1";
+/// Top and bottom docks: `set-column-sticky` and `move-tab-to-column` accept
+/// edges `top` and `bottom`, sent back as `Screen.columns[].dock`.
+pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
+/// `new-row`, `set-row-heights` and `Screen.columns[].rows` (rows.md).
+pub const ROWS_CAPABILITY: &str = "rows-v1";
 pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
@@ -230,6 +242,7 @@ pub use frontend_browser_history::FRONTEND_BROWSER_HISTORY_CAPABILITY;
 /// same-screen drags, and a client `transaction` id echoed in `tab-changed`.
 pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
 pub use split_respawn::TAB_SPLIT_RESPAWN_CAPABILITY;
+pub use tab_column::TAB_COLUMN_RESPAWN_CAPABILITY;
 /// Durable notification acknowledgement decoupled from focus:
 /// `ack-tab-notifications`, `list-notifications`, and the workspace `unread_count` rollup.
 pub const NOTIFICATION_ACK_CAPABILITY: &str = "notification-ack-v1";
@@ -380,6 +393,8 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
         STICKY_COLUMNS_CAPABILITY,
+        EDGE_DOCKS_CAPABILITY,
+        ROWS_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
@@ -393,6 +408,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         SIZING_VIEW_DETACH_CAPABILITY,
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
+        terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
         CREATION_RECEIPTS_CAPABILITY,
         CREATION_ATTEMPT_KEYS_CAPABILITY,
         CREATION_SELECTOR_FALLBACKS_CAPABILITY,
@@ -417,6 +433,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         FRONTEND_BROWSER_HISTORY_CAPABILITY,
         TAB_DRAG_CAPABILITY,
         TAB_SPLIT_RESPAWN_CAPABILITY,
+        TAB_COLUMN_RESPAWN_CAPABILITY,
         NOTIFICATION_ACK_CAPABILITY,
         TAB_GROUPS_CAPABILITY,
         SAVED_TAB_GROUPS_CAPABILITY,
@@ -437,9 +454,11 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         STATE_RESOURCES_CAPABILITY,
         WINDOW_RECORDS_CAPABILITY,
         FRONTEND_BROWSER_OWNER_CAPABILITY,
+        crate::state::frontend_browser_keys::FRONTEND_BROWSER_TAB_KEYS_CAPABILITY,
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
+        crate::git_ops::FILES_SEARCH_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -1419,26 +1438,7 @@ enum Command {
     /// `conversation-tabs-v1`: a tab showing one conversation (server/conversation_tabs_wire.rs).
     NewConversationTab(conversation_tabs_wire::NewConversationTabParams),
     /// New browser tab whose page the frontend renders (WebKit or CEF).
-    /// The daemon persists its location and never attaches a CDP target.
-    NewFrontendBrowserTab {
-        url: String,
-        engine: String,
-        #[serde(default)]
-        pane: Option<PaneId>,
-        #[serde(default)]
-        title: Option<String>,
-        #[serde(default)]
-        favicon_url: Option<String>,
-        #[serde(default)]
-        profile_id: Option<String>,
-        /// Install id of the hosting app (the record's only writer).
-        #[serde(default)]
-        owner: Option<String>,
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-    },
+    NewFrontendBrowserTab(frontend_browser_history::NewTabParams),
     UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
     SetFrontendBrowserHistory(frontend_browser_history::SetParams),
     GetFrontendBrowserHistory(frontend_browser_history::GetParams),
@@ -2000,19 +2000,9 @@ enum Command {
         transaction: Option<String>,
     },
     /// Drop a tab between strip columns: a new column holding the tab.
-    MoveTabToColumn {
-        surface: SurfaceId,
-        #[serde(default)]
-        pane: Option<PaneId>,
-        #[serde(default)]
-        screen: Option<ScreenId>,
-        #[serde(default)]
-        after_column: Option<SplitId>,
-        #[serde(default)]
-        width: Option<f32>,
-        #[serde(default)]
-        transaction: Option<String>,
-    },
+    MoveTabToColumn(tab_column::MoveTabToColumnParams),
+    NewRow(rows::NewRowParams),
+    SetRowHeights(rows::SetRowHeightsParams),
     /// Drop a tab on the sidebar: a new workspace holding the tab.
     MoveTabToNewWorkspace {
         surface: SurfaceId,
@@ -2468,7 +2458,15 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        #[serde(flatten)]
+        snapshot: terminal_snapshot::SnapshotAttachParams,
     },
+    /// One READY snapshot on the caller's snapshot attach (`terminal-snapshot-v1`).
+    SnapshotRequest(terminal_snapshot::SnapshotRequestParams),
+    /// GHOSTSNP history pages above a row marker (`terminal.history`).
+    TerminalHistory(terminal_history::TerminalHistoryParams),
+    /// Text or VT of a row-marker range (`terminal.read_range`).
+    TerminalReadRange(terminal_history::TerminalReadRangeParams),
     /// Scroll a surface's viewport by a row delta (negative is up).
     ScrollSurface {
         surface: SurfaceId,
@@ -5273,6 +5271,7 @@ pub(crate) struct ClientRegistry {
     url_opens: url_open::URLRequests,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
     loopback: loopback_forward::LoopbackForwarder,
+    pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
     resource_wait_admission: Arc<ResourceWorkerAdmission>,
@@ -5286,6 +5285,7 @@ impl ClientRegistry {
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
             loopback: loopback_forward::LoopbackForwarder::default(),
+            snapshot_viewers: Default::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
                 RESOURCE_STREAMS_SERVER_CAPACITY,
@@ -6794,122 +6794,12 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     serve_paused(mux, path)?.mark_ready()
 }
 
-/// A running opt-in WebSocket listener. Dropping it stops accepts and closes clients.
-pub struct WebSocketServer {
-    local_addr: SocketAddr,
-    shutdown: Arc<AtomicBool>,
-    connections: Arc<Mutex<HashMap<u64, TcpStream>>>,
-    thread: Option<JoinHandle<()>>,
-}
-
-impl WebSocketServer {
-    pub fn local_addr(&self) -> SocketAddr {
-        self.local_addr
-    }
-}
-
-impl Drop for WebSocketServer {
-    fn drop(&mut self) {
-        self.shutdown.store(true, Ordering::Release);
-        for stream in self.connections.lock().unwrap().values() {
-            let _ = stream.shutdown(Shutdown::Both);
-        }
-        if let Ok(stream) = TcpStream::connect(self.local_addr) {
-            let _ = stream.set_nodelay(true);
-        }
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
-    }
-}
-
-/// Bind an opt-in WebSocket listener using one JSON message per text frame.
-pub fn serve_websocket(
-    mux: Arc<Mux>,
-    addr: SocketAddr,
-    token: Option<String>,
-    allow_insecure_bind: bool,
-) -> anyhow::Result<WebSocketServer> {
-    // WebSocket has no TLS here. Remote deployments must explicitly opt in and
-    // should put cmux-tui behind a TLS-terminating reverse proxy.
-    if !addr.ip().is_loopback() && !allow_insecure_bind {
-        anyhow::bail!("refusing non-loopback WebSocket bind {addr} without --ws-insecure-bind");
-    }
-    let token = token.filter(|value| !value.trim().is_empty());
-    if let Some(token_value) = token.as_ref() {
-        let auth_message_bytes =
-            serde_json::to_vec(&json!({"auth": {"token": token_value}}))?.len();
-        if auth_message_bytes > WEBSOCKET_AUTH_MAX_BYTES {
-            anyhow::bail!(
-                "WebSocket token produces a {auth_message_bytes}-byte auth message; maximum is {WEBSOCKET_AUTH_MAX_BYTES} bytes"
-            );
-        }
-    }
-    let listener = TcpListener::bind(addr)?;
-    let local_addr = listener.local_addr()?;
-    let shutdown = Arc::new(AtomicBool::new(false));
-    let connections = Arc::new(Mutex::new(HashMap::new()));
-    let next_connection = Arc::new(AtomicU64::new(1));
-    let active_connections = mux.connection_stats().clone();
-    let thread_shutdown = shutdown.clone();
-    let thread_connections = connections.clone();
-    let render_service = Arc::new(RenderService::new());
-    let thread = std::thread::Builder::new().name("mux-ws-server".into()).spawn(move || {
-        let mut backoff = crate::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
-        while !thread_shutdown.load(Ordering::Acquire) {
-            let (stream, peer) = match listener.accept() {
-                Ok(connection) => {
-                    backoff.reset();
-                    connection
-                }
-                Err(error) => {
-                    if thread_shutdown.load(Ordering::Acquire) {
-                        break;
-                    }
-                    // Accept errors can persist (for example, after resource exhaustion).
-                    if crate::backoff::accept_error_needs_backoff(&error) {
-                        backoff.sleep();
-                    }
-                    continue;
-                }
-            };
-            if stream.set_nodelay(true).is_err() {
-                continue;
-            }
-            if thread_shutdown.load(Ordering::Acquire) {
-                break;
-            }
-            let Some(permit) = claim_connection(&active_connections) else { continue };
-            let id = next_connection.fetch_add(1, Ordering::Relaxed);
-            if let Ok(tracked) = stream.try_clone() {
-                thread_connections.lock().unwrap().insert(id, tracked);
-            }
-            let mux = mux.clone();
-            let token = token.clone();
-            let render_service = render_service.clone();
-            let connections = thread_connections.clone();
-            let cleanup_connections = thread_connections.clone();
-            if std::thread::Builder::new()
-                .name("mux-ws-conn".into())
-                .spawn(move || {
-                    handle_websocket_connection_with_permit(
-                        mux,
-                        stream,
-                        peer,
-                        token.as_deref(),
-                        render_service,
-                        Some(permit),
-                    );
-                    connections.lock().unwrap().remove(&id);
-                })
-                .is_err()
-            {
-                cleanup_connections.lock().unwrap().remove(&id);
-            }
-        }
-    })?;
-    Ok(WebSocketServer { local_addr, shutdown, connections, thread: Some(thread) })
-}
+#[cfg(test)]
+use websocket_listener::handle_websocket_connection;
+pub use websocket_listener::{
+    WebSocketAccess, WebSocketServer, parse_websocket_origin, serve_websocket,
+    serve_websocket_with_access,
+};
 
 pub fn window_title_osc(title: &str) -> Vec<u8> {
     let title = sanitize_window_title(title);
@@ -7014,183 +6904,6 @@ fn handle_connection_with_permit(
 
 fn json_line_payload_len(line: &str) -> usize {
     line.strip_suffix('\n').map_or(line.len(), str::len)
-}
-
-#[cfg(test)]
-fn handle_websocket_connection(
-    mux: Arc<Mux>,
-    stream: TcpStream,
-    peer: SocketAddr,
-    token: Option<&str>,
-    render_service: Arc<RenderService>,
-) {
-    handle_websocket_connection_with_permit(mux, stream, peer, token, render_service, None);
-}
-
-fn handle_websocket_connection_with_permit(
-    mux: Arc<Mux>,
-    stream: TcpStream,
-    peer: SocketAddr,
-    token: Option<&str>,
-    render_service: Arc<RenderService>,
-    connection_permit: Option<ConnectionPermit>,
-) {
-    let stream = SynchronizedTcpStream::new(stream);
-    if stream.set_read_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
-        || stream.set_write_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
-    {
-        return;
-    }
-    let auth_config = WebSocketConfig::default()
-        .read_buffer_size(4 * 1024)
-        .write_buffer_size(4 * 1024)
-        .max_write_buffer_size(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES)
-        .max_message_size(Some(WEBSOCKET_AUTH_MAX_BYTES))
-        .max_frame_size(Some(WEBSOCKET_AUTH_MAX_BYTES));
-    let Ok(mut websocket) = accept_with_config(stream, Some(auth_config)) else { return };
-
-    if !authenticate_websocket(&mux, &mut websocket, peer, token) {
-        let frame = CloseFrame { code: CloseCode::Policy, reason: "authentication failed".into() };
-        let _ = websocket.close(Some(frame));
-        let _ = websocket.flush();
-        return;
-    }
-    websocket.set_config(|config| {
-        config.max_message_size = Some(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES);
-        config.max_frame_size = Some(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES);
-    });
-    let _ = websocket.get_mut().set_read_timeout(None);
-    let _ = websocket.get_mut().set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
-    let Ok(writer_stream) = websocket.get_ref().try_clone() else { return };
-    let Ok(writer_shutdown) = writer_stream.try_clone_raw() else { return };
-    let Ok(control) = writer_stream.try_clone_raw() else { return };
-    let _ = writer_stream.set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
-    let outbound = Arc::new(BoundedOutbound::default());
-    let writer = MessageWriter::new_with_render_service(
-        QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::WebSocket(control)) },
-        render_service,
-    );
-    let writer_outbound = outbound;
-    let writer_close = writer.clone();
-    let Ok(writer_thread) =
-        std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
-            let mut writer_stream = writer_stream;
-            while let Some(item) = writer_outbound.recv() {
-                let result = match item {
-                    OutboundItem::Text(text) => writer_stream.write_websocket_text(&text),
-                    OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
-                        let _ = flushed.send(());
-                    }),
-                };
-                if result.is_err() {
-                    writer_outbound.close();
-                    break;
-                }
-            }
-            writer_close.close();
-            let _ = writer_stream.write_websocket_close();
-            let _ = writer_shutdown.shutdown(Shutdown::Both);
-        })
-    else {
-        writer.close();
-        return;
-    };
-    let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
-    let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
-        mux.surface_operation_admission.clone(),
-        connection_permit.clone(),
-    ));
-
-    loop {
-        if !writer.is_open() {
-            break;
-        }
-
-        let incoming = websocket.read();
-        match incoming {
-            Ok(Message::Text(text)) => {
-                let mut text = text.to_string();
-                let keep_open =
-                    handle_connection_message(&mux, client, &text, &writer, &surface_scheduler);
-                zeroize_string(&mut text);
-                if !keep_open {
-                    break;
-                }
-            }
-            Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {
-                let _ = websocket.flush();
-            }
-            Ok(Message::Close(_)) => break,
-            Ok(_) => break,
-            Err(_) => break,
-        }
-    }
-    let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
-    disconnect_client(&mux, client, false);
-    let _ = writer_thread.join();
-    let _ = websocket.close(None);
-    drop(connection_permit);
-}
-
-fn authenticate_websocket(
-    mux: &Arc<Mux>,
-    websocket: &mut WebSocket<SynchronizedTcpStream>,
-    peer: SocketAddr,
-    configured_token: Option<&str>,
-) -> bool {
-    let Ok(Message::Text(text)) = websocket.read() else { return false };
-    let mut text = text.to_string();
-    if let Some(mut provided) = auth_token(&text) {
-        let authenticated = configured_token
-            .is_some_and(|expected| constant_time_eq(provided.as_bytes(), expected.as_bytes()))
-            || mux.authenticate_pairing_credential(&provided);
-        zeroize_string(&mut provided);
-        zeroize_string(&mut text);
-        return authenticated;
-    }
-    if !pairing_request(&text) {
-        zeroize_string(&mut text);
-        return false;
-    }
-    zeroize_string(&mut text);
-
-    let (challenge, decision) = match mux.begin_pairing(peer.ip()) {
-        Ok(pairing) => pairing,
-        Err(error) => {
-            let _ = websocket.send(Message::Text(
-                json!({"pairing_error": {"code": error.code(), "message": error.to_string()}})
-                    .to_string()
-                    .into(),
-            ));
-            return false;
-        }
-    };
-    if websocket
-        .send(Message::Text(
-            json!({"pairing": {
-                "id": challenge.id,
-                "code": challenge.code,
-                "peer": challenge.peer,
-                "expires_in": challenge.expires_in,
-            }})
-            .to_string()
-            .into(),
-        ))
-        .is_err()
-    {
-        mux.cancel_pairing(challenge.id);
-        return false;
-    }
-
-    match decision.recv_timeout(Duration::from_secs(challenge.expires_in)) {
-        Ok(PairingDecision::Approved { credential }) => websocket
-            .send(Message::Text(json!({"paired": {"credential": credential}}).to_string().into()))
-            .is_ok(),
-        Ok(PairingDecision::Denied) | Err(_) => {
-            mux.cancel_pairing(challenge.id);
-            false
-        }
-    }
 }
 
 fn disconnect_client(mux: &Arc<Mux>, client: u64, send_detached: bool) -> bool {
@@ -11124,24 +10837,6 @@ fn write_vt_state_command_json(
     Ok(())
 }
 
-fn response_error_code(error: &anyhow::Error) -> Option<String> {
-    error
-        .downcast_ref::<crate::LayoutUndoError>()
-        .map(|error| error.code().to_string())
-        .or_else(|| error.downcast_ref::<LayoutRatioError>().map(|error| error.code().to_string()))
-        .or_else(|| {
-            error.downcast_ref::<ViewportWidthError>().map(|error| error.code().to_string())
-        })
-        .or_else(|| {
-            error
-                .downcast_ref::<crate::ColumnStickyError>()
-                .and_then(|error| error.code().map(str::to_string))
-        })
-        .or_else(|| bookmarks::error_code(error))
-        .or_else(|| conversations::error_code(error))
-        .or_else(|| crate::state::home_error_code(error))
-}
-
 fn auth_token(message: &str) -> Option<String> {
     let value: Value = serde_json::from_str(message).ok()?;
     let object = value.as_object()?;
@@ -12821,25 +12516,6 @@ fn spawn_attach_notification_stream(
         .map(|_| ())
 }
 
-fn report_attach_overflow(
-    writer: &MessageWriter,
-    surface_id: SurfaceId,
-    lifecycle: &AttachLifecycle,
-    outbound_stream: &OutboundStream,
-) {
-    if lifecycle.claim_overflow_report() {
-        let _ = writer.send_terminal(&attach_overflow_json(surface_id), outbound_stream);
-    }
-}
-
-fn handle_attach_send_error(lifecycle: &AttachLifecycle, error: &std::io::Error) {
-    if error.kind() == std::io::ErrorKind::WouldBlock {
-        lifecycle.mark_overflow();
-    } else {
-        lifecycle.cancel();
-    }
-}
-
 struct MarkedClientAttach {
     lease: Option<String>,
     size_rollback: Option<crate::mux::ClientSizeRollback>,
@@ -14004,37 +13680,7 @@ fn handle_command_with_cancellation(
         Command::NewConversationTab(params) => {
             conversation_tabs_wire::new_conversation_tab(mux, params)
         }
-        Command::NewFrontendBrowserTab {
-            url,
-            engine,
-            pane,
-            title,
-            favicon_url,
-            profile_id,
-            owner,
-            cols,
-            rows,
-        } => {
-            let record = crate::workspace_registry::FrontendBrowserRecord {
-                engine,
-                url,
-                title,
-                favicon_url,
-                profile_id,
-                owner,
-            };
-            let surface = mux.new_frontend_browser_tab(
-                pane,
-                record,
-                paired_surface_size("new-frontend-browser-tab", cols, rows)?,
-            )?;
-            let identity = surface.resource_identity();
-            Ok(json!({
-                "surface": surface.id,
-                "tab_resource_id": identity.map(|identity| identity.tab_id.as_str()),
-                "content_resource_id": identity.map(|identity| identity.content_id.as_str()),
-            }))
-        }
+        Command::NewFrontendBrowserTab(params) => frontend_browser_history::create(mux, params),
         Command::UpdateFrontendBrowserTab(params) => frontend_browser_history::update(mux, params),
         Command::SetFrontendBrowserHistory(params) => frontend_browser_history::set(mux, params),
         Command::GetFrontendBrowserHistory(params) => frontend_browser_history::get(mux, params),
@@ -14688,14 +14334,9 @@ fn handle_command_with_cancellation(
             let outcome = split_tab(mux, surface, pane, edge, ratio, respawn, transaction)?;
             Ok(tab_drag_outcome_json(&outcome))
         }
-        Command::MoveTabToColumn { surface, pane, screen, after_column, width, transaction } => {
-            validate_client_transaction(transaction.as_deref())?;
-            get_surface(mux, surface)?;
-            let anchor = column_anchor(mux, pane, screen)?;
-            let outcome =
-                mux.move_tab_to_column(surface, anchor, after_column, width, transaction)?;
-            Ok(tab_drag_outcome_json(&outcome))
-        }
+        Command::MoveTabToColumn(params) => tab_column::move_tab_to_column(mux, params),
+        Command::NewRow(params) => rows::new_row(mux, params),
+        Command::SetRowHeights(params) => rows::set_row_heights(mux, client, params),
         Command::MoveTabToNewWorkspace { surface, group, index, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
             get_surface(mux, surface)?;
@@ -15640,6 +15281,9 @@ fn handle_command_with_cancellation(
                 None => json!({"pane": null, "tab": null}),
             })
         }
+        Command::SnapshotRequest(params) => terminal_snapshot::handle_request(mux, client, params),
+        Command::TerminalHistory(params) => terminal_history::history(mux, params),
+        Command::TerminalReadRange(params) => terminal_history::read_range(mux, params),
         Command::ScrollSurface { surface, delta } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
@@ -15744,6 +15388,7 @@ fn handle_command_with_cancellation(
             rows,
             expected_generation,
             expected_terminal_id,
+            snapshot,
         } => {
             let initial_size = match (cols, rows) {
                 (Some(cols), Some(rows)) => Some((cols, rows)),
@@ -15806,6 +15451,12 @@ fn handle_command_with_cancellation(
                          command; upgrade or restart the cmux-tui client"
                     );
                 }
+            }
+            if surface.kind() == SurfaceKind::Pty
+                && mode.as_deref().unwrap_or("bytes") == "bytes"
+                && snapshot.wants_snapshot()?
+            {
+                return snapshot.attach(mux, client, surface, writer, initial_size);
             }
             let lifecycle = AttachLifecycle::default();
             let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
@@ -16459,15 +16110,6 @@ fn subscription_overflow_json() -> Value {
     })
 }
 
-fn attach_overflow_json(surface: SurfaceId) -> Value {
-    json!({
-        "event": "overflow",
-        "scope": "surface",
-        "surface": surface,
-        "error": "surface stream fell behind; reattach the surface",
-    })
-}
-
 /// Remove the socket file (call on clean shutdown).
 pub fn cleanup(path: &Path) {
     let _ = std::fs::remove_file(path);
@@ -16492,6 +16134,10 @@ mod personal_tests;
 #[cfg(test)]
 #[path = "server/sticky_columns_tests.rs"]
 mod sticky_columns_tests;
+
+#[cfg(test)]
+#[path = "server/rows_tests.rs"]
+mod rows_tests;
 
 #[cfg(test)]
 #[path = "server/personal_terminal_tests.rs"]
@@ -23234,6 +22880,7 @@ mod tests {
                 rows: None,
                 expected_generation: Some(generation),
                 expected_terminal_id: Some(terminal),
+                snapshot: Default::default(),
             };
             let error = handle_command(&mux, client, command, &writer).unwrap_err();
             assert!(error.to_string().contains(expected), "{error:#}");
@@ -23245,6 +22892,7 @@ mod tests {
             rows: None,
             expected_generation: Some(mux.registry_identity().1),
             expected_terminal_id: Some(terminal),
+            snapshot: Default::default(),
         };
         handle_command(&mux, client, command, &writer).unwrap();
         disconnect_client(&mux, client, false);
@@ -23283,6 +22931,7 @@ mod tests {
                 rows: None,
                 expected_generation: None,
                 expected_terminal_id: None,
+                snapshot: Default::default(),
             },
             &writer,
         );
@@ -27525,6 +27174,7 @@ mod tests {
             WINDOW_RECORDS_CAPABILITY,
             FRONTEND_BROWSER_OWNER_CAPABILITY,
             crate::git_ops::CHECKPOINTS_CAPABILITY,
+            crate::git_ops::FILES_SEARCH_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }
@@ -27766,7 +27416,7 @@ mod tests {
             serde_json::from_value::<ProtocolKeyInput>(inactive_consumed_modifier).unwrap();
         assert!(KeyInput::try_from(inactive_consumed_modifier).is_err());
 
-        let invalid_key = KeyInput { key: u32::MAX, ..input.clone() };
+        let invalid_key = KeyInput { key: sys::GhosttyKey::MAX, ..input.clone() };
         assert!(ProtocolKeyInput::try_from(&invalid_key).is_err());
         let invalid_mods = KeyInput { mods: Mods(u16::MAX), ..input.clone() };
         assert!(ProtocolKeyInput::try_from(&invalid_mods).is_err());

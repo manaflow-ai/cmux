@@ -23,9 +23,8 @@ import WebKit
         #expect(standard.webView.configuration.preferences.isWebKitFeatureEnabled(key) == true)
     }
 
-    /// An adaptive pane starts at full rate, caps it after a scroll that
-    /// misses frames, and leaves a fixed-rate pane alone.
-    @Test func anAdaptivePaneCapsItsRateAfterAScrollThatMissesFrames() async throws {
+    /// Native code reports display information and applies only an adaptive page's decision.
+    @Test func anAdaptivePaneAppliesThePagesDecisionAndLeavesFixedRatePanesAlone() async throws {
         let adaptive = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost()), source: .bundled(page), renderRate: .adaptive))
         defer { adaptive.close() }
         let full = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost()), source: .bundled(page), renderRate: .full))
@@ -35,8 +34,12 @@ import WebKit
         full.displayFramesPerSecond = { 160 }
         #expect(adaptive.rendersAtFullRate)
         let missed = Array(repeating: 12.5, count: 120)
-        _ = await adaptive.model.respond(to: .framePacing(missed))
-        _ = await full.model.respond(to: .framePacing(missed))
+        let reply = await adaptive.model.respond(to: .framePacing(missed))
+        let settings = try #require(reply["value"] as? [String: Any])
+        #expect(settings["adaptive"] as? Bool == true)
+        #expect(settings["displayInterval"] as? Double == 6.25)
+        _ = await adaptive.model.respond(to: .renderRate(false))
+        _ = await full.model.respond(to: .renderRate(false))
         #expect(!adaptive.rendersAtFullRate)
         #expect(full.rendersAtFullRate)
     }

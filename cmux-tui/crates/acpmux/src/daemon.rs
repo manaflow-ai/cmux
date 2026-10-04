@@ -17,6 +17,8 @@ pub struct DaemonOptions {
     /// Write one JSON readiness line to this file descriptor once the
     /// socket and the listen address are bound, then close it.
     pub ready_fd: Option<i32>,
+    /// `--allow-dev-origin`: loopback page dev server origins, never saved.
+    pub dev_origins: Vec<String>,
 }
 
 /// How long SIGTERM or `_acpmux/shutdown` may take before the daemon exits
@@ -38,7 +40,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
     }
     let login_env = crate::login_env::requested();
+    let dev_origins = opts
+        .dev_origins
+        .iter()
+        .map(|origin| crate::server::dev_origin(origin))
+        .collect::<Result<Vec<_>>>()?;
     let mut config = Config::load()?;
+    config.dev_origins = dev_origins;
     if opts.memory {
         config.store.mode = crate::config::StoreMode::Memory;
     }
@@ -58,10 +66,33 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let store = crate::store::open(&config.store, &home())?;
     // The dashboard and WebSocket always run. First run picks a loopback port
     // and a random token and saves both, so the URL is stable afterwards.
-    if config.websocket.is_none() {
+    // The token is mandatory (plans/cmux-next/identity.md section 4): a saved
+    // listener without one gets one, and the file keeps it.
+    let needs_token = config
+        .websocket
+        .as_ref()
+        .is_none_or(|w| w.token.as_deref().is_none_or(|t| t.trim().is_empty()));
+    // Only the shared home owns the fixed port; any other home never saves it.
+    let shared_home = dirs::home_dir().map(|h| h.join(".acpmux")) == Some(home());
+    let saved_listen = config.websocket.as_ref().map(|w| w.listen.clone());
+    let listen_ok =
+        saved_listen.as_deref() == Some(first_run_listen(shared_home, saved_listen.as_deref()));
+    if needs_token || !listen_ok {
+        let kept_token = config
+            .websocket
+            .as_ref()
+            .and_then(|w| w.token.clone())
+            .filter(|t| !t.trim().is_empty());
+        let (allowed_origins, allowed_hosts) = config
+            .websocket
+            .as_ref()
+            .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
+            .unwrap_or_default();
         config.websocket = Some(crate::config::WebSocketConfig {
-            listen: "127.0.0.1:47811".into(),
-            token: Some(random_token()),
+            listen: first_run_listen(shared_home, saved_listen.as_deref()).to_owned(),
+            token: Some(kept_token.unwrap_or_else(random_token)),
+            allowed_origins,
+            allowed_hosts,
         });
         if let Err(e) = config.save() {
             tracing::warn!("could not save generated web config: {e}");
@@ -76,6 +107,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 listen,
                 opts.ws_token
                     .clone()
+                    .filter(|t| !t.trim().is_empty())
                     .or_else(|| config.websocket.as_ref().and_then(|w| w.token.clone())),
             )
         })
@@ -103,15 +135,27 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // `--listen 127.0.0.1:0` asked for any free port; report the real one.
     let bound = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok()).map(|a| a.to_string());
     if let (Some(addr), Some((_, token))) = (&bound, &ws) {
-        config.websocket =
-            Some(crate::config::WebSocketConfig { listen: addr.clone(), token: token.clone() });
+        let (allowed_origins, allowed_hosts) = config
+            .websocket
+            .as_ref()
+            .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
+            .unwrap_or_default();
+        config.websocket = Some(crate::config::WebSocketConfig {
+            listen: addr.clone(),
+            token: token.clone(),
+            allowed_origins,
+            allowed_hosts,
+        });
     }
     let hub = Hub::new(config, store);
     hub.begin_startup(login_env);
     std::fs::write(home().join("daemon.pid"), std::process::id().to_string())?;
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
-    let ws_task =
-        ws_listener.map(|(l, token)| tokio::spawn(crate::server::serve_ws(hub.clone(), l, token)));
+    let ws_task = ws_listener.map(|(l, token)| {
+        // `needs_token` above gave the saved listener a token.
+        let token = token.unwrap_or_else(random_token);
+        tokio::spawn(crate::server::serve_ws(hub.clone(), l, token))
+    });
     let ready = serde_json::json!({
         "ready": true,
         "pid": std::process::id(),
@@ -119,7 +163,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         "listen": bound,
         "webUrl": hub.config.read().await.web_listener().map(crate::hub::web_url),
     });
-    tracing::info!("acpmux ready {ready}");
+    // The web URL carries the token; the log (often a 0644 file) never does.
+    tracing::info!(
+        "acpmux ready pid={} socket={} listen={}",
+        std::process::id(),
+        socket_path().display(),
+        bound.as_deref().unwrap_or("none")
+    );
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
     }
@@ -315,14 +365,31 @@ fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyh
     )
 }
 
+/// Open the daemon log for append, owner-only like the config file: the log
+/// can carry agent output and request details. A log left by an older build
+/// with wider bits is narrowed to 0600.
+fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(path)
+        .with_context(|| format!("open {}", path.display()))?;
+    if log.metadata()?.permissions().mode() & 0o077 != 0 {
+        log.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("chmod 0600 {}", path.display()))?;
+    }
+    Ok(log)
+}
+
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
 /// return the read end of its readiness pipe.
 fn spawn_detached() -> Result<std::fs::File> {
     use std::os::fd::FromRawFd;
     let exe = std::env::current_exe()?;
     std::fs::create_dir_all(home())?;
-    let log =
-        std::fs::OpenOptions::new().create(true).append(true).open(home().join("daemon.log"))?;
+    let log = open_daemon_log(&home().join("daemon.log"))?;
     let log_err = log.try_clone()?;
     let mut fds = [0i32; 2];
     // SAFETY: fds has room for the two descriptors pipe writes.
@@ -422,9 +489,57 @@ async fn notify_loop(hub: Arc<Hub>) {
     }
 }
 
+/// The fixed dashboard port belongs to the shared daemon (`~/.acpmux`). Any other home (a
+/// tagged dev build's, `ACPMUX_HOME`) listens on a free port and never saves the fixed one,
+/// so it can never take the release daemon's port; a home that saved it before is moved off.
+/// Returns the address to save: the saved one when it is fine, else the default.
+fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
+    const SHARED: &str = "127.0.0.1:47811";
+    const ANY: &str = "127.0.0.1:0";
+    match saved {
+        Some(saved) if shared_home || !saved.ends_with(":47811") => saved,
+        _ if shared_home => SHARED,
+        _ => ANY,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_shared_home_listens_on_the_fixed_port() {
+        assert_eq!(first_run_listen(true, None), "127.0.0.1:47811");
+        assert_eq!(first_run_listen(false, None), "127.0.0.1:0");
+        // A tagged home that saved the fixed port moves to a free one; other choices stay.
+        assert_eq!(first_run_listen(false, Some("127.0.0.1:47811")), "127.0.0.1:0");
+        assert_eq!(first_run_listen(false, Some("127.0.0.1:5555")), "127.0.0.1:5555");
+        assert_eq!(first_run_listen(true, Some("0.0.0.0:47811")), "0.0.0.0:47811");
+    }
+
+    #[test]
+    fn daemon_log_is_owner_only_when_created_and_when_an_old_log_is_wider() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("acpmux-log-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+
+        let fresh = dir.join("daemon.log");
+        drop(open_daemon_log(&fresh).unwrap());
+        assert_eq!(mode(&fresh), 0o600);
+
+        let old = dir.join("old.log");
+        std::fs::write(&old, b"kept\n").unwrap();
+        std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o644)).unwrap();
+        {
+            use std::io::Write;
+            let mut f = open_daemon_log(&old).unwrap();
+            f.write_all(b"appended\n").unwrap();
+        }
+        assert_eq!(mode(&old), 0o600);
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), "kept\nappended\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[tokio::test]
     async fn lock_release_wakes_the_waiter_and_a_held_lock_times_out() {

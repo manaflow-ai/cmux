@@ -67,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         launchSettle.install(daemon: services.daemon)
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(), prestart: daemonPrestart)
+        FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
         services.ssh.start()
         services.updater.start()
@@ -75,7 +76,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services?.crashRecovery.showRestartNotice(on: controller.window)
         }
         DebugTimings.markLaunch("dfl.daemon_cloud_updater")
-        services.windows.onFirstWindow = { _ in
+        services.windows.onFirstWindow = { [weak services] _ in
+            #if DEBUG
+            if let services, services.environment.showcase { _ = DebugShowcase.seed(["focus": .bool(false)], services: services) }
+            #endif
             CATransaction.setCompletionBlock {
                 MainActor.assumeIsolated { DebugTimings.markLaunch("first_window_frame_committed") }
             }
@@ -118,6 +122,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// control socket (`action.list/describe/run`) over the same registry.
     private func startSettingsAndControl(registry: ActionRegistry) {
         let settings = SettingsController(registry: registry)
+        settings.applyManagedFeaturesNow()
+        ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloud.auth).start()
         self.settings = settings
         services.settings = settings
         services.history.commands.start(settings: settings)
@@ -134,6 +140,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
         settings.start()
+        // The GitHub connection is deliberately off by default. Changes in
+        // Settings apply to the one feed owner and never create a second
+        // inbox store.
+        Task { [weak services, weak settings] in
+            guard let settings else { return }
+            await settings.waitForLoad(atLeast: 1)
+            for await github in Observations({ settings.snapshot.feedGitHub }) {
+                services?.feed.configureGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)
+            }
+        }
         // macOS posts no notification when an MDM profile changes; activation
         // is the event-driven backstop next to the managed-file watchers.
         Task { [weak settings] in

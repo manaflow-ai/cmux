@@ -3,6 +3,11 @@ public import Foundation
 /// A list page: the root command list or a nested list.
 public struct PalettePageSpec {
     public let id: String
+    /// The palette scope this page shows (plans/cmux-next/palette-scopes.md):
+    /// `.root` for the full palette, a graph scope such as `tabs`, or nil
+    /// for a page of its own (argument picker, history list), which is
+    /// scope `page:<id>`.
+    public var scope: PaletteScopeID?
     public var title: String
     public var placeholder: String
     public var symbol: String
@@ -41,9 +46,11 @@ public struct PalettePageSpec {
         keepsSectionOrder: Bool = false,
         emptyQuerySelection: Int = 0,
         onHighlight: (@MainActor (PaletteItem?) -> Void)? = nil,
-        onLeave: (@MainActor () -> Void)? = nil
+        onLeave: (@MainActor () -> Void)? = nil,
+        scope: PaletteScopeID? = nil
     ) {
         self.id = id
+        self.scope = scope
         self.title = title
         self.placeholder = placeholder
         self.symbol = symbol
@@ -56,6 +63,11 @@ public struct PalettePageSpec {
         self.onHighlight = onHighlight
         self.onLeave = onLeave
     }
+}
+
+extension PalettePageSpec {
+    /// The scope id the navigation stack uses for this page.
+    var scopeID: PaletteScopeID { scope ?? PaletteScopeID("page:\(id)") }
 }
 
 /// An inline text entry page, used by argument-taking actions.

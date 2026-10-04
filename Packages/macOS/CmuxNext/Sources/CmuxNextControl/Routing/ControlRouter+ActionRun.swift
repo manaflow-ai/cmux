@@ -21,7 +21,8 @@ extension ControlRouter {
     func runAction(_ call: ControlCall) async throws -> JSONValue {
         let catalog = call.snapshot.catalog
         let action = try Self.resolveAction(call.params, in: catalog)
-        let given = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds)
+        let given = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds,
+                                              connection: call.connection)
         let key = try Self.idempotencyKey(call.params)
         guard let key else { return try await execute(action, given, key: nil, call: call) }
         switch idempotency.claim(key, fingerprint: given) {
@@ -218,6 +219,8 @@ extension ControlRouter {
             throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionUnavailableReason", "%1$@ unavailable: %2$@", action, reason), data: ["action": .string(action), "reason": .string(reason)])
         case .notFound(let reason):
             throw ControlError(code: "not_found", message: reason, data: ["action": .string(action), "reason": .string(reason)])
+        case .featureDisabled(let feature):
+            throw ControlError.featureDisabled(action, feature: feature)
         case .confirmationRequired:
             throw confirmationRequired(action)
         }

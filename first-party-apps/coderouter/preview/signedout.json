@@ -49,19 +49,19 @@
       "class": "mutation"
     },
     "coderouter.keys.create": {
-      "scope": "coderouter:control",
+      "scope": "coderouter:keys",
       "class": "mutation"
     },
     "coderouter.keys.revoke": {
-      "scope": "coderouter:control",
+      "scope": "coderouter:keys",
       "class": "mutation"
     },
     "ui.secret.reveal": {
-      "scope": "coderouter:control",
+      "scope": "coderouter:keys",
       "class": "mutation"
     },
     "clipboard.writeSecret": {
-      "scope": "coderouter:control",
+      "scope": "coderouter:keys",
       "class": "mutation"
     }
   },

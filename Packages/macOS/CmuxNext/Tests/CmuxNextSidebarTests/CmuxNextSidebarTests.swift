@@ -215,6 +215,36 @@ import Testing
         #expect(SidebarFilter.matches("resume MAIN", in: sections) == [id("r")])
         #expect(SidebarFilter.matches("   ", in: sections) == nil)
     }
+
+    @Test func optionalTabRowsFollowWorkspaceRows() {
+        var sections = fixture()
+        sections[1].nodes[0] = .workspace(SidebarWorkspace(
+            id: id("a"), title: "a",
+            tabs: [SidebarTab(id: TabID("t1"), title: "Terminal"),
+                   SidebarTab(id: TabID("t2"), title: "Browser", kind: .browser)]
+        ))
+        var options = SidebarLayoutOptions()
+        options.showWorkspaceTabs = true
+        let layout = SidebarLayout.make(sections: sections, metrics: .standard, options: options)
+        #expect(layout.row(for: .workspace(id("a"))) != nil)
+        #expect(layout.row(for: .tab(id("a"), TabID("t1")))?.workspace == id("a"))
+        #expect(layout.row(for: .tab(id("a"), TabID("t2")))?.tabKind == .browser)
+
+        let withoutTabs = SidebarLayout.make(sections: sections, metrics: .standard)
+        #expect(withoutTabs.row(for: .tab(id("a"), TabID("t1"))) == nil)
+    }
+
+    @Test func tabRowsUseTheWorkspaceAsTheirDropTarget() throws {
+        var sections = fixture()
+        sections[1].nodes[0] = .workspace(SidebarWorkspace(
+            id: id("a"), title: "a", tabs: [SidebarTab(id: TabID("t1"), title: "Terminal")]
+        ))
+        var options = SidebarLayoutOptions()
+        options.showWorkspaceTabs = true
+        let layout = SidebarLayout.make(sections: sections, metrics: .standard, options: options)
+        let row = try #require(layout.row(for: .tab(id("a"), TabID("t1"))))
+        #expect(DropResolver.resolveTabDrop(y: row.y + row.height / 2, base: layout, sections: sections, sourceMachine: .local) == .intoWorkspace(id("a")))
+    }
 }
 
 // MARK: - Drop position math

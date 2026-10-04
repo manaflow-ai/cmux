@@ -141,7 +141,7 @@ public nonisolated enum ManagedPreferencesManifest {
             properties[e.name] = p
         }
         let schema: [String: Any] = ["title": "\(title) (\(ManagedPreferences.domain))", "description": summary, "properties": properties]
-        return try JSONSerialization.data(withJSONObject: schema, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        return Data(try DeterministicJSON.string(schema, pretty: true).utf8)
     }
 
     /// A JSON value as a property list object (nil has no plist form).

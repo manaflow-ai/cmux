@@ -1099,6 +1099,34 @@ describe("direct client session state", () => {
     expect(latest().commands).toEqual([]);
   });
 
+  test("a prompt with attachments sends the text, its text files and then its images, and shows the text it recorded", async () => {
+    const client = await connect();
+    await client.send("Compare", [
+      { id: "i", kind: "image", name: "shot.png", mimeType: "image/png", size: 4, data: "iVBORw==" },
+      { id: "t", kind: "text", name: "a.txt", mimeType: "text/plain", size: 1, text: "x" },
+    ]);
+    const prompt = ScriptedSocket.current.sent.find((request) => request.method === "session/prompt")!;
+    expect(prompt.params.prompt).toEqual([
+      { type: "text", text: "Compare\n\na.txt\n```txt\nx\n```" },
+      { type: "image", mimeType: "image/png", data: "iVBORw==" },
+    ]);
+    expect(texts().at(-1)).toBe("Compare\n\na.txt\n```txt\nx\n```");
+  });
+
+  test("the agent's prompt capabilities reach the snapshot", async () => {
+    ScriptedSocket.respond = ({ method, params }) =>
+      method === "_acpmux/attach"
+        ? {
+            ...attachReply(params.sessionId),
+            session: { sessionId: "a", agentCapabilities: { promptCapabilities: { image: false } } },
+          }
+        : method === "_acpmux/watch"
+          ? { sessions: [{ sessionId: "a" }] }
+          : {};
+    await connect();
+    expect(latest().summary?.promptCapabilities).toEqual({ image: false });
+  });
+
   test("a failed prompt row survives a lag rebuild", async () => {
     const client = await connect();
     ScriptedSocket.held.add("session/prompt");

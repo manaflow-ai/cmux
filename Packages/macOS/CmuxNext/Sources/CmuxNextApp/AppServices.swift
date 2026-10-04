@@ -10,7 +10,6 @@ import CmuxNextBrowserImport
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextUpdater
-
 /// Process-wide services the window controllers share. Model state is not
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
@@ -18,7 +17,7 @@ final class AppServices {
     /// Each window's last sidebar, drawn before the daemon answers.
     let sidebarSnapshots: SidebarSnapshotStore
     /// Launch load-in by region; tests inject one with their own clock.
-    var launchReveal = LaunchReveal.shared
+    let launchReveal: LaunchReveal
     /// Run marker, restart notice, crash reports (`debug.crashes`).
     let crashRecovery: CrashRecoveryService
     /// The local daemon. Cloud machines are in `machines`; code acting on a
@@ -39,6 +38,9 @@ final class AppServices {
     private(set) var cloud: CloudService!
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
     private(set) var feed: FeedService!
+    var showcase = ShowcaseState()
+    /// The wide Inbox page, backed by `feed.model`.
+    private(set) lazy var feedPage = FeedPageService(services: self)
     /// SSH machines (Connect to Machine…).
     private(set) var ssh: SSHService!
     /// Phone access; started by the account layer once signed in.
@@ -78,12 +80,15 @@ final class AppServices {
     private(set) lazy var historyPage = HistoryPageService(services: self)
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
+    private(set) lazy var remoteViewPages = RemoteViewPageService()
     /// Recently closed workspaces (history lists).
     private(set) lazy var closedWorkspaces = ClosedWorkspaceTracker(services: self)
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
     private(set) lazy var apps = AppsService(services: self)
+    /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
+    private(set) lazy var tasks = TasksPageService(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
     private(set) lazy var serverMenuBar = ServerMenuBarController()
     /// Home: local conversations with the mux (plans/cmux-next/home.md).
@@ -123,7 +128,7 @@ final class AppServices {
     private(set) lazy var accounts = AccountsService(services: self)
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
-    let terminalTheme = TerminalThemeSetting()
+    let terminalTheme = TerminalThemeSetting(backdropScope: .app)
     /// Room, workspace and terminal themes.
     private(set) var themes: ThemeCoordinator!
     /// Browser tabs of remote machines reach that machine's localhost.
@@ -140,7 +145,7 @@ final class AppServices {
     /// Browser profiles: records, the new-tab cascade, each tab's store.
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
-    private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag, registry: registry, linkScheme: linkScheme, git: agentGit)
+    private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag, registry: registry, environment: ProcessInfo.processInfo.environment, showcase: environment.showcase, linkScheme: linkScheme, git: agentGit, settings: settings)
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
     /// Internal page tabs (Settings, Debug Settings, the App Store).
@@ -157,8 +162,10 @@ final class AppServices {
     let refusalHUD = RefusalHUD()
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
     private(set) var remoteTerminals: RemoteTerminalService!
-
-    init(environment: AppEnvironment) {
+    /// - Parameter launchReveal: The launch load-in the windows' sidebars
+    ///   hold for; the app-wide one by default.
+    init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared) {
+        self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
@@ -166,8 +173,9 @@ final class AppServices {
         self.environment = environment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         machines = MachineRegistry(local: daemon)
+        machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         cloud = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)
-        feed = FeedService(auth: cloud.auth)
+        feed = FeedService(auth: cloud.auth, showcase: environment.showcase)
         ssh = SSHService(machines: machines, bundleID: environment.launch.bundleID)
         BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
@@ -179,6 +187,7 @@ final class AppServices {
             await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base
         }
         cache.findTab = { [weak self] key in self?.remoteLocalhost.tab(id: key) }
+        cache.onRelease = { [weak self] key in self?.home.releaseTabView(key) }
         cache.machineBadge = { [weak self] key, url in
             guard let self, let tab = remoteLocalhost.tab(id: key) else { return nil }
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
@@ -261,7 +270,7 @@ final class AppServices {
         tabBarButtons = TabBarButtonsController(context: AppActionContext(services: self))
         let updateSheet = UpdateSheetController(source: UpdateSheetModel(service: updater))
         self.updateSheet = updateSheet
-        updater.presentUpdateUI = { [weak self] in updateSheet.present(in: self?.windows.active?.window) }
+        updater.attach(sheet: updateSheet, services: self)
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }

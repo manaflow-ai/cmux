@@ -10,15 +10,23 @@ const stackPublic = { ...(await exportJWK(stack.publicKey)), kid: "stack-test", 
 const stackPrivate = { ...(await exportJWK(stack.privateKey)), kid: "stack-test" }
 const apiPrivate = { ...(await exportJWK(api.privateKey)), kid: "api-test" }
 const githubApp = await generateKeyPair("RS256", { extractable: true })
+// Test-only Google key that signs Pub/Sub push tokens (replaces Google's JWKS when ENVIRONMENT=test).
+const pubsub = await generateKeyPair("RS256", { extractable: true })
+const pubsubPublic = { ...(await exportJWK(pubsub.publicKey)), kid: "google-test", alg: "RS256" }
+const pubsubPrivate = { ...(await exportJWK(pubsub.privateKey)), kid: "google-test" }
 const kek = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64")
 
 export default defineConfig({
+  // Loads the Worker once per test file before any test runs (test/setup/warm-worker.ts).
+  test: { setupFiles: ["./test/setup/warm-worker.ts"] },
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
       miniflare: {
         bindings: {
           ENVIRONMENT: "test",
+          // Automation hard cap ceiling per team per month (USD); tests set it explicitly.
+          AUTOMATION_CAP_CEILING_USD: "25",
           STACK_TEST_JWKS: JSON.stringify({ keys: [stackPublic] }),
           STACK_TEST_PRIVATE_JWK: JSON.stringify(stackPrivate),
           JWT_PRIVATE_JWK: JSON.stringify(apiPrivate),
@@ -40,7 +48,14 @@ export default defineConfig({
           GOOGLE_CLIENT_ID: "google-client.apps.googleusercontent.com",
           GOOGLE_CLIENT_SECRET: "google-client-secret",
           // The dev project in Testing mode may ask for restricted Gmail scopes.
-          GOOGLE_RESTRICTED_SCOPES: "testing"
+          GOOGLE_RESTRICTED_SCOPES: "testing",
+          // Team VMs use the in-object fake provider (team-vm-driver.ts).
+          TEAM_VM_DRIVER: "fake",
+          GOOGLE_PUBSUB_TOPIC: "projects/cmux-integrations-dev/topics/gmail-push",
+          GOOGLE_PUBSUB_AUDIENCE: "https://api.test/v1/hooks/google/pubsub",
+          GOOGLE_PUBSUB_SERVICE_ACCOUNT: "gmail-push-invoker@cmux-integrations-dev.iam.gserviceaccount.com",
+          GOOGLE_PUBSUB_TEST_JWKS: JSON.stringify({ keys: [pubsubPublic] }),
+          GOOGLE_PUBSUB_TEST_PRIVATE_JWK: JSON.stringify(pubsubPrivate)
         }
       }
     })

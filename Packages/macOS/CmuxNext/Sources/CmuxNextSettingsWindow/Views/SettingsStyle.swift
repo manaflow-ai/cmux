@@ -11,9 +11,6 @@ enum SettingsStyle {
     static var text: Color { color(tokens.textPrimary) }
     static var secondary: Color { color(tokens.textSecondary) }
     static var tertiary: Color { color(tokens.textTertiary) }
-    /// Opaque, like `Palette.utilityWindowBackground`: a translucent main
-    /// window never makes Settings hard to read.
-    static var background: Color { color(tokens.windowBackground.withAlpha(1)) }
     static var card: Color { color(tokens.chromeBackground) }
     static var selection: Color { color(tokens.selectionFill) }
     static var hover: Color { color(tokens.hoverFill) }

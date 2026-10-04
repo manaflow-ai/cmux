@@ -3,7 +3,7 @@ import Foundation
 
 extension HomeService {
     /// The local mux participant every local conversation starts with.
-    static let mux = ConversationParticipant(id: "agent_mux", kind: .agent, displayName: "mux", agentClass: "mux", acpSession: "mux")
+    static let mux = ConversationParticipant(id: "agent_mux", kind: .agent, displayName: "Chief", agentClass: "mux", acpSession: "mux")
 
     /// The local user as a participant, named after the macOS account.
     static var localUser: ConversationParticipant {

@@ -1,19 +1,31 @@
 public import UIKit
 
 /// One terminal on the phone: a ghostty-next surface fed by a
-/// `TerminalSessionSource`. Output bytes go to the renderer; typed input goes
-/// to the source as ordered, attributed input (nothing queues offline).
+/// `TerminalSessionSource` under `terminal-snapshot-v1` (snapshot first, then
+/// live bytes; see `TerminalStreamPipeline`). Typed input goes to the source
+/// as ordered, attributed input (nothing queues offline).
 @MainActor
 public final class TerminalViewController: UIViewController {
-    private let source: any TerminalSessionSource
-    private let terminal: TerminalRef
-    private let terminalView = GhosttyTerminalView(frame: .zero)
-    private let badge = UILabel()
-    private var stream: Task<Void, Never>?
+    let source: any TerminalSessionSource
+    let terminal: TerminalRef
+    let terminalView = GhosttyTerminalView(frame: .zero)
+    let badge = UILabel()
+    /// Throttle retries sleep on this clock (injected; tests use a manual one).
+    let clock: any Clock<Duration>
+    var stream: Task<Void, Never>?
+    var retry: Task<Void, Never>?
+    /// The pending READY deadline (cancelled by a newer one or detach).
+    var readyDeadline: Task<Void, Never>?
+    var pipeline: TerminalStreamPipeline?
+    var pathText: String?
+    var notice: String?
+    var streamStats = TerminalStreamStats()
 
-    public init(source: any TerminalSessionSource, terminal: TerminalRef) {
+    public init(source: any TerminalSessionSource, terminal: TerminalRef,
+                clock: any Clock<Duration> = ContinuousClock()) {
         self.source = source
         self.terminal = terminal
+        self.clock = clock
         super.init(nibName: nil, bundle: nil)
         title = terminal.title
     }
@@ -52,53 +64,16 @@ public final class TerminalViewController: UIViewController {
 
     public override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        stream?.cancel()
-        stream = nil
-        let source = self.source
-        let terminal = self.terminal
-        Task { await source.detach(terminal) }
+        detach()
     }
 
-    /// DEBUG diagnostics of the surface.
-    public var diagnostics: [String: String] { terminalView.diagnostics }
+    /// DEBUG diagnostics of the surface and the stream.
+    public var diagnostics: [String: String] {
+        terminalView.diagnostics.merging(streamStats.diagnostics) { _, stream in stream }
+    }
 
     /// Shows the keyboard (user action only).
     public func focusInput() { terminalView.becomeFirstResponder() }
-
-    private func attach() {
-        guard stream == nil else { return }
-        let source = self.source
-        let terminal = self.terminal
-        stream = Task { [weak self] in
-            guard let events = try? await source.attach(terminal) else { return }
-            for await event in events {
-                guard let self else { return }
-                self.apply(event)
-            }
-        }
-        let grid = terminalView.fittingGrid
-        Task { await source.setPresence(terminal, visible: true, cols: grid.cols, rows: grid.rows) }
-    }
-
-    private func apply(_ event: TerminalChannelEvent) {
-        switch event {
-        case .snapshot(let bytes, let cols, let rows):
-            terminalView.reset(snapshot: bytes, cols: cols, rows: rows)
-        case .bytes(let bytes):
-            terminalView.feed(bytes)
-        case .resized:
-            break // the host follows every grid change with a snapshot
-        case .path(let path, _):
-            badge.text = path.label
-            badge.sizeToFit()
-        case .kicked(let name):
-            badge.text = String(format: String(localized: "terminal.kicked", defaultValue: "Disconnected by %@", bundle: .module), name)
-            badge.sizeToFit()
-        case .closed:
-            badge.text = String(localized: "terminal.closed", defaultValue: "Closed", bundle: .module)
-            badge.sizeToFit()
-        }
-    }
 }
 
 extension TerminalPath {

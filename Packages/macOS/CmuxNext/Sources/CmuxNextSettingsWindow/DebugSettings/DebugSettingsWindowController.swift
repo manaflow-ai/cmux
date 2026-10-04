@@ -29,11 +29,9 @@ public final class DebugSettingsWindowController: NSWindowController, NSWindowDe
         window.model = model
         super.init(window: window)
         window.delegate = self
-        // Theme and background before the content view, so the titlebar
-        // (close button) stays above it (lane 20).
-        setThemeScope(SettingsTheme.shared.scope)
-        window.backgroundColor = SettingsTheme.shared.scope.perform { Palette.utilityWindowBackground }
-        window.contentView = DebugSettingsContentView(rootView: DebugSettingsRootView(model: model))
+        SettingsTheme.shared.follow(SettingsTheme.shared.scope)
+        window.install(kind: .debugSettings, content: NSHostingView(rootView: DebugSettingsRootView(model: model)),
+                       scope: SettingsTheme.shared.scope)
     }
 
     @available(*, unavailable)
@@ -60,27 +58,9 @@ public final class DebugSettingsWindowController: NSWindowController, NSWindowDe
     }
 }
 
-/// The hosting view; it repaints the window background on theme changes.
-final class DebugSettingsContentView: NSHostingView<DebugSettingsRootView> {
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        applyColors()
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyColors()
-    }
-
-    private func applyColors() {
-        let color = performWithTheme { Palette.utilityWindowBackground }
-        if let window, window.backgroundColor != color { window.backgroundColor = color }
-    }
-}
-
 /// Cmd-F focuses the search, Escape clears the search first and then
-/// closes. Cmd-W closes it through the app's shared rule for standalone
-/// windows (`StandaloneWindowRule`), like every window of its own.
+/// closes. Cmd-W closes it through the app's window key table
+/// (`WindowKeyTable`, kind `.debugSettings`), like every window of its own.
 final class DebugSettingsWindow: NSWindow {
     weak var model: DebugSettingsModel?
 

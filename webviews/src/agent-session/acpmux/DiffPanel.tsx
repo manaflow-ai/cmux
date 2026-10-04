@@ -9,6 +9,7 @@ import { registerAgentDiffTheme } from "./diffTheme";
 import { ChevronLeft, CollapseAll, Panels, SplitView, Wrap } from "./changeIcons";
 import { ChangedFilesTree } from "./changes/ChangedFilesTree";
 import { Counts } from "./changes/Counts";
+import { DiffKeyHints } from "./changes/DiffKeyHints";
 import { EditBlock, type DiffLayout } from "./changes/EditBlock";
 import type { HunkReview } from "./changes/hunkReview";
 import type { FileActions, OpenTarget } from "./changes/FileHeader";
@@ -21,6 +22,7 @@ import { OptionsMenu, type OptionsRow } from "./changes/OptionsMenu";
 import { RevertBar } from "./changes/RevertBar";
 import { ScopeMenu } from "./changes/ScopeMenu";
 import { TrackedOnlyBanner } from "./changes/TrackedOnlyBanner";
+import { useDiffKeys } from "./changes/useDiffKeys";
 import { useScopeChanges } from "./changes/useScopeChanges";
 
 const LAYOUT_KEY = "cmux.acpmux.diffLayout";
@@ -57,6 +59,8 @@ export function DiffPanel({
   checkpointAction,
   checkpointReview,
   review,
+  reviewFiles,
+  turn,
 }: {
   files: TurnFile[];
   initialPath?: string;
@@ -67,6 +71,10 @@ export function DiffPanel({
   checkpointAction?: React.ReactNode;
   checkpointReview?: React.ReactNode;
   review?: HunkReview;
+  /// Tool-call files remain the source of revert patches when Last turn is showing a checkpoint.
+  reviewFiles?: TurnFile[];
+  /// Where Last turn's files came from, and why a checkpoint isn't shown when one was expected.
+  turn?: { source: "checkpoint" | "tools"; note?: string };
 }) {
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
@@ -89,8 +97,10 @@ export function DiffPanel({
   const body = useRef<HTMLDivElement>(null);
   const back = useRef<HTMLButtonElement>(null);
   const focusAfter = useRef<string | undefined>(undefined);
-  // Decisions are keyed by the turn's tool calls, so only the last turn's hunks are reviewed.
+  // Decisions are keyed by the turn's tool calls. Checkpoint hunks carry the matching keys when
+  // the net diff still contains a tool change, while formatter-only hunks remain read-only.
   const hunkReview = scope === "lastTurn" ? review : undefined;
+  const turnNote = scope === "lastTurn" ? turn?.note : undefined;
   const totals = useMemo(
     () =>
       files.reduce(
@@ -112,7 +122,7 @@ export function DiffPanel({
   const stopRevealing = () => {
     revealing.current = undefined;
   };
-  const revealFromTree = (path: string) => {
+  const revealFromTree = useStableCallback((path: string) => {
     revealing.current = path;
     // A file picked in the tree opens if it was collapsed.
     setCollapsed((current) => {
@@ -122,7 +132,7 @@ export function DiffPanel({
       return next;
     });
     reveal(path);
-  };
+  });
   // Wheel, pointer or key input in the diffs means the reader is moving on their own.
   useEffect(() => {
     const node = body.current;
@@ -146,6 +156,9 @@ export function DiffPanel({
   // Escape closes the view while focus is in it (or nowhere), not while typing in the composer
   // or the file filter.
   const panel = useRef<HTMLElement>(null);
+  // j/k move between files as picking them in the tree does; n/p between changes.
+  const selectedFile = useStableCallback(() => selected);
+  useDiffKeys(panel, body, revealFromTree, selectedFile);
   useEffect(() => {
     const close = (event: KeyboardEvent) => {
       const focus = document.activeElement;
@@ -299,8 +312,9 @@ export function DiffPanel({
           {openFailure}
         </div>
       )}
-      {(branch || skipped > 0) && (
+      {(branch || skipped > 0 || turnNote) && (
         <div className="acpmux-diff-notes">
+          {turnNote && <output className="acpmux-turn-note">{turnNote}</output>}
           {branch && <BranchPill branch={branch.branch} base={branch.base} />}
           {skipped > 0 && <TrackedOnlyBanner skipped={skipped} onRefresh={refresh} />}
         </div>
@@ -325,7 +339,7 @@ export function DiffPanel({
                   view={{ collapsed: collapsed.has(file.path), viewed: viewed.has(file.path) }}
                   on={on}
                   onPainted={onPainted}
-                  review={hunkReview}
+                  review={file.outside ? undefined : hunkReview}
                   focusAfter={focusAfter}
                 />
               )),
@@ -338,7 +352,10 @@ export function DiffPanel({
           </nav>
         )}
       </div>
-      {hunkReview && <RevertBar files={files} review={hunkReview} onSent={() => back.current?.focus()} />}
+      {hunkReview && (
+        <RevertBar files={reviewFiles ?? files} review={hunkReview} onSent={() => back.current?.focus()} />
+      )}
+      {files.length > 0 && !scopeState && <DiffKeyHints />}
     </section>
   );
 }

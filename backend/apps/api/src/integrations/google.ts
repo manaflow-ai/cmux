@@ -179,6 +179,29 @@ export const googleRefresh = async (env: Env, http: Http, credential: Credential
   return tokenCredential(b, credential.refresh_token)
 }
 
+const GOOGLE_REVOKE = "https://oauth2.googleapis.com/revoke"
+
+/** Gmail (`gmail:<sub>`) and Calendar (`google_calendar:<sub>`) connections of one Google user share one grant. */
+export const googleGrantKeys = (accountKey: string): ReadonlyArray<string> => {
+  const sub = accountKey.slice(accountKey.indexOf(":") + 1)
+  return [`gmail:${sub}`, `google_calendar:${sub}`]
+}
+
+/**
+ * Revoking the refresh token revokes the user's whole grant to our OAuth
+ * client, also the tokens of other cmux connections of the same Google user.
+ * The caller checks `googleGrantKeys` first.
+ */
+export const googleRevoke = async (_env: Env, http: Http, credential: Credential): Promise<"done" | "retry"> => {
+  if (credential.kind !== "oauth") return "done"
+  const token = credential.refresh_token ?? credential.access_token
+  const res = await http(
+    new Request(GOOGLE_REVOKE, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ token }).toString(), signal: AbortSignal.timeout(10_000) })
+  )
+  // 400 invalid_token: the user or Google already revoked it.
+  return res.ok || res.status === 400 ? "done" : "retry"
+}
+
 /**
  * One Google API call. Never echoes a response body. 401 = reauth; 429 and
  * 403 with a rate-limit reason are retryable; for the effect call (`effect`)

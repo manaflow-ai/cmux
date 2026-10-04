@@ -10,20 +10,34 @@ import Security
 /// sign-out cleanup can mint a token without a Stack session.
 public actor InstallIdentity {
     private let baseURL: URL
-    private let environment: String
     private let signer: SecureEnclaveInstallSigner
     private let records: InstallRecordStore
     private let deviceName: String
+    private let clientVersion: String?
     private var clients: [String: InstallAuthClient] = [:]
     public private(set) var current: String?
+    /// Set while the owner refuses this app as too old; nil otherwise.
+    public private(set) var updateRequired: ClientUpdateRequired?
+    private var onUpdateRequired: (@Sendable (ClientUpdateRequired?) async -> Void)?
 
-    public init(baseURL: URL, bundleID: String, deviceName: String) {
+    /// - Parameter clientVersion: sent as `x-cmux-client-version`; defaults
+    ///   to the app's `CFBundleShortVersionString`.
+    public init(baseURL: URL, bundleID: String, deviceName: String,
+                clientVersion: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) {
         self.baseURL = baseURL
         let host = baseURL.host ?? "unknown"
-        environment = host == "cloud-api.cmux.dev" ? "production" : "staging"
         signer = SecureEnclaveInstallSigner(bundleID: bundleID, environment: host)
         records = InstallRecordStore(service: "\(bundleID).install-record.\(host)")
         self.deviceName = deviceName
+        self.clientVersion = clientVersion
+    }
+
+    /// Called with the minimum version when the owner starts refusing this
+    /// app as too old, and with nil when a later mint succeeds (the team
+    /// lowered its minimum). Called only on a change.
+    public func observeUpdateRequired(_ handler: @escaping @Sendable (ClientUpdateRequired?) async -> Void) async {
+        onUpdateRequired = handler
+        if let updateRequired { await handler(updateRequired) }
     }
 
     /// At launch, before auth restores: bind the last signed-in user so a
@@ -50,6 +64,9 @@ public actor InstallIdentity {
         if current == stackUser {
             current = nil
             records.setLastUser(nil)
+            // The refusal was the signed-out team's policy; the next account's
+            // first mint decides again.
+            if updateRequired != nil { await setUpdateRequired(nil) }
         }
     }
 
@@ -63,7 +80,52 @@ public actor InstallIdentity {
     /// A valid install token for `stackUser` (default: the current user).
     public func token(for stackUser: String? = nil) async throws -> String {
         guard let user = stackUser ?? current else { throw InstallAuthError.noSession }
-        return try await client(for: user).installToken()
+        return try await mint(client(for: user))
+    }
+
+    /// The current user's owner ids, backend environment and host, with the
+    /// install token minted for them (one actor step, so an account switch
+    /// cannot pair one user's ids with another's token). For requests the
+    /// install key signs, such as presence-key registration.
+    public func ownerInstall() async throws
+        -> (user: String, install: String, environment: String, host: String, token: String) {
+        guard let user = current else { throw InstallAuthError.noSession }
+        let client = client(for: user)
+        let token = try await mint(client)
+        guard let record = await client.currentRecord, let environment = await client.environment else {
+            throw InstallAuthError.noSession
+        }
+        return (record.user, record.install, environment, baseURL.host ?? "unknown", token)
+    }
+
+    /// ES256 with this device's install key (raw r||s or DER).
+    public func signWithInstallKey(_ message: Data) async throws -> Data {
+        try await signer.sign(message)
+    }
+
+    /// POSTs `json` to the API Worker with `bearer` (and the client version).
+    public func post(_ path: String, json: Data, bearer: String) async throws -> (status: Int, body: Data) {
+        try await CredentialedTransport(baseURL: baseURL).post(path, json: json, bearer: bearer,
+                                                              headers: InstallAuthClient.headers(clientVersion: clientVersion))
+    }
+
+    /// One mint; a too-old refusal (or the first success after one) is
+    /// reported to the observer before the result returns.
+    private func mint(_ client: InstallAuthClient) async throws -> String {
+        do {
+            let token = try await client.installToken()
+            if updateRequired != nil { await setUpdateRequired(nil) }
+            return token
+        } catch InstallAuthError.clientTooOld(let minimum) {
+            let required = ClientUpdateRequired(minimumVersion: minimum)
+            if updateRequired != required { await setUpdateRequired(required) }
+            throw InstallAuthError.clientTooOld(minimumVersion: minimum)
+        }
+    }
+
+    private func setUpdateRequired(_ value: ClientUpdateRequired?) async {
+        updateRequired = value
+        await onUpdateRequired?(value)
     }
 
     /// The owner refused the token (401): mint again next time.
@@ -83,9 +145,20 @@ public actor InstallIdentity {
     private func makeClient(_ user: String, session: InstallAuthClient.SessionToken?) -> InstallAuthClient {
         let records = self.records
         return InstallAuthClient(transport: CredentialedTransport(baseURL: baseURL), signer: signer,
-                                 sessionToken: session, stackUser: user, environment: environment,
-                                 deviceName: deviceName, record: records.record(for: user),
+                                 sessionToken: session, stackUser: user,
+                                 deviceName: deviceName, clientVersion: clientVersion, record: records.record(for: user),
                                  onRecord: { records.setRecord($0, for: user) })
+    }
+}
+
+/// The owner refuses this app version for the signed-in team
+/// (`client.too_old`); the user must update the app.
+public struct ClientUpdateRequired: Hashable, Sendable {
+    /// The team's `updates.minimumVersion`, when the owner named it.
+    public let minimumVersion: String?
+
+    public init(minimumVersion: String?) {
+        self.minimumVersion = minimumVersion
     }
 }
 
@@ -131,9 +204,10 @@ struct CredentialedTransport: InstallAuthTransport {
     let baseURL: URL
     private let session = CmxCredentialedHTTPSession()
 
-    func post(_ path: String, json: Data, bearer: String?) async throws -> (status: Int, body: Data) {
+    func post(_ path: String, json: Data, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {
         var request = URLRequest(url: baseURL.appendingPathComponent(String(path.drop(while: { $0 == "/" }))))
         request.httpMethod = "POST"
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let bearer { request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization") }
         request.httpBody = json

@@ -1,8 +1,19 @@
 # Settings on every surface
 
-Status: plan, 2026-10-03. Owner: catalog lane. Lane 20 owns the Settings pane UI and the transparency keys; this plan does not change the pane.
+Status: plan, 2026-10-03, updated the same day (see "Update: Rust owner" first). Owner: catalog lane. Lane 20 owns the Settings pane UI and the transparency keys; this plan does not change the pane.
 
 Goal (Lawrence): every setting is settable from every surface: the palette, the `cmux` CLI, MCP and the control socket. A test fails when a setting lacks a surface.
+
+## Update: Rust owner (2026-10-03)
+
+Lawrence moved settings ownership: React page -> Rust daemon -> Swift projection. plans/cmux-next/settings-react.md (settings lead) is the authority where it differs from this file.
+
+- Owner: the config actor in the daemon (`cmux-config`) is the one writer of cmux.json. Its v2 ops are `settings.schema`, `settings.list`, `settings.get`, `settings.snapshot`, `settings.set`, `settings.reset` and `settings.reset_all`. The op shapes, kinds, choices, ranges and the managed and refusal errors below move onto those ops unchanged. The Swift `SettingsController` becomes a projection: it reads the actor's snapshot and sends every write as a v2 op.
+- Landed as a stopgap: c9cb3b51eea (red test) and 1f08a54bc4c (fix). The app socket's `settings.set`, `settings.reset` and `settings.unset` refuse schema-invalid values (`invalid_params`) and managed keys (`managed`), and write schema keys through `SettingsController.setSetting`. The settings lead's slice b deletes these raw socket writers. `SocketSettingsWriteTests` then moves to the actor.
+- Single schema source (settings lead, 306bb4e0858): `schemas/settings/settings-schema.json`. Each row has kind, choices, range, default, samples it accepts and refuses, validation, `agent_settable` / `agent_refusal` and `schema_hash`. There is no `settings-surfaces.json`; the "Generated artifacts" section below is superseded by that file. Five keys are refused to agents: `history.terminalCommands`, `feed.mirrorNotifications.agents`, `feed.mirrorNotifications.terminal`, `browser.remoteLocalhost`, `app.quitBehavior`.
+- Still this lane's work, rebased on the v2 ops: the palette "Set Setting…" page, which calls the v2 ops and never writes cmux.json; the schema export; and the parity test, which iterates the schema and fails when a key lacks a palette editor, a CLI round trip, an MCP decision or an op.
+- `agentSettable` (coordinator decision): every descriptor sets the flag explicitly, with no default. MCP set and reset only keys marked true. Security-class keys are false: agent approval and confirmation, app permissions, feed mirroring, enterprise and managed policy, network and egress. The schema moves to Rust, so the flag goes on the Rust schema. The settings lead puts it there; the parity test checks that every key has an explicit value.
+- Handoff, phase 3: the CLI owner (ad349e7b1284e56a5) owns the `cmux settings list|get|set|reset` verbs and the MCP tools, in a cmux-tui window. Both call the daemon ops directly, with no app round trip.
 
 ## Schema source
 

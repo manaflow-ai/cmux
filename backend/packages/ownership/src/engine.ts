@@ -3,6 +3,8 @@ import { idFactory } from "./ids.ts"
 import { channelOf, Outbox, type OutboxRow } from "./outbox.ts"
 import { checkWrites, EMPTY_ROWS, readOnly, SqlRows, type RowWrite } from "./rows.ts"
 import { migrate, tablesFor, type Tables } from "./schema.ts"
+import { scrubStoredParams } from "./events-scrub.ts"
+import { type LedgerReplyRedaction, ledgerReplyText, replayedReply, scrubStoredReplies } from "./ledger-reply.ts"
 import type { SqlStore } from "./sql.ts"
 import type {
   DecidedKey,
@@ -13,6 +15,7 @@ import type {
   OutboxItem,
   OwnerFrame,
   Principal,
+  Reject,
   RejectFrame,
   ResultFrame,
   SettledFrame,
@@ -61,6 +64,13 @@ export interface EngineOptions {
     /** Tables whose writes never leave the owner (their keys may be secrets, for example token hashes). */
     readonly privateTables?: ReadonlyArray<string>
   }
+  /**
+   * Subscribers never replay ops from event params (they mirror owner-written data the owner
+   * attaches to each event, as FeedDO does). Allows `redact.params` without row mode.
+   */
+  readonly eventsNotReplayed?: boolean
+  /** What the request ledger keeps of a reply (ledger-reply.ts). Default: the whole reply. */
+  readonly ledgerReply?: LedgerReplyRedaction
   /** What subscribers see of the actor in events. Default: the full principal. */
   readonly eventActor?: (p: Principal) => Principal
 }
@@ -130,7 +140,9 @@ export class OwnerEngine<S, P = unknown> {
   ) {
     this.stream = options.stream
     this.now = options.now ?? Date.now
-    if (options.redact && !options.rowMode) throw new Error(`redact needs rowMode (stream ${options.stream})`)
+    // Mirrors replay ops from event params, so redacting them needs row mode (events carry the
+    // effects) or an owner whose subscribers mirror owner-written data instead (eventsNotReplayed).
+    if (options.redact && !options.rowMode && !options.eventsNotReplayed) throw new Error(`redact needs rowMode or eventsNotReplayed (stream ${options.stream})`)
     this.t = tablesFor(options.prefix)
     const t = this.t
     sql.transaction(() => {
@@ -158,6 +170,22 @@ export class OwnerEngine<S, P = unknown> {
 
   txTag(identity: string, key: string): string {
     return createHmac("sha256", this.secret).update(identity).update("\u0000").update(key).digest("base64url").slice(0, 22)
+  }
+
+  /**
+   * What `submit` would do before the reducer, without doing it: "replay" when the key is
+   * decided (the ledger answers), the refusal when authorization denies the op, else undefined
+   * (the op reaches the reducer). For owners that run an async check outside the pure reducer
+   * (for example a code ref in an external store): they skip the check for replays and denials,
+   * so a retry of a decided op always gets its original answer. Test mutants (noLedger,
+   * trustClaimedIdentity) are not mirrored here; owners with a gate are not mutant subjects.
+   */
+  gate(principal: Principal, frame: OpFrame): "replay" | Reject | undefined {
+    const key = frame.idempotency_key
+    if (typeof key !== "string" || key.length === 0 || key.length > 128) return { code: "validation.invalid", message: "idempotency_key is required (1 to 128 characters)" }
+    const prior = this.sql.exec<{ one: number }>(`SELECT 1 AS one FROM ${this.t.ledger} WHERE identity = ? AND idempotency_key = ?`, principal.identity, key)[0]
+    if (prior) return "replay"
+    return this.domain.authorize?.(this.state, frame.op, frame.params as P, principal) ?? undefined
   }
 
   /** Handles one op from an authenticated connection. Frames go out through `deliver`. */
@@ -198,7 +226,7 @@ export class OwnerEngine<S, P = unknown> {
       if (prior) {
         if (prior.params_hash !== paramsHash) return reply(reject("idempotency.conflict", "idempotency key reused with different params"), 0)
         const stored = JSON.parse(prior.reply) as ResultFrame | RejectFrame
-        return reply({ ...stored, replayed: true }, Number(prior.sequence))
+        return reply(replayedReply(this.options.ledgerReply, frame.op, stored, this.state), Number(prior.sequence))
       }
     }
 
@@ -291,7 +319,7 @@ export class OwnerEngine<S, P = unknown> {
           frame.op,
           paramsHash,
           decision.ok ? 1 : 0,
-          JSON.stringify(out),
+          ledgerReplyText(this.options.ledgerReply, frame.op, out),
           sequence,
           String(nextSeq),
           JSON.stringify(principal),
@@ -377,6 +405,11 @@ export class OwnerEngine<S, P = unknown> {
     if (seq < 0) return false
     const n = this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM ${this.t.events} WHERE seq > ?`, seq)[0]?.n ?? 0
     return Number(n) === this.seq - seq
+  }
+
+  /** Rewrites stored `op` events (`redact.params`) and ledger replies (`ledgerReply.store`) past `marker`; returns the rewritten count. */
+  scrubStored(op: string, marker: string): number {
+    return scrubStoredParams(this.sql, this.t, this.options.redact?.params, op, marker) + scrubStoredReplies(this.sql, this.t, this.options.ledgerReply, op, `${marker}:ledger`)
   }
 
   /** When the oldest kept event was committed (ms), or null. */

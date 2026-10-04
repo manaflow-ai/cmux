@@ -59,8 +59,8 @@ fi
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 ghostty_root="$repo_root/ghostty"
-if [[ ! -f cmux-tui/Cargo.toml || ! -f ghostty/build.zig.zon ]]; then
-  echo "cmux-tui and its Ghostty source submodule must be initialized" >&2
+if [[ ! -f cmux-tui/Cargo.toml || ! -f ghostty/build.zig.zon || ! -f ghostty-next/include/ghostty/vt/snapshot.h ]]; then
+  echo "cmux-tui and its Ghostty source submodules (ghostty, ghostty-next) must be initialized" >&2
   exit 65
 fi
 if [[ "$(git -C ghostty rev-parse --show-toplevel 2>/dev/null || true)" != "$ghostty_root" ]]; then
@@ -83,7 +83,7 @@ the benchmarked commit is not checked out on this Testbox
   present:  $(git rev-parse HEAD 2>/dev/null || echo unknown)
 Push the commit, then pin this box to it before running a stage:
   git push origin <branch>
-  blacksmith testbox run --id $testbox_id 'set -euo pipefail; git fetch --no-tags origin $expected_source_sha; git reset --hard $expected_source_sha; git submodule update --init --depth 1 ghostty'
+  blacksmith testbox run --id $testbox_id 'set -euo pipefail; git fetch --no-tags origin $expected_source_sha; git reset --hard $expected_source_sha; git submodule update --init --depth 1 ghostty ghostty-next'
 REMEDY
   exit 65
 }

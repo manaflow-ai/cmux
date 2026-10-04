@@ -578,6 +578,11 @@ public abstract class GeneratedCmuxClient {
         return SurfaceResult.fromWire(result);
     }
 
+    public final NewRowResult newRow(NewRowRequest request) throws CmuxException {
+        Object result = execute(Commands.NEW_ROW, request.toWire());
+        return NewRowResult.fromWire(result);
+    }
+
     public final SurfaceResult newScreen(NewScreenRequest request) throws CmuxException {
         Object result = execute(Commands.NEW_SCREEN, request.toWire());
         return SurfaceResult.fromWire(result);
@@ -848,6 +853,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final Object setRowHeights(SetRowHeightsRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_ROW_HEIGHTS, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object setScreenMetadata(SetScreenMetadataRequest request) throws CmuxException {
         Object result = execute(Commands.SET_SCREEN_METADATA, request.toWire());
         return Wire.immutableJson(result);
@@ -918,6 +928,11 @@ public abstract class GeneratedCmuxClient {
         return SidebarPluginResult.fromWire(result);
     }
 
+    public final SnapshotRequestResult snapshotRequest(SnapshotRequestRequest request) throws CmuxException {
+        Object result = execute(Commands.SNAPSHOT_REQUEST, request.toWire());
+        return SnapshotRequestResult.fromWire(result);
+    }
+
     public final SurfaceResult split(SplitRequest request) throws CmuxException {
         Object result = execute(Commands.SPLIT, request.toWire());
         return SurfaceResult.fromWire(result);
@@ -935,6 +950,16 @@ public abstract class GeneratedCmuxClient {
     public final TerminalEventsResult terminalEvents(TerminalEventsRequest request) throws CmuxException {
         Object result = execute(Commands.TERMINAL_EVENTS, request.toWire());
         return TerminalEventsResult.fromWire(result);
+    }
+
+    public final TerminalHistoryPagesResult terminalHistory(TerminalHistoryRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_HISTORY, request.toWire());
+        return TerminalHistoryPagesResult.fromWire(result);
+    }
+
+    public final TerminalReadRangeResult terminalReadRange(TerminalReadRangeRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_READ_RANGE, request.toWire());
+        return TerminalReadRangeResult.fromWire(result);
     }
 
     public final TerminalResourcesResult terminalResources(TerminalResourcesRequest request) throws CmuxException {

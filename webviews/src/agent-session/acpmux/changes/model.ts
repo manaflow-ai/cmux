@@ -53,7 +53,12 @@ export type ChangesLoad =
 
 /// Where the view reads a scope from: the session host, or the mock daemon in mock mode.
 /// `status` names the branch the Branch scope compares with its base.
-export type ChangesSource = { diff: (scope: ChangeScope) => Promise<unknown>; status?: () => Promise<unknown> };
+/// `turn` reads a turn's checkpoint pair (turnCheckpoint.ts), when the host keeps them.
+export type ChangesSource = {
+  diff: (scope: ChangeScope) => Promise<unknown>;
+  status?: () => Promise<unknown>;
+  turn?: (turn: { rowId: string }) => Promise<unknown>;
+};
 
 /// The checked-out branch and the base the Branch scope compares it with, from `git.status`,
 /// or undefined on a detached head or without a base.
@@ -178,5 +183,6 @@ export function changeSetFiles(changeSet: ChangeSet): TurnFile[] {
     created: file.status === "added" || file.status === "untracked",
     deleted: file.status === "deleted",
     binary: file.binary,
+    patchTruncated: file.patchTruncated,
   }));
 }

@@ -4,7 +4,8 @@ import Synchronization
 
 /// A scripted v1 daemon that keeps a workspace tree and changes it like
 /// cmux-tui for the creating commands App tests run (`new-tab`, `split`,
-/// `create-workspace`, `create-terminal`, `move-tab-to-new-workspace`).
+/// `create-workspace`, `create-terminal`, `move-tab-to-new-workspace`,
+/// `rename-workspace`).
 /// `list-workspaces` reports the current tree, so `DaemonService.reconcile`
 /// mirrors what a command made. It starts with one workspace whose one pane
 /// holds two tabs.
@@ -45,6 +46,9 @@ nonisolated final class TopologyDaemon: Sendable {
         var id: Int
         var key: String
         var screens: [Screen]
+        var name: String? = nil
+        /// `workspace-kind-v1`: `home` for the store's home workspace.
+        var kind: String? = nil
     }
 
     struct Tree: Sendable {
@@ -66,7 +70,8 @@ nonisolated final class TopologyDaemon: Sendable {
                     }.joined(separator: ",")
                     return #"{"id":\#(screen.id),"layout":\#(screen.layout.json),"panes":[\#(panes)]}"#
                 }.joined(separator: ",")
-                return #"{"id":\#(workspace.id),"key":"\#(workspace.key)","name":"w\#(workspace.id)","screens":[\#(screens)]}"#
+                let kind = workspace.kind.map { #","kind":"\#($0)""# } ?? ""
+                return #"{"id":\#(workspace.id),"key":"\#(workspace.key)","name":"\#(workspace.name ?? "w\(workspace.id)")"\#(kind),"screens":[\#(screens)]}"#
             }.joined(separator: ",")
             return #"{"generation":"g1","registry_id":"r","workspace_revision":\#(revision),"workspaces":[\#(workspaces)]}"#
         }
@@ -171,6 +176,16 @@ nonisolated final class TopologyDaemon: Sendable {
                 }
                 guard let moved else { return [#"{"id":\#(id),"ok":false,"error":"no such tab"}"#] }
                 return ok(#"{"surface":\#(surface),"workspace":\#(moved),"key":"\#(key)","undoable":false}"#)
+            case "rename-workspace":
+                let key = request["key"]?.stringValue, name = request["name"]?.stringValue
+                let renamed = state.tree.withLock { tree -> (Int, Int)? in
+                    guard let w = tree.workspaces.firstIndex(where: { $0.key == key }) else { return nil }
+                    tree.workspaces[w].name = name
+                    tree.revision += 1
+                    return (tree.workspaces[w].id, tree.revision)
+                }
+                guard let (workspace, revision) = renamed, let key else { return [#"{"id":\#(id),"ok":false,"error":"no such workspace"}"#] }
+                return ok(#"{"workspace":\#(workspace),"key":"\#(key)","workspace_revision":\#(revision),"replayed":false}"#)
             default:
                 return ok("{}")
             }

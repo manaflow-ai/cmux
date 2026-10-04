@@ -78,10 +78,11 @@ import Testing
         #expect(withAccount == 3, "codex, claude and gemini found an account")
     }
 
-    /// No app operation returns account data today: detection and the
-    /// CodeRouter lists are not routed to apps. A new route must keep the
-    /// label shape and update this test.
-    @Test func appOperationsDoNotExposeAccounts() async throws {
+    /// App reads are redacted: account data reaches apps only through the
+    /// first-party CodeRouter app's ops, which use the redacting socket
+    /// methods (acct_ handles + short labels; CodeRouterAppOpsTests covers the
+    /// rows). Every other account op is refused, and no refusal names an email.
+    @Test func appReadsAreRedactedOrRefused() async throws {
         let identity = ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test", processID: getpid())
         let router = AppOperationRouter(router: ControlRouter(identity: identity, executor: Executor()),
                                         storage: AppStorageStore(directory: FileManager.default.temporaryDirectory
@@ -92,7 +93,7 @@ import Testing
             switch result {
             case .success(let value): Issue.record("\(op) returned \(value)")
             case .failure(let error):
-                #expect(error.code == "operation.unsupported", "\(op)")
+                #expect(["operation.unsupported", "method_not_found"].contains(error.code), "\(op): \(error.code)")
                 #expect(PrivacyScan.emails(in: error.message).isEmpty)
             }
         }

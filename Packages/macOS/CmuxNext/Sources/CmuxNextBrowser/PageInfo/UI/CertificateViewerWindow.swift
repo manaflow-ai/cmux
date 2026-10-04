@@ -48,7 +48,7 @@ final class CertificateViewerWindow: PageInfoWindow {
         }
         constraints.append(container.bottomAnchor.constraint(equalTo: bottom, constant: -PageInfoStyle.inset))
         NSLayoutConstraint.activate(constraints)
-        contentView = root
+        installContent(root)
         showTab(0)
     }
 

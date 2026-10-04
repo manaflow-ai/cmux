@@ -10,8 +10,10 @@ interface JsonWebKey {
 
 /**
  * Server-checked device proofs for lowering the text confirmation level
- * (decision 2026-10-02, home-messaging.md section 19). The owner's device
- * signs exactly {op, user, install, new_level, nonce, expires_at}:
+ * (decision 2026-10-02, home-messaging.md section 19) and for other owners'
+ * requests that need a person (a full-shell team SSH certificate). The owner's
+ * device signs exactly {op, user, install, new_level, nonce, expires_at}
+ * (or the purpose fields instead of new_level):
  * - `presence`: an ES256 signature by a key the app creates in the Secure
  *   Enclave with a user-presence access control (Face ID, Touch ID or the
  *   device passcode); required on every platform. On macOS the server cannot
@@ -25,6 +27,8 @@ interface JsonWebKey {
  */
 export const LOWER_OP = "user.text_confirm.lower"
 export const PROOF_DOMAIN = "cmux-text-confirm-v1"
+/** A full-shell team SSH certificate (team-vm-plan.md 3c, S5 prerequisite): the same presence proof, bound to one request. */
+export const SSH_CERT_OP = "team_vm.ssh_cert"
 
 export interface ProofPayload {
   readonly op: typeof LOWER_OP
@@ -35,10 +39,54 @@ export interface ProofPayload {
   readonly expires_at: number
 }
 
-/** The exact bytes a device signs: a domain tag line, then canonical JSON (sorted keys). */
-export const proofMessage = (p: ProofPayload): Buffer => {
-  const keys = Object.keys(p).sort() as Array<keyof ProofPayload>
-  return Buffer.from(`${PROOF_DOMAIN}\n${JSON.stringify(Object.fromEntries(keys.map((k) => [k, p[k]])))}`, "utf8")
+/**
+ * What a presence proof for another owner binds, besides user, install, nonce and expiry. Today
+ * only TeamDO's full-shell SSH certificate: the device shows team, Linux user, key fingerprint and
+ * validity before Face ID; `request` is the idempotency key of the one `team_vm.ssh_cert` call it
+ * authorizes, so one approval gives at most one certificate.
+ */
+export interface SshCertPurpose {
+  readonly op: typeof SSH_CERT_OP
+  readonly team: string
+  readonly request: string
+  /** OpenSSH `SHA256:<base64 without padding>` of the public key blob. */
+  readonly key_fingerprint: string
+  /** The Linux user the certificate logs in as. */
+  readonly principal: string
+  readonly validity_minutes: number
+  readonly class: "human"
+}
+export type PresencePurpose = SshCertPurpose
+
+export type PurposePayload = PresencePurpose & { readonly user: string; readonly install: string; readonly nonce: string; readonly expires_at: number }
+/** Everything a presence key signs: a lowering (ProofPayload) or another owner's purpose. */
+export type SignedPayload = ProofPayload | PurposePayload
+
+/** The exact bytes a device signs: a domain tag line, then canonical JSON (sorted keys). The `op` field separates the uses. */
+export const proofMessage = (p: SignedPayload): Buffer => {
+  const o = p as unknown as Record<string, unknown>
+  const keys = Object.keys(o).sort()
+  return Buffer.from(`${PROOF_DOMAIN}\n${JSON.stringify(Object.fromEntries(keys.map((k) => [k, o[k]])))}`, "utf8")
+}
+
+const PURPOSE_KEYS = ["class", "key_fingerprint", "op", "principal", "request", "team", "validity_minutes"]
+
+/** A well-formed purpose with exactly the known fields, or null. */
+export const presencePurpose = (v: unknown): PresencePurpose | null => {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null
+  const o = v as Record<string, unknown>
+  if (Object.keys(o).sort().join(",") !== PURPOSE_KEYS.join(",")) return null
+  const text = (x: unknown, max: number) => typeof x === "string" && x.length > 0 && x.length <= max
+  if (o.op !== SSH_CERT_OP || o.class !== "human") return null
+  if (!text(o.team, 64) || !text(o.request, 256) || !text(o.principal, 32) || typeof o.key_fingerprint !== "string" || !/^SHA256:[A-Za-z0-9+/]{43}$/.test(o.key_fingerprint)) return null
+  if (!Number.isSafeInteger(o.validity_minutes) || (o.validity_minutes as number) < 15 || (o.validity_minutes as number) > 60) return null
+  return o as unknown as PresencePurpose
+}
+
+/** Same purpose, field by field (canonical JSON). */
+export const samePurpose = (a: PresencePurpose, b: PresencePurpose): boolean => {
+  const c = (p: PresencePurpose) => JSON.stringify(PURPOSE_KEYS.map((k) => (p as unknown as Record<string, unknown>)[k]))
+  return c(a) === c(b)
 }
 
 const b64u = (s: string): Buffer | null => (/^[A-Za-z0-9_-]+={0,2}$/.test(s) ? Buffer.from(s, "base64url") : null)
@@ -55,7 +103,7 @@ export const p256Key = (jwk: unknown) => {
 }
 
 /** Presence signature: ES256 over proofMessage, raw r||s (exactly 64 bytes), base64url. */
-export const verifyPresence = (jwk: unknown, payload: ProofPayload, signature: string): boolean => {
+export const verifyPresence = (jwk: unknown, payload: SignedPayload, signature: string): boolean => {
   const key = p256Key(jwk)
   const sig = b64u(signature)
   if (!key || !sig || sig.length !== 64) return false
@@ -136,7 +184,7 @@ export interface AppAttestKey {
  * the signature over nonce verifies with the attested key; the RP ID hash is
  * our app id; the counter grew. Returns the new counter to store.
  */
-export const verifyAppAttest = (key: AppAttestKey, payload: ProofPayload, assertion: string): { ok: true; counter: number } | { ok: false } => {
+export const verifyAppAttest = (key: AppAttestKey, payload: SignedPayload, assertion: string): { ok: true; counter: number } | { ok: false } => {
   const raw = b64u(assertion)
   const pub = p256Key(key.jwk)
   if (!raw || !pub) return { ok: false }

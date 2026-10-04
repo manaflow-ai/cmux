@@ -24,10 +24,12 @@
       "title": "Diffs"
     }
   },
-  "consumes": [
-    "cmux.editor/1",
-    "cmux.diff.source/1"
-  ],
+  "consumes": {
+    "interfaces": [
+      "cmux.editor/1",
+      "cmux.diff.source/1"
+    ]
+  },
   "scopes": {
     "git:read": "Read diffs of your repositories."
   },

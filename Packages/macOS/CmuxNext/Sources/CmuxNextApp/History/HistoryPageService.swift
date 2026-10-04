@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextRemoteView
 import Foundation
 
 /// Opens `cmux://history` and serves its data (plans/cmux-next/history.md
@@ -65,8 +66,9 @@ final class HistoryPageService: HistoryPageSource {
 }
 
 extension TabContentCache {
-    /// The native page for a browser record whose URL is `cmux://history`
-    /// or `cmux://bookmarks` (nil otherwise). Remote records never get here
+    /// The native page for a browser record whose URL is `cmux://history`,
+    /// `cmux://bookmarks`, `cmux://agent-activity` or `cmux://remote-view`
+    /// (nil otherwise). Remote records never get here
     /// (`recordURL` keeps only web pages for them).
     func appPage(for tab: TabModel, url: URL?) -> BrowserEntry? {
         guard let page = makeAppPage(url, for: tab) else { return nil }
@@ -89,6 +91,8 @@ extension TabContentCache {
         }
         entry.chrome.loadOverride = { [weak self] url in
             guard Self.isAppPage(url), let self, let tab = tabModel(key) else { return false }
+            // Typed in the address bar (or a bookmark a person opened).
+            if RemoteViewTabRecord.matches(url) { services.remoteViewPages.confirm(key, url: url) }
             showAppPage(url, in: tab)
             return true
         }
@@ -105,6 +109,7 @@ extension TabContentCache {
 
     static func isAppPage(_ url: URL?) -> Bool {
         HistoryPageAddress.matches(url) || BookmarkPageAddress.matches(url) || AgentActivityPageAddress.matches(url)
+            || RemoteViewTabRecord.matches(url)
     }
 
     private func makeAppPage(_ url: URL?, for tab: TabModel) -> (any BrowserTab)? {
@@ -115,6 +120,25 @@ extension TabContentCache {
         if AgentActivityPageAddress.matches(url) {
             let page = services.agentActivityPage.makePage(key: key, engine: engine, profile: profile)
             page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
+            return page
+        }
+        if let url, RemoteViewTabRecord.matches(url) {
+            let pages = services.remoteViewPages
+            let source = pages.source(for: key, url: url, isLocal: services.machines.daemon(forTab: tab).isLocal)
+            let decision = RemoteViewTabPolicy().decide(record: RemoteViewTabRecord(url: url), source: source)
+            let page = RemoteViewPageTab(
+                id: BrowserTabID(rawValue: key), engine: engine, profile: profile, url: url, decision: decision,
+                closeTab: { [weak self] in self?.pageRequests.closeTab(key) },
+                connect: { [weak self] confirmedURL in
+                    // The Connect button: a person confirmed this record (view mode).
+                    pages.confirm(key, url: confirmedURL)
+                    guard let self, let tab = tabModel(key) else { return }
+                    showAppPage(confirmedURL, in: tab)
+                })
+            page.onNavigate = { [weak self] target in
+                pages.forget(key)
+                self?.leaveAppPage(key, to: target)
+            }
             return page
         }
         if BookmarkPageAddress.matches(url) {

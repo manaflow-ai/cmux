@@ -4,8 +4,9 @@ import Foundation
 /// One HTTP exchange; the iOS app supplies a redirect-refusing session.
 public protocol InstallAuthTransport: Sendable {
     /// POSTs JSON to `path` (relative to the API Worker) with an optional
-    /// bearer. Returns the status and body.
-    func post(_ path: String, json: Data, bearer: String?) async throws -> (status: Int, body: Data)
+    /// bearer and extra request `headers` (for example the client version).
+    /// Returns the status and body.
+    func post(_ path: String, json: Data, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data)
 }
 
 /// What the install keeps between launches (never the token).
@@ -30,8 +31,18 @@ public actor InstallAuthClient {
     private let signer: any InstallSigner
     private let sessionToken: SessionToken?
     private let stackUser: String
-    private let environment: String
+    /// The API's `ENVIRONMENT` (`staging`, `production`, `development`,
+    /// `local`), learned from the server: the challenge prefix names it and
+    /// the minted token's issuer (`https://cmux-api/<environment>`) must
+    /// agree. Never derived from the host name. Nil before the first mint.
+    /// The issuer check is a consistency check (the token signature is the
+    /// owner's to verify); trust comes from TLS and the per-host install key.
+    public private(set) var environment: String?
     private let deviceName: String
+    /// This app's version (`CFBundleShortVersionString`), sent as
+    /// `x-cmux-client-version`; the owner refuses an older one when the team
+    /// sets `updates.minimumVersion` (enterprise P17).
+    private let clientVersion: String?
     private let onRecord: @Sendable (InstallRecord?) async -> Void
     private let now: @Sendable () -> Date
     private var record: InstallRecord?
@@ -42,21 +53,21 @@ public actor InstallAuthClient {
     public static let refreshMargin: TimeInterval = 60
     /// Never trust a token longer than this (device clock skew).
     public static let maximumLifetime: TimeInterval = 540
+    /// The header the owner's version gate reads (token mint and wire connects).
+    public static let clientVersionHeader = "x-cmux-client-version"
 
     /// - Parameters:
-    ///   - environment: the API's `ENVIRONMENT` (`staging`, `production`); the
-    ///     challenge prefix must name it.
     ///   - onRecord: persists the record (Keychain) the moment it changes.
     public init(transport: any InstallAuthTransport, signer: any InstallSigner, sessionToken: SessionToken?,
-                stackUser: String, environment: String, deviceName: String, record: InstallRecord?,
+                stackUser: String, deviceName: String, clientVersion: String?, record: InstallRecord?,
                 onRecord: @escaping @Sendable (InstallRecord?) async -> Void = { _ in },
                 now: @escaping @Sendable () -> Date = Date.init) {
         self.transport = transport
         self.signer = signer
         self.sessionToken = sessionToken
         self.stackUser = stackUser
-        self.environment = environment
         self.deviceName = deviceName
+        self.clientVersion = clientVersion
         self.record = record
         self.onRecord = onRecord
         self.now = now
@@ -119,17 +130,42 @@ public actor InstallAuthClient {
         let record = try await ensureRegistered()
         let challenge = try await postJSON("/v1/auth/challenge", ["user": record.user, "install": record.install], bearer: nil)
         guard let nonce = challenge["nonce"] as? String, let prefix = challenge["message_prefix"] as? String,
-              prefix == "cmux-auth-v1\n\(environment)\n\(record.install)\n", Self.isNonce(nonce) else {
+              let named = Self.environment(inPrefix: prefix, install: record.install), Self.isNonce(nonce) else {
             throw InstallAuthError.unexpectedChallenge
         }
+        // Once learned, the environment never changes for this client.
+        if let environment, environment != named { throw InstallAuthError.unexpectedChallenge }
         let signature = try await signer.sign(Data((prefix + nonce).utf8))
         let reply = try await postJSON("/v1/auth/token", ["user": record.user, "install": record.install,
                                                           "nonce": nonce, "signature": (signature).base64URLEncoded], bearer: nil)
         guard let value = reply["access_token"] as? String else { throw InstallAuthError.malformedReply }
+        guard Self.issuer(of: value) == "https://cmux-api/\(named)" else { throw InstallAuthError.unexpectedChallenge }
+        // A mint cancelled by reset() (sign-out) must not store its token.
+        try Task.checkCancellation()
+        environment = named
         let cap = now().addingTimeInterval(Self.maximumLifetime)
         let stated = (reply["expires_at"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) } ?? cap
         token = (value, min(stated, cap))
         return value
+    }
+
+    /// The environment in `cmux-auth-v1\n<environment>\n<install>\n`, or nil
+    /// when the prefix has any other shape.
+    static func environment(inPrefix prefix: String, install: String) -> String? {
+        let head = "cmux-auth-v1\n", tail = "\n\(install)\n"
+        guard prefix.hasPrefix(head), prefix.hasSuffix(tail), prefix.count > head.count + tail.count else { return nil }
+        let name = String(prefix.dropFirst(head.count).dropLast(tail.count))
+        guard name.count <= 32, let first = name.first, first.isASCII, first.isLowercase,
+              name.allSatisfy({ $0.isASCII && ($0.isLowercase || $0.isNumber || $0 == "-") }) else { return nil }
+        return name
+    }
+
+    /// The `iss` claim of a JWT (payload read only; the owner verifies it).
+    static func issuer(of token: String) -> String? {
+        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3, let payload = Data(base64URLEncoded: String(parts[1])),
+              let claims = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else { return nil }
+        return claims["iss"] as? String
     }
 
     static func isNonce(_ value: String) -> Bool {
@@ -193,17 +229,30 @@ public actor InstallAuthClient {
         return value
     }
 
+    /// The headers every request carries.
+    public static func headers(clientVersion: String?) -> [String: String] {
+        guard let clientVersion, !clientVersion.isEmpty else { return [:] }
+        return [clientVersionHeader: clientVersion]
+    }
+
     private func postJSON(_ path: String, _ object: [String: Any], bearer: String?) async throws -> [String: Any] {
         let body = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         let (status, data): (Int, Data)
-        do { (status, data) = try await transport.post(path, json: body, bearer: bearer) } catch {
+        do {
+            (status, data) = try await transport.post(path, json: body, bearer: bearer,
+                                                      headers: Self.headers(clientVersion: clientVersion))
+        } catch {
             throw InstallAuthError.transport
         }
         guard let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw status == 200 ? InstallAuthError.malformedReply : InstallAuthError.refused("http_\(status)")
         }
         guard (200..<300).contains(status) else {
-            throw InstallAuthError.refused(reply["code"] as? String ?? "http_\(status)")
+            let code = reply["code"] as? String
+            if code == "client.too_old" {
+                throw InstallAuthError.clientTooOld(minimumVersion: reply["minimum_version"] as? String)
+            }
+            throw InstallAuthError.refused(code ?? "http_\(status)")
         }
         return reply
     }

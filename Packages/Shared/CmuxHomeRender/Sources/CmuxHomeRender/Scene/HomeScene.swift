@@ -37,6 +37,8 @@ final class HomeScene {
     /// Called after the scene moved the offset itself (pin on send, rebase on
     /// prepend, resize); not called for `hostScroll(to:)`.
     var offsetMovedByModel: () -> Void = {}
+    /// Layout passes (`commit` calls); tests prove an unchanged update is free.
+    var commitCount = 0
     private var hostScrolling = false
     /// Asks for `settle` at a layer time (event-driven cleanup).
     var requestWake: (CFTimeInterval) -> Void = { _ in }
@@ -75,6 +77,12 @@ final class HomeScene {
 
     var palette: HomePalette { bitmaps.palette }
 
+    func setContentsScale(_ new: CGFloat) {
+        guard new != bitmaps.scale else { return }
+        bitmaps.setScale(new)
+        refreshVisibleRows()
+    }
+
     func setPalette(_ new: HomePalette) {
         guard new != palette else { return }
         bitmaps.setPalette(new)
@@ -85,7 +93,9 @@ final class HomeScene {
 
     // MARK: Geometry
 
-    var metrics: Metrics { Metrics(width: size.width) }
+    /// The host's text scale; set by `HomeController` before each resize.
+    var zoom: CGFloat = 1
+    var metrics: Metrics { Metrics(width: size.width, zoom: zoom) }
     /// Where the last row ends: above the field, moving up as the field grows.
     var anchorY: CGFloat {
         if let f = hostedField { return f.minY - ComposeLayer.anchorAboveField }

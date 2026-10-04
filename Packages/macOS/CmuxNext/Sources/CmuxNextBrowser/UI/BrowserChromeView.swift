@@ -385,10 +385,13 @@ public final class BrowserChromeView: NSView {
         updateColors()
     }
 
+    /// Surface token in an opaque window, clear over a see-through one (windows.md).
     private func updateColors() {
+        let paints = WindowBackdrop(themeTokens).panesPaintBackground
         performWithTheme {
-            layer?.backgroundColor = Palette.contentBackground.cgColor
-            toolbar.layer?.backgroundColor = OmnibarStyle.toolbarBackground.cgColor
+            let surface = paints ? Palette.surfaceBackground.cgColor : nil
+            layer?.backgroundColor = surface
+            toolbar.layer?.backgroundColor = surface
             separator.layer?.backgroundColor = Palette.separator.cgColor
             contentContainer.layer?.borderColor = Palette.separator.cgColor
         }

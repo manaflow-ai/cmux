@@ -1,6 +1,6 @@
 # cmux-next Mac Home view: data protocol (lane 16)
 
-Status: proposal for review by the Home lead, 2026-10-03. Decision IOS3 = B
+Status: agreed with the Home lead, 2026-10-03. Decision IOS3 = B
 (`plans/cmux-next/mac-home-rendering.md`): the Mac Home transcript is the
 shared render core `Packages/Shared/CmuxHomeRender` hosted by an AppKit view
 in `CmuxNextHome`. Ownership split (coordinator H14): lane 16 owns the view,
@@ -26,6 +26,11 @@ One conversation per view. All values are CmuxHomeCore types.
 | hasOlder | `Bool` | `HomeStore.hasOlderMessages(in:)` | with the transcript |
 | connection | `HomeConnection` | `HomeStore.connection` | on change (offline banner, send state) |
 
+Cost: `update` with an unchanged transcript, summary, typing set and
+paging state returns before any layout, animation or callback (the binding
+refreshes on every inbox change; test `UnchangedUpdateTests` counts layout
+passes).
+
 Delivery: the host calls `HomeController.update(items:summary:typing:hasOlder:)`
 with the whole current value; the controller diffs (`TranscriptChange`) and
 animates. `HomeStoreBinding` (in CmuxHomeRender) does this with Observation
@@ -45,6 +50,16 @@ deduplicates.
 | Retry a failed send | `HomeIntent` key | `HomeStore.retry(_:)` |
 | Discard a failed send | key | `HomeStore.discardFailed(_:)` |
 | Tapback (later) | `.addReaction(message:conversation:reaction:partIndex:)` | `HomeStore.perform` |
+
+Not offered on local conversations: create group, create chief, start
+conversation, invite, pin and mute. The local owner refuses them with
+`HomeRejection.invalid("unsupported_on_local_owner")` until the cloud owner
+lands, so the view shows no control for them (test
+`HomeLocalOwnerActionTests`).
+
+Offline (H17): Send is off and the text stays a draft
+(`HomeNativeTranscriptView.isSendEnabled`, set from `HomeStore.connection`). The intent log only
+covers ops sent before the disconnect.
 
 A send the owner refuses before it is logged returns the text to the
 composer (`HomeController.restoreDraft(for:)`). The view never edits the
@@ -72,12 +87,8 @@ client decision, not an op.
 - Uses the window's `FrameScheduler` only while momentum runs.
 - Selftest and audit run on cmux-lawrence-2 only (GUI rule).
 
-## 5. Questions for the Home lead
+## 5. Agreed with the Home lead (2026-10-03)
 
-1. Does the chief conversation use the same `ConversationID` space and
-   `HomeStore` as other conversations (one view type for all)?
-2. Who creates the `HomeStore` for a window: the home workspace (one per
-   window) or the app (one per daemon session)? The view needs one store
-   reference and never creates it.
-3. Should `connection != .online` disable Send, or queue it in the intent
-   log (recommended: queue; the row shows pending)?
+The chief conversation is a normal local conversation (`agent_mux`, agent
+class `.chief`), shown by the same view. One `HomeStore` per daemon session,
+owned by the app; the view never creates one. Offline Send is off (H17).

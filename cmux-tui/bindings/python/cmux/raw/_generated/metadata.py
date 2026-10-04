@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'ce9a5e7f62b3f675e99bee009ceaaca54e1d348823fbc1670330ce4ce6e9a83e'
+IR_SHA256 = '84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2'
 
 
 @dataclass(frozen=True)
@@ -103,7 +103,10 @@ COMMANDS = {
             'expected_terminal_id': CommandFieldMetadata(None, 'attach-identity-v1'),
             'mode': CommandFieldMetadata(7, None),
             'rows': CommandFieldMetadata(None, 'attach-initial-size'),
+            'snapshot': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
+            'snapshot_version': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
             'surface': CommandFieldMetadata(None, None),
+            'viewer_backlog_bytes': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
         },
     ),
     'browser-activate': CommandMetadata(
@@ -1346,7 +1349,9 @@ COMMANDS = {
         {
             'after_column': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
+            'respawn': CommandFieldMetadata(12, 'tab-column-respawn-v1'),
             'screen': CommandFieldMetadata(None, None),
+            'sticky': CommandFieldMetadata(12, 'edge-docks-v1'),
             'surface': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, None),
             'width': CommandFieldMetadata(None, None),
@@ -1502,6 +1507,7 @@ COMMANDS = {
             'cols': CommandFieldMetadata(None, None),
             'engine': CommandFieldMetadata(None, None),
             'favicon_url': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
             'owner': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
             'profile_id': CommandFieldMetadata(None, None),
@@ -1545,6 +1551,26 @@ COMMANDS = {
             'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'width': CommandFieldMetadata(None, None),
+        },
+    ),
+    'new-row': CommandMetadata(
+        'new-row',
+        'control',
+        12,
+        'rows-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'cols': CommandFieldMetadata(None, None),
+            'cwd': CommandFieldMetadata(None, None),
+            'env': CommandFieldMetadata(None, None),
+            'height_permille': CommandFieldMetadata(None, None),
+            'keep': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'rows': CommandFieldMetadata(None, None),
+            'shell_args': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
         },
     ),
     'new-screen': CommandMetadata(
@@ -2275,6 +2301,20 @@ COMMANDS = {
             'ratio': CommandFieldMetadata(None, None),
         },
     ),
+    'set-row-heights': CommandMetadata(
+        'set-row-heights',
+        'control',
+        12,
+        'rows-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'column': CommandFieldMetadata(None, None),
+            'fit': CommandFieldMetadata(None, None),
+            'heights': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-screen-metadata': CommandMetadata(
         'set-screen-metadata',
         'control',
@@ -2464,6 +2504,20 @@ COMMANDS = {
             'rows': CommandFieldMetadata(None, None),
         },
     ),
+    'snapshot-request': CommandMetadata(
+        'snapshot-request',
+        'frontend',
+        12,
+        'terminal-snapshot-v1',
+        ('frontend',),
+        None,
+        {
+            'have': CommandFieldMetadata(None, None),
+            'reason': CommandFieldMetadata(None, None),
+            'request_id': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'split': CommandMetadata(
         'split',
         'control',
@@ -2517,6 +2571,36 @@ COMMANDS = {
         None,
         {
             'after_revision': CommandFieldMetadata(None, None),
+        },
+    ),
+    'terminal-history': CommandMetadata(
+        'terminal-history',
+        'control',
+        12,
+        'terminal-snapshot-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'before': CommandFieldMetadata(None, None),
+            'marker_epoch': CommandFieldMetadata(None, None),
+            'max_bytes': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'terminal-read-range': CommandMetadata(
+        'terminal-read-range',
+        'control',
+        12,
+        'terminal-snapshot-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'format': CommandFieldMetadata(None, None),
+            'from': CommandFieldMetadata(None, None),
+            'marker_epoch': CommandFieldMetadata(None, None),
+            'max_bytes': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'to': CommandFieldMetadata(None, None),
         },
     ),
     'terminal-resources': CommandMetadata(

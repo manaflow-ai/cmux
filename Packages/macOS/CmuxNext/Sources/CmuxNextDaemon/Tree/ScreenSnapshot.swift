@@ -22,14 +22,17 @@ public struct ColumnSnapshot: Sendable, Hashable, Decodable {
         self.sticky = sticky
     }
 
-    enum CodingKeys: String, CodingKey { case id, width, layout, sticky }
+    enum CodingKeys: String, CodingKey { case id, width, layout, sticky, dock }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(ColumnID.self, forKey: .id)
         width = try c.decode(Double.self, forKey: .width)
         layout = try c.decode(LayoutNode.self, forKey: .layout)
-        sticky = try? c.decodeIfPresent(StickySnapshot.self, forKey: .sticky)
+        // `sticky` carries left and right, `dock` top and bottom (edge-docks-v1).
+        let side = (try? c.decodeIfPresent(StickySnapshot.self, forKey: .sticky)) ?? nil
+        let dock = ((try? c.decodeIfPresent(StickySnapshot.self, forKey: .dock)) ?? nil).flatMap { $0.edge.isBand ? $0 : nil }
+        sticky = side ?? dock
     }
 }
 

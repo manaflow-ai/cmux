@@ -5,16 +5,22 @@ import { admit, decodeParams, reject } from "./common.ts"
 import { reducePushTarget, type PushTargetsState } from "./user-push.ts"
 import { user as homeUser } from "@cmux/home-core"
 import { confirmEnv, reduceConfirm, revokePresenceKey, USER_CONFIRM_OPS } from "./user-confirm.ts"
+import { CHIEF_OPS, reduceChief, type ChiefsState } from "./user-chief.ts"
 
 type UserProfile = typeof UserProfileSchema.Type
 type Mutable<T> = { -readonly [K in keyof T]: T[K] }
 
-export interface UserState extends PushTargetsState {
+export interface UserState extends PushTargetsState, ChiefsState {
   readonly user: UserProfile | null
   /** Text confirmation level and presence keys (home-core user/), absent until first used. */
   readonly confirm?: homeUser.UserConfirmState
   readonly installs: Readonly<Record<string, typeof Install.Type>>
   readonly grants: Readonly<Record<string, typeof Grant.Type>>
+  /**
+   * Revoked installs whose team SSH certificates still need a KRL entry in each team's TeamDO
+   * (plans/cmux-next/team-vm-plan.md S4). UserDO's alarm delivers them and clears each one.
+   */
+  readonly ssh_revoke_pending?: Readonly<Record<string, { readonly user: string; readonly teams: ReadonlyArray<string>; readonly at: number }>>
 }
 
 const hex20 = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 20)
@@ -48,10 +54,14 @@ const revokeInstall = (state: UserState, cur: typeof Install.Type, now: number):
   if (cur.revoked_at !== null) return { ok: true, state, value: cur, changed: false }
   const next = { ...cur, revoked_at: now }
   const g = state.grants[cur.grant]
+  // Install tokens carry the personal team; a bound server's team may also have signed for it.
+  const teams = state.user ? [...new Set([state.user.personal_team, ...(cur.bound_team ? [cur.bound_team] : [])])] : []
+  const pending = teams.length > 0 && state.user ? { ...state.ssh_revoke_pending, [cur.id]: { user: state.user.id, teams, at: now } } : state.ssh_revoke_pending
   return {
     ok: true,
     state: {
       ...revokePresenceKey(state, cur.id, now),
+      ...(pending ? { ssh_revoke_pending: pending } : {}),
       push_targets: Object.fromEntries(Object.entries(state.push_targets ?? {}).filter(([, t]) => t.install !== cur.id)),
       installs: { ...state.installs, [cur.id]: next },
       grants: g ? { ...state.grants, [g.id]: { ...g, revoked_at: now } } : state.grants
@@ -90,6 +100,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
 
   reduce: (state, op, params, ctx) => {
     const p = ctx.principal
+    if (CHIEF_OPS.has(op)) return reduceChief(state, op, (params ?? {}) as Record<string, unknown>, ctx)
     if (USER_CONFIRM_OPS.has(op)) return reduceConfirm(state, op, params, { ...ctx, principal: withInstallKind(state, p) }, appIdHash)
     switch (op) {
       case "user.ensure": {
@@ -143,6 +154,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           name: v.name,
           device_name: v.device_name,
           platform: v.platform,
+          ...(p.kind === "session" && p.sso_team ? { sso_team: p.sso_team } : {}),
           public_jwk: v.public_jwk,
           thumbprint,
           grant,
@@ -182,6 +194,14 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         if (!cur) return reject("selector.not_found", "install not found")
         if (cur.bound_team !== v.team) return reject("auth.forbidden", "install is not bound to this team")
         return revokeInstall(state, cur, ctx.now)
+      }
+      case "install.ssh_revoke_done": {
+        // UserDO's own alarm, after every team in the notice confirmed the KRL entries.
+        if (p.kind !== "system" || p.identity !== "system:user") return reject("auth.forbidden", "internal op of this UserDO")
+        const install = (params as { install: string }).install
+        if (!state.ssh_revoke_pending?.[install]) return { ok: true, state, value: { install }, changed: false }
+        const { [install]: _done, ...rest } = state.ssh_revoke_pending
+        return { ok: true, state: { ...state, ssh_revoke_pending: rest }, value: { install } }
       }
       case "install.revoke": {
         const d = decodeParams<typeof InstallRevoke.params.Type>(InstallRevoke, params)

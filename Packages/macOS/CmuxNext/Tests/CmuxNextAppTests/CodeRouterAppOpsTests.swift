@@ -1,4 +1,5 @@
 import CmuxNextApps
+import CmuxNextCodeRouter
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -43,7 +44,22 @@ struct CodeRouterAppOpsTests {
         #expect(!text.contains("corp.example.org"))
         #expect(text.contains("acct_abc"))
         #expect(calls.methods == ["coderouter.accounts.list"])
-        #expect(CodeRouterAppOps.redactEmails("a someone@example.com b") == "a s…@e… b")
+        #expect("a someone@example.com b".redactingEmails() == "a s…@e… b")
+    }
+
+    /// App reads are redacted with the shared account redactor: hostile email
+    /// forms, email keys, and two keys that shorten to the same text (which
+    /// trapped before) leave no email marker outside `…@`.
+    @Test func appReadsAreRedactedForHostileForms() async throws {
+        let hostile = ["jörg@bücher.de", "\"john doe\"@example.com", "someone%40example.com", "someone\u{FF20}example.com",
+                       "user@[10.0.0.1]", "u@exa_mple.com", "x%2540example.com", "y\u{FE6B}example.com"]
+        let handler = ops(Calls()) { _ in
+            .object(["accounts": .array(hostile.map { .object(["account": .string("acct_abc"), "label": .string($0)]) }),
+                     "alice@example.com": .string("a"), "adam@example.org": .string("b")])
+        }
+        let value = try await handler.handle(request("coderouter.accounts.list"))
+        let data = try JSONEncoder().encode(value)
+        #expect(PrivacyScan.emails(inJSON: data).isEmpty, "\(String(decoding: data, as: UTF8.self))")
     }
 
     @Test func opsWithoutABackingMethodAreUnsupported() async {

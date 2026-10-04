@@ -7730,137 +7730,6 @@
         }
       }
     },
-    "home.message.deleted": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تم حذف هذه الرسالة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ova poruka je obrisana."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Denne besked blev slettet."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Diese Nachricht wurde gelöscht."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This message was deleted."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Este mensaje se eliminó."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ce message a été supprimé."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Questo messaggio è stato eliminato."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このメッセージは削除されました。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "សារនេះត្រូវបានលុប។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "삭제된 메시지입니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Denne meldingen ble slettet."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ta wiadomość została usunięta."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esta mensagem foi apagada."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Это сообщение удалено."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ข้อความนี้ถูกลบแล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu mesaj silindi."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Це повідомлення видалено."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tin nhắn này đã bị xóa."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此消息已删除。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此訊息已刪除。"
-          }
-        }
-      }
-    },
     "home.message.discard": {
       "extractionState": "manual",
       "localizations": {
@@ -11660,6 +11529,137 @@
         }
       }
     },
+    "home.tapback.react": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تفاعل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reaguj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reagér"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reagieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "React"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reaccionar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réagir"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reagisci"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リアクション"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រតិកម្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "반응"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reager"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zareaguj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reagir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Реакция"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงความรู้สึก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tepki ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Реакція"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bày tỏ cảm xúc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回应"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回應"
+          }
+        }
+      }
+    },
     "home.title": {
       "extractionState": "manual",
       "localizations": {
@@ -13232,264 +13232,133 @@
         }
       }
     },
-    "home.typing.many": {
+    "home.transcript.a11y": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ يكتبون…"
+            "value": "الرسائل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ pišu…"
+            "value": "Poruke"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ skriver …"
+            "value": "Beskeder"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ schreiben …"
+            "value": "Nachrichten"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ are typing…"
+            "value": "Messages"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ están escribiendo…"
+            "value": "Mensajes"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ écrivent…"
+            "value": "Messages"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ stanno scrivendo…"
+            "value": "Messaggi"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ が入力中…"
+            "value": "メッセージ"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ កំពុងវាយ…"
+            "value": "សារ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 님이 입력 중…"
+            "value": "메시지"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ skriver …"
+            "value": "Meldinger"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ piszą…"
+            "value": "Wiadomości"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ estão digitando…"
+            "value": "Mensagens"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ печатают…"
+            "value": "Сообщения"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ กำลังพิมพ์…"
+            "value": "ข้อความ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ yazıyor…"
+            "value": "Mesajlar"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ друкують…"
+            "value": "Повідомлення"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ đang nhập…"
+            "value": "Tin nhắn"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 正在输入…"
+            "value": "消息"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 正在輸入…"
-          }
-        }
-      }
-    },
-    "home.typing.one": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ يكتب…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ piše…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ skriver …"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ schreibt …"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ is typing…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ está escribiendo…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ écrit…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ sta scrivendo…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ が入力中…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ កំពុងវាយ…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ 님이 입력 중…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ skriver …"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ pisze…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ está digitando…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ печатает…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ กำลังพิมพ์…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ yazıyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ друкує…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ đang nhập…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ 正在输入…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ 正在輸入…"
+            "value": "訊息"
           }
         }
       }
@@ -13621,6 +13490,399 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "你"
+          }
+        }
+      }
+    },
+    "home.updateRequired.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتطلب فريقك cmux %@ أو أحدث. حدّث cmux لتستمر الإشعارات والردود في العمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vaš tim zahtijeva cmux %@ ili noviji. Ažurirajte cmux da bi obavještenja i odgovori nastavili raditi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dit team kræver cmux %@ eller nyere. Opdater cmux, så notifikationer og svar bliver ved med at virke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dein Team erfordert cmux %@ oder neuer. Aktualisiere cmux, damit Mitteilungen und Antworten weiter funktionieren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your team requires cmux %@ or newer. Update cmux to keep notifications and replies working."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tu equipo requiere cmux %@ o posterior. Actualiza cmux para que las notificaciones y las respuestas sigan funcionando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Votre équipe exige cmux %@ ou une version ultérieure. Mettez à jour cmux pour que les notifications et les réponses continuent de fonctionner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il tuo team richiede cmux %@ o versioni successive. Aggiorna cmux per continuare a ricevere notifiche e inviare risposte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームでは cmux %@ 以降が必要です。通知と返信を引き続き使うには cmux をアップデートしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រុមរបស់អ្នកតម្រូវឱ្យមាន cmux %@ ឬថ្មីជាងនេះ។ សូមធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីឱ្យការជូនដំណឹង និងការឆ្លើយតបនៅតែដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "팀에서 cmux %@ 이상이 필요합니다. 알림과 답장을 계속 사용하려면 cmux를 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teamet ditt krever cmux %@ eller nyere. Oppdater cmux for at varsler og svar skal fortsette å virke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Twój zespół wymaga cmux %@ lub nowszego. Zaktualizuj cmux, aby powiadomienia i odpowiedzi nadal działały."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sua equipe exige o cmux %@ ou posterior. Atualize o cmux para que as notificações e respostas continuem funcionando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вашей команде нужна версия cmux %@ или новее. Обновите cmux, чтобы уведомления и ответы продолжали работать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทีมของคุณต้องใช้ cmux %@ ขึ้นไป อัปเดต cmux เพื่อให้การแจ้งเตือนและการตอบกลับยังใช้งานได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekibiniz cmux %@ veya daha yeni bir sürüm gerektiriyor. Bildirimlerin ve yanıtların çalışmaya devam etmesi için cmux'ı güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваша команда вимагає cmux %@ або новішої версії. Оновіть cmux, щоб сповіщення й відповіді й надалі працювали."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm của bạn yêu cầu cmux %@ trở lên. Hãy cập nhật cmux để thông báo và trả lời tiếp tục hoạt động."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的团队要求使用 cmux %@ 或更高版本。请更新 cmux，以继续使用通知和回复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的團隊要求使用 cmux %@ 或更新版本。請更新 cmux，以繼續使用通知與回覆。"
+          }
+        }
+      }
+    },
+    "home.updateRequired.bodyNoVersion": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتطلب فريقك إصدارًا أحدث من cmux. حدّث cmux لتستمر الإشعارات والردود في العمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vaš tim zahtijeva noviju verziju cmuxa. Ažurirajte cmux da bi obavještenja i odgovori nastavili raditi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dit team kræver en nyere version af cmux. Opdater cmux, så notifikationer og svar bliver ved med at virke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dein Team erfordert eine neuere Version von cmux. Aktualisiere cmux, damit Mitteilungen und Antworten weiter funktionieren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your team requires a newer version of cmux. Update cmux to keep notifications and replies working."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tu equipo requiere una versión más reciente de cmux. Actualiza cmux para que las notificaciones y las respuestas sigan funcionando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Votre équipe exige une version plus récente de cmux. Mettez à jour cmux pour que les notifications et les réponses continuent de fonctionner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il tuo team richiede una versione più recente di cmux. Aggiorna cmux per continuare a ricevere notifiche e inviare risposte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームでは新しいバージョンの cmux が必要です。通知と返信を引き続き使うには cmux をアップデートしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រុមរបស់អ្នកតម្រូវឱ្យមាន cmux កំណែថ្មីជាងនេះ។ សូមធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីឱ្យការជូនដំណឹង និងការឆ្លើយតបនៅតែដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "팀에서 최신 버전의 cmux가 필요합니다. 알림과 답장을 계속 사용하려면 cmux를 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teamet ditt krever en nyere versjon av cmux. Oppdater cmux for at varsler og svar skal fortsette å virke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Twój zespół wymaga nowszej wersji cmux. Zaktualizuj cmux, aby powiadomienia i odpowiedzi nadal działały."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sua equipe exige uma versão mais recente do cmux. Atualize o cmux para que as notificações e respostas continuem funcionando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вашей команде нужна более новая версия cmux. Обновите cmux, чтобы уведомления и ответы продолжали работать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทีมของคุณต้องใช้ cmux เวอร์ชันที่ใหม่กว่า อัปเดต cmux เพื่อให้การแจ้งเตือนและการตอบกลับยังใช้งานได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekibiniz cmux'ın daha yeni bir sürümünü gerektiriyor. Bildirimlerin ve yanıtların çalışmaya devam etmesi için cmux'ı güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваша команда вимагає новішої версії cmux. Оновіть cmux, щоб сповіщення й відповіді й надалі працювали."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm của bạn yêu cầu phiên bản cmux mới hơn. Hãy cập nhật cmux để thông báo và trả lời tiếp tục hoạt động."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的团队要求使用更新版本的 cmux。请更新 cmux，以继续使用通知和回复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的團隊要求使用較新版本的 cmux。請更新 cmux，以繼續使用通知與回覆。"
+          }
+        }
+      }
+    },
+    "home.updateRequired.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يلزم التحديث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Potrebno ažuriranje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdatering påkrævet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Update erforderlich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Required"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Actualización necesaria"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mise à jour requise"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiornamento necessario"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートが必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ត្រូវការធ្វើបច្ចុប្បន្នភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "업데이트 필요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdatering kreves"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wymagana aktualizacja"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atualização necessária"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Требуется обновление"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ต้องอัปเดต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme Gerekli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Потрібне оновлення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cần cập nhật"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "需要更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "需要更新"
           }
         }
       }

@@ -6,6 +6,8 @@ import { feedCounts, feedDomain, nextFeedWake, visibleTo, type FeedState } from 
 import { isUserClient, prunableAt, pushEligible, RETENTION_MS } from "./domains/feed-state.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
+import { FEED_ENGINE_OPTIONS, scrubFeedText } from "./feed-privacy.ts"
+import type { SweepState } from "./feed-sweep.ts"
 import { apnsConfig, sendApns } from "./push/apns.ts"
 
 interface Presence {
@@ -30,7 +32,14 @@ export class FeedDO extends OwnerDO<FeedState> {
       ...(p.install ? { install: p.install } : {}),
       ...(p.install_kind ? { install_kind: p.install_kind } : {}),
       ...(p.agent ? { agent: p.agent } : {})
-    }))
+    }), FEED_ENGINE_OPTIONS)
+  }
+
+  /** Text written without the redaction is scrubbed on bind (feed-privacy.ts). */
+  protected override bind(entity: string) {
+    const engine = super.bind(entity)
+    scrubFeedText(engine)
+    return engine
   }
 
   protected read(state: FeedState, op: string, params: unknown, principal: Principal): ReadResult {
@@ -70,6 +79,23 @@ export class FeedDO extends OwnerDO<FeedState> {
    * that can remove items (post and adopt evict, prune drops), every id still
    * present. Clients mirror these owner-written items; they never replay ops.
    */
+  /** Sweep (feed-sweep.ts): scrubs the stored text of a bound feed; reports false for an object without one. */
+  async scrubIfBound(): Promise<boolean> {
+    const engine = this.boundEngine
+    if (!engine) return false
+    scrubFeedText(engine)
+    return true
+  }
+
+  /** The sweep cursor, kept only in the reserved object SWEEP_OBJECT (never a user's feed). */
+  async sweepState(): Promise<SweepState> {
+    return ((await this.ctx.storage.get<SweepState>("feed-sweep")) ?? { after: null, completed_at: null })
+  }
+
+  async setSweepState(state: SweepState): Promise<void> {
+    await this.ctx.storage.put("feed-sweep", state)
+  }
+
   protected override eventExtras(event: EventFrame): Record<string, unknown> | undefined {
     const state = this.boundEngine?.currentState
     if (!state) return undefined

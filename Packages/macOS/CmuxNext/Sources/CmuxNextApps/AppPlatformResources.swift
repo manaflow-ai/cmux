@@ -13,6 +13,9 @@ public nonisolated enum AppPlatformResources {
     public static var runtimeScript: URL { root.appending(path: "runtime/cmux-app-runtime.js") }
     /// `generated/scopes.json`: op name -> scope and class.
     public static var scopesFile: URL { root.appending(path: "scopes.json") }
+    /// `schema/v2/scope-classes.json`: the risk class of every scope, shared
+    /// with the Rust validator (`cmux-app-manifest`).
+    public static var scopeClassesFile: URL { root.appending(path: "scope-classes.json") }
     public static var schemaFile: URL { root.appending(path: "schema/cmux-app.schema.json") }
     /// `schema/fixtures/{valid,invalid}` shared with the TypeScript validator.
     public static var fixtures: URL { root.appending(path: "schema/fixtures", directoryHint: .isDirectory) }

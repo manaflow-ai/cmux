@@ -1513,7 +1513,7 @@ where
     deserialize_generation(deserializer).map(Some)
 }
 
-fn deserialize_decimal<'de, D>(deserializer: D) -> Result<u64, D::Error>
+pub(crate) fn deserialize_decimal<'de, D>(deserializer: D) -> Result<u64, D::Error>
 where
     D: Deserializer<'de>,
 {

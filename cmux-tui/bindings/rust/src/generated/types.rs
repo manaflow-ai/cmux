@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR ce9a5e7f62b3f675e99bee009ceaaca54e1d348823fbc1670330ce4ce6e9a83e.
+// cmux-tui mux protocol 12, IR 84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -214,6 +214,13 @@ pub struct CloseTerminalResult {
     pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
     pub terminal_revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ColumnPin {
+    pub edge: String,
+    pub mode: String,
 }
 
 #[rustfmt::skip]
@@ -637,6 +644,19 @@ pub struct MoveTerminalResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewRowResult {
+    pub pane: Id,
+    pub surface: Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_incarnation: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub transaction: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NoteSizeActivityResult {
     pub changed: bool,
     pub participant: String,
@@ -952,6 +972,20 @@ pub struct ResourceSelectors {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RowHeight {
+    pub height: u64,
+    pub row: Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RowMarkerPoint {
+    pub col: u16,
+    pub row_marker: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunResult {
     pub already_exited: bool,
     pub exit: Nullable<TerminalExit>,
@@ -1255,6 +1289,41 @@ pub struct SizingIdentity {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SnapshotRequestHave {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub generation: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub offset: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub snapshot_version: Optional<u16>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SnapshotRequestResultStatus {
+    #[serde(rename = "accepted")]
+    Accepted,
+    #[serde(rename = "collapsed")]
+    Collapsed,
+    #[serde(rename = "snapshot_throttled")]
+    SnapshotThrottled,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SnapshotRequestResult {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub reason: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub request_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub retry_after_ms: Optional<u64>,
+    pub status: SnapshotRequestResultStatus,
+    pub surface: Id,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SplitDirection {
     #[serde(rename = "right")]
@@ -1420,6 +1489,26 @@ pub enum TerminalExitOutcome {
     Unknown {
         reason: String,
     },
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalHistoryPage {
+    pub data: String,
+    pub marker: u64,
+    pub rows: u16,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalHistoryPagesResult {
+    pub done: bool,
+    pub marker_epoch: u64,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub next_before: Optional<u64>,
+    pub pages: Vec<TerminalHistoryPage>,
+    pub snapshot_version: u16,
+    pub surface: Id,
 }
 
 #[rustfmt::skip]
@@ -1728,6 +1817,14 @@ pub struct TerminalPlacement {
     pub terminal_incarnation: Nullable<String>,
     pub terminal_revision: u64,
     pub workspace: Nullable<Id>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalReadRangeResult {
+    pub surface: Id,
+    pub text: String,
+    pub truncated: bool,
 }
 
 #[rustfmt::skip]

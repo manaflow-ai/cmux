@@ -13,6 +13,9 @@ enum RowArt {
     static var unsentFont: CTFont { Fonts.system(11) }
     static var labelFont: CTFont { Fonts.system(10, .medium) }
     static var receiptFont: CTFont { Fonts.system(Style.captionSize, .semibold) }
+    static var nameFont: CTFont { Fonts.system(11) }
+    /// Sender names start over the bubble's text.
+    static func nameLeft(_ metrics: Metrics) -> CGFloat { metrics.leftEdge + Style.bubblePadX }
 
     /// The typing bubble without its dots (the dots are animated layers).
     static let typingBubble = CGRect(x: 20, y: Style.rowMargin + 4, width: 44, height: 27.5)
@@ -25,7 +28,7 @@ enum RowArt {
     /// Body rect of a part row in row coordinates.
     static func bodyRect(_ spec: RowSpec, metrics: Metrics) -> CGRect {
         guard let p = spec.partRow else { return .zero }
-        let x = p.outgoing ? metrics.rightEdge - p.size.width : Style.leftEdge
+        let x = p.outgoing ? metrics.rightEdge - p.size.width : metrics.leftEdge
         return CGRect(x: x, y: Style.rowMargin, width: p.size.width, height: p.bodySize.height)
     }
 
@@ -61,6 +64,9 @@ enum RowArt {
             return CGRect(x: metrics.receiptRight - w - pad, y: 0, width: w + 2 * pad, height: height)
         case .typing:
             return CGRect(x: 0, y: 0, width: typingWidth, height: height)
+        case .senderName(let name):
+            let w = TextDraw.width(name, font: nameFont)
+            return CGRect(x: nameLeft(metrics) - pad, y: 0, width: w + 2 * pad, height: height)
         }
     }
 
@@ -84,6 +90,8 @@ enum RowArt {
             TextDraw.line(text, font: labelFont, color: palette.failure.cgColor, x: x, baseline: top + 11, in: ctx)
         case .receipt(let text):
             TextDraw.line(text, font: receiptFont, color: secondary, x: x, baseline: top + 14, in: ctx, kern: Style.captionKern)
+        case .senderName(let name):
+            TextDraw.line(name, font: nameFont, color: secondary, x: x, baseline: top + 11, in: ctx)
         case .typing:
             let b = typingBubble
             let fill = palette.incomingBubble.cgColor
@@ -97,7 +105,7 @@ enum RowArt {
 extension RowArt {
     /// The row's bitmap. Pure: a value spec and palette in, an immutable
     /// image out, so it runs on any thread.
-    static func render(_ spec: RowSpec, palette: HomePalette, size: CGSize) -> CGImage? {
-        Canvas.image(size: size) { draw(spec, palette: palette, $0) }
+    static func render(_ spec: RowSpec, palette: HomePalette, size: CGSize, scale: CGFloat = Canvas.scale) -> CGImage? {
+        Canvas.image(size: size, scale: scale) { draw(spec, palette: palette, $0) }
     }
 }

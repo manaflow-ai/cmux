@@ -4,6 +4,7 @@ import type { PermissionDecision } from "./permissions/protocol";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import { syntheticRows } from "./synthetic";
+import { workedTurnRows } from "./workedTurn";
 import { acpWire, type AcpWireLog } from "./wire";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
@@ -15,7 +16,9 @@ import { acpWire, type AcpWireLog } from "./wire";
 export type FlingOptions = { nominal_ms?: number; wait?: boolean };
 
 export type AcpmuxDebug = {
-  seedRows(count?: number): Promise<Record<string, unknown>>;
+  /// Replaces the transcript with `count` synthetic rows, or with the worked turn of
+  /// workedTurn.ts when `fixture` is "worked-turn".
+  seedRows(count?: number, fixture?: string): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
   perfStats(options?: { raw?: boolean }): Record<string, unknown>;
@@ -39,6 +42,8 @@ export type AcpmuxDebug = {
     decision?: PermissionDecision;
   }): Promise<Record<string, unknown>>;
   openChanges(): Record<string, unknown>;
+  setModel(model: string, effort?: string): Promise<Record<string, unknown>>;
+  models(): Record<string, unknown>;
 };
 
 const NO_AUTOMATION = { error: "the page has no automation host" };
@@ -69,9 +74,10 @@ export function createAcpmuxDebug(
   };
 
   return {
-    async seedRows(count = 5000) {
+    async seedRows(count = 5000, fixture) {
       acpmuxPerf.enable();
-      const rows = syntheticRows(Math.max(3, Math.floor(count)));
+      const rows =
+        fixture === "worked-turn" ? workedTurnRows(Date.now() - 60_000) : syntheticRows(Math.max(3, Math.floor(count)));
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(rows);
@@ -195,6 +201,14 @@ export function createAcpmuxDebug(
     },
     openChanges() {
       return host.automation ? automation.openChanges(host.automation) : NO_AUTOMATION;
+    },
+    async setModel(model, effort) {
+      return host.automation
+        ? automation.setModel(host.automation, String(model ?? ""), effort || undefined)
+        : NO_AUTOMATION;
+    },
+    models() {
+      return host.automation ? automation.models(host.automation) : NO_AUTOMATION;
     },
   };
 }

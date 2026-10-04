@@ -41,6 +41,7 @@ final class AppControl {
         let probe = frameProbe
         service.router.register(HistoryControl.methods(services: services))
         service.router.register(TabSearchControl.methods())
+        service.router.register(PaletteScopeControl.methods(services: services, router: service.router))
         service.router.register(BookmarkControl.methods(services: services))
         service.router.register(FeedControl.methods(services: services))
         service.router.register([
@@ -87,8 +88,6 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugNotifications.handle(call.params, services: services))
             },
-            // Chief experiment tabs: state and a rendered PNG (plans/cmux-next/chief.md).
-            .mainActor("debug.chief") { call in .value(ChiefExperimentPage.shared.debugReport(send: call.params["send"]?.stringValue)) },
             // App overlays vs content child windows (Chromium pages).
             .mainActor("debug.layers") { [weak services] _ in
                 guard let services else { return .value(.null) }
@@ -152,6 +151,10 @@ final class AppControl {
         #if DEBUG
         // Deliberately blocks the main thread (watchdog and bench self-test).
         service.router.register([
+            .mainActor("debug.showcase.seed") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugShowcase.seed(call.params, services: services))
+            },
             .mainActor("debug.webkit_inspector") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugWebInspector.handle(call.params, services: services))
@@ -165,6 +168,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))
             },
+            .mainActor("debug.palette.capture") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugPaletteCapture.capture(call.params, services: services))
+            },
             .mainActor("debug.mouse") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.mouse(call.params, services: services))
@@ -172,6 +179,18 @@ final class AppControl {
             .async("debug.window.ax_set_frame") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugAXFrame.run(call.params, services: services)
+            },
+            .mainActor("debug.home_native_fixture.open") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugHomeNativeFixture.open(services: services))
+            },
+            .mainActor("debug.window_list") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugWindowList.list(services: services))
+            },
+            .mainActor("debug.window_snapshot") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugWindowSnapshot.capture(call.params, services: services))
             },
             .mainActor("debug.window_frame") { [weak services] call in
                 guard let services else { return .value(.null) }

@@ -141,6 +141,11 @@ public struct Metrics {
     public static var panelCornerRadius: CGFloat { MetricTunables.panelCornerRadius.value }
     /// Corner radius for tabs and rows.
     public static var itemCornerRadius: CGFloat { MetricTunables.itemCornerRadius.value }
+    /// Corner radius for a small labeled surface (a note, toast or count
+    /// badge) of `height`: the item radius, never a capsule.
+    public static func chipCornerRadius(height: CGFloat) -> CGFloat {
+        min(itemCornerRadius, (height / 4).rounded(.down))
+    }
 
     // MARK: Icons
 
@@ -158,6 +163,10 @@ public struct Typography {
         guard let body = DesignSettings.shared.overrides[.chromeFontSize] else { return 1 }
         return body / (compact ? 12 : 13)
     }
+    /// The user's text size relative to the density's body size (1 when
+    /// Interface Size is not overridden). Surfaces with their own type scale
+    /// (the Home transcript's `textScale`) follow it.
+    public static var userScale: CGFloat { scale }
     private static func size(_ compactSize: CGFloat, _ comfortableSize: CGFloat) -> CGFloat {
         (compact ? compactSize : comfortableSize) * scale
     }

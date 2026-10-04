@@ -94,8 +94,8 @@ pub(crate) use resource_store::{
 #[allow(unused_imports)]
 pub use resource_store::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserReconnect, RegistryBrowserSource,
-    RegistryBrowserStatus, RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab,
-    RegistryViewport, RegistryViewportColumn, ResourceChange, ResourceEventBatch,
+    RegistryBrowserStatus, RegistryLayoutNode, RegistryPane, RegistryRow, RegistryScreen,
+    RegistryTab, RegistryViewport, RegistryViewportColumn, ResourceChange, ResourceEventBatch,
     ResourceEventPage, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
     ResourceWorkspaceLedger,
 };

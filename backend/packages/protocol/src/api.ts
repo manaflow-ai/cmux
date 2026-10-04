@@ -16,6 +16,10 @@ export interface CurrentPrincipalShape {
   /** Stack asserted the email as verified (claim `email_verified === true`). */
   readonly email_verified?: boolean
   readonly display_name?: string
+  /** Team whose SSO created this session, resolved server-side by the Worker (sso.enforce). */
+  readonly sso_team?: string
+  /** The Stack session's refresh token id (Stack-signed), so install.register can find the SSO team that created it. */
+  readonly stack_session?: string
 }
 export class CurrentPrincipal extends Context.Service<CurrentPrincipal, CurrentPrincipalShape>()("cmux/CurrentPrincipal") {}
 
@@ -28,6 +32,13 @@ export class Unauthenticated extends Schema.TaggedError<Unauthenticated>()(
 export class Forbidden extends Schema.TaggedError<Forbidden>()(
   "Forbidden",
   { code: Schema.Literal("auth.forbidden"), message: Schema.String },
+  { httpApiStatus: 403 }
+) {}
+
+/** A team policy refuses this sign-in (enterprise P17-4): SSO required, client too old, or a denied class. */
+export class PolicyRefused extends Schema.TaggedError<PolicyRefused>()(
+  "PolicyRefused",
+  { code: Schema.Literals(["auth.sso_required", "client.too_old", "policy.denied"]), message: Schema.String, minimum_version: Schema.optionalKey(Schema.String) },
   { httpApiStatus: 403 }
 ) {}
 
@@ -49,7 +60,7 @@ export class Authorization extends HttpApiMiddleware.Service<Authorization, { pr
   {
     requiredForClient: true,
     security: { bearer: HttpApiSecurity.bearer },
-    error: Unauthenticated
+    error: [Unauthenticated, PolicyRefused]
   }
 ) {}
 
@@ -131,7 +142,7 @@ export class AuthGroup extends HttpApiGroup.make("auth")
     HttpApiEndpoint.post("token", "/v1/auth/token", {
       payload: Schema.Struct({ user: UserId, install: InstallId, nonce: Schema.String, signature: Schema.String }),
       success: TokenResponse,
-      error: [BadRequest, Forbidden]
+      error: [BadRequest, Forbidden, PolicyRefused]
     })
   ) {}
 

@@ -31,6 +31,14 @@ struct AppearanceStudioTests {
         #expect(frame == content.insetBy(dx: gap, dy: gap))
     }
 
+    @Test func tunerPeekSitsCenteredAtTheBottomOfTheContent() {
+        let content = CGRect(x: 100, y: 100, width: 1200, height: 800)
+        let frame = AppearanceTunerPlacement.frame(content: content)
+        #expect(frame.midX == content.midX)
+        #expect(frame.minY > content.minY)
+        #expect(frame.maxY < content.maxY)
+    }
+
     @Test func customizeAppearanceIsBoundAndOfferedInSettings() throws {
         let services = ActionBindingCoverageTests.boundServices()
         #expect(services.registry.isBound("appearance.customize"))
@@ -40,8 +48,9 @@ struct AppearanceStudioTests {
         withExtendedLifetime(services) {}
     }
 
-    /// Customize Appearance is a sidebar item users can add (it runs the
-    /// same action); the default bottom band leaves it out (decision S11).
+    /// Customize Appearance is a sidebar item (it runs the same action);
+    /// the default bottom band leaves it out. The rail default lists it
+    /// under More (S11 is superseded by the rail, sidebar-sections.md).
     @Test func theSidebarItemOpensTheStudioAndIsNotInTheDefaultBand() throws {
         #expect(SidebarBridge.builtInActions[.customize] == "appearance.customize")
         let bottom = try #require(SidebarLayoutDocument.defaults.section(SidebarLayoutDocument.bottomSectionID))

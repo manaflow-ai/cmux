@@ -140,8 +140,8 @@ extension WorkspaceBlueprint {
                     case .browser: tab.url.map {
                         .browser(url: $0, engine: tab.browserEngine.flatMap(BrowserEngine.init(rawValue:)), profile: tab.snapshot.browserProfileID)
                     }
-                    // A remote reference is not re-created on duplicate.
-                    case .remoteTerminal, .other: nil
+                    // A remote reference or a conversation is not re-created on duplicate.
+                    case .remoteTerminal, .conversation, .other: nil
                     }
                 }
             }

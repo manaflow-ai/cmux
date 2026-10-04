@@ -1101,7 +1101,7 @@
       if (!s.signed_in)
         return VStack({ spacing: 6 }, [
           EmptyState({ title: t("problem.signedOut", "Sign in to cmux"), message: t("problem.signedOut.body", "CodeRouter acts as your cmux account and team."), symbol: "person.crop.circle" }),
-          Button(t("action.signIn", "Sign In"), signIn)
+          HStack([Spacer(), Button(t("action.signIn", "Sign In"), signIn), Spacer()])
         ]);
       const scope = s.scope?.kind === "team" ? s.scope.team_name : t("scope.personal", "Personal");
       return VStack({ spacing: 4 }, [

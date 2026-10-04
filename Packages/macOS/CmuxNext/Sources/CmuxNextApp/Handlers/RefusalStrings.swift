@@ -10,6 +10,9 @@ nonisolated enum RefusalStrings {
         String(localized: key, defaultValue: value, table: "Refusals", bundle: .module)
     }
 
+    /// A feature an administrator turned off (DisabledFeatures).
+    static var turnedOffByOrganization: String { text("refusal.policy.turnedOff", "Turned off by your organization") }
+
     static func format(_ key: StaticString, _ value: String.LocalizationValue, _ arguments: any CVarArg...) -> String {
         String(format: text(key, value), arguments: arguments)
     }
@@ -29,6 +32,7 @@ nonisolated enum RefusalStrings {
         text("handlers.refusal.incognitoMismatch", "Incognito and normal windows can't share workspaces, tabs or screens.")
     }
     static var chromiumUnavailable: String { text("handlers.refusal.chromiumUnavailable", "Chromium is not available in this build.") }
+    static var homeNotReady: String { text("handlers.refusal.homeNotReady", "Home is not ready yet.") }
     static var notABrowserTab: String { text("handlers.refusal.notABrowserTab", "This tab is not a web page.") }
     static var directionLeft: String { text("handlers.refusal.directionLeft", "left") }
     static var directionRight: String { text("handlers.refusal.directionRight", "right") }
@@ -95,6 +99,9 @@ nonisolated enum RefusalStrings {
     static var columnTooNarrowToSplit: String { text("handlers.refusal.columnTooNarrowToSplit", "Not enough room to split this column") }
     static var columnAlreadySticky: String { text("handlers.refusal.columnAlreadySticky", "the column is already sticky there") }
     static var columnNotSticky: String { text("handlers.refusal.columnNotSticky", "the column is not sticky") }
+    /// Docking a tab whose kind cannot leave a fresh tab behind (an agent
+    /// chat, an incognito page) when it is the screen's only tab.
+    static var openSecondTabToDock: String { text("handlers.refusal.openSecondTabToDock", "Open a second tab to dock this one") }
     static var lastScrollingColumn: String { text("handlers.refusal.lastScrollingColumn", "at least one column must scroll") }
     static func noColumnInDirection(_ direction: String) -> String { format("handlers.refusal.noColumnInDirection", "no column to the %@", direction) }
     static func moveColumnUnsupported(_ capability: String, _ count: Int) -> String { format("handlers.refusal.moveColumnUnsupported", "needs daemon capability %1$@ (the column has %2$lld panes; swap-pane moves one)", capability, count) }

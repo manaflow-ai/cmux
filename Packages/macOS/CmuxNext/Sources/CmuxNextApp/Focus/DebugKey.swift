@@ -89,7 +89,7 @@ enum DebugKey {
         registry.isDispatchingKeyDown = { true }
         defer { registry.isDispatchingKeyDown = previous }
         // The target window is the key window for this dispatch, so rules
-        // that read the key window (StandaloneWindowRule) see it.
+        // that read the key window (WindowKeyTable) see it.
         let previousKey = services.keyWindowSource
         services.keyWindowSource = { [window] in window }
         defer { services.keyWindowSource = previousKey }

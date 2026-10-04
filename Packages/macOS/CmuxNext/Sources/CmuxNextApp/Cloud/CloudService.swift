@@ -61,6 +61,9 @@ final class CloudService {
 
     /// Why Cloud cannot run in this build, or nil.
     var unavailableReason: String? {
+        if policyDisabled { return RefusalStrings.turnedOffByOrganization }
+        // RestrictToManagedTeam (P17-3): no request goes out without the managed team.
+        if auth.managedTeamID != nil, auth.teamID == nil { return RefusalStrings.turnedOffByOrganization }
         if case .localOnly = configuration.backend { return CloudStrings.localBackend }
         if binary == nil { return CloudStrings.noClient }
         return nil
@@ -87,6 +90,34 @@ final class CloudService {
                 await self.refresh()
             }
         })
+    }
+
+    /// Set while an administrator turned Cloud off (`DisabledFeatures`).
+    private(set) var policyDisabled = false
+
+    /// Turning Cloud off disconnects every machine and keeps its workspaces
+    /// (their terminals show "Turned off by your organization"); the VMs
+    /// keep running. Turning it on again reconnects from a fresh list.
+    func applyPolicy(disabled: Bool) {
+        guard disabled != policyDisabled else { return }
+        policyDisabled = disabled
+        if disabled {
+            for session in machines.cloud {
+                session.daemon.policyBlock.set(true)
+                session.disconnect()
+            }
+            // The local tunnel hub stops too; nothing is revoked remotely.
+            // task-owner: one teardown hop; hub.stop() is idempotent
+            if let hub { Task { await hub.stop() } }
+        } else {
+            dropAllMachines()
+            // task-owner: one list fetch after the policy lifted
+            Task { [weak self] in
+                guard let self, auth.isSignedIn else { return }
+                await hub?.resume()
+                await refresh()
+            }
+        }
     }
 
     func stop() {
@@ -116,6 +147,8 @@ final class CloudService {
     }
 
     private func reconcile(_ list: [CloudMachine]) {
+        // A list that arrives after Cloud was turned off connects nothing.
+        guard !policyDisabled else { return }
         let visible = list.filter { $0.status != .destroyed }
         for machine in visible {
             if let session = machines.session(machine.id) {
@@ -138,7 +171,7 @@ final class CloudService {
 
     @discardableResult
     private func addSession(_ machine: CloudMachine) -> CloudMachineSession? {
-        guard let hub, let binary else { return nil }
+        guard let hub, let binary, !policyDisabled else { return nil }
         let link = CloudMachineLink(machineID: machine.id, api: api, hub: hub, paths: paths, binary: binary, deviceName: Self.deviceName)
         let session = CloudMachineSession(machine: machine, link: link)
         session.daemon.workTracker = machines.local.workTracker

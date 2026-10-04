@@ -46,7 +46,6 @@ struct DebugSettingsRootView: View {
                 .scrollEdgeFade()
             }
         }
-        .background(SettingsStyle.background)
         .tint(SettingsStyle.tint)
         .foregroundStyle(SettingsStyle.text)
         .font(SettingsStyle.body)

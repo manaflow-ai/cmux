@@ -7,6 +7,7 @@ import { isHighlighted } from "../shikiLanguages";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS } from "../diffTheme";
 import { FileHeader, type FileActions, type FileView } from "./FileHeader";
 import { HunkActions } from "./HunkActions";
+import { intralineMode } from "./intraline";
 import { hunkAnchor, type FocusAfter, type HunkAnchor, type HunkReview } from "./hunkReview";
 
 export type DiffLayout = "unified" | "split";
@@ -49,12 +50,15 @@ export function EditBlock({
     return highlighted ? parsed : setLanguageOverride(parsed, "text");
   }, [patch, highlighted]);
   const afterRender = useStableCallback(onPainted);
+  const lineDiffType = useMemo(() => intralineMode(edit), [edit]);
   const reviewing = review !== undefined;
   const annotations = useMemo(
     () =>
       reviewing
-        ? edit.hunks.flatMap(
-            (hunk, hunkIndex) => hunkAnchor(hunk, hunkKey(file, index, hunkIndex), file, edit.numbered) ?? [],
+        ? edit.hunks.flatMap((hunk, hunkIndex) =>
+            hunk.reviewKeys?.length === 0
+              ? []
+              : (hunkAnchor(hunk, hunkKey(file, index, hunkIndex), file, edit.numbered) ?? []),
           )
         : [],
     [reviewing, edit, file, index],
@@ -66,7 +70,8 @@ export function EditBlock({
       diffStyle: layout,
       diffIndicators: "bars" as const,
       hunkSeparators: "line-info" as const,
-      lineDiffType: "none" as const,
+      // Word-level marks inside changed lines, unless the edit rewrote whole lines (intraline).
+      lineDiffType,
       overflow: wrap ? ("wrap" as const) : ("scroll" as const),
       // A fragment edit has no known place in its file, so its numbers would be made up.
       disableLineNumbers: !edit.numbered,
@@ -76,7 +81,7 @@ export function EditBlock({
       unsafeCSS: diffUnsafeCSS,
       onPostRender: afterRender,
     }),
-    [layout, wrap, edit.numbered, afterRender],
+    [layout, wrap, edit.numbered, afterRender, lineDiffType],
   );
   // The header sits outside Pierre's diff, so collapsing or marking a file keeps the same
   // header node and the button the reader pressed keeps focus.
@@ -99,8 +104,13 @@ export function EditBlock({
             return review && focusAfter && anchor ? (
               <HunkActions
                 anchor={anchor}
-                decision={review.decisions.get(anchor.key)}
-                onDecide={(decision) => review.decide(anchor.key, decision)}
+                decision={
+                  anchor.keys.length > 0 &&
+                  anchor.keys.every((key) => review.decisions.get(key) === review.decisions.get(anchor.keys[0]!))
+                    ? review.decisions.get(anchor.keys[0]!)
+                    : undefined
+                }
+                onDecide={(decision) => anchor.keys.forEach((key) => review.decide(key, decision))}
                 focusAfter={focusAfter}
               />
             ) : null;

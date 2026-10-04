@@ -19,9 +19,16 @@ public import CoreGraphics
 public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// The one material behind the window's content.
     public var material: WindowMaterial
-    /// Alpha of the theme tint laid over the material: the resolved
+    /// Alpha of the theme tint over the material (glass carries it as its
+    /// own tint): the resolved
     /// `background-opacity`, or 1 for an opaque window.
     public var tintOpacity: Double
+    /// Optional bundled art beneath the material; hidden in opaque mode.
+    public var art: BackdropArt? = nil
+    /// Optional bundled or system image beneath the material.
+    public var selection: BackdropSelection? = nil
+    /// Live experimental adjustments applied to the tint.
+    public var tuning: AppearanceTuning = .identity
     /// Alpha of the white window background while non-opaque.
     public let windowBackgroundAlpha: CGFloat = 0.001
 
@@ -70,8 +77,17 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     ///
     /// - Parameter tokens: The theme tokens of the view's scope.
     /// - Parameter reduceTransparency: The user's Reduce Transparency setting.
-    public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false) {
-        self.init(backgroundOpacity: tokens.backgroundOpacity, backgroundBlur: tokens.backgroundBlur,
+    /// - Parameter art: Bundled art below the window's material and tint.
+    public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, art: BackdropArt? = nil,
+                selection: BackdropSelection? = nil, tuning: AppearanceTuning = .identity) {
+        let resolvedSelection = selection ?? art.map(BackdropSelection.art)
+        let opacity = resolvedSelection == nil || tokens.backgroundOpacity < 1
+            ? tokens.backgroundOpacity
+            : tokens.wallpaperTintOpacity
+        self.init(backgroundOpacity: opacity, backgroundBlur: tokens.backgroundBlur,
                   reduceTransparency: reduceTransparency)
+        self.art = art
+        self.selection = resolvedSelection
+        self.tuning = tuning
     }
 }

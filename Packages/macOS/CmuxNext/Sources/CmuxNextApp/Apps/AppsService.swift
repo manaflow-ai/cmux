@@ -20,6 +20,8 @@ final class AppsService {
     private var fingerprints: [String: Int] = [:]
     private var store: AppStoreWindowController?
     private var storeModel: AppStoreModel?
+    /// App pages (`app:<id>`), one provider per app, registered on first open.
+    private var appPages: [String: AppPanePage] = [:]
     /// The App Store tabs (internal page), one store model per tab.
     private(set) lazy var storePages = AppStorePages { [unowned self] in makeStoreModel() }
     /// Runs previews of apps that are not installed (sample data, no grant).
@@ -35,6 +37,12 @@ final class AppsService {
             self?.registry.app(manifest.id)?.grants ?? AppGrants.Snapshot(scopes: [], sandboxed: true)
         }
         registry.onChange = { [weak self] app in self?.host.refreshGrants(app.manifest) }
+    }
+
+    /// Turning apps off stops every running app and refuses new starts
+    /// (DisabledFeatures); open app pages show "Turned off by your organization".
+    func applyPolicy(disabled: Bool) {
+        host.disabledReason = disabled ? RefusalStrings.turnedOffByOrganization : nil
     }
 
     func start() {
@@ -82,6 +90,27 @@ final class AppsService {
         }
         store?.setThemeScope(services.windows.active?.themeScope ?? .app)
         store?.present(appID: appID, installed: installed)
+    }
+
+    /// Opens an app's page as a tab of the active window (one per window),
+    /// then runs `command` (a `contributes.commands` id) in the app when
+    /// given, for example CodeRouter's connectAccount. User runs select and
+    /// focus the tab; automation opens it without moving focus.
+    func openApp(_ appID: String, command: String? = nil, focus: Bool = true) throws(AppsServiceError) {
+        guard let app = registry.app(appID), app.isActive else { throw .unknownApp }
+        guard AppPanePage.opens(app) else { throw .noPage }
+        let provider = appPages[appID] ?? AppPanePage(appID: appID, apps: self)
+        if appPages[appID] == nil {
+            appPages[appID] = provider
+            services.pages.register(provider)
+        }
+        guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
+        if let command {
+            guard let entry = AppCommandPalette.entries(registry, includingNonPalette: true).first(where: { $0.app.id == appID && $0.command.id == command }) else {
+                throw .unknownCommand
+            }
+            AppCommandPalette.run(entry, services: services)
+        }
     }
 
     private func makeStoreModel() -> AppStoreModel {
@@ -136,5 +165,9 @@ extension AppsService: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView { storePages.makeView(for: key) }
 
     func tabClosed(_ key: String) { storePages.tabClosed(key) }
+}
+
+enum AppsServiceError: Error {
+    case unknownApp, noPage, noWindow, unknownCommand
 }
 

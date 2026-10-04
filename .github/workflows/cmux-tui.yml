@@ -33,6 +33,12 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # libghostty-vt always builds from the ghostty-next gitlink: an empty
+  # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
+  # as unset).
+  CMUX_GHOSTTY_SRC: ""
+
 jobs:
   validate-inputs:
     name: validate exact commit request
@@ -80,6 +86,8 @@ jobs:
           esac
 
   msrv-check:
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
     name: Rust MSRV (1.91)
     needs: validate-inputs
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
@@ -96,7 +104,7 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+        run: git submodule update --init --depth 1 ghostty ghostty-next
 
       - name: Install Linux build dependencies
         run: |
@@ -154,6 +162,8 @@ jobs:
           npm test
 
   lint:
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
     name: lint (${{ matrix.os }})
     needs: validate-inputs
     runs-on: ${{ matrix.runner }}
@@ -175,8 +185,27 @@ jobs:
           EXACT_COMMIT: ${{ inputs.commit }}
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
+      # The Rust god-file ratchet (plans/cmux-next/OWNERSHIP-PRINCIPLES.md): no cmux-tui
+      # file may pass 1000 lines or 60 functions unless godfile-baseline.tsv lists it,
+      # and a listed file may not grow. Both modes run it, so no landing gate skips it.
+      - name: Rust god-file check
+        run: scripts/cmux-next/check-no-godfiles.sh --only rust "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+        run: git submodule update --init --depth 1 ghostty ghostty-next
+
+      # libghostty-vt for cmux-tui comes only from ghostty-next. Fail here,
+      # loudly, when that checkout is missing or empty instead of later in
+      # bindgen or a test.
+      - name: Require the ghostty-next submodule
+        run: |
+          for required in build.zig include/ghostty/vt.h include/ghostty/vt/snapshot.h; do
+            if [[ ! -f "ghostty-next/$required" ]]; then
+              echo "::error::ghostty-next submodule is missing or empty (no ghostty-next/$required). Run: git submodule update --init ghostty-next" >&2
+              exit 1
+            fi
+          done
+          test "$(git -C ghostty-next rev-parse HEAD)" = "$(git rev-parse HEAD:ghostty-next)"
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -220,6 +249,29 @@ jobs:
             echo "- hit rate: \`${hit_rate}%\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # ghostty-vt-sys must never fall back to another Ghostty tree. Prove the
+      # build script refuses a missing source with the fix in its message.
+      - name: ghostty-vt-sys refuses a missing libghostty-vt source
+        working-directory: cmux-tui
+        run: |
+          empty="$RUNNER_TEMP/empty-vt-src"
+          mkdir -p "$empty"
+          log="$RUNNER_TEMP/empty-vt-src.log"
+          # A separate target dir keeps this failing build script run out of the
+          # cached workspace fingerprints used by clippy and the tests.
+          if CMUX_GHOSTTY_SRC="$empty" CARGO_TARGET_DIR="$RUNNER_TEMP/vt-src-guard-target" \
+            cargo check -p ghostty-vt-sys >"$log" 2>&1; then
+            cat "$log"
+            echo "::error::ghostty-vt-sys built from an empty libghostty-vt source" >&2
+            exit 1
+          fi
+          if ! grep -Fq "git submodule update --init ghostty-next" "$log"; then
+            cat "$log"
+            echo "::error::ghostty-vt-sys failed without naming the ghostty-next submodule" >&2
+            exit 1
+          fi
+          echo "ghostty-vt-sys refused the empty source as expected"
+
       - name: cargo fmt
         id: rustfmt-check
         working-directory: cmux-tui
@@ -246,7 +298,19 @@ jobs:
         working-directory: cmux-tui
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      # cmux-rd-ffi is its own Cargo workspace (outside --workspace), so the
+      # cmux-tui lint/test steps never build it. Its tests pin the C header
+      # against the exports and layouts (plans/cmux-next/remote-desktop.md 3).
+      - name: cmux-rd-ffi (own workspace)
+        working-directory: cmux-tui/crates/cmux-rd-ffi
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets --locked -- -D warnings
+          cargo test --locked
+
   valgrind-leak-check-shard:
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
     name: valgrind-leak-check (startup)
     needs: validate-inputs
     if: inputs.mode == 'full'
@@ -266,7 +330,7 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+        run: git submodule update --init --depth 1 ghostty ghostty-next
 
       - name: Install valgrind
         run: |
@@ -454,6 +518,8 @@ jobs:
         run: test "$SHARD_RESULT" = success
 
   macos:
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
     name: macOS lint and tests
     needs: validate-inputs
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
@@ -473,7 +539,7 @@ jobs:
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+        run: git submodule update --init --depth 1 ghostty ghostty-next
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -541,7 +607,15 @@ jobs:
           cargo test -p cmux-server-core --test units_golden launch_ \
             -- --test-threads=1
 
+      # The macOS arm64 host snapshot digests that the GhosttyNextKit cross
+      # check compares against (schemas/terminal-corpus/crosscheck/run.sh).
+      - name: Terminal corpus host snapshots (macOS arm64)
+        working-directory: cmux-tui
+        run: cargo test -p ghostty-vt --test terminal_corpus
+
   test:
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
     name: test (${{ matrix.os }})
     needs: validate-inputs
     runs-on: ${{ matrix.runner }}
@@ -568,7 +642,7 @@ jobs:
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+        run: git submodule update --init --depth 1 ghostty ghostty-next
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -581,9 +655,12 @@ jobs:
 
       - name: Ghostty VT cursor replay checks
         if: inputs.mode == 'full'
-        working-directory: ghostty
+        working-directory: ghostty-next
         run: |
-          "$CMUX_ZIG" build test-lib-vt -Dtest-filter="Terminal vt"
+          # ghostty-next tags release commits; an explicit version keeps
+          # Ghostty's build from reading a non-vX.Y.Z tag (as ghostty-vt-sys does).
+          version="$(sed -nE 's/^[[:space:]]*\.version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' build.zig.zon | head -1)"
+          "$CMUX_ZIG" build test-lib-vt -Dtest-filter="Terminal vt" -Dversion-string="$version"
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -756,6 +833,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 40
     env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
       CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=lld
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -770,7 +848,7 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+        run: git submodule update --init --depth 1 ghostty ghostty-next
 
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
@@ -896,6 +974,8 @@ jobs:
             --ignored --exact "$test_name" --nocapture
 
   bindings-e2e:
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
     needs: validate-inputs
     if: inputs.mode == 'full'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
@@ -923,7 +1003,7 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+        run: git submodule update --init --depth 1 ghostty ghostty-next
 
       - name: Install Linux build dependencies
         run: |

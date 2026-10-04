@@ -53,6 +53,12 @@ import PackageDescription
 //   CmuxNextServer -> Design (server menubar panel, pairing, approver sheet and health prototypes
 //     over a projection of `server.status`; no daemon; the App supplies the source;
 //     plans/cmux-next/server.md)
+//   CmuxNextRemoteView -> Design (remote desktop pane: decode, presenters, chrome, input capture;
+//     no daemon; the App supplies the stream source and input sink; plans/cmux-next/remote-desktop.md)
+//   CmuxNextServerHelper -> system frameworks only (privileged helper XPC protocol, fix allowlist,
+//     same-team listener; plans/cmux-next/server.md 9.4); the App links it for the client side
+//   CmuxNextServerHelperDaemon -> ServerHelper (the root helper executable; bundled by
+//     scripts/cmux-next/bundle-server-helper.sh, not linked into the App)
 //   CmuxNextDictation -> Wakeups (on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
 //     the session state machine; no UI)
 
@@ -74,6 +80,22 @@ let daemonSwiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("ExistentialAny"),
     .enableUpcomingFeature("InternalImportsByDefault"),
 ]
+
+/// The remote desktop viewer core (Rust crate cmux-tui/crates/cmux-rd-ffi) as the
+/// client xcframework, linked only into CmuxNextRemoteView and only when
+/// CMUX_NEXT_RD_FFI=1 after scripts/cmux-next/build-rd-ffi.sh built it. Every
+/// other build compiles the remote view without it: RemoteRdCore is
+/// `#if CMUX_RD_FFI` (plans/cmux-next/remote-desktop.md section 3).
+/// An environment switch, not a file check: SwiftPM caches the manifest by
+/// its environment, so a file check would go stale.
+let remoteDesktopCoreLinked = Context.environment["CMUX_NEXT_RD_FFI"] == "1"
+let remoteDesktopCoreTargets: [Target] = remoteDesktopCoreLinked
+    ? [.binaryTarget(name: "CCmuxRdFFI", path: "../../../cmux-tui/target/cmux-rd-ffi/CCmuxRdFFI.xcframework")]
+    : []
+let remoteDesktopCoreDependency: [Target.Dependency] = remoteDesktopCoreLinked ? ["CCmuxRdFFI"] : []
+/// A compiler define, not `canImport`: a changed define recompiles the
+/// module, so switching CMUX_NEXT_RD_FFI in one .build never links stale objects.
+let remoteDesktopCoreSettings: [SwiftSetting] = remoteDesktopCoreLinked ? [.define("CMUX_RD_FFI")] : []
 
 let package = Package(
     name: "CmuxNext",
@@ -107,7 +129,8 @@ let package = Package(
             dependencies: [
                 "CmuxNextMallocZone",
                 "CmuxNextHome",
-                "CmuxNextChief",
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 "CmuxNextWakeups",
                 "CmuxNextActions",
                 "CmuxNextDaemon",
@@ -133,6 +156,7 @@ let package = Package(
                 "CmuxNextOnboarding",
                 "CmuxNextAgentPane",
                 "CmuxNextHistory",
+                "CmuxNextRemoteView",
                 "CmuxNextCodeRouter",
                 "CmuxNextAccounts",
                 "CmuxNextBookmarks",
@@ -140,6 +164,7 @@ let package = Package(
                 "CmuxNextApps",
                 "CmuxNextTasks",
                 "CmuxNextServer",
+                "CmuxNextServerHelper",
                 "CmuxNextFeed",
             ],
             resources: [
@@ -270,27 +295,6 @@ let package = Package(
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
-        // Chief experiment (plans/cmux-next/chief.md, branch feat-cmux-next-chief only): a
-        // HomeSource over the experiment Worker, shown in the Home section with the shared
-        // Home store and native transcript.
-        .target(
-            name: "CmuxNextChief",
-            dependencies: [
-                "CmuxNextHome", "CmuxNextDesign", "CmuxNextWakeups",
-                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
-                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
-            ],
-            resources: [.process("Resources")],
-            swiftSettings: uiSwiftSettings
-        ),
-        .testTarget(
-            name: "CmuxNextChiefTests",
-            dependencies: [
-                "CmuxNextChief",
-                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
-            ],
-            swiftSettings: uiSwiftSettings
-        ),
         .testTarget(
             name: "CmuxNextHomeTests",
             dependencies: [
@@ -344,7 +348,8 @@ let package = Package(
             name: "CmuxNextAgentActivity",
             dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
             resources: [
-                .process("Resources"),
+                .process("Resources/Localizable.xcstrings"),
+                .copy("Resources/agent-activity"),
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -422,6 +427,24 @@ let package = Package(
             dependencies: ["CmuxNextFeed"],
             swiftSettings: uiSwiftSettings
         ),
+        // Remote desktop pane (plans/cmux-next/remote-desktop.md section 7):
+        // VideoToolbox decode, presenter variants, chrome A, input capture and
+        // a VideoToolbox mock host. Transport neutral. The App shows it in
+        // `remote_view` tabs (cmux://remote-view records, development builds).
+        .target(
+            name: "CmuxNextRemoteView",
+            dependencies: ["CmuxNextDesign"] + remoteDesktopCoreDependency,
+            exclude: ["README.md"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings + remoteDesktopCoreSettings
+        ),
+        .testTarget(
+            name: "CmuxNextRemoteViewTests",
+            dependencies: ["CmuxNextRemoteView", "CmuxNextDesign"] + remoteDesktopCoreDependency,
+            swiftSettings: uiSwiftSettings + remoteDesktopCoreSettings
+        ),
         // cmux server (plans/cmux-next/server.md sections 6, 9, 13, 14): the
         // menubar panel, pairing, approver sheet and health prototypes over a
         // projection of `server.status`. The App supplies the source.
@@ -437,6 +460,25 @@ let package = Package(
             name: "CmuxNextServerTests",
             dependencies: ["CmuxNextServer"],
             swiftSettings: uiSwiftSettings
+        ),
+        // The cmux server's privileged helper (plans/cmux-next/server.md 9.4): the XPC
+        // protocol, the fixed allowlist of fixes and the same-team listener. No UI.
+        .target(
+            name: "CmuxNextServerHelper",
+            swiftSettings: daemonSwiftSettings
+        ),
+        // The helper executable. The app bundle does not link it: the Xcode phase
+        // "Bundle server helper" (scripts/cmux-next/bundle-server-helper.sh) compiles
+        // these sources with swiftc into Contents/Resources/libexec/cmux-server-helper.
+        .executableTarget(
+            name: "CmuxNextServerHelperDaemon",
+            dependencies: ["CmuxNextServerHelper"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextServerHelperTests",
+            dependencies: ["CmuxNextServerHelper"],
+            swiftSettings: daemonSwiftSettings
         ),
         .target(
             name: "CmuxNextResources",
@@ -533,6 +575,7 @@ let package = Package(
                 "CmuxNextWakeups",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
             ],
+            resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
         // Theme derivation (Ghostty colors -> chrome tokens), contrast, live reload.
@@ -549,9 +592,9 @@ let package = Package(
             name: "CmuxNextActions",
             resources: [
                 .process("AccountsActions.xcstrings"),
+                .process("ActionCatalog.xcstrings"),
                 .process("AppStoreActions.xcstrings"),
                 .process("BookmarkActions.xcstrings"),
-                .process("ChiefActions.xcstrings"),
                 .process("BrowserProfileActions.xcstrings"),
                 .process("Extensions.xcstrings"),
                 .process("HibernationActions.xcstrings"),
@@ -768,7 +811,8 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+                           "CmuxNextDaemon", .product(name: "CmuxHomeCore", package: "CmuxHomeCore")],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),
@@ -804,5 +848,5 @@ let package = Package(
             dependencies: ["CmuxNextActions"],
             swiftSettings: uiSwiftSettings
         ),
-    ]
+    ] + remoteDesktopCoreTargets
 )

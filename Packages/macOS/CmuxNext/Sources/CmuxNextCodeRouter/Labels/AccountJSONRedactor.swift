@@ -62,6 +62,7 @@ struct AccountJSONRedactor {
             return nil
         }
         return labeler.server(namespace: namespace, id: id, label: object["label"] as? String,
-                              providerAccountId: object["providerAccountId"] as? String, identifier: object["identifier"] as? String)
+                              providerAccountId: object["providerAccountId"] as? String,
+                              providerUserId: object["providerUserId"] as? String, identifier: object["identifier"] as? String)
     }
 }

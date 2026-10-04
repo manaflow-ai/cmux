@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxHomeCore
 public import CmuxHomeRender
 import CmuxNextDesign
+import Observation
 
 /// The Home transcript on the shared render core with native AppKit parts
 /// (plans/cmux-next/home-mac.md, mac-home-rendering.md option B): the rows,
@@ -14,6 +15,13 @@ public final class HomeNativeTranscriptView: NSView {
     let scroll = HomeTranscriptScrollView()
     let rowHost = HomeRowHostView()
     let field = HomeFieldView()
+    let header = HomeGlassHeaderView()
+    let firstRun = HomeFirstRunView()
+    /// False while the owner is unreachable (H17: offline Send is off; the
+    /// text stays a draft). The wiring sets it from `HomeStore.connection`.
+    public var isSendEnabled = true {
+        didSet { rowHost.reactionsEnabled = isSendEnabled }
+    }
     /// A user-chosen sent-bubble colour; nil follows the theme.
     public var accentOverride: NSColor? { didSet { applyTheme() } }
     private var observers: [any NSObjectProtocol] = []
@@ -31,11 +39,51 @@ public final class HomeNativeTranscriptView: NSView {
         rowHost.controller = controller
         rowHost.layer?.addSublayer(controller.rootLayer)
         scroll.controller = controller
+        addSubview(firstRun)
+        firstRun.isHidden = true
+        firstRun.onSuggestion = { [weak self] prompt in
+            guard let self else { return }
+            self.field.text = prompt
+            self.window?.makeFirstResponder(self.field.textView)
+            self.needsLayout = true
+        }
         addSubview(field)
+        addSubview(header)
+        controller.topInset = HomeGlassHeaderView.height
+        controller.onSummaryChange = { [weak self] summary in
+            guard let self else { return }
+            self.header.show(summary, me: self.controller.me)
+            self.updateFirstRun()
+        }
         controller.onScrollGeometryChange = { [weak self] g in self?.scroll.apply(g) }
         controller.onAccessibilityChange = { [weak self] in self?.rowHost.accessibilityChanged() }
+        controller.onRowsChange = { [weak self] in
+            self?.rowHost.rowsChanged()
+            self?.updateFirstRun()
+        }
+        controller.onRestoreDraft = { [weak self] text in
+            guard let self, self.field.text.isEmpty else { return }
+            self.field.text = text
+        }
         field.onSend = { [weak self] in self?.send() }
         field.onHeightChange = { [weak self] in self?.needsLayout = true }
+        followTextSize()
+    }
+
+    /// The Mac's text size (Settings > Interface Size, the palette's
+    /// Increase, Decrease and Reset Interface Size) scales the transcript and
+    /// the field, live: `DesignSettings` is observed, not polled.
+    private func followTextSize() {
+        withObservationTracking {
+            applyTextScale(Typography.userScale)
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.followTextSize() }
+        }
+    }
+
+    func applyTextScale(_ scale: CGFloat) {
+        controller.textScale = scale
+        field.scale = controller.textScale
     }
 
     required init?(coder: NSCoder) { nil }
@@ -67,18 +115,36 @@ public final class HomeNativeTranscriptView: NSView {
         controller.rootLayer.frame = rowHost.bounds
         CATransaction.commit()
         controller.resize(to: bounds.size)
+        header.frame = CGRect(x: 0, y: 0, width: bounds.width, height: HomeGlassHeaderView.height)
         layoutField(send: false)
+        let top = HomeGlassHeaderView.height
+        firstRun.frame = CGRect(x: 0, y: top, width: bounds.width, height: max(0, fieldFrame.minY - top))
+        updateFirstRun()
         scroll.apply(controller.scrollGeometry)
+    }
+
+    /// The first-run panel shows only in an empty Chief conversation.
+    private func updateFirstRun() {
+        let me = controller.me
+        firstRun.isHidden = !(controller.isEmpty && controller.conversationSummary?.kind(me: me) == .chief)
     }
 
     private func layoutField(send: Bool) {
         let f = fieldFrame
         guard field.frame != f || send else { return }
-        field.frame = f
+        let old = field.frame
+        if old.height != f.height, old.height > 0, window != nil,
+           let keyframes = controller.fieldKeyframes(from: old, to: f, send: send) {
+            HomeFieldSpring.animate(field, to: f, keyframes: keyframes)
+        } else {
+            field.animations = [:]
+            field.frame = f
+        }
         controller.setHostedField(f, send: send)
     }
 
     private func send() {
+        guard isSendEnabled else { return }
         let frame = fieldFrame
         guard controller.sendHosted(text: field.text, from: frame) != nil else { return }
         field.text = ""
@@ -90,6 +156,7 @@ public final class HomeNativeTranscriptView: NSView {
         for o in observers { NotificationCenter.default.removeObserver(o) }
         observers = []
         guard let window else { return }
+        controller.contentsScale = window.backingScaleFactor
         let nc = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSWindow.didChangeOcclusionStateNotification] {
@@ -98,6 +165,11 @@ public final class HomeNativeTranscriptView: NSView {
             })
         }
         windowStateChanged()
+    }
+
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        controller.contentsScale = window?.backingScaleFactor ?? 2
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -114,5 +186,9 @@ public final class HomeNativeTranscriptView: NSView {
         let active = window?.isKeyWindow ?? true
         let accent = accentOverride
         controller.palette = performWithTheme { HomeThemePalette.resolveInScope(active: active, accentOverride: accent) }
+        performWithTheme {
+            header.applyColors(disc: Palette.elevatedBackground, text: Palette.textPrimary, page: Palette.pageBackground)
+            firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary)
+        }
     }
 }

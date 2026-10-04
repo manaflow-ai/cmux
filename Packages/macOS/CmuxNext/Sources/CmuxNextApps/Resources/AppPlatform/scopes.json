@@ -37,6 +37,10 @@
       "scope": "automation:write",
       "class": "mutation"
     },
+    "automation.deploy": {
+      "scope": "automation:execute",
+      "class": "mutation"
+    },
     "automation.get": {
       "scope": "automation:read",
       "class": "read"
@@ -113,9 +117,29 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "calendar.calendars.list": {
+      "scope": "calendar:read",
+      "class": "read"
+    },
+    "calendar.event.create": {
+      "scope": "calendar:external",
+      "class": "mutation"
+    },
+    "calendar.event.respond": {
+      "scope": "calendar:external",
+      "class": "mutation"
+    },
+    "calendar.events.list": {
+      "scope": "calendar:read",
+      "class": "read"
+    },
     "chief.create": {
       "scope": "chief:write",
       "class": "mutation"
+    },
+    "chief.list": {
+      "scope": "chief:read",
+      "class": "read"
     },
     "chief.update": {
       "scope": "chief:write",
@@ -156,6 +180,14 @@
     "conversation.history": {
       "scope": "conversation:read",
       "class": "read"
+    },
+    "conversation.import": {
+      "scope": "conversation:write",
+      "class": "mutation"
+    },
+    "conversation.import.commit": {
+      "scope": "conversation:write",
+      "class": "mutation"
     },
     "conversation.settings.set": {
       "scope": "conversation:write",
@@ -253,6 +285,10 @@
       "scope": "git:write",
       "class": "mutation"
     },
+    "git.checkpoint.diff": {
+      "scope": "git:read",
+      "class": "read"
+    },
     "git.checkpoint.get": {
       "scope": "git:read",
       "class": "read"
@@ -270,6 +306,10 @@
       "class": "mutation"
     },
     "git.diff": {
+      "scope": "git:read",
+      "class": "read"
+    },
+    "git.files.search": {
       "scope": "git:read",
       "class": "read"
     },
@@ -367,6 +407,30 @@
     },
     "machine.list": {
       "scope": "machine:read",
+      "class": "read"
+    },
+    "mail.get": {
+      "scope": "mail:read",
+      "class": "read"
+    },
+    "mail.modify": {
+      "scope": "mail:write",
+      "class": "mutation"
+    },
+    "mail.search": {
+      "scope": "mail:read",
+      "class": "read"
+    },
+    "mail.send": {
+      "scope": "mail:external",
+      "class": "mutation"
+    },
+    "mail.thread.get": {
+      "scope": "mail:read",
+      "class": "read"
+    },
+    "mail.threads.peek": {
+      "scope": "mail:read",
       "class": "read"
     },
     "message.edit": {
@@ -789,6 +853,46 @@
       "scope": "workspace:write",
       "class": "mutation"
     },
+    "team_vm.ensure_awake": {
+      "scope": "team_vm:write",
+      "class": "mutation"
+    },
+    "team_vm.journal.append": {
+      "scope": "team_vm:write",
+      "class": "mutation"
+    },
+    "team_vm.journal.high_water": {
+      "scope": "team_vm:read",
+      "class": "read"
+    },
+    "team_vm.journal.read": {
+      "scope": "team_vm:read",
+      "class": "read"
+    },
+    "team_vm.lease.release": {
+      "scope": "team_vm:write",
+      "class": "mutation"
+    },
+    "team_vm.ssh_ca": {
+      "scope": "team_vm:read",
+      "class": "read"
+    },
+    "team_vm.ssh_cert": {
+      "scope": "team_vm:execute",
+      "class": "mutation"
+    },
+    "team_vm.ssh_cert.challenge": {
+      "scope": "team_vm:execute",
+      "class": "mutation"
+    },
+    "team_vm.ssh_cert.revoke": {
+      "scope": "team_vm:write",
+      "class": "mutation"
+    },
+    "team_vm.status": {
+      "scope": "team_vm:read",
+      "class": "read"
+    },
     "team.device.compliance": {
       "scope": "team:read",
       "class": "read"
@@ -928,6 +1032,10 @@
     "tunnel.rotate-key": {
       "scope": "tunnel:write",
       "class": "mutation"
+    },
+    "usage.summary": {
+      "scope": "usage:read",
+      "class": "read"
     },
     "window_record.delete": {
       "scope": "window_record:write",
@@ -1087,11 +1195,13 @@
     "tab.close",
     "tab_group.close",
     "team.enrollment_token.revoke",
+    "team_vm.ssh_ca.rotate",
     "terminal.close",
     "terminal.history.clear",
     "terminal.renderer_grant.create",
     "terminal.viewer.release",
     "terminal.viewer.resize",
+    "usage.cap.set",
     "user.ensure",
     "user.presence_key.revoke",
     "user.text_confirm.get",

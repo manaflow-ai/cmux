@@ -53,6 +53,23 @@ struct FeedWireTests {
         #expect(FeedWireEncode.op(FeedIntent(key: "k4", kind: .markAllRead(before: Date()), at: Date()), unreadBefore: { _ in [] }) == nil)
     }
 
+    @Test func integrationPostsUseExistingOwnerSchemaAndStableKey() throws {
+        let item = FeedItem(
+            id: "fi_review", title: "A review", body: "acme/tool · review requested",
+            prompt: .review(.init(subject: .pr, ref: "https://github.com/acme/tool/pull/42")),
+            dedupeKey: "github:review:acme/tool:42", context: FeedContext(url: URL(string: "https://github.com/acme/tool/pull/42")),
+            poster: FeedPoster(kind: .integration, label: "GitHub"), createdAt: Date()
+        )
+        let encoded = FeedWireEncode.post(item)
+        #expect(encoded.key == "github:github:review:acme/tool:42")
+        #expect(encoded.params["type"] as? String == "request")
+        #expect(encoded.params["kind"] as? String == "review")
+        #expect((encoded.params["poster"] as? [String: String])?["kind"] == "integration")
+        #expect((encoded.params["prompt"] as? [String: Any])?["ref"] as? String == "https://github.com/acme/tool/pull/42")
+        #expect(encoded.params["body"] as? String == item.body)
+        #expect(JSONSerialization.isValidJSONObject(encoded.params))
+    }
+
     @Test func decodesFramesAndAClosedReject() throws {
         let reject = #"{"t":"reject","idempotency_key":"k9","code":"feed.closed","message":"closed","details":{"item":"# + Self.answeredApprove + "}}"
         guard case let .reject(key, value) = FeedWireFrame.decode(Data(reject.utf8)) else { Issue.record("not a reject"); return }

@@ -9,7 +9,7 @@
 //!
 //! Invariant: a screen with columns always keeps at least one scrolling
 //! column. `set-column-sticky` refuses a change that would break it, and
-//! [`crate::model::normalize_sticky_columns`] restores it after a removal.
+//! `normalize_sticky_columns` (model/layout_columns.rs) restores it after a removal.
 
 use super::*;
 use crate::model::{
@@ -60,7 +60,7 @@ impl fmt::Display for ColumnStickyError {
             }
             Self::LastScrollingColumn => formatter.write_str("at least one column must scroll"),
             Self::InvalidArgument { field: "edge", value } => {
-                write!(formatter, "bad edge {value:?} (want \"left\" or \"right\")")
+                write!(formatter, "bad edge {value:?} (want left, right, top or bottom)")
             }
             Self::InvalidArgument { field, value } => {
                 write!(formatter, "bad {field} {value:?} (want \"docked\" or \"overlay\")")
@@ -303,7 +303,7 @@ mod tests {
 
     fn all_flags() -> Vec<Option<ColumnSticky>> {
         let mut flags = vec![None];
-        for edge in [StickyEdge::Left, StickyEdge::Right] {
+        for edge in StickyEdge::ALL {
             for mode in [StickyMode::Docked, StickyMode::Overlay] {
                 flags.push(Some(ColumnSticky { edge, mode }));
             }
@@ -388,7 +388,14 @@ mod tests {
                 }
             }
         }
-        assert_eq!((accepted, rejected), (4455, 20), "every state and op was checked");
+        // Derived by counting, independently of the reducer (4 edges x 2
+        // modes = 8 flags, 9 ops per column). Rejected = the target column is
+        // the only scrolling one and the other n-1 hold distinct edges other
+        // than the new one: sum 8*n*P(3,n-1)*2^(n-1) = 8+96+576+1536+0 = 2216.
+        // Consistent states with n columns: 1 + sum_k C(n,k)*P(4,k)*2^k for
+        // 1 <= k < n = 1, 17, 169, 1089, 4361; ops = sum states*n*9 = 240327;
+        // accepted = 240327 - 2216 = 238111.
+        assert_eq!((accepted, rejected), (238111, 2216), "every state and op was checked");
     }
 
     #[test]
@@ -401,13 +408,8 @@ mod tests {
 
     #[test]
     fn sticky_column_normalization_restores_invariants_after_any_removal() {
-        let column = |sticky| LayoutColumn {
-            id: 1,
-            width: 0.5,
-            root: Node::Leaf(1),
-            zellij_auto_layout: None,
-            sticky,
-        };
+        let column =
+            |sticky| LayoutColumn { sticky, ..LayoutColumn::new(1, 0.5, Node::Leaf(1), None) };
         for count in 0..=4 {
             for flags in assignments(count) {
                 let mut columns = flags.iter().copied().map(column).collect::<Vec<_>>();

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import Testing
 @testable import CmuxNextSidebar
 
@@ -20,7 +21,9 @@ import Testing
 
     @Test func eachItemIsAnIconButtonAtItsLaidOutFrame() throws {
         let view = rail(.defaults)
-        #expect(view.subviews.count == 4)
+        // Four destinations, the account, and More.
+        #expect(view.subviews.count == 6)
+        #expect(view.moreView != nil)
         for button in view.layoutResult.buttons {
             let item = try #require(view.itemView(button.item))
             #expect(item.frame == button.frame)
@@ -34,7 +37,7 @@ import Testing
         let home = LayoutItemID("itm_home")
         let view = rail(.defaults, toolTips: [home: "Home (⌘1)"])
         #expect(view.itemView(home)?.toolTip == "Home (⌘1)")
-        #expect(view.itemView(LayoutItemID("itm_settings"))?.toolTip == SidebarBuiltIn.settings.title)
+        #expect(view.itemView(LayoutItemID("itm_history"))?.toolTip == SidebarBuiltIn.history.title)
     }
 
     @Test func pressingAButtonActivatesItsItem() throws {
@@ -47,18 +50,18 @@ import Testing
 
     /// A removed item and an item that no longer fits lose their buttons.
     @Test func itemsThatLeaveOrOverflowLoseTheirButtons() throws {
-        let view = rail(.defaults)
-        var doc = SidebarLayoutDocument.defaults
+        let view = rail(SidebarLayoutDocument.preRailDefaults)
+        var doc = SidebarLayoutDocument.preRailDefaults
         doc.sections[0].items.removeLast()
         view.update(.init(document: doc, room: nil, infos: [:], toolTips: [:], metrics: m))
         view.layoutSubtreeIfNeeded()
-        #expect(view.itemView(LayoutItemID("itm_app_store")) == nil)
-        #expect(view.subviews.count == 3)
+        #expect(view.itemView(LayoutItemID("itm_app_coderouter")) == nil)
+        #expect(view.subviews.count == 4)
 
         view.frame.size.height = 130
         view.layoutSubtreeIfNeeded()
         #expect(view.itemView(LayoutItemID("itm_home")) == nil)
-        #expect(view.layoutResult.overflow == [LayoutItemID("itm_home")])
+        #expect(view.layoutResult.overflow.first == LayoutItemID("itm_home"))
     }
 
     /// A short rail lists what does not fit under a More button, whose
@@ -87,6 +90,72 @@ import Testing
         view.layoutSubtreeIfNeeded()
         #expect(view.moreView == nil)
         #expect(view.itemView(LayoutItemID("a_1")) != nil)
+    }
+
+    /// The default More lists the rarely used destinations, each running
+    /// what its button would.
+    @Test func theDefaultMoreListsTheRareDestinations() throws {
+        let view = rail(.defaults)
+        let more = try #require(view.moreView)
+        #expect(more.frame == view.layoutResult.more)
+        let menu = view.overflowMenu()
+        #expect(menu.items.map(\.title) == [SidebarBuiltIn.settings.title, SidebarBuiltIn.customize.title, "cmux/coderouter"])
+        var activated: [LayoutItemID] = []
+        view.onActivate = { activated.append($0) }
+        menu.performActionForItem(at: 0)
+        #expect(activated == [LayoutItemID("itm_settings")])
+    }
+
+    /// An icon button with unread items shows a small dot at its top
+    /// trailing corner (no count: VoiceOver carries it), like the Codex
+    /// rail; none without unread items.
+    @Test func unreadItemsShowADotOnTheirIcon() throws {
+        let notifications = LayoutItemID("itm_notifications")
+        let view = SidebarRailView()
+        view.frame = NSRect(x: 0, y: 0, width: 48, height: 600)
+        let info = SidebarItemInfo(title: SidebarBuiltIn.notifications.title, symbol: "bell", badge: 3)
+        view.update(.init(document: .defaults, room: nil, infos: [notifications: info], toolTips: [:], metrics: m))
+        view.layoutSubtreeIfNeeded()
+        let button = try #require(view.itemView(notifications))
+        button.layoutSubtreeIfNeeded()
+        #expect(button.isBadgeShown)
+        #expect(button.accessibilityValue() as? String == "3")
+        let dot = try #require(button.badgeFrame)
+        #expect(dot.width == dot.height && dot.width < button.bounds.width / 4)
+        #expect(dot.midX > button.bounds.midX && dot.midY < button.bounds.midY, "top trailing: \(dot) in \(button.bounds)")
+        #expect(view.itemView(LayoutItemID("itm_home"))?.isBadgeShown == false)
+
+        view.update(.init(document: .defaults, room: nil, infos: [notifications: SidebarItemInfo(title: info.title, symbol: "bell", badge: 0)],
+                          toolTips: [:], metrics: m))
+        view.layoutSubtreeIfNeeded()
+        #expect(view.itemView(notifications)?.isBadgeShown == false)
+    }
+
+    /// Only the rail dots unread items: the sidebar's own tile and inline
+    /// icon looks keep hiding them, as they did before the rail.
+    @Test func theSidebarsIconLooksStillHideUnreadItems() {
+        for style in [SidebarItemRowView.Style.tile, .icon] {
+            let view = SidebarItemRowView()
+            view.frame = NSRect(x: 0, y: 0, width: 40, height: 40)
+            view.configure(SidebarItemInfo(title: "Notifications", symbol: "bell", badge: 3), style: style)
+            view.layoutSubtreeIfNeeded()
+            #expect(!view.isBadgeShown, "\(style)")
+        }
+    }
+
+    /// Rail buttons are sized like the Codex rail: tiles at least 32pt,
+    /// 40pt apart, around a glyph box bigger than the sidebar's.
+    @Test func railButtonsAreSizedLikeTheCodexRail() throws {
+        let metrics = SidebarRailColumnView.metrics(width: 48, topInset: 0)
+        #expect(metrics.buttonSize >= 32)
+        #expect(metrics.buttonSize + metrics.buttonGap >= 40)
+        let view = SidebarRailView()
+        view.frame = NSRect(x: 0, y: 0, width: 48, height: 600)
+        view.update(.init(document: .defaults, room: nil, infos: [:], toolTips: [:], metrics: metrics))
+        view.layoutSubtreeIfNeeded()
+        let home = try #require(view.itemView(LayoutItemID("itm_home")))
+        home.layoutSubtreeIfNeeded()
+        #expect(home.glyphFrame.width >= Metrics.iconSize + Metrics.space3)
     }
 
     @Test func eachSectionLineIsALayer() {

@@ -1026,8 +1026,12 @@ async fn catalog_reload_preserves_pending_turn_and_rejects_invalid_config() {
     next.harnesses.insert("deepseek".into(), profile.clone());
     next.default_harness = Some("deepseek".into());
     next.permission_policy = PermissionPolicy::ApproveAll;
-    next.websocket =
-        Some(acpmux::config::WebSocketConfig { listen: "127.0.0.1:1".into(), token: None });
+    next.websocket = Some(acpmux::config::WebSocketConfig {
+        listen: "127.0.0.1:1".into(),
+        token: None,
+        allowed_origins: Vec::new(),
+        allowed_hosts: Vec::new(),
+    });
     next.defaults.insert(
         "deepseek".into(),
         acpmux::config::SessionDefaults { model: Some("m2".into()), ..Default::default() },

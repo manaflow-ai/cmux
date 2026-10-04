@@ -12,7 +12,8 @@ import WebKit
 /// one). Never changes app or window focus; `open_menu` moves focus inside
 /// the page to the menu's button, as a click does.
 ///
-/// `action`: `seed_rows` (`count`, default 5000), `fling` (`seconds`,
+/// `action`: `seed_rows` (`count`, default 5000; `fixture: "worked-turn"`
+/// seeds a turn that edits three files instead, for the changes view), `fling` (`seconds`,
 /// default 3; `nominal_ms`; `wait` returns the stats when the fling ends),
 /// `fling_stats`, `perf_stats` (`raw` adds every frame), `typing_stats`,
 /// `reset_typing`, `open_menu` (`label`: opens that composer menu, such as
@@ -24,6 +25,7 @@ import WebKit
 /// end): `chat_state`, `send_prompt` (`text`), `new_chat` (`harness`, `cwd`),
 /// `select_session` (`session`), `answer_permission` (`option`, `allow`,
 /// `decision`), `open_changes` (the latest turn's changes view),
+/// `models` (the harness's models), `set_model` (`model`, `effort`),
 /// `pid` (the WebContent process, for profiling), or
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
 /// page; returns whether it is on). Every action first stops WebKit from
@@ -40,6 +42,7 @@ enum DebugAgentPane {
         "open_menu": "openMenu", "acp_log": "acpLog", "acp_log_export": "acpLogExport",
         "chat_state": "chatState", "send_prompt": "sendPrompt", "new_chat": "newChat",
         "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
+        "set_model": "setModel", "models": "models",
     ]
 
     /// Runs `fn(...args)` on the page and returns its result as JSON text.
@@ -68,7 +71,7 @@ enum DebugAgentPane {
             return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, pid or full_rate")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, set_model, models, pid or full_rate")])
         }
         do {
             let result = try await view.webView.callAsyncJavaScript(
@@ -99,7 +102,7 @@ enum DebugAgentPane {
     private static func arguments(_ action: String, _ params: [String: JSONValue]) -> [Any] {
         switch action {
         case "seed_rows":
-            return [params["count"]?.intValue ?? 5000]
+            return [params["count"]?.intValue ?? 5000, params["fixture"]?.stringValue.map { $0 as Any } ?? NSNull()]
         case "fling":
             var options: [String: Any] = ["wait": params["wait"]?.boolValue == true]
             if let nominal = params["nominal_ms"]?.doubleValue { options["nominal_ms"] = nominal }
@@ -114,6 +117,8 @@ enum DebugAgentPane {
             return [params["text"]?.stringValue ?? ""]
         case "new_chat":
             return [params["harness"]?.stringValue ?? NSNull(), params["cwd"]?.stringValue ?? NSNull()]
+        case "set_model":
+            return [params["model"]?.stringValue ?? "", params["effort"]?.stringValue ?? NSNull()]
         case "select_session":
             return [params["session"]?.stringValue ?? ""]
         case "answer_permission":

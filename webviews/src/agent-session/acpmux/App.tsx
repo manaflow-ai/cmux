@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
@@ -17,20 +17,23 @@ import {
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { postNative } from "./native";
 import { NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
+import { projectLabel } from "./sessionList";
 import { composerDraft } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
+import { useComposerKeyboard } from "./composerFocus";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpWire } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { ScrollPacing } from "./pacing";
+import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { Composer } from "./Composer";
 import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { HomeLists } from "./HomeLists";
 import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
-import { turnFiles, turnRows, type TurnFile } from "./diff";
+import { turnFiles, turnRows, undoPrompt, type TurnFile } from "./diff";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
 import { PermissionCard } from "./PermissionCard";
@@ -39,7 +42,18 @@ import { t } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
-import type { HunkDecision, HunkReview } from "./changes/hunkReview";
+import { SummaryButton } from "./summary/SummaryButton";
+import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
+import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
+import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
+import { readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
+import {
+  restoredDecisions,
+  turnHunkKeys,
+  undoableHunks,
+  type HunkDecision,
+  type HunkReview,
+} from "./changes/hunkReview";
 import { configureDictation, deliverDictation, useDictation } from "./dictation";
 import type { DictationUpdate } from "./dictationText";
 import { DictationButton } from "./DictationButton";
@@ -51,7 +65,9 @@ import { ChevronDown, DiffFile } from "./changeIcons";
 import { Markdown } from "./conversation/Markdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
-import { DATE, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { Undo } from "./conversation/icons";
+import { DATE, PREVIEW, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { PreviewCard } from "./conversation/PreviewCard";
 import { DateLine } from "./conversation/DateLine";
 import { SearchChats } from "./SearchChats";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
@@ -97,6 +113,9 @@ declare global {
       command?(name: string): void;
       /// The app's shortcuts as the user bound them, keyed by action id (shortcuts.ts).
       applyShortcuts?(labels: Record<string, string>): void;
+      /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
+      /// default): the session coverage label and the sidebar's Pull requests view.
+      applyPreview?(on: boolean): void;
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
@@ -179,6 +198,9 @@ const changesSource: ChangesSource = {
   diff: (scope) => callNative("git.diff", { scope, include_patch: true }),
   status: () => callNative("git.status", {}),
 };
+/// A turn's checkpoint pair, diffed on the session host (`git.checkpoint.diff`).
+const checkpointDiff: CheckpointDiff = (from, to) =>
+  callNative("git.checkpoint.diff", { from, to, include_patch: true });
 /// The host opens a changed file in a tab beside the agent or in the editor (`file.open`).
 const openChangedFile = (path: string, where: "tab" | "editor") => callNative("file.open", { path, where });
 
@@ -237,6 +259,17 @@ const WorkingRow = memo(
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.row.durationMs === b.row.durationMs,
 );
 
+/// Asks the host for a browser tab on a turn's local web page; a host without one (the quick
+/// panel) refuses, and the card's address still opens outside the pane.
+const openPreview = (url: string) => void callNative("browser.open", { url }).catch(() => undefined);
+/// A turn's local web page, live (conversation/PreviewCard.tsx).
+const PreviewRow = memo(
+  function PreviewRow({ row }: RowProps) {
+    return row.text ? <PreviewCard url={row.text} onOpen={openPreview} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.text === b.row.text,
+);
+
 const SummaryRow = memo(
   function SummaryRow({ row }: RowProps) {
     return <TurnFooter row={row} />;
@@ -271,20 +304,31 @@ const EditedFilesRow = memo(
   function EditedFilesRow({ row, onOpenDiff }: RowProps) {
     const [showAll, setShowAll] = useState(false);
     const edits = (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
-    const files = useMemo(() => turnFiles([row]), [row]);
+    const toolFiles = useMemo(() => turnFiles([row]), [row]);
+    // Once the turn's checkpoint has loaded, its files and counts replace the tool calls'.
+    const countsFor = useContext(TurnCountsContext);
+    const counts = useMemo(
+      () => (countsFor ? countsFor(row.id, toolFiles) : turnCounts(toolFiles, undefined)),
+      [countsFor, row.id, toolFiles],
+    );
+    const files = counts.files;
     // An edit whose tool call carried no diff still lists, without counts.
-    const plain = plainEditLabels(edits);
+    const plain = counts.files === toolFiles ? plainEditLabels(edits) : [];
     const entries: { key: string; file?: TurnFile; text?: string }[] = [
       ...files.map((file) => ({ key: file.path, file })),
       ...plain.map((text, index) => ({ key: `plain-${index}`, text })),
     ];
     const total = entries.length;
-    const additions = files.reduce((sum, file) => sum + file.additions, 0);
-    const deletions = files.reduce((sum, file) => sum + file.deletions, 0);
+    const { additions, deletions } = counts;
     const single = total === 1 && files.length === 1 ? files[0] : undefined;
     const shown = single ? [] : showAll ? entries : entries.slice(0, EDITED_FILES_SHOWN);
     const more = single ? 0 : total - shown.length;
     const reviewable = onOpenDiff && files.length > 0;
+    const { review } = useContext(TurnActionsContext);
+    const unasked =
+      review && row.ended && toolFiles.length > 0
+        ? turnHunkKeys(toolFiles).filter((key) => review.decisions.get(key) !== "requested").length
+        : undefined;
     return (
       <div className="acpmux-edited">
         <div className="acpmux-edited-head">
@@ -296,7 +340,26 @@ const EditedFilesRow = memo(
               {single ? `Edited ${single.path.split("/").pop()}` : `Edited ${total} ${total === 1 ? "file" : "files"}`}
             </div>
             {files.length > 0 && <Counts additions={additions} deletions={deletions} />}
+            {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
           </div>
+          {review && unasked !== undefined && (
+            <button
+              type="button"
+              className="acpmux-edited-undo"
+              disabled={unasked === 0}
+              title={unasked ? t("edited.undoLabel") : undefined}
+              onClick={() => {
+                const hunks = undoableHunks(toolFiles, review.decisions);
+                review.requestRevert(
+                  hunks.map((hunk) => hunk.key),
+                  undoPrompt(hunks.map((hunk) => hunk.patch)),
+                );
+              }}
+            >
+              {unasked ? t("edited.undo") : t("edited.undoRequested")}
+              {unasked > 0 && <Undo size={14} />}
+            </button>
+          )}
           {reviewable && (
             <button
               type="button"
@@ -365,6 +428,7 @@ const defaultRegistry: NativeRegistry = {
   [DATE]: DateRow,
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
+  [PREVIEW]: PreviewRow,
   editedFiles: EditedFilesRow,
   turnSummary: SummaryRow,
   notice: NoticeRow,
@@ -636,13 +700,11 @@ export function VirtualTranscript({
     if (node) scrolledTo.current = scrollPosition(node, layout.totalHeight);
   }, [layout, range.first, height]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
-  // Each settled scroll's frame pacing goes to the host, which picks the pane's rendering rate.
+  // The page picks adaptive rendering; the host supplies the display interval and applies it.
+  const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
   const pacing = useMemo(
-    () =>
-      new ScrollPacing((intervals) => {
-        callNative("pane.framePacing", { intervals }).catch(() => {});
-      }),
-    [],
+    () => new ScrollPacing((intervals) => void reportScrollPacing(intervals, callNative, renderRate)),
+    [renderRate],
   );
   useEffect(() => () => pacing.stop(), [pacing]);
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
@@ -744,17 +806,10 @@ function AcpmuxPane() {
   const [reviewReload, setReviewReload] = useState(0);
   useEffect(() => setContinuing(false), [snapshot.sessionId]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  // The footer's fork shows only when acpmux serves forks and is reachable. The client reports a
-  // failed fork in the transcript; a bridge that cannot route it has nothing to add.
-  const forkable =
-    Boolean(snapshot.canFork) &&
-    snapshot.connection !== "disconnected" &&
-    !snapshot.connection.startsWith("connecting");
-  const turnActions = useMemo<TurnActions>(
-    () =>
-      forkable ? { fork: (throughSeq) => void callNative("chat.fork", { throughSeq }).catch(() => undefined) } : {},
-    [forkable],
-  );
+  // Footer actions show only while acpmux is reachable. The client reports failures in the
+  // transcript; a bridge that cannot route an action has nothing to add.
+  const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
+  const forkable = Boolean(snapshot.canFork) && connected;
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing =
@@ -816,6 +871,20 @@ function AcpmuxPane() {
       }),
     [],
   );
+  // An output in the summary opens the changes of the last turn that wrote it, at that file.
+  const openOutput = useCallback(
+    (path: string) => {
+      const row = [...snapshot.rows]
+        .reverse()
+        .find(
+          (candidate) =>
+            candidate.kind === "activity" &&
+            candidate.items?.some((item) => item.tool?.diffs?.some((change) => change.path === path)),
+        );
+      if (row) openDiff(row.id, path);
+    },
+    [snapshot.rows, openDiff],
+  );
   const closedByUser = useRef(false);
   const closeDiff = useCallback(() => {
     closedByUser.current = true;
@@ -860,14 +929,29 @@ function AcpmuxPane() {
           return next;
         }),
       requestRevert: (keys, prompt) => {
+        const previous = keys.map((key) => [key, hunkDecisions.get(key)] as const);
         mark(keys, "requested");
-        // A failed send leaves the hunks rejected, so the reader can send them again.
-        callNative("chat.send", { text: prompt }).catch(() => mark(keys, "rejected", "requested"));
+        callNative("chat.send", { text: prompt }).catch(() =>
+          setHunkDecisions((current) => restoredDecisions(current, previous)),
+        );
       },
     };
   }, [hunkDecisions]);
   // Tool call ids belong to one session.
   useEffect(() => setHunkDecisions((current) => (current.size ? new Map() : current)), [snapshot.sessionId]);
+  // Retry sends the turn's prompt as the composer would; a failed send shows in the transcript.
+  const turnActions = useMemo<TurnActions>(
+    () => ({
+      ...(forkable && {
+        fork: (throughSeq: number) => void callNative("chat.fork", { throughSeq }).catch(() => undefined),
+      }),
+      ...(connected && {
+        retry: (prompt: string) => void callNative("chat.send", { text: prompt }).catch(() => undefined),
+      }),
+      review: hunkReview,
+    }),
+    [forkable, connected, hunkReview],
+  );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
   const diffActivity = useRef<{ key: string; files: ReturnType<typeof turnFiles> }>(undefined);
   const diffFiles = useMemo(() => {
@@ -877,6 +961,51 @@ function AcpmuxPane() {
     if (diffActivity.current?.key !== key) diffActivity.current = { key, files: turnFiles(activity) };
     return diffActivity.current.files;
   }, [diffView, diffOpen, snapshot.rows]);
+  // Each turn's checkpoint pair, named by the row that starts the turn: the checkpoints acpmux
+  // recorded on its summary, diffed on the session host.
+  const turnRowsRef = useRef(snapshot.rows);
+  turnRowsRef.current = snapshot.rows;
+  const readTurn = useCallback(
+    ({ rowId }: { rowId: string }) => readTurnFromRows(turnRowsRef.current, rowId, checkpointDiff),
+    [],
+  );
+  const turnCheckpoints = useTurnCheckpoints(readTurn, snapshot.sessionId);
+  const { request: requestTurnCheckpoint, get: turnCheckpoint } = turnCheckpoints;
+  const turnKey = useCallback((rowId: string) => turnRows(turnRowsRef.current, rowId)[0]?.id ?? rowId, []);
+  const diffTurn = diffView && diffOpen ? turnKey(diffView.rowId) : undefined;
+  // A turn's pair exists once it has ended, so the view asks then (and again when it ends while
+  // the view is open); until then it shows the tool calls' edits.
+  const diffTurnEnded =
+    diffView && diffOpen ? turnRows(snapshot.rows, diffView.rowId).some((row) => row.kind === "turnSummary") : false;
+  useEffect(() => {
+    if (diffTurn && diffTurnEnded) requestTurnCheckpoint(diffTurn);
+  }, [diffTurn, diffTurnEnded, requestTurnCheckpoint]);
+  const diffDisplay = useMemo(() => {
+    if (!diffFiles || !diffTurn) return undefined;
+    // An Undo chosen but not yet sent holds the tool-call view; Keep has nothing to send.
+    const toolIds = new Set(diffFiles.flatMap((file) => file.edits.map((edit) => edit.toolId)));
+    const pending = [...hunkDecisions].some(
+      ([key, decision]) => decision === "rejected" && toolIds.has(key.split("\u0000")[0]!),
+    );
+    return turnDisplay(diffFiles, turnCheckpoint(diffTurn) ?? { state: "loading" }, pending);
+  }, [diffFiles, diffTurn, hunkDecisions, turnCheckpoint]);
+  // The latest edited-files card shows its turn's checkpoint counts once the turn has ended.
+  const endedEditTurn = useMemo(() => {
+    let ended = false;
+    for (let index = snapshot.rows.length - 1; index >= 0; index--) {
+      const row = snapshot.rows[index]!;
+      if (row.kind === "turnSummary") ended = true;
+      else if (row.kind === "editedFiles") return ended ? row.id : undefined;
+    }
+    return undefined;
+  }, [snapshot.rows]);
+  useEffect(() => {
+    if (endedEditTurn) requestTurnCheckpoint(turnKey(endedEditTurn));
+  }, [endedEditTurn, requestTurnCheckpoint, turnKey]);
+  const turnCountsFor = useCallback<TurnCountsFor>(
+    (rowId, toolFiles) => turnCounts(toolFiles, turnCheckpoint(turnKey(rowId))),
+    [turnCheckpoint, turnKey],
+  );
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   /// Who is signed in, when the host says: the sidebar's account row.
   const [account, setAccount] = useState<SidebarAccount>();
@@ -931,6 +1060,7 @@ function AcpmuxPane() {
   // live bindings through applyShortcuts, so labels follow a rebind.
   const [searching, setSearching] = useState(false);
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
+  const [preview, setPreview] = useState(false);
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
@@ -983,6 +1113,11 @@ function AcpmuxPane() {
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   /// The composer's prompt, which dictation writes into.
   const prompt = useRef<MarkdownFieldHandle>(null);
+  useComposerKeyboard(() => {
+    if (!prompt.current) return false;
+    prompt.current.focus();
+    return true;
+  });
   const dictation = useDictation(prompt, callNative);
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
@@ -1059,6 +1194,9 @@ function AcpmuxPane() {
       },
       applyShortcuts(labels) {
         setShortcuts(readShortcuts(labels));
+      },
+      applyPreview(on) {
+        setPreview(on === true);
       },
       revealTurn(turnId) {
         void revealTurnWhenShown(turnId);
@@ -1224,16 +1362,17 @@ function AcpmuxPane() {
           sessionId && !mock
             ? callNative("chat.persistSession", { sessionId }).catch(() => undefined)
             : Promise.resolve();
-        const send = async (text: string) => {
+        const send = async (text: string, attachments: import("./attachments").ComposerAttachment[] = []) => {
           const sessionId = await client.ensureSession();
           await persistSession(sessionId);
-          const turn = client.send(text);
+          const turn = client.send(text, attachments);
           // The prompt is written; a Quick Composer hand-off can close this page now.
           promptLanded.current();
           return turn;
         };
         window.cmuxAcpmuxActions = {
-          "chat.send": ({ text }) => send(String(text ?? "")),
+          "chat.send": ({ text, attachments }) =>
+            send(String(text ?? ""), Array.isArray(attachments) ? attachments : []),
           "chat.cancel": () => client.cancel(),
           "chat.permission": ({ permissionId, optionId }) => client.permission(String(permissionId), String(optionId)),
           "chat.permission_group.respond": ({ groupId, revision, decision }) =>
@@ -1264,6 +1403,7 @@ function AcpmuxPane() {
           "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
           "git.diff": ({ scope }) => client.gitDiff(String(scope)),
           "git.status": () => client.gitStatus(),
+          "git.checkpoint.diff": ({ from, to }) => client.gitCheckpointDiff(String(from), String(to)),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
@@ -1272,7 +1412,9 @@ function AcpmuxPane() {
         void client.warmRecentProjects();
         // A new chat owns a live process before the first keypress. Sending a
         // prompt still joins this in-flight creation through ensureSession().
-        if (host.newSession && !host.adopt) void client.ensureSession().catch(() => undefined);
+        // A new-tab page stays empty until the user chooses a kind or sends a prompt.
+        // Other new chats still prewarm their process before the first keypress.
+        if (host.newSession && !host.adopt && !host.newTab) void client.ensureSession().catch(() => undefined);
         // A resumed chat is the tab's session from the start, so restoring the tab reopens it.
         if (client.adopted) void persistSession(client.adopted);
         // A `#turn-<turnId>` link that opened this tab: scroll once the turn's row renders.
@@ -1358,26 +1500,40 @@ function AcpmuxPane() {
       return;
     }
     setNewTab(undefined);
-    if (text) void callNative("chat.send", { text });
+    const start = cwd ? callNative("chat.new", { cwd }) : Promise.resolve();
+    void start.then(() => (text ? callNative("chat.send", { text }) : undefined));
   };
+  const newTabProjects = useMemo(() => {
+    const byPath = new Map<string, { cwd: string; label: string }>();
+    for (const path of newTab?.projects ?? []) byPath.set(path, { cwd: path, label: projectLabel(path) });
+    for (const session of composerSnapshot.sessions) {
+      if (typeof session.cwd !== "string" || !session.cwd) continue;
+      if (session.host && session.hostKind !== "local") continue;
+      byPath.set(session.cwd, { cwd: session.cwd, label: projectLabel(session.cwd) });
+    }
+    if (newTab?.cwd) byPath.set(newTab.cwd, { cwd: newTab.cwd, label: projectLabel(newTab.cwd) });
+    return [...byPath.values()];
+  }, [composerSnapshot.sessions, newTab?.cwd, newTab?.projects]);
   const transcript = (
     <TurnActionsContext.Provider value={turnActions}>
-      <VirtualTranscript
-        rows={transcriptRows}
-        canLoadOlder={snapshot.canLoadOlder}
-        expanded={expanded}
-        registry={registry}
-        // The Quick Composer has no room for the changes view; its file rows stay plain.
-        onOpenDiff={quick ? undefined : openDiff}
-        onToggleActivity={(id) =>
-          setExpanded((current) => {
-            const next = new Set(current);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-          })
-        }
-      />
+      <TurnCountsContext.Provider value={turnCountsFor}>
+        <VirtualTranscript
+          rows={transcriptRows}
+          canLoadOlder={snapshot.canLoadOlder}
+          expanded={expanded}
+          registry={registry}
+          // The Quick Composer has no room for the changes view; its file rows stay plain.
+          onOpenDiff={quick ? undefined : openDiff}
+          onToggleActivity={(id) =>
+            setExpanded((current) => {
+              const next = new Set(current);
+              if (next.has(id)) next.delete(id);
+              else next.add(id);
+              return next;
+            })
+          }
+        />
+      </TurnCountsContext.Provider>
     </TurnActionsContext.Provider>
   );
   const asks = (
@@ -1424,10 +1580,10 @@ function AcpmuxPane() {
         snapshot={composerSnapshot}
         chips={ComposerChips}
         draft={draft}
-        onSend={(text) => {
+        onSend={(text, attachments) => {
           // Until acpmux connects nothing takes a prompt; the composer keeps it.
           if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
-          callNative("chat.send", { text }).then(() => promptLanded.current(), cancelOpenInWindow);
+          callNative("chat.send", { text, attachments }).then(() => promptLanded.current(), cancelOpenInWindow);
         }}
         onStop={() => void callNative("chat.cancel")}
         onProject={(cwd) => void callNative("chat.new", { cwd }).catch(() => undefined)}
@@ -1468,6 +1624,7 @@ function AcpmuxPane() {
           onSelect={selectSession}
           onNewChat={newChat}
           account={account}
+          preview={preview}
         />
         {sidebar === "open" && (
           <button
@@ -1487,9 +1644,8 @@ function AcpmuxPane() {
               cwd={newTab.cwd}
               host={newTab.host}
               location={newTab.location}
-              defaultKind={newTab.defaultKind}
-              onSetDefaultKind={(kind) => void callNative("tab.setDefaultKind", { kind })}
               omnibar={newTab.omnibar}
+              projects={newTabProjects}
               chips={ComposerChips}
               onSubmit={openFromNewTab}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
@@ -1498,6 +1654,8 @@ function AcpmuxPane() {
                 selectSession(sessionId);
               }}
               onShowAll={() => setSidebar("open")}
+              onImport={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
+              onBrowseProject={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
             />
           ) : (
@@ -1519,18 +1677,21 @@ function AcpmuxPane() {
                     {header.status && <span className="acpmux-status">{header.status}</span>}
                   </div>
                   <div className="acpmux-handoff-header-tools">
+                    <SummaryButton rows={snapshot.rows} onOpenOutput={quick ? undefined : openOutput} />
                     <CopyChatLink sessionId={snapshot.sessionId} />
                     {checkpoints.supported && (
                       <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>
                         {checkpointLabels.createCheckpoint}
                       </button>
                     )}
-                    <span
-                      className="acpmux-session-coverage"
-                      title={`${handoffLabels.unverified} · ${snapshot.summary?.enforcement?.detail ?? handoffLabels.unverifiedDetail}`}
-                    >
-                      {snapshot.summary?.enforcement ? handoffLabels.nativePolicy : handoffLabels.unverified}
-                    </span>
+                    {preview && (
+                      <span
+                        className="acpmux-session-coverage"
+                        title={`${handoffLabels.unverified} · ${snapshot.summary?.enforcement?.detail ?? handoffLabels.unverifiedDetail}`}
+                      >
+                        {snapshot.summary?.enforcement ? handoffLabels.nativePolicy : handoffLabels.unverified}
+                      </span>
+                    )}
                     {snapshot.canHandoff && handoffTargets.length > 0 && (
                       <ContinueMenu
                         label={handoffLabels.continueIn}
@@ -1575,7 +1736,8 @@ function AcpmuxPane() {
                 )}
                 {diffView && diffFiles && (
                   <DiffPanel
-                    files={diffFiles}
+                    files={diffDisplay?.files ?? diffFiles}
+                    turn={diffDisplay}
                     initialPath={diffView.path}
                     onClose={closeDiff}
                     source={changesSource}
@@ -1589,6 +1751,7 @@ function AcpmuxPane() {
                     }
                     checkpointReview={checkpoints.review}
                     review={hunkReview}
+                    reviewFiles={diffFiles}
                   />
                 )}
               </div>

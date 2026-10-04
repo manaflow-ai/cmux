@@ -5,6 +5,7 @@
 #   cmux-tui/crates/cmux-app-host/js/ABI.md                   -> runtime/ (when present)
 #   cmux-tui/crates/cmux-app-host/schema/cmux-app.schema.json + fixtures/ -> schema/
 #   cmux-tui/crates/cmux-app-host/generated/scopes.json      -> scopes.json
+#   cmux-tui/crates/cmux-app-host/schema/v2/scope-classes.json -> scope-classes.json (risk class per scope)
 #   first-party-apps/<name>/{cmux-app.json,dist/,assets/}    -> first-party/<name>/ (only apps with a
 #     BUNDLED marker: they ship inside cmux, installed by default and hideable)
 #   samples/apps/<name>/{cmux-app.json,dist/,assets/}        -> samples/<name>/ (built samples only;
@@ -43,6 +44,7 @@ for kind in valid invalid; do
   fi
 done
 copy "$host/generated/scopes.json" scopes.json
+copy "$host/schema/v2/scope-classes.json" scope-classes.json
 mkdir -p "$stage/samples"
 if [[ -d "$samples" ]]; then
   for app in "$samples"/*/; do

@@ -24,6 +24,7 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 .acpmux-file-menu-item[aria-disabled="true"]{color:var(--agent-muted);background:none}
 /* Under the header: the Branch scope's branch and base, and the tracked-only banner. */
 .acpmux-diff-notes{flex:none;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:8px;border-bottom:1px solid var(--agent-border)}
+.acpmux-turn-note{color:var(--agent-muted);font-size:12px;line-height:16px}
 .acpmux-branch-pill{display:inline-flex;align-items:center;max-width:100%;height:29px;box-sizing:border-box;padding:0 12px;border-radius:14.5px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 .5px var(--acpmux-pill-edge);white-space:nowrap}
 .acpmux-branch-from,.acpmux-branch-to{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-branch-arrow{flex:none;margin:0 10px;color:var(--agent-muted)}
@@ -45,12 +46,12 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
    filled controls hover at 14% over the page and press at 18% over it; transcript rows hover at
    4% and press at 9%. */
 :root{--acpmux-motion-hover:80ms;--acpmux-motion-ease:ease-out;--acpmux-step-pressed:color-mix(in srgb,var(--agent-text) 16%,transparent);--acpmux-step-on-hover:color-mix(in srgb,var(--agent-text) 12%,transparent);--acpmux-step-pressed-on-page:color-mix(in srgb,var(--agent-text) 18%,var(--agent-page-bg))}
-.acpmux-diff-back,.acpmux-diff-tool,button.acpmux-diff-scope,.acpmux-fh-btn,.acpmux-fh-name,.acpmux-file-menu-item,.acpmux-changes-retry,.acpmux-changes-banner-action,.acpmux-changes-banner-refresh,.acpmux-review-changes,button.acpmux-edited-file,.acpmux-edited-more,.acpmux-diff-filter{transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease),color var(--acpmux-motion-hover) var(--acpmux-motion-ease),border-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-diff-back,.acpmux-diff-tool,button.acpmux-diff-scope,.acpmux-fh-btn,.acpmux-fh-name,.acpmux-file-menu-item,.acpmux-changes-retry,.acpmux-changes-banner-action,.acpmux-changes-banner-refresh,.acpmux-review-changes,.acpmux-edited-undo,button.acpmux-edited-file,.acpmux-edited-more,.acpmux-diff-filter{transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease),color var(--acpmux-motion-hover) var(--acpmux-motion-ease),border-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
 .acpmux-diff-tool[aria-pressed=true]:hover{background:var(--acpmux-step-on-hover)}
 .acpmux-diff-back:active,.acpmux-diff-tool:active,.acpmux-fh-btn:active,.acpmux-changes-banner-refresh:active{background:var(--acpmux-step-pressed);color:var(--agent-text)}
 /* The on toggle's hover rule outranks :active, so its press is its own rule. */
 .acpmux-diff-tool[aria-pressed=true]:active{background:var(--acpmux-step-pressed)}
-button.acpmux-diff-scope:active,.acpmux-changes-retry:active,.acpmux-changes-banner-action:active,.acpmux-review-changes:active,.acpmux-edited-more:active{background:var(--acpmux-step-pressed-on-page);color:var(--agent-text)}
+button.acpmux-diff-scope:active,.acpmux-changes-retry:active,.acpmux-changes-banner-action:active,.acpmux-review-changes:active,.acpmux-edited-undo:active:not(:disabled),.acpmux-edited-more:active{background:var(--acpmux-step-pressed-on-page);color:var(--agent-text)}
 .acpmux-file-menu-item:active{background:var(--acpmux-step-pressed)}
 button.acpmux-edited-file:active{background:color-mix(in srgb,var(--agent-text) 9%,transparent)}
 .acpmux-file-menu-item[aria-disabled="true"]:active{background:none}
@@ -87,3 +88,6 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-revert-bar input{flex:1;min-width:0;height:28px;padding:0 10px;border:1px solid var(--agent-border);border-radius:14px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit}
 .acpmux-revert-bar input:focus-visible{outline:none;border-color:color-mix(in srgb,var(--agent-accent) 55%,transparent)}
 .acpmux-revert-send{height:28px;padding:0 12px;border-radius:14px}
+.acpmux-diff-keys{flex:none;display:flex;align-items:center;gap:6px;padding:4px 12px 6px;border-top:1px solid var(--agent-border);color:var(--agent-muted);font-size:11px;line-height:16px;white-space:nowrap;overflow:hidden}
+.acpmux-diff-key{display:inline-flex;align-items:center;gap:2px}
+.acpmux-diff-key .acpmux-keycap:last-of-type{margin-right:3px}

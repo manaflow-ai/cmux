@@ -8,6 +8,7 @@ import {
   cloudOpByName,
   CurrentPrincipal,
   Forbidden,
+  PolicyRefused,
   googleProviderOpNames,
   googleReadOpNames,
   OwnerUnreachable,
@@ -18,19 +19,24 @@ import {
   type CurrentPrincipalShape
 } from "@cmux/protocol"
 import { Effect, Layer, Redacted } from "effect"
-import { HttpRouter, HttpServer } from "effect/unstable/http"
+import { HttpRouter, HttpServer, HttpServerRequest } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { authenticate, mintAccessToken, publicJwks, withGrantClasses } from "./auth.ts"
 import type { Env } from "./env.ts"
 import type { DomainReply } from "./team-domain-external.ts"
 import type { ExternalReply } from "./connection-do.ts"
 import { automationHookPath, automationHookSecret } from "./ingress/automation-hook.ts"
+import { codeRefOf } from "./code-check.ts"
+import type { CodeStorageError } from "./code-storage.ts"
 import { isProvider, providers, scopesToRequest } from "./integrations/providers.ts"
 import { signState, verifyState } from "./integrations/state.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
 import { pairApprove, pairPreview } from "./pair-routes.ts"
 import { conversationMutate, conversationRead } from "./home-routes.ts"
+import { homeSearch, type SearchParams } from "./home-search.ts"
+import { signInRules, ssoGate, versionRefusal, withAnySsoSession } from "./policy-gate.ts"
+import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
 
 /** DO RPC stubs erase union result types; the DO methods define them. */
 const rpc = <T>(p: unknown) => p as Promise<T>
@@ -48,7 +54,8 @@ const toPrincipal = (p: CurrentPrincipalShape): Principal => ({
   stack_user_id: p.stack_user_id,
   ...(p.email !== undefined ? { email: p.email } : {}),
   ...(p.email_verified !== undefined ? { email_verified: p.email_verified } : {}),
-  ...(p.display_name ? { display_name: p.display_name } : {})
+  ...(p.display_name ? { display_name: p.display_name } : {}),
+  ...(p.sso_team ? { sso_team: p.sso_team } : {})
 })
 
 const userStub = (user: string) => env.USER_DO.get(env.USER_DO.idFromName(user))
@@ -75,6 +82,10 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
       return { stub: env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `scheduler:${p.team}` }
     case "cloud:FeedDO":
       return { stub: env.FEED_DO.get(env.FEED_DO.idFromName(p.user!)) as unknown as OwnerStub, entity: p.user!, stream: `feed:${p.user}` }
+    case "cloud:UsageMeterDO":
+      return { stub: env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `usage:${p.team}` }
+    case "cloud:TeamVmDO":
+      return { stub: env.TEAM_VM_DO.get(env.TEAM_VM_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `team_vm:${p.team}` }
     case "cloud:ConnectionDO":
       return { stub: env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `connections:${p.team}` }
     default:
@@ -167,6 +178,13 @@ const AuthLive = HttpApiBuilder.group(CloudApi, "auth", (handlers) =>
           catch: () => new Forbidden({ code: "auth.forbidden", message: "token mint failed" })
         })
         if (!r.ok) return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
+        // Team policy (P17-4): SSO (own team and the email domain's team), updates.minimumVersion against x-cmux-client-version.
+        const request = yield* HttpServerRequest.HttpServerRequest
+        const rules = yield* Effect.promise(() => signInRules(env, r.team, r.user))
+        const minted = { identity: r.install, kind: "install" as const, user: r.user, team: r.team, ...(r.sso_team ? { sso_team: r.sso_team } : {}), ...(r.email_domain ? { email_domain: r.email_domain } : {}) }
+        const gate = yield* Effect.promise(() => ssoGate(env, minted))
+        const refusedMint = gate.refusal ?? versionRefusal(request.headers["x-cmux-client-version"] ?? null, rules)
+        if (refusedMint) return yield* new PolicyRefused(refusedMint)
         const { token, expires_at } = yield* Effect.promise(() => mintAccessToken(env, r))
         return { access_token: token, token_type: "Bearer" as const, expires_at, user: r.user, team: r.team, install: r.install, grant: r.grant }
       })
@@ -177,7 +195,8 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
   handlers
     .handle("mutate", ({ payload }) =>
       Effect.gen(function* () {
-        const principal = toPrincipal(yield* CurrentPrincipal)
+        const shape = yield* CurrentPrincipal
+        const principal = toPrincipal(shape)
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "mutation") return yield* new BadRequest({ code: "validation.invalid", message: `unknown mutation ${payload.op}` })
         if (!payload.idempotency_key) return yield* new BadRequest({ code: "validation.invalid", message: "mutations require idempotency_key" })
@@ -200,10 +219,23 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const p = yield* principalFor("cloud:TeamDO", principal)
           return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).ssoOp(p.team!, p, frame)), catch: unreachable })
         }
+        // The team SSH CA signs and seals in TeamDO outside its reducer (team-ssh-ca.ts); keys never enter an op's params.
+        if (payload.op === "team_vm.ssh_cert" || payload.op === "team_vm.ssh_cert.challenge" || payload.op === "team_vm.ssh_cert.revoke" || payload.op === "team_vm.ssh_ca.rotate") {
+          const p = yield* principalFor("cloud:TeamDO", principal)
+          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).sshOp(p.team!, p, frame)), catch: unreachable })
+        }
+        // install.register and server pairing bind the new install to the SSO team whose sign-in created this session (P17-4). The
+        // Stack session id only finds that team; owners never receive it (their ledgers record the principal).
+        let submitter = principal
+        if ((payload.op === "install.register" || payload.op === "server.pair.approve") && shape.stack_session && !principal.sso_team) {
+          const stackSession = shape.stack_session
+          const found = yield* Effect.promise(() => withAnySsoSession(env, { ...principal, stack_session: stackSession }))
+          if (found.sso_team) submitter = { ...principal, sso_team: found.sso_team }
+        }
         // cmux server pairing: several owners in order (UserDO install, TeamDO host, PairingDO), each keyed by the code.
         if (payload.op === "server.pair.approve") {
           return yield* Effect.tryPromise({
-            try: () => pairApprove(env, principal, frame, (owner, p, f) => Effect.runPromise(submitTo(owner, p, f))),
+            try: () => pairApprove(env, submitter, frame, (owner, p, f) => Effect.runPromise(submitTo(owner, p, f))),
             catch: unreachable
           })
         }
@@ -220,7 +252,53 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
             return { ok: false, op: payload.op, error: { code: "validation.invalid", message: refused, retryable: false }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `connections:${principal.team}`, sequence: 0 }
           }
         }
+        // Ops that pin automation code: the SchedulerDO checks the commit and its bundle in the team's repository first.
+        if (def.owner === "cloud:SchedulerDO" && codeRefOf(payload.op, frame.params)) {
+          const p = yield* principalFor(def.owner, principal)
+          const stub = env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(p.team!))
+          const r = yield* Effect.tryPromise({ try: () => rpc<SubmitResult | { refusal: CodeStorageError }>(stub.submitCode(p.team!, p, { t: "op", ...frame })), catch: unreachable })
+          if ("refusal" in r) {
+            return { ok: false, op: payload.op, error: { code: r.refusal.code, message: r.refusal.message, retryable: r.refusal.retryable }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `scheduler:${p.team}`, sequence: 0 }
+          }
+          return toResponse(payload.op, r.frames)
+        }
+        // The team journal: a durable append in TeamVmDO's side tables, outside the op ledger (the range is its own key).
+        if (payload.op === "team_vm.journal.append") {
+          const p = yield* principalFor(def.owner, principal)
+          const stub = env.TEAM_VM_DO.get(env.TEAM_VM_DO.idFromName(p.team!))
+          const r = yield* Effect.tryPromise({ try: () => rpc<SubmitResult>(stub.journalAppend(p.team!, p, { t: "op", ...frame })), catch: unreachable })
+          return toResponse(payload.op, r.frames)
+        }
+        // The team VM: commit the lease, then the DO runs the provider calls and answers with their outcome.
+        if (payload.op === "team_vm.ensure_awake") {
+          const p = yield* principalFor(def.owner, principal)
+          const stub = env.TEAM_VM_DO.get(env.TEAM_VM_DO.idFromName(p.team!))
+          const r = yield* Effect.tryPromise({ try: () => rpc<SubmitResult>(stub.ensureAwake(p.team!, p, { t: "op", ...frame })), catch: unreachable })
+          return toResponse(payload.op, r.frames)
+        }
         // Home: conversations are keyed by the op's params, inbox ops run on UserDO's second stream (home-routes.ts).
+        // F3 / P17-6: the old integration policy op is an alias of team.policy.update (TeamPolicy is the single writer).
+        if (payload.op === "integration.policy.set") {
+          const p = yield* principalFor("cloud:TeamDO", principal)
+          const team = env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)) as unknown as Parameters<typeof forwardIntegrationPolicy>[0]
+          const connections = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(p.team!)) as unknown as Parameters<typeof forwardIntegrationPolicy>[1]
+          const res = yield* Effect.tryPromise({ try: () => forwardIntegrationPolicy(team, connections, p.team!, p, (payload.params ?? {}) as PolicyFields, frame.idempotency_key), catch: unreachable })
+          return toResponse(payload.op, res.frames as unknown as ReadonlyArray<OwnerFrame>)
+        }
+        // agents.allowedClasses (P17-4): a chief is the "mux" class.
+        if (payload.op === "chief.create") {
+          const rules = yield* Effect.promise(() => signInRules(env, principal.team!, principal.user!))
+          if (!rules.allowed_classes.includes("mux")) return yield* new PolicyRefused({ code: "policy.denied", message: "your team does not allow chiefs (agents.allowedClasses)" })
+        }
+        // A chief's MuxDO is keyed by its agent id; the principal carries install_kind (withGrantClasses).
+        if (def.owner === "cloud:MuxDO") {
+          const p = yield* principalFor(def.owner, principal)
+          const agent = (payload.params as { agent?: unknown } | null)?.agent
+          if (typeof agent !== "string") return yield* new BadRequest({ code: "validation.invalid", message: `${payload.op} needs an agent` })
+          const stub = env.MUX_DO.get(env.MUX_DO.idFromName(agent)) as unknown as OwnerStub
+          const mux = yield* Effect.tryPromise({ try: () => rpc<SubmitResult>(stub.submit(agent, p, { t: "op", ...frame })), catch: unreachable })
+          return toResponse(payload.op, mux.frames)
+        }
         if (def.owner === "cloud:ConversationDO" || payload.op.startsWith("inbox.")) {
           const p = yield* principalFor(def.owner, principal)
           const home = yield* Effect.tryPromise({
@@ -232,7 +310,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           })
           return toResponse(payload.op, home.frames)
         }
-        const { frames } = yield* submitTo(def.owner, principal, frame)
+        const { frames } = yield* submitTo(def.owner, submitter, frame)
         const response = toResponse(payload.op, frames)
         if (payload.op === "integration.connect" && response.ok) {
           const c = response.value as Connection
@@ -280,6 +358,16 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           return { op: payload.op, value: r.value, stream: "pairing", revision: "0" }
         }
         const reader = yield* principalFor(def.owner, principal)
+        // Home search reads the PlanetScale projection through the read-only Hyperdrive (home-search.ts).
+        if (payload.op === "home.search") {
+          const r = yield* Effect.tryPromise({ try: () => homeSearch(env, reader, (payload.params ?? {}) as SearchParams), catch: unreachable })
+          if (!r.ok) {
+            if (r.code === "auth.forbidden") return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
+            if (r.code === "search.unavailable") return yield* new OwnerUnreachable({ code: "owner.unreachable", message: r.message, retryable: true })
+            return yield* new BadRequest({ code: "validation.invalid", message: r.message })
+          }
+          return { op: payload.op, value: r.value, stream: `search:${reader.user}`, revision: "0" }
+        }
         if (providerReadOpNames.has(payload.op) || googleReadOpNames.has(payload.op)) {
           const stub = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(reader.team!))
           const pr = yield* Effect.tryPromise({
@@ -335,19 +423,26 @@ const AuthorizationLive = Layer.succeed(Authorization)(
   Authorization.of({
     bearer: (httpEffect, { credential }) =>
       Effect.gen(function* () {
-        const p = yield* Effect.promise(() => authenticate(env, Redacted.value(credential)))
-        if (!p || !p.user || !p.team) return yield* new Unauthenticated({ code: "auth.unauthenticated", message: "missing or invalid bearer token" })
+        const authed = yield* Effect.promise(() => authenticate(env, Redacted.value(credential)))
+        if (!authed || !authed.user || !authed.team) return yield* new Unauthenticated({ code: "auth.unauthenticated", message: "missing or invalid bearer token" })
+        // Team policy (P17-4): the principal's team and the team that owns the user's email domain refuse
+        // sessions and installs not from their SSO.
+        const gate = yield* Effect.promise(() => ssoGate(env, authed))
+        if (gate.refusal) return yield* new PolicyRefused(gate.refusal)
+        const p = gate.principal
         const shape: CurrentPrincipalShape = {
           kind: p.kind === "session" ? "session" : "install",
           identity: p.identity,
-          user: p.user,
-          team: p.team,
+          user: authed.user,
+          team: authed.team,
           ...(p.install ? { install: p.install } : {}),
           ...(p.grant ? { grant: p.grant } : {}),
           stack_user_id: p.stack_user_id ?? "",
           ...(p.email !== undefined ? { email: p.email } : {}),
           ...(p.email_verified !== undefined ? { email_verified: p.email_verified } : {}),
-          ...(p.display_name ? { display_name: p.display_name } : {})
+          ...(p.display_name ? { display_name: p.display_name } : {}),
+          ...(p.sso_team ? { sso_team: p.sso_team } : {}),
+          ...(p.stack_session ? { stack_session: p.stack_session } : {})
         }
         return yield* Effect.provideService(httpEffect, CurrentPrincipal, shape)
       })
