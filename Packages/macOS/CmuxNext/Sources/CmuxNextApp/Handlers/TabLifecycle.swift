@@ -55,6 +55,7 @@ enum TabLifecycle {
                   let daemon = ctx.services.machines.daemon(forWorkspace: workspace.id),
                   let connection = daemon.connection else { return }
             let repair = ctx.services.machines.emptyWorkspaceRepair(daemon.machineID, local: ctx.services.emptyWorkspaces)
+            guard repair.states[key] == nil else { return }
             ctx.registry.track(Task { @MainActor in
                 do {
                     _ = try await repair.populating(key) {
