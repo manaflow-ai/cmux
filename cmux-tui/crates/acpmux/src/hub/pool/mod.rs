@@ -468,6 +468,10 @@ impl Hub {
             hosts_dir: dir,
             buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
         };
+        // No host starts once `stop_pool` began: it could not end it.
+        if self.pool.stopping.load(Ordering::SeqCst) {
+            anyhow::bail!("the daemon is stopping");
+        }
         let launcher = agent_host::link::HostLauncher::current()?;
         let record = agent_host::link::spawn(&launcher, &host_spec).await?;
         self.pool.starting.lock().unwrap().insert(session_id.clone(), record.clone());
@@ -497,9 +501,11 @@ impl Hub {
         }
         let (tap, slot) = holding_tap();
         let (inbound, target) = holding_inbound();
-        let attached =
-            ChildAgent::attach_hosted(&draft.harness, record.clone(), 0, Vec::new(), inbound, tap)
-                .await;
+        let attach =
+            ChildAgent::attach_hosted(&draft.harness, record.clone(), 0, Vec::new(), inbound, tap);
+        let attached = tokio::time::timeout(START_BUDGET, attach)
+            .await
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("no host link within {START_BUDGET:?}")));
         let child = match attached {
             Ok(Attached::Ready(child, _, _)) => child,
             Ok(Attached::Incompatible { .. }) => {
