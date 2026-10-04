@@ -22,7 +22,7 @@ final class ScreenContentView: NSView {
     var scrollState = ColumnScrollState()
     /// Each column whose rows overflow scrolls vertically with its own
     /// instance of the same rules (ScreenContentView+Rows.swift).
-    var rowScrolls: [ColumnID: ColumnScrollState] = [:]
+    var rowScrolls: [ColumnID: RowScroll] = [:]
     /// A row divider drag's heights, shown until the next layout arrives
     /// (gesture state; the model keeps no copy, rows.md Z1).
     var rowDragPreview: (column: ColumnID, heights: [RowHeight])?
