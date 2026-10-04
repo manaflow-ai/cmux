@@ -381,4 +381,49 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
     for (const t of result.times) expect(Number.isFinite(t) && t > 0).toBe(true)
     expect(result.alarm).not.toBeNull()
   })
+
+  it("a slot opened while storage deletion awaits its refunds is refunded too", async () => {
+    const alice = await signIn("att-gc-race-alice")
+    const g = await group(alice)
+    const stub = doOf(g.id)
+    expect((await intent(alice, g.id, bytesOf("open before the deletion"))).json.ok).toBe(true)
+    const late = "f".repeat(32)
+    const refunded = await runInDurableObject(stub, async (i) => {
+      const base = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(i), "gc")!.get!
+      const seen: Array<string> = []
+      let opened = false
+      Object.defineProperty(i, "gc", {
+        configurable: true,
+        get() {
+          const deps = base.call(this)
+          return {
+            ...deps,
+            users: (user: string) => {
+              const real = deps.users(user) as any
+              return {
+                releaseAttachmentStorage: (...a: Array<unknown>) => real.releaseAttachmentStorage(...a),
+                refundAttachmentQuota: async (u: string, slot: string) => {
+                  seen.push(slot)
+                  // While the first refund is awaited, a new upload slot opens in this conversation.
+                  if (!opened) {
+                    opened = true
+                    await i.createUploadSlot(g.id, alice.user, alice.user, { hash: "e".repeat(64), byte_count: 10, mime_type: "image/png" }, "stream", late)
+                  }
+                  return real.refundAttachmentQuota(u, slot)
+                }
+              }
+            }
+          }
+        }
+      })
+      try {
+        await i.deleteAttachmentStorage(g.id)
+      } finally {
+        delete i.gc
+      }
+      return seen
+    })
+    expect(refunded).toContain(late)
+    expect((await slotRows(stub)).length).toBe(0)
+  })
 })
