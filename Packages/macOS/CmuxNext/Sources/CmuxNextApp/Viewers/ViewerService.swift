@@ -5,7 +5,7 @@ import CmuxNextPalette
 /// Until cmux.editor: `file.open` with the path, in a tab of the pane.
 @MainActor
 final class BrowserTabFileOpener: FileOpening {
-    private unowned let registry: ActionRegistry
+    private let registry: ActionRegistry
 
     init(registry: ActionRegistry) {
         self.registry = registry
@@ -24,13 +24,15 @@ final class BrowserTabFileOpener: FileOpening {
 @MainActor
 final class ViewerService {
     let recents: ViewerRecents
-    private(set) lazy var picker = CmuxPicker(services: services, recents: recents)
+    let picker: CmuxPicker
     var diffViewer: any DiffViewerOpening = UnavailableDiffViewer()
-    private(set) lazy var fileOpener: any FileOpening = BrowserTabFileOpener(registry: services.registry)
-    private unowned let services: AppServices
+    var fileOpener: any FileOpening
+    private weak var services: AppServices?
 
     init(services: AppServices, recents: ViewerRecents = ViewerRecents()) {
         self.services = services
+        picker = CmuxPicker(services: services, recents: recents)
+        fileOpener = BrowserTabFileOpener(registry: services.registry)
         self.recents = recents
     }
 
@@ -113,6 +115,7 @@ final class ViewerService {
 
     /// A refusal after the action returned (the picker answered later).
     func showRefusal(_ reason: String) {
+        guard let services else { return }
         services.refusalHUD.show(reason, in: services.windows.active?.window ?? NSApp.keyWindow)
     }
 }

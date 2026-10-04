@@ -58,7 +58,8 @@ public nonisolated enum PickerPrivacy {
         case .volumes: "Privacy_RemovableVolume"
         case .iCloudDrive, nil: "Privacy_FilesAndFolders"
         }
-        return URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)")!
+        return URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)")
+            ?? URL(fileURLWithPath: "/System/Applications/System Settings.app")
     }
 }
 

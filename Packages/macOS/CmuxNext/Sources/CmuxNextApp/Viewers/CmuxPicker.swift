@@ -66,7 +66,7 @@ final class CmuxPicker {
         var filter: PickerFilter?
     }
 
-    private unowned let services: AppServices
+    private weak var services: AppServices?
     private let recents: ViewerRecents
     private let explainer: any PickerExplainerMemory
 
@@ -80,14 +80,16 @@ final class CmuxPicker {
     /// Chooses files or folders; nil when the user leaves.
     func open(_ options: OpenOptions, over window: NSWindow? = nil) async -> [URL]? {
         await withCheckedContinuation { continuation in
-            services.palette.show(page: openPage(options) { continuation.resume(returning: $0) }, relativeTo: window)
+            guard let palette = services?.palette else { return continuation.resume(returning: nil) }
+            palette.show(page: openPage(options) { continuation.resume(returning: $0) }, relativeTo: window)
         }
     }
 
     /// Chooses a new file's folder and name; nil when the user leaves.
     func save(_ options: SaveOptions, over window: NSWindow? = nil) async -> URL? {
         await withCheckedContinuation { continuation in
-            services.palette.show(page: savePage(options) { continuation.resume(returning: $0?.first) }, relativeTo: window)
+            guard let palette = services?.palette else { return continuation.resume(returning: nil) }
+            palette.show(page: savePage(options) { continuation.resume(returning: $0?.first) }, relativeTo: window)
         }
     }
 
@@ -121,14 +123,14 @@ final class CmuxPicker {
     /// exists (a stat of the folder itself, nothing inside it).
     private func locations() -> [PickerLocation] {
         var folders: [URL] = []
-        for pane in services.windows.active?.content?.panes.values.map({ $0 }) ?? [] {
+        for pane in services?.windows.active?.content?.panes.values.map({ $0 }) ?? [] {
             for tab in pane.pane.tabs where tab.kind == .pty {
                 guard let cwd = tab.cwd, !cwd.isEmpty, cwd != home.path else { continue }
                 folders.append(URL(fileURLWithPath: cwd, isDirectory: true))
             }
         }
         let iCloud = FileManager.default.fileExists(atPath: home.appendingPathComponent("Library/Mobile Documents").path)
-        let pinned = (services.settings?.snapshot.pickerPinned ?? []).map { URL(fileURLWithPath: $0, isDirectory: true) }
+        let pinned = (services?.settings?.snapshot.pickerPinned ?? []).map { URL(fileURLWithPath: $0, isDirectory: true) }
         return PickerLocation.ordered(workspace: folders, standard: PickerLocation.standard(home: home, iCloudDrive: iCloud), pinned: pinned)
     }
 }
