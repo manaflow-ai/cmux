@@ -23,6 +23,6 @@ protocol ChatIntents: AnyObject {
 /// primitive, plans/cmux-next/idle-wakeups.md); no polling, no display link.
 public protocol ChatWakeScheduler: AnyObject {
     /// Replaces any pending wake-up.
-    func schedule(after seconds: Double, _ action: @escaping @MainActor () -> Void)
+    func schedule(after seconds: Double, _ action: @escaping @MainActor @Sendable () -> Void)
     func cancel()
 }

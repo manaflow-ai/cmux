@@ -12,7 +12,7 @@ import Foundation
 ///   another client, Chief or the CLI: MessagesLab's external insert)
 /// - a send this view started is already in the projection (`aliases`): its
 ///   echo only updates the status
-/// - status (delivered, read, not delivered): `.status`
+/// - status (delivered, read, not delivered): `.status`, the newest change only
 /// - tapbacks: `.react` per participant and part (the reducer toggles)
 /// - retracted: `.unsend`; edited (editedAt moved): `.edit`
 /// - typing: `.typing` on and off
@@ -63,7 +63,18 @@ struct HomeDiff: Equatable {
                 d.actions.append(.receive(msg(item)))
             }
         }
+        d.keepNewestStatus()
         return d
+    }
+
+    /// One read cursor moves every older message of mine to read at once;
+    /// MessagesLab shows a receipt only under the newest read or delivered
+    /// message (RowBuilder.receiptTargets) and its engine sends one status per
+    /// change, so only the newest status change is a transition. The older
+    /// ones change nothing visible (a rebuild maps every status).
+    private mutating func keepNewestStatus() {
+        let statuses = actions.indices.filter { if case .status = actions[$0] { true } else { false } }
+        for i in statuses.dropLast().reversed() { actions.remove(at: i) }
     }
 
     /// Actions for one shown message; false when MessagesLab cannot express it.
