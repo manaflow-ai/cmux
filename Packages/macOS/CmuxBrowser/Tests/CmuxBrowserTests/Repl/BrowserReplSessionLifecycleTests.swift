@@ -281,19 +281,71 @@ private final class CookieGateDriver: BrowserReplDriver, @unchecked Sendable {
     func detach() {}
 }
 
+/// A cell that arms a timer whose callback never returns, and evaluates to
+/// the timer's id. The hour never elapses in a test: the test fires the
+/// timer itself through the session's timer entry point, so nothing waits
+/// on wall-clock time.
+private let armRunawayTimerCell = "setTimeout(() => { for (;;) {} }, 3600000)"
+
+/// Sleeps on the continuous clock and reports each sleep it starts. The
+/// session starts a cell's timeout right after it made the cell current
+/// and queued it on its thread, so a test learns from this when that has
+/// happened.
+private final class ReportingSleeper: BrowserReplSleeping, @unchecked Sendable {
+    private let lock = NSLock()
+    private var started: [Duration] = []
+    private var waiters: [(duration: Duration, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func sleep(for duration: Duration) async throws {
+        let ready: [CheckedContinuation<Void, Never>] = lock.withLock {
+            started.append(duration)
+            let matched = waiters.filter { $0.duration == duration }.map(\.continuation)
+            waiters.removeAll { $0.duration == duration }
+            return matched
+        }
+        for waiter in ready { waiter.resume() }
+        try await ContinuousClock().sleep(for: duration)
+    }
+
+    /// Returns once a sleep of `duration` has started.
+    func waitUntilSleeping(for duration: Duration) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let now: Bool = lock.withLock {
+                if started.contains(duration) { return true }
+                waiters.append((duration, continuation))
+                return false
+            }
+            if now { continuation.resume() }
+        }
+    }
+}
+
 /// Agent code runs in the session's JavaScript context and can reach any
 /// object there. Every JavaScript run on the session's thread, not only a
 /// cell, is bounded, and closing (`cmux browser repl reset`) always ends it.
 @Suite("Browser REPL session watchdog")
 struct BrowserReplSessionWatchdogTests {
-    private func makeSession(callbackTimeLimit: Duration = BrowserReplSession.defaultCallbackTimeLimit) throws -> BrowserReplSession {
+    private func makeSession(
+        callbackTimeLimit: Duration = BrowserReplSession.defaultCallbackTimeLimit,
+        sleeper: any BrowserReplSleeping = BrowserReplClockSleeper(clock: ContinuousClock())
+    ) throws -> BrowserReplSession {
         BrowserReplSession(
             id: "watchdog-\(UUID().uuidString)",
             cwd: FileManager.default.temporaryDirectory.path,
             bundle: try browserReplRepositoryBundle(),
             driver: RecordingReplDriver(),
+            sleeper: sleeper,
             callbackTimeLimit: callbackTimeLimit
         )
+    }
+
+    /// Runs ``armRunawayTimerCell`` and returns the timer's id.
+    private func armRunawayTimer(in session: BrowserReplSession) async throws -> Int {
+        let armed = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(code: armRunawayTimerCell, timeout: .seconds(20))
+        }
+        #expect(armed?.error == nil)
+        return try #require(armed?.lines.first.flatMap { Int($0.text) }, "\(String(describing: armed))")
     }
 
     @Test("A cell cannot call the app's entry points or reach the runtime's constructors")
@@ -312,17 +364,53 @@ struct BrowserReplSessionWatchdogTests {
 
     @Test("A timer callback that never returns after its cell ended is stopped, and the next cell runs")
     func runawayCallbackOutsideACellIsStopped() async throws {
-        let session = try makeSession(callbackTimeLimit: .milliseconds(500))
+        // A zero budget stops a run outside a cell at the watchdog's first check.
+        let session = try makeSession(callbackTimeLimit: .zero)
         defer { session.close() }
-        let armed = await browserReplWithDeadline(seconds: 30) {
-            await session.evaluate(code: "setTimeout(() => { for (;;) {} }, 0); 'armed'", timeout: .seconds(20))
+        let timer = try await armRunawayTimer(in: session)
+        // The timer elapses while no cell runs; its callback starts at once.
+        session.fireTimer(timer)
+        // A block queued behind the callback runs once the watchdog stopped it.
+        let freed = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            if !session.thread.perform({ continuation.resume(returning: true) }) {
+                continuation.resume(returning: false)
+            }
         }
-        #expect(armed?.error == nil)
-        let next = await browserReplWithDeadline(seconds: 30) {
-            await session.evaluate(code: "1 + 1", timeout: .seconds(8))
+        #expect(freed)
+        let next = await browserReplWithDeadline(seconds: 60) {
+            await session.evaluate(code: "1 + 1", timeout: .seconds(30))
         }
         #expect(next?.error == nil, "\(String(describing: next?.error))")
         #expect(next?.lines.map(\.text) == ["2"])
+    }
+
+    /// The next cell is current as soon as it is submitted, but it runs only
+    /// once the thread reaches it. A callback queued ahead of it is not that
+    /// cell's work: counting it as the cell's would exempt it from the
+    /// callback budget, so it would hold the thread until the cell timed out.
+    @Test("A timer callback queued ahead of the next cell is not counted as that cell's: it is stopped and the cell runs")
+    func runawayCallbackQueuedAheadOfACellIsStopped() async throws {
+        let sleeper = ReportingSleeper()
+        let session = try makeSession(callbackTimeLimit: .zero, sleeper: sleeper)
+        defer { session.close() }
+        let timer = try await armRunawayTimer(in: session)
+
+        // Hold the thread so the callback and the next cell queue behind it, in that order.
+        let hold = DispatchSemaphore(value: 0)
+        defer { hold.signal() }
+        #expect(session.thread.perform { hold.wait() })
+        session.fireTimer(timer)
+        let cellTimeout = Duration.seconds(30)
+        async let next = browserReplWithDeadline(seconds: 60) {
+            await session.evaluate(code: "1 + 1", timeout: cellTimeout)
+        }
+        // The cell is current and queued once its timeout started.
+        await sleeper.waitUntilSleeping(for: cellTimeout)
+        hold.signal()
+
+        let result = await next
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(result?.lines.map(\.text) == ["2"])
     }
 
     @Test("close() ends the session's thread even when agent code loops in the timed-out cell's cleanup")

@@ -888,7 +888,9 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
     }
 
-    private func fireTimer(_ id: Int) {
+    /// Runs timer `id`'s callback on the thread, as the scheduler does once
+    /// it elapsed (internal for tests).
+    func fireTimer(_ id: Int) {
         thread.perform { [weak self] in
             guard let self else { return }
             // The timer counts as pending until its callback has run.
