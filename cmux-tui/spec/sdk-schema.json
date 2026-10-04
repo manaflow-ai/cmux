@@ -7102,6 +7102,16 @@
      "nullable": true,
      "default": null,
      "description": "The agent kind the chat was started with."
+    },
+    "host_name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "Display name of the host machine: 1 to 255 bytes, no control characters."
     }
    },
    "additional_properties": false
@@ -14366,6 +14376,15 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "expected_session": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "The tab's current session, or null for a tab without one; the bind applies only when it matches."
      }
     },
     "additional_properties": false
@@ -14402,7 +14421,7 @@
    },
    "stream": null,
    "constraints": [
-    "Write-once: binding the same session again returns replayed:true; another session fails with conversation_tab.session_bound; a tab without an agent session source is a bad request. See spec/commands.md."
+    "Compare-and-swap: applies when the tab's current session equals expected_session (null: none). When the tab already has session the result is replayed:true and nothing commits; another current session fails with conversation_tab.session_conflict naming it; a tab without an agent session source is a bad request. See spec/commands.md."
    ]
   },
   "new-frontend-browser-tab": {

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "0e97bb0fd56625294195b17356714ff55faba5170fa23adb53295eb1fc622196";
+inline constexpr std::string_view kProtocolIrSha256 = "700326e820585f468e0688f4ab6b747366a80d9d6b017c3ba3ac1eb125481eab";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -571,6 +571,7 @@ enum class AgentReportSource {
 struct AgentSessionSource {
     Field<std::string> harness{};
     std::string host{};
+    Field<std::string> host_name{};
     Field<std::string> session{};
     friend bool operator==(const AgentSessionSource&, const AgentSessionSource&) = default;
 };
@@ -675,6 +676,7 @@ struct BellEvent {
 };
 
 struct BindConversationTabSessionRequest {
+    std::optional<std::string> expected_session{};
     std::string session{};
     Id surface{};
     friend bool operator==(const BindConversationTabSessionRequest&, const BindConversationTabSessionRequest&) = default;

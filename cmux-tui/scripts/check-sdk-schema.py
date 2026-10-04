@@ -279,6 +279,10 @@ def _unwrap_rust_option(rust_type: str) -> tuple[str, bool]:
 
 def _runtime_field_presence(field: RuntimeField) -> tuple[str, bool]:
     rust_type, optional_type = _unwrap_rust_option(field.rust_type)
+    # An `Option<T>` with the `required_nullable` deserializer must be present
+    # and may be null.
+    if optional_type and any("required_nullable" in value for value in field.attributes):
+        return "required", True
     has_default = any(re.search(r"\bdefault\b", value) for value in field.attributes)
     presence = "optional" if optional_type or has_default else "required"
     # serde_json::Value includes JSON null even though it is not Option<Value>.

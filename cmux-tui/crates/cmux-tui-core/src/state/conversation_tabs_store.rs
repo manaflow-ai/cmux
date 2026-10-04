@@ -76,17 +76,42 @@ pub(crate) fn create_conversation_tabs_schema(transaction: &Transaction<'_>) -> 
                   json_object('conversation', conversation, 'owner', owner)
            FROM conversation_tabs WHERE origin IS NOT NULL AND mutation_id IS NOT NULL;",
     )?;
+    add_agent_session_host_name(transaction)
+}
+
+/// `agent_session_tabs.host_name`, added to databases created before it.
+fn add_agent_session_host_name(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let present = transaction
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('agent_session_tabs') WHERE name = 'host_name'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !present {
+        transaction.execute_batch("ALTER TABLE agent_session_tabs ADD COLUMN host_name TEXT;")?;
+    }
     Ok(())
 }
 
 /// What a conversation tab shows (`conversation-tabs-v1`): a conversation of
 /// the local or the cloud conversation owner, or (`agent-session-tabs-v1`)
-/// an acpmux agent session that runs on the install `host`. A new chat has
-/// no session yet; it is bound once (`bind-conversation-tab-session`).
+/// an acpmux agent session that runs on the install `host` (`host_name` is
+/// that machine's display name). A new chat has no session yet; the tab's
+/// session changes by compare-and-swap (`bind-conversation-tab-session`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConversationTabRecord {
-    Conversation { conversation: String, owner: String },
-    AgentSession { host: String, session: Option<String>, harness: Option<String> },
+    Conversation {
+        conversation: String,
+        owner: String,
+    },
+    AgentSession {
+        host: String,
+        session: Option<String>,
+        harness: Option<String>,
+        host_name: Option<String>,
+    },
 }
 
 /// `bytes` is 1..=`max` long and every byte is a letter, a digit or one of `extra`.
@@ -116,7 +141,7 @@ impl ConversationTabRecord {
                     "bad request: owner must be \"local\" or \"cloud\""
                 );
             }
-            Self::AgentSession { host, session, harness } => {
+            Self::AgentSession { host, session, harness, host_name } => {
                 anyhow::ensure!(
                     host.strip_prefix("install:").is_some_and(|id| token(id, 120, b"_.-")),
                     "bad request: host must be install: and 1 to 120 letters, digits or '_', '.', '-'"
@@ -130,6 +155,13 @@ impl ConversationTabRecord {
                         "bad request: harness must be 1 to 64 letters, digits or '_', '.', '-'"
                     );
                 }
+                if let Some(host_name) = host_name {
+                    anyhow::ensure!(
+                        (1..=255).contains(&host_name.len())
+                            && !host_name.chars().any(char::is_control),
+                        "bad request: host_name must be 1 to 255 bytes without control characters"
+                    );
+                }
             }
         }
         Ok(())
@@ -140,9 +172,9 @@ impl ConversationTabRecord {
             Self::Conversation { conversation, owner } => {
                 json!({"conversation": conversation, "owner": owner})
             }
-            Self::AgentSession { host, session, harness } => {
-                json!({"agent_session": {"host": host, "session": session, "harness": harness}})
-            }
+            Self::AgentSession { host, session, harness, host_name } => json!({"agent_session": {
+                "host": host, "session": session, "harness": harness, "host_name": host_name,
+            }}),
         }
     }
 
@@ -154,6 +186,7 @@ impl ConversationTabRecord {
                 host: text(&agent["host"])?,
                 session: text(&agent["session"]),
                 harness: text(&agent["harness"]),
+                host_name: text(&agent["host_name"]),
             },
             None => Self::Conversation {
                 conversation: text(&value["conversation"])?,
@@ -189,11 +222,11 @@ pub(crate) fn write_conversation_tab(
                 params![browser_id, conversation, owner],
             )?;
         }
-        ConversationTabRecord::AgentSession { host, session, harness } => {
+        ConversationTabRecord::AgentSession { host, session, harness, host_name } => {
             transaction.execute(
-                "INSERT INTO agent_session_tabs(browser_id, host, session, harness)
-                 VALUES(?1, ?2, ?3, ?4)",
-                params![browser_id, host, session, harness],
+                "INSERT INTO agent_session_tabs(browser_id, host, session, harness, host_name)
+                 VALUES(?1, ?2, ?3, ?4, ?5)",
+                params![browser_id, host, session, harness, host_name],
             )?;
         }
     }
@@ -263,29 +296,49 @@ pub(crate) fn agent_session_of(
         .optional()?)
 }
 
-/// Bind the session of agent tab `browser_id` once, in the caller's
-/// transaction. Returns whether the call changed it (false: the same
-/// session was bound already).
-pub(crate) fn bind_agent_session(
+/// The outcome of a session compare-and-swap that changed nothing.
+#[derive(Debug)]
+pub(crate) struct AgentSessionUnchanged;
+
+impl std::fmt::Display for AgentSessionUnchanged {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("the tab already has this session")
+    }
+}
+
+impl std::error::Error for AgentSessionUnchanged {}
+
+/// Set the session of agent tab `browser_id` to `session` when its current
+/// session is `expected` (None: unbound), in the caller's transaction. A
+/// tab that already has `session` fails with [`AgentSessionUnchanged`], so
+/// the caller commits nothing; another current session is
+/// `conversation_tab.session_conflict`.
+pub(crate) fn swap_agent_session(
     transaction: &Transaction<'_>,
     browser_id: &str,
     session: &str,
-) -> anyhow::Result<bool> {
+    expected: Option<&str>,
+) -> anyhow::Result<()> {
     validate_session(session)?;
-    match agent_session_of(transaction, browser_id)? {
-        None => anyhow::bail!("bad request: the tab has no agent session source"),
-        Some(Some(bound)) if bound == session => Ok(false),
-        Some(Some(bound)) => {
-            anyhow::bail!("conversation_tab.session_bound: the tab is bound to session {bound}")
-        }
-        Some(None) => {
-            transaction.execute(
-                "UPDATE agent_session_tabs SET session = ?1 WHERE browser_id = ?2",
-                params![session, browser_id],
-            )?;
-            Ok(true)
-        }
+    if let Some(expected) = expected {
+        validate_session(expected)?;
     }
+    let current = agent_session_of(transaction, browser_id)?
+        .ok_or_else(|| anyhow::anyhow!("bad request: the tab has no agent session source"))?;
+    if current.as_deref() == Some(session) {
+        return Err(AgentSessionUnchanged.into());
+    }
+    if current.as_deref() != expected {
+        anyhow::bail!(
+            "conversation_tab.session_conflict: current session is {}",
+            current.as_deref().unwrap_or("null")
+        );
+    }
+    transaction.execute(
+        "UPDATE agent_session_tabs SET session = ?1 WHERE browser_id = ?2",
+        params![session, browser_id],
+    )?;
+    Ok(())
 }
 
 /// What a creation with an idempotency key recorded: the browser id, the
@@ -342,8 +395,8 @@ pub(crate) fn read_conversation_tabs(
         let (id, record) = row?;
         rows.insert(id, record);
     }
-    let mut statement =
-        connection.prepare("SELECT browser_id, host, session, harness FROM agent_session_tabs")?;
+    let mut statement = connection
+        .prepare("SELECT browser_id, host, session, harness, host_name FROM agent_session_tabs")?;
     for row in statement.query_map([], |row| {
         Ok((
             row.get::<_, String>(0)?,
@@ -351,6 +404,7 @@ pub(crate) fn read_conversation_tabs(
                 host: row.get(1)?,
                 session: row.get(2)?,
                 harness: row.get(3)?,
+                host_name: row.get(4)?,
             },
         ))
     })? {
@@ -387,7 +441,7 @@ pub(crate) fn tab_conversation_wire(
         Some(record) => Some(record),
         None => connection
             .query_row(
-                "SELECT a.host, a.session, a.harness FROM resource_tabs AS t
+                "SELECT a.host, a.session, a.harness, a.host_name FROM resource_tabs AS t
                  JOIN agent_session_tabs AS a ON a.browser_id = t.content_id
                  WHERE t.public_id = ?1",
                 [tab_id],
@@ -396,6 +450,7 @@ pub(crate) fn tab_conversation_wire(
                         host: row.get(0)?,
                         session: row.get(1)?,
                         harness: row.get(2)?,
+                        host_name: row.get(3)?,
                     })
                 },
             )
@@ -520,12 +575,14 @@ mod tests {
             host: "install:mac-1".into(),
             session: None,
             harness: Some("claude".into()),
+            host_name: Some("Build Mac".into()),
         };
         assert!(record.validate().is_ok());
         let wire = record.wire();
         assert_eq!(
             wire,
-            json!({"agent_session":{"host":"install:mac-1","session":null,"harness":"claude"}})
+            json!({"agent_session":{"host":"install:mac-1","session":null,"harness":"claude",
+                                    "host_name":"Build Mac"}})
         );
         assert_eq!(ConversationTabRecord::from_wire(&wire), Some(record));
         for (host, session) in [("mac-1", None), ("install:", None), ("install:a", Some("a b"))] {
@@ -533,6 +590,7 @@ mod tests {
                 host: host.into(),
                 session: session.map(str::to_string),
                 harness: None,
+                host_name: None,
             };
             assert!(record.validate().is_err(), "{host} {session:?}");
         }

@@ -32,8 +32,8 @@
     },
     {
       "path": "AgentSessionSource.java",
-      "sha256": "e46ee0609cfe99b17e8c270ae2ae54a4ec05a470569d16f78f751008de3b6034",
-      "size": 3431
+      "sha256": "44b120230e12830916a2c9cde78b0adf3c4d19223f21e37f6f8bfcb64d54984e",
+      "size": 4188
     },
     {
       "path": "AgentSource.java",
@@ -92,8 +92,8 @@
     },
     {
       "path": "BindConversationTabSessionRequest.java",
-      "sha256": "e818490651de822c28d82dcd0909f73839256e0d54a4c27494c35276c9e957ff",
-      "size": 2901
+      "sha256": "c2412ed41a5281068eeff20f00c6fc0a25569e81045a09d44f4b9fcb29a7288d",
+      "size": 3912
     },
     {
       "path": "BindConversationTabSessionResult.java",
@@ -1382,7 +1382,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "6e5eee89bb8dca96dc40c63ce5c80804e8c1085b60b8e22c34350b116f8ed42b",
+      "sha256": "dba3fe377a578b11596a1c29ee40213091cd1490ddf57b4bb4cb25b65b032fe0",
       "size": 4943
     },
     {
@@ -2457,7 +2457,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "0e97bb0fd56625294195b17356714ff55faba5170fa23adb53295eb1fc622196",
+  "ir_sha256": "700326e820585f468e0688f4ab6b747366a80d9d6b017c3ba3ac1eb125481eab",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

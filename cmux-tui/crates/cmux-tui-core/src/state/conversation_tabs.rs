@@ -11,8 +11,10 @@
 //! The key names the request's record and target; the same key with another
 //! one is refused. Keyed creations are serialized with the frontend browser ones.
 //!
-//! `bind-conversation-tab-session` commits on the state path: one resource
-//! revision, a replay record and a `session.events` upsert of the tab.
+//! `bind-conversation-tab-session` is a compare-and-swap of the agent tab's
+//! session, checked and applied in one state commit: one resource revision,
+//! a replay record and a `session.events` upsert of the tab. A bind that
+//! changes nothing commits nothing.
 
 use serde_json::Map;
 
@@ -21,11 +23,13 @@ use crate::mux::*;
 use crate::resource::BrowserPublicId;
 use crate::state::commit::StateEffects;
 use crate::state::conversation_tabs_store::{
-    CONVERSATION_TAB_ENGINE, CONVERSATION_TAB_URL, ConversationTabKey, ConversationTabRecord,
-    agent_session_of, bind_agent_session, browser_for_mutation, mark_conversation_tabs_present,
-    write_conversation_tab,
+    AgentSessionUnchanged, CONVERSATION_TAB_ENGINE, CONVERSATION_TAB_URL, ConversationTabKey,
+    ConversationTabRecord, browser_for_mutation, mark_conversation_tabs_present,
+    swap_agent_session, write_conversation_tab,
 };
-use crate::state::frontend_browser_keys::{FrontendBrowserReuse, KEYED_CREATION, browser_committed};
+use crate::state::frontend_browser_keys::{
+    FrontendBrowserReuse, KEYED_CREATION, browser_committed,
+};
 use crate::state::prelude::*;
 use crate::state::store::StateChanges;
 use crate::state::values::fresh_upserts;
@@ -85,7 +89,9 @@ impl Mux {
                 // The key's tab committed and was closed: its browser id is a
                 // tombstone, never the content of a second tab.
                 if self.read_registry_state(|c| browser_committed(c, browser_id.as_str()))? {
-                    return Err(FrontendBrowserReuse::KeyClosed(browser_id.as_str().to_string()).into());
+                    return Err(
+                        FrontendBrowserReuse::KeyClosed(browser_id.as_str().to_string()).into()
+                    );
                 }
                 (browser_id, false)
             }
@@ -184,13 +190,15 @@ impl Mux {
         })
     }
 
-    /// `bind-conversation-tab-session`: bind a new chat's acpmux session
-    /// once. Returns the record and whether the call was a replay (the same
-    /// session was bound already).
+    /// `bind-conversation-tab-session`: set an agent tab's acpmux session
+    /// to `session` when its current session is `expected` (None: unbound).
+    /// Returns the record and whether the call was a replay (the tab already
+    /// had `session`).
     pub(crate) fn bind_conversation_tab_session(
         &self,
         surface: SurfaceId,
         session: &str,
+        expected: Option<&str>,
     ) -> anyhow::Result<(ConversationTabRecord, bool)> {
         let runtime =
             self.surface(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
@@ -201,38 +209,26 @@ impl Mux {
             Some((ContentPublicId::Browser(id), tab)) => (id.as_str().to_string(), tab.to_string()),
             _ => anyhow::bail!("bad request: surface {surface} is not a conversation tab"),
         };
-        let bound =
-            self.read_registry_state(|connection| agent_session_of(connection, &browser_id))?;
-        let changed = match bound {
-            None => anyhow::bail!("bad request: surface {surface} has no agent session source"),
-            Some(Some(bound)) if bound == session => false,
-            Some(Some(bound)) => {
-                anyhow::bail!("conversation_tab.session_bound: the tab is bound to session {bound}")
-            }
-            Some(None) => {
-                let operation = "tab.conversation.bind_session";
-                let fingerprint = serde_json::json!({
-                    "operation": operation, "browser": browser_id, "session": session,
-                });
-                let commit = self.commit_state(
-                    &WorkspaceMutation::local("cmux-tui-conversation-tab"),
-                    operation,
-                    &fingerprint,
-                    None,
-                    StateEffects { presentation: true, tree: false },
-                    |transaction, _| {
-                        // A concurrent bind may have won since the read.
-                        let changed = bind_agent_session(transaction, &browser_id, session)?;
-                        let changes = if changed {
-                            fresh_upserts(transaction, &[], &[], std::slice::from_ref(&tab_id))?
-                        } else {
-                            Vec::new()
-                        };
-                        Ok(StateChanges::new(serde_json::json!({"changed": changed}), changes))
-                    },
-                )?;
-                commit.result["changed"].as_bool().unwrap_or(false)
-            }
+        let operation = "tab.conversation.bind_session";
+        let fingerprint = serde_json::json!({
+            "operation": operation, "browser": browser_id, "session": session, "expected": expected,
+        });
+        let committed = self.commit_state(
+            &WorkspaceMutation::local("cmux-tui-conversation-tab"),
+            operation,
+            &fingerprint,
+            None,
+            StateEffects { presentation: true, tree: false },
+            |transaction, _| {
+                swap_agent_session(transaction, &browser_id, session, expected)?;
+                let changes = fresh_upserts(transaction, &[], &[], std::slice::from_ref(&tab_id))?;
+                Ok(StateChanges::new(serde_json::json!({}), changes))
+            },
+        );
+        let changed = match committed {
+            Ok(_) => true,
+            Err(error) if error.downcast_ref::<AgentSessionUnchanged>().is_some() => false,
+            Err(error) => return Err(error),
         };
         let record = self
             .conversation_tab_of(&runtime)

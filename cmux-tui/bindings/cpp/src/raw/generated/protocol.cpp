@@ -112,6 +112,11 @@ Result<Json> Codec<AgentSessionSource>::encode(const AgentSessionSource& value) 
     auto encoded_host = encode_value(value.host);
     if (!encoded_host) return std::move(encoded_host).error();
     object.emplace("host", std::move(encoded_host).value());
+    if (!value.host_name.is_absent()) {
+        auto encoded = encode_value(value.host_name);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("host_name", std::move(encoded).value());
+    }
     if (!value.session.is_absent()) {
         auto encoded = encode_value(value.session);
         if (!encoded) return std::move(encoded).error();
@@ -142,6 +147,16 @@ Result<AgentSessionSource> Codec<AgentSessionSource>::decode(const Json& value) 
         auto decoded = decode_value<std::string>(*field_host);
         if (!decoded) return std::move(decoded).error();
         result.host = std::move(decoded).value();
+    }
+    const Json* field_host_name = value.find("host_name");
+    if (field_host_name) {
+        if (field_host_name->is_null()) {
+            result.host_name = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_host_name);
+            if (!decoded) return std::move(decoded).error();
+            result.host_name = Field<std::string>(std::move(decoded).value());
+        }
     }
     const Json* field_session = value.find("session");
     if (field_session) {
@@ -10974,6 +10989,13 @@ Result<AttachSurfaceRequest> Codec<AttachSurfaceRequest>::decode(const Json& val
 Result<Json> Codec<BindConversationTabSessionRequest>::encode(const BindConversationTabSessionRequest& value) {
     (void)value;
     Json::Object object;
+    if (value.expected_session) {
+        auto encoded = encode_value(*value.expected_session);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("expected_session", std::move(encoded).value());
+    } else {
+        object.emplace("expected_session", Json(nullptr));
+    }
     auto encoded_session = encode_value(value.session);
     if (!encoded_session) return std::move(encoded_session).error();
     object.emplace("session", std::move(encoded_session).value());
@@ -10987,6 +11009,19 @@ Result<BindConversationTabSessionRequest> Codec<BindConversationTabSessionReques
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     BindConversationTabSessionRequest result{};
+    const Json* field_expected_session = value.find("expected_session");
+    if (!field_expected_session) {
+        return make_error(ErrorCode::decode, "missing required field 'expected_session'");
+    }
+    if (field_expected_session) {
+        if (field_expected_session->is_null()) {
+            result.expected_session.reset();
+        } else {
+            auto decoded = decode_value<std::string>(*field_expected_session);
+            if (!decoded) return std::move(decoded).error();
+            result.expected_session = std::move(decoded).value();
+        }
+    }
     const Json* field_session = value.find("session");
     if (!field_session) {
         return make_error(ErrorCode::decode, "missing required field 'session'");

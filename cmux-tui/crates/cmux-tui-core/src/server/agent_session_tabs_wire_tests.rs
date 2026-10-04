@@ -46,6 +46,11 @@ fn agent_tab_extra(snapshot_or_value: &Value, tab_id: &str) -> Option<Value> {
     }
 }
 
+fn bind_request(surface: SurfaceId) -> Value {
+    json!({"cmd":"bind-conversation-tab-session","surface":surface,"session":"s-9",
+           "expected_session":null})
+}
+
 /// The bind commits on the state path: `session.events` upserts the tab
 /// with the bound session, and a fresh snapshot shows it.
 #[test]
@@ -57,9 +62,7 @@ fn bound_session_reaches_v2_readers() {
     let tab_id = created["tab_resource_id"].as_str().unwrap().to_string();
     let before = mux.with_state(|state| state.resource_revision);
 
-    let bound =
-        run(&mux, json!({"cmd":"bind-conversation-tab-session","surface":surface,"session":"s-9"}))
-            .unwrap();
+    let bound = run(&mux, bind_request(surface)).unwrap();
     assert_eq!(bound["replayed"], false, "{bound}");
     let after = mux.with_state(|state| state.resource_revision);
     assert!(after > before, "the bind commits a resource revision");
@@ -77,9 +80,7 @@ fn bound_session_reaches_v2_readers() {
     assert_eq!(agent_tab_extra(&snapshot, &tab_id).unwrap()["agent_session"]["session"], "s-9");
 
     // The same session again is a replay and commits nothing.
-    let replay =
-        run(&mux, json!({"cmd":"bind-conversation-tab-session","surface":surface,"session":"s-9"}))
-            .unwrap();
+    let replay = run(&mux, bind_request(surface)).unwrap();
     assert_eq!(replay["replayed"], true);
     assert_eq!(mux.with_state(|state| state.resource_revision), after);
     mux.shutdown();

@@ -98,7 +98,8 @@ fn agent_session_tab_keeps_its_record_across_every_move() {
     let (_, second) = terminal_pane(&mux);
     let created = agent_tab(&mux, first, Some("sess-1")).unwrap();
     let surface = surface_of(&created);
-    let expected = json!({"host":"install:mac-test","session":"sess-1","harness":"claude"});
+    let expected =
+        json!({"host":"install:mac-test","session":"sess-1","harness":"claude","host_name":null});
     assert_eq!(created["conversation"][AGENT], expected, "{created}");
     let tab = raw_tab(&mux, surface).unwrap();
     assert_eq!(tab["kind"], "conversation");
@@ -127,10 +128,11 @@ fn agent_session_tab_keeps_its_record_across_every_move() {
     mux.shutdown();
 }
 
-/// A new chat's session is bound once: null to an id commits, the same id
-/// replays, another id is refused; a conversation-source tab has no session.
+/// A new chat's session is bound from null: the same id replays, another id
+/// with a stale expectation is refused; a conversation-source tab has no
+/// session.
 #[test]
-fn agent_session_is_bound_once() {
+fn agent_session_is_bound_from_null() {
     let mux = test_mux("agent-tabs-bind");
     let (_, pane) = terminal_pane(&mux);
     let surface = surface_of(&agent_tab(&mux, pane, None).unwrap());
@@ -139,7 +141,8 @@ fn agent_session_is_bound_once() {
     let bind = |session: &str| {
         run(
             &mux,
-            json!({"cmd":"bind-conversation-tab-session","surface":surface,"session":session}),
+            json!({"cmd":"bind-conversation-tab-session","surface":surface,"session":session,
+                   "expected_session":null}),
         )
     };
     let first = bind("sess-new").unwrap();
@@ -148,13 +151,14 @@ fn agent_session_is_bound_once() {
     assert_eq!(raw_tab(&mux, surface).unwrap()["conversation"][AGENT]["session"], "sess-new");
     assert_eq!(bind("sess-new").unwrap()["replayed"], true);
     let other = bind("sess-other").unwrap_err();
-    assert!(other.to_string().starts_with("conversation_tab.session_bound"), "{other}");
+    assert!(other.to_string().starts_with("conversation_tab.session_conflict"), "{other}");
     assert_eq!(raw_tab(&mux, surface).unwrap()["conversation"][AGENT]["session"], "sess-new");
 
     let conversation = surface_of(&conversation_tab(&mux, pane, "bind-conv").unwrap());
     let refused = run(
         &mux,
-        json!({"cmd":"bind-conversation-tab-session","surface":conversation,"session":"sess-x"}),
+        json!({"cmd":"bind-conversation-tab-session","surface":conversation,"session":"sess-x",
+               "expected_session":null}),
     )
     .unwrap_err();
     assert!(refused.to_string().contains("bad request"), "{refused}");

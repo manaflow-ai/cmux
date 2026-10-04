@@ -15,6 +15,8 @@ public final class AgentSessionSource implements WireValue {
     private final Field<String> harness;
     /** install: and the stable install id of the machine whose acpmux runs the session. */
     private final String host;
+    /** Display name of the host machine: 1 to 255 bytes, no control characters. */
+    private final Field<String> hostName;
     /** The acpmux session id; null for a new chat until bind-conversation-tab-session. */
     private final Field<String> session;
 
@@ -22,6 +24,7 @@ public final class AgentSessionSource implements WireValue {
         this.harness = builder.harness;
         if (!builder.hostSet) throw new IllegalArgumentException("host is required");
         this.host = Wire.nonNull(builder.host, "host");
+        this.hostName = builder.hostName;
         this.session = builder.session;
     }
 
@@ -29,6 +32,7 @@ public final class AgentSessionSource implements WireValue {
 
     public Field<String> harness() { return harness; }
     public String host() { return host; }
+    public Field<String> hostName() { return hostName; }
     public Field<String> session() { return session; }
 
     public static AgentSessionSource fromWire(Object value) {
@@ -40,6 +44,10 @@ public final class AgentSessionSource implements WireValue {
         }
         Object rawHost = Wire.required(object, "host");
         builder.host(Wire.string(rawHost, "AgentSessionSource.host"));
+        Object rawHostName = Wire.optional(object, "host_name");
+        if (!Wire.isMissing(rawHostName)) {
+            builder.hostName(rawHostName == null ? null : Wire.string(rawHostName, "AgentSessionSource.host_name"));
+        }
         Object rawSession = Wire.optional(object, "session");
         if (!Wire.isMissing(rawSession)) {
             builder.session(rawSession == null ? null : Wire.string(rawSession, "AgentSessionSource.session"));
@@ -52,6 +60,7 @@ public final class AgentSessionSource implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "harness", harness);
         Wire.put(object, "host", host);
+        Wire.put(object, "host_name", hostName);
         Wire.put(object, "session", session);
         return Collections.unmodifiableMap(object);
     }
@@ -59,11 +68,11 @@ public final class AgentSessionSource implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof AgentSessionSource that)) return false;
-        return Objects.equals(harness, that.harness) && Objects.equals(host, that.host) && Objects.equals(session, that.session);
+        return Objects.equals(harness, that.harness) && Objects.equals(host, that.host) && Objects.equals(hostName, that.hostName) && Objects.equals(session, that.session);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(harness, host, session); }
+    public int hashCode() { return Objects.hash(harness, host, hostName, session); }
 
     @Override
     public String toString() { return "AgentSessionSource" + toWire(); }
@@ -72,6 +81,7 @@ public final class AgentSessionSource implements WireValue {
         private Field<String> harness = Field.omitted();
         private String host;
         private boolean hostSet;
+        private Field<String> hostName = Field.omitted();
         private Field<String> session = Field.omitted();
 
         public Builder harness(String value) {
@@ -81,6 +91,10 @@ public final class AgentSessionSource implements WireValue {
         public Builder host(String value) {
             this.host = value;
             this.hostSet = true;
+            return this;
+        }
+        public Builder hostName(String value) {
+            this.hostName = Field.ofNullable(value);
             return this;
         }
         public Builder session(String value) {

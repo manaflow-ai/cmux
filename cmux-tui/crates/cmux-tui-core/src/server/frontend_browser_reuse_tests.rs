@@ -153,11 +153,16 @@ fn a_closed_frontend_tab_drops_its_rows_and_never_resolves() {
         })
         .unwrap();
     assert_eq!(history, 0, "and its session history");
-    let fields = Map::from_iter([("frontend_browser_id".to_string(), Value::String(browser.clone()))]);
+    let fields =
+        Map::from_iter([("frontend_browser_id".to_string(), Value::String(browser.clone()))]);
     let rebind = mux
         .new_browser_tab_with_fields("about:blank".into(), Some(pane), None, fields)
         .expect_err("a deleted row must not free the browser id");
-    assert_eq!(response_error_code(&rebind).as_deref(), Some("frontend_browser_bound"), "{rebind:#}");
+    assert_eq!(
+        response_error_code(&rebind).as_deref(),
+        Some("frontend_browser_bound"),
+        "{rebind:#}"
+    );
     // The snapshot a start (or any presentation reload) loads leaves it out.
     let loaded = mux.workspace_registry.lock().unwrap().presentation_snapshot().unwrap();
     assert!(

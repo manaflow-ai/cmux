@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0e97bb0fd56625294195b17356714ff55faba5170fa23adb53295eb1fc622196. */
+/* cmux-tui mux protocol 12, IR 700326e820585f468e0688f4ab6b747366a80d9d6b017c3ba3ac1eb125481eab. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -21,6 +21,8 @@ export type AgentSessionSource = {
   "harness"?: (string) | null;
   /** install: and the stable install id of the machine whose acpmux runs the session. */
   "host": string;
+  /** Display name of the host machine: 1 to 255 bytes, no control characters. */
+  "host_name"?: (string) | null;
   /** The acpmux session id; null for a new chat until bind-conversation-tab-session. */
   "session"?: (string) | null;
 };

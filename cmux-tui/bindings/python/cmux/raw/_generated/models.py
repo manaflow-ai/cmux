@@ -294,6 +294,7 @@ class AgentSessionSource:
     __cmux_schema_path__: ClassVar[str] = 'types/AgentSessionSource'
     host: str
     harness: Union[str, None, MissingType] = field(default=MISSING)
+    host_name: Union[str, None, MissingType] = field(default=MISSING)
     session: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -1715,6 +1716,7 @@ class AttachSurfaceRequest:
 class BindConversationTabSessionRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/bind-conversation-tab-session/request'
     surface: Id
+    expected_session: Union[str, None]
     session: str
 
 

@@ -59,7 +59,8 @@ pub(super) struct NewConversationTabParams {
 }
 
 /// The acpmux session an agent tab shows: the install that runs it, the
-/// session (absent for a new chat) and the agent kind.
+/// session (absent for a new chat), the agent kind and the display name of
+/// the host machine.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct AgentSessionParams {
@@ -68,6 +69,8 @@ pub(super) struct AgentSessionParams {
     session: Option<String>,
     #[serde(default)]
     harness: Option<String>,
+    #[serde(default)]
+    host_name: Option<String>,
 }
 
 fn record_of(
@@ -79,8 +82,8 @@ fn record_of(
         (Some(conversation), Some(owner), None) => {
             Ok(ConversationTabRecord::Conversation { conversation, owner })
         }
-        (None, None, Some(AgentSessionParams { host, session, harness })) => {
-            Ok(ConversationTabRecord::AgentSession { host, session, harness })
+        (None, None, Some(AgentSessionParams { host, session, harness, host_name })) => {
+            Ok(ConversationTabRecord::AgentSession { host, session, harness, host_name })
         }
         _ => anyhow::bail!(
             "bad request: send conversation and owner, or agent_session, not both or neither"
@@ -125,16 +128,30 @@ pub(super) fn create(mux: &Arc<Mux>, params: NewConversationTabParams) -> anyhow
     }))
 }
 
-/// `bind-conversation-tab-session`: bind an agent tab's session once.
+/// `bind-conversation-tab-session`: set an agent tab's session to `session`
+/// when its current session is `expected_session` (null: unbound).
 #[derive(Deserialize)]
 pub(super) struct BindSessionParams {
     surface: SurfaceId,
     session: String,
+    /// Required; JSON null names an unbound tab.
+    #[serde(deserialize_with = "required_nullable")]
+    expected_session: Option<String>,
+}
+
+/// A field that must be present and may be null (serde treats a missing
+/// `Option` field as null unless the field has its own deserializer).
+fn required_nullable<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    Option::deserialize(deserializer)
 }
 
 pub(super) fn bind(mux: &Arc<Mux>, params: BindSessionParams) -> anyhow::Result<Value> {
-    let (record, replayed) = mux.bind_conversation_tab_session(params.surface, &params.session)?;
-    Ok(json!({"surface": params.surface, "conversation": record.wire(), "replayed": replayed}))
+    let BindSessionParams { surface, session, expected_session } = params;
+    let (record, replayed) =
+        mux.bind_conversation_tab_session(surface, &session, expected_session.as_deref())?;
+    Ok(json!({"surface": surface, "conversation": record.wire(), "replayed": replayed}))
 }
 
 /// The raw tree `kind` of a tab: `conversation` for a conversation tab.

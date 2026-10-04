@@ -1571,7 +1571,9 @@ or in the focused pane. The source is either one conversation
 or, with `agent-session-tabs-v1`, an acpmux agent session (`agent_session`:
 `host` is `install:` and the stable install id of the machine whose acpmux
 runs the session, `session` the acpmux session id or absent for a new chat,
-`harness` the agent kind, optional). Sending both sources or neither is a bad
+`harness` the agent kind, optional; `host_name` the host machine's display
+name, 1 to 255 bytes without control characters, optional). Sending both
+sources or neither is a bad
 request. The store records the source with the tab's frontend record in one
 commit and never reads conversation or session content. The tab is an
 ordinary store tab: move, split, drop, tear-off and reopen keep its source.
@@ -1593,7 +1595,7 @@ On the wire the tab's canonical kind is `conversation`: raw tree tabs carry
 `kind:"conversation"` and `conversation`, and resource API tab snapshots
 carry `content_kind:"conversation"` and `extra.conversation`. The record is
 `{conversation, owner}` for a conversation source and
-`{agent_session:{host, session, harness}}` (all three keys, `null` when
+`{agent_session:{host, session, harness, host_name}}` (all four keys, `null` when
 absent) for an agent session source. A connection that did not declare
 `conversation-tabs-v1` (raw `set-client-info` or `client.metadata.update
 {capabilities}`) reads `browser` in both places, in responses and in
@@ -1613,14 +1615,21 @@ Result: `object{surface, tab_resource_id, content_resource_id, conversation, rep
 | status | implemented |
 | since | protocol 12 additive extension; capability `agent-session-tabs-v1` |
 
-Binds the acpmux session of an agent session tab (`surface`) that has none
-yet: a new chat gets its session once. Binding the same session again
-returns `replayed:true` and emits nothing. Another session fails with
-`conversation_tab.session_bound`; a tab without an agent session source is a
-bad request. A bind commits a resource revision: `session.events` upserts
-the tab with the new `extra.conversation`, and raw clients get `tab-changed`.
+Sets the acpmux session of an agent session tab (`surface`) to `session`
+when its current session is `expected_session` (JSON null: no session yet),
+a compare-and-swap checked and applied in one commit. A new chat binds with
+`expected_session: null`; a tab moves to another session by naming the one
+it has. When the tab already has `session` the call returns
+`replayed:true` and commits nothing, whatever `expected_session` says.
+Another current session fails with `conversation_tab.session_conflict:
+current session is <id|null>` and changes nothing; a tab without an agent
+session source is a bad request. Concurrent binds commit at most one
+change. A bind that applies commits a resource revision: `session.events`
+upserts the tab with the new `extra.conversation`, and raw clients get
+`tab-changed`.
 
-Params: `surface`, `session` (1 to 128 letters, digits or `_ . : -`).
+Params: `surface`, `session` (1 to 128 letters, digits or `_ . : -`),
+`expected_session` (required; a session id or null).
 
 Result: `object{surface, conversation, replayed}`
 
