@@ -24,6 +24,17 @@ public final class HomeNativeTranscriptView: NSView {
     }
     /// A user-chosen sent-bubble colour; nil follows the theme.
     public var accentOverride: NSColor? { didSet { applyTheme() } }
+    /// Prepares dropped, pasted and picked files (the data side). Nil:
+    /// the composer takes no attachments and shows no attach button.
+    public var attachmentPreparer: (any HomeAttachmentPreparing)? {
+        didSet { field.attachEnabled = attachmentPreparer != nil }
+    }
+    /// The chain of attachment preparations, in the order they arrived.
+    // task-owner: replaced by the next intake; awaited by attachmentsReady
+    var intake: Task<Void, Never>?
+    /// The drafts of the last send by content hash: a send the owner
+    /// refuses before logging it gets them back (`onRestoreAttachments`).
+    var sentDrafts: [String: HomeDraftAttachment] = [:]
     private var observers: [any NSObjectProtocol] = []
 
     static let fieldInset: CGFloat = 16
@@ -65,7 +76,19 @@ public final class HomeNativeTranscriptView: NSView {
             guard let self, self.field.text.isEmpty else { return }
             self.field.text = text
         }
-        field.onSend = { [weak self] in self?.send() }
+        field.onSend = { [weak self] in self?.sendDraft() }
+        field.onAttach = { [weak self] in self?.pickFiles() }
+        field.onAttachmentPasteboard = { [weak self] board in self?.handlePaste(board) ?? false }
+        rowHost.onVideoClick = { [weak self] hit in
+            guard let self, self.controller.toggleVideo(hit) else { return false }
+            self.rowHost.accessibilityChanged()
+            return true
+        }
+        controller.onRestoreAttachments = { [weak self] refs in
+            guard let self else { return }
+            for ref in refs { if let draft = self.sentDrafts[ref.hash] { self.field.addDraft(draft) } }
+        }
+        registerForDraggedTypes(HomeAttachmentIntake.dragTypes)
         rowHost.onEmptyClick = { [weak self] in
             guard let self else { return }
             self.window?.makeFirstResponder(self.field.textView)
@@ -151,11 +174,22 @@ public final class HomeNativeTranscriptView: NSView {
         controller.setHostedField(f, send: send)
     }
 
-    private func send() {
+    /// Sends the text and the draft attachments as one message; each
+    /// attachment flies from its tray chip into its bubble.
+    func sendDraft() {
         guard isSendEnabled else { return }
         let frame = fieldFrame
-        guard controller.sendHosted(text: field.text, from: frame) != nil else { return }
+        let drafts = field.draftAttachments
+        let outgoing = drafts.map { draft in
+            HomeOutgoingAttachment(ref: draft.ref, files: draft.prepared.files,
+                                   origin: field.tray.chipFrame(draft.ref.hash).map { field.tray.convert($0, to: self) },
+                                   preview: draft.thumbnail)
+        }
+        guard controller.sendHosted(text: field.text, attachments: outgoing, from: frame) != nil else { return }
+        sentDrafts = Dictionary(drafts.map { ($0.ref.hash, $0) }, uniquingKeysWith: { a, _ in a })
         field.text = ""
+        field.clearDrafts()
+        field.showNotice(nil)
         layoutField(send: true)
     }
 

@@ -16,11 +16,17 @@ public final class HomeStoreBinding {
     /// A refused send restores its draft instead.
     public var onRefusal: (HomeIntent, HomeRejection) -> Void = { _, _ in }
     /// Loads attachment bytes for rows of this conversation
-    /// (`HomeStore.fetchAttachment(_:variant:in:)`): this client's own copy
-    /// when it has one, else the source. The render core
-    /// has no attachment hook yet; lane 16 passes this to the controller
-    /// when it adds one.
-    public var fetchAttachment: @Sendable (AttachmentRef, AttachmentVariant) async throws -> URL
+    /// (`HomeStore.fetchAttachment(_:variant:in:)`): this
+    /// client's own copy when it has one, else the source. It is the
+    /// controller's `attachmentLoader` (thumbnails for bubbles, the
+    /// original for video playback).
+    public var fetchAttachment: @Sendable (AttachmentRef, AttachmentVariant) async throws -> URL {
+        didSet { controller.attachmentLoader = HomeFetchLoader(fetch: fetchAttachment) }
+    }
+    /// A send the client refused before logging it because of an
+    /// attachment (type, size, empty file, too many parts); its draft and
+    /// attachments went back to the host's field.
+    public var onAttachmentRefusal: (HomeIntent, HomeAttachmentError) -> Void = { _, _ in }
 
     public init(store: HomeStore, controller: HomeController) {
         self.store = store
@@ -30,6 +36,7 @@ public final class HomeStoreBinding {
             guard let store else { throw CancellationError() }
             return try await store.fetchAttachment(ref, variant: variant, in: id)
         }
+        controller.attachmentLoader = HomeFetchLoader(fetch: fetchAttachment)
         controller.onIntent = { [weak self] intent in self?.perform(intent) }
         controller.onNeedsOlder = { [weak store] in
             guard let store else { return }
@@ -76,7 +83,16 @@ public final class HomeStoreBinding {
         let controller = self.controller
         Task { [weak self] in
             do {
-                _ = try await store.perform(intent.op, key: intent.key)
+                if let send = controller.attachmentSend(intent) {
+                    try await store.send(conversation: send.conversation, text: send.text, attachments: send.attachments,
+                                         key: intent.key)
+                } else {
+                    _ = try await store.perform(intent.op, key: intent.key)
+                }
+            } catch let refusal as HomeAttachmentError {
+                // Refused before it was logged: the draft and its attachments go back.
+                controller.restoreDraft(for: intent.key)
+                if let self, !self.stopped { self.onAttachmentRefusal(intent, refusal) }
             } catch let rejection as HomeRejection {
                 // Refused before it reached the log (offline, nothing queues):
                 // give the text back. A logged refusal stays as "Not Delivered".
@@ -95,5 +111,24 @@ public final class HomeStoreBinding {
                 // nobody awaits, so this call never sees it).
             }
         }
+    }
+}
+
+/// The binding's fetch as the render core's loader.
+struct HomeFetchLoader: HomeAttachmentLoader {
+    var fetch: @Sendable (AttachmentRef, AttachmentVariant) async throws -> URL
+
+    func thumbnail(for ref: AttachmentRef, maxPixel: Int) async throws -> URL {
+        try await fetch(ref, .thumbnail(maxPixel: maxPixel))
+    }
+
+    /// `.poster` reads the video part's poster blob; a part without one
+    /// throws (no_poster) and the bubble keeps its placeholder.
+    func poster(for ref: AttachmentRef, maxPixel: Int) async throws -> URL {
+        try await fetch(ref, .poster)
+    }
+
+    func original(for ref: AttachmentRef) async throws -> URL {
+        try await fetch(ref, .original)
     }
 }
