@@ -52,7 +52,7 @@ fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
             "--send-buffer" => {
                 let raw = value("--send-buffer")?;
                 let bytes = raw.to_str().and_then(|text| text.parse::<usize>().ok());
-                let Some(bytes) = bytes.filter(|bytes| *bytes <= MAX_SEND_BUFFER) else {
+                let Some(bytes) = bytes.filter(|bytes| SEND_BUFFER_RANGE.contains(bytes)) else {
                     let message =
                         catalog().remote_client.invalid_option_value("--send-buffer", "BYTES");
                     return Err(anyhow!(message));
@@ -79,7 +79,7 @@ fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
 }
 
 /// `cmux-tui wg hub --config <wg-quick> --socket <unix path> [--control
-/// <unix path>]`: own one WireGuard tunnel and serve SOCKS5 CONNECT for
+/// <unix path>] [--probes] [--send-buffer <bytes>]`: own one WireGuard tunnel and serve SOCKS5 CONNECT for
 /// sidecars on a Unix socket, plus, with `--control`, path events and the
 /// datagram service (transport.md 12a).
 ///
@@ -161,9 +161,13 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The largest `--send-buffer`: above the kernel's limit macOS refuses the
+/// The `--send-buffer` values the hub accepts. Below the minimum, macOS
+/// would refuse full-size datagrams. Above the maximum, macOS refuses the
 /// option, and a bigger buffer only moves the queue back into the kernel.
-const MAX_SEND_BUFFER: usize = 4 * 1024 * 1024;
+/// Linux silently limits the value to `net.core.wmem_max` (about 208 KiB by
+/// default), so there the effective upper bound is usually lower.
+const SEND_BUFFER_RANGE: std::ops::RangeInclusive<usize> =
+    cmux_wg::MIN_SEND_BUFFER..=4 * 1024 * 1024;
 
 /// How the hub's tunnel is started.
 #[derive(Clone, Copy, Default)]
@@ -242,6 +246,11 @@ mod tests {
         let huge =
             ["--config", "c", "--socket", "s", "--send-buffer", "8388608"].map(str::to_string);
         assert!(parse_wg_hub_flags(&huge).is_err(), "above 4 MiB is refused");
+        let tiny = ["--config", "c", "--socket", "s", "--send-buffer", "1"].map(str::to_string);
+        assert!(parse_wg_hub_flags(&tiny).is_err(), "below 16 KiB is refused");
+        let floor =
+            ["--config", "c", "--socket", "s", "--send-buffer", "16384"].map(str::to_string);
+        assert_eq!(parse_wg_hub_flags(&floor).unwrap().send_buffer, Some(16 * 1024));
         assert_eq!(measured.control, Some(PathBuf::from("k")));
         let missing = ["--config", "/tmp/wg.conf"].map(str::to_string);
         assert!(parse_wg_hub_flags(&missing).is_err());

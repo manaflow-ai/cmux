@@ -14,6 +14,7 @@ shares this hub instead of handshaking on its own.
   --probes        measure the path with probes; only for a peer that answers them
   --send-buffer BYTES  UDP send buffer, 16384 (the default) to 4194304; a small one
                        keeps queues in the hub, where media overtakes bulk
+                       (Linux limits it to net.core.wmem_max)
 
 Prints one JSON line `{"event":"hub-ready","socket":...,"routes":[...]}` when
 listening (it also names `"control"` with --control). Only literal IP targets
