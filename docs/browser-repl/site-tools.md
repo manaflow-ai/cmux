@@ -69,7 +69,7 @@ rules neither reference enforces together:
    Drive, Docs, Sheets
    and Slides drafts name the file by id (see "Editing Google files" for
    what else they bind), and a WebMCP draft fails when its tab left the
-   previewed URL or the page's tool changed (see "WebMCP calls").
+   previewed URL or document or the page's tool changed (see "WebMCP calls").
 3. **Failures say what to do.** A tab that reaches a sign-in page (at load or
    later from script) fails with `not_signed_in` and names the fix; a CAPTCHA
    is reported, never solved; a wrong Google account is an HTTP 403 that names
@@ -263,7 +263,13 @@ The draft binds the tool's descriptor (name, title, description, input
 schema and annotations as sorted-key JSON): its preview shows the schema,
 the annotations and a hash of the descriptor, and the confirmed call passes
 the descriptor into the page call, which runs the tool only when the page
-lists it with that same descriptor, else fails with `tool_changed`. A page
+lists it with that same descriptor, else fails with `tool_changed`. Every
+call, a confirmed draft or a `trustReadOnlyHint` one, runs only in the
+document and at the URL its tool was listed in: the listing marks its
+document (a value kept on the page's window, which a new document lacks)
+and notes its URL before it lists, and the page call checks both first and
+again right before the tool runs, else fails with `page_changed` and calls
+nothing (a reload, a navigation, or a `pushState` since the listing). A page
 that keeps the descriptor and swaps the implementation behind it is not
 detected: the page owns its tools' code, so a WebMCP preview describes what
 the page declares, never what its code does.

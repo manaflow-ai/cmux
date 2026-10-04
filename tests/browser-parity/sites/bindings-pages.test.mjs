@@ -67,6 +67,6 @@ test("webmcp.call: a call runs only in the document and at the URL its tool was 
   assert.equal((env.state.cart || []).length, cart, "the reloaded page's tool did not run");
   const reads = env.state.webmcpReads || 0;
   await s.run('await page.goto("https://tools.example/moves");');
-  assert.match(await s.error('sites.webmcp.call("lookup", {}, { trustReadOnlyHint: true })'), /page_changed|document_changed|navigated/);
+  assert.match(await s.error('sites.webmcp.call("lookup", {}, { trustReadOnlyHint: true })'), /page_changed|another URL|navigated/);
   assert.equal(env.state.webmcpReads || 0, reads, "the tool did not run on the moved page");
 });
