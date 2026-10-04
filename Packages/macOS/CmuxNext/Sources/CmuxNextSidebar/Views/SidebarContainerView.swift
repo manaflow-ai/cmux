@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import Observation
 
 /// The sidebar: clear over the window's one backdrop (the solid surface
@@ -27,13 +27,17 @@ public final class SidebarContainerView: NSView {
     /// Holds the sidebar at `model.width`, pinned to the clip's trailing edge.
     private let panel = NSView()
     private var panelWidth: NSLayoutConstraint!
-    private let handle: SidebarResizeHandle
+    let handle: SidebarResizeHandle
     private var observation: Task<Void, Never>?
     /// Width the constraint is at or animating to. The animator reports
     /// intermediate constants, so compare against this instead.
     private var targetWidth: CGFloat
     /// Bumped per width animation; a stale completion does nothing.
     private var animationGeneration = 0
+
+    /// The window edge this sidebar sits on (`sidebar.side`, R109): the
+    /// resize handle and the slide-out follow it.
+    public var side: SidebarSide = .left
 
     /// Dragging the resize edge narrower than this hides the sidebar
     /// (there is no intermediate width below `Metrics.sidebarMinWidth`).

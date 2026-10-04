@@ -25,7 +25,7 @@ public final class SidebarView: NSView {
     /// Where the titlebar row's accessory may start: after the window's
     /// toolbar band (R68).
     public var titlebarLeadingReserve: CGFloat = 0 { didSet { if oldValue != titlebarLeadingReserve { needsLayout = true } } }
-    private var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
+    var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
 
     let list: SidebarListView
     let scrollView = SidebarScrollView()
@@ -56,6 +56,8 @@ public final class SidebarView: NSView {
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     private var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
+    /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
+    public var spacesPosition: SpacesPosition = .bottom
     private var observation: Task<Void, Never>?
     private var lastState: RenderState?
 

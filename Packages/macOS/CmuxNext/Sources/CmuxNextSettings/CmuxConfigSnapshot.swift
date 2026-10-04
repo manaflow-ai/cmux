@@ -130,6 +130,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var titlebarButtons: TitlebarButtonsMode = TitlebarButtonsSetting.fallback
     /// `tabs.plusButton`; "hover" when unset or invalid.
     public var plusButton: PlusButtonMode = PlusButtonSetting.fallback
+    /// `sidebar.side` and `sidebar.spacesPosition` (R109).
+    public var sidebarSide: SidebarSide = .left
+    public var spacesPosition: SpacesPosition = .bottom
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `tabs.newTabKind`; "same-kind" when unset or invalid.
@@ -250,6 +253,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (plusButton, plusButtonDiagnostic) = PlusButtonSetting.parse(root)
         snapshot.plusButton = plusButton
         if let plusButtonDiagnostic { snapshot.diagnostics.append(plusButtonDiagnostic) }
+        ChromePlacementSetting.parse(root, into: &snapshot)
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
