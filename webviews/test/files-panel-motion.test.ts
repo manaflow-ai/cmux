@@ -30,15 +30,29 @@ test("the panel uses the app's sidebar springs (speed fast): ~160 ms visible to 
   expect(points[Math.floor(points.length / 2)]).toBeGreaterThan(0.8);
 });
 
-function fakeHost(options: { reduced?: boolean; offset?: number } = {}) {
+function fakeHost(options: { reduced?: boolean; offset?: number; timeline?: number } = {}) {
   const log: string[] = [];
   const frames: (() => void)[] = [];
-  type Record = { target: string; keyframes: any[]; options: any; cancelled: boolean; resolve: () => void };
+  type Record = {
+    target: string;
+    keyframes: any[];
+    options: any;
+    cancelled: boolean;
+    resolve: () => void;
+    startTime: number | null;
+  };
   const animations: Record[] = [];
   const animate = (target: string) => (keyframes: any[], animationOptions: any) => {
     let resolve = () => {};
     const finished = new Promise<void>((done) => (resolve = done));
-    const record = { target, keyframes, options: animationOptions, cancelled: false, resolve };
+    const record = {
+      target,
+      keyframes,
+      options: animationOptions,
+      cancelled: false,
+      resolve,
+      startTime: null as number | null,
+    };
     animations.push(record);
     log.push(`${target} ${keyframes[0].transform} -> ${keyframes.at(-1).transform}`);
     return {
@@ -46,6 +60,12 @@ function fakeHost(options: { reduced?: boolean; offset?: number } = {}) {
         record.cancelled = true;
       },
       finished,
+      set startTime(time: number | null) {
+        record.startTime = time;
+      },
+      get startTime() {
+        return record.startTime;
+      },
     } as any;
   };
   const panel = {
@@ -62,6 +82,7 @@ function fakeHost(options: { reduced?: boolean; offset?: number } = {}) {
     currentOffset: () => options.offset ?? 0,
     requestFrame: (callback) => frames.push(callback),
     reducedMotion: () => options.reduced ?? false,
+    timelineTime: options.timeline === undefined ? undefined : () => options.timeline!,
   });
   const live = (target: string) => animations.filter((a) => a.target === target && !a.cancelled);
   const finish = async (record: Record) => {
@@ -154,4 +175,14 @@ test("with reduced motion the panel switches in one frame", () => {
   expect(body.dataset.filesHidden).toBe("true");
   expect(panel.dataset.filesMotion).toBeUndefined();
   expect(log).toEqual([]);
+});
+
+test("the panel and the curtain start at the same timeline time", () => {
+  const { animations, motion } = fakeHost({ timeline: 1234.5 });
+  motion.set(true);
+  motion.set(false);
+  expect(animations.map((animation) => [animation.target, animation.startTime])).toEqual([
+    ["panel", 1234.5],
+    ["curtain", 1234.5],
+  ]);
 });
