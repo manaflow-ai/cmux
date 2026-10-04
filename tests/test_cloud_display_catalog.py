@@ -194,6 +194,27 @@ class CloudDisplayCatalogTests(unittest.TestCase):
         self.assertNotIn("127.0.0.1:6903", launched[0])
         service.shutdown.set()
 
+    def test_untracked_websockify_matches_only_this_displays_proxy(self):
+        proc = self.root / "proc"
+        uid = os.getuid()
+
+        def process(pid, *argv):
+            entry = proc / str(pid)
+            entry.mkdir(parents=True)
+            (entry / "cmdline").write_bytes(b"\0".join(arg.encode() for arg in argv) + b"\0")
+
+        websockify = ["/usr/bin/python3", "/usr/bin/websockify", "--web", "/usr/share/novnc", "--heartbeat", "30"]
+        process(101, *websockify, "127.0.0.1:6902", "127.0.0.1:5902")
+        process(102, *websockify, "[::]:6902", "127.0.0.1:5902")
+        process(103, *websockify, "127.0.0.1:6903", "127.0.0.1:5903")
+        process(104, *websockify, "[::]:6901", "127.0.0.1:5901")
+        process(105, "/usr/bin/python3", "/home/cmux/.cmux/cmux-display", "serve")
+
+        pids = display.DisplayService.untracked_websockify_pids(2, proc=proc)
+
+        self.assertEqual(sorted(pids), [101, 102])
+        self.assertEqual(uid, os.getuid())
+
     def test_untracked_websockify_is_not_ready_so_it_is_rebound(self):
         """A restarted helper keeps the X session but must replace a proxy it
         did not start, which may still be bound to loopback."""
