@@ -67,7 +67,13 @@ pub struct SessionContext {
     pub caller: Caller,
     /// The agent's task label (`browser.repl.open {label}`), the lease badge text.
     pub label: String,
+    /// The browser profile (`browser.repl.open {profile}`): `agent` (the
+    /// per-workspace agent profile, D12) unless the person picked another.
+    pub profile: String,
 }
+
+/// The profile agents get unless the person names another (D12).
+pub const AGENT_PROFILE: &str = "agent";
 
 type EventSlot = Arc<Mutex<Option<(Arc<Gate>, std::sync::mpsc::Sender<DriverEvent>)>>>;
 
@@ -184,10 +190,22 @@ impl Host {
                 let _ = tx.send(DriverEvent { name: event.name, payload });
             }
         });
+        // Only the person (user origin) opens a session on another profile,
+        // such as their signed-in one (D12); agents get the agent profile.
+        let profile = params.get("profile").and_then(Value::as_str).unwrap_or(AGENT_PROFILE);
+        if profile != AGENT_PROFILE && caller.origin != "user" {
+            return Err(DriverError::new(
+                ErrorCode::Forbidden,
+                format!(
+                    "profile {profile:?}: only the person opens a session on a profile other than {AGENT_PROFILE:?}"
+                ),
+            ));
+        }
         let context = SessionContext {
             name: name.clone(),
             caller: caller.clone(),
             label: lease_label(params.get("label").and_then(Value::as_str), &name),
+            profile: profile.to_owned(),
         };
         let driver = self.engines.driver(&engine, sink, &context)?;
         let capabilities = driver.capabilities().into_iter().map(str::to_owned).collect();
@@ -419,15 +437,31 @@ mod tests {
         let root = std::env::temp_dir().join(format!("profile-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let host = Host::new(engines.clone(), root.display().to_string());
-        let caller = |origin: &str| Caller { actor: "uid:501".into(), on_behalf_of: None, origin: origin.into() };
-        host.dispatch(&caller("mcp"), "browser.repl.open", &json!({"session": "a", "engine": "headless"}))
-            .unwrap();
+        let caller = |origin: &str| Caller {
+            actor: "uid:501".into(),
+            on_behalf_of: None,
+            origin: origin.into(),
+        };
+        host.dispatch(
+            &caller("mcp"),
+            "browser.repl.open",
+            &json!({"session": "a", "engine": "headless"}),
+        )
+        .unwrap();
         let refused = host
-            .dispatch(&caller("mcp"), "browser.repl.open", &json!({"session": "b", "engine": "headless", "profile": "signed-in"}))
+            .dispatch(
+                &caller("mcp"),
+                "browser.repl.open",
+                &json!({"session": "b", "engine": "headless", "profile": "signed-in"}),
+            )
             .unwrap_err();
         assert_eq!(refused.code, ErrorCode::Forbidden, "{refused}");
-        host.dispatch(&caller("user"), "browser.repl.open", &json!({"session": "c", "engine": "headless", "profile": "signed-in"}))
-            .unwrap();
+        host.dispatch(
+            &caller("user"),
+            "browser.repl.open",
+            &json!({"session": "c", "engine": "headless", "profile": "signed-in"}),
+        )
+        .unwrap();
         assert_eq!(*engines.0.lock().unwrap(), vec!["agent".to_owned(), "signed-in".to_owned()]);
         for name in ["a", "c"] {
             let _ = host.dispatch(&caller("user"), "browser.repl.close", &json!({"session": name}));

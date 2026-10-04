@@ -280,7 +280,9 @@ fn an_active_policy_installs_a_request_filter_on_the_driver() {
     gate.set_owner_policy(layer, false).unwrap();
     let filter = driver.filter.lock().unwrap().clone().expect("a request filter");
     assert!(filter("T", "https://example.com/app.js").is_none());
-    assert!(filter("T", "https://evil.test/beacon?d=1").unwrap().contains("session.allowedDomains"));
+    assert!(
+        filter("T", "https://evil.test/beacon?d=1").unwrap().contains("session.allowedDomains")
+    );
     assert!(filter("T", "data:text/plain,x").is_none());
     // Narrowing from the VM updates the filter.
     policy(&gate, "set", json!({"prohibited": ["example.com"]})).unwrap();

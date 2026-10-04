@@ -45,6 +45,9 @@ pub struct ProviderDriver {
     pub(crate) attach_lock: Mutex<()>,
     /// The automation leases of the provider's tabs (the host owns them).
     leases: Leases,
+    /// Each session's request filter and the CEF tabs it applies to
+    /// (`crate::provider_engine`), by subscription id.
+    pub(crate) request_filters: Mutex<HashMap<u64, crate::provider_engine::SessionFilter>>,
 }
 
 pub(crate) type CefTabs = Arc<Mutex<HashMap<String, Arc<crate::provider_engine::CefTab>>>>;
@@ -215,6 +218,7 @@ impl ProviderDriver {
             next_subscriber: AtomicU64::new(1),
             cef_tabs,
             attach_lock: Mutex::new(()),
+            request_filters: Mutex::new(HashMap::new()),
             leases,
         }))
     }
