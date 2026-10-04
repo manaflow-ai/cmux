@@ -276,4 +276,26 @@ describe("CloudPage", () => {
     expect($(".cloud-file-preview")?.textContent).toBe("hello cloud\n");
     expect(provider.calls.some((call) => call.op === CloudOps.fsRemove)).toBe(false);
   });
+
+  test("a typed refusal of the proxied browser tab shows the localized message once", async () => {
+    const provider = new MockCloudProvider({ unsupported: [] });
+    provider.tabError = "cmux.browser.engine_unavailable";
+    await render(provider);
+    await act(async () => $$(".cloud-machine")[0].click());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => typeInto($(".cloud-forward-port") as HTMLInputElement, "3000"));
+    await act(async () => $(".cloud-forward-add")!.click());
+    await act(async () => $(".cloud-forward-browser")!.click());
+    expect($(".cloud-browser-refused")?.textContent).toBe(
+      "The browser cannot open this machine's page: it needs the Chromium engine with the machine's proxy. Nothing was opened.",
+    );
+    const tabCalls = provider.calls.filter(
+      (call) => call.op === ACTION_RUN && (call.params as { action: string }).action === "browser.tab.open",
+    );
+    expect(tabCalls.length).toBe(1);
+    expect((tabCalls[0].params as { args: { engine: string } }).args.engine).toBe("cef");
+    expect($(".cloud-error")).toBeNull();
+  });
 });

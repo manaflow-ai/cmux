@@ -69,6 +69,8 @@ export class MockCloudProvider implements PageClient {
   failNext?: string;
   /** Runs after the list result is taken and before it is answered (an event during the list). */
   onList?: () => void;
+  /** The host's typed refusal of a proxied tab (CEF unavailable, or WebKit refused the proxy). */
+  tabError?: string;
   /** The next delete finds the machine already gone: it is removed and answered `not_found`. */
   notFoundOnDelete = false;
   /** The owner's normalization of a new name (the echo then differs from the intent). */
@@ -412,6 +414,7 @@ export class MockCloudProvider implements PageClient {
     const action = String(p.action);
     if (action === HostActions.browserTabOpen) {
       if (this.unsupported.has(action)) throw pageError("cmux.app.unknown_action", action);
+      if (this.tabError) throw pageError(this.tabError, "the browser refused the proxied tab");
       return { confirmed: true };
     }
     if (!NATIVE_ACTIONS.has(action)) throw pageError("cmux.app.unknown_action", action);
