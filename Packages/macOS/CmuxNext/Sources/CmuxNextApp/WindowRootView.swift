@@ -193,6 +193,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
 
     override func layout() {
         super.layout()
+        // A reorder that added no view passed no add hook: the agent cursor goes back on top.
+        if let window { WindowOverlayHost.existingHost(for: window)?.repairAgentCursorOrder() }
         // The sidebar stays above Chromium pages and pane overlays (R126): an occluder of the window's overlay host.
         if let window {
             let shows = sidebar.frame.width > 0.5 && !sidebar.isHidden
