@@ -159,6 +159,7 @@ let package = Package(
                 "CmuxNextOnboarding",
                 "CmuxNextAgentPane",
                 "CmuxNextHistory",
+                "CmuxNextPages",
                 "CmuxNextRemoteView",
                 "CmuxNextCodeRouter",
                 "CmuxNextAccounts",

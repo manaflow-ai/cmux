@@ -16,13 +16,18 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     public let nativeOps: Set<String>
     /// Ops never allowed from this page even inside its namespaces (`cmux.settings.domains.publish`).
     public let denied: Set<String>
+    /// Registry actions the page may run through `cmux.app.action.run` (`history.open`). A page
+    /// runs nothing else, so a page bug cannot reach unrelated app actions.
+    public let actions: Set<String>
 
-    public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = []) {
+    public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
+                actions: Set<String> = []) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
         self.nativeOps = nativeOps
         self.denied = denied
+        self.actions = actions
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).
@@ -66,5 +71,5 @@ public extension PageDescriptor {
     /// The History page (react-pages.md 2).
     static let history = PageDescriptor(
         id: "cmux.history", resource: "history", namespaces: ["cmux.history."],
-        nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite])
+        nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite], actions: ["history.open"])
 }

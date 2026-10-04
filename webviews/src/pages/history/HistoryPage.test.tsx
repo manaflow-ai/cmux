@@ -7,7 +7,7 @@ import table from "./generated/strings.json";
 import { HistoryPage } from "./HistoryPage";
 import { MockHistoryProvider, sampleEntries } from "./mockProvider";
 import { HistoryStore } from "./store";
-import { ACTION_RUN, HistoryOps } from "./types";
+import { ACTION_RUN, HistoryOps, PAGE_COMMAND } from "./types";
 
 const now = new Date(2026, 9, 4, 12, 0, 0).getTime();
 const saved: Record<string, unknown> = {};
@@ -132,6 +132,28 @@ describe("HistoryPage", () => {
     });
     expect($(".page-menu")).toBeNull();
     expect($$(".history-row-title").map((t) => t.textContent)).not.toContain("manaflow-ai/cmux: pull requests");
+  });
+
+  test("the dispatcher's find command focuses the search and sets its text", async () => {
+    const provider = new MockHistoryProvider(sampleEntries(now), () => now);
+    const { mountHistoryPage } = await import("./main");
+    const host = dom.window.document.createElement("div");
+    dom.window.document.body.append(host);
+    let store!: HistoryStore;
+    await act(async () => {
+      store = mountHistoryPage(host, provider);
+    });
+    await act(async () => {
+      await store.start();
+    });
+    let reply: unknown;
+    await act(async () => {
+      reply = await provider.invoke(PAGE_COMMAND, { command: "find", text: "codex" });
+    });
+    expect(reply).toEqual({ handled: true });
+    expect(store.getSnapshot().text).toBe("codex");
+    expect(dom.window.document.activeElement).toBe(host.querySelector(".history-search"));
+    expect(await provider.invoke(PAGE_COMMAND, { command: "zoom" })).toEqual({ handled: false });
   });
 
   test("empty and no-match states", async () => {

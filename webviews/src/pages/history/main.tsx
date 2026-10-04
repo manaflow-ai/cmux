@@ -16,8 +16,9 @@ export function mountHistoryPage(root: HTMLElement, client: PageClient | null = 
   });
   // The app's key dispatcher sends page commands (Cmd-F is `find`); the page never reads chords.
   client?.handle(PAGE_COMMAND, (params) => {
-    const command = (params as { command?: string } | null)?.command;
+    const { command, text } = (params ?? {}) as { command?: string; text?: unknown };
     if (command !== "find" && command !== "focusSearch") return { handled: false };
+    if (typeof text === "string") store.setText(text);
     document.querySelector<HTMLInputElement>(".history-search")?.focus();
     return { handled: true };
   });

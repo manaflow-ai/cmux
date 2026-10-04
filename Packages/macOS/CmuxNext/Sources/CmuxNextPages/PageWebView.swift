@@ -13,20 +13,22 @@ public protocol PageSurface: AnyObject {
 
 /// One React page in a tab or app screen (plans/cmux-next/react-pages.md 1): a transparent
 /// WKWebView over the window's one backdrop (windows.md "One backdrop rule"), loading
-/// `cmux-page://<id>/` from the bundled page, with the shared web theme (`WebTheme`) and the
+/// `cmux-page://<id>/` from the bundled page, with the shared web theme (`WebTheme`, from this
+/// view's theme scope) and the
 /// engine-neutral bridge (``PageHostBridge`` + ``PageRouter``).
 ///
 /// Absorbs the Settings lead's `SettingsWebPageView` (branch feat-cmux-next-settings-react):
 /// transparency, the scheme-handler origin, the main-frame and origin check, the debug state and
 /// snapshot.
 @MainActor
-public final class PageWebView: NSView, ThemeResponsive, PageSurface, WKNavigationDelegate {
+public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public let descriptor: PageDescriptor
     public let router: PageRouter
     let webView: WKWebView
     private let bridge: any PageHostBridge
-    private weak var scope: ThemeScope?
     private var loaded = false
+    /// The last theme payload sent, so a redraw that changes nothing sends nothing.
+    private var appliedTheme: String?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
     /// A navigation to any other origin (a link in the page): the host opens it in a browser tab.
     public var onOpenExternal: ((URL) -> Void)?
@@ -34,13 +36,13 @@ public final class PageWebView: NSView, ThemeResponsive, PageSurface, WKNavigati
     public var pageID: String { descriptor.id }
 
     /// Nil when the page is missing from the resource bundle.
-    public convenience init?(descriptor: PageDescriptor, routes: [PageRoute], scope: ThemeScope, route: String? = nil) {
+    public convenience init?(descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil) {
         guard let root = PageSchemeHandler.bundledRoot(for: descriptor) else { return nil }
-        self.init(descriptor: descriptor, root: root, routes: routes, scope: scope, route: route)
+        self.init(descriptor: descriptor, root: root, routes: routes, route: route)
     }
 
     /// `root` is the directory that holds the page's `index.html` (tests pass their own).
-    public init(descriptor: PageDescriptor, root: URL, routes: [PageRoute], scope: ThemeScope, route: String? = nil) {
+    public init(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil) {
         self.descriptor = descriptor
         router = PageRouter(descriptor: descriptor, routes: routes)
         let configuration = WKWebViewConfiguration()
@@ -50,8 +52,8 @@ public final class PageWebView: NSView, ThemeResponsive, PageSurface, WKNavigati
             WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         webView = WKWebView(frame: .zero, configuration: configuration)
         bridge = WebKitPageHostBridge(webView: webView)
-        self.scope = scope
         super.init(frame: .zero)
+        wantsLayer = true
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
@@ -67,12 +69,12 @@ public final class PageWebView: NSView, ThemeResponsive, PageSurface, WKNavigati
         webView.navigationDelegate = self
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         addSubview(webView)
+        PageRegistry.add(self)
         let bridge = bridge
         router.send = { envelope in bridge.evaluate(PageRouter.receiveScript(envelope)) }
         bridge.install { [weak self] message in
             await self?.receive(message)
         }
-        scope.addResponder(self)
         webView.load(URLRequest(url: descriptor.url(route: route)))
     }
 
@@ -96,11 +98,19 @@ public final class PageWebView: NSView, ThemeResponsive, PageSurface, WKNavigati
         webView.evaluateJavaScript("window.location.hash = \(JSONValue.string(fragment).compactText);", completionHandler: nil)
     }
 
-    /// Sends a dispatcher command (`find`) to the page. False when the page did not handle it.
+    /// Sends a dispatcher command (`find`, with `text` for a find with a query) to the page.
+    /// False when the page did not handle it.
     @discardableResult
-    public func send(command: String) async -> Bool {
-        let reply = try? await router.callPage(PageNativeOp.pageCommand, params: ["command": .string(command)])
+    public func send(command: String, arguments: [String: JSONValue] = [:]) async -> Bool {
+        var params = arguments
+        params["command"] = .string(command)
+        let reply = try? await router.callPage(PageNativeOp.pageCommand, params: .object(params))
         return reply?["handled"]?.boolValue ?? false
+    }
+
+    /// Reloads the page document (its subscriptions end with the old document).
+    public func reload() {
+        webView.reload()
     }
 
     /// Gives the page the keyboard focus.
@@ -126,9 +136,30 @@ public final class PageWebView: NSView, ThemeResponsive, PageSurface, WKNavigati
 
     // MARK: Theme
 
-    public func themeDidChange() {
-        guard loaded, let scope else { return }
-        let theme = WebTheme(scope.tokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency)
+    // The page's colors follow this view's theme scope (room, workspace), resolved in the hooks
+    // that run again on every theme change.
+    public override var wantsUpdateLayer: Bool { true }
+
+    public override func updateLayer() {
+        layer?.backgroundColor = nil
+        applyTheme()
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyTheme()
+    }
+
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyTheme()
+    }
+
+    func applyTheme(force: Bool = false) {
+        guard loaded else { return }
+        let theme = WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency)
+        guard force || theme.payloadJSON != appliedTheme else { return }
+        appliedTheme = theme.payloadJSON
         webView.evaluateJavaScript(theme.applyScript, completionHandler: nil)
     }
 
@@ -150,7 +181,7 @@ public final class PageWebView: NSView, ThemeResponsive, PageSurface, WKNavigati
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         loaded = true
-        themeDidChange()
+        applyTheme(force: true)
     }
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
