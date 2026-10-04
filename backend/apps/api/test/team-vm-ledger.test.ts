@@ -105,6 +105,27 @@ describe("team VM ledger", { timeout: 30_000 }, () => {
     expect(await stub.fakeVms()).toContain("fakevm-lookalike")
   })
 
+  it("a VM confirmed for the epoch a create still targets is never deleted, and the next create reuses it", async () => {
+    const T = "team_00000000000000000176"
+    const stub = stubFor(T)
+    const name = teamVmSlug(PREFIX, T, 1)
+    await stub.fakeControl({ slug_prefix: PREFIX, lose_next_create: 1 })
+    await stub.ensureAwake(T, principal(T), op("team_vm.ensure_awake", { reason: "ssh" }))
+    await stub.fakeControl({ fail_next: 100 })
+    for (let i = 0; i < MAX_ATTEMPTS + 1; i++) await stub.fakeAlarm(60 * 60_000)
+    await stub.fakeControl({ fail_next: 0 })
+    expect(await stub.reconcileLedger(T)).toEqual({ confirmed: 1, absent: 0, unresolved: 0 })
+    // The row is for epoch 1 while the record is still at epoch 0: the next create would make it current.
+    expect(await stub.deleteVm(T, `fakevm-${name}`, "test")).toMatchObject({ ok: false, code: "team_vm.in_use" })
+    expect(await stub.fakeVms()).toContain(`fakevm-${name}`)
+    // A deploy changes the prefix; the next wake creates under the confirmed row's name, not a new one.
+    await stub.fakeControl({ slug_prefix: "cmuxnp-xyz-tvm-" })
+    const r = result((await stub.ensureAwake(T, principal(T), op("team_vm.ensure_awake", { reason: "ssh" }))).frames)
+    expect(r.value).toMatchObject({ status: "running", epoch: 1, vm: `fakevm-${name}` })
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 1 })
+    expect((await stub.ledger(T)).rows).toHaveLength(1)
+  })
+
   it("an unconfirmed row whose name the provider does not know becomes absent", async () => {
     const T = "team_00000000000000000174"
     const stub = stubFor(T)
