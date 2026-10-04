@@ -1,6 +1,7 @@
 import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
-import { conversation as homeConversation, inbox as homeInbox } from "@cmux/home-core"
+import { inbox as homeInbox } from "@cmux/home-core"
 import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
+import * as quota from "./home-attachment-quota.ts"
 import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./auth.ts"
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
 import { admit } from "./domains/common.ts"
@@ -381,64 +382,28 @@ export class UserDO extends OwnerDO<UserState> {
     return reply && reply.t === "result" ? { ok: true } : { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
   }
 
-  /**
-   * Home attachment quota (home-scale.md B9 owner counters): per rolling 24 h, 300 intents and
-   * 2 GB of declared bytes, and 10 GB stored (objects this user uploaded first that still exist).
-   * `key` is the upload slot: every slot is charged; the ConversationDO refunds a slot whose
-   * commit finds the bytes already stored or that expires without a commit.
-   */
-  async takeAttachmentQuota(entity: string, key: string, bytes: number): Promise<homeConversation.QuotaResult | { ok: false; code: "auth.forbidden"; window: "none"; retry_after_ms: 0 }> {
-    if (!this.attachmentTables(entity)) return { ok: false, code: "auth.forbidden", window: "none", retry_after_ms: 0 }
-    const sql = this.ctx.storage.sql
-    const now = Date.now()
-    const since = now - homeConversation.ATTACHMENT_LIMITS.quota.dayMs
-    sql.exec(`DELETE FROM home_attachment_usage WHERE at <= ?`, since)
-    sql.exec(`DELETE FROM home_attachment_intents WHERE at <= ?`, since)
-    // The same slot key again (a retried RPC) is already charged.
-    if (sql.exec(`SELECT 1 FROM home_attachment_usage WHERE key = ?`, key).toArray().length > 0) return { ok: true }
-    const usage = {
-      bytes: sql.exec<{ bytes: number; at: number }>(`SELECT bytes, at FROM home_attachment_usage`).toArray().map((r) => ({ bytes: Number(r.bytes), at: Number(r.at) })),
-      intents: sql.exec<{ at: number }>(`SELECT at FROM home_attachment_intents`).toArray().map((r) => Number(r.at)),
-      stored: this.storedBytes()
-    }
-    const decision = homeConversation.attachmentQuota(usage, bytes, now)
-    if (decision.ok) {
-      sql.exec(`INSERT INTO home_attachment_intents (at) VALUES (?)`, now)
-      sql.exec(`INSERT INTO home_attachment_usage (key, bytes, at) VALUES (?, ?, ?)`, key, bytes, now)
-    }
-    return decision
+  /** Home attachment quota (home-attachment-quota.ts): every upload slot is charged; refunds and stored bytes by key. */
+  async takeAttachmentQuota(entity: string, key: string, bytes: number): Promise<quota.TakeResult> {
+    return this.attachmentSql(entity) ? quota.take(this.ctx.storage.sql, key, bytes, Date.now()) : quota.FORBIDDEN
   }
 
-  /** Gives back a slot's declared bytes (its commit found the bytes already stored, or it expired unused). The intent still counts. */
   async refundAttachmentQuota(entity: string, key: string): Promise<void> {
-    if (!this.attachmentTables(entity)) return
-    this.ctx.storage.sql.exec(`DELETE FROM home_attachment_usage WHERE key = ?`, key)
+    if (this.attachmentSql(entity)) quota.refund(this.ctx.storage.sql, key)
   }
 
-  /** An object this user uploaded first now exists (counts toward the 10 GB stored cap). Idempotent by key. */
   async recordAttachmentStorage(entity: string, objectKey: string, bytes: number): Promise<void> {
-    if (!this.attachmentTables(entity)) return
-    this.ctx.storage.sql.exec(`INSERT INTO home_attachment_stored (object_key, bytes) VALUES (?, ?) ON CONFLICT (object_key) DO NOTHING`, objectKey, bytes)
+    if (this.attachmentSql(entity)) quota.recordStored(this.ctx.storage.sql, objectKey, bytes)
   }
 
-  /** The object was collected or its conversation deleted. Idempotent by key. */
   async releaseAttachmentStorage(entity: string, objectKey: string): Promise<void> {
-    if (!this.attachmentTables(entity)) return
-    this.ctx.storage.sql.exec(`DELETE FROM home_attachment_stored WHERE object_key = ?`, objectKey)
-  }
-
-  private storedBytes(): number {
-    return Number(this.ctx.storage.sql.exec<{ b: number }>(`SELECT COALESCE(SUM(bytes), 0) AS b FROM home_attachment_stored`).toArray()[0]?.b ?? 0)
+    if (this.attachmentSql(entity)) quota.releaseStored(this.ctx.storage.sql, objectKey)
   }
 
   /** Attachment counter tables of a bound user; false (no write) for an id this object never served. */
-  private attachmentTables(entity: string): boolean {
+  private attachmentSql(entity: string): boolean {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return false
-    const sql = this.ctx.storage.sql
-    sql.exec(`CREATE TABLE IF NOT EXISTS home_attachment_usage (key TEXT PRIMARY KEY, bytes INTEGER NOT NULL, at INTEGER NOT NULL)`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS home_attachment_intents (at INTEGER NOT NULL)`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS home_attachment_stored (object_key TEXT PRIMARY KEY, bytes INTEGER NOT NULL)`)
+    quota.ensureTables(this.ctx.storage.sql)
     return true
   }
 
