@@ -4146,6 +4146,82 @@
     },
     {
       "accepts" : [
+        "off",
+        "bottom",
+        "top",
+        "both"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.minimalBottom",
+            "text" : "Settings and Account Row"
+          },
+          "value" : "bottom"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.minimalTop",
+            "text" : "Top Sections"
+          },
+          "value" : "top"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.minimalBoth",
+            "text" : "Top and Bottom"
+          },
+          "value" : "both"
+        }
+      ],
+      "default" : "off",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.minimalMode.help",
+        "text" : "Hides the chosen sections until the pointer is over the sidebar."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.minimalMode",
+      "keywords" : [
+        "sidebar",
+        "minimal",
+        "hide",
+        "hover",
+        "settings",
+        "account"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "sidebar",
+        "minimalMode"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.minimalMode",
+        "text" : "Minimal Mode"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "chromium",
         "webkit"
       ],
@@ -5811,7 +5887,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "2998e26932a6f9333e55f08addd479d222c29b60929a559bcb1e3b2dfa5e19db",
+  "schema_hash" : "2fb252b0a500b775bc1e730bf753ae68eabf87fbf7da6f7f792f7e3f67c2d280",
   "sections" : [
     {
       "id" : "general",

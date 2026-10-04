@@ -16,8 +16,11 @@ import Testing
         return (view, { DesignSettings.shared.sidebarSections = saved })
     }
 
+    /// The band's alpha target: 0 while minimal mode hides it, else 1.
     private func bandAlpha(_ region: SidebarRegionView) -> CGFloat {
-        region.enclosingScrollView?.superview?.alphaValue ?? -1
+        guard let view = region.enclosingScrollView?.superview?.superview as? SidebarView else { return -1 }
+        let hidden = region === view.aboveRegion ? view.minimalHiddenBands.top : view.minimalHiddenBands.bottom
+        return hidden ? 0 : 1
     }
 
     @Test func theBottomBandHidesUntilThePointerHovers() {

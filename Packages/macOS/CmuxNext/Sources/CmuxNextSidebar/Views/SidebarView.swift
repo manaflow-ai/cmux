@@ -289,12 +289,26 @@ public final class SidebarView: NSView {
 
     /// Fades the titlebar buttons in or out. Keyboard and VoiceOver users
     /// reach the same actions through the palette and the registry menus.
+    /// Bands minimal mode hides right now (the fade's target).
+    private(set) var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
+
     func setChromeRevealed(_ revealed: Bool) {
-        guard revealed != isChromeRevealed else { return }
+        let changed = revealed != isChromeRevealed
         isChromeRevealed = revealed
         let alpha: CGFloat = revealed ? 1 : 0
+        let mode = DesignSettings.shared.sidebarSections.minimalMode
+        // Minimal mode (R54): the chosen sticky bands hide with the
+        // buttons. They stay in the view and accessibility tree (a fade,
+        // not isHidden), so VoiceOver still reaches their items.
+        let above: CGFloat = revealed || !mode.hidesTop ? 1 : 0
+        let below: CGFloat = revealed || !mode.hidesBottom ? 1 : 0
+        let hidden = (top: above == 0, bottom: below == 0)
+        guard changed || hidden != minimalHiddenBands else { return }
+        minimalHiddenBands = hidden
         Motion.animate(.hover) {
-            newButton.animator().alphaValue = alpha
+            if changed { newButton.animator().alphaValue = alpha }
+            aboveFade.animator().alphaValue = above
+            belowFade.animator().alphaValue = below
         }
     }
 
@@ -381,6 +395,8 @@ public final class SidebarView: NSView {
             || lastState?.preferences.showWorkspaceTabs != state.preferences.showWorkspaceTabs
         let previous = lastState?.sections
         model.showWorkspaceTabs = state.preferences.showWorkspaceTabs
+        // Minimal mode changed: show or hide the chosen bands now.
+        if lastState?.preferences.minimalMode != state.preferences.minimalMode { setChromeRevealed(isChromeRevealed) }
         if listChanged {
             if profileChanged, let previousProfile = lastState?.activeProfile, let nextProfile = state.activeProfile,
                let oldIndex = state.profiles.firstIndex(where: { $0.id == previousProfile }), let newIndex = state.profiles.firstIndex(where: { $0.id == nextProfile }),

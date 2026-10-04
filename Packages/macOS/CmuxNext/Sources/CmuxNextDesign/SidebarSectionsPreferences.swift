@@ -11,8 +11,8 @@ public nonisolated enum SidebarMinimalMode: String, Hashable, Sendable, CaseIter
     case top
     case both
 
-    public var hidesTop: Bool { false }
-    public var hidesBottom: Bool { false }
+    public var hidesTop: Bool { self == .top || self == .both }
+    public var hidesBottom: Bool { self == .bottom || self == .both }
 }
 
 public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
