@@ -3036,6 +3036,84 @@
     },
     {
       "accepts" : [
+        "none",
+        "dividers",
+        "borders",
+        "cards"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.none",
+            "text" : "None"
+          },
+          "value" : "none"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.dividers",
+            "text" : "Dividers"
+          },
+          "value" : "dividers"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.borders",
+            "text" : "Borders"
+          },
+          "value" : "borders"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cards",
+            "text" : "Cards"
+          },
+          "value" : "cards"
+        }
+      ],
+      "default" : "borders",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.layout.paneSeparation.help",
+        "text" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.paneSeparation",
+      "keywords" : [
+        "border",
+        "divider",
+        "separator",
+        "gap",
+        "cards",
+        "lines",
+        "seamless",
+        "pane"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "layout",
+        "paneSeparation"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.layout.paneSeparation",
+        "text" : "Separation"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         0,
         16,
         8
@@ -5222,6 +5300,102 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.border.help",
+        "text" : "A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.border",
+      "keywords" : [
+        "sidebar",
+        "border",
+        "edge",
+        "line",
+        "separator",
+        "seam"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "sidebar",
+        "border"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.border",
+        "text" : "Border"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.5,
+        4,
+        2.25
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.onePixel",
+        "text" : "One pixel"
+      },
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.borderWidth",
+      "keywords" : [
+        "sidebar",
+        "border",
+        "edge",
+        "line",
+        "width",
+        "thickness"
+      ],
+      "kind" : "number",
+      "path" : [
+        "sidebar",
+        "borderWidth"
+      ],
+      "range" : {
+        "max" : 4,
+        "min" : 0.5,
+        "placeholder" : 1,
+        "step" : 0.5,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -3,
+        7.5,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.borderWidth",
+        "text" : "Border Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "quiet",
         "card",
         "tray",
@@ -7231,7 +7405,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "41bbb12f8b0344ff9aae328bdd19f41aec7b3296e24b6e66d038ac87131bcbb1",
+  "schema_hash" : "628167ad78f854d28a67f50ba674d7a9b194fb951a66d7752dbf15f6962cead6",
   "sections" : [
     {
       "id" : "general",

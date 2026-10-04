@@ -8,7 +8,6 @@ nonisolated enum RoomStrings {
         String(format: text("rooms.defaultName", "Space %lld"), locale: Locale.current, number)
     }
     static var renameTitle: String { text("rooms.renameTitle", "Rename Space") }
-    static var iconTitle: String { text("rooms.iconTitle", "Space Icon (SF Symbol name or one emoji)") }
     static func deleteTitle(_ name: String) -> String { String(format: text("rooms.deleteTitle", "Delete space “%@”?"), name) }
     static var deleteReturnsBody: String {
         text("rooms.deleteReturnsBody", "Its workspaces stay open and return to the spaces that follow their machines.")

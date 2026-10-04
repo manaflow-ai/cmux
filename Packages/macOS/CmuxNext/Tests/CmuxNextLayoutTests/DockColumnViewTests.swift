@@ -98,7 +98,9 @@ struct DockColumnViewTests {
         let (view, window) = makeRoot(DockColumn(edge: .right, mode: .overlay))
         defer { window.close() }
         #expect(view.updateTabDrag("t", locationInWindow: NSPoint(x: 848, y: 300)) == .pane("d", .center))
-        #expect(view.updateTabDrag("t", locationInWindow: NSPoint(x: 700, y: 300)) == nil)
+        // tab-dnd: the glass rim is no dead zone; it previews the docked
+        // pane (never the strip pane hidden below it).
+        #expect(view.updateTabDrag("t", locationInWindow: NSPoint(x: 700, y: 300)) == .pane("d", .center))
         #expect(view.updateTabDrag("t", locationInWindow: NSPoint(x: 300, y: 300)) == .pane("a", .center))
         view.cancelTabDrag()
     }

@@ -46,7 +46,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.toggleSetting", "palette.shortcutKeymap", "palette.searchShortcuts", "palette.installCLI",
             "palette.uninstallCLI", "palette.restartSocketListener", "palette.checkForUpdates",
             "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "palette.pro.upgrade",
-            "palette.welcomeChecklist", "palette.importClassicSessions", "sendFeedback", "help.featureFlags", "help.documentation",
+            "palette.welcomeChecklist", "palette.importClassicSessions", "sendFeedback", "help.featureFlags", "help.documentation", "help.showCrashLogs",
             "appearance.density.compact", "appearance.density.comfortable", "appearance.animationSpeed.fast",
             "appearance.animationSpeed.normal", "appearance.animationSpeed.off", "browser.defaultEngine.chromium",
             "browser.defaultEngine.webkit", "appearance.paneBorder.toggle", "appearance.panePadding.toggle",

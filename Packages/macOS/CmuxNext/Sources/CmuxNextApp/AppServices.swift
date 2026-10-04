@@ -112,6 +112,8 @@ final class AppServices {
     let newTabTypeAhead = NewTabTypeAhead()
     /// One prewarmed new tab page per window (instant open).
     private(set) lazy var newTabSpares = NewTabSparePool(services: self)
+    /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
+    private(set) lazy var iconPicker = IconPickerService(services: self)
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
     private(set) var tabBarButtons: TabBarButtonsController!
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.

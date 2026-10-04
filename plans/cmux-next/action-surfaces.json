@@ -15522,6 +15522,29 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "settings show-crash-logs",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "help.showCrashLogs",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Show Crash Logs",
+      "title_key" : "action.help.showCrashLogs",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "settings feature-flags",
       "context_menu" : "noObject",
       "context_menus" : [

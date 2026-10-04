@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSidebar
 
 /// Workspace verbs that change what a workspace holds: duplicate (layout and
@@ -19,10 +20,24 @@ enum WorkspaceStructureHandlers {
             context.copy(cwd)
         })
         registry.bind("workspace.setIcon", run: { invocation in
-            guard let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), WorkspaceIconValue.isValid(icon) else {
-                throw ActionFailure.invalidTarget(WorkspaceVerbStrings.invalidIcon)
+            // An icon argument (CLI, MCP, scripts) sets it; without one (palette, menu) the
+            // picker opens and its pick takes the same path.
+            if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
+                guard WorkspaceIconValue.isValid(icon) else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.invalidIcon) }
+                return try setIcon(.set(icon), invocation, context)
             }
-            try setIcon(.set(icon), invocation, context)
+            // The target is fixed now: a pick applies to it even if focus moves meanwhile.
+            let (workspace, key) = try context.workspace(invocation)
+            guard let anchor = context.services.iconPicker.anchor(workspace: workspace.id) else {
+                throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen)
+            }
+            context.services.iconPicker.pick(current: workspace.icon, at: anchor) { result in
+                switch result {
+                case .set(let icon) where WorkspaceIconValue.isValid(icon): try? setIcon(.set(icon), workspace: workspace, key: key, context)
+                case .clear: try? setIcon(.clear, workspace: workspace, key: key, context)
+                case .set, .cancel: break
+                }
+            }
         })
         registry.bind("workspace.clearIcon", run: { try setIcon(.clear, $0, context) })
         registry.bind("workspace.mergeInto", run: { try merge(context, $0) })
@@ -80,6 +95,11 @@ enum WorkspaceStructureHandlers {
 
     private static func setIcon(_ update: FieldUpdate<String>, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
         let (workspace, key) = try context.workspace(invocation)
+        try setIcon(update, workspace: workspace, key: key, context)
+    }
+
+    private static func setIcon(_ update: FieldUpdate<String>, workspace: WorkspaceModel, key: WorkspaceKey,
+                                _ context: AppActionContext) throws {
         guard let daemon = context.services.machines.daemon(forWorkspace: workspace.id) else {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
@@ -153,12 +173,15 @@ enum WorkspaceStructureHandlers {
     }
 }
 
-/// A workspace icon: an SF Symbol name or one emoji (the daemon's
-/// `validate_presentation_icon`, data-model.md 9).
+/// A workspace icon the daemon stores today: one emoji, or an SF Symbol name
+/// this Mac draws (``IconValue``; the daemon's `validate_presentation_icon`).
+/// Image and SVG assets wait for the daemon's blob store.
 enum WorkspaceIconValue {
     static func isValid(_ value: String) -> Bool {
-        guard !value.isEmpty else { return false }
-        if WorkspaceIcon.isEmoji(value) { return true }
-        return NSImage(systemSymbolName: value, accessibilityDescription: nil) != nil
+        switch IconValue(wire: value) {
+        case .emoji?: true
+        case .symbol(let name)?: NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
+        case .image?, .svg?, nil: false
+        }
     }
 }
