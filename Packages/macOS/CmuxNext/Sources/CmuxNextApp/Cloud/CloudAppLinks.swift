@@ -58,6 +58,22 @@ enum CloudAppLinks {
         }
     }
 
+    /// Why a link socket was refused after the handshake.
+    nonisolated static let localDaemonDetail = "the link socket is this Mac's own daemon"
+
+    /// The post-handshake check of a link socket (the path check runs before
+    /// the connect, ``CloudLinkSocketPolicy``): the daemon behind it must not
+    /// be this Mac's own daemon, the same boot (`generation`) or the same
+    /// session registry (`registry_id`). Without a local identity there is
+    /// nothing to compare (and no Cloud op could have run).
+    nonisolated static func checkNotLocal(remote: DaemonIdentity, local: DaemonIdentity?) throws {
+        guard let local else { return }
+        let sameRegistry = remote.registryID != nil && remote.registryID == local.registryID
+        if remote.generation == local.generation || sameRegistry {
+            throw CloudLinkError.unsafeSocket(localDaemonDetail)
+        }
+    }
+
     /// Subscribes `local`'s connection to app events again: the daemon sends
     /// them only to a connection that sent an `apps-` request, and a
     /// reconnected local connection is a new client.
