@@ -8,7 +8,7 @@ use crate::api::{ControlPlane, Origin, codes};
 use crate::link::ops::connect;
 use crate::ops::Server;
 use iface::{
-    BackendError, BackendId, Carrier, CarrierEvent, ConnectRequest, HostLink, LocalId,
+    BackendError, BackendId, Carrier, ConnectRequest, ConnectorEvent, HostLink, LocalId,
     TerminalConnector, allow_kind,
 };
 
@@ -36,6 +36,14 @@ struct CloudHostLink {
 }
 
 impl HostLink for CloudHostLink {
+    fn channel(&self) -> &str {
+        ""
+    }
+
+    fn window_bytes(&self) -> u32 {
+        0
+    }
+
     fn carrier(&self) -> &Carrier {
         &self.carrier
     }
@@ -65,9 +73,11 @@ impl<C: ControlPlane> TerminalConnector for CloudConnector<'_, C> {
         Ok(Box::new(CloudHostLink { carrier }))
     }
 
-    fn take_events(&mut self) -> Vec<CarrierEvent> {
-        let supervisor = self.server.attach_mut().supervisor_mut();
-        supervisor.pump();
-        supervisor.take_events()
+    fn close(&mut self, _channel: &str) -> Result<(), BackendError> {
+        Err(BackendError::Unsupported("red stub".into()))
+    }
+
+    fn take_events(&mut self) -> Vec<ConnectorEvent> {
+        Vec::new()
     }
 }

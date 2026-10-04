@@ -3,6 +3,7 @@
 
 #![allow(dead_code)]
 
+use cmux_cloud::connector::iface::CarrierEvent;
 use cmux_cloud::link::{
     Attach, LinkCommand, LinkEvents, LinkPaths, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag,
 };
@@ -185,6 +186,14 @@ impl RescueTransport for FakeTransport {
     fn take_events(&mut self) -> Vec<(StreamId, TransportEvent)> {
         std::mem::take(&mut self.log().events)
     }
+}
+
+/// Link events of the server's supervisor since the last call (what the
+/// serve loop sends as `cloud.link.changed`).
+pub fn link_events<C>(server: &mut cmux_cloud::Server<C>) -> Vec<CarrierEvent> {
+    let supervisor = server.attach_mut().supervisor_mut();
+    supervisor.pump();
+    supervisor.take_events()
 }
 
 /// Attach with the fake spawner, test paths and the fake transport.
