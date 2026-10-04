@@ -52,5 +52,15 @@ extension TabContentCache {
     /// The window holding `presenters` stopped being key (another window or
     /// app took the keyboard): each page they show on screen is captured
     /// once, so a hover from another window shows it (R131).
-    func windowDidResignKey(presenters: [any SurfacePresenter]) {}
+    /// Same scaling and staleness rules as the leave capture: the token is
+    /// the page's current transition, so a hide, show or close before the
+    /// capture lands drops it.
+    func windowDidResignKey(presenters: [any SurfacePresenter]) {
+        for presenter in presenters {
+            for key in ledger.keys(ownedBy: ObjectIdentifier(presenter)) where ledger.isRendering(key) {
+                guard let entry = browsers[key], let generation = lifecycle.record(key)?.generation else { continue }
+                capturePagePreview(entry, key: key, token: ContentLifecycle<String>.Token(generation))
+            }
+        }
+    }
 }
