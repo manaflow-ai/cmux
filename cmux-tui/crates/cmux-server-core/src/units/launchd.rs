@@ -79,6 +79,13 @@ fn program_arguments(program: &str, mode: InstallMode) -> Value {
 
 /// KeepAlive `{SuccessfulExit: false}`: restart only after a failure, so a
 /// clean exit (the host was disabled) stays down.
+///
+/// Exit contract of `cmux host run` (every launchd job here relies on it):
+/// exit status 0 ONLY on a deliberate stop (disable, unpair, uninstall, a
+/// stop request). Every error path (bad arguments, a store or socket that
+/// fails to open, a panic, a lost lock) exits non-zero, so launchd restarts
+/// the job after ThrottleInterval. The `host run` parser lands with the
+/// server stack and carries the test of this contract.
 fn restart_on_failure() -> Value {
     Value::Dict(BTreeMap::from([("SuccessfulExit", Value::Bool(false))]))
 }
