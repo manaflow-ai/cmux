@@ -1057,7 +1057,14 @@ base_url = "http://router:31415/v1"
         config["skills"]["bundled"]["enabled"].as_bool(),
         Some(false)
     );
-    for feature in ["apps", "plugins", "memories", "hooks", "multi_agent"] {
+    for feature in [
+        "apps",
+        "plugins",
+        "memories",
+        "hooks",
+        "multi_agent",
+        "code_mode",
+    ] {
         assert_eq!(
             config["features"][feature].as_bool(),
             Some(false),
@@ -1087,7 +1094,19 @@ base_url = "http://router:31415/v1"
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         names.sort();
-        assert_eq!(names, vec!["config.toml"], "slot {k}: only its config");
+        // Live 2026-10-04: codex-acp refuses session/new without a sign-in
+        // ("Authentication required"), so the slot shares the user's
+        // auth.json through a symlink: one credential, no copy whose token
+        // refresh could invalidate the user's (codex writes it in place).
+        assert_eq!(
+            names,
+            vec!["auth.json", "config.toml"],
+            "slot {k}: its config and the user's sign-in"
+        );
+        assert_eq!(
+            std::fs::read_link(slot.join("auth.json")).unwrap(),
+            user_home.join("auth.json")
+        );
         assert_eq!(
             std::fs::read_to_string(slot.join("config.toml")).unwrap(),
             text
@@ -1106,7 +1125,10 @@ fn a_codex_node_leaves_nothing_but_its_config_in_its_codex_home() {
     use optchat_chief::compactor::prepare_codex_homes;
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(&dir.path().join("mux"));
-    prepare_codex_homes(&paths, &dir.path().join("no-user-codex")).unwrap();
+    let user_home = dir.path().join("user-codex");
+    std::fs::create_dir_all(&user_home).unwrap();
+    std::fs::write(user_home.join("auth.json"), "{}").unwrap();
+    prepare_codex_homes(&paths, &user_home).unwrap();
     let base = paths.compactor_codex.clone();
     // A crash's leftover in every slot.
     for k in 0..JOBS {
@@ -1150,7 +1172,12 @@ fn a_codex_node_leaves_nothing_but_its_config_in_its_codex_home() {
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     names.sort();
-    assert_eq!(names, vec!["config.toml", "models_cache.json"]);
+    assert_eq!(names, vec!["auth.json", "config.toml", "models_cache.json"]);
+    assert_eq!(
+        std::fs::read_to_string(slot.join("auth.json")).unwrap(),
+        "{}",
+        "the user's sign-in survives the wipe"
+    );
 }
 
 /// The probe fails when a codex compactor session offers a skill (codex-acp
