@@ -276,7 +276,7 @@ fn rpc_git_sessions_match_git_without_starting_a_server() {
         std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
             .expect("secure root permissions");
     }
-    run_git(&repo, &["init"]);
+    run_git(&repo, &["init", "--initial-branch=main"]);
     run_git(&repo, &["config", "user.name", "cmux tests"]);
     run_git(&repo, &["config", "user.email", "cmux@example.invalid"]);
     std::fs::write(repo.join("story.txt"), b"one\n").expect("write initial file");
@@ -467,7 +467,8 @@ fn open_session_matches_git(
         serde_json::from_slice(&output.stdout).expect("decode response");
     assert_eq!(response["result"]["type"], "sessionOpened", "{response}");
     if source["kind"] == "branch" && source.get("baseRef").is_none() {
-        assert_eq!(response["result"]["value"]["source"]["baseRef"], "HEAD");
+        // cmux-git's suggested base: without a remote, the local main.
+        assert_eq!(response["result"]["value"]["source"]["baseRef"], "main");
     }
     let session_id = response["result"]["value"]["sessionId"]
         .as_str()
@@ -694,11 +695,9 @@ async fn verify_rpc(client: &reqwest::Client, port: u16, token: &str, group: &st
     let branch_bytes = branches.bytes().await.expect("branch list response");
     let branches: serde_json::Value =
         serde_json::from_slice(&branch_bytes).expect("branch list JSON");
-    assert_eq!(branches["result"]["type"], "branches");
-    let rows = &branches["result"]["value"]["groups"][0]["rows"];
-    assert_eq!(rows[0]["ref"], "main");
-    assert_eq!(rows[0]["current"], true);
-    assert_eq!(rows[1]["ref"], "HEAD");
+    // The served root is not a git repository, so an authorized list fails
+    // in cmux-git; real repositories are covered by the stdio branch tests.
+    assert_eq!(branches["error"]["code"], "branchListFailed", "{branches}");
 
     let unauthorized_request = serde_json::json!({
         "id": "unauthorized",
@@ -939,8 +938,8 @@ fn rpc_branch_list_and_change_use_a_real_repository() {
     let (root, repo) = branch_test_root("branch-test", token, group);
     let cmux = Path::new(env!("CARGO_BIN_EXE_diff-sidecar-test-host"));
 
-    // The picker lists the session host's base (the test host says HEAD)
-    // after the base the viewer already uses.
+    // Without a remote, cmux-git's suggested base is the local main, which
+    // is also the selected base. Local lists the other branches.
     let listed = stdio_rpc_json(
         &root,
         cmux,
@@ -953,11 +952,18 @@ fn rpc_branch_list_and_change_use_a_real_repository() {
         }),
     );
     assert_eq!(listed["result"]["type"], "branches", "{listed}");
-    let rows = &listed["result"]["value"]["groups"][0]["rows"];
+    let groups = &listed["result"]["value"]["groups"];
+    assert_eq!(groups[0]["id"], "suggested", "{listed}");
+    let rows = groups[0]["rows"].as_array().expect("suggested rows");
+    assert_eq!(rows.len(), 1, "{listed}");
     assert_eq!(rows[0]["ref"], "main");
     assert_eq!(rows[0]["current"], true);
-    assert_eq!(rows[1]["ref"], "HEAD");
-    assert_eq!(rows[1]["reason"], "default");
+    assert_eq!(rows[0]["reason"], "default");
+    // HEAD's own branch (feature) is not offered as a base.
+    assert_eq!(groups[1]["id"], "branches", "{listed}");
+    assert_eq!(groups[1]["rows"].as_array().map(Vec::len), Some(1));
+    assert_eq!(groups[1]["rows"][0]["ref"], "main");
+    assert!(groups.get(2).is_none(), "no remote group without remotes");
 
     // Changing the base opens a branch session against the merge base of
     // HEAD and the new base, including the uncommitted edit.
@@ -1047,15 +1053,11 @@ fn rpc_page_scheme_names_patches_for_the_page_host() {
     let _ = std::fs::remove_dir_all(root);
 }
 
-/// End to end against the real session host: set `CMUX_DIFF_SIDECAR_REAL_CMUX`
-/// to a cmux-tui binary and `CMUX_TUI_SOCKET` to a running `server start`
-/// socket, then run with `--ignored`.
+/// The branch base follows the session host's `Repository::base_branch`
+/// through cmux-git, with no session host running.
 #[test]
-#[ignore = "needs a running cmux-tui session host"]
-fn rpc_branch_base_comes_from_the_real_session_host() {
-    let cmux = std::env::var_os("CMUX_DIFF_SIDECAR_REAL_CMUX")
-        .map(std::path::PathBuf::from)
-        .expect("CMUX_DIFF_SIDECAR_REAL_CMUX names a cmux-tui binary");
+fn rpc_branch_base_follows_the_session_hosts_base_branch() {
+    let cmux = std::path::PathBuf::from(env!("CARGO_BIN_EXE_diff-sidecar-test-host"));
     let token = "0123456789abcdef";
     let group = "real-host";
     let (root, repo) = branch_test_root("real-host", token, group);

@@ -1,7 +1,7 @@
-//! Stands in for the bundled cmux CLI in integration tests. It answers
-//! `git status --path <repo> --json` with the shape of the session host's
-//! `git.status` result and reports `HEAD` as the base branch, so a branch
-//! session against it compares the working tree with HEAD.
+//! Stands in for the bundled cmux CLI that `--cmux` names in integration
+//! tests. Branch facts come from cmux-git now, so the sidecar does not run it;
+//! it still answers `git status --path <repo> --json` with the shape of the
+//! session host's `git.status` result, reporting `HEAD` as the base branch.
 
 fn main() {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();

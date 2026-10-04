@@ -61,7 +61,7 @@ rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/auxiliary.rs	1028	44
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/content.rs	2820	83
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/topology.rs	1940	46
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_selector.rs	1139	33
-rust-file	cmux-tui/crates/cmux-tui-core/src/resource.rs	1528	54
+rust-file	cmux-tui/crates/cmux-tui-core/src/resource.rs	1402	49
 rust-file	cmux-tui/crates/cmux-tui-core/src/server.rs	27745	793
 rust-file	cmux-tui/crates/cmux-tui-core/src/server/loopback_forward.rs	1091	46
 rust-file	cmux-tui/crates/cmux-tui-core/src/surface.rs	10757	435

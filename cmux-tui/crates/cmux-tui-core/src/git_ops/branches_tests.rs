@@ -5,7 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::json;
 
-use super::{call, commit_all, failure, git, mux, ok, repository, write};
+use super::{call, commit_all, git, mux, ok, repository, write};
+use crate::resource_router::handle_resource_message;
 
 #[test]
 fn branches_lists_local_then_remote_with_the_suggested_bases() {
@@ -76,9 +77,22 @@ fn branches_lists_local_then_remote_with_the_suggested_bases() {
 fn branches_rejects_a_limit_out_of_range() {
     let mux = mux();
     let repository = repository("branches-limit");
-    let path = repository.to_string_lossy();
     for limit in [0, 1001] {
-        let envelope = call(&mux, "git.branches", json!({"path":path,"limit":limit}));
-        assert_eq!(failure(&envelope).0, "validation.invalid", "limit {limit}");
+        let message = json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"test-git.branches-limit",
+            "operation":"git.branches",
+            "params":{
+                "machine":"current",
+                "session":"current",
+                "path":repository.to_string_lossy(),
+                "limit":limit,
+            },
+        });
+        // The catalog bound rejects the request before git runs.
+        let error = handle_resource_message(&mux, &message.to_string())
+            .expect_err("a limit outside 1..=1000 is refused");
+        assert_eq!(error.code, "validation.invalid", "limit {limit}");
     }
 }
