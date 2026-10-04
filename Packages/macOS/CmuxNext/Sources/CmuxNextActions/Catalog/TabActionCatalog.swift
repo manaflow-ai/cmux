@@ -44,7 +44,8 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.openBrowser", defaultValue: "New Browser Tab", bundle: .module),
                 keywords: ["tab", "web", "create"], defaultShortcut: Shortcut("l", modifiers: [.command, .shift]),
                 category: .tab, symbol: "globe.badge.chevron.backward", surfaces: [.palette, .keyboard, .contextMenu],
-                arguments: [CatalogArgument.urlString, CatalogArgument.engineChoice], targets: [.tab], cliName: "tab new-browser"
+                arguments: [CatalogArgument.urlString, CatalogArgument.engineChoice, CatalogArgument.browserProfileString],
+                targets: [.tab], cliName: "tab new-browser"
             ),
             ActionDescriptor(
                 id: "openBrowser.webkit",
