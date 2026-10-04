@@ -39,6 +39,39 @@ struct BrowserReplSessionRegistryTests {
         #expect(!registry.reset(.init(workspaceID: second, name: "work")))
     }
 
+    /// A session made without `--session` (one-shot, interactive, MCP)
+    /// carries its client's private owner token: no other client lists it,
+    /// attaches to it or resets it, even knowing its name. A named session
+    /// stays shared by name.
+    @Test("A session with an owner token is unlisted and unreachable without that token")
+    func ownedSessionIsPrivateToItsClient() throws {
+        let registry = BrowserReplSessionRegistry()
+        let key = BrowserReplSessionKey(workspaceID: first, name: "mcp-123-abc")
+        let owned = try registry.session(for: key, owner: "token-a") { _ in makeSession(key.name) }
+        let shared = try registry.session(for: .init(workspaceID: first, name: "shared")) { _ in makeSession("shared") }
+        defer {
+            owned.close()
+            shared.close()
+        }
+
+        for intruder in [nil, "token-b"] as [String?] {
+            #expect(throws: BrowserReplSessionRegistry.Refusal.ownedByAnotherClient) {
+                try registry.session(for: key, owner: intruder) { _ in makeSession(key.name) }
+            }
+            #expect(!registry.reset(key, owner: intruder))
+            #expect(registry.reset(name: key.name, workspaceID: nil, owner: intruder) == 0)
+            #expect(registry.list(workspaceID: first, owner: intruder).map(\.name) == ["shared"])
+            #expect(registry.list(workspaceID: nil, owner: intruder).map(\.name) == ["shared"])
+        }
+        #expect(!owned.isClosed)
+
+        #expect(try registry.session(for: key, owner: "token-a") { _ in makeSession(key.name) } === owned)
+        #expect(registry.list(workspaceID: first, owner: "token-a").map(\.name) == ["mcp-123-abc", "shared"])
+        #expect(try registry.session(for: .init(workspaceID: first, name: "shared")) { _ in makeSession("shared") } === shared)
+        #expect(registry.reset(key, owner: "token-a"))
+        #expect(owned.isClosed)
+    }
+
     @Test("Resetting a name in every workspace closes each session with that name")
     func resetEverywhere() throws {
         let registry = BrowserReplSessionRegistry()
