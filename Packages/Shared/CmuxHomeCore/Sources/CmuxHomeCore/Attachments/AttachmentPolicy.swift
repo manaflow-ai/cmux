@@ -10,6 +10,9 @@ public enum HomeAttachmentPolicy {
     public static let streamMaxBytes = 32_000_000
     /// At most this many parts per message (attachments plus text).
     public static let maxParts = 16
+    /// A video's poster: at most this size, one of `posterTypes`.
+    public static let posterMaxBytes = 2_000_000
+    public static let posterTypes: Set<String> = ["image/jpeg", "image/webp"]
 
     /// The allow list: mime type -> inbox preview kind. SVG, HTML and XML are never on it.
     public static let allowedTypes: [String: AttachmentPreview.Kind] = [

@@ -124,8 +124,9 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         let duration = try #require(prepared.ref.durationMs)
         #expect(abs(duration - 1000) <= 100)
         let poster = try #require(prepared.posterURL)
-        let posterHash = try #require(prepared.ref.posterHash)
-        #expect(sha256Hex(try Data(contentsOf: poster)) == posterHash)
+        let meta = try #require(prepared.ref.poster)
+        let posterData = try Data(contentsOf: poster)
+        #expect(meta == AttachmentPoster(hash: sha256Hex(posterData), mimeType: "image/jpeg", byteCount: posterData.count))
         let posterSource = try #require(CGImageSourceCreateWithURL(poster as CFURL, nil))
         let posterImage = try #require(CGImageSourceCreateImageAtIndex(posterSource, 0, nil))
         #expect(posterImage.height > posterImage.width) // the transform is applied to the poster too
@@ -185,19 +186,24 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         #expect(try JSONDecoder().decode(AttachmentRef.self, from: legacy) == expected)
 
         let video = AttachmentRef(hash: "h", name: "v.mov", mimeType: "video/quicktime", byteCount: 9, width: 1, height: 2,
-                                  durationMs: 1500, posterHash: "p")
+                                  durationMs: 1500, poster: AttachmentPoster(hash: "p", mimeType: "image/jpeg", byteCount: 7))
         #expect(try JSONDecoder().decode(AttachmentRef.self, from: JSONEncoder().encode(video)) == video)
+        // The owner may record a WebP poster.
+        let webp = Data(#"{"hash":"h","name":"v.mp4","mime_type":"video/mp4","byte_count":9,"poster":{"hash":"w","mime_type":"image/webp","byte_count":5}}"#.utf8)
+        #expect(try JSONDecoder().decode(AttachmentRef.self, from: webp).poster
+            == AttachmentPoster(hash: "w", mimeType: "image/webp", byteCount: 5))
     }
 
     /// The owner's attachment part: hash, name, mime_type, byte_count,
-    /// width?, height?, duration_ms?, poster_hash? (snake_case).
+    /// width?, height?, duration_ms?, poster? {hash, mime_type, byte_count}
+    /// (snake_case; `poster_hash` is gone).
     @Test func attachmentRefEncodesTheWireShape() throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let video = AttachmentRef(hash: "h", name: "v.mov", mimeType: "video/quicktime", byteCount: 9, width: 1, height: 2,
-                                  durationMs: 1500, posterHash: "p")
+                                  durationMs: 1500, poster: AttachmentPoster(hash: "p", mimeType: "image/jpeg", byteCount: 7))
         #expect(String(decoding: try encoder.encode(video), as: UTF8.self)
-            == #"{"byte_count":9,"duration_ms":1500,"hash":"h","height":2,"mime_type":"video/quicktime","name":"v.mov","poster_hash":"p","width":1}"#)
+            == #"{"byte_count":9,"duration_ms":1500,"hash":"h","height":2,"mime_type":"video/quicktime","name":"v.mov","poster":{"byte_count":7,"hash":"p","mime_type":"image/jpeg"},"width":1}"#)
         let file = AttachmentRef(hash: "h", name: "a.txt", mimeType: "text/plain", byteCount: 3)
         #expect(String(decoding: try encoder.encode(file), as: UTF8.self)
             == #"{"byte_count":3,"hash":"h","mime_type":"text/plain","name":"a.txt"}"#)
@@ -356,6 +362,51 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         #expect(max(thumbImage.width, thumbImage.height) <= 60)
         await #expect(throws: HomeRejection.invalid("unknown_blob")) {
             try await source.fetch(AttachmentRef(hash: "missing", name: "", mimeType: "image/png", byteCount: 0), at: here, variant: .original)
+        }
+    }
+
+    /// One part per video; its poster is fetched with `.poster` (the
+    /// route's `variant=poster`), not as a part of its own.
+    @Test func posterVariantFetchesTheVideosPosterFrame() async throws {
+        let (store, source) = try await started()
+        let root = try temporaryDirectory()
+        let movie = root.appendingPathComponent("clip.mov")
+        try await makeMovie(at: movie, width: 128, height: 64)
+        let video = try await store.prepareAttachment(fileURL: movie)
+        let meta = try #require(video.ref.poster)
+        let posterFile = try #require(video.posterURL)
+        try await store.send(conversation: conversation, text: "", attachments: [video], key: IdempotencyKey("attach-poster"))
+        #expect(try await source.snapshot(of: conversation, tail: 1).messages.last?.parts == [.attachment(video.ref)])
+
+        #expect(try await store.fetchAttachment(video.ref, variant: .poster) == posterFile)
+        let here = AttachmentLocation(conversation: conversation)
+        let fetched = try await source.fetch(video.ref, at: here, variant: .poster)
+        #expect(try await source.fetch(video.ref, at: here, variant: .poster) == fetched)
+        let bytes = try Data(contentsOf: fetched)
+        #expect(bytes.count == meta.byteCount)
+        #expect(sha256Hex(bytes) == meta.hash)
+
+        var noPoster = video.ref
+        noPoster.poster = nil
+        await #expect(throws: HomeRejection.invalid("no_poster")) {
+            try await source.fetch(noPoster, at: here, variant: .poster)
+        }
+    }
+
+    /// A declared poster must land before the video (the owner's 409
+    /// `attachment.poster_missing`).
+    @Test func uploadRefusesADeclaredPosterWithoutItsBytes() async throws {
+        let (store, source) = try await started()
+        let root = try temporaryDirectory()
+        let movie = root.appendingPathComponent("clip.mov")
+        try await makeMovie(at: movie, width: 64, height: 64)
+        let video = try await store.prepareAttachment(fileURL: movie)
+        #expect(video.ref.poster != nil)
+        await #expect(throws: HomeRejection.invalid("poster_missing")) {
+            try await source.upload(AttachmentUpload(conversation: conversation, fileURL: video.fileURL, ref: video.ref))
+        }
+        await #expect(throws: HomeRejection.invalid("unknown_blob")) {
+            try await source.fetch(video.ref, at: AttachmentLocation(conversation: conversation), variant: .original)
         }
     }
 

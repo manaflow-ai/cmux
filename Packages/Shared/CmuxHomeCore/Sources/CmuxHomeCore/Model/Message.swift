@@ -83,11 +83,15 @@ public struct AttachmentRef: Hashable, Sendable, Codable {
     public var height: Int?
     /// Playback length of video and audio, in milliseconds.
     public var durationMs: Int?
-    /// Content hash of the poster frame (a JPEG blob) for video.
-    public var posterHash: String?
+    /// The poster frame of a video: a separate blob in the same part (one
+    /// part per attachment). Fetch it with `AttachmentVariant.poster`.
+    public var poster: AttachmentPoster?
+
+    /// Content hash of the poster blob, when the part has one.
+    public var posterHash: String? { poster?.hash }
 
     public init(hash: String, name: String, mimeType: String, byteCount: Int, width: Int? = nil, height: Int? = nil,
-                durationMs: Int? = nil, posterHash: String? = nil) {
+                durationMs: Int? = nil, poster: AttachmentPoster? = nil) {
         self.hash = hash
         self.name = name
         self.mimeType = mimeType
@@ -95,16 +99,15 @@ public struct AttachmentRef: Hashable, Sendable, Codable {
         self.width = width
         self.height = height
         self.durationMs = durationMs
-        self.posterHash = posterHash
+        self.poster = poster
     }
 
     /// The owner's wire part keys (snake_case); absent optionals are omitted.
     enum CodingKeys: String, CodingKey {
-        case hash, name, width, height
+        case hash, name, width, height, poster
         case mimeType = "mime_type"
         case byteCount = "byte_count"
         case durationMs = "duration_ms"
-        case posterHash = "poster_hash"
     }
 
     /// Keys an earlier client build encoded before the wire keys.
@@ -124,7 +127,32 @@ public struct AttachmentRef: Hashable, Sendable, Codable {
         width = try container.decodeIfPresent(Int.self, forKey: .width)
         height = try container.decodeIfPresent(Int.self, forKey: .height)
         durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
-        posterHash = try container.decodeIfPresent(String.self, forKey: .posterHash)
+        poster = try container.decodeIfPresent(AttachmentPoster.self, forKey: .poster)
+    }
+}
+
+/// A video part's poster, equal to the poster the owner recorded on the
+/// video's attachment record (home-messaging.md 10.1). Wire shape
+/// `{hash, mime_type, byte_count}`. The poster has no record or part of its
+/// own and the owner chooses its storage key, so a client fetches it only as
+/// `AttachmentVariant.poster` of the video part.
+public struct AttachmentPoster: Hashable, Sendable, Codable {
+    /// SHA-256 of the poster bytes.
+    public var hash: String
+    /// `image/jpeg` or `image/webp` (`HomeAttachmentPolicy.posterTypes`).
+    public var mimeType: String
+    public var byteCount: Int
+
+    public init(hash: String, mimeType: String, byteCount: Int) {
+        self.hash = hash
+        self.mimeType = mimeType
+        self.byteCount = byteCount
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case hash
+        case mimeType = "mime_type"
+        case byteCount = "byte_count"
     }
 }
 

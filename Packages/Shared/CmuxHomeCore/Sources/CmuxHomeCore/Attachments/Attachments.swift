@@ -57,4 +57,10 @@ public enum AttachmentVariant: Hashable, Sendable {
     /// An image (JPEG) whose longer side is at most `maxPixel`; the poster
     /// frame for video.
     case thumbnail(maxPixel: Int)
+    /// A video part's poster frame as stored (`ref.poster`, JPEG or WebP),
+    /// not resized: the owner's url request with `variant: "poster"` for the
+    /// video part, never a poster key. A part without a poster (the owner's
+    /// 404 `attachment.no_poster`) throws `HomeRejection.invalid("no_poster")`;
+    /// renderers show a placeholder and never fetch the video in its place.
+    case poster
 }

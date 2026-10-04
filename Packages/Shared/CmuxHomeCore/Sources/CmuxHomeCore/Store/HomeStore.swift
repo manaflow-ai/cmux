@@ -284,6 +284,9 @@ public final class HomeStore {
             return files.fileURL
         case .thumbnail(let maxPixel):
             return try await Self.localThumbnail(files, ref: ref, maxPixel: maxPixel)
+        case .poster:
+            guard let poster = files.posterURL else { throw HomeRejection.invalid("no_poster") }
+            return poster
         }
     }
 

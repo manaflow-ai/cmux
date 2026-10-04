@@ -162,22 +162,29 @@ public actor MockHomeSource: HomeSource {
         file.progress(0.5)
         if uploadsPaused { await withCheckedContinuation { pausedUploads.append($0) } }
         if failingUploads.remove(file.ref.hash) != nil { throw HomeRejection.ownerUnreachable }
+        // The owner's order: the declared poster lands before the video.
+        if let meta = file.ref.poster, blobs[meta.hash] == nil {
+            guard file.ref.mimeType.hasPrefix("video/") else { throw HomeRejection.invalid("poster_refused") }
+            guard let posterURL = file.posterURL else { throw HomeRejection.invalid("poster_missing") }
+            let poster = try Data(contentsOf: posterURL)
+            guard HomeAttachmentPolicy.posterTypes.contains(meta.mimeType), poster.count <= HomeAttachmentPolicy.posterMaxBytes,
+                  poster.count == meta.byteCount, AttachmentMedia.sha256(of: poster) == meta.hash else {
+                throw HomeRejection.invalid("hash_mismatch")
+            }
+            blobs[meta.hash] = (poster, meta.mimeType)
+        }
         if blobs[file.ref.hash] == nil {
             let data = try Data(contentsOf: file.fileURL)
             guard AttachmentMedia.sha256(of: data) == file.ref.hash else { throw HomeRejection.invalid("hash_mismatch") }
             blobs[file.ref.hash] = (data, file.ref.mimeType)
-        }
-        if let posterURL = file.posterURL, let posterHash = file.ref.posterHash, blobs[posterHash] == nil {
-            let poster = try Data(contentsOf: posterURL)
-            guard AttachmentMedia.sha256(of: poster) == posterHash else { throw HomeRejection.invalid("hash_mismatch") }
-            blobs[posterHash] = (poster, "image/jpeg")
         }
         file.progress(0.75)
         file.progress(1)
         return file.ref
     }
 
-    /// Writes the blob (or a JPEG thumbnail of it, or of the video's poster)
+    /// Writes the blob (or a JPEG thumbnail of it or of the video's poster, or
+    /// the poster itself)
     /// to a file named by hash and variant. Atomic writes, so a cancelled
     /// fetch leaves nothing partial; a second fetch returns the same file.
     public func fetch(_ ref: AttachmentRef, at location: AttachmentLocation, variant: AttachmentVariant) async throws -> URL {
@@ -208,6 +215,14 @@ public actor MockHomeSource: HomeSource {
             let data = try AttachmentMedia.thumbnailJPEG(of: original, maxPixel: maxPixel)
             try Task.checkCancellation()
             try data.write(to: target, options: .atomic)
+            return target
+        case .poster:
+            guard let meta = ref.poster, let poster = blobs[meta.hash] else { throw HomeRejection.invalid("no_poster") }
+            let ext = UTType(mimeType: meta.mimeType)?.preferredFilenameExtension.map { ".\($0)" } ?? ""
+            let target = fetchDirectory.appendingPathComponent("\(ref.hash)-poster\(ext)")
+            if FileManager.default.fileExists(atPath: target.path) { return target }
+            try Task.checkCancellation()
+            try poster.data.write(to: target, options: .atomic)
             return target
         }
     }

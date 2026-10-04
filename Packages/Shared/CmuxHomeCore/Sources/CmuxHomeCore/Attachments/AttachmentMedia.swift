@@ -216,9 +216,11 @@ enum AttachmentMedia {
             ref.width = movie.width
             ref.height = movie.height
             ref.durationMs = movie.durationMs
-            if let poster = movie.poster {
-                let (posterHash, url) = try ingest(data: try jpeg(poster), fileExtension: "jpg", root: root)
-                ref.posterHash = posterHash
+            // A poster over the owner's cap is dropped: the video still sends.
+            if mimeType.hasPrefix("video/"), let poster = movie.poster, let posterData = try? jpeg(poster),
+               posterData.count <= HomeAttachmentPolicy.posterMaxBytes {
+                let (posterHash, url) = try ingest(data: posterData, fileExtension: "jpg", root: root)
+                ref.poster = AttachmentPoster(hash: posterHash, mimeType: "image/jpeg", byteCount: posterData.count)
                 posterURL = url
             }
         }
