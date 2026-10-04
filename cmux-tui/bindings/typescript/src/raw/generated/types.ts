@@ -138,7 +138,7 @@ export type ConversationChange = {
   "participant"?: string;
   /** kind read-cursor. */
   "seq"?: bigint;
-  [key: string]: JsonValue;
+  [key: string]: unknown;
 };
 
 export type ConversationMessage = {
@@ -170,7 +170,7 @@ export type ConversationPart = {
   "text"?: string;
   /** Known values: text (text, runs) and work (session, host, status, preview). A part of another type keeps its fields in the additional properties. */
   "type": string;
-  [key: string]: JsonValue;
+  [key: string]: unknown;
 };
 
 export type ConversationPartRef = {
@@ -199,7 +199,7 @@ export type ConversationReactionKind = {
   "emoji"?: string;
   /** Known values: love, like, dislike, laugh, emphasize, question. */
   "tapback"?: string;
-  [key: string]: JsonValue;
+  [key: string]: unknown;
 };
 
 export type ConversationSearchHit = {
