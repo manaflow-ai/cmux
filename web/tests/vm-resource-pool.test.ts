@@ -16,7 +16,7 @@ import { vmResourceReservationForCreate } from "../services/vms/machineSpec";
 import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
 import { VmRepository, VmRepositoryLive, type VmRepositoryShape } from "../services/vms/repository";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
-import { forkVm, resizeVm, resumeVm } from "../services/vms/workflows";
+import { forkVm, openVmCmuxRemote, resizeVm, resumeVm } from "../services/vms/workflows";
 import { VmResourcePoolExceededError } from "../services/vms/errors";
 import { respondVmWorkflowError } from "../services/vms/routeHelpers";
 
@@ -73,6 +73,8 @@ async function seedVm(team: string, input: {
   readonly memoryMb?: number;
   readonly marker?: unknown;
   readonly providerVmId?: string;
+  readonly planId?: string;
+  readonly extraMetadata?: Record<string, unknown>;
 }) {
   const providerVmId = input.providerVmId ?? `${team}-${randomUUID()}`;
   const marker = input.marker !== undefined
@@ -80,10 +82,13 @@ async function seedVm(team: string, input: {
     : input.vcpus !== undefined && input.memoryMb !== undefined
       ? { vcpus: input.vcpus, memoryMb: input.memoryMb, diskMb: 32768 }
       : undefined;
-  const metadata = marker === undefined ? {} : { cmuxResourceReservation: marker };
+  const metadata = {
+    ...(marker === undefined ? {} : { cmuxResourceReservation: marker }),
+    ...input.extraMetadata,
+  };
   await sql`
     insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status, provider_metadata)
-    values (${team}, ${team}, 'pro', 'freestyle', ${providerVmId}, 'snapshot-test', ${input.status}, ${sql.json(metadata as never)})
+    values (${team}, ${team}, ${input.planId ?? "pro"}, 'freestyle', ${providerVmId}, 'snapshot-test', ${input.status}, ${sql.json(metadata as never)})
   `;
   return providerVmId;
 }
@@ -329,6 +334,88 @@ describe("Cloud VM resource pool", () => {
       from cloud_vms where provider_vm_id = ${target}
     `;
     expect(row?.reservation).toMatchObject({ vcpus: 8, memoryMb: 16 * GB });
+  }));
+
+  dbTest("a disk-and-compute resize gives the compute claim back when the disk claim fails", () => withTeam(async team => {
+    await seedVm(team, { status: "running", vcpus: 12, memoryMb: 24 * GB });
+    // Another request already owns this VM's disk resize.
+    const target = await seedVm(team, {
+      status: "running", vcpus: 4, memoryMb: 8 * GB,
+      extraMetadata: {
+        cmuxResourceResizePending: {
+          operationId: "concurrent-disk-resize", requestedDiskMb: 65536, previousDiskMb: 32768, createdAtMs: Date.now(),
+        },
+      },
+    });
+    let resizes = 0;
+    const provider = {
+      getStatus: () => Effect.succeed("running"),
+      getStats: () => Effect.sync(() => ({
+        state: "awake", sampledAt: Date.now(), cpus: 4, memoryTotalMb: 8 * GB, diskTotalMb: 32768,
+      })),
+      resize: () => Effect.sync(() => { resizes += 1; }),
+    } as unknown as VmProviderGatewayShape;
+    const result = await runWorkflow(resizeVm({
+      userId: team, billingTeamId: team, billingPlanId: "pro", teamIds: [team],
+      providerVmId: target, maxActiveVms: 5, storageMb: 65536, memoryMb: 16 * GB,
+    }), provider);
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") expect(result.left).toMatchObject({ _tag: "VmResizeInProgressError" });
+    expect(resizes).toBe(0);
+    const [row] = await sql`
+      select provider_metadata->'cmuxResourceReservation' as reservation
+      from cloud_vms where provider_vm_id = ${target}
+    `;
+    expect(row?.reservation).toMatchObject({ vcpus: 4, memoryMb: 8 * GB });
+    // The pool still has the 8 GB the failed request never used.
+    const fits = await runRepo(repo => repo.beginCreate(createInput(team, { vcpus: 4, memoryMb: 8 * GB })));
+    expect(fits.inserted).toBe(true);
+  }));
+
+  dbTest("a resume after a failed attach uses the caller's current plan pool", () => withTeam(async team => {
+    await seedVm(team, { status: "running", vcpus: 16, memoryMb: 32 * GB });
+    // Made on Max, which has a larger pool; the caller is now on Pro.
+    const target = await seedVm(team, { status: "running", vcpus: 8, memoryMb: 16 * GB, planId: "max" });
+    let status = "running";
+    let attaches = 0;
+    let resumes = 0;
+    const provider = {
+      getStatus: () => Effect.sync(() => status),
+      resume: (_provider: string, providerVmId: string) => Effect.sync(() => {
+        resumes += 1;
+        status = "running";
+        return { provider: "freestyle", providerVmId, image: "snapshot-test", status: "running", createdAt: Date.now() };
+      }),
+      openCmuxRemote: () => Effect.suspend(() => {
+        attaches += 1;
+        if (attaches > 1) {
+          return Effect.succeed({
+            transport: "cmux-remote", route: "ws://10.0.0.5:1337/v1/link", token: "test-token",
+            session: "test-session", expiresAtUnix: 2_000_000_000, trustedCarrier: true,
+          });
+        }
+        // The provider idle-pauses the VM, and reconciliation records it,
+        // between the preflight and the attach.
+        return Effect.promise(async () => {
+          status = "paused";
+          await sql`update cloud_vms set status = 'paused' where provider_vm_id = ${target}`;
+        }).pipe(Effect.andThen(Effect.fail(new Error("vm is paused"))));
+      }),
+    } as unknown as VmProviderGatewayShape;
+    const result = await runWorkflow(openVmCmuxRemote({
+      userId: team, billingTeamId: team, teamIds: [team], providerVmId: target,
+      maxActiveVms: 5, callerPlanId: "pro",
+    }), provider);
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left).toMatchObject({
+        _tag: "VmResourcePoolExceededError",
+        phase: "resume",
+        pool: PRO_POOL,
+        planId: "pro",
+      });
+    }
+    expect(resumes).toBe(0);
   }));
 
   dbTest("a fork needs room in the pool for a copy of its source", () => withTeam(async team => {
