@@ -77,9 +77,38 @@ pub(crate) enum Denial {
 /// Check one remote frame. `Ok` means the frame may be dispatched; the
 /// conversation handlers still apply the owner scope.
 pub(crate) fn check_frame(frame: &str) -> Result<(), Denial> {
-        let _ = frame;
-        Ok(())
+    let Ok(Value::Object(object)) = serde_json::from_str::<Value>(frame) else {
+        return Err(Denial::NotAnObject);
+    };
+    if object.contains_key("protocol") {
+        return Err(Denial::ResourceProtocol);
     }
+    let Some(Value::String(command)) = object.get("cmd") else {
+        return Err(Denial::NoCommand);
+    };
+    let Some((_, params)) = ALLOWED_COMMANDS.iter().find(|(name, _)| *name == command) else {
+        return Err(Denial::Command);
+    };
+    for key in object.keys() {
+        if COMMAND_PARAMS.contains(&key.as_str()) {
+            return Err(Denial::CommandParam);
+        }
+        if key != "id" && key != "cmd" && !params.contains(&key.as_str()) {
+            return Err(Denial::UnknownParam);
+        }
+    }
+    if let Some(conversation) = object.get("conversation") {
+        check_id(conversation, "conv_")?;
+    }
+    if let Some(capabilities) = object.get("capabilities") {
+        check_capabilities(capabilities)?;
+    }
+    match object.get("op") {
+        Some(op) => check_op(op),
+        None if command == "conversation-op" => Err(Denial::OpKind),
+        None => Ok(()),
+    }
+}
 
 /// A plain owner-made id: `prefix` then base-32 characters. Ref forms
 /// (`@1`), names and bare prefixes are refused.

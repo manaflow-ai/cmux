@@ -44,15 +44,32 @@ pub fn wakes(summary: &Summary, message: &Message, is_mux_message: impl Fn(&str)
     if author.kind != ParticipantKind::Human || message.author == AGENT_MUX {
         return false;
     }
+    // A message from a paired device starts a remote-origin prompt chain
+    // (server-remote-conversations.md section 6). Until that gate exists it
+    // never wakes the Chief: fail closed.
+    if message.origin.is_some() || author.person.is_some() {
+        return false;
+    }
     let retracted = message.retracted_at.as_deref().is_some_and(|at| !at.is_empty());
     if !summary.participants.iter().any(|p| p.id == AGENT_MUX) || retracted {
         return false;
     }
-    let count = |kind| summary.participants.iter().filter(|p| p.kind == kind).count();
-    if count(ParticipantKind::Human) == 1 && count(ParticipantKind::Agent) == 1 {
+    // Count persons, not participant ids: a paired device (`person`) is the
+    // same human as its person, so pairing does not change the rule
+    // (decision D-C).
+    let mut persons: Vec<&str> = summary
+        .participants
+        .iter()
+        .filter(|p| p.kind == ParticipantKind::Human)
+        .map(|p| p.person.as_deref().unwrap_or(&p.id))
+        .collect();
+    persons.sort_unstable();
+    persons.dedup();
+    let agents = summary.participants.iter().filter(|p| p.kind == ParticipantKind::Agent).count();
+    if persons.len() == 1 && agents == 1 {
         return true;
     }
-    if summary.id.starts_with("conv_dm_") && summary.participants.len() == 2 {
+    if summary.id.starts_with("conv_dm_") && persons.len() + agents == 2 {
         return true;
     }
     let mentioned = message.parts.iter().any(|part| match part {

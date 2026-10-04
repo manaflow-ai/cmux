@@ -104,20 +104,53 @@ fn reaction(reaction: &Reaction) -> RemoteReaction {
 }
 
 pub(crate) fn message(message: &Message) -> RemoteMessage {
-        let _ = message;
-        unimplemented!("red: server-remote-conversations.md policy not implemented yet")
+    RemoteMessage {
+        id: message.id.clone(),
+        seq: message.seq,
+        author: message.author.clone(),
+        parts: message.parts.iter().filter_map(part).collect(),
+        reply_to: message.reply_to.as_ref().map(reply_to),
+        created_at: message.created_at.clone(),
+        edited_at: message.edited_at.clone(),
+        retracted_at: message.retracted_at.clone(),
+        reactions: message.reactions.iter().map(reaction).collect(),
+        origin: message.origin.clone(),
     }
+}
 
 /// The summary for peer participant `viewer`.
 pub(crate) fn summary(summary: &Summary, viewer: &str) -> RemoteSummary {
-        let _ = (summary, viewer);
-        unimplemented!("red: server-remote-conversations.md policy not implemented yet")
+    RemoteSummary {
+        id: summary.id.clone(),
+        title: summary.title.clone(),
+        participants: summary.participants.iter().map(participant).collect(),
+        last_seq: summary.last_seq,
+        rev: summary.rev,
+        updated_at: summary.updated_at.clone(),
+        last_message: summary.last_message.as_ref().map(message),
+        read_cursor: summary.read_cursors.get(viewer).copied(),
     }
+}
 
 /// The remote form of a `conversation-changed` change for `viewer`, or
 /// `None` when the peer must not see it (another participant's cursor, or a
 /// change that does not decode).
 pub(crate) fn change(change: &Value, viewer: &str) -> Option<Value> {
-        let _ = (change, viewer);
-        unimplemented!("red: server-remote-conversations.md policy not implemented yet")
-    }
+    let change: Change = serde_json::from_value(change.clone()).ok()?;
+    let value = match change {
+        Change::Message { message: m } => {
+            serde_json::json!({"kind": "message", "message": message(&m)})
+        }
+        Change::MessageUpdated { message: m } => {
+            serde_json::json!({"kind": "message-updated", "message": message(&m)})
+        }
+        Change::ReadCursor { participant, seq } if participant == viewer => {
+            serde_json::json!({"kind": "read-cursor", "participant": participant, "seq": seq})
+        }
+        Change::ReadCursor { .. } => return None,
+        Change::Conversation { conversation } => {
+            serde_json::json!({"kind": "conversation", "conversation": summary(&conversation, viewer)})
+        }
+    };
+    Some(value)
+}

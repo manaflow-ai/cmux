@@ -34,24 +34,34 @@ impl Mux {
         install: &str,
         display_name: &str,
     ) -> anyhow::Result<()> {
-        let _ = (conversation, install, display_name);
-        unimplemented!("red: server-remote-conversations.md policy not implemented yet")
+        let op = Op::ParticipantsAdd { participant: device(install, display_name) };
+        let key = format!("system-pair-{install}");
+        commit_op(self, conversation, &key, LOCAL_USER, &op, &None)?;
+        Ok(())
     }
 
     /// Pairing: add the device of `install` to every conversation of the
     /// server's own user that does not list it yet. Returns how many
     /// conversations it joined.
     pub fn pair_remote_install(&self, install: &str, display_name: &str) -> anyhow::Result<usize> {
-        let _ = (install, display_name);
-        unimplemented!("red: server-remote-conversations.md policy not implemented yet")
+        let participant = remote_participant(install);
+        let summaries = self.with_conversations(|store| store.list())?;
+        let mut joined = 0;
+        for summary in summaries {
+            let ids: Vec<&str> = summary.participants.iter().map(|p| p.id.as_str()).collect();
+            if ids.contains(&LOCAL_USER) && !ids.contains(&participant.as_str()) {
+                self.add_remote_participant_system(&summary.id, install, display_name)?;
+                joined += 1;
+            }
+        }
+        Ok(joined)
     }
 }
 
 /// True for an id only the system path may create (`remote_<install>`).
 pub(in crate::server) fn is_device_id(id: &str) -> bool {
-        let _ = id;
-        false
-    }
+    id.starts_with("remote_")
+}
 
 /// The reject for a client that names a device participant.
 pub(in crate::server) fn device_id_refused() -> anyhow::Error {
