@@ -55,7 +55,7 @@ pub fn validate_presentation_icon(value: &str) -> anyhow::Result<()> {
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'.');
     anyhow::ensure!(
-        symbol || is_single_emoji(value),
+        symbol || is_single_emoji(value) || parse_icon_asset(value).is_some(),
         "bad request: icon must be an SF Symbol name (lowercase letters, digits, and dots), one emoji, image:sha256-<hex>, or svg:sha256-<hex>"
     );
     Ok(())
