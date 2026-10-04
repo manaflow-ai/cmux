@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextActions
 import Foundation
 import Testing
@@ -120,31 +121,33 @@ import Testing
         #expect(registry.shortcutConflicts().isEmpty, "\(registry.shortcutConflicts())")
     }
 
-    /// These keys belong to readline, TUIs and terminal editors. A catalog
-    /// default may not claim them at the resolver layer while a terminal has
-    /// focus. The Control-Shift family includes H/J/K/L deliberately: the old
-    /// pane-resize defaults must not return.
+    /// HQ #1259 section 5c: readline, TUI and editor keys must reach the
+    /// terminal, regardless of an action's routing tier. Bind every handler
+    /// so an unimplemented action cannot hide a forbidden default. The old
+    /// Control-Shift H/J/K/L resize defaults are included deliberately.
     @Test func neverTakeFromTerminalDefaultsStayOutOfTheResolver() {
         let registry = ActionRegistry.standard()
         for descriptor in registry.descriptors {
             _ = registry.bind(descriptor.id) {}
         }
-        registry.context = [.terminalFocused]
-
-        for shortcut in Self.neverTakeFromTerminal {
-            #expect(registry.resolve(shortcut) == nil, "terminal key claimed by \(shortcut.displayString)")
+        let bindings = RegistryKeyBindings(registry)
+        for facts: ActionContext in [[], [.signedIn, .cloudWorkspace, .canvasLayout], [.signedOut]] {
+            registry.context = facts.union(.terminalFocused)
+            var context = KeyContext(bits: registry.context)
+            context[KeyContext.surfaceKind] = .string("terminal")
+            context[KeyContext.focus] = .string("content")
+            for shortcut in Self.neverTakeFromTerminal {
+                #expect(registry.resolve(shortcut) == nil, "terminal key claimed by \(shortcut.displayString)")
+                let result = bindings.table.resolve([shortcut], in: context) {
+                    bindings.canPerform($0, in: registry.context)
+                }
+                #expect(result.winner == nil, "terminal keymap claims \(shortcut.displayString)")
+            }
         }
-
-        let catalogClaims = registry.descriptors.compactMap { descriptor -> String? in
-            guard let shortcut = registry.effectiveShortcut(for: descriptor.id),
-                  Self.neverTakeFromTerminal.contains(shortcut) else { return nil }
-            return "\(descriptor.id): \(shortcut.displayString)"
-        }
-        #expect(catalogClaims.isEmpty, "catalog defaults claim terminal keys: \(catalogClaims)")
     }
 
     private static var neverTakeFromTerminal: [Shortcut] {
-        Array("abcdefghijklmnopqrstuvwxyz").flatMap { character in
+        let letters = Array("abcdefghijklmnopqrstuvwxyz").flatMap { character in
             let key = String(character)
             return [
                 Shortcut(key, modifiers: [.control]),
@@ -152,6 +155,27 @@ import Testing
                 Shortcut(key, modifiers: [.option]),
             ]
         }
+        let controlKeys = ["[", "]", "\\", "^", "_", "@", Shortcut.spaceKey].map {
+            Shortcut($0, modifiers: [.control])
+        }
+        let optionKeys = [
+            Shortcut.leftArrowKey, Shortcut.rightArrowKey, Shortcut.upArrowKey, Shortcut.downArrowKey,
+            Shortcut.returnKey, Shortcut.deleteKey, "\u{7F}",
+        ].map { Shortcut($0, modifiers: [.option]) }
+        let functionKeys = (NSF1FunctionKey...NSF12FunctionKey).map { String(UnicodeScalar($0)!) }
+        let tuiKeys = ([
+            Shortcut.escapeKey, Shortcut.tabKey, Shortcut.returnKey,
+            String(UnicodeScalar(NSHomeFunctionKey)!), String(UnicodeScalar(NSEndFunctionKey)!),
+            KeyBindingDefaults.pageUp, KeyBindingDefaults.pageDown,
+        ] + functionKeys).map { Shortcut($0, modifiers: []) }
+        // Ctrl-minus history and Ctrl-digit selection were explicitly approved
+        // in #1259. Neither is part of this terminal-owned list. Cmd-C/V have
+        // terminal-scoped handlers checked below; Cmd-K stays with Ghostty.
+        return letters + controlKeys + optionKeys + tuiKeys + [
+            Shortcut(Shortcut.tabKey, modifiers: [.shift]),
+            Shortcut(Shortcut.returnKey, modifiers: [.shift]),
+            Shortcut("k", modifiers: [.command]),
+        ]
     }
 
     /// Clipboard and clear-screen actions remain terminal-scoped content
