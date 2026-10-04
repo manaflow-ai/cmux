@@ -33,4 +33,11 @@ extension SidebarLayoutDocument {
         }
         return result
     }
+
+    /// The ops that move a layout the rail default migrated back to the
+    /// sections default (R52), or none.
+    public nonisolated var sectionsMigrationOps: [SidebarLayoutOp] { [] }
+
+    /// This layout with `sectionsMigrationOps` applied.
+    public nonisolated var sectionsMigration: SidebarLayoutDocument { self }
 }
