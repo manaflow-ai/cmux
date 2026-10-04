@@ -62,11 +62,10 @@ enum WorkspaceHandlers {
             do {
                 let key = WorkspaceKey.generate()
                 windows.claimNew(workspaceID: key.rawValue, window: target)
-                _ = try await services.emptyWorkspaces.populating(key) {
-                    let workspace = try await connection.createWorkspace(name: name, key: key)
-                    let terminal = try await connection.createTerminal(in: workspace.key, cwd: cwd ?? NSHomeDirectory())
+                _ = try await WorkspaceCreation.create(key, name: name, on: connection, repair: services.emptyWorkspaces) { created in
+                    let terminal = try await connection.createTerminal(in: created, cwd: cwd ?? NSHomeDirectory())
                     try await configure?(connection, terminal)
-                    return workspace.key.rawValue
+                    return created.rawValue
                 }
             } catch {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
