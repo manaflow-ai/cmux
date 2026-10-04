@@ -38,12 +38,12 @@ Plan: `plans/cmux-next/cloud-app.md` (package C3) and
 | --- | --- |
 | `open {kind: "ssh", target: conn_…, open_token, grid, env.TERM?, command?}` | `connection.channel.open {connection: target, open_token, pty: {term, cols, rows}, command}`. `term` is `env.TERM` or `xterm-256color` |
 | `write {seq, bytes}` | channel data, in `seq` order (out-of-order chunks wait, at most 256 ahead; a used seq is refused) |
-| `resize {cols, rows}` | `connection.channel.resize`, after the input accepted before it |
-| `signal` | `connection.channel.signal` (INT, TERM, HUP, KILL), after the input accepted before it |
+| `resize {cols, rows}` | `connection.channel.resize`, after the input accepted before it. A host refusal is dropped; the shell keeps running |
+| `signal` | `connection.channel.signal` (INT, TERM, HUP, KILL), after the input accepted before it. A host refusal is dropped; the shell keeps running |
 | `close` | `connection.channel.close`. `Graceful` first sends the input the host takes now; `Now` drops unsent input. Output after close is discarded |
 | event `output {offset, bytes}` | channel data; `offset` is the running byte total after the chunk |
 | event `exit {code?, signal?, core_dumped, message?}` | the channel ended with an exit status or exit signal; `message` is cut to 4 KiB |
-| event `lost {reason, retryable}` | the channel dropped with no exit (the host's `reason` and `retryable`), or a host op failed for good (`retryable: false`) |
+| event `lost {reason, retryable}` | the channel dropped with no exit (the host's `reason`, cut to 4 KiB, and `retryable`), or sending input failed for good (`retryable: false`) |
 
 `cwd` in `open` is `unsupported`: `connection.channel.open` has no cwd. Other
 `env` entries than `TERM` are not sent (the host op has no env field).
@@ -64,6 +64,15 @@ changes nothing. The backend asks the host for at most the free room of its
 64 KiB output buffer, so a flood waits in the host, whose own buffer and SSH
 flow control stop the far end. A host that sends more than it was asked for
 ends the terminal with `lost`.
+
+The sample calls the host ops while it holds the lock of one session. That
+is safe only because the `HostChannels` contract says that no op waits and no
+op calls back into the backend. The real async trait must not hold a lock
+across an `.await`.
+
+Tokens: `OpenToken` and `ResumeToken` print as `..` in `Debug`, so neither
+reaches a log. A resume token is a bearer credential for its session (see
+gap 5).
 
 ## Resume
 
@@ -165,6 +174,12 @@ Open:
    shape above guesses `op:connection.channel.open`).
 9. The mirrored trait is synchronous and drains events with `take_events`;
    the real trait is async with a stream.
+10. The JSON `open` answers `{terminal, ...}` (the backend names the
+    terminal), but the plan's Rust `OpenRequest` carries the terminal id that
+    the session host chose. The mirror follows the plan and keeps
+    `OpenRequest.terminal`; one of the two must change.
+11. `open` answers `capabilities` and `resume_token?` in the JSON; the mirror
+    keeps `TerminalBackend::capabilities` and `ByteTerminal::resume_token`.
 
 Closed by the landed interface (2026-10-04): output offsets, the typed host
 key refusal, the exit signal, `answers_queries`, a 64-character `LocalId`

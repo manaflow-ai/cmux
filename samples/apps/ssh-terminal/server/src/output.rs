@@ -88,6 +88,11 @@ impl Output {
         self.end.is_some()
     }
 
+    /// Ended, and no attached terminal still waits for the end event.
+    pub fn is_finished(&self) -> bool {
+        self.end.is_some() && (self.end_delivered || !self.attached)
+    }
+
     pub fn is_closed(&self) -> bool {
         self.closed
     }
@@ -129,6 +134,7 @@ impl Output {
         self.closed = true;
         self.attached = false;
         self.bytes.clear();
+        self.start = self.delivered;
     }
 
     /// Attaches again from `offset`. False when `offset` is outside the kept

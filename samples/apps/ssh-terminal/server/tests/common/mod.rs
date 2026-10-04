@@ -7,7 +7,7 @@
 //! - `exit N` ends the channel with exit status N;
 //! - `flood N` answers N KiB of `f`;
 //! - `die SIG` ends the channel with exit signal SIG, a core dump and a
-//!   5000-byte message.
+//!   5100-byte message of 3-byte characters.
 //!
 //! Every other line is only recorded.
 
@@ -72,16 +72,20 @@ struct State {
     channels: HashMap<String, FakeChannel>,
     /// While set, `send` answers that the host buffer is full.
     stalled: bool,
+    /// While set, `signal` is refused (a server that ignores signals).
+    refuse_signals: bool,
+    /// While set, `receive` sends more data than it was asked for.
+    oversend: bool,
 }
 
 pub struct FakeHost {
-    trust: Trust,
+    trust: Mutex<Trust>,
     state: Mutex<State>,
 }
 
 impl FakeHost {
     pub fn new(trust: Trust) -> Arc<Self> {
-        Arc::new(Self { trust, state: Mutex::new(State::default()) })
+        Arc::new(Self { trust: Mutex::new(trust), state: Mutex::new(State::default()) })
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -103,6 +107,19 @@ impl FakeHost {
 
     pub fn stall_input(&self, stalled: bool) {
         self.state().stalled = stalled;
+    }
+
+    /// The user accepted (or the far host changed) the key.
+    pub fn set_trust(&self, trust: Trust) {
+        *self.trust.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = trust;
+    }
+
+    pub fn refuse_signals(&self, refuse: bool) {
+        self.state().refuse_signals = refuse;
+    }
+
+    pub fn oversend(&self, oversend: bool) {
+        self.state().oversend = oversend;
     }
 
     /// Ends every open channel with no exit (the TCP link died).
@@ -146,7 +163,7 @@ fn run_line(channel: &mut FakeChannel) {
             code: None,
             signal: Some(signal.trim().to_owned()),
             core_dumped: true,
-            message: Some("m".repeat(5000)),
+            message: Some("\u{20ac}".repeat(1700)),
         }));
     }
 }
@@ -172,7 +189,8 @@ impl HostChannels for FakeHost {
         }
         // The host checks the pinned key during key exchange, before auth
         // and before any channel: no byte reaches the shell.
-        let decision = match self.trust {
+        let trust = *self.trust.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let decision = match trust {
             Trust::Known => None,
             Trust::Unknown => Some(HostKeyRefusal::Unknown),
             Trust::Changed => Some(HostKeyRefusal::Changed),
@@ -200,6 +218,9 @@ impl HostChannels for FakeHost {
         let mut state = self.state();
         state.log.ops.push("signal");
         channel(&mut state, id)?;
+        if state.refuse_signals {
+            return Err(BackendError::Denied { reason: "the server refused the signal".into() });
+        }
         state.log.signals.push(signal.name().to_owned());
         Ok(())
     }
@@ -241,9 +262,10 @@ impl HostChannels for FakeHost {
 
     fn receive(&self, id: &ChannelId, max_bytes: usize) -> Vec<ChannelEvent> {
         let mut state = self.state();
+        let limit = if state.oversend { usize::MAX } else { max_bytes };
         let Ok(channel) = channel(&mut state, id) else { return Vec::new() };
         let mut events = Vec::new();
-        let take = channel.out.len().min(max_bytes);
+        let take = channel.out.len().min(limit);
         if take > 0 {
             events.push(ChannelEvent::Data(channel.out.drain(..take).collect()));
         }

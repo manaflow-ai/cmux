@@ -73,11 +73,12 @@ fn assert_host_key_refusal(trust: Trust, decision: HostKeyRefusal) {
     assert_eq!(log.ops, ["open"], "nothing after the refused open: {log:?}");
     assert_eq!(log.channels, 0, "no channel after a refused key");
     assert!(log.input.is_empty() && log.grids.is_empty(), "no byte reached the shell: {log:?}");
-    // The same terminal id opens once the user accepts; no event of the
-    // refused open ever shows up.
-    let mut retry = fixture(Trust::Known);
-    let mut t = retry.backend.open(ssh_request(&retry, "t-key")).expect("open");
+    // After the user accepts, the same backend opens the same terminal id;
+    // no event of the refused open ever shows up.
+    f.host.set_trust(Trust::Known);
+    let mut t = f.backend.open(ssh_request(&f, "t-key")).expect("open after accept");
     assert!(t.take_events().is_empty(), "no output event from the refused open");
+    assert_eq!(f.host.log().channels, 1);
 }
 
 #[test]
@@ -119,7 +120,8 @@ fn an_exit_signal_gives_the_full_exit_shape_with_a_bounded_message() {
     let events = events_until(t.as_mut(), "exit", |e| e.iter().any(common::is_end));
     let Some(ByteEvent::Exit(exit)) = events.last() else { panic!("{events:?}") };
     let message = exit.message.clone().expect("message");
-    assert!(message.len() <= MAX_EXIT_MESSAGE, "{} bytes", message.len());
+    // 3-byte characters: the cut lands on the char boundary below 4 KiB.
+    assert_eq!(message.len(), MAX_EXIT_MESSAGE - MAX_EXIT_MESSAGE % 3, "{} bytes", message.len());
     let want = ExitStatus {
         code: None,
         signal: Some("TERM".into()),
@@ -316,4 +318,42 @@ fn dropping_the_backend_closes_every_channel() {
     let host = f.host.clone();
     drop(f.backend);
     assert_eq!(host.log().closes, 2);
+    assert!(matches!(_a.close(Close::Now), Err(BackendError::Invalid { .. })));
+    assert_eq!(host.log().closes, 2, "each channel is closed once");
+}
+
+#[test]
+fn a_refused_signal_leaves_the_shell_running() {
+    let mut f = fixture(Trust::Known);
+    let mut t = f.backend.open(ssh_request(&f, "t-nosig")).expect("open");
+    f.host.refuse_signals(true);
+    t.signal(Signal::Interrupt).expect("accepted; the host refusal is dropped");
+    t.write(input(0, "echo still\n")).expect("write");
+    events_until(t.as_mut(), "still", |e| contains(&output(e), "still"));
+    assert_eq!(f.host.log().closes, 0);
+}
+
+#[test]
+fn a_host_that_sends_more_than_the_room_ends_the_terminal_as_lost() {
+    let mut f = fixture(Trust::Known);
+    let mut t = f.backend.open(ssh_request(&f, "t-over")).expect("open");
+    t.write(input(0, "flood 128\n")).expect("write");
+    f.host.oversend(true);
+    let events = events_until(t.as_mut(), "lost", |e| e.iter().any(common::is_end));
+    assert!(matches!(events.last(), Some(ByteEvent::Lost { retryable: false, .. })), "{events:?}");
+    assert!(output(&events).len() <= MAX_UNREAD, "no byte past the room was kept");
+    assert_eq!(f.host.log().closes, 1);
+}
+
+#[test]
+fn tokens_never_show_in_debug_output() {
+    let f = fixture(Trust::Known);
+    let request = ssh_request(&f, "t-debug");
+    let secret = request.open_token.0.clone();
+    let resume = ResumeRequest {
+        resume_token: ResumeToken("ssh:t@0#00ff".into()),
+        open_token: request.open_token.clone(),
+    };
+    let printed = format!("{request:?} {resume:?}");
+    assert!(!printed.contains(&secret) && !printed.contains("00ff"), "{printed}");
 }
