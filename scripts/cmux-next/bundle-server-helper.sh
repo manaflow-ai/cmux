@@ -39,7 +39,14 @@ stamp() {
   contents="$app/Contents"
   helper="$contents/Resources/libexec/cmux-server-helper"
   plist="$contents/Library/LaunchDaemons/com.cmux.server.helper.plist"
-  bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$contents/Info.plist")"
+  # The Xcode phase uses the build's own bundle id: Xcode may write the
+  # processed Info.plist after the script phases (a rebuild of an existing
+  # tag found none). Signing reads the final id from the finished bundle.
+  if [[ "$phase" == "build" && -n "${PRODUCT_BUNDLE_IDENTIFIER:-}" ]]; then
+    bundle_id="$PRODUCT_BUNDLE_IDENTIFIER"
+  else
+    bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$contents/Info.plist")"
+  fi
   if [[ ( "$bundle_id" == "com.cmuxterm.app" && "$phase" != "build" ) || ! -e "$helper" ]]; then
     rm -f "$helper" "$plist"
     rmdir "$contents/Library/LaunchDaemons" 2>/dev/null || true
