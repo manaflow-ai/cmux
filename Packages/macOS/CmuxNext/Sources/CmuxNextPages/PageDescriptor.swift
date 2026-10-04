@@ -33,11 +33,14 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// First path components the page instance's ``PageDynamicResourceSource`` answers
     /// (`__patch`); the scheme handler never serves a static file under one.
     public let dynamicPrefixes: Set<String>
+    /// A page the page shell mounts on a claim (``PageDescriptor/shell``, ``PageHostPool``) instead
+    /// of a document of its own. Only a first-party page; third-party pages never load in the shell.
+    public let inShell: Bool
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
                 actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
                 confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
-                dynamicPrefixes: Set<String> = []) {
+                dynamicPrefixes: Set<String> = [], inShell: Bool = false) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
@@ -51,6 +54,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         // One file name inside the root, never a path.
         self.entry = entry.isEmpty || entry.contains("/") || entry.hasPrefix(".") ? "index.html" : entry
         self.dynamicPrefixes = dynamicPrefixes
+        self.inShell = inShell && PageID.isFirstParty(id)
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).

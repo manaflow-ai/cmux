@@ -22,20 +22,32 @@ public protocol PageSurface: AnyObject {
 /// snapshot.
 @MainActor
 public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
-    public let descriptor: PageDescriptor
+    /// The page the view serves now: its ops (``router``), commands and accessibility id. A pooled
+    /// host's claim or retarget changes it (``retarget(descriptor:routes:dynamicResources:)``).
+    public internal(set) var descriptor: PageDescriptor
+    /// The document's own page (its origin): the trust check reads it. The same as ``descriptor``
+    /// except while a shell page is claimed (then ``PageDescriptor/shell``).
+    public internal(set) var servedDescriptor: PageDescriptor
     public let router: PageRouter
-    let webView: WKWebView
+    let webView: PageWKWebView
     /// The WebKit view, for WebKit-only callers (focus, debug verbs). Engine-neutral code uses the
     /// router and the bridge instead.
     public var webKitView: WKWebView { webView }
-    private let bridge: any PageHostBridge
-    private var loaded = false
+    let bridge: any PageHostBridge
+    var loaded = false
+    var loadWaiters: [CheckedContinuation<Void, Never>] = []
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
     private var appliedTheme: String?
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
+    let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
     /// Answers the page's dynamic prefixes (``PageDescriptor/dynamicPrefixes``); the scheme
     /// handler holds it weakly, so the view keeps it alive.
-    private let dynamicResources: (any PageDynamicResourceSource)?
+    var dynamicResources: (any PageDynamicResourceSource)?
+    /// A pooled host (``PageHostPool``): one scheme handler serves every first-party page, so the
+    /// view may be retargeted to another page.
+    public let isPooled: Bool
+    /// The pooled host was used: a user event reached its web view, or its page sent an op (any
+    /// message but a reply to a host call). Owned by Swift; it never goes back to false.
+    public internal(set) var touched = false
     /// A navigation to any other origin (a link in the page): the host opens it in a browser tab.
     public var onOpenExternal: ((URL) -> Void)?
     /// Decides navigations outside the page's origin (``PageNavigation/policy(for:page:userClicked:mainFrame:hook:)``).
@@ -65,43 +77,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
                   surface: surface, dynamicResources: dynamicResources)
     }
 
-    /// The root a page is served from without an explicit one: the DEBUG override, else this
-    /// module's bundled directory, else the root registered for its id.
-    nonisolated static func servedRoot(for descriptor: PageDescriptor) -> URL? {
-        debugRoot(for: descriptor) ?? PageSchemeHandler.bundledRoot(for: descriptor) ?? PageID.bundledRoot(for: descriptor.id)
-    }
-
-    /// The script that sets `data-<name>` attributes on `<html>`; nil for none. Names keep only
-    /// lowercase letters, digits and dashes; values are JSON string literals.
-    nonisolated static func attributesScript(_ attributes: [String: String]) -> String? {
-        let safe = attributes.filter { name, _ in !name.isEmpty && name.allSatisfy { $0.isLowercase || $0.isNumber || $0 == "-" } }
-        guard !safe.isEmpty else { return nil }
-        let lines = safe.keys.sorted().map { name in
-            "document.documentElement.setAttribute(\(JSONValue.string("data-" + name).compactText), \(JSONValue.string(safe[name] ?? "").compactText));"
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    /// The DEBUG root override of a page (`CMUX_NEXT_PAGE_ROOT_cmux_history=/path`), else nil.
-    nonisolated static func debugRoot(for descriptor: PageDescriptor) -> URL? {
-        #if DEBUG
-        let name = "CMUX_NEXT_PAGE_ROOT_" + descriptor.id.replacingOccurrences(of: ".", with: "_")
-        return ProcessInfo.processInfo.environment[name].map { URL(fileURLWithPath: $0, isDirectory: true) }
-        #else
-        return nil
-        #endif
-    }
-
-    /// Whether `descriptor` may be served from `root`: any root for an app page; for a first-party
-    /// page only its bundled root or its DEBUG override.
-    nonisolated static func mayServe(_ descriptor: PageDescriptor, from root: URL) -> Bool {
-        guard PageID.isReserved(descriptor.id) else { return true }
-        let wanted = root.standardizedFileURL.resolvingSymlinksInPath().path
-        let allowed = [PageSchemeHandler.bundledRoot(for: descriptor), PageID.bundledRoot(for: descriptor.id),
-                       debugRoot(for: descriptor)].compactMap { $0 }
-        return allowed.contains { $0.standardizedFileURL.resolvingSymlinksInPath().path == wanted }
-    }
-
     /// `root` is the directory that holds the page's `index.html`. A first-party page (``PageID``)
     /// is served only from its bundled root, so nothing else can be served under a first-party
     /// origin; DEBUG builds may point one at another root (`CMUX_NEXT_PAGE_ROOT_<id>`, dots as
@@ -114,27 +89,46 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// `surface` is the initial ``themeSurface`` (the diff page passes `.diff`, so
     /// `appearance.surfaces.diff` reaches `--cmux-surface-background`); `dynamicResources` answers
     /// the descriptor's dynamic prefixes (a 404 without one).
-    public init?(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil,
-                 documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
-                 surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
+    public convenience init?(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil,
+                             documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
+                             surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
         guard Self.mayServe(descriptor, from: root) else { return nil }
+        let handler = PageSchemeHandler(page: descriptor, root: root, dynamicSource: dynamicResources)
+        self.init(descriptor: descriptor, handler: handler, routes: routes, route: route,
+                  documentAttributes: documentAttributes, options: options, surface: surface,
+                  dynamicResources: dynamicResources, pooled: false)
+    }
+
+    /// A pooled host (``PageHostPool``) that shows `served` (default the page shell): one scheme
+    /// handler for every first-party page (``PageServedHosts``), its own non-persistent website
+    /// data store, so no host sees another host's storage. Nil when `served` has no root.
+    public convenience init?(pooledHost served: PageDescriptor = .shell, routes: [PageRoute] = [],
+                             options: PageEngineOptions = .standard) {
+        guard PageID.isFirstParty(served.id), Self.servedRoot(for: served) != nil else { return nil }
+        let owner = PageServedOwner()
+        let handler = PageSchemeHandler { host in owner.view?.servedHost(host) }
+        self.init(descriptor: served, handler: handler, routes: routes, route: nil, documentAttributes: [:],
+                  options: options, surface: nil, dynamicResources: nil, pooled: true)
+        owner.view = self
+    }
+
+    private init(descriptor: PageDescriptor, handler: PageSchemeHandler, routes: [PageRoute], route: String?,
+                 documentAttributes: [String: String], options: PageEngineOptions, surface: SurfaceKind?,
+                 dynamicResources: (any PageDynamicResourceSource)?, pooled: Bool) {
         self.descriptor = descriptor
+        servedDescriptor = descriptor
+        isPooled = pooled
         themeSurface = surface
         self.dynamicResources = dynamicResources
         router = PageRouter(descriptor: descriptor, routes: routes)
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
+        configuration.processPool = PageProcessPool.forNewView
         if options.fullFrameRate {
             configuration.preferences.setWebKitFeature(PageEngineOptions.near60FPSFeature, enabled: false)
         }
-        configuration.setURLSchemeHandler(PageSchemeHandler(page: descriptor, root: root, dynamicSource: dynamicResources),
-                                          forURLScheme: PageDescriptor.scheme)
-        configuration.userContentController.addUserScript(
-            WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
-        if let script = Self.attributesScript(documentAttributes) {
-            configuration.userContentController.addUserScript(
-                WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
-        }
+        configuration.setURLSchemeHandler(handler, forURLScheme: PageDescriptor.scheme)
+        Self.installUserScripts(configuration.userContentController, documentAttributes: documentAttributes)
         webView = PageWKWebView(frame: .zero, configuration: configuration)
         bridge = WebKitPageHostBridge(webView: webView)
         super.init(frame: .zero)
@@ -152,6 +146,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.isInspectable = true
         #endif
         webView.navigationDelegate = self
+        webView.onUserEvent = { [weak self] in self?.touched = true }
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         addSubview(webView)
         PageRegistry.add(self)
@@ -196,15 +191,15 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
 
     /// The fragment the host last asked the page to show (``open(route:)``); the page may move on
-    /// by itself (its own links and history).
-    public private(set) var route: String?
+    /// by itself (its own links and history). A pooled host's claim or retarget sets it anew.
+    public internal(set) var route: String?
 
     /// Shows `route` (the URL fragment) in the page.
     public func open(route: String) {
         let fragment = route.hasPrefix("#") ? route : "#" + route
         self.route = fragment
         guard loaded else {
-            webView.load(URLRequest(url: descriptor.url(route: fragment)))
+            webView.load(URLRequest(url: servedDescriptor.url(route: fragment)))
             return
         }
         webView.evaluateJavaScript("window.location.hash = \(JSONValue.string(fragment).compactText);", completionHandler: nil)
@@ -237,19 +232,23 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         router.close()
         bridge.uninstall()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)
+        resumeLoadWaiters()
     }
 
-    /// When the current document painted its first frame (``PagePaintProbe``), in
-    /// `ProcessInfo.systemUptime` seconds; nil until it has.
-    public private(set) var paintedUptime: TimeInterval?
+    /// When the current document painted its first frame (``PagePaintProbe``), or the shell
+    /// mounted its claimed page, in `ProcessInfo.systemUptime` seconds; nil until it has.
+    public internal(set) var paintedUptime: TimeInterval?
     public var hasPainted: Bool { paintedUptime != nil }
 
-    private func receive(_ message: PageHostMessage) async -> Any? {
-        guard PageHostTrust.isTrusted(message, page: descriptor) else {
-            logger.error("page \(self.descriptor.id, privacy: .public) message from an untrusted frame refused")
+    func receive(_ message: PageHostMessage) async -> Any? {
+        // Trust checks the document's origin: while a shell page is claimed, that is the shell.
+        guard PageHostTrust.isTrusted(message, page: servedDescriptor) else {
+            logger.error("page \(self.servedDescriptor.id, privacy: .public) message from an untrusted frame refused")
             return nil
         }
         guard let body = JSONValue(foundation: message.body) else { return nil }
+        // Any op of the page marks the host used; replies to the host's own calls do not.
+        if let type = body["t"]?.stringValue, type != "ok", type != "err" { touched = true }
         let reply = await router.handle(body)
         return reply.isNull ? nil : reply.foundationObject
     }
@@ -294,7 +293,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
         let url = action.request.url
-        switch PageNavigation.policy(for: url, page: descriptor, userClicked: action.navigationType == .linkActivated,
+        switch PageNavigation.policy(for: url, page: servedDescriptor, userClicked: action.navigationType == .linkActivated,
                                      mainFrame: action.targetFrame?.isMainFrame ?? true, hook: onNavigate) {
         case .allow:
             return .allow
@@ -318,6 +317,23 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         loaded = true
         applyTheme(force: true)
+        resumeLoadWaiters()
+    }
+
+    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+        logger.error("page \(self.servedDescriptor.id, privacy: .public) failed to load")
+        resumeLoadWaiters()
+    }
+
+    public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+        logger.error("page \(self.servedDescriptor.id, privacy: .public) failed to load")
+        resumeLoadWaiters()
+    }
+
+    func resumeLoadWaiters() {
+        let waiters = loadWaiters
+        loadWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
     }
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

@@ -1,0 +1,7 @@
+/* The shell's root and each page root fill the host view; the page owns everything inside. */
+html,
+body,
+#root,
+.shell-page {
+  height: 100%;
+}

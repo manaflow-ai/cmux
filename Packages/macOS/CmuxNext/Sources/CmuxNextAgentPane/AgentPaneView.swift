@@ -55,8 +55,9 @@ public final class AgentPaneView: NSView {
     private var reduceMotionObserver: (any NSObjectProtocol)?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
 
-    /// The process pool every agent page shares (R81: fonts are listed once per pool).
-    private static let processPool = WKProcessPool()
+    /// The process pool every agent page shares (R81: fonts are listed once per pool): the app's
+    /// one pool, also used by every page view and the page shell host.
+    private static var processPool: WKProcessPool { PageProcessPool.shared }
 
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {

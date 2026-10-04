@@ -9,7 +9,37 @@ import WebKit
 /// - Select All acts only inside the focused field, never over the whole page.
 /// Swipe navigation and link previews are off in ``PageWebView``. Third-party pages in browser tabs
 /// use their own views and are not affected.
+///
+/// It also reports each user event WebKit receives (keys, clicks, scrolls, gestures) before
+/// handling it, so the page host knows a pooled page was used (``PageWebView/touched``).
 final class PageWKWebView: WKWebView {
+    var onUserEvent: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        onUserEvent?()
+        super.keyDown(with: event)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onUserEvent?()
+        super.mouseDown(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        onUserEvent?()
+        super.rightMouseDown(with: event)
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        onUserEvent?()
+        super.otherMouseDown(with: event)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        onUserEvent?()
+        super.scrollWheel(with: event)
+    }
+
     /// The context menu items a page keeps: Copy (WebKit adds it only when there is a selection).
     static let keptMenuItems: Set<String> = ["WKMenuItemIdentifierCopy"]
 
@@ -48,7 +78,7 @@ final class PageWKWebView: WKWebView {
         evaluateJavaScript(Self.selectAllScript, completionHandler: nil)
     }
 
-    override func magnify(with event: NSEvent) {}
+    override func magnify(with event: NSEvent) { onUserEvent?() }
 
     override func smartMagnify(with event: NSEvent) {}
 }

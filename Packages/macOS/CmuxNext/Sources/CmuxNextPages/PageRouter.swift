@@ -13,15 +13,20 @@ public import Foundation
 /// - events of one subscription are numbered from 1; an unsubscribe or ``close()`` cancels.
 @MainActor
 public final class PageRouter {
-    public let descriptor: PageDescriptor
-    private let routes: [PageRoute]
+    /// The page the router serves now; ``bind(_:routes:)`` changes it (a pooled host's claim).
+    public private(set) var descriptor: PageDescriptor
+    private var routes: [PageRoute]
+    /// False after ``unbind()``: nothing is admitted, not even the built-in streams.
+    private var bound = true
+    /// Changes with every bind, so a subscription that opens after a rebind is cancelled.
+    private var generation: UInt64 = 0
     /// Runs one envelope in the page (`window.__cmuxPageReceive(<json>)`).
     public var send: ((JSONValue) -> Void)?
     private var subscriptions: [UInt64: PageSubscription] = [:]
     private var sequences: [UInt64: UInt64] = [:]
     private var nextSubscription: UInt64 = 1
     private var nextCall: UInt64 = 1
-    private var pendingCalls: [UInt64: CheckedContinuation<JSONValue, any Error>] = [:]
+    private var pendingCalls: [UInt64: (Result<JSONValue, PageError>) -> Void] = [:]
     private var closed = false
     /// Built-in streams every page gets (``PageNativeOp/pageCommand``, ``PageNativeOp/pageConnection``):
     /// subscription id to stream name.
@@ -101,6 +106,7 @@ public final class PageRouter {
     private func subscribe(_ stream: String, filter: JSONValue) async throws -> UInt64 {
         if stream == PageNativeOp.pageCommand || stream == PageNativeOp.pageConnection {
             guard !closed else { throw PageError.closed }
+            guard bound else { throw PageError.unknownOp(stream) }
             let sub = nextSubscription
             nextSubscription += 1
             builtIn[sub] = stream
@@ -115,10 +121,12 @@ public final class PageRouter {
         let (provider, filter) = try admit(stream, params: filter)
         let sub = nextSubscription
         nextSubscription += 1
+        let opened = generation
         let subscription = try await provider.subscribe(stream, filter: filter, context: PageCallContext(page: descriptor.id)) { [weak self] data in
             self?.deliver(sub: sub, data)
         }
-        guard !closed else {
+        // Closed, or rebound to another page while the provider answered: the stream ends now.
+        guard !closed, opened == generation else {
             subscription.cancel()
             throw PageError.closed
         }
@@ -128,7 +136,7 @@ public final class PageRouter {
 
     private func admit(_ op: String, params: JSONValue) throws -> (any PageProvider, JSONValue) {
         guard !closed else { throw PageError.closed }
-        guard descriptor.admits(op), let route = routes.first(where: { op.hasPrefix($0.prefix) }) else {
+        guard bound, descriptor.admits(op), let route = routes.first(where: { op.hasPrefix($0.prefix) }) else {
             throw PageError.unknownOp(op)
         }
         guard case .object(let members) = params else { throw PageError.invalidParams("params must be an object") }
@@ -178,41 +186,74 @@ public final class PageRouter {
 
     /// Calls an op the page serves (`cmux.page.command`) and waits for its reply.
     public func callPage(_ op: String, params: JSONValue) async throws -> JSONValue {
-        guard !closed, let send else { throw PageError.closed }
-        let id = nextCall
-        nextCall += 1
-        return try await withCheckedThrowingContinuation { continuation in
-            pendingCalls[id] = continuation
-            send(["t": "call", "id": .number(Double(id)), "op": .string(op), "params": params])
+        try await withCheckedThrowingContinuation { continuation in
+            sendCall(op, params: params) { continuation.resume(with: $0) }
         }
     }
 
+    /// Sends a host call to the page in this main-actor turn; `reply` runs once with the page's
+    /// answer, or with ``PageError/closed`` when the page goes away or the router is rebound first.
+    public func sendCall(_ op: String, params: JSONValue, reply: @escaping (Result<JSONValue, PageError>) -> Void) {
+        guard !closed, let send else { return reply(.failure(.closed)) }
+        let id = nextCall
+        nextCall += 1
+        pendingCalls[id] = reply
+        send(["t": "call", "id": .number(Double(id)), "op": .string(op), "params": params])
+    }
+
     private func resolve(id: UInt64, _ message: JSONValue) {
-        guard let continuation = pendingCalls.removeValue(forKey: id) else { return }
+        guard let reply = pendingCalls.removeValue(forKey: id) else { return }
         if message["t"]?.stringValue == "ok" {
-            continuation.resume(returning: message["value"] ?? .null)
+            reply(.success(message["value"] ?? .null))
         } else {
-            continuation.resume(throwing: PageError(
-                code: message["code"]?.stringValue ?? "cmux.page.failed", message: message["message"]?.stringValue ?? ""))
+            reply(.failure(PageError(
+                code: message["code"]?.stringValue ?? "cmux.page.failed", message: message["message"]?.stringValue ?? "")))
         }
     }
 
     /// The page went away (tab closed, reload): cancels every subscription and fails pending calls.
     public func close() {
         closed = true
-        for subscription in subscriptions.values { subscription.cancel() }
-        subscriptions.removeAll()
-        builtIn.removeAll()
-        sequences.removeAll()
-        let pending = pendingCalls
-        pendingCalls.removeAll()
-        for continuation in pending.values { continuation.resume(throwing: PageError.closed) }
+        endEverything()
     }
 
     /// Reopens after a reload of the same page (a new document starts with no subscriptions).
     public func reset() {
         close()
         closed = false
+    }
+
+    /// Serves `descriptor` from now on (a pooled host's claim or navigating retarget): every
+    /// subscription of the old page is cancelled and every pending host call fails with
+    /// ``PageError/closed`` before the new descriptor admits anything.
+    public func bind(_ descriptor: PageDescriptor, routes: [PageRoute]) {
+        endEverything()
+        self.descriptor = descriptor
+        self.routes = routes.sorted { $0.prefix.count > $1.prefix.count }
+        bound = true
+        closed = false
+    }
+
+    /// Admits nothing until the next ``bind(_:routes:)``: a late call from the old page gets
+    /// `unknown_op`. Ends the old page's subscriptions and host calls like a bind.
+    public func unbind() {
+        endEverything()
+        routes = []
+        bound = false
+    }
+
+    /// Whether the router serves a page (false between ``unbind()`` and the next bind).
+    public var isBound: Bool { bound }
+
+    private func endEverything() {
+        generation &+= 1
+        for subscription in subscriptions.values { subscription.cancel() }
+        subscriptions.removeAll()
+        builtIn.removeAll()
+        sequences.removeAll()
+        let pending = pendingCalls
+        pendingCalls.removeAll()
+        for reply in pending.values { reply(.failure(.closed)) }
     }
 
     public var subscriptionCount: Int { subscriptions.count }

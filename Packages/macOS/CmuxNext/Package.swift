@@ -32,7 +32,7 @@ import PackageDescription
 //   CmuxNextHome -> Design, Wakeups (Home conversations: virtualized CALayer transcript, list, composer;
 //     no daemon; the App maps the conversation mirror and intent log into HomeTranscriptSource)
 //   CmuxNextHistory -> Design (history model, SQLite visit log, cmux://history page; no daemon)
-//   CmuxNextPages -> Design, Settings (the one host for React pages: PageWebView, cmux-page://<id>/
+//   CmuxNextPages -> Design, Settings, Wakeups (the one host for React pages: PageWebView, cmux-page://<id>/
 //     scheme, engine-neutral bridge, PageRouter + PageProvider; no daemon; the App supplies providers;
 //     plans/cmux-next/react-pages.md)
 //   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
@@ -339,7 +339,7 @@ let package = Package(
         // index.html each under Resources/pages (scripts/cmux-next/build-pages-web.sh).
         .target(
             name: "CmuxNextPages",
-            dependencies: ["CmuxNextDesign", "CmuxNextSettings"],
+            dependencies: ["CmuxNextDesign", "CmuxNextSettings", "CmuxNextWakeups"],
             resources: [.copy("Resources/pages"), .process("Localizable.xcstrings")],
             swiftSettings: uiSwiftSettings
         ),

@@ -50,7 +50,8 @@ export default defineConfig({
     ...reactWithCompiler(),
     tailwindcss(),
     {
-      // Vite writes root-absolute script URLs into `diff-page.html` and `markdown-page.html`; make
+      // Vite writes root-absolute script URLs into `diff-page.html`, `markdown-page.html` and
+      // `shell-page.html`; make
       // them relative to the page so the entry and its chunks resolve under any base
       // (cmux-page://cmux.diff/ and cmux.markdown/ serve the webviews-app directory as their root).
       name: "cmux-diff-page-relative-entry",
@@ -119,6 +120,9 @@ export default defineConfig({
         "markdown-page": "markdown-page.html",
         "editor-page": "editor-page.html",
         "editor-worker": "src/pages/editor/editor.worker.ts",
+        // `shell-page.html` is the page shell (cmux-page://cmux.shell/): one prewarmed document that
+        // mounts first-party pages on claim; each page is its own lazy chunk.
+        "shell-page": "shell-page.html",
       },
       output: {
         format: "es",

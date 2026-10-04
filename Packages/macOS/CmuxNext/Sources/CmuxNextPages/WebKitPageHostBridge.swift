@@ -19,8 +19,20 @@ public final class WebKitPageHostBridge: PageHostBridge {
             WebKitPageHostReceiver(webView: webView, handler: handler), contentWorld: .page, name: PageHostTrust.handlerName)
     }
 
+    /// The last error WebKit reported for an ``evaluate(_:)`` (diagnostics and tests).
+    public private(set) var lastEvaluateError: String?
+    /// Scripts sent and scripts WebKit finished (diagnostics and tests).
+    public private(set) var evaluations = (sent: 0, finished: 0)
+
     public func evaluate(_ script: String) {
-        webView?.evaluateJavaScript(script, completionHandler: nil)
+        guard let webView else { return }
+        evaluations.sent += 1
+        webView.evaluateJavaScript(script) { [weak self] _, error in
+            MainActor.assumeIsolated {
+                self?.evaluations.finished += 1
+                if let error { self?.lastEvaluateError = String(describing: error) }
+            }
+        }
     }
 
     public func uninstall() {
