@@ -4,6 +4,7 @@ import { teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { teamRead } from "./team-reads.ts"
+import { MAX_TARGETS } from "./home-reach.ts"
 import { homeCoMembersOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
@@ -487,9 +488,10 @@ export class TeamDO extends OwnerDO<TeamState> {
     return ssoRedeem(this.ctx.storage.sql, this.env.INTEGRATIONS_KEK, entity, code, clientVerifier, Date.now())
   }
 
-  /** Home reach (home-reach.ts): which of `targets` share this team with `adder`. Never binds a team it does not serve. */
+  /** Home reach (home-reach.ts): which of `targets` (at most MAX_TARGETS) share this team with `adder`. Never binds a team it does not serve. */
   async homeCoMembers(entity: string, adder: string, targets: ReadonlyArray<string>): Promise<Array<{ user: string; display_name: string }>> {
-    return this.boundEntity() === entity ? homeCoMembersOf(this.bind(entity).currentState, this.rows, adder, targets) : []
+    if (this.boundEntity() !== entity || !Array.isArray(targets) || targets.length > MAX_TARGETS) return []
+    return homeCoMembersOf(this.bind(entity).currentState, this.rows, adder, targets)
   }
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean {

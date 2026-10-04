@@ -33,7 +33,7 @@ import type { Env } from "./env.ts"
  */
 
 /** Group size cap (section 4.1); more targets than this are never resolved. */
-const MAX_TARGETS = 64
+export const MAX_TARGETS = 64
 const MAX_ID = 64
 
 interface TeamReachStub {
