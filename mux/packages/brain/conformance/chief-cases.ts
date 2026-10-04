@@ -9,7 +9,7 @@ import { AGENT_MUX, type Message, type Participant, type Summary, USER_LOCAL } f
 import { Core, type Effect, type Input } from "../src/core/core.ts";
 import { CORPUS_FORMAT, type Corpus, type CorpusCase, type CorpusStep, type MemoryCase, type MemoryFunction, memoryResult, plain } from "../src/core/corpus.ts";
 import { PARENT_TAG } from "../src/core/rules.ts";
-import { type HostStateData, loadState } from "../src/core/state.ts";
+import { type ChildRecord, type HostStateData, loadState } from "../src/core/state.ts";
 
 /** 2026-10-03T00:00:00.000Z. */
 const T0 = 1_790_985_600_000;
@@ -1219,6 +1219,27 @@ function childCases(): CorpusCase[] {
       (e) => c.check(!e.some((x) => x.kind === "prompt"), "no stale permission prompt"),
     );
     cases.push(c.end((s) => c.check(s.prompts["perm:s_v:p1"] === undefined && s.children.s_v === undefined, "nothing recorded")));
+  }
+
+  {
+    // host.json keeps at most 100 children: past that, the oldest finished one with no queued op goes.
+    const children: Record<string, ChildRecord> = {};
+    for (let i = 0; i < 100; i++) {
+      const id = `s_${String(i).padStart(2, "0")}`;
+      children[id] = { conversation: "conv_a", name: id, status: i === 0 ? "running" : "done", messageId: `m_${id}`, edits: 1, order: i + 1 };
+    }
+    const c = new CaseBuilder("children: past 100 children the oldest finished one is pruned (a running one stays)", {
+      defaultConversation: "conv_a",
+      children,
+    } as Partial<HostStateData>);
+    boot(c, [summary("conv_a")], [session("s_00", "s_00", "running")]);
+    c.step({ kind: "session_changed", session: session("s_new", "new", "running") }, ["persist", "conversation_op"], (e) => {
+      const kept = c.persisted(e).children as Record<string, ChildRecord>;
+      c.check(Object.keys(kept).length === 100, `100 children, got ${Object.keys(kept).length}`);
+      c.check(kept.s_00 !== undefined && kept.s_01 === undefined, "s_00 runs and stays; s_01 is the oldest finished");
+      c.check(kept.s_new?.order === 101, `the new child is the newest, got ${kept.s_new?.order}`);
+    });
+    cases.push(c.end());
   }
 
   {
