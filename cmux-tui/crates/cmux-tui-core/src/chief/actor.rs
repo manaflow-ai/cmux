@@ -53,11 +53,12 @@ pub(super) enum Msg {
         id: u64,
         prompt_id: String,
     },
-    /// Prompt `prompt_id` sent on connection `id` returned; `rejected`: the hub refused it.
+    /// Prompt `prompt_id` sent on connection `id` returned; `refusal`: the
+    /// hub refused it, with its error text.
     PromptSettled {
         id: u64,
         prompt_id: String,
-        rejected: bool,
+        refusal: Option<String>,
     },
     /// The durable state now, after every message queued before this one
     /// (the hub loop's attach cursor).
@@ -190,9 +191,10 @@ impl Actor {
                 }
             }
             Msg::PromptAck { id, prompt_id } => self.acknowledged(id, &prompt_id),
-            Msg::PromptSettled { id, prompt_id, rejected } => {
+            Msg::PromptSettled { id, prompt_id, refusal } => {
                 self.acknowledged(id, &prompt_id);
-                self.feed(Input::PromptSettled { prompt_id, rejected });
+                let rejected = refusal.is_some();
+                self.feed(Input::PromptSettled { prompt_id, rejected, error: refusal });
             }
             Msg::State(reply) => {
                 let _ = reply.send(self.core.state.clone());
@@ -337,16 +339,19 @@ impl Actor {
             "session/prompt",
             params,
             Box::new(move |answer| {
-                let rejected = matches!(answer, Err(AgentError::Rejected { .. }));
+                let refusal = match &answer {
+                    Err(AgentError::Rejected { message }) => Some(message.clone()),
+                    _ => None,
+                };
                 if let Err(error) = answer {
-                    let next = if rejected {
+                    let next = if refusal.is_some() {
                         "the core retries it"
                     } else {
                         "resent on the next acpmux connect"
                     };
                     log(&format!("prompt {prompt_id} failed: {error}; {next}"));
                 }
-                let _ = sender.send(Msg::PromptSettled { id, prompt_id, rejected });
+                let _ = sender.send(Msg::PromptSettled { id, prompt_id, refusal });
             }),
         );
     }
