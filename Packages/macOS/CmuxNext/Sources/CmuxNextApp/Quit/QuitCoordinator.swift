@@ -22,6 +22,8 @@ final class QuitCoordinator {
     /// The last dialog brought the app forward (`debug.quit`).
     private(set) var lastAskActivated = false
     private unowned let services: AppServices
+    /// The quit hook's participants (`QuitUnsavedRegistry.shared` in the app).
+    var unsaved: QuitUnsavedRegistry = .shared
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
 
     init(services: AppServices) {
@@ -71,6 +73,13 @@ final class QuitCoordinator {
         let behavior = services.settings?.snapshot.quitBehavior ?? QuitBehaviorSetting.fallback
         logger.info("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
         Task { @MainActor in
+            // Unsaved documents come first (R96 quit hook): the end choices
+            // are asked only after the edits are safe.
+            guard await resolveUnsaved(origin) else {
+                isQuitting = false
+                sender.reply(toApplicationShouldTerminate: false)
+                return
+            }
             let facts = QuitPolicy.needsFacts(origin) ? await QuitFactsReader.read(services) : .none
             switch QuitPolicy.decide(origin, behavior: behavior, facts: facts) {
             case .quit(let choice):
@@ -81,6 +90,21 @@ final class QuitCoordinator {
             }
         }
         return .terminateLater
+    }
+
+    /// Interactive and menu quits ask about unsaved documents; signal,
+    /// power-off, update and scripted quits save them unattended (a scripted
+    /// quit has already refused if a save failed, `QuitUnsavedStep.refusal`).
+    private func resolveUnsaved(_ origin: QuitOrigin) async -> Bool {
+        switch origin {
+        case .interactive, .explicit:
+            let scope: CmuxDialogScope = sheetWindow().map { .window($0) } ?? .app
+            return await QuitUnsavedStep.resolveInteractive(unsaved, scope: scope)
+        case .scripted, .powerOff, .signal:
+            await RecoveryDraftStore.shared.writePending()
+            _ = await QuitUnsavedStep.saveUnattended(unsaved)
+            return true
+        }
     }
 
     /// A quit from the Dock or the app switcher while cmux is inactive is the

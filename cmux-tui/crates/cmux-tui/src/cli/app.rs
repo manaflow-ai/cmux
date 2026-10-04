@@ -25,6 +25,7 @@ pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
 
 mod keybinding;
 mod run;
+mod settings;
 
 /// Scopes that belong to the app, whatever follows.
 pub(super) const APP_SCOPES: &[&str] = &[
@@ -71,9 +72,19 @@ pub(super) struct OpenRequest {
 
 #[derive(Debug, PartialEq)]
 pub(super) enum AppCommand {
-    Call { method: &'static str, params: Value, timeout: Duration, pick: Option<&'static str> },
-    Open { requests: Vec<OpenRequest> },
-    Events { params: Value },
+    /// `timeout: None` waits until the app answers (a person at a sheet).
+    Call {
+        method: &'static str,
+        params: Value,
+        timeout: Option<Duration>,
+        pick: Option<&'static str>,
+    },
+    Open {
+        requests: Vec<OpenRequest>,
+    },
+    Events {
+        params: Value,
+    },
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
@@ -90,8 +101,12 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     }
     let messages = &crate::localization::catalog().app_control;
     let rest = &args[1..];
-    let call =
-        |method, params| AppCommand::Call { method, params, timeout: READ_TIMEOUT, pick: None };
+    let call = |method, params| AppCommand::Call {
+        method,
+        params,
+        timeout: Some(READ_TIMEOUT),
+        pick: None,
+    };
     let command = match (scope.as_str(), rest.first().map(String::as_str)) {
         ("open", _) => parse_open(rest)?,
         ("keybinding", _) => keybinding::parse(rest)?,
@@ -101,7 +116,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("window", Some("list")) => AppCommand::Call {
             method: "snapshot.get",
             params: json!({}),
-            timeout: READ_TIMEOUT,
+            timeout: Some(READ_TIMEOUT),
             pick: Some("windows"),
         },
         ("action", Some("list")) => {
@@ -127,21 +142,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             };
             run_action(id, tail, ActionName::Any)?
         }
-        ("settings", Some("get")) => match &rest[1..] {
-            [] => call("settings.get", json!({})),
-            [path] => call("settings.get", json!({ "path": path })),
-            _ => return Err(UsageError::new(messages.settings_usage)),
-        },
-        ("settings", Some("set")) => {
-            let [path, value] = positional::<2>(&rest[1..], messages.settings_usage)?;
-            // A JSON value when it parses as one, else the literal string.
-            let value = serde_json::from_str(&value).unwrap_or(Value::String(value));
-            call("settings.set", json!({ "path": path, "value": value }))
-        }
-        ("settings", Some("unset")) => {
-            let [path] = positional::<1>(&rest[1..], messages.settings_usage)?;
-            call("settings.unset", json!({ "path": path }))
-        }
+        ("settings", Some("get" | "set" | "reset" | "unset")) => settings::parse(rest)?,
         // The app's durable page, location, closed and agent history
         // (plans/cmux-next/history.md): `history list|search`.
         ("history", Some(verb @ ("list" | "search"))) => {
@@ -468,7 +469,7 @@ fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
     Ok(AppCommand::Call {
         method,
         params: Value::Object(params),
-        timeout: READ_TIMEOUT,
+        timeout: Some(READ_TIMEOUT),
         pick: None,
     })
 }
@@ -543,7 +544,7 @@ pub(super) fn run_action(
     Ok(AppCommand::Call {
         method: "action.run",
         params: Value::Object(params),
-        timeout: if wait { WAITING_RUN_TIMEOUT } else { READ_TIMEOUT },
+        timeout: Some(if wait { WAITING_RUN_TIMEOUT } else { READ_TIMEOUT }),
         pick: None,
     })
 }
@@ -609,7 +610,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
                     AppCommand::Call {
                         method: request.method,
                         params: request.params,
-                        timeout: READ_TIMEOUT,
+                        timeout: Some(READ_TIMEOUT),
                         pick: None,
                     },
                 ) {
@@ -632,6 +633,13 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         None
     };
     let report = super::wire::KeyReport::new(key.as_deref());
+    // An open-ended wait ends on Ctrl-C: the CLI's signal handlers would only
+    // set a flag that a blocking read never sees, so give SIGINT, SIGTERM and
+    // SIGHUP their default action back (the app's own deadline still ends it).
+    #[cfg(unix)]
+    if timeout.is_none() && crate::restore_default_termination_signals().is_err() {
+        return Ran::Done(130);
+    }
     let response = match request_with_retry(stream, method, &params, timeout) {
         Ok(response) => response,
         Err(error) => {
@@ -655,6 +663,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             Ran::NoSuchCliAction(scope.split(' ').next().unwrap_or_default().to_owned())
         }
         Err(mut error) => {
+            settings::explain_refusal(method, &params, &mut error);
             report.annotate(&mut error, global.output);
             let code = super::wire::print_local_error(&error, global.output, 1);
             report.finish(global.output);
@@ -719,15 +728,17 @@ fn with_read_barrier(mut params: Value) -> Value {
     params
 }
 
+/// `timeout: None` reads until the app answers or closes the connection.
 pub(super) fn request(
     stream: &mut UnixStream,
     method: &str,
     params: Value,
-    timeout: Duration,
+    timeout: impl Into<Option<Duration>>,
 ) -> Result<Result<Value, Value>, String> {
+    let timeout = timeout.into();
     let line = json!({ "id": 1, "method": method, "params": with_read_barrier(params) });
     send_line(stream, &line)?;
-    stream.set_read_timeout(Some(timeout)).map_err(|error| error.to_string())?;
+    stream.set_read_timeout(timeout).map_err(|error| error.to_string())?;
     let mut reader = BufReader::new(
         stream.try_clone().map_err(|error| error.to_string())?.take(MAX_RESPONSE_BYTES),
     );
@@ -742,10 +753,10 @@ pub(super) fn send_line(stream: &mut UnixStream, value: &Value) -> Result<(), St
     stream.write_all(&bytes).map_err(|error| error.to_string())
 }
 
-fn read_error(error: &std::io::Error, timeout: Duration) -> String {
+fn read_error(error: &std::io::Error, timeout: Option<Duration>) -> String {
     let messages = &crate::localization::catalog().app_control;
-    match error.kind() {
-        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => {
+    match (error.kind(), timeout) {
+        (std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut, Some(timeout)) => {
             messages.timeout.replace("{seconds}", &timeout.as_secs().to_string())
         }
         _ => error.to_string(),

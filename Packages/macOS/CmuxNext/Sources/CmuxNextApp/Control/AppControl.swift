@@ -120,10 +120,25 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugScreens.report(services: services))
             },
-            // `text: true` adds each terminal mirror's viewport text.
-            .mainActor("debug.surfaces") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(SurfaceDiagnosticsReport.make(services, includeText: call.params["text"]?.boolValue == true))
+            // `text: true` adds each terminal mirror's viewport text. DEBUG builds add each
+            // terminal pane's `terminal_id` and `host_pid` (SurfaceHostReport).
+            .async("debug.surfaces") { [weak services] call in
+                let includeText = call.params["text"]?.boolValue == true
+                let built: (JSONValue, [SurfaceHostReport.Target])? = await MainActor.run {
+                    guard let services else { return nil }
+                    #if DEBUG
+                    let targets = SurfaceHostReport.targets(services)
+                    #else
+                    let targets: [SurfaceHostReport.Target] = []
+                    #endif
+                    return (SurfaceDiagnosticsReport.make(services, includeText: includeText), targets)
+                }
+                guard let (report, targets) = built else { return .null }
+                #if DEBUG
+                return SurfaceHostReport.annotate(report, identities: await SurfaceHostReport.identities(targets))
+                #else
+                return report
+                #endif
             },
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
             .async("resources") { [weak services] call in
