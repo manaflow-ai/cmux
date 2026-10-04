@@ -344,7 +344,10 @@ fn cmux_server_option_values_and_old_lifecycle_routing() {
     let error = refused(&["--session", "agents", "server", "install"]);
     assert!(!error.contains("cmux daemon"), "{error}");
     // `server` here is the value of --session, not the noun.
-    assert!(machine_server::args_for(&strings(&["--session", "server", "--bogus"]), Surface::Cmux).is_none());
+    assert!(
+        machine_server::args_for(&strings(&["--session", "server", "--bogus"]), Surface::Cmux)
+            .is_none()
+    );
 }
 
 #[test]
