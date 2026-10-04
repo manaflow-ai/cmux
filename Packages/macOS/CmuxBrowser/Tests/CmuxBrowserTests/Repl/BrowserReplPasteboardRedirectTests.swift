@@ -745,6 +745,70 @@ struct BrowserReplPasteboardRedirectTests {
             #expect(NSPasteboard.general.changeCount == systemBefore)
         }
 
+        /// A person pasting in another web view while a tab's Paste runs
+        /// (the tab's paste handler keeps the command in flight) must not
+        /// read the tab's private pasteboard. WebKit grants a web content
+        /// process read access when the app starts its Paste, at the change
+        /// count the general pasteboard's lookup returns; during a command
+        /// that lookup must not return the tab's pasteboard for any web view
+        /// but the commanded one. The other view's paste is started from app
+        /// code, as AppKit starts a person's Command-V or Edit menu Paste.
+        @Test func aPasteInAnotherWebViewDuringACommandDoesNotReadTheTabPasteboard() async throws {
+            #expect(BrowserReplPasteboardRedirect.shared.install())
+            let standIn = Self.makeStandIn()
+            defer { standIn.releaseGlobally() }
+            let tab = NSPasteboard.withUniqueName()
+            defer { tab.releaseGlobally() }
+            tab.clearContents()
+            tab.setString("tab text", forType: .string)
+            let systemBefore = NSPasteboard.general.changeCount
+            var outcome: BrowserReplPasteboardRedirect.Outcome?
+            var otherValue: String?
+            try await Self.withStandInSystemPasteboard(standIn) {
+                let tabView = await load(
+                    """
+                    <input id=i><script>
+                    addEventListener('paste', e => {
+                      const end = Date.now() + 1000;
+                      while (Date.now() < end) {}
+                    });
+                    </script>
+                    """
+                )
+                _ = try await tabView.evaluateJavaScript("document.getElementById('i').focus(); true")
+                let otherView = await load("<input id=o>")
+                _ = try await otherView.evaluateJavaScript("document.getElementById('o').focus(); true")
+                let tabProcess = tabView.value(forKey: "_webProcessIdentifier") as? Int
+                let otherProcess = otherView.value(forKey: "_webProcessIdentifier") as? Int
+                try #require(tabProcess != otherProcess, "the two web views share a web content process, so the other paste cannot run during the command")
+
+                let command = Task { @MainActor in
+                    await BrowserReplPasteboardRedirect.shared.perform(
+                        "Paste",
+                        in: tabView,
+                        pasteboard: tab,
+                        timeout: .seconds(30),
+                        systemChangeCount: tab.changeCount + 1
+                    )
+                }
+                while BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) !== tab {
+                    await Task.yield()
+                }
+                // The other web view's Paste starts while the tab's paste
+                // handler runs. Its web content process handles the paste
+                // before the script below, so the value read is the result.
+                _ = otherView.perform(NSSelectorFromString("paste:"), with: nil)
+                otherValue = try await otherView.evaluateJavaScript("document.getElementById('o').value") as? String
+                outcome = await command.value
+            }
+            // A Bool, so a failure never prints the value.
+            let readTheTabPasteboard = otherValue == "tab text"
+            #expect(!readTheTabPasteboard, "a paste in another web view during the command read the tab's private pasteboard")
+            #expect(outcome == .interfered, "the command completed as if no other web view had touched the pasteboard during it")
+            #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
+            #expect(NSPasteboard.general.changeCount == systemBefore)
+        }
+
         /// Runs `body` with `standIn` in place of the system pasteboard for
         /// every lookup of the general pasteboard by name, the hook WebKit's
         /// pasteboard code uses. The redirect's own hook stays underneath and
