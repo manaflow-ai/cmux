@@ -298,6 +298,20 @@ describe("a chief adds humans under its owner's reach (CHIEF-DONE autonomy rule)
     expect((await chief.submit("participants.add", { conversation, participant: human(fay) })).error).toBeUndefined()
   })
 
+  it("only the mux class acts under its owner's reach: an automation principal with a chief's id gets none", async () => {
+    const gil = await signIn("reach-chief-gil", "Gil")
+    const hal = await signIn("reach-chief-hal", "Hal")
+    await joinTeam(gil, hal)
+    const chief = await chiefOf(gil, "chief-gil")
+    const conversation = (await op(gil.token, "conversation.create", { title: "Work", participants: [human(gil, "Gil"), chief.participant] })).value.conversation.id as string
+    // An automation run principal (automation-caps.ts shape) that carries the chief's agent id and the owner's user.
+    const automation = { identity: `automation:${chief.id}`, kind: "agent" as const, agent: chief.id, run: "run_1", user: gil.user, team: gil.team, grant_classes: ["read", "mutate-own", "mutate-shared", "execute"] }
+    const res = await conversationMutate(env as never, automation, { t: "op", op: "participants.add", params: { conversation, participant: human(hal) }, idempotency_key: crypto.randomUUID() })
+    expect(res.frames.find((f) => f.t === "reject")).toMatchObject({ code: "not_reachable" })
+    // The chief itself (class mux) adds him.
+    expect((await chief.submit("participants.add", { conversation, participant: human(hal) })).error).toBeUndefined()
+  })
+
   it("an agent that is not one of the claimed owner's chiefs gets no reach, also not for a departed human", async () => {
     const cal = await signIn("reach-chief-cal", "Cal")
     const dee = await signIn("reach-chief-dee", "Dee")
