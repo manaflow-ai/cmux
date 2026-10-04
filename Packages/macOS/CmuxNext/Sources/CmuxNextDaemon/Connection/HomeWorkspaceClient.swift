@@ -27,7 +27,8 @@ public struct HomeWorkspaceClient: Sendable {
 }
 
 /// A tab that shows `conversation` of the `owner` conversation owner
-/// (`conversation-tabs-v1`). With `origin` and `mutationID` a retry returns
+/// (`conversation-tabs-v1`), or an acpmux agent session (`agentSession`,
+/// `agent-session-tabs-v1`). With `origin` and `mutationID` a retry returns
 /// the first tab (`replayed`).
 public struct NewConversationTabRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
@@ -40,8 +41,9 @@ public struct NewConversationTabRequest: DaemonRequest {
         }
     }
     public static let command = "new-conversation-tab"
-    public var conversation: String
-    public var owner: String
+    public var conversation: String?
+    public var owner: String?
+    public var agentSession: AgentSessionRef?
     public var pane: PaneID?
     /// Exclusive with `pane`: the workspace's active pane, or its first pane
     /// when it is empty (the home workspace starts empty).
@@ -57,5 +59,36 @@ public struct NewConversationTabRequest: DaemonRequest {
         self.workspace = workspace
         self.origin = origin
         self.mutationID = mutationID
+    }
+
+    /// An agent chat tab in `pane` on `agentSession` (`agent-session-tabs-v1`).
+    public init(agentSession: AgentSessionRef, pane: PaneID, origin: String? = nil, mutationID: String? = nil) {
+        self.agentSession = agentSession
+        self.pane = pane
+        self.origin = origin
+        self.mutationID = mutationID
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case conversation, owner, pane, workspace, origin
+        case agentSession = "agent_session"
+        case mutationID = "mutation_id"
+    }
+}
+
+/// Sets the acpmux session of an agent chat tab once (`agent-session-tabs-v1`): a new chat
+/// whose page started its session. The same session again replays; another one is refused.
+public struct BindConversationTabSessionRequest: DaemonRequest {
+    public struct Response: Decodable, Sendable, Equatable {
+        public var surface: SurfaceID
+        public var replayed: Bool
+    }
+    public static let command = "bind-conversation-tab-session"
+    public var surface: SurfaceID
+    public var session: String
+
+    public init(surface: SurfaceID, session: String) {
+        self.surface = surface
+        self.session = session
     }
 }

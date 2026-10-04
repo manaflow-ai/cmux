@@ -33,6 +33,16 @@ nonisolated extension RefusalStrings {
         text("handlers.refusal.agentTabHasNoSession", "this chat has no link yet: send it a message first")
     }
 
+    /// An agent chat tab in a pane whose daemon lacks `agent-session-tabs-v1`.
+    static var agentTabsUnsupported: String {
+        text("handlers.refusal.agentTabsUnsupported", "this machine's cmux-tui cannot hold agent chat tabs yet: update it")
+    }
+
+    /// Duplicate Tab on an agent chat tab whose acpmux session runs on another Mac.
+    static var agentTabOtherHost: String {
+        text("handlers.refusal.agentTabOtherHost", "this chat runs on another Mac")
+    }
+
     /// Copy Link on an object its daemon gives no durable resource id.
     static var noLinkID: String {
         text("handlers.refusal.noLinkID", "this item has no link yet: cmux-tui on its machine doesn't give it a durable id")

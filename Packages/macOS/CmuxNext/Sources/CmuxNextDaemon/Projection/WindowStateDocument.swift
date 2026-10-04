@@ -6,28 +6,36 @@ public struct WindowStateDocument: Codable, Sendable, Hashable {
     public var windows: [WindowRecord]
     /// Sidebar group collapse state (group key -> collapsed).
     public var collapsedGroups: [String: Bool]
-    /// The agent chat tabs each pane lists (pane key -> tabs, in strip order). cmux-tui has no agent
-    /// tab kind yet, so the app records them here; acpmux keeps their sessions (R138).
-    public var agentTabs: [String: [AgentTabRecord]]
+    /// Agent chat tabs an older build recorded per pane (pane key -> tabs, in strip order). Agent
+    /// tabs are store tabs now (cmux-tui/spec/commands.md, new-conversation-tab): the app imports these once
+    /// into the store and empties the field; it is written only while it holds records.
+    public var legacyAgentTabs: [String: [AgentTabRecord]]
 
     public init(windows: [WindowRecord] = [], collapsedGroups: [String: Bool] = [:],
-                agentTabs: [String: [AgentTabRecord]] = [:]) {
+                legacyAgentTabs: [String: [AgentTabRecord]] = [:]) {
         self.windows = windows
         self.collapsedGroups = collapsedGroups
-        self.agentTabs = agentTabs
+        self.legacyAgentTabs = legacyAgentTabs
     }
 
     enum CodingKeys: String, CodingKey {
         case windows
         case collapsedGroups = "collapsed_groups"
-        case agentTabs = "agent_tabs"
+        case legacyAgentTabs = "agent_tabs"
     }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         windows = try c.decodeIfPresent([WindowRecord].self, forKey: .windows) ?? []
         collapsedGroups = try c.decodeIfPresent([String: Bool].self, forKey: .collapsedGroups) ?? [:]
-        agentTabs = try c.decodeIfPresent([String: [AgentTabRecord]].self, forKey: .agentTabs) ?? [:]
+        legacyAgentTabs = try c.decodeIfPresent([String: [AgentTabRecord]].self, forKey: .legacyAgentTabs) ?? [:]
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(windows, forKey: .windows)
+        try c.encode(collapsedGroups, forKey: .collapsedGroups)
+        if !legacyAgentTabs.isEmpty { try c.encode(legacyAgentTabs, forKey: .legacyAgentTabs) }
     }
 
     /// Replaces or appends one window by id.
@@ -65,8 +73,8 @@ public struct WindowStateDocument: Codable, Sendable, Hashable {
     }
 }
 
-/// One agent chat tab in a pane's strip: its tab id and the acpmux session it shows (nil for a
-/// new chat that has none yet).
+/// One agent chat tab an older build recorded: its client tab id and the acpmux session it
+/// shows (nil for a new chat that had none yet). Read only by the one-time store import.
 public struct AgentTabRecord: Codable, Sendable, Hashable {
     public var id: String
     public var session: String?

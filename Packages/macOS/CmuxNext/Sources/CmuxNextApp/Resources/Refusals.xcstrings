@@ -19914,6 +19914,268 @@
           }
         }
       }
+    },
+    "handlers.refusal.agentTabsUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this machine's cmux-tui cannot hold agent chat tabs yet: update it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンの cmux-tui はまだエージェントチャットのタブを保持できません: 更新してください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن لـ cmux-tui على هذا الجهاز الاحتفاظ بعلامات تبويب دردشة الوكيل بعد: حدّثه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui na ovoj mašini još ne može držati kartice chata s agentom: ažurirajte ga"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui på denne maskine kan endnu ikke rumme agentchatfaner: opdater den"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui auf diesem Rechner kann noch keine Agent-Chat-Tabs halten: aktualisiere es"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui en esta máquina aún no admite pestañas de chat con agentes: actualízalo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "le cmux-tui de cette machine ne peut pas encore contenir d'onglets de conversation d'agent : mettez-le à jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui su questa macchina non può ancora contenere schede di chat con agenti: aggiornalo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui នៅលើម៉ាស៊ីននេះមិនទាន់អាចផ្ទុកផ្ទាំងជជែកភ្នាក់ងារបានទេ៖ សូមធ្វើបច្ចុប្បន្នភាពវា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 머신의 cmux-tui는 아직 에이전트 채팅 탭을 담을 수 없음: 업데이트하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui på denne maskinen kan ennå ikke holde agentchatfaner: oppdater den"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui na tej maszynie nie obsługuje jeszcze kart czatu z agentem: zaktualizuj go"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "o cmux-tui desta máquina ainda não comporta abas de chat com agentes: atualize-o"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui на этой машине пока не поддерживает вкладки чата с агентом: обновите его"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui บนเครื่องนี้ยังไม่รองรับแท็บแชทกับเอเจนต์: โปรดอัปเดต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bu makinedeki cmux-tui henüz ajan sohbet sekmelerini tutamıyor: güncelleyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui на цій машині ще не підтримує вкладки чату з агентом: оновіть його"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui trên máy này chưa thể giữ các thẻ trò chuyện với tác tử: hãy cập nhật"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此机器上的 cmux-tui 还无法容纳智能体聊天标签页:请更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此機器上的 cmux-tui 還無法容納代理程式聊天分頁:請更新"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentTabOtherHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this chat runs on another Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットは別の Mac で実行されています"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعمل هذه الدردشة على جهاز Mac آخر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ovaj chat radi na drugom Macu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "denne chat kører på en anden Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "dieser Chat läuft auf einem anderen Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "este chat se ejecuta en otro Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cette conversation s'exécute sur un autre Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "questa chat è in esecuzione su un altro Mac"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកនេះកំពុងដំណើរការលើ Mac ផ្សេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅은 다른 Mac에서 실행 중임"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "denne chatten kjører på en annen Mac"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ten czat działa na innym Macu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "este chat é executado em outro Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "этот чат работает на другом Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทนี้ทำงานบน Mac เครื่องอื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bu sohbet başka bir Mac'te çalışıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "цей чат працює на іншому Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cuộc trò chuyện này chạy trên một máy Mac khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天在另一台 Mac 上运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天在另一台 Mac 上執行"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

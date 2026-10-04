@@ -10,7 +10,7 @@ import CmuxNextTerminal
 enum TabContent {
     case terminal(TerminalEntry)
     case browser(BrowserEntry)
-    /// An agent chat tab (`LocalAgentTab`), the React pane in a web view.
+    /// An agent chat tab (a store conversation tab on an acpmux session), the React pane in a web view.
     case agent(AgentPaneView)
     /// An internal page tab (`LocalPageTab`): Settings, Debug Settings.
     case page(InternalPageView)
