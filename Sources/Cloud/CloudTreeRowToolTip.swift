@@ -93,8 +93,6 @@ enum CloudTreeRowToolTip {
             )
         case .createAction:
             return .init(toolTip: nil, accessibilityLabel: node.searchableTitle)
-        case .coderouterSection, .coderouterAddAccount:
-            return .init(toolTip: nil, accessibilityLabel: node.searchableTitle)
         case .machineDetailTabs:
             return .init(toolTip: nil, accessibilityLabel: String(localized: "cloudTree.machineDetails.label", defaultValue: "Machine Details"))
         case .machineEndSpacer:
