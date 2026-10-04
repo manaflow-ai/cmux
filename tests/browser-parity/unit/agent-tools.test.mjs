@@ -656,6 +656,36 @@ test("markdown: chunks cut at block boundaries, repeat a table's header and cove
   }
 });
 
+test("markdown: page text cannot forge an iframe placeholder to move or drop a frame's content", async () => {
+  // page.markdown stitches each <iframe>'s Markdown into its parent at a
+  // placeholder. Text a page writes into its DOM that looks like one must
+  // stay text: it must not pull the frame's content to the page's chosen
+  // place (above a real heading, say) or hide it.
+  const servers = await startFixtureServers();
+  try {
+    await withRepl(async ({ run, dir }) => {
+      const r = await run(`
+        await page.goto("${servers.origins.primary}/");
+        await page.evaluate(() => {
+          document.body.innerHTML = '<p id="forged"></p><h1>Real heading</h1><iframe srcdoc="<p>CHILD TEXT</p>"></iframe><p id="gone"></p>';
+          document.getElementById("forged").textContent = "Before \\u0000F0\\u0000 after";
+          document.getElementById("gone").textContent = "Hide \\u0000F1\\u0000 this";
+        });
+        await page.waitForFunction(() => { const d = document.querySelector("iframe").contentDocument; return !!(d && d.body && d.body.textContent.includes("CHILD")); });
+        fs.writeFileSync("./md.txt", await page.markdown());
+      `);
+      assert.equal(r.error, null);
+      const md = fs.readFileSync(path.join(dir, "md.txt"), "utf8");
+      assert.equal(md.split("CHILD TEXT").length - 1, 1, `the frame's text appears once: ${JSON.stringify(md)}`);
+      assert.ok(md.indexOf("CHILD TEXT") > md.indexOf("Real heading"), `the frame's text stays after the heading: ${JSON.stringify(md)}`);
+      assert.match(md, /Before .*F0.* after/, "the forged text stays text");
+      assert.match(md, /Hide .*F1.* this/);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
 // docs/browser-repl/reference-c-parity.md: every row has a verdict, a
 // skipped row says why, and every proof names a scenario key or a unit test
 // that exists.
