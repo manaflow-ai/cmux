@@ -58,6 +58,8 @@ export const CloudOps = {
   fsRemove: "cmux.cloud.fs.remove",
   filePush: "cmux.cloud.file.push",
   filePull: "cmux.cloud.file.pull",
+  /** Event stream: one file transfer ended (`done` with `bytes`, or `failed` with a typed error). */
+  fileTransferChanged: "cmux.cloud.file.transfer.changed",
   portList: "cmux.cloud.port.list",
   portForward: "cmux.cloud.port.forward",
   portClose: "cmux.cloud.port.close",
@@ -118,6 +120,26 @@ const UNSUPPORTED_CODES = new Set([
   "operation.unsupported",
 ]);
 
+/**
+ * The Cloud API's not-found code of each kind of resource (the `error` field or `x-cmux-vm-error` of
+ * its 404; first-party-apps/cloud/server/src/ops/delete_retry.rs `gone_code`). A 404 with this code
+ * means the route is there and the resource is not. Keyed by the op's kind (`cmux.cloud.<kind>.`).
+ */
+export const NOT_FOUND_CODES: Readonly<Record<string, string>> = {
+  machine: "vm_not_found",
+  snapshot: "vm_snapshot_not_found",
+  firewall: "vm_firewall_rule_not_found",
+  fs: "vm_file_not_found",
+  file: "vm_file_not_found",
+  publication: "vm_publication_not_found",
+};
+
+/** The own not-found code of `op`'s kind, if the kind has one. */
+export function notFoundCode(op: string): string | undefined {
+  const kind = op.startsWith("cmux.cloud.") ? op.slice("cmux.cloud.".length).split(".")[0] : "";
+  return Object.hasOwn(NOT_FOUND_CODES, kind) ? NOT_FOUND_CODES[kind] : undefined;
+}
+
 export function isUnsupported(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === "string" && UNSUPPORTED_CODES.has(code);
@@ -127,6 +149,33 @@ export function isUnsupported(error: unknown): boolean {
 export interface ActionRunResult {
   confirmed?: boolean;
 }
+
+/** `cloud.file.push` and `cloud.file.pull` answer at once: the copy runs on after the answer. */
+export interface TransferStarted {
+  transfer: string;
+  state: "running";
+  machine: string;
+  path: string;
+  localPath?: string;
+}
+
+/** The host's answer to a push or pull action: the op's answer, or a declined sheet. */
+export type TransferActionResult = ActionRunResult & Partial<TransferStarted>;
+
+/** One event of `cmux.cloud.file.transfer.changed`: the end of one transfer. */
+export interface TransferChanged {
+  transfer: string;
+  machine: string;
+  direction: "push" | "pull";
+  path: string;
+  localPath?: string;
+  state: "done" | "failed";
+  bytes?: number;
+  error?: { code: string; message?: string; retryable?: boolean };
+}
+
+/** More than 4 transfers at once: nothing ran, the same action may run again later. */
+export const TRANSFER_BUSY = "cmux.cloud.transfer_busy";
 
 export type MachineStatus = "provisioning" | "running" | "failed" | "paused" | "destroyed" | "unknown";
 

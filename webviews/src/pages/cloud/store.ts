@@ -6,6 +6,7 @@
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { DetailReader, type MachineDetail } from "./detail";
 import { FilesReader } from "./files";
+import type { FileTransfer } from "./transfers";
 import {
   applyEvent,
   atMachineLimit,
@@ -71,6 +72,8 @@ export interface CloudState {
   layout: MachineLayout;
   /** Ops (and native actions) the owner answered as not served yet: the page shows "Not available yet". */
   unavailable: string[];
+  /** This session's file transfers, running and ended (`cloud.file.transfer.changed`). */
+  transfers: FileTransfer[];
 }
 
 export interface CloudStoreOptions {
@@ -105,6 +108,7 @@ export class CloudStore {
       teams: [],
       layout: options.layout ?? "rows",
       unavailable: [],
+      transfers: [],
     };
     const host = {
       get: () => this.state.detail,
