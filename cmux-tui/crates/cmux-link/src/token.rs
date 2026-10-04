@@ -154,9 +154,18 @@ impl StampChecks {
         linux: bool,
         binding: CheckBinding,
     ) -> Result<Self, VerifierRefused> {
-        // RED: the old behavior, every check is recorded and no guard runs.
-        let _ = (config, linux, binding);
-        Ok(Self { records: true })
+        match config {
+            VerifierConfig::DenyAll => Ok(Self { records: false }),
+            VerifierConfig::ControlPlane => {
+                if linux && !binding.link_child {
+                    return Err(VerifierRefused::LinkChildNotBound);
+                }
+                if !binding.token_iat {
+                    return Err(VerifierRefused::CheckTimeNotTokenIat);
+                }
+                Ok(Self { records: true })
+            }
+        }
     }
 
     /// True when the entry records a stamp's `check`; false when a stamp

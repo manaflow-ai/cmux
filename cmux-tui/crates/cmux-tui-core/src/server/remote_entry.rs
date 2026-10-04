@@ -230,8 +230,7 @@ fn serve_remote_connection(
     let refused = match check {
         None => false,
         Some(cmux_link::stamp::StampCheck::LinkToken) => {
-            // RED: the old behavior ignores the daemon's policy.
-            mux.record_remote_check(&peer.install).is_err()
+            !config.record_checks || mux.record_remote_check(&peer.install).is_err()
         }
     };
     if refused {
