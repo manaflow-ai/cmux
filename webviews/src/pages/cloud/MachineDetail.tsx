@@ -247,7 +247,14 @@ export function MachineDetailView({ store, row, detail, plan, unavailable, strin
         strings={strings}
       />
       <DomainsSection store={store} detail={detail} unavailable={unavailable} strings={strings} />
-      <PortsSection store={store} machine={machine.id} detail={detail} unavailable={unavailable} strings={strings} />
+      <PortsSection
+        store={store}
+        machine={machine.id}
+        title={row.title}
+        detail={detail}
+        unavailable={unavailable}
+        strings={strings}
+      />
       <FilesSection store={store} detail={detail} unavailable={unavailable} strings={strings} />
       <NetworkSection store={store} machine={machine.id} detail={detail} unavailable={unavailable} strings={strings} />
     </section>

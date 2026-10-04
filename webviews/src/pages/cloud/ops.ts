@@ -66,11 +66,13 @@ export const CloudOps = {
 
 /**
  * Host actions that are not Cloud ops. `cloud.browser.open` answers a proxy route and opens no tab;
- * the browser host owns tabs, so the page asks the host to open `url` through `proxy` (README "Host
- * gaps": the host does not serve this action yet).
+ * the browser host (owned by the browser lead) opens it: `browser.tab.open {url, machineStore,
+ * engine: "cef"}`, where `machineStore` (the tab configuration's BrowserMachineStore) carries the
+ * proxy. Only CEF honors a machine store; WebKit refuses a proxied configuration with a typed error.
+ * README "Host gaps": the host does not serve this action yet.
  */
 export const HostActions = {
-  browserTabOpen: "cmux.browser.tab.open_with_proxy",
+  browserTabOpen: "browser.tab.open",
 } as const;
 
 /** The native UI op that runs a registry action in the hosting app (react-pages.md 1.3). */
@@ -307,6 +309,13 @@ export interface PortForward {
 
 export interface PortListResult {
   forwards: PortForward[];
+}
+
+/** The args of `HostActions.browserTabOpen`. The host derives the store key from `machine`. */
+export interface BrowserTabOpenArgs {
+  url: string;
+  machineStore: { machine: string; machineName: string; proxy: BrowserRoute["proxy"] };
+  engine: "cef";
 }
 
 /** `cloud.browser.open`: a proxy route to the machine's localhost and the URL to load through it. */
