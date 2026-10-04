@@ -3,15 +3,73 @@ public nonisolated struct LayoutColumn: Hashable, Sendable, Identifiable {
     public var id: ColumnID
     /// Fraction of the viewport width, 0.1...1.0 (daemon `set-viewport-pane-width`).
     public var width: Double
+    /// Every pane of the column. With `rows`, the daemon's compat chain
+    /// (rows folded into vertical splits), which pane and split queries
+    /// read; geometry lays out `rows` instead.
     public var root: SplitNode
     /// Pinned to a viewport edge (daemon `columns[].sticky`); nil scrolls.
     public var sticky: StickyColumn?
+    /// The column's rows, top to bottom (`rows-v1`, plans/cmux-next/rows.md);
+    /// empty for a column with one row, which is today's column.
+    public var rows: [LayoutRow]
 
-    public init(id: ColumnID, width: Double = ColumnWidthPreset.defaultWidth, root: SplitNode, sticky: StickyColumn? = nil) {
+    public init(id: ColumnID, width: Double = ColumnWidthPreset.defaultWidth, root: SplitNode, sticky: StickyColumn? = nil,
+                rows: [LayoutRow] = []) {
         self.id = id
         self.width = width
         self.root = root
         self.sticky = sticky
+        self.rows = rows
+    }
+
+    /// Two or more rows (a single row is the column's own tree).
+    public var hasRows: Bool { rows.count > 1 }
+
+    /// The row holding `pane`.
+    public func row(containing pane: PaneID) -> LayoutRow? {
+        rows.first { $0.root.contains(pane) }
+    }
+
+    /// The split trees the user sees: each row's, or the column's own. A
+    /// row split of the compat chain is in none of them (the daemon refuses
+    /// it, `row-split-compat-readonly`).
+    public var trees: [SplitNode] { hasRows ? rows.map(\.root) : [root] }
+
+    /// The tree holding `pane`: its row's, or the column's own.
+    public func tree(containing pane: PaneID) -> SplitNode? {
+        trees.first { $0.contains(pane) }
+    }
+
+    /// A copy with `split`'s ratio replaced in the tree and in every row.
+    func settingRatio(_ ratio: Double, for split: SplitID) -> LayoutColumn {
+        var column = self
+        column.root = root.settingRatio(ratio, for: split)
+        for index in column.rows.indices {
+            column.rows[index].root = column.rows[index].root.settingRatio(ratio, for: split)
+        }
+        return column
+    }
+
+    /// Same rows with the same tree shapes; heights may differ.
+    func hasSameRows(as other: LayoutColumn) -> Bool {
+        rows.count == other.rows.count && zip(rows, other.rows).allSatisfy { $0.id == $1.id && $0.root.hasSameShape(as: $1.root) }
+    }
+}
+
+/// One row of a column: a horizontal band of the column's vertical strip
+/// holding one split tree (plans/cmux-next/rows.md).
+public nonisolated struct LayoutRow: Hashable, Sendable, Identifiable {
+    public var id: RowID
+    /// Permille of the column's viewport height, 100...1000 (G1, G2).
+    public var height: Int
+    public var root: SplitNode
+
+    public static let heightRange: ClosedRange<Int> = 100...1000
+
+    public init(id: RowID, height: Int, root: SplitNode) {
+        self.id = id
+        self.height = height
+        self.root = root
     }
 }
 
@@ -59,7 +117,7 @@ public nonisolated enum ScreenLayout: Hashable, Sendable {
     public func tree(containing split: SplitID) -> SplitNode? {
         switch self {
         case let .splits(root): root.node(for: split) == nil ? nil : root
-        case let .columns(columns): columns.first { $0.root.node(for: split) != nil }?.root
+        case let .columns(columns): columns.lazy.compactMap { $0.trees.first { $0.node(for: split) != nil } }.first
         }
     }
 
@@ -75,11 +133,7 @@ public nonisolated enum ScreenLayout: Hashable, Sendable {
         case let .splits(root):
             return .splits(root.settingRatio(ratio, for: split))
         case let .columns(columns):
-            return .columns(columns.map { column in
-                var column = column
-                column.root = column.root.settingRatio(ratio, for: split)
-                return column
-            })
+            return .columns(columns.map { $0.settingRatio(ratio, for: split) })
         }
     }
 
@@ -92,7 +146,7 @@ public nonisolated enum ScreenLayout: Hashable, Sendable {
             return x.hasSameShape(as: y)
         case let (.columns(x), .columns(y)):
             return x.count == y.count && zip(x, y).allSatisfy {
-                $0.id == $1.id && $0.sticky == $1.sticky && $0.root.hasSameShape(as: $1.root)
+                $0.id == $1.id && $0.sticky == $1.sticky && $0.root.hasSameShape(as: $1.root) && $0.hasSameRows(as: $1)
             }
         default:
             return false
