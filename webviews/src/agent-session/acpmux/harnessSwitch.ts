@@ -57,6 +57,8 @@ export type SwitchPort = {
   /// Tells acpmux a harness is likely next in `cwd`, so its pool can ready a session. A no-op
   /// without support or over a remote-origin connection; never awaited.
   prewarm(harness: string, cwd?: string): void;
+  /// The connection can take a prewarm hint (acpmux lists the method and calls it local).
+  prewarmSupported(): boolean;
 };
 
 /// Injected time, so the debounce is testable and the store never keeps a timer while idle.
@@ -335,7 +337,8 @@ export class HarnessSwitch {
     if (harness === this.hintTarget) return;
     this.cancelHintTimer();
     this.hintTarget = harness;
-    if (!harness) return;
+    // A connection that cannot prewarm (remote origin, no _acpmux/prewarm) starts no timer.
+    if (!harness || !this.port?.prewarmSupported()) return;
     this.cancelHint = this.clock.schedule(() => {
       this.cancelHint = undefined;
       const port = this.port;
