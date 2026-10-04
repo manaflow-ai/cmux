@@ -225,6 +225,23 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       ] as const
   ),
   [
+    "user.team_index",
+    {
+      name: "user.team_index",
+      owner: "cloud:UserDO",
+      class: "mutation",
+      risk: "mutate-own",
+      target: "user",
+      principals: ["system"],
+      params: Schema.Struct({ team: Schema.String, role: Schema.NullOr(Schema.String), kind: Schema.optionalKey(Schema.String) }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: a TeamDO records (or with role null removes) this user's membership in the UserDO team index ((f) step 5).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
     "team.rows_migrate",
     {
       name: "team.rows_migrate",

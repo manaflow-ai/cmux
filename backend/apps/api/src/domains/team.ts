@@ -1,7 +1,7 @@
 import type { Domain } from "@cmux/ownership"
 import { HostEnroll, HostRemove, type Host, type TeamMember } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
-import { hostByInstall, hostDelete, hostOf, hostUpsert, memberOf, memberUpsert, roleOf, type LegacyTeamMaps } from "./team-members.ts"
+import { hostByInstall, hostDelete, hostOf, hostUpsert, memberOf, memberUpsert, roleOf, teamIndexItem, type LegacyTeamMaps } from "./team-members.ts"
 import { appendAudit, type AuditState } from "./team-audit.ts"
 import { reduceDomainClaim, reduceDomainLost, reduceDomainRechecked, reduceDomainReleased, reduceDomainVerified, type DomainState } from "./team-domains.ts"
 import { reduceActivated, reduceConnectionCreate, reduceConnectionDisable, reduceSecretSet, type SsoState } from "./team-sso.ts"
@@ -70,6 +70,7 @@ export const teamDomain: Domain<TeamState> = {
           ok: true,
           state: { ...rest, member_count: members.length, host_count: hosts.length },
           writes: [...members.map(memberUpsert), ...hosts.flatMap(hostUpsert)],
+          ...(state.team ? { outbox: members.map((m) => teamIndexItem(state.team!, m.user, m.role, ctx.tx)) } : {}),
           value: { members: members.length, hosts: hosts.length }
         }
       }
@@ -89,7 +90,8 @@ export const teamDomain: Domain<TeamState> = {
           value: team,
           outbox: [
             { kind: "team.upsert", entity: team.id, payload: team },
-            { kind: "membership.upsert", entity: `${team.id}:${p.user}`, payload: { team: team.id, ...member } }
+            { kind: "membership.upsert", entity: `${team.id}:${p.user}`, payload: { team: team.id, ...member } },
+            teamIndexItem(team, p.user, member.role, ctx.tx)
           ]
         }
       }

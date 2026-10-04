@@ -98,6 +98,17 @@ export class UserDO extends OwnerDO<UserState> {
     return times.length ? Math.min(...times) : null
   }
 
+  /**
+   * RPC for the DM reach rule (spec 16.7): every team this user belongs to (role and kind), from the
+   * index each TeamDO keeps in step (user.team_index). Never creates an object.
+   */
+  async homeTeamsOf(entity: string): Promise<Array<{ team: string; role: string; kind: string }>> {
+    if (!this.isBound(entity)) return []
+    return Object.entries(this.bind(entity).currentState.team_index ?? {})
+      .map(([team, v]) => ({ team, role: v.role, kind: v.kind }))
+      .sort((a, b) => (a.team < b.team ? -1 : 1))
+  }
+
   /** A chief token never changes the owner's account (security review P2): every UserDO mutation from one is refused. */
   override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
     if (principal.agent === undefined) return super.submit(entity, principal, frame)

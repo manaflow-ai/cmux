@@ -68,3 +68,11 @@ const page = <T>(legacy: ReadonlyArray<readonly [string, T]>, fromRows: Readonly
   const items = keys.slice(0, limit).map((k) => merged.get(k)!)
   return { items, next: keys.length > limit ? keys[limit - 1]! : null }
 }
+
+/** The E4 item that keeps the member's UserDO team index in step (newest per team wins). */
+export const teamIndexItem = (team: { readonly id: string; readonly kind: string }, user: string, role: string | null, tx: string) => ({
+  kind: "user.team_index",
+  entity: `team-index:${team.id}:${user}:${tx}`,
+  payload: { team: team.id, role, kind: team.kind },
+  target: { class: "UserDO", name: user, coalesce: `team-index:${team.id}` }
+})
