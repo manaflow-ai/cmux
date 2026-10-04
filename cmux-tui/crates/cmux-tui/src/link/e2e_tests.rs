@@ -54,7 +54,7 @@ fn mesh(node: Node) -> MeshOverlay {
     MeshOverlay::new(WgMesh::start(config, node.socket).unwrap())
 }
 
-async fn within<T>(future: impl std::future::Future<Output = T>) -> T {
+async fn within<T>(future: impl Future<Output = T>) -> T {
     tokio::time::timeout(Duration::from_secs(10), future).await.expect("within 10 s")
 }
 
@@ -99,7 +99,10 @@ async fn a_dial_crosses_two_meshes_and_reaches_the_peer_daemon_entry_stamped() {
     let mut daemon = BufReader::new(daemon_side);
     let mut stamp = String::new();
     within(daemon.read_line(&mut stamp)).await.unwrap();
-    assert_eq!(stamp, "{\"link_peer\":{\"install\":\"inst_b\",\"user\":\"42\",\"team\":\"team_a\"}}\n");
+    assert_eq!(
+        stamp,
+        "{\"link_peer\":{\"install\":\"inst_b\",\"user\":\"42\",\"team\":\"team_a\"}}\n"
+    );
     let mut ping = String::new();
     within(daemon.read_line(&mut ping)).await.unwrap();
     assert_eq!(ping, "ping\n");

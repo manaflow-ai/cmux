@@ -12,9 +12,9 @@ mod mesh;
 mod state;
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod e2e_tests;
+#[cfg(test)]
+mod tests;
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
