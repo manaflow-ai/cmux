@@ -116,7 +116,7 @@ final class TabDragSession: NSObject {
         guard let tab else { return }
         let cache = services.cache
         Task { [weak drag] in
-            let image = await cache?.previewImage(for: tab, maxPixelSize: CGSize(width: 640, height: 640))
+            let image = await cache?.previewImage(for: tab, maxPixelSize: TabPreviewFitting.cachedPixelSize, captureIfMissing: true)
             drag?.ghost.setThumbnail(image)
         }
     }

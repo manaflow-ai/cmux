@@ -124,6 +124,7 @@ extension TabContentCache {
         }
         if let entry = browsers[key] {
             entry.tab.setContentVisible(true)
+            shownPages.insert(key)
         }
         hibernation?.tabDidShow(key)
     }
@@ -144,6 +145,9 @@ extension TabContentCache {
             }
         }
         if let entry = browsers[key] {
+            // Only a page that was on screen: a page created or restored
+            // hidden has nothing worth a thumbnail yet.
+            if shownPages.remove(key) != nil { capturePagePreview(entry, key: key, token: token) }
             entry.tab.setContentVisible(false)
         }
         hibernation?.tabDidHide(key)

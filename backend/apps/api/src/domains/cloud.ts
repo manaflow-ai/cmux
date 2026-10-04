@@ -1,5 +1,5 @@
 import type { Domain, Principal, ReduceContext, ReduceResult, RowReader, RowWrite } from "@cmux/ownership"
-import { CloudDriverResultParams, CloudMachineCreate, CloudMachineDelete, CloudMachineIdlePolicySet, CloudMachineRename, CloudPruneParams, CloudWatchResultParams } from "@cmux/protocol"
+import { CloudAbandonedClearParams, CloudDriverResultParams, CloudMachineCreate, CloudMachineDelete, CloudMachineIdlePolicySet, CloudMachineRename, CloudPruneParams, CloudWatchResultParams } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.ts"
 import { grantClasses } from "../home-admit.ts"
@@ -16,7 +16,9 @@ import { createConfigProblem, limitDetails, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, 
 export const TABLE_MACHINE = "machine"
 export const TABLE_LEDGER = "ledger"
 export const TABLE_TOMBSTONE = "tombstone"
-export const CLOUD_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_MACHINE, TABLE_LEDGER, TABLE_TOMBSTONE]
+/** Operator actions on this team's Cloud records (who, when, why); private, never pruned. */
+export const TABLE_AUDIT = "audit"
+export const CLOUD_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_MACHINE, TABLE_LEDGER, TABLE_TOMBSTONE, TABLE_AUDIT]
 
 export const TOMBSTONE_MS = 30 * 24 * 3600_000
 export const LEDGER_KEEP_MS = 7 * 24 * 3600_000
@@ -150,6 +152,8 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
         return watchResult(state, params, ctx)
       case "cloud.prune":
         return prune(state, params, ctx)
+      case "cloud.abandoned_clear":
+        return abandonedClear(state, params, ctx)
       default:
         return reject("validation.invalid", `unknown op ${op}`)
     }
@@ -326,4 +330,19 @@ const prune = (state: CloudState, params: unknown, ctx: ReduceContext): ReduceRe
   }
   if (writes.length === 0) return noChange(state, { pruned: 0 })
   return { ok: true, state: next(state, {}), value: { pruned: writes.length }, writes }
+}
+
+/** An operator clears one abandoned ledger row (CloudDO checked the provider first); the audit row keeps who, when and why. */
+const abandonedClear = (state: CloudState, params: unknown, ctx: ReduceContext): ReduceResult<CloudState> => {
+  const d = decodeInternal<typeof CloudAbandonedClearParams.Type>(CloudAbandonedClearParams, params)
+  if (!d.ok) return d
+  const stored = ctx.rows?.get<LedgerRow>(TABLE_LEDGER, d.value.key)
+  if (!stored || stored.row.state !== "abandoned") return reject("not_abandoned", "no abandoned ledger row for that machine")
+  const audit = { op: "abandoned_clear", machine: stored.row.machine, provider_name: stored.row.provider_name, by: d.value.by, by_email: d.value.by_email, reason: d.value.reason, at: d.value.at }
+  return {
+    ok: true,
+    state: next(state, {}),
+    value: { cleared: true, audit },
+    writes: [{ table: TABLE_LEDGER, op: "delete", key: d.value.key }, { table: TABLE_AUDIT, op: "upsert", key: `${String(d.value.at).padStart(15, "0")}:${d.value.key}`, row: audit }]
+  }
 }
