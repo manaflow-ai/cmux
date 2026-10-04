@@ -4254,7 +4254,7 @@
         "key" : "h",
         "modifiers" : [
           "ctrl",
-          "shift"
+          "cmd"
         ]
       },
       "id" : "resizePaneLeft",
@@ -4283,7 +4283,7 @@
         "key" : "l",
         "modifiers" : [
           "ctrl",
-          "shift"
+          "cmd"
         ]
       },
       "id" : "resizePaneRight",
@@ -4312,7 +4312,7 @@
         "key" : "k",
         "modifiers" : [
           "ctrl",
-          "shift"
+          "cmd"
         ]
       },
       "id" : "resizePaneUp",
@@ -4341,7 +4341,7 @@
         "key" : "j",
         "modifiers" : [
           "ctrl",
-          "shift"
+          "cmd"
         ]
       },
       "id" : "resizePaneDown",
