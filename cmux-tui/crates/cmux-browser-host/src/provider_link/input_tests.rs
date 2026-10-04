@@ -8,7 +8,8 @@ use std::time::Duration;
 
 /// The shared vectors (schemas/automation-input/vectors.json).
 fn vectors() -> Value {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../schemas/automation-input/vectors.json");
+    let path =
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../../schemas/automation-input/vectors.json");
     serde_json::from_str(&std::fs::read_to_string(path).expect("read the shared vectors"))
         .expect("parse the shared vectors")
 }
