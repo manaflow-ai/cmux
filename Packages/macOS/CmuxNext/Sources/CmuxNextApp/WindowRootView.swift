@@ -33,6 +33,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Empties AppKit's titlebar drag region: the window moves only through
     /// `TitlebarDragPolicy` (`ShellWindow.sendEvent`).
     let titlebarBandBlocker = TitlebarDragBlocker(frame: .zero)
+    /// The top-left toolbar band (R68): the static sidebar toggle, above
+    /// the sidebar so it takes clicks while the sidebar animates.
+    let toolbarBand = TitlebarToolbarBand(frame: .zero)
 
     /// - Parameter sidebar: The window's sidebar.
     /// - Parameter reduceTransparency: The user's Reduce Transparency
@@ -56,6 +59,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         }
         addSubview(sidebar)
         addSubview(titlebarBandBlocker)
+        addSubview(toolbarBand)
         let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
             sidebar.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -130,19 +134,34 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         didSet { if oldValue != showsTitlebarBadge { needsLayout = true } }
     }
 
+    /// The static sidebar toggle (R68).
+    var sidebarToggleButton: NSButton? { toolbarBand.sidebarToggle }
+    /// The toggle's frame in window coordinates.
+    var sidebarToggleFrame: CGRect? {
+        let toggle = toolbarBand.sidebarToggle
+        return toggle.convert(toggle.bounds, to: nil)
+    }
+    /// A click on the toggle (tests).
+    func pressSidebarToggle() { toolbarBand.toggle() }
+
     /// The badge's frame in window coordinates while it shows.
     var titlebarBadgeFrame: CGRect? {
         guard let badge = titlebarBadge, !badge.isHidden else { return nil }
         return badge.convert(badge.bounds, to: nil)
     }
 
+    /// What strips under the top row keep clear (window coordinates): the
+    /// toolbar band and, while it shows, the badge after it.
+    var titlebarAccessoryFrame: CGRect {
+        let band = toolbarBand.convert(toolbarBand.bounds, to: nil)
+        return titlebarBadgeFrame.map { band.union($0) } ?? band
+    }
+
     override func layout() {
         super.layout()
         TitlebarDragPolicy.layoutBandBlocker(titlebarBandBlocker, in: self)
-        guard let badge = titlebarBadge else { return }
-        badge.isHidden = !showsTitlebarBadge
-        guard showsTitlebarBadge else { return }
-        let size = badge.fittingSize
+        // The band depends only on the window's traffic lights and top row,
+        // never on the sidebar, so the toggle keeps one frame (R68).
         let rowHeight = titlebarStyle == .minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
         var x = Metrics.space3
         var midY = bounds.maxY - rowHeight / 2
@@ -151,7 +170,15 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             x = local.maxX + Metrics.space3
             midY = local.midY
         }
-        badge.frame = CGRect(x: x, y: (midY - size.height / 2).rounded(), width: size.width, height: size.height)
+        let bandHeight = TitlebarBandButton.side
+        toolbarBand.frame = CGRect(x: x, y: (midY - bandHeight / 2).rounded(), width: TitlebarToolbarBand.width, height: bandHeight)
+        sidebar.sidebarView.titlebarLeadingReserve = toolbarBand.frame.maxX + Metrics.space2
+        guard let badge = titlebarBadge else { return }
+        badge.isHidden = !showsTitlebarBadge
+        guard showsTitlebarBadge else { return }
+        let size = badge.fittingSize
+        badge.frame = CGRect(x: toolbarBand.frame.maxX + Metrics.space2, y: (midY - size.height / 2).rounded(),
+                             width: size.width, height: size.height)
     }
 
     /// Replaces the workspace layout view.
