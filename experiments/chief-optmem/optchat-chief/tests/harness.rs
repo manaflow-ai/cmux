@@ -180,9 +180,21 @@ fn a_four_breakpoint_refusal_reruns_the_turn_without_the_marker_and_later_turns_
     let sink = lines.clone();
     let dir = tempfile::tempdir().unwrap();
     let s = settings(dir.path());
+    // The refused request: acpmux records the turn's error, then answers
+    // the prompt with it (no reply, no tool call).
+    let script: Script = Box::new(|turn, blocks| {
+        if turn == 0 {
+            vec![
+                json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                json!({"dir": "mux", "kind": "turn_error", "msg": {"error": MARKER_LIMIT}}),
+            ]
+        } else {
+            default_script()(turn, blocks)
+        }
+    });
     let mut h = Harness::configured(
         dir,
-        default_script(),
+        script,
         owner(),
         s,
         Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_owned())),
