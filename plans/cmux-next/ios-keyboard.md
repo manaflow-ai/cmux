@@ -159,3 +159,22 @@ Device proof on "Lawrence's iPhone" (E4058DA9-...) for K1, K2, T1-T3 once its Ta
   (apple-v6), never the a7c40619a or 3e9dfca98 releases.
 - Hardware-key UI results count as product bugs only after the harness control test
   (`typeKey("x")`) passes.
+
+## 7. Status (2026-10-04)
+
+Landed with red tests first: K1 (field follows the keyboard guide), K2 (rows on the keyboard's
+curve, `setHostedField(_:send:animated:)`), K3 (measured line cap), K4 (one compose field
+rule), K5 (Cmd-F, Cmd-N, Cmd-[ and Esc; Home and the conversation take first responder), T1
+to T5 (terminal focus, `UITextInput`, hardware keys through `ghostty_surface_key` with HID
+usages, key bar with sticky Ctrl/Alt, preedit, cursor pan).
+
+Verified on an isolated iPhone 17 simulator (iOS 27, cmux-lawrence-2): composer on the keyboard,
+send keeps focus, five-line cap, interactive dismissal, rotation, search and invite fields,
+terminal tap shows the keyboard and key bar, Cmd-F; package tests (router, real-surface key
+bytes: Ctrl-C 0x03, Enter CR, Backspace DEL, arrows, Esc, Tab, F1, Alt-x, preedit sends nothing).
+
+UNVERIFIED (the simulator harness delivers plain hardware keys but drops special keys such as
+Return, Delete and Esc): hardware Return sends / Shift-Return adds a line, Esc back, held-key
+repeat, key bar on a hardware keyboard, real IME composition and dictation, the per-frame
+row/field sync during the keyboard animation (only end states are asserted; a frame-split check
+is next), iPad split view and Stage Manager, VoiceOver frames (A1). These need the device.
