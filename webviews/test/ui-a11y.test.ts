@@ -288,8 +288,8 @@ for (const [engine, type] of installed) {
           ),
         ).toBe(true);
         expect(await axe(page, "picker", log)).toEqual([]);
-        // Up into Locations, then Return opens Home.
-        for (let index = 0; index < 3; index += 1) await page.keyboard.press("ArrowUp");
+        // Up into Locations (Recent, Home, Desktop, Documents, Downloads), then Return opens Home.
+        for (let index = 0; index < 4; index += 1) await page.keyboard.press("ArrowUp");
         state = await focused(page);
         expect(state.activeTitle).toBe("/Users/me");
         await page.keyboard.press("Enter");
@@ -297,7 +297,9 @@ for (const [engine, type] of installed) {
         // Path mode: type a path, the inline-end arrow enters, Cmd-Up goes back up.
         await page.keyboard.type("~/fu");
         await page.waitForFunction(
-          () => [...document.querySelectorAll(".ve-picker-name")].map((n) => n.textContent).join() === "fun",
+          () =>
+            [...document.querySelectorAll('[data-row="entry"] .ve-picker-name')].map((n) => n.textContent).join() ===
+            "fun/",
         );
         await page.keyboard.press(inlineEnd);
         await page.waitForFunction(
@@ -313,7 +315,12 @@ for (const [engine, type] of installed) {
         // plus the highlighted row.
         await page.keyboard.type("big/");
         await page.waitForFunction(() => document.querySelector(".ve-crumb[aria-current]")?.textContent === "big");
-        await page.keyboard.press("Escape"); // clears the query
+        // An empty segment: the first row is "Go to ~/big/"; Return goes there and clears the field.
+        await page.keyboard.press("Enter");
+        await page.waitForFunction(() => (document.querySelector(".ve-picker-field") as HTMLInputElement).value === "");
+        await page.waitForFunction(
+          () => document.querySelector('[data-row="entry"] .ve-picker-name')?.textContent === "folder-0000",
+        );
         await page.keyboard.press("End");
         await settle(page, 300);
         state = await focused(page);
@@ -328,8 +335,8 @@ for (const [engine, type] of installed) {
           };
         });
         expect(census.rows).toBeLessThan(120);
-        // Virtualized, the Locations rows (3, above the level) and the level are one run.
-        expect(census).toMatchObject({ posinset: "303", setsize: "303" });
+        // Locations show only at the start folder, so the run is the level's 300 rows.
+        expect(census).toMatchObject({ posinset: "300", setsize: "300" });
         expect(await axe(page, "picker virtualized", log)).toEqual([]);
         await page.keyboard.press("Escape"); // empty query: cancels
         await settle(page);

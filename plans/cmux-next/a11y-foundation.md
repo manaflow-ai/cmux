@@ -207,17 +207,21 @@ axe found it under 4.5:1.
 
 Picker (`viewer-empty/`): `PathPicker` is a ui `DrillList` in a ui `Dialog` (`PathPickerDialog`),
 `RecentList` a ui `Listbox`, the diff source choice a ui `ChoiceGroup`, the breadcrumb ui
-`Breadcrumbs`. PICKER-PATHS, as built (no written spec was found in plans/; this is the coordinator's
-list, interpreted): no `~` jump key (typing `~` alone is text); a Locations section above the level
-while the query is empty (Home, the computer's root, up to three recent folders, the shown folder left
-out); path mode when the query starts with `/` or `~/` (the picker lists the typed folder and the last
-part filters it; entering and going up keep the field a path); Cmd-Up for the parent (Left at the
-start and Backspace on an empty query still go up); a hint under the field ("Type / or ~/ to enter a
-path. ⌘↑ opens the enclosing folder."). Five new strings in 21 locales (`picker.locations`,
-`picker.home`, `picker.computer`, `picker.hintPath`, `picker.status`; only en and ja reviewed). The
-field placeholder reads "Type to filter, or start with / to type a path" (21 locales, en and ja
-reviewed); test/viewer-empty-model.test.ts fails if the placeholder or the hint offers `~` as a jump
-key in any locale.
+`Breadcrumbs`. PICKER-PATHS, as the native R89 picker (plans/cmux-next/picker.md) defines it:
+no jump keys, typing always filters (prefix matches first in Finder order, `c2` before `c10`, then
+fuzzy matches by score); path mode for a query starting with `/` or `~/` (the typed folder's entries
+completing the last segment, case-insensitive prefix, dot entries only after "."; Tab or the
+inline-end arrow completes, a folder ends with "/"; Return goes there or chooses a .md file; an empty
+segment's first row is "Go to <folder>"; losing the prefix returns to the folder path mode started
+from; Escape clears, a second Escape closes); Locations at the start folder with an empty query
+(Recent, a page of the recent items, then the places of the host op `cmux.picker.locations`:
+workspace folders, Home, Desktop, Documents, Downloads, iCloud Drive, `picker.pinned`; without the op,
+Home and its standard folders); Cmd-Up for the parent (Left at the start and Backspace on an empty
+query still go up); the hint under the field "Type to filter, or start with / to type a path". The
+field's placeholder is the same sentence (21 locales, en and ja reviewed); a test fails if the
+placeholder or the hint offers `~` as a jump key in any locale. New strings: `picker.locations`,
+`picker.home`, `picker.desktop`, `picker.documents`, `picker.downloads`, `picker.iCloudDrive`,
+`picker.goTo`, `picker.noMatch`, `picker.status` (only en and ja reviewed).
 The diff page's empty state now loads on demand (`viewer-empty/emptySurface.ts`), so an open
 repository never evaluates Base UI.
 
