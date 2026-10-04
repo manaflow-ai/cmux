@@ -127,13 +127,11 @@ import WebKit
         guard let host else { return "no host" }
         let script = "return JSON.stringify({ready: document.readyState, shell: typeof globalThis.cmuxShell, current: globalThis.cmuxShell?.current ?? null, events: globalThis.cmuxShell?.events ?? null, handler: typeof globalThis.webkit?.messageHandlers?.cmuxPage})"
         let state = (try? await host.webKitView.callAsyncJavaScript(script, contentWorld: .page)) as? String ?? "no answer"
-        let bridge = host.bridge as? WebKitPageHostBridge
         // Deliver a claim by hand: if the shell records it now, the host's own claim never ran.
         let manual = "globalThis.__cmuxPageReceive && globalThis.__cmuxPageReceive({t: 'call', id: 999999, op: 'page.claim', params: {page: 'cmux.shell.probe'}}); return JSON.stringify({receive: typeof globalThis.__cmuxPageReceive, events: globalThis.cmuxShell?.events ?? null})"
         let after = (try? await host.webKitView.callAsyncJavaScript(manual, contentWorld: .page)) as? String ?? "no answer"
         return "loaded=\(host.isLoaded) url=\(host.webKitView.url?.absoluteString ?? "nil") window=\(host.window != nil) "
-            + "evaluations=\(bridge?.evaluations.sent ?? -1)/\(bridge?.evaluations.finished ?? -1) "
-            + "error=\(bridge?.lastEvaluateError ?? "none") \(state) manual=\(after)"
+            + "\(state) manual=\(after)"
     }
 
     static func js(_ host: PageWebView, _ script: String) async throws -> Any? {

@@ -18,6 +18,7 @@ extension PageWebView {
         if let script = attributesScript(documentAttributes) {
             controller.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         }
+        controller.addUserScript(PagePaintProbe.userScript)
     }
 
     /// What this pooled view's scheme handler serves for `host` (``PageServedHosts``).
@@ -49,6 +50,9 @@ extension PageWebView {
         self.descriptor = descriptor
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         Self.installUserScripts(webView.configuration.userContentController, documentAttributes: [:])
+        // The new page has not painted: a navigation's document-end probe, or the shell's message
+        // after it mounts the claimed page, sets it again.
+        paintedUptime = nil
         themeSurface = nil
         self.route = route.map { $0.hasPrefix("#") ? $0 : "#" + $0 }
         if claimsInShell(descriptor) { return true }
@@ -62,9 +66,14 @@ extension PageWebView {
     /// Mounts the bound shell page: sends `page.claim {page, route, context}` in this main-actor
     /// turn (the shell mounts it synchronously when the page's chunk is loaded). `reply` gets the
     /// shell's answer.
-    public func sendClaim(context: JSONValue = .null, reply: ((Result<JSONValue, PageError>) -> Void)? = nil) {
-        let params: JSONValue = ["page": .string(descriptor.id), "route": .string(route ?? ""), "context": context]
-        router.sendCall(PageShellOp.claim, params: params) { reply?($0) }
+    /// `prepare` mounts the page ahead of its claim (no context; ``sendResume(routes:route:context:reply:)`` hands
+    /// it the session later).
+    public func sendClaim(context: JSONValue = .null, prepare: Bool = false,
+                          reply: ((Result<JSONValue, PageError>) -> Void)? = nil) {
+        var params: [String: JSONValue] = ["page": .string(descriptor.id), "route": .string(route ?? ""), "context": context]
+        if prepare { params["prepare"] = .bool(true) }
+        paintedUptime = nil
+        router.sendCall(PageShellOp.claim, params: .object(params)) { reply?($0) }
     }
 
     /// Ends the claimed shell page: the router admits nothing first (a late call from the old page
@@ -72,6 +81,7 @@ extension PageWebView {
     /// store and global it could have written. The view then serves the bare shell.
     public func resetShellPage(reply: ((Result<JSONValue, PageError>) -> Void)? = nil) {
         router.unbind()
+        paintedUptime = nil
         dynamicResources = nil
         descriptor = servedDescriptor
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
@@ -115,4 +125,5 @@ public nonisolated struct PageShellOp {
     public nonisolated init() {}
     public static let claim = "page.claim"
     public static let reset = "page.reset"
+    public static let resume = "page.resume"
 }

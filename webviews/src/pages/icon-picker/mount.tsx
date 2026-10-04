@@ -38,13 +38,16 @@ export function mountIconPicker(
     titles: (id) => strings.t(`iconPicker.section.${id}`),
   });
   let session: PickerSession = { id: "" };
+  // The React key: a new session remounts the picker (fresh scroll and fields), except the first
+  // session of a picker that never showed one (a page shell spare prepared ahead of its claim).
+  let renderKey = "";
   const finish = (result: { value?: string; clear?: true; cancel?: true }) =>
     void client?.call(IconPickerOps.finish, { session: session.id, ...result }).catch(() => undefined);
   const reactRoot = makeRoot(root);
   const render = () =>
     reactRoot.render(
       <IconPicker
-        key={session.id}
+        key={renderKey}
         store={store}
         strings={strings}
         onPick={(value: IconValue) => finish({ value: encodeIcon(value) })}
@@ -56,6 +59,7 @@ export function mountIconPicker(
     );
   const open = (next: PickerSession) => {
     if (next.symbols) store.configure(next.symbols, next.maxEmojiVersion);
+    if (session.id) renderKey = next.id;
     session = next;
     store.reset(next.tab ?? "emoji");
     // Synchronous so the host can show the popover right after this event without a stale frame.
