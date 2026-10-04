@@ -79,6 +79,28 @@
     const tag = String(await one._read("tagName", undefined, { timeout: 2000 }, "tag name")).toLowerCase();
     return tag === "input" || tag === "textarea" ? one.inputValue({ timeout: 2000 }) : one.innerText({ timeout: 2000 });
   }
+  // Whether Calendar's recurrence menu text ("Does not repeat", "Weekly on
+  // Thursday", "Every 2 weeks, 5 times", "Monthly until Dec 31, 2026")
+  // repeats as the drafted RRULE: no rule shows "Does not repeat", a rule
+  // its frequency and interval, its count and whether it ends on a date.
+  function repeatsAs(text, recurrence) {
+    if (!recurrence) return /^does not repeat$/i.test(text);
+    if (/^does not repeat$/i.test(text)) return false;
+    const rule = {};
+    for (const part of String(recurrence).replace(/^RRULE:/i, "").split(";")) {
+      const [k, v] = part.split("=");
+      if (k) rule[k.toUpperCase()] = String(v || "").toUpperCase();
+    }
+    const unit = { DAILY: "day", WEEKLY: "week", MONTHLY: "month", YEARLY: "year" }[rule.FREQ];
+    if (!unit) return false;
+    const every = Number(rule.INTERVAL || 1);
+    const word = { DAILY: /^(daily|every day|every weekday)\b/i, WEEKLY: /^weekly\b/i, MONTHLY: /^monthly\b/i, YEARLY: /^(annually|yearly)\b/i }[rule.FREQ];
+    const freq = every > 1 ? new RegExp(`^every ${every} ${unit}s\\b`, "i").test(text) : word.test(text);
+    if (!freq) return false;
+    const count = /\b(\d+) times\b/i.exec(text);
+    if ((rule.COUNT || null) !== (count ? count[1] : null)) return false;
+    return !!rule.UNTIL === /\buntil\b/i.test(text);
+  }
   async function checkForm(page, draft) {
     const problems = [];
     const field = (label) => fieldText(page.locator(`[role="main"] [aria-label="${label}"]`));
@@ -100,6 +122,15 @@
       if (!timeShows(startTime, start)) problems.push(`start time ${JSON.stringify(startTime)}`);
       if (!timeShows(endTime, end)) problems.push(`end time ${JSON.stringify(endTime)}`);
     }
+    // The location, description and recurrence the preview showed. A
+    // field the form does not show reads as unknown and fails the check.
+    const norm = (v) => String(v || "").replace(/[\u200b-\u200d\u2060\ufeff]/g, "").replace(/\s+/g, " ").trim();
+    const location = await fieldText(page.locator('[role="main"] [aria-label="Location"], [role="main"] [aria-label="Add location"]'));
+    if (location === null || norm(location) !== norm(draft.location)) problems.push(`location ${JSON.stringify(location)}`);
+    const description = await fieldText(page.locator('[role="main"] [aria-label="Description"]'));
+    if (description === null || norm(description) !== norm(draft.description)) problems.push(`description ${JSON.stringify(description && description.length > 200 ? description.slice(0, 199) + "…" : description)}`);
+    const recurrence = await fieldText(page.locator('[role="main"] [aria-label="Recurrence"]'));
+    if (recurrence === null || !repeatsAs(norm(recurrence), draft.recurrence)) problems.push(`recurrence ${JSON.stringify(recurrence)}`);
     const listed = page.locator('[role="main"] [data-email]');
     const n = await listed.count();
     const shown = new Set();
@@ -182,7 +213,7 @@
                   // right before Save (see gmail.send).
                   await g.checkPageAccount(t, "googleCalendar.create", page, accountEmail);
                   // The form holds the drafted event, nothing else.
-                  const problems = await checkForm(page, { title: String(e.title), start, end, allDay: !!e.allDay, timeZone: e.timeZone || null, guests, accountEmail });
+                  const problems = await checkForm(page, { title: String(e.title), start, end, allDay: !!e.allDay, timeZone: e.timeZone || null, guests, accountEmail, description: e.description ? String(e.description) : "", location: e.location ? String(e.location) : "", recurrence: e.recurrence ? String(e.recurrence) : null });
                   if (problems.length) throw new S.SiteError("form_mismatch", `googleCalendar.create: the event form does not hold the drafted event (${problems.join("; ")}); nothing was saved. Make a new draft and show it to the user again`);
                   await save.first().click();
                   if (guests.length) {
