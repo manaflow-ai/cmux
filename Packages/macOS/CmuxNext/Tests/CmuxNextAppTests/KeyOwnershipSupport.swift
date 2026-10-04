@@ -11,6 +11,8 @@ enum KeyOwner: Equatable, CustomStringConvertible {
     case panel
     /// cmux consumes the key and runs nothing (browser-only chord elsewhere).
     case consumed
+    /// The screen's primary input gets the key (R65).
+    case primaryInput
 
     var description: String {
         switch self {
@@ -18,6 +20,7 @@ enum KeyOwner: Equatable, CustomStringConvertible {
         case .surface: "surface"
         case .panel: "panel"
         case .consumed: "consumed"
+        case .primaryInput: "primaryInput"
         }
     }
 }

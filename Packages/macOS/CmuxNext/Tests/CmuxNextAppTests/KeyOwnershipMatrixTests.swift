@@ -240,6 +240,7 @@ struct KeyOwnershipMatrixTests {
         case .deliver: return .surface
         case .consume: return .consumed
         case .panel: return .panel
+        case .primaryInput: return .primaryInput
         }
     }
 

@@ -12,6 +12,9 @@ extension KeyRouter {
         var hasMarkedText = false
         /// The focused terminal is in copy mode.
         var terminalCopyMode = false
+        /// The focused screen has a primary input and none of its text
+        /// fields has the keyboard (`PrimaryInputTarget`).
+        var primaryInputReady = false
     }
 
     /// The context keys for a key in a window with `focus`.

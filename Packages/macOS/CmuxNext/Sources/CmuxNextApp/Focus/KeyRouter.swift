@@ -94,6 +94,9 @@ final class KeyRouter: BrowserKeyRouting {
         case deliver
         /// Consume the key and run nothing (a browser-only chord elsewhere).
         case consume
+        /// A printable key on a screen with a primary input and no focused
+        /// text field: it starts typing in the primary input (R65).
+        case primaryInput
         /// A panel or sheet over the window (or no cmux window) has it.
         case panel
     }
@@ -181,7 +184,7 @@ final class KeyRouter: BrowserKeyRouting {
             return true
         case .consume:
             return true
-        case .deliver, .panel:
+        case .deliver, .panel, .primaryInput:
             return runExtensionShortcut(event, focus: focus)
         }
     }
