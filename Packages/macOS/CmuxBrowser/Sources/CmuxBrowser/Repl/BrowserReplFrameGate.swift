@@ -301,11 +301,21 @@ public final class BrowserReplFrameGate {
     /// its parent, from its own content world: an inert element is not hit
     /// tested and takes no focus, wherever the page moves it. A blocked frame
     /// in a shadow tree cannot be told from its siblings there, so every
-    /// frame element in the parent's shadow trees is made inert. With
+    /// frame element in the parent's shadow trees is made inert. The gate
+    /// watches each guarded element's `inert` attribute from its world and
+    /// puts it back the moment the page takes it off (a mutation observer
+    /// runs before the page's script returns control, so before WebKit
+    /// handles another event). From before the frame tree is read until the
+    /// guard comes off, no child frame loads a new document
+    /// (``BrowserReplSubframeLoadHold``): a frame the page creates meanwhile
+    /// shows its initial empty document, with its parent's origin, and an
+    /// allowed frame cannot navigate to a blocked page. With
     /// `checkFocusAfter` the focus is checked again after `input`, while the
     /// guard is on. Then the guard comes off, and `input` fails with
     /// `blocked` when the page changed the `inert` attribute of a guarded
-    /// element meanwhile (the event may have reached that frame).
+    /// element meanwhile: within one event handler the page can take the
+    /// attribute off and move the focus into the frame before the observer
+    /// runs, so the rest of that key event may have reached it.
     ///
     /// Throws `blocked` before `input` when a blocked frame's element cannot
     /// be found (a closed shadow root), and `stale` when a frame does not
@@ -317,17 +327,19 @@ public final class BrowserReplFrameGate {
         _ input: () async throws -> T
     ) async throws -> T {
         guard policy.isActive else { return try await input() }
-        let guards = try await installInputGuards(in: webView, frames: await frames())
-        let value: T
-        do {
-            value = try await input()
-            if checkFocusAfter { try await checkFocus(in: webView, frames: await frames()) }
-        } catch {
+        return try await loadHold.holding(webView) {
+            let guards = try await installInputGuards(in: webView, frames: await frames())
+            let value: T
+            do {
+                value = try await input()
+                if checkFocusAfter { try await checkFocus(in: webView, frames: await frames()) }
+            } catch {
+                if let tampered = await releaseInputGuards(guards, in: webView) { throw tampered }
+                throw error
+            }
             if let tampered = await releaseInputGuards(guards, in: webView) { throw tampered }
-            throw error
+            return value
         }
-        if let tampered = await releaseInputGuards(guards, in: webView) { throw tampered }
-        return value
     }
 
     private struct InputGuard {
@@ -454,12 +466,24 @@ public final class BrowserReplFrameGate {
     /// the capture. A frame's content draws only inside its frame element's
     /// box, so the rest of the page stays as it is.
     ///
+    /// The page can move a frame and put it back within the capture, so
+    /// while it is taken each of those frame elements is also hidden
+    /// (`visibility: hidden` and `transition-property: none`, both
+    /// `!important` in its style attribute, which no style sheet, animation
+    /// or transition outranks), from the gate's own world: a hidden frame
+    /// draws nothing wherever it moves. The gate puts the style back the
+    /// moment the page changes it (before the page's script returns, so
+    /// before the next rendering), and the capture fails with `blocked` when
+    /// the page changed it. From before the frame tree is read until after
+    /// the capture, no child frame loads a new document
+    /// (``BrowserReplSubframeLoadHold``), so a frame the page creates, or an
+    /// allowed one it navigates, shows no blocked page meanwhile.
+    ///
     /// Throws `blocked`, before or after the capture, when the main frame is
     /// blocked or a blocked frame's content cannot be hidden this way: its
     /// box is unknown, its frame element or an ancestor draws it elsewhere
     /// (`-webkit-box-reflect`, `filter`), or an element of the page samples
-    /// what lies under it (`backdrop-filter`). The page can still move a
-    /// frame and put it back within the capture.
+    /// what lies under it (`backdrop-filter`).
     ///
     /// - Parameter blockedChildFrames: Child frames (`frameID` to the
     ///   policy's reason) whose live document is blocked, as the capture
@@ -475,12 +499,83 @@ public final class BrowserReplFrameGate {
         capture: () async throws -> (image: CGImage, region: CGRect)
     ) async throws -> CGImage {
         guard policy.isActive else { return try await capture().image }
-        let before = try await captureCovers(in: webView, frames: await frames(), alsoBlocked: blockedChildFrames, requireAlsoBlocked: true)
-        let (image, region) = try await capture()
-        let after = try await captureCovers(in: webView, frames: await frames(), alsoBlocked: blockedChildFrames, requireAlsoBlocked: false)
-        let covers = before + after
-        guard !covers.isEmpty else { return image }
-        return try Self.blank(covers, in: image, region: region)
+        return try await loadHold.holding(webView) {
+            let treeBefore = await frames()
+            let before = try await captureCovers(in: webView, frames: treeBefore, alsoBlocked: blockedChildFrames, requireAlsoBlocked: true)
+            let hidden = try await hideBlockedTops(in: webView, frames: treeBefore, alsoBlocked: blockedChildFrames)
+            let image: CGImage
+            let region: CGRect
+            do {
+                (image, region) = try await capture()
+            } catch {
+                _ = await unhide(hidden, in: webView)
+                throw error
+            }
+            if let tampered = await unhide(hidden, in: webView) { throw tampered }
+            let after = try await captureCovers(in: webView, frames: await frames(), alsoBlocked: blockedChildFrames, requireAlsoBlocked: false)
+            let covers = before + after
+            guard !covers.isEmpty else { return image }
+            return try Self.blank(covers, in: image, region: region)
+        }
+    }
+
+    /// A capture's hidden frame elements in the main frame, under `token`.
+    struct HiddenFrames {
+        let token: String
+        let frames: [String]
+    }
+
+    /// Hides the element of each main-frame child frame that is, or holds,
+    /// a blocked frame; see ``coverBlockedFrames(in:frames:blockedChildFrames:capture:)``.
+    private func hideBlockedTops(
+        in webView: WKWebView,
+        frames: [BrowserReplFrame],
+        alsoBlocked: [String: String]
+    ) async throws -> HiddenFrames? {
+        let tops = try blockedTops(frames, in: webView, alsoBlocked: alsoBlocked, requireAlsoBlocked: true)
+        guard !tops.isEmpty else { return nil }
+        let mainID = frames.first?.frameID
+        let token = UUID().uuidString
+        let value = try await probe(
+            Self.hideSource,
+            arguments: [
+                "token": token,
+                "indexes": tops.map(\.top.indexInParent),
+                "childCount": frames.filter { $0.parentFrameID != nil && $0.parentFrameID == mainID }.count,
+            ],
+            in: webView,
+            frame: nil,
+            what: "the page did not hide its blocked frames"
+        ) as? [String: Any] ?? [:]
+        switch value["result"] as? String {
+        case "ok":
+            return HiddenFrames(token: token, frames: tops.map(\.blocked.url))
+        case "changed":
+            throw BrowserReplDriverError(code: "stale", message: "The page changed its frames while the capture was prepared; try again")
+        default:
+            throw BrowserReplDriverError(code: "blocked", message: "The tab shows frame \(tops[0].blocked.url), which the domain policy blocks (\(tops[0].reason)), and its frame element cannot be hidden, so a capture could show it")
+        }
+    }
+
+    /// Shows the hidden frame elements again. Returns `blocked` when the
+    /// page changed their style meanwhile, or the gate cannot tell.
+    private func unhide(_ hidden: HiddenFrames?, in webView: WKWebView) async -> BrowserReplDriverError? {
+        guard let hidden else { return nil }
+        let tampered: Bool
+        do {
+            let value = try await probe(
+                Self.unhideSource, arguments: ["token": hidden.token], in: webView, frame: nil,
+                what: "the page did not show its blocked frames again"
+            ) as? [String: Any]
+            tampered = value?["tampered"] as? Bool ?? true
+        } catch {
+            tampered = true
+        }
+        guard tampered else { return nil }
+        return BrowserReplDriverError(
+            code: "blocked",
+            message: "The page changed the style of frame \(hidden.frames.joined(separator: ", ")), which the domain policy blocks, while the capture was taken (or it could not be confirmed hidden), so the capture was discarded"
+        )
     }
 
     /// The boxes (CSS pixels of the main frame's viewport) a capture must
@@ -684,11 +779,74 @@ public final class BrowserReplFrameGate {
     const entries = targets.map((el) => ({ el, had: el.hasAttribute("inert") }));
     for (const entry of entries) if (!entry.had) entry.el.setAttribute("inert", "");
     const record = { entries, tampered: false, observer: null };
-    record.observer = new MutationObserver(() => { record.tampered = true; });
+    // Puts a guard the page took off back before the page's script returns.
+    record.observer = new MutationObserver(() => {
+      record.tampered = true;
+      for (const entry of entries) if (!entry.el.hasAttribute("inert")) entry.el.setAttribute("inert", "");
+    });
     for (const entry of entries) record.observer.observe(entry.el, { attributes: true, attributeFilter: ["inert"] });
     const guards = globalThis.__cmuxInputGuards || (globalThis.__cmuxInputGuards = new Map());
     guards.set(token, record);
     return { result: "ok" };
+    """
+
+    /// Hides the frame elements at `indexes` in `window.frames` (matched as
+    /// in ``boxesSource``) for a capture, and keeps them hidden until the
+    /// release, putting the style back whenever the page changes it.
+    private static let hideSource = """
+    if (window.frames.length !== childCount) return { result: "changed" };
+    const owners = new Map();
+    const visit = (root) => {
+      for (const el of root.querySelectorAll("iframe, frame, object, embed")) {
+        const w = el.contentWindow;
+        if (w && !owners.has(w)) owners.set(w, el);
+      }
+      for (const el of root.querySelectorAll("*")) if (el.shadowRoot) visit(el.shadowRoot);
+    };
+    visit(document);
+    const props = ["visibility", "transition-property"];
+    const entries = [];
+    for (const i of indexes) {
+      const w = window.frames[i];
+      const el = w ? owners.get(w) : null;
+      if (!el || !el.style) return { result: "unknown" };
+      if (!entries.some((entry) => entry.el === el)) {
+        entries.push({ el, saved: props.map((p) => [p, el.style.getPropertyValue(p), el.style.getPropertyPriority(p)]) });
+      }
+    }
+    const hidden = (el) => el.style.getPropertyValue("visibility") === "hidden" && el.style.getPropertyPriority("visibility") === "important"
+      && el.style.getPropertyValue("transition-property") === "none" && el.style.getPropertyPriority("transition-property") === "important";
+    const hide = (el) => {
+      el.style.setProperty("transition-property", "none", "important");
+      el.style.setProperty("visibility", "hidden", "important");
+    };
+    for (const entry of entries) hide(entry.el);
+    const record = { entries, hidden, tampered: false, observer: null };
+    record.observer = new MutationObserver(() => {
+      for (const entry of entries) if (!hidden(entry.el)) { record.tampered = true; hide(entry.el); }
+    });
+    for (const entry of entries) record.observer.observe(entry.el, { attributes: true, attributeFilter: ["style"] });
+    const covers = globalThis.__cmuxCaptureHides || (globalThis.__cmuxCaptureHides = new Map());
+    covers.set(token, record);
+    return { result: "ok" };
+    """
+
+    /// Restores what ``hideSource`` hid and says whether the page changed it.
+    private static let unhideSource = """
+    const covers = globalThis.__cmuxCaptureHides;
+    const record = covers && covers.get(token);
+    if (!record) return { tampered: true };
+    covers.delete(token);
+    const pending = record.observer.takeRecords().length > 0;
+    record.observer.disconnect();
+    const tampered = record.tampered || pending || record.entries.some((entry) => !record.hidden(entry.el));
+    for (const entry of record.entries) {
+      for (const [p, value, priority] of entry.saved) {
+        if (value) entry.el.style.setProperty(p, value, priority);
+        else entry.el.style.removeProperty(p);
+      }
+    }
+    return { tampered };
     """
 
     /// Takes a guard off: restores each element's own `inert` attribute and

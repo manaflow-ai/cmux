@@ -2526,7 +2526,13 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             // the policy blocks refuses it, also one that navigated after
             // checkFramePolicy read the tree.
             try await Self.withSecretMasks(masks, policy: policy, blockedChildFrames: .refuse, webView: webView) { _ in
-                try await self.printPDF(webView: webView, params: params)
+                // No child frame loads a new document while the PDF is
+                // printed: one the page created meanwhile could show a
+                // blocked page the checks around it never saw.
+                guard policy.isActive else { return try await self.printPDF(webView: webView, params: params) }
+                return try await BrowserReplSubframeLoadHold.shared.holding(webView) {
+                    try await self.printPDF(webView: webView, params: params)
+                }
             }
         }
         return ["base64": data.base64EncodedString()]

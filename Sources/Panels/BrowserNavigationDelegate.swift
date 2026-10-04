@@ -341,6 +341,19 @@ import WebKit
             label: "BrowserNavigationDelegate.navigationAction"
         ).closure
 
+        // While a browser REPL session's guarded input or capture is in
+        // flight in this web view, no child frame loads a new document: the
+        // frame gate judged the frames before it started
+        // (BrowserReplSubframeLoadHold). The navigation is decided once
+        // that ends.
+        if BrowserReplSubframeLoadHold.shared.holdsBack(navigationAction.targetFrame, in: webView, until: { [weak self, weak webView] in
+            // A dropped decision cancels (the guard's fallback).
+            guard let self, let webView else { return }
+            self.webView(webView, decidePolicyFor: navigationAction, decisionHandler: decisionHandler)
+        }) {
+            return
+        }
+
         // A tab a browser REPL session created loads nothing while the
         // session's content rules for its latest policy compile: the page
         // would load its subresources under the previous rules. The
