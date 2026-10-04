@@ -163,3 +163,28 @@ test("dropdownOptions and extract: page-controlled lists stop at the page-read b
     await servers.close();
   }
 });
+
+test("tabs.content: each URL and the whole call stop at the page-read budget, and a cut row says so", async () => {
+  const big = "<!doctype html><title>Big</title><p>" + "A".repeat(5000000) + "</p>";
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+    res.end(big);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  try {
+    await withLoggedRepl(async (run) => {
+      for (const format of ["text", "html", "markdown"]) {
+        const r = await run(`const rows = await tabs.content([${JSON.stringify(url + "/a")}, ${JSON.stringify(url + "/b")}, ${JSON.stringify(url + "/c")}], { format: ${JSON.stringify(format)} });
+          console.log("@@" + JSON.stringify(rows.map((x) => ({ length: x.content ? x.content.length : 0, truncated: x.truncated || null, error: x.error || null }))));`);
+        const rows = JSON.parse(r.value);
+        const total = rows.reduce((n, x) => n + x.length, 0);
+        assert.ok(total <= READ_SIZE + 1000, `${format}: three 5,000,000-character pages gave ${total} characters`);
+        for (const row of rows) assert.match(row.truncated || "", /the page is too large to read whole/, `${format}: ${JSON.stringify(row)}`);
+        assert.ok(largestRead(r.log) < READ_SIZE + 100000, `${format}: the page agent returned ${largestRead(r.log)} characters at once`);
+      }
+    });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
