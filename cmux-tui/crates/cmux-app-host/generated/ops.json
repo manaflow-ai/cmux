@@ -81,7 +81,6 @@
     "cloud.port.list",
     "cloud.rescue.open",
     "cloud.shell.open",
-    "cloud.snapshot.create",
     "cloud.snapshot.list",
     "codemirror.cycle_variant",
     "codemirror.open",

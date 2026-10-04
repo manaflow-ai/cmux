@@ -196,6 +196,7 @@ export const CloudMachineLinkToken = def({
   name: "cloud.machine.link_token",
   owner: "cloud:CloudDO",
   class: "mutation",
+  idempotency: "none",
   risk: "execute",
   target: "team",
   principals: ["install"],
@@ -210,13 +211,13 @@ export const CloudMachineLinkToken = def({
     services: LinkServices
   }),
   errors: [...MUTATION, "cloud.machine.not_bound", "cloud.machine.not_found"],
-  docs: "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. A same-key replay while the token is valid returns the same token. Only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
+  docs: "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO; the token is never cached or logged. Install principals only; only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
   cli: { path: "cloud machine link-token", visible: false },
   mcp: { expose: "never", group: "cloud" }
 })
 export const CloudMachineUpgrade = cloudMutation(
   "cloud.machine.upgrade",
-  "mutate-own",
+  "execute",
   MachineParams,
   MachineResult,
   ["cloud.machine.not_classic", "cloud.machine.not_found", "cloud.upgrade.failed", ...PROVIDER],
@@ -235,12 +236,13 @@ export const CloudSnapshotList = cloudRead(
 )
 export const CloudSnapshotCreate = cloudMutation(
   "cloud.snapshot.create",
-  "mutate-own",
+  "money",
   Schema.Struct({ machine: MachineId, name: Schema.optionalKey(MachineName) }),
   Schema.Struct({ snapshot: CloudSnapshot }),
   ["cloud.machine.not_found", "cloud.quota.exceeded", ...PROVIDER],
-  "Take a snapshot of a machine. May answer cloud.quota.exceeded {limit, used}." + KEY,
-  "cloud snapshot create"
+  "Take a snapshot of a machine. It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used}." + KEY,
+  "cloud snapshot create",
+  true
 )
 export const CloudSnapshotRestore = cloudMutation(
   "cloud.snapshot.restore",

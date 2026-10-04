@@ -1511,7 +1511,6 @@
           "ssh"
         ]
       },
-      "idempotency_key": "key-link-1",
       "responses": [
         {
           "http": {
@@ -1523,7 +1522,7 @@
             "op": "cloud.machine.link_token",
             "value": {
               "token": "lt_vector_0001",
-              "expires_at": 1790000300000,
+              "expires_at": 1790000301000,
               "host": "host_h0000000000000000001",
               "epoch": 1,
               "services": [
@@ -1532,7 +1531,7 @@
               ]
             },
             "transaction": "tx_0011",
-            "idempotency_key": "key-link-1",
+            "idempotency_key": "",
             "revision": "7",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
@@ -1548,8 +1547,8 @@
             "ok": true,
             "op": "cloud.machine.link_token",
             "value": {
-              "token": "lt_vector_0001",
-              "expires_at": 1790000300000,
+              "token": "lt_vector_0002",
+              "expires_at": 1790000302000,
               "host": "host_h0000000000000000001",
               "epoch": 1,
               "services": [
@@ -1557,16 +1556,16 @@
                 "ssh"
               ]
             },
-            "transaction": "tx_0011",
-            "idempotency_key": "key-link-1",
+            "transaction": "tx_0012",
+            "idempotency_key": "",
             "revision": "7",
-            "replayed": true,
+            "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 111
+            "sequence": 112
           }
         }
       ],
-      "note": "responses[1]: a same-key replay while the token is valid returns the same token."
+      "note": "Two calls, two fresh tokens: no key, no replay."
     },
     {
       "name": "machine.link_token.not_bound",
@@ -1581,7 +1580,6 @@
           "daemon"
         ]
       },
-      "idempotency_key": "key-link-unbound",
       "responses": [
         {
           "http": {
@@ -1597,7 +1595,7 @@
               "retryable": false
             },
             "transaction": "",
-            "idempotency_key": "key-link-unbound",
+            "idempotency_key": "",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 0
@@ -1718,12 +1716,12 @@
                 "revision": "1"
               }
             },
-            "transaction": "tx_0012",
+            "transaction": "tx_0013",
             "idempotency_key": "key-snap-1",
             "revision": "1",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 112
+            "sequence": 113
           }
         }
       ]
@@ -1816,12 +1814,12 @@
                 "revision": "44"
               }
             },
-            "transaction": "tx_0013",
+            "transaction": "tx_0014",
             "idempotency_key": "key-restore-1",
             "revision": "44",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 113
+            "sequence": 114
           }
         },
         {
@@ -1859,12 +1857,12 @@
                 "revision": "44"
               }
             },
-            "transaction": "tx_0013",
+            "transaction": "tx_0014",
             "idempotency_key": "key-restore-1",
             "revision": "44",
             "replayed": true,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 113
+            "sequence": 114
           }
         }
       ]
@@ -1928,12 +1926,12 @@
             "value": {
               "deleted": true
             },
-            "transaction": "tx_0014",
+            "transaction": "tx_0015",
             "idempotency_key": "key-snap-delete-1",
             "revision": "4",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 114
+            "sequence": 115
           }
         },
         {
@@ -1947,12 +1945,12 @@
             "value": {
               "deleted": true
             },
-            "transaction": "tx_0014",
+            "transaction": "tx_0015",
             "idempotency_key": "key-snap-delete-1",
             "revision": "4",
             "replayed": true,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 114
+            "sequence": 115
           }
         }
       ]
@@ -2026,12 +2024,12 @@
             "value": {
               "url": "https://checkout.example.com/session/cs_vector_0001"
             },
-            "transaction": "tx_0015",
+            "transaction": "tx_0016",
             "idempotency_key": "key-checkout-1",
             "revision": "13",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 115
+            "sequence": 116
           }
         }
       ]
@@ -2121,12 +2119,12 @@
             "value": {
               "state": "moving"
             },
-            "transaction": "tx_0016",
+            "transaction": "tx_0017",
             "idempotency_key": "key-migrate-1",
             "revision": "4",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 116
+            "sequence": 117
           }
         }
       ]
@@ -2243,12 +2241,12 @@
                 "revision": "54"
               }
             },
-            "transaction": "tx_0017",
+            "transaction": "tx_0018",
             "idempotency_key": "key-upgrade-1",
             "revision": "54",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 117
+            "sequence": 118
           }
         }
       ]
@@ -2346,12 +2344,12 @@
             "value": {
               "stream": "wst_w0000000000000000001"
             },
-            "transaction": "tx_0018",
+            "transaction": "tx_0019",
             "idempotency_key": "key-shell-1",
             "revision": "7",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 118
+            "sequence": 119
           }
         }
       ]
@@ -2398,7 +2396,7 @@
       "name": "machine.upsert.newer",
       "event": "cloud.machine.upsert",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 119,
+      "seq": 120,
       "data": {
         "machine": {
           "id": "vm_m0000000000000000001",
@@ -2431,7 +2429,7 @@
       "name": "machine.upsert.stale",
       "event": "cloud.machine.upsert",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 120,
+      "seq": 121,
       "data": {
         "machine": {
           "id": "vm_m0000000000000000001",
@@ -2465,7 +2463,7 @@
       "name": "machine.upsert.bound",
       "event": "cloud.machine.upsert",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 121,
+      "seq": 122,
       "data": {
         "machine": {
           "id": "vm_m0000000000000000004",
@@ -2499,7 +2497,7 @@
       "name": "machine.upsert.new",
       "event": "cloud.machine.upsert",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 122,
+      "seq": 123,
       "data": {
         "machine": {
           "id": "vm_m0000000000000000008",
@@ -2532,7 +2530,7 @@
       "name": "machine.removed",
       "event": "cloud.machine.removed",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 123,
+      "seq": 124,
       "data": {
         "machine": "vm_m0000000000000000003",
         "revision": "56"
@@ -2542,7 +2540,7 @@
       "name": "machine.removed.stale",
       "event": "cloud.machine.removed",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 124,
+      "seq": 125,
       "data": {
         "machine": "vm_m0000000000000000001",
         "revision": "3"
@@ -2553,7 +2551,7 @@
       "name": "snapshot.upsert",
       "event": "cloud.snapshot.upsert",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 125,
+      "seq": 126,
       "data": {
         "snapshot": {
           "id": "snap_s0000000000000000003",
@@ -2570,7 +2568,7 @@
       "name": "snapshot.removed",
       "event": "cloud.snapshot.removed",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 126,
+      "seq": 127,
       "data": {
         "snapshot": "snap_s0000000000000000001",
         "revision": "4"
@@ -2580,7 +2578,7 @@
       "name": "plan.changed",
       "event": "cloud.plan.changed",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 127,
+      "seq": 128,
       "data": {
         "plan": {
           "plan_id": "pro",

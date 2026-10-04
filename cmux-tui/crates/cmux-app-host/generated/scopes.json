@@ -286,7 +286,7 @@
       "class": "mutation"
     },
     "cloud.machine.upgrade": {
-      "scope": "cloud:write",
+      "scope": "cloud:execute",
       "class": "mutation"
     },
     "cloud.machine.watch": {
@@ -319,10 +319,6 @@
     },
     "cloud.shell.open": {
       "scope": "cloud:execute",
-      "class": "mutation"
-    },
-    "cloud.snapshot.create": {
-      "scope": "cloud:write",
       "class": "mutation"
     },
     "cloud.snapshot.list": {
@@ -1650,6 +1646,7 @@
     "cloud.machine.delete",
     "cloud.machine.resize",
     "cloud.port.close",
+    "cloud.snapshot.create",
     "cloud.snapshot.delete",
     "cloud.snapshot.restore",
     "domain.release",

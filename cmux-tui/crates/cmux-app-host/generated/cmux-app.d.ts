@@ -498,8 +498,8 @@ interface CmuxGlobal {
         /** `cloud.machine.idle_policy.set` (mutation, scope `cloud:write`): Set when an idle machine pauses; 0 = never. */
         set: CmuxOp<{ machine: Cmux.MachineId; idle_seconds: number; expected_revision?: string }, Cmux.MutationResult<{ machine: Cmux.CloudMachine }>>
       }
-      /** `cloud.machine.link_token` (mutation, scope `cloud:execute`): Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. A same-key replay while the token is valid returns the same token. Only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app. */
-      link_token: CmuxOp<{ host: Cmux.HostId; services: Array<"daemon" | "ssh">; expected_revision?: string }, Cmux.MutationResult<{ token: string; expires_at: number; host: Cmux.HostId; epoch: number; services: Array<"daemon" | "ssh"> }>>
+      /** `cloud.machine.link_token` (mutation, scope `cloud:execute`): Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO; the token is never cached or logged. Install principals only; only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app. */
+      link_token: CmuxOp<{ host: Cmux.HostId; services: Array<"daemon" | "ssh"> }, Cmux.MutationResult<{ token: string; expires_at: number; host: Cmux.HostId; epoch: number; services: Array<"daemon" | "ssh"> }>>
       /** `cloud.machine.list` (read, scope `cloud:read`): List the team's Cloud machines one page at a time; no cursor = the first page. `revision` is the team's registry revision when the page was read. */
       list: CmuxOp<{ cursor?: string; limit?: number }, { machines: Array<Cmux.CloudMachine>; next_cursor: string | null; revision: Cmux.Revision }>
       /** `cloud.machine.pause` (mutation, scope `cloud:write`): Pause a running machine. After mutation.indeterminate, retry with the same idempotency key. */
@@ -508,7 +508,7 @@ interface CmuxGlobal {
       rename: CmuxOp<{ machine: Cmux.MachineId; name: string; expected_revision?: string }, Cmux.MutationResult<{ machine: Cmux.CloudMachine }>>
       /** `cloud.machine.start` (mutation, scope `cloud:write`): Start (resume) a paused machine. May answer cloud.quota.exceeded {limit, used}. After mutation.indeterminate, retry with the same idempotency key. */
       start: CmuxOp<{ machine: Cmux.MachineId; expected_revision?: string }, Cmux.MutationResult<{ machine: Cmux.CloudMachine }>>
-      /** `cloud.machine.upgrade` (mutation, scope `cloud:write`): Move one classic machine onto cmux-next: install the daemon and bind it to the overlay. A failed upgrade leaves a working classic machine (cloud.upgrade.failed). After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+      /** `cloud.machine.upgrade` (mutation, scope `cloud:execute`): Move one classic machine onto cmux-next: install the daemon and bind it to the overlay. A failed upgrade leaves a working classic machine (cloud.upgrade.failed). After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
       upgrade: CmuxOp<{ machine: Cmux.MachineId; expected_revision?: string }, Cmux.MutationResult<{ machine: Cmux.CloudMachine }>>
       /** `cloud.machine.watch` (read, scope `cloud:read`, owner `app:cmux/cloud`): The machine change stream. The catalog has no stream class yet, so this read answers the current projection revision; the server then sends cloud.machine.watch events after each op: {type: upsert, revision, machine} or {type: removed, revision, id}. One revision per projection change; no timer, no polling. */
       watch: CmuxOp<Record<string, never>, { revision: number }>
@@ -538,8 +538,6 @@ interface CmuxGlobal {
       open: CmuxOp<{ machine: Cmux.MachineId; cols: number; rows: number; expected_revision?: string }, Cmux.MutationResult<{ stream: string }>>
     }
     snapshot: {
-      /** `cloud.snapshot.create` (mutation, scope `cloud:write`): Take a snapshot of a machine. May answer cloud.quota.exceeded {limit, used}. After mutation.indeterminate, retry with the same idempotency key. */
-      create: CmuxOp<{ machine: Cmux.MachineId; name?: string; expected_revision?: string }, Cmux.MutationResult<{ snapshot: Cmux.CloudSnapshot }>>
       /** `cloud.snapshot.list` (read, scope `cloud:read`): Snapshots of one machine, or of the team. */
       list: CmuxOp<{ machine?: Cmux.MachineId }, { snapshots: Array<Cmux.CloudSnapshot> }>
     }

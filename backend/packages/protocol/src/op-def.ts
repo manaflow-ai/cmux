@@ -25,6 +25,11 @@ export interface CloudOpDef<P extends Schema.Top = Schema.Top, R extends Schema.
     /** A read of a PlanetScale projection through the read-only Hyperdrive (for example home.search). */
     | "cloud:planetscale"
   readonly class: "read" | "mutation"
+  /**
+   * Only for a mutation that must never replay (cloud.machine.link_token: each call mints a fresh
+   * credential). Absent = the class default: a mutation requires a key, a read forbids one.
+   */
+  readonly idempotency?: "none"
   readonly risk: "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
   readonly target: string
   /**
