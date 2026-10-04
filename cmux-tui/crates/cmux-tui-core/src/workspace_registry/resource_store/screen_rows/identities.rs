@@ -167,7 +167,7 @@ pub(in super::super) fn validate_screen_splits(
 }
 
 #[cfg(test)]
-impl crate::workspace_registry::WorkspaceRegistry {
+impl WorkspaceRegistry {
     /// `(kind, live)` of `public_id` in the identity ledger, if registered.
     pub(crate) fn split_identity(&self, public_id: &str) -> anyhow::Result<Option<(String, bool)>> {
         identity_state(&self.connection, public_id)
