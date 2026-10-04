@@ -126,6 +126,17 @@ impl RemoteClientMessages {
         self.unknown_option.replace("{option}", &format!("{option:?}"))
     }
 
+    /// The refusal of an option a connect-family command does not take. A
+    /// global `--socket` moves after the command (main.rs
+    /// normalize_remote_resource_args); a local socket is not a route.
+    pub(crate) fn connect_option_refused(&self, option: &str) -> String {
+        if option == "--socket" || option.starts_with("--socket=") {
+            self.socket_not_a_route.to_owned()
+        } else {
+            self.unknown_option(option)
+        }
+    }
+
     pub(crate) fn unknown_option_for_command(&self, option: &str, command: &str) -> String {
         self.unknown_option_for_command
             .replace("{option}", &format!("{option:?}"))

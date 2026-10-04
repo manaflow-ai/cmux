@@ -497,13 +497,8 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
             "-h" | "--help" => {
                 return Err(anyhow!(catalog().remote_client.help_invalid_options));
             }
-            // A global --socket moves here from before the command (main.rs
-            // normalize_remote_resource_args); a local socket is not a route.
-            option if option == "--socket" || option.starts_with("--socket=") => {
-                return Err(anyhow!(catalog().remote_client.socket_not_a_route));
-            }
             option if option.starts_with('-') => {
-                return Err(anyhow!(catalog().remote_client.unknown_option(option)));
+                return Err(anyhow!(catalog().remote_client.connect_option_refused(option)));
             }
             route => {
                 if route.starts_with("cmux://enroll/") {
