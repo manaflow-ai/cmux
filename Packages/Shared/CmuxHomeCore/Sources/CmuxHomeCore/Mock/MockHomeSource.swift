@@ -60,8 +60,13 @@ public actor MockHomeSource: HomeSource {
     /// belongs to its video's record.
     private var posterBlobs: [String: Data] = [:]
     private var uploadsPaused = false
-    private var pausedUploads: [CheckedContinuation<Void, Never>] = []
-    private var failingUploads: Set<String> = []
+    private var pausedUploads: [UUID: CheckedContinuation<Void, Never>] = [:]
+    /// Paused uploads whose task was cancelled before they registered.
+    private var cancelledPauses: Set<UUID> = []
+    private var failingUploads: [String: HomeRejection] = [:]
+    /// The progress callback of every upload call, in call order (tests
+    /// replay late callbacks with `replayProgress`).
+    private var progressCallbacks: [@Sendable (Double) -> Void] = []
     /// Every upload call, by hash, in call order (for tests).
     public private(set) var uploadCalls: [String] = []
     /// The location of every fetch, in call order (for tests).
@@ -190,12 +195,15 @@ public actor MockHomeSource: HomeSource {
     /// count and poster (or no poster), whatever this upload declared.
     public func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
         uploadCalls.append(file.ref.hash)
-        if options.latency > .zero { try? await clock.sleep(for: options.latency) }
+        progressCallbacks.append(file.progress)
+        if options.latency > .zero { try await clock.sleep(for: options.latency) }
         guard online else { throw HomeRejection.ownerUnreachable }
         file.progress(0.25)
         file.progress(0.5)
-        if uploadsPaused { await withCheckedContinuation { pausedUploads.append($0) } }
-        if failingUploads.remove(file.ref.hash) != nil { throw HomeRejection.ownerUnreachable }
+        if uploadsPaused { try await pause() }
+        // The connection may have dropped while the bytes were in flight.
+        guard online else { throw HomeRejection.ownerUnreachable }
+        if let failure = failingUploads.removeValue(forKey: file.ref.hash) { throw failure }
         if let record = blobs[file.ref.hash] {
             file.progress(1)
             return Self.stored(file.ref, record)
@@ -276,6 +284,32 @@ public actor MockHomeSource: HomeSource {
         }
     }
 
+    /// Waits until uploads resume; a cancelled task stops waiting at once
+    /// and throws `CancellationError`.
+    private func pause() async throws {
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if cancelledPauses.remove(id) != nil {
+                    continuation.resume()
+                } else {
+                    pausedUploads[id] = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelPause(id) }
+        }
+        try Task.checkCancellation()
+    }
+
+    private func cancelPause(_ id: UUID) {
+        if let continuation = pausedUploads.removeValue(forKey: id) {
+            continuation.resume()
+        } else {
+            cancelledPauses.insert(id)
+        }
+    }
+
     // MARK: Test and demo controls
 
     /// While paused, uploads stop at 0.5 progress until resumed (previews of
@@ -283,14 +317,21 @@ public actor MockHomeSource: HomeSource {
     public func setUploadsPaused(_ paused: Bool) {
         uploadsPaused = paused
         guard !paused else { return }
-        let waiting = pausedUploads
+        let waiting = pausedUploads.values
         pausedUploads.removeAll()
         for continuation in waiting { continuation.resume() }
     }
 
-    /// The next upload of this hash fails as unreachable (once).
-    public func failNextUpload(hash: String) {
-        failingUploads.insert(hash)
+    /// The next upload of this hash fails with `error` (once).
+    public func failNextUpload(hash: String, with error: HomeRejection = .invalid("attachment_upload_failed")) {
+        failingUploads[hash] = error
+    }
+
+    /// Calls the progress callback of upload call `index` again (a late
+    /// callback that arrives after its upload ended).
+    public func replayProgress(ofCall index: Int, _ fraction: Double) {
+        guard progressCallbacks.indices.contains(index) else { return }
+        progressCallbacks[index](fraction)
     }
 
     /// The next `times` submits that reference `hash` drop its record first,

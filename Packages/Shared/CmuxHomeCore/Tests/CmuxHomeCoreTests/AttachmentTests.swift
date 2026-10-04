@@ -229,6 +229,11 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         for _ in 0..<5_000 where !condition() { await Task.yield() }
     }
 
+    /// Lets queued main-actor and source tasks run (for "nothing happens" checks).
+    func drainTasks() async {
+        for _ in 0..<500 { await Task.yield() }
+    }
+
     func twoAttachments(_ store: HomeStore) async throws -> (LocalAttachment, LocalAttachment) {
         let a = try await store.prepareAttachment(data: Data("first".utf8), typeIdentifier: UTType.plainText.identifier)
         let b = try await store.prepareAttachment(data: Data("second".utf8), typeIdentifier: UTType.plainText.identifier)
@@ -293,12 +298,12 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         let (a, b) = try await twoAttachments(store)
         await source.failNextUpload(hash: b.ref.hash)
         let key = IdempotencyKey("attach-fail")
-        await #expect(throws: HomeRejection.ownerUnreachable) {
+        await #expect(throws: HomeRejection.invalid("attachment_upload_failed")) {
             try await store.send(conversation: conversation, text: "two", attachments: [a, b], key: key)
         }
         let failed = try #require(store.transcript(for: conversation).last)
         #expect(failed.id == key)
-        #expect(failed.delivery == .notDelivered(.ownerUnreachable))
+        #expect(failed.delivery == .notDelivered(.invalid("attachment_upload_failed")))
         #expect(failed.attachmentProgress.isEmpty)
         #expect(await source.hasBlob(a.ref.hash))
         #expect(await !source.hasBlob(b.ref.hash))
@@ -312,6 +317,92 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         #expect(calls.filter { $0 == a.ref.hash }.count == 1)
         #expect(calls.filter { $0 == b.ref.hash }.count == 2)
         #expect(store.log.isEmpty)
+    }
+
+    /// `cancelSend` stops an upload in flight and drops the row; nothing
+    /// reaches the owner.
+    @Test func cancelSendStopsTheUploadAndDiscardsTheRow() async throws {
+        let (store, source) = try await started()
+        let (a, _) = try await twoAttachments(store)
+        await source.setUploadsPaused(true)
+        let key = IdempotencyKey("attach-cancel")
+        let before = store.transcript(for: conversation).count
+        let send = Task { try await store.send(conversation: conversation, text: "big", attachments: [a], key: key) }
+        await waitUntil { store.transcript(for: self.conversation).last?.attachmentProgress[a.ref.hash] == 0.5 }
+        #expect(store.cancelSend(key))
+        await #expect(throws: CancellationError.self) { try await send.value }
+        #expect(store.transcript(for: conversation).count == before)
+        #expect(store.log.isEmpty)
+        await source.setUploadsPaused(false)
+        #expect(await !source.hasBlob(a.ref.hash))
+        #expect(try await source.snapshot(of: conversation, tail: 5).messages.allSatisfy { $0.clientMessageID != key })
+        #expect(!store.cancelSend(key))
+    }
+
+    /// The connection drops mid-upload: the row stays "sending" (not "Not
+    /// Delivered"), and the upload resumes on reconnect and sends once.
+    @Test func disconnectMidUploadResumesOnReconnectAndSendsOnce() async throws {
+        let (store, source) = try await started()
+        let (a, _) = try await twoAttachments(store)
+        await source.setUploadsPaused(true)
+        let key = IdempotencyKey("attach-reconnect")
+        let send = Task { try await store.send(conversation: conversation, text: "later", attachments: [a], key: key) }
+        await waitUntil { store.transcript(for: self.conversation).last?.attachmentProgress[a.ref.hash] == 0.5 }
+        await source.setOnline(false)
+        await waitUntil { !store.isOnline }
+        await source.setUploadsPaused(false)
+        await #expect(throws: HomeSendState.pendingResend) { try await send.value }
+        let waiting = try #require(store.transcript(for: conversation).last)
+        #expect(waiting.id == key)
+        #expect(waiting.delivery == .sending)
+        #expect(await !source.hasBlob(a.ref.hash))
+
+        await source.setOnline(true)
+        await waitUntil { store.log.isEmpty }
+        #expect(store.log.isEmpty)
+        #expect(store.transcript(for: conversation).last?.id == key)
+        #expect(store.transcript(for: conversation).last?.delivery == .committed)
+        let page = try await source.snapshot(of: conversation, tail: 10)
+        #expect(page.messages.filter { $0.clientMessageID == key }.count == 1)
+        #expect(await source.uploadCalls.filter { $0 == a.ref.hash }.count == 2)
+    }
+
+    /// A progress callback that arrives after its upload failed, or from an
+    /// earlier attempt during a retry, changes nothing.
+    @Test func lateProgressFromAnEndedUploadIsIgnored() async throws {
+        let (store, source) = try await started()
+        let (a, _) = try await twoAttachments(store)
+        await source.failNextUpload(hash: a.ref.hash)
+        let key = IdempotencyKey("attach-late-progress")
+        _ = try? await store.send(conversation: conversation, text: "", attachments: [a], key: key)
+        #expect(store.transcript(for: conversation).last?.delivery == .notDelivered(.invalid("attachment_upload_failed")))
+        await source.replayProgress(ofCall: 0, 0.9)
+        await drainTasks()
+        #expect(store.transcript(for: conversation).last?.attachmentProgress.isEmpty == true)
+
+        await source.setUploadsPaused(true)
+        let retry = Task { try await store.retry(key) }
+        await waitUntil { store.transcript(for: self.conversation).last?.attachmentProgress[a.ref.hash] == 0.5 }
+        await source.replayProgress(ofCall: 0, 0.9)
+        await drainTasks()
+        #expect(store.transcript(for: conversation).last?.attachmentProgress == [a.ref.hash: 0.5])
+        await source.setUploadsPaused(false)
+        try await retry.value
+        await waitUntil { store.log.isEmpty }
+        #expect(store.transcript(for: conversation).last?.delivery == .committed)
+    }
+
+    /// A paused upload stops when its task is cancelled.
+    @Test(.timeLimit(.minutes(1))) func mockUploadHonorsCancellation() async throws {
+        let (store, source) = try await started()
+        let (a, _) = try await twoAttachments(store)
+        await source.setUploadsPaused(true)
+        let conversation = self.conversation
+        let upload = Task { try await source.upload(AttachmentUpload(conversation: conversation, fileURL: a.fileURL, ref: a.ref)) }
+        await drainTasks()
+        upload.cancel()
+        await #expect(throws: CancellationError.self) { try await upload.value }
+        #expect(await !source.hasBlob(a.ref.hash))
     }
 
     @Test func discardDropsAFailedUpload() async throws {
