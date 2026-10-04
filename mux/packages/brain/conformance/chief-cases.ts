@@ -1091,6 +1091,36 @@ function promptRetryCases(): CorpusCase[] {
   }
 
   {
+    // The refusal count stays set after acceptance; a retry timer that fires while the turn
+    // runs (or after acceptance) sends nothing.
+    const c = new CaseBuilder("prompts: a refused prompt that acpmux then accepts and runs: its pending retry timer sends nothing");
+    boot(c);
+    const m1 = msg("conv_a", 1, USER_LOCAL, "hello");
+    c.step(live(m1), ["persist", "prompt"]);
+    c.step({ kind: "prompt_settled", prompt_id: m1.id, rejected: true, error: "busy" } as Input, ["conversation_op", "arm_timer"]);
+    c.step(mux(ev(1, "user_message", { promptId: m1.id })), []);
+    c.step(mux(ev(2, "turn_started")), ["typing"]);
+    c.step({ kind: "timer", key: `prompt:${m1.id}` }, [], undefined, 1_000);
+    cases.push(c.end());
+  }
+
+  {
+    // acpmux accepted and queued the prompt behind a running turn; a late or duplicate refusal of
+    // it must not re-arm a retry (a resend would duplicate the queued prompt).
+    const c = new CaseBuilder("prompts: a refusal of a prompt acpmux accepted and queued is ignored");
+    boot(c);
+    const m1 = msg("conv_a", 1, USER_LOCAL, "first");
+    const m2 = msg("conv_a", 2, USER_LOCAL, "second");
+    c.step(live(m1), ["persist", "prompt"]);
+    c.step(mux(ev(1, "user_message", { promptId: m1.id })), ["conversation_op"]);
+    c.step(mux(ev(2, "turn_started")), ["typing"]);
+    c.step(live(m2), ["persist", "prompt"]);
+    c.step(mux(ev(3, "queued", { promptId: m2.id })), ["conversation_op"]);
+    c.step({ kind: "prompt_settled", prompt_id: m2.id, rejected: true, error: "duplicate" } as Input, []);
+    cases.push(c.end());
+  }
+
+  {
     const c = new CaseBuilder("prompts: an empty refusal text reads as refused");
     boot(c);
     const m1 = msg("conv_a", 1, USER_LOCAL, "hello");
