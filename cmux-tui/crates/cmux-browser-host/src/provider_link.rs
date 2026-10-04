@@ -224,8 +224,10 @@ fn apply_lease(
     op: &crate::lease::LeaseOp,
     caller: &crate::lease::LeaseCaller,
 ) -> Result<(), crate::lease::LeaseError> {
-    let frames =
-        leases.lock().unwrap_or_else(PoisonError::into_inner).apply(op, caller, now_ms())?;
+    // The table stays locked until the frames are written, so two changes
+    // reach the app in the order the table applied them.
+    let mut table = leases.lock().unwrap_or_else(PoisonError::into_inner);
+    let frames = table.apply(op, caller, now_ms())?;
     let mut writer = writer.lock().unwrap_or_else(PoisonError::into_inner);
     for frame in frames {
         let _ = write_frame(
