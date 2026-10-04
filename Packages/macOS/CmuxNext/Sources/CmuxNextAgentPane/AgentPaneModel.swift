@@ -102,7 +102,8 @@ public final class AgentPaneModel {
     /// The reply for one page request.
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
-        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability: break
+        // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
+        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .unsupported: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
             userTouched = true

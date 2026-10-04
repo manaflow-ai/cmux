@@ -59,6 +59,8 @@ import Testing
         _ = await model.respond(to: .framePacing([16.7]))
         _ = await model.respond(to: .renderRate(true))
         _ = await model.respond(to: .checkpointAvailability(false))
+        // A request the host refuses changed nothing.
+        _ = await model.respond(to: .unsupported("page.probe"))
         #expect(model.userTouched == false)
         _ = await model.respond(to: .touched)
         #expect(model.userTouched == true)
