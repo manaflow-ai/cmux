@@ -72,10 +72,10 @@ extension MachinesPanelViewModel {
             let result: Result<VMListPage, Error>
             do { result = .success(try await client.listPage()) }
             catch { result = .failure(error) }
+            guard !Task.isCancelled, let self, generation == self.refreshGeneration else { return }
             if case .success(let page) = result {
                 NewMachineSheetDataCache.shared?.ingest(page: page, scope: sheetCacheScope)
             }
-            guard !Task.isCancelled, let self, generation == self.refreshGeneration else { return }
             self.applyRefreshResult(result, generation: generation, scope: scope)
             self.refreshTask = nil
             if self.refreshRequestedWhileLoading {

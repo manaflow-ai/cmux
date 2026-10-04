@@ -1497,6 +1497,11 @@ lane = "macos-cli-product"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_hooks_setup_arguments.py"
+lane = "macos-cli-product"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_ci_machine_failure.py"
 lane = "linux-guard"
 
@@ -1567,4 +1572,16 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_frame_pacing_summary.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_r2_presign.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_merge_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_merge_green.py"
 lane = "linux-guard"

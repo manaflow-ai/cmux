@@ -271480,58 +271480,124 @@
     "pricing.native.compare.concurrent.team": {
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 po plaćenom mjestu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 pr. betalt plads"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 per postazione a pagamento"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 ក្នុងមួយកៅអីបង់ប្រាក់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 per betalt plass"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 na płatne miejsce"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 por assento pago"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 на оплаченное место"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 ต่อที่นั่งแบบชำระเงิน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ücretli koltuk başına 5"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 на оплачене місце"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "5 per user"
+            "value": "5 per paid seat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ユーザーごとに 5"
+            "value": "有料シートごとに 5"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "每用户 5 个"
+            "value": "每个付费席位 5 个"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "5 pro Benutzer"
+            "value": "5 pro bezahltem Platz"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "5 par utilisateur"
+            "value": "5 par siège payant"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "5 لكل مستخدم"
+            "value": "5 لكل مقعد مدفوع"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "5 por usuario"
+            "value": "5 por puesto de pago"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "每位使用者 5 個"
+            "value": "每個付費席位 5 個"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용자당 5개"
+            "value": "유료 시트당 5개"
           }
         }
       }
@@ -273950,58 +274016,124 @@
     "pricing.native.pro.feature.hours": {
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Op til 5 Cloud VMs, der deler 20 vCPU'er og 40 GB RAM"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fino a 5 Cloud VM che condividono 20 vCPU e 40 GB di RAM"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 20 និង RAM 40 GB"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opptil 5 Cloud VMs som deler 20 vCPU-er og 40 GB RAM"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Do 5 Cloud VMs, które współdzielą 20 vCPU i 40 GB RAM"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Até 5 Cloud VMs que compartilham 20 vCPUs e 40 GB de RAM"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "До 5 Cloud VMs с общими 20 vCPU и 40 ГБ RAM"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VMs สูงสุด 5 เครื่อง ใช้ 20 vCPU และ RAM 40 GB ร่วมกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU ve 40 GB RAM'i paylaşan en fazla 5 Cloud VM"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "До 5 Cloud VMs зі спільними 20 vCPU і 40 ГБ RAM"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM"
+            "value": "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大 5 台の Cloud VM、VM あたり最大 4 vCPU と 8 GB RAM"
+            "value": "最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "最多 5 台云端虚拟机，每台最多 4 个虚拟 CPU 和 8 GB 内存"
+            "value": "最多 5 台云端虚拟机，共享 20 个虚拟 CPU 和 40 GB 内存"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bis zu 5 Cloud-VMs mit bis zu 4 vCPUs und 8 GB RAM pro VM"
+            "value": "Bis zu 5 Cloud-VMs, die sich 20 vCPUs und 40 GB RAM teilen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jusqu’à 5 VM cloud, jusqu’à 4 vCPU et 8 Go de RAM par VM"
+            "value": "Jusqu’à 5 VM cloud partageant 20 vCPU et 40 Go de RAM"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية، بحد أقصى 4 وحدات معالجة مركزية افتراضية و8 جيجابايت من الذاكرة لكل جهاز"
+            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 20 وحدة معالجة مركزية افتراضية و40 جيجابايت من الذاكرة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hasta 5 VM en la nube, con hasta 4 vCPU y 8 GB de RAM por VM"
+            "value": "Hasta 5 VM en la nube que comparten 20 vCPU y 40 GB de RAM"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "最多 5 台雲端虛擬機，每台最多 4 個虛擬 CPU 與 8 GB 記憶體"
+            "value": "最多 5 台雲端虛擬機，共用 20 個虛擬 CPU 與 40 GB 記憶體"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "최대 5개의 클라우드 VM, VM당 최대 vCPU 4개와 RAM 8 GB"
+            "value": "최대 5개의 클라우드 VM이 vCPU 20개와 RAM 40 GB를 공유"
           }
         }
       }
@@ -274558,121 +274690,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 5 Cloud VMs, with up to 4 vCPUs and 8 GB RAM per VM. Team includes the same limits per user. There is no metering or overage billing."
+            "value": "Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. Team adds the same pool for each paid seat, shared across the team. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. There is no metering or overage billing."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro には最大 5 台の Cloud VM が含まれ、VM あたり最大 4 vCPU と 8 GB RAM を利用できます。Team ではユーザーごとに同じ上限が適用されます。従量課金や超過料金はありません。"
+            "value": "Pro には最大 5 台の Cloud VM が含まれ、20 vCPU と 40 GB RAM を共有します。Team では有料シートごとに同じプールが加わり、チーム全体で共有します。VM はすべて 1 つのプールからリソースを使います。大きな VM を 1 台動かすことも、小さな VM を 5 台動かすこともできます。一時停止中の VM はプールを使いません。従量課金や超過料金はありません。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتضمن باقة Pro ما يصل إلى 5 أجهزة افتراضية سحابية، بحد أقصى 4 وحدات معالجة مركزية افتراضية و8 جيجابايت من الذاكرة لكل جهاز. وتمنح باقة Team الحدود نفسها لكل مستخدم. لا توجد فوترة حسب الاستهلاك أو رسوم إضافية لتجاوز الحدود."
+            "value": "تتضمن باقة Pro ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 20 وحدة معالجة مركزية افتراضية و40 جيجابايت من الذاكرة. وتضيف باقة Team المجموعة نفسها لكل مقعد مدفوع، ويتشاركها الفريق بأكمله. تستمد أجهزتك الافتراضية مواردها من مجموعة واحدة، فيمكنك تشغيل جهاز كبير واحد أو خمسة أجهزة صغيرة. ولا تستهلك الأجهزة المتوقفة مؤقتًا شيئًا من المجموعة. لا توجد فوترة حسب الاستهلاك أو رسوم إضافية لتجاوز الحدود."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro uključuje do 5 Cloud VM-ova, s najviše 4 vCPU-a i 8 GB RAM-a po VM-u. Team uključuje ista ograničenja po korisniku. Nema naplate prema potrošnji niti naplate prekoračenja."
+            "value": "Pro uključuje do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a. Team dodaje isti skup resursa za svako plaćeno mjesto, zajednički za cijeli tim. Vaši VM-ovi koriste jedan zajednički skup. Pokrenite jedan veliki VM ili pet malih. Pauzirani VM-ovi ne koriste skup. Nema naplate prema potrošnji niti naplate prekoračenja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro inkluderer op til 5 Cloud VMs med op til 4 vCPU'er og 8 GB RAM pr. VM. Team inkluderer de samme grænser pr. bruger. Der er ingen forbrugsafregning eller betaling for overforbrug."
+            "value": "Pro inkluderer op til 5 Cloud VMs, der deler 20 vCPU'er og 40 GB RAM. Team tilføjer den samme pulje for hver betalt plads, delt på tværs af teamet. Dine VMs trækker på én fælles pulje. Kør én stor VM eller fem små. VMs på pause bruger ikke af puljen. Der er ingen forbrugsafregning eller betaling for overforbrug."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro beinhaltet bis zu 5 Cloud-VMs mit bis zu 4 vCPUs und 8 GB RAM pro VM. Team beinhaltet dieselben Limits pro Benutzer. Es gibt keine verbrauchsabhängige Abrechnung oder Nachberechnung."
+            "value": "Pro beinhaltet bis zu 5 Cloud-VMs, die sich 20 vCPUs und 40 GB RAM teilen. Team fügt denselben Pool für jeden bezahlten Platz hinzu, gemeinsam für das ganze Team. Deine VMs nutzen einen gemeinsamen Pool. Betreibe eine große VM oder fünf kleine. Pausierte VMs belegen nichts vom Pool. Es gibt keine verbrauchsabhängige Abrechnung oder Nachberechnung."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro incluye hasta 5 VM en la nube, con hasta 4 vCPU y 8 GB de RAM por VM. Team incluye los mismos límites por usuario. No hay facturación por consumo ni por exceso."
+            "value": "Pro incluye hasta 5 VM en la nube que comparten 20 vCPU y 40 GB de RAM. Team añade el mismo grupo de recursos por cada puesto de pago, compartido por todo el equipo. Tus VM usan un único grupo de recursos. Ejecuta una VM grande o cinco pequeñas. Las VM en pausa no usan el grupo. No hay facturación por consumo ni por exceso."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro inclut jusqu'à 5 VM Cloud, avec jusqu'à 4 vCPU et 8 Go de RAM par VM. Team inclut les mêmes limites par utilisateur. Il n'y a pas de facturation à l'utilisation ou de dépassement."
+            "value": "Pro inclut jusqu'à 5 VM Cloud qui partagent 20 vCPU et 40 Go de RAM. Team ajoute la même réserve pour chaque siège payant, partagée par toute l'équipe. Vos VM puisent dans une réserve commune. Lancez une grande VM ou cinq petites. Les VM en pause n'utilisent pas la réserve. Il n'y a pas de facturation à l'utilisation ou de dépassement."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro include fino a 5 Cloud VM, con fino a 4 vCPU e 8 GB di RAM per VM. Team include gli stessi limiti per utente. Non è prevista fatturazione a consumo né per eccedenze."
+            "value": "Pro include fino a 5 Cloud VM che condividono 20 vCPU e 40 GB di RAM. Team aggiunge lo stesso pool per ogni postazione a pagamento, condiviso da tutto il team. Le tue VM attingono a un unico pool. Esegui una VM grande o cinque piccole. Le VM in pausa non usano il pool. Non è prevista fatturazione a consumo né per eccedenze."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro រួមបញ្ចូល Cloud VMs រហូតដល់ 5 ដោយមាន vCPU រហូតដល់ 4 និង RAM 8 GB ក្នុងមួយ VM។ Team រួមបញ្ចូលដែនកំណត់ដូចគ្នាសម្រាប់អ្នកប្រើម្នាក់ៗ។ មិនមានការគិតថ្លៃតាមការប្រើប្រាស់ ឬថ្លៃលើសកំណត់ទេ។"
+            "value": "Pro រួមបញ្ចូល Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 20 និង RAM 40 GB។ Team បន្ថែមបណ្តុំធនធានដូចគ្នាសម្រាប់កៅអីបង់ប្រាក់នីមួយៗ ដែលក្រុមទាំងមូលប្រើរួមគ្នា។ VMs របស់អ្នកប្រើធនធានពីបណ្តុំតែមួយ។ ដំណើរការ VM ធំមួយ ឬ VM តូចប្រាំ។ VMs ដែលបានផ្អាកមិនប្រើបណ្តុំទេ។ មិនមានការគិតថ្លៃតាមការប្រើប្រាស់ ឬថ្លៃលើសកំណត់ទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro는 최대 5개의 클라우드 VM을 포함하며, VM당 최대 vCPU 4개와 RAM 8 GB를 사용할 수 있습니다. Team은 사용자마다 동일한 한도가 적용됩니다. 사용량 기반 과금이나 초과 요금은 없습니다."
+            "value": "Pro는 최대 5개의 클라우드 VM을 포함하며, VM들이 vCPU 20개와 RAM 40 GB를 공유합니다. Team은 유료 시트마다 동일한 풀이 추가되며 팀 전체가 공유합니다. VM은 하나의 풀에서 리소스를 사용합니다. 큰 VM 1개를 실행하거나 작은 VM 5개를 실행할 수 있습니다. 일시 중지된 VM은 풀을 사용하지 않습니다. 사용량 기반 과금이나 초과 요금은 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro inkluderer opptil 5 Cloud VMs med opptil 4 vCPU-er og 8 GB RAM per VM. Team inkluderer de samme grensene per bruker. Det er ingen forbruksbasert fakturering eller betaling for overforbruk."
+            "value": "Pro inkluderer opptil 5 Cloud VMs som deler 20 vCPU-er og 40 GB RAM. Team legger til den samme ressurspoolen for hver betalt plass, delt på tvers av teamet. VM-ene dine bruker én felles ressurspool. Kjør én stor VM eller fem små. VM-er på pause bruker ikke av ressurspoolen. Det er ingen forbruksbasert fakturering eller betaling for overforbruk."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro obejmuje do 5 Cloud VMs, z maksymalnie 4 vCPU i 8 GB RAM na VM. Team obejmuje te same limity na użytkownika. Nie ma rozliczeń za zużycie ani opłat za przekroczenie limitów."
+            "value": "Pro obejmuje do 5 Cloud VMs, które współdzielą 20 vCPU i 40 GB RAM. Team dodaje tę samą pulę za każde płatne miejsce, wspólną dla całego zespołu. Twoje VM korzystają z jednej wspólnej puli. Uruchom jedną dużą VM albo pięć małych. Wstrzymane VM nie zużywają puli. Nie ma rozliczeń za zużycie ani opłat za przekroczenie limitów."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O Pro inclui até 5 Cloud VMs, com até 4 vCPUs e 8 GB de RAM por VM. O Team inclui os mesmos limites por usuário. Não há cobrança por uso nem por excedente."
+            "value": "O Pro inclui até 5 Cloud VMs que compartilham 20 vCPUs e 40 GB de RAM. O Team adiciona o mesmo pool para cada assento pago, compartilhado por toda a equipe. Suas VMs usam um único pool de recursos. Execute uma VM grande ou cinco pequenas. VMs pausadas não usam o pool. Não há cobrança por uso nem por excedente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro включает до 5 Cloud VMs, до 4 vCPU и 8 ГБ RAM на каждую VM. Team включает те же лимиты на пользователя. Нет оплаты по факту использования или за превышение."
+            "value": "Pro включает до 5 Cloud VMs с общим пулом из 20 vCPU и 40 ГБ RAM. Team добавляет такой же пул за каждое оплаченное место, общий для всей команды. Все ваши VM берут ресурсы из одного пула. Запустите одну большую VM или пять маленьких. Приостановленные VM не расходуют пул. Нет оплаты по факту использования или за превышение."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro มี Cloud VMs ได้สูงสุด 5 เครื่อง แต่ละ VM มีได้สูงสุด 4 vCPU และ RAM 8 GB Team มีขีดจำกัดเดียวกันต่อผู้ใช้ ไม่มีการคิดค่าบริการตามการใช้งานหรือค่าใช้งานส่วนเกิน"
+            "value": "Pro มี Cloud VMs ได้สูงสุด 5 เครื่อง ซึ่งใช้ 20 vCPU และ RAM 40 GB ร่วมกัน Team เพิ่มพูลเดียวกันนี้ต่อที่นั่งแบบชำระเงินแต่ละที่นั่ง โดยใช้ร่วมกันทั้งทีม VM ทั้งหมดของคุณใช้ทรัพยากรจากพูลเดียว จะรัน VM ใหญ่เครื่องเดียวหรือ VM เล็กห้าเครื่องก็ได้ VM ที่หยุดชั่วคราวไม่ใช้พูล ไม่มีการคิดค่าบริการตามการใช้งานหรือค่าใช้งานส่วนเกิน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro, VM başına en fazla 4 vCPU ve 8 GB RAM ile en fazla 5 Cloud VM içerir. Team, kullanıcı başına aynı sınırları içerir. Kullanıma göre ücretlendirme veya aşım ücreti yoktur."
+            "value": "Pro, 20 vCPU ve 40 GB RAM'i paylaşan en fazla 5 Cloud VM içerir. Team, her ücretli koltuk için aynı havuzu ekler ve bu havuz tüm ekip tarafından paylaşılır. VM'leriniz tek bir havuzu kullanır. Tek bir büyük VM ya da beş küçük VM çalıştırın. Duraklatılmış VM'ler havuzu kullanmaz. Kullanıma göre ücretlendirme veya aşım ücreti yoktur."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro включає до 5 Cloud VMs, до 4 vCPU і 8 ГБ RAM на кожну VM. Team включає ті самі ліміти на користувача. Немає оплати за фактичне використання чи за перевищення."
+            "value": "Pro включає до 5 Cloud VMs зі спільним пулом із 20 vCPU і 40 ГБ RAM. Team додає такий самий пул за кожне оплачене місце, спільний для всієї команди. Усі ваші VM беруть ресурси з одного пулу. Запустіть одну велику VM або п'ять малих. Призупинені VM не використовують пул. Немає оплати за фактичне використання чи за перевищення."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro 最多包含 5 台云端虚拟机，每台最多 4 个虚拟 CPU 和 8 GB 内存。Team 的每位用户享有相同上限。不按用量计费，也不收取超额费用。"
+            "value": "Pro 最多包含 5 台云端虚拟机，共享 20 个虚拟 CPU 和 40 GB 内存。Team 为每个付费席位增加相同的资源池，由整个团队共享。你的虚拟机共用一个资源池，可以运行一台大型虚拟机，也可以运行五台小型虚拟机。已暂停的虚拟机不占用资源池。不按用量计费，也不收取超额费用。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro 包含最多 5 台雲端虛擬機，每台最多 4 個虛擬 CPU 與 8 GB 記憶體。Team 的每位使用者享有相同上限。不按用量計費，也不收取超額費用。"
+            "value": "Pro 包含最多 5 台雲端虛擬機，共用 20 個虛擬 CPU 與 40 GB 記憶體。Team 為每個付費席位增加相同的資源池，由整個團隊共用。你的虛擬機共用一個資源池，可以執行一台大型虛擬機，也可以執行五台小型虛擬機。已暫停的虛擬機不會占用資源池。不按用量計費，也不收取超額費用。"
           }
         }
       }
@@ -275336,58 +275468,124 @@
     "pricing.native.team.feature.compute": {
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Do 5 Cloud VM-ova po plaćenom mjestu, koji dijele 20 vCPU-a i 40 GB RAM-a po plaćenom mjestu u cijelom timu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Op til 5 Cloud VMs pr. betalt plads, der deler 20 vCPU'er og 40 GB RAM pr. betalt plads på tværs af teamet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fino a 5 Cloud VM per postazione a pagamento, che condividono 20 vCPU e 40 GB di RAM per postazione a pagamento in tutto il team"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VMs រហូតដល់ 5 ក្នុងមួយកៅអីបង់ប្រាក់ ដែលប្រើ vCPU 20 និង RAM 40 GB ក្នុងមួយកៅអីបង់ប្រាក់ រួមគ្នាទូទាំងក្រុម"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opptil 5 Cloud VMs per betalt plass, som deler 20 vCPU-er og 40 GB RAM per betalt plass på tvers av teamet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Do 5 Cloud VMs na płatne miejsce, współdzielących 20 vCPU i 40 GB RAM na płatne miejsce w całym zespole"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Até 5 Cloud VMs por assento pago, que compartilham 20 vCPUs e 40 GB de RAM por assento pago em toda a equipe"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "До 5 Cloud VMs на оплаченное место с общими для всей команды 20 vCPU и 40 ГБ RAM на оплаченное место"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VMs สูงสุด 5 เครื่องต่อที่นั่งแบบชำระเงิน ใช้ 20 vCPU และ RAM 40 GB ต่อที่นั่งแบบชำระเงินร่วมกันทั้งทีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ücretli koltuk başına en fazla 5 Cloud VM; ücretli koltuk başına 20 vCPU ve 40 GB RAM tüm ekip tarafından paylaşılır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "До 5 Cloud VMs на оплачене місце зі спільними для всієї команди 20 vCPU і 40 ГБ RAM на оплачене місце"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 5 Cloud VMs per user, up to 4 vCPUs and 8 GB RAM per VM"
+            "value": "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ユーザーごとに最大 5 台の Cloud VM、VM あたり最大 4 vCPU と 8 GB RAM"
+            "value": "有料シートごとに最大 5 台の Cloud VM、有料シートごとの 20 vCPU と 40 GB RAM をチーム全体で共有"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "每位用户最多 5 台云端虚拟机，每台最多 4 个虚拟 CPU 和 8 GB 内存"
+            "value": "每个付费席位最多 5 台云端虚拟机，每个付费席位的 20 个虚拟 CPU 和 40 GB 内存由整个团队共享"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bis zu 5 Cloud-VMs pro Benutzer mit bis zu 4 vCPUs und 8 GB RAM pro VM"
+            "value": "Bis zu 5 Cloud-VMs pro bezahltem Platz, die sich im ganzen Team 20 vCPUs und 40 GB RAM pro bezahltem Platz teilen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jusqu’à 5 VM cloud par utilisateur, jusqu’à 4 vCPU et 8 Go de RAM par VM"
+            "value": "Jusqu’à 5 VM cloud par siège payant, partageant 20 vCPU et 40 Go de RAM par siège payant dans toute l’équipe"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية لكل مستخدم، بحد أقصى 4 وحدات معالجة مركزية افتراضية و8 جيجابايت من الذاكرة لكل جهاز"
+            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية لكل مقعد مدفوع، تتشارك 20 وحدة معالجة مركزية افتراضية و40 جيجابايت من الذاكرة لكل مقعد مدفوع على مستوى الفريق"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hasta 5 VM en la nube por usuario, con hasta 4 vCPU y 8 GB de RAM por VM"
+            "value": "Hasta 5 VM en la nube por puesto de pago, que comparten 20 vCPU y 40 GB de RAM por puesto de pago en todo el equipo"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "每位使用者最多 5 台雲端虛擬機，每台最多 4 個虛擬 CPU 與 8 GB 記憶體"
+            "value": "每個付費席位最多 5 台雲端虛擬機，每個付費席位的 20 個虛擬 CPU 與 40 GB 記憶體由整個團隊共用"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용자당 최대 5개의 클라우드 VM, VM당 최대 vCPU 4개와 RAM 8 GB"
+            "value": "유료 시트당 최대 5개의 클라우드 VM, 유료 시트당 vCPU 20개와 RAM 40 GB를 팀 전체가 공유"
           }
         }
       }
@@ -292789,58 +292987,124 @@
     "settings.account.pro.subtitle": {
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a, plus iOS aplikacija. 50 $ mjesečno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Op til 5 Cloud VMs, der deler 20 vCPU'er og 40 GB RAM plus iOS-appen. 50 $/måned."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fino a 5 Cloud VM che condividono 20 vCPU e 40 GB di RAM, più l'app iOS. 50 $/mese."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 20 និង RAM 40 GB បូកទាំងកម្មវិធី iOS។ $50/ខែ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opptil 5 Cloud VMs som deler 20 vCPU-er og 40 GB RAM, pluss iOS-appen. 50 $/måned."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Do 5 Cloud VMs, które współdzielą 20 vCPU i 40 GB RAM, a do tego aplikacja iOS. 50 $/miesiąc."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Até 5 Cloud VMs que compartilham 20 vCPUs e 40 GB de RAM, além do app para iOS. US$50/mês."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "До 5 Cloud VMs с общими 20 vCPU и 40 ГБ RAM, а также приложение для iOS. $50 в месяц."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VMs สูงสุด 5 เครื่อง ใช้ 20 vCPU และ RAM 40 GB ร่วมกัน พร้อมแอป iOS $50/เดือน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU ve 40 GB RAM'i paylaşan en fazla 5 Cloud VM, ayrıca iOS uygulaması. Aylık 50 $."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "До 5 Cloud VMs зі спільними 20 vCPU і 40 ГБ RAM, а також застосунок для iOS. $50 на місяць."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM, and the iOS app. $50/month."
+            "value": "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the iOS app. $50/month."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大 5 台の Cloud VM（VM あたり最大 4 vCPU・8 GB RAM）と iOS アプリ。月額$50。"
+            "value": "20 vCPU と 40 GB RAM を共有する最大 5 台の Cloud VM と iOS アプリ。月額$50。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "最多 5 台云端虚拟机（每台最多 4 个虚拟 CPU 和 8 GB 内存）与 iOS 应用。每月 $50。"
+            "value": "最多 5 台云端虚拟机（共享 20 个虚拟 CPU 和 40 GB 内存），外加 iOS 应用。每月 $50。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bis zu 5 Cloud-VMs mit bis zu 4 vCPUs und 8 GB RAM pro VM sowie die iOS-App. 50 $/Monat."
+            "value": "Bis zu 5 Cloud-VMs, die sich 20 vCPUs und 40 GB RAM teilen, plus die iOS-App. 50 $/Monat."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jusqu’à 5 VM cloud, jusqu’à 4 vCPU et 8 Go de RAM par VM, et l’application iOS. 50 $/mois."
+            "value": "Jusqu’à 5 VM cloud partageant 20 vCPU et 40 Go de RAM, plus l’application iOS. 50 $/mois."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية، بحد أقصى 4 وحدات معالجة مركزية افتراضية و8 جيجابايت من الذاكرة لكل جهاز، وتطبيق iOS. 50$ شهريًا."
+            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 20 وحدة معالجة مركزية افتراضية و40 جيجابايت من الذاكرة، بالإضافة إلى تطبيق iOS. 50$ شهريًا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hasta 5 VM en la nube, con hasta 4 vCPU y 8 GB de RAM por VM, y la aplicación para iOS. $50 al mes."
+            "value": "Hasta 5 VM en la nube que comparten 20 vCPU y 40 GB de RAM, además de la aplicación para iOS. $50 al mes."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "最多 5 台雲端虛擬機（每台最多 4 個虛擬 CPU 與 8 GB 記憶體）與 iOS 應用程式。每月 50 美元。"
+            "value": "最多 5 台雲端虛擬機（共用 20 個虛擬 CPU 與 40 GB 記憶體），外加 iOS 應用程式。每月 50 美元。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "최대 5개의 클라우드 VM(VM당 최대 vCPU 4개, RAM 8 GB)과 iOS 앱. 월 $50."
+            "value": "vCPU 20개와 RAM 40 GB를 공유하는 최대 5개의 클라우드 VM과 iOS 앱. 월 $50."
           }
         }
       }
@@ -521651,58 +521915,124 @@
     "pricing.native.sizes.max": {
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max uključuje do 5 Cloud VM-ova koji dijele 80 vCPU-a i 160 GB RAM-a, a jedan VM može koristiti do 64 GB RAM-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max inkluderer op til 5 Cloud VMs, der deler 80 vCPU'er og 160 GB RAM, og én VM kan bruge op til 64 GB RAM."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max include fino a 5 Cloud VM che condividono 80 vCPU e 160 GB di RAM, e una singola VM può usare fino a 64 GB di RAM."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max រួមបញ្ចូល Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 80 និង RAM 160 GB ហើយ VM មួយអាចប្រើ RAM រហូតដល់ 64 GB។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max inkluderer opptil 5 Cloud VMs som deler 80 vCPU-er og 160 GB RAM, og én VM kan bruke opptil 64 GB RAM."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max obejmuje do 5 Cloud VMs, które współdzielą 80 vCPU i 160 GB RAM, a jedna VM może używać do 64 GB RAM."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Max inclui até 5 Cloud VMs que compartilham 80 vCPUs e 160 GB de RAM, e uma VM pode usar até 64 GB de RAM."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max включает до 5 Cloud VMs с общими 80 vCPU и 160 ГБ RAM, а одна VM может использовать до 64 ГБ RAM."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max มี Cloud VMs ได้สูงสุด 5 เครื่อง ซึ่งใช้ 80 vCPU และ RAM 160 GB ร่วมกัน และ VM หนึ่งเครื่องใช้ RAM ได้สูงสุด 64 GB"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max, 80 vCPU ve 160 GB RAM'i paylaşan en fazla 5 Cloud VM içerir ve tek bir VM en fazla 64 GB RAM kullanabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max включає до 5 Cloud VMs зі спільними 80 vCPU і 160 ГБ RAM, а одна VM може використовувати до 64 ГБ RAM."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max includes up to 5 Cloud VMs, with up to 16 vCPUs and 32 GB RAM per VM."
+            "value": "Max includes up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, and one VM can use up to 64 GB RAM."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max beinhaltet bis zu 5 Cloud-VMs mit bis zu 16 vCPUs und 32 GB RAM pro VM."
+            "value": "Max beinhaltet bis zu 5 Cloud-VMs, die sich 80 vCPUs und 160 GB RAM teilen; eine einzelne VM kann bis zu 64 GB RAM nutzen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max inclut jusqu'à 5 VM Cloud, avec jusqu'à 16 vCPU et 32 Go de RAM par VM."
+            "value": "Max inclut jusqu'à 5 VM Cloud qui partagent 80 vCPU et 160 Go de RAM, et une seule VM peut utiliser jusqu'à 64 Go de RAM."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتضمن باقة Max ما يصل إلى 5 أجهزة افتراضية سحابية، بحد أقصى 16 وحدة معالجة مركزية افتراضية و32 جيجابايت من الذاكرة لكل جهاز."
+            "value": "تتضمن باقة Max ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 80 وحدة معالجة مركزية افتراضية و160 جيجابايت من الذاكرة، ويمكن للجهاز الواحد استخدام ما يصل إلى 64 جيجابايت من الذاكرة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max incluye hasta 5 VM en la nube, con hasta 16 vCPU y 32 GB de RAM por VM."
+            "value": "Max incluye hasta 5 VM en la nube que comparten 80 vCPU y 160 GB de RAM, y una sola VM puede usar hasta 64 GB de RAM."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max 包含最多 5 台雲端虛擬機，每台最多 16 個虛擬 CPU 與 32 GB 記憶體。"
+            "value": "Max 包含最多 5 台雲端虛擬機，共用 80 個虛擬 CPU 與 160 GB 記憶體，單台虛擬機最多可使用 64 GB 記憶體。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max 最多包含 5 台云端虚拟机，每台最多 16 个虚拟 CPU 和 32 GB 内存。"
+            "value": "Max 最多包含 5 台云端虚拟机，共享 80 个虚拟 CPU 和 160 GB 内存，单台虚拟机最多可使用 64 GB 内存。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max는 최대 5개의 클라우드 VM을 포함하며, VM당 최대 vCPU 16개와 RAM 32 GB를 사용할 수 있습니다."
+            "value": "Max는 최대 5개의 클라우드 VM을 포함하며, VM들이 vCPU 80개와 RAM 160 GB를 공유합니다. VM 1개는 최대 RAM 64 GB까지 사용할 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max には最大 5 台の Cloud VM が含まれ、VM あたり最大 16 vCPU と 32 GB RAM を利用できます。"
+            "value": "Max には最大 5 台の Cloud VM が含まれ、80 vCPU と 160 GB RAM を共有します。1 台の VM で最大 64 GB RAM を利用できます。"
           }
         }
       }
@@ -522477,58 +522807,124 @@
     "pricing.native.max.feature.sizes": {
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Do 5 Cloud VM-ova koji dijele 80 vCPU-a i 160 GB RAM-a"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Op til 5 Cloud VMs, der deler 80 vCPU'er og 160 GB RAM"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fino a 5 Cloud VM che condividono 80 vCPU e 160 GB di RAM"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VMs រហូតដល់ 5 ដែលចែករំលែក vCPU 80 និង RAM 160 GB"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opptil 5 Cloud VMs som deler 80 vCPU-er og 160 GB RAM"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Do 5 Cloud VMs, które współdzielą 80 vCPU i 160 GB RAM"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Até 5 Cloud VMs que compartilham 80 vCPUs e 160 GB de RAM"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "До 5 Cloud VMs с общими 80 vCPU и 160 ГБ RAM"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VMs สูงสุด 5 เครื่อง ใช้ 80 vCPU และ RAM 160 GB ร่วมกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "80 vCPU ve 160 GB RAM'i paylaşan en fazla 5 Cloud VM"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "До 5 Cloud VMs зі спільними 80 vCPU і 160 ГБ RAM"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 5 Cloud VMs, up to 16 vCPUs and 32 GB RAM per VM"
+            "value": "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bis zu 5 Cloud-VMs mit bis zu 16 vCPUs und 32 GB RAM pro VM"
+            "value": "Bis zu 5 Cloud-VMs, die sich 80 vCPUs und 160 GB RAM teilen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jusqu’à 5 VM cloud, jusqu’à 16 vCPU et 32 Go de RAM par VM"
+            "value": "Jusqu’à 5 VM cloud partageant 80 vCPU et 160 Go de RAM"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية، بحد أقصى 16 وحدة معالجة مركزية افتراضية و32 جيجابايت من الذاكرة لكل جهاز"
+            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية تتشارك 80 وحدة معالجة مركزية افتراضية و160 جيجابايت من الذاكرة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hasta 5 VM en la nube, con hasta 16 vCPU y 32 GB de RAM por VM"
+            "value": "Hasta 5 VM en la nube que comparten 80 vCPU y 160 GB de RAM"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "最多 5 台雲端虛擬機，每台最多 16 個虛擬 CPU 與 32 GB 記憶體"
+            "value": "最多 5 台雲端虛擬機，共用 80 個虛擬 CPU 與 160 GB 記憶體"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "最多 5 台云端虚拟机，每台最多 16 个虚拟 CPU 和 32 GB 内存"
+            "value": "最多 5 台云端虚拟机，共享 80 个虚拟 CPU 和 160 GB 内存"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "최대 5개의 클라우드 VM, VM당 최대 vCPU 16개와 RAM 32 GB"
+            "value": "최대 5개의 클라우드 VM이 vCPU 80개와 RAM 160 GB를 공유"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大 5 台の Cloud VM、VM あたり最大 16 vCPU と 32 GB RAM"
+            "value": "最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有"
           }
         }
       }
@@ -522654,58 +523050,124 @@
     "pricing.native.compare.largestVm.max": {
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 GB RAM-a"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 GB RAM"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 GB di RAM"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM 64 GB"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 GB RAM"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 GB RAM"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 GB de RAM"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 ГБ RAM"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM 64 GB"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 GB RAM"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 ГБ RAM"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB RAM"
+            "value": "64 GB RAM"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB Arbeitsspeicher"
+            "value": "64 GB Arbeitsspeicher"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 Go de RAM"
+            "value": "64 Go de RAM"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 غيغابايت من الذاكرة"
+            "value": "64 غيغابايت من الذاكرة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB de RAM"
+            "value": "64 GB de RAM"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB 記憶體"
+            "value": "64 GB 記憶體"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB 内存"
+            "value": "64 GB 内存"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB 메모리"
+            "value": "64 GB 메모리"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB メモリ"
+            "value": "64 GB メモリ"
           }
         }
       }
@@ -523303,58 +523765,124 @@
     "pricing.native.compare.largestVm.standard": {
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 GB RAM-a"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 GB RAM"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 GB di RAM"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM 32 GB"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 GB RAM"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 GB RAM"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 GB de RAM"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 ГБ RAM"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM 32 GB"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 GB RAM"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 ГБ RAM"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "8 GB RAM"
+            "value": "32 GB RAM"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "8 GB Arbeitsspeicher"
+            "value": "32 GB Arbeitsspeicher"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "8 Go de RAM"
+            "value": "32 Go de RAM"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "8 غيغابايت من الذاكرة"
+            "value": "32 غيغابايت من الذاكرة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "8 GB de RAM"
+            "value": "32 GB de RAM"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "8 GB 記憶體"
+            "value": "32 GB 記憶體"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "8 GB 内存"
+            "value": "32 GB 内存"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "8 GB 메모리"
+            "value": "32 GB 메모리"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "8 GB メモリ"
+            "value": "32 GB メモリ"
           }
         }
       }
@@ -618770,6 +619298,4311 @@
           "stringUnit": {
             "state": "translated",
             "value": "登入 %@"
+          }
+        }
+      }
+    },
+    "cloudVM.error.resourcePool.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pauzirajte ili izbrišite VM, ili pređite na Max."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sæt en VM på pause eller slet den, eller opgrader til Max."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metti in pausa o elimina una VM, oppure passa a Max."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្អាក ឬលុប VM មួយ ឬដំឡើងទៅ Max។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sett en VM på pause eller slett den, eller oppgrader til Max."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wstrzymaj lub usuń VM albo przejdź na Max."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause ou exclua uma VM, ou faça upgrade para o Max."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приостановите или удалите VM либо перейдите на Max."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุด VM ชั่วคราวหรือลบ VM หรืออัปเกรดเป็น Max"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir VM'yi duraklatın veya silin ya da Max'e yükseltin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Призупиніть або видаліть VM чи перейдіть на Max."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause or delete a VM, or upgrade to Max."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausiere oder lösche eine VM, oder führe ein Upgrade auf Max durch."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettez en pause ou supprimez une VM, ou passez à Max."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أوقف جهازًا افتراضيًا مؤقتًا أو احذفه، أو قم بالترقية إلى Max."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausa o elimina una VM, o actualiza a Max."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請暫停或刪除一台虛擬機，或升級至 Max。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请暂停或删除一台虚拟机，或升级到 Max。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM을 일시 중지하거나 삭제하거나 Max로 업그레이드하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM を一時停止するか削除する、または Max にアップグレードしてください。"
+          }
+        }
+      }
+    },
+    "cloudVM.error.resourcePool.maxAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pauzirajte ili izbrišite VM."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sæt en VM på pause eller slet den."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metti in pausa o elimina una VM."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្អាក ឬលុប VM មួយ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sett en VM på pause eller slett den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wstrzymaj lub usuń VM."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause ou exclua uma VM."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приостановите или удалите VM."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุด VM ชั่วคราวหรือลบ VM"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir VM'yi duraklatın veya silin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Призупиніть або видаліть VM."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause or delete a VM."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausiere oder lösche eine VM."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettez en pause ou supprimez une VM."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أوقف جهازًا افتراضيًا مؤقتًا أو احذفه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausa o elimina una VM."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請暫停或刪除一台虛擬機。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请暂停或删除一台虚拟机。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM을 일시 중지하거나 삭제하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM を一時停止するか削除してください。"
+          }
+        }
+      }
+    },
+    "cloud.machines.pool.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld od %2$lld vCPU-a · %3$lld od %4$lld GB RAM-a u upotrebi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld af %2$lld vCPU'er · %3$lld af %4$lld GB RAM i brug"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld di %2$lld vCPU · %3$lld di %4$lld GB di RAM in uso"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងប្រើ vCPU %1$lld ក្នុងចំណោម %2$lld · RAM %3$lld ក្នុងចំណោម %4$lld GB"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld av %2$lld vCPU-er · %3$lld av %4$lld GB RAM i bruk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W użyciu: %1$lld z %2$lld vCPU · %3$lld z %4$lld GB RAM"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld de %2$lld vCPUs · %3$lld de %4$lld GB de RAM em uso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Используется %1$lld из %2$lld vCPU · %3$lld из %4$lld ГБ RAM"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้อยู่ %1$lld จาก %2$lld vCPU · RAM %3$lld จาก %4$lld GB"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$lld vCPU'nun %1$lld tanesi · %4$lld GB RAM'in %3$lld GB'ı kullanımda"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використано %1$lld з %2$lld vCPU · %3$lld з %4$lld ГБ RAM"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld of %2$lld vCPUs · %3$lld of %4$lld GB RAM in use"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld von %2$lld vCPUs · %3$lld von %4$lld GB RAM belegt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld vCPU sur %2$lld · %3$lld Go de RAM sur %4$lld utilisés"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيد الاستخدام: %1$lld من %2$lld وحدة معالجة مركزية افتراضية · %3$lld من %4$lld جيجابايت من الذاكرة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld de %2$lld vCPU · %3$lld de %4$lld GB de RAM en uso"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已使用 %1$lld / %2$lld 個虛擬 CPU · %3$lld / %4$lld GB 記憶體"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已使用 %1$lld / %2$lld 个虚拟 CPU · %3$lld / %4$lld GB 内存"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 중: vCPU %1$lld/%2$lld개 · RAM %3$lld/%4$lld GB"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用中: %1$lld / %2$lld vCPU · %3$lld / %4$lld GB RAM"
+          }
+        }
+      }
+    },
+    "cloud.newMachine.pool.doesNotFit": {
+      "extractionState": "manual",
+      "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova veličina treba %1$lld GB RAM-a, ali je od vašeg skupa od %3$lld GB slobodno samo %2$lld GB. Pauzirajte ili izbrišite VM, ili pređite na Max."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne størrelse kræver %1$lld GB RAM, men kun %2$lld GB af din pulje på %3$lld GB er ledig. Sæt en VM på pause eller slet den, eller opgrader til Max."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa dimensione richiede %1$lld GB di RAM, ma del tuo pool da %3$lld GB sono liberi solo %2$lld GB. Metti in pausa o elimina una VM, oppure passa a Max."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំនេះត្រូវការ RAM %1$lld GB ប៉ុន្តែក្នុងបណ្តុំ %3$lld GB របស់អ្នក នៅទំនេរតែ %2$lld GB ប៉ុណ្ណោះ។ ផ្អាក ឬលុប VM មួយ ឬដំឡើងទៅ Max។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne størrelsen trenger %1$lld GB RAM, men bare %2$lld GB av ressurspoolen din på %3$lld GB er ledig. Sett en VM på pause eller slett den, eller oppgrader til Max."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten rozmiar wymaga %1$lld GB RAM, ale z Twojej puli %3$lld GB wolne jest tylko %2$lld GB. Wstrzymaj lub usuń VM albo przejdź na Max."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este tamanho precisa de %1$lld GB de RAM, mas só %2$lld GB do seu pool de %3$lld GB estão livres. Pause ou exclua uma VM, ou faça upgrade para o Max."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для этого размера нужно %1$lld ГБ RAM, но в вашем пуле на %3$lld ГБ свободно только %2$lld ГБ. Приостановите или удалите VM либо перейдите на Max."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดนี้ต้องใช้ RAM %1$lld GB แต่พูล %3$lld GB ของคุณว่างอยู่เพียง %2$lld GB หยุด VM ชั่วคราวหรือลบ VM หรืออัปเกรดเป็น Max"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu boyut %1$lld GB RAM gerektiriyor, ancak %3$lld GB'lık havuzunuzun yalnızca %2$lld GB'ı boş. Bir VM'yi duraklatın veya silin ya da Max'e yükseltin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для цього розміру потрібно %1$lld ГБ RAM, але у вашому пулі на %3$lld ГБ вільно лише %2$lld ГБ. Призупиніть або видаліть VM чи перейдіть на Max."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This size needs %1$lld GB RAM, but only %2$lld GB of your %3$lld GB pool is free. Pause or delete a VM, or upgrade to Max."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Größe benötigt %1$lld GB RAM, aber von deinem %3$lld-GB-Pool sind nur %2$lld GB frei. Pausiere oder lösche eine VM, oder führe ein Upgrade auf Max durch."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette taille nécessite %1$lld Go de RAM, mais seuls %2$lld Go de votre réserve de %3$lld Go sont libres. Mettez en pause ou supprimez une VM, ou passez à Max."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج هذا الحجم إلى %1$lld جيجابايت من الذاكرة، لكن المتاح من مجموعتك البالغة %3$lld جيجابايت هو %2$lld جيجابايت فقط. أوقف جهازًا افتراضيًا مؤقتًا أو احذفه، أو قم بالترقية إلى Max."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este tamaño necesita %1$lld GB de RAM, pero solo quedan libres %2$lld GB de tu grupo de %3$lld GB. Pausa o elimina una VM, o actualiza a Max."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此規格需要 %1$lld GB 記憶體，但你的 %3$lld GB 資源池只剩 %2$lld GB 可用。請暫停或刪除一台虛擬機，或升級至 Max。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此规格需要 %1$lld GB 内存，但你的 %3$lld GB 资源池只剩 %2$lld GB 可用。请暂停或删除一台虚拟机，或升级到 Max。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 크기에는 RAM %1$lld GB가 필요하지만 %3$lld GB 풀 중 %2$lld GB만 남아 있습니다. VM을 일시 중지하거나 삭제하거나 Max로 업그레이드하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイズには %1$lld GB RAM が必要ですが、%3$lld GB のプールのうち空きは %2$lld GB だけです。VM を一時停止するか削除する、または Max にアップグレードしてください。"
+          }
+        }
+      }
+    },
+    "cloud.newMachine.pool.doesNotFitMax": {
+      "extractionState": "manual",
+      "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova veličina treba %1$lld GB RAM-a, ali je od vašeg skupa od %3$lld GB slobodno samo %2$lld GB. Pauzirajte ili izbrišite VM."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne størrelse kræver %1$lld GB RAM, men kun %2$lld GB af din pulje på %3$lld GB er ledig. Sæt en VM på pause eller slet den."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa dimensione richiede %1$lld GB di RAM, ma del tuo pool da %3$lld GB sono liberi solo %2$lld GB. Metti in pausa o elimina una VM."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំនេះត្រូវការ RAM %1$lld GB ប៉ុន្តែក្នុងបណ្តុំ %3$lld GB របស់អ្នក នៅទំនេរតែ %2$lld GB ប៉ុណ្ណោះ។ ផ្អាក ឬលុប VM មួយ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne størrelsen trenger %1$lld GB RAM, men bare %2$lld GB av ressurspoolen din på %3$lld GB er ledig. Sett en VM på pause eller slett den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten rozmiar wymaga %1$lld GB RAM, ale z Twojej puli %3$lld GB wolne jest tylko %2$lld GB. Wstrzymaj lub usuń VM."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este tamanho precisa de %1$lld GB de RAM, mas só %2$lld GB do seu pool de %3$lld GB estão livres. Pause ou exclua uma VM."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для этого размера нужно %1$lld ГБ RAM, но в вашем пуле на %3$lld ГБ свободно только %2$lld ГБ. Приостановите или удалите VM."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดนี้ต้องใช้ RAM %1$lld GB แต่พูล %3$lld GB ของคุณว่างอยู่เพียง %2$lld GB หยุด VM ชั่วคราวหรือลบ VM"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu boyut %1$lld GB RAM gerektiriyor, ancak %3$lld GB'lık havuzunuzun yalnızca %2$lld GB'ı boş. Bir VM'yi duraklatın veya silin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для цього розміру потрібно %1$lld ГБ RAM, але у вашому пулі на %3$lld ГБ вільно лише %2$lld ГБ. Призупиніть або видаліть VM."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This size needs %1$lld GB RAM, but only %2$lld GB of your %3$lld GB pool is free. Pause or delete a VM."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Größe benötigt %1$lld GB RAM, aber von deinem %3$lld-GB-Pool sind nur %2$lld GB frei. Pausiere oder lösche eine VM."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette taille nécessite %1$lld Go de RAM, mais seuls %2$lld Go de votre réserve de %3$lld Go sont libres. Mettez en pause ou supprimez une VM."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج هذا الحجم إلى %1$lld جيجابايت من الذاكرة، لكن المتاح من مجموعتك البالغة %3$lld جيجابايت هو %2$lld جيجابايت فقط. أوقف جهازًا افتراضيًا مؤقتًا أو احذفه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este tamaño necesita %1$lld GB de RAM, pero solo quedan libres %2$lld GB de tu grupo de %3$lld GB. Pausa o elimina una VM."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此規格需要 %1$lld GB 記憶體，但你的 %3$lld GB 資源池只剩 %2$lld GB 可用。請暫停或刪除一台虛擬機。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此规格需要 %1$lld GB 内存，但你的 %3$lld GB 资源池只剩 %2$lld GB 可用。请暂停或删除一台虚拟机。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 크기에는 RAM %1$lld GB가 필요하지만 %3$lld GB 풀 중 %2$lld GB만 남아 있습니다. VM을 일시 중지하거나 삭제하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイズには %1$lld GB RAM が必要ですが、%3$lld GB のプールのうち空きは %2$lld GB だけです。VM を一時停止するか削除してください。"
+          }
+        }
+      }
+    },
+    "cloud.newMachine.pool.doesNotFitVcpus": {
+      "extractionState": "manual",
+      "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova veličina treba %1$lld vCPU-a, ali je od vaših %3$lld vCPU-a slobodno samo %2$lld. Pauzirajte ili izbrišite VM, ili pređite na Max."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne størrelse kræver %1$lld vCPU'er, men kun %2$lld af dine %3$lld vCPU'er er ledige. Sæt en VM på pause eller slet den, eller opgrader til Max."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa dimensione richiede %1$lld vCPU, ma delle tue %3$lld vCPU ne sono libere solo %2$lld. Metti in pausa o elimina una VM, oppure passa a Max."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំនេះត្រូវការ vCPU %1$lld ប៉ុន្តែក្នុងចំណោម vCPU %3$lld របស់អ្នក នៅទំនេរតែ %2$lld ប៉ុណ្ណោះ។ ផ្អាក ឬលុប VM មួយ ឬដំឡើងទៅ Max។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne størrelsen trenger %1$lld vCPU-er, men bare %2$lld av dine %3$lld vCPU-er er ledige. Sett en VM på pause eller slett den, eller oppgrader til Max."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten rozmiar wymaga %1$lld vCPU, ale z Twoich %3$lld vCPU wolne jest tylko %2$lld. Wstrzymaj lub usuń VM albo przejdź na Max."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este tamanho precisa de %1$lld vCPUs, mas só %2$lld das suas %3$lld vCPUs estão livres. Pause ou exclua uma VM, ou faça upgrade para o Max."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для этого размера нужно %1$lld vCPU, но из ваших %3$lld vCPU свободно только %2$lld. Приостановите или удалите VM либо перейдите на Max."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดนี้ต้องใช้ %1$lld vCPU แต่จาก %3$lld vCPU ของคุณว่างอยู่เพียง %2$lld หยุด VM ชั่วคราวหรือลบ VM หรืออัปเกรดเป็น Max"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu boyut %1$lld vCPU gerektiriyor, ancak %3$lld vCPU'nuzun yalnızca %2$lld tanesi boş. Bir VM'yi duraklatın veya silin ya da Max'e yükseltin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для цього розміру потрібно %1$lld vCPU, але з ваших %3$lld vCPU вільно лише %2$lld. Призупиніть або видаліть VM чи перейдіть на Max."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This size needs %1$lld vCPUs, but only %2$lld of your %3$lld vCPUs are free. Pause or delete a VM, or upgrade to Max."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Größe benötigt %1$lld vCPUs, aber von deinen %3$lld vCPUs sind nur %2$lld frei. Pausiere oder lösche eine VM, oder führe ein Upgrade auf Max durch."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette taille nécessite %1$lld vCPU, mais seuls %2$lld de vos %3$lld vCPU sont libres. Mettez en pause ou supprimez une VM, ou passez à Max."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج هذا الحجم إلى %1$lld من وحدات المعالجة المركزية الافتراضية، لكن المتاح منها %2$lld فقط من أصل %3$lld. أوقف جهازًا افتراضيًا مؤقتًا أو احذفه، أو قم بالترقية إلى Max."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este tamaño necesita %1$lld vCPU, pero solo quedan libres %2$lld de tus %3$lld vCPU. Pausa o elimina una VM, o actualiza a Max."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此規格需要 %1$lld 個虛擬 CPU，但你的 %3$lld 個虛擬 CPU 中只剩 %2$lld 個可用。請暫停或刪除一台虛擬機，或升級至 Max。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此规格需要 %1$lld 个虚拟 CPU，但你的 %3$lld 个虚拟 CPU 中只剩 %2$lld 个可用。请暂停或删除一台虚拟机，或升级到 Max。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 크기에는 vCPU %1$lld개가 필요하지만 vCPU %3$lld개 중 %2$lld개만 남아 있습니다. VM을 일시 중지하거나 삭제하거나 Max로 업그레이드하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイズには %1$lld vCPU が必要ですが、%3$lld vCPU のうち空きは %2$lld vCPU だけです。VM を一時停止するか削除する、または Max にアップグレードしてください。"
+          }
+        }
+      }
+    },
+    "cloud.newMachine.pool.doesNotFitVcpusMax": {
+      "extractionState": "manual",
+      "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova veličina treba %1$lld vCPU-a, ali je od vaših %3$lld vCPU-a slobodno samo %2$lld. Pauzirajte ili izbrišite VM."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne størrelse kræver %1$lld vCPU'er, men kun %2$lld af dine %3$lld vCPU'er er ledige. Sæt en VM på pause eller slet den."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa dimensione richiede %1$lld vCPU, ma delle tue %3$lld vCPU ne sono libere solo %2$lld. Metti in pausa o elimina una VM."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំនេះត្រូវការ vCPU %1$lld ប៉ុន្តែក្នុងចំណោម vCPU %3$lld របស់អ្នក នៅទំនេរតែ %2$lld ប៉ុណ្ណោះ។ ផ្អាក ឬលុប VM មួយ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne størrelsen trenger %1$lld vCPU-er, men bare %2$lld av dine %3$lld vCPU-er er ledige. Sett en VM på pause eller slett den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten rozmiar wymaga %1$lld vCPU, ale z Twoich %3$lld vCPU wolne jest tylko %2$lld. Wstrzymaj lub usuń VM."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este tamanho precisa de %1$lld vCPUs, mas só %2$lld das suas %3$lld vCPUs estão livres. Pause ou exclua uma VM."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для этого размера нужно %1$lld vCPU, но из ваших %3$lld vCPU свободно только %2$lld. Приостановите или удалите VM."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดนี้ต้องใช้ %1$lld vCPU แต่จาก %3$lld vCPU ของคุณว่างอยู่เพียง %2$lld หยุด VM ชั่วคราวหรือลบ VM"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu boyut %1$lld vCPU gerektiriyor, ancak %3$lld vCPU'nuzun yalnızca %2$lld tanesi boş. Bir VM'yi duraklatın veya silin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для цього розміру потрібно %1$lld vCPU, але з ваших %3$lld vCPU вільно лише %2$lld. Призупиніть або видаліть VM."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This size needs %1$lld vCPUs, but only %2$lld of your %3$lld vCPUs are free. Pause or delete a VM."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Größe benötigt %1$lld vCPUs, aber von deinen %3$lld vCPUs sind nur %2$lld frei. Pausiere oder lösche eine VM."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette taille nécessite %1$lld vCPU, mais seuls %2$lld de vos %3$lld vCPU sont libres. Mettez en pause ou supprimez une VM."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج هذا الحجم إلى %1$lld من وحدات المعالجة المركزية الافتراضية، لكن المتاح منها %2$lld فقط من أصل %3$lld. أوقف جهازًا افتراضيًا مؤقتًا أو احذفه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este tamaño necesita %1$lld vCPU, pero solo quedan libres %2$lld de tus %3$lld vCPU. Pausa o elimina una VM."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此規格需要 %1$lld 個虛擬 CPU，但你的 %3$lld 個虛擬 CPU 中只剩 %2$lld 個可用。請暫停或刪除一台虛擬機。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此规格需要 %1$lld 个虚拟 CPU，但你的 %3$lld 个虚拟 CPU 中只剩 %2$lld 个可用。请暂停或删除一台虚拟机。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 크기에는 vCPU %1$lld개가 필요하지만 vCPU %3$lld개 중 %2$lld개만 남아 있습니다. VM을 일시 중지하거나 삭제하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイズには %1$lld vCPU が必要ですが、%3$lld vCPU のうち空きは %2$lld vCPU だけです。VM を一時停止するか削除してください。"
+          }
+        }
+      }
+    },
+    "machines.new.plan.loading": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "جارٍ تحميل خطة جهاز Cloud…"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Učitavanje plana Cloud mašine…"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Indlæser din Cloud-maskineplan…"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Dein Cloud-Maschinentarif wird geladen…"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cargando el plan de tu máquina Cloud…"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chargement du forfait de votre machine Cloud…"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Caricamento del piano della macchina Cloud…"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud マシンのプランを読み込んでいます…"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "កំពុងផ្ទុកគម្រោងម៉ាស៊ីន Cloud របស់អ្នក…"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud 머신 요금제를 불러오는 중…"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Laster inn Cloud-maskinplanen din…"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Wczytywanie planu maszyny Cloud…"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Carregando o plano da sua máquina Cloud…"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Загрузка тарифа машины Cloud…"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "กำลังโหลดแผนเครื่อง Cloud ของคุณ…"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud makine planınız yükleniyor…"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Завантаження тарифу машини Cloud…"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "正在加载你的 Cloud 机器方案…"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "正在載入您的 Cloud 機器方案…"
+        }
+      }
+    }
+  },
+    "machines.new.plan.retry": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "إعادة المحاولة"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Pokušaj ponovo"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Prøv igen"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Erneut versuchen"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Reintentar"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Réessayer"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Riprova"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "再試行"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ព្យាយាមម្ដងទៀត"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "재시도"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Prøv igjen"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ponów"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Tentar Novamente"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Повторить"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ลองใหม่"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Tekrar Dene"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Повторити"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "重试"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "重試"
+        }
+      }
+    }
+  },
+    "machines.new.plan.error": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "لا تزال تفاصيل خطة Cloud قيد التحميل. أعد المحاولة بعد قليل."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Detalji Cloud plana se još učitavaju. Pokušajte ponovo za trenutak."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud-planens detaljer indlæses stadig. Prøv igen om et øjeblik."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Die Details des Cloud-Tarifs werden noch geladen. Versuche es gleich noch einmal."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Los detalles del plan de Cloud aún se están cargando. Vuelve a intentarlo en un momento."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Les détails du forfait Cloud sont encore en cours de chargement. Réessayez dans un instant."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "I dettagli del piano Cloud sono ancora in caricamento. Riprova tra un momento."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud プランの詳細を読み込み中です。しばらくしてから再試行してください。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ព័ត៌មានលម្អិតនៃគម្រោង Cloud នៅតែកំពុងផ្ទុក។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud 요금제 정보를 아직 불러오는 중입니다. 잠시 후 다시 시도하세요."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Detaljene for Cloud-planen lastes fortsatt inn. Prøv igjen om et øyeblikk."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Szczegóły planu Cloud wciąż się wczytują. Spróbuj ponownie za chwilę."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Os detalhes do plano Cloud ainda estão carregando. Tente novamente em instantes."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Сведения о тарифе Cloud ещё загружаются. Повторите попытку через мгновение."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "รายละเอียดแผน Cloud ยังโหลดอยู่ โปรดลองใหม่อีกครั้งในอีกสักครู่"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud planı ayrıntıları hâlâ yükleniyor. Birazdan tekrar deneyin."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Відомості про тариф Cloud ще завантажуються. Повторіть спробу через мить."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud 方案详情仍在加载。请稍后重试。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud 方案詳細資料仍在載入。請稍後重試。"
+        }
+      }
+    }
+  },
+    "settings.search.alias.setting.terminal.copy-confirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse تأكيد نسخ حافظة تحديد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse potvrda kopirano međuspremnik odabir"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse bekræftelse kopieret udklipsholder markering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse Bestätigung kopiert Zwischenablage Auswahl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse confirmación copiado portapapeles selección"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse confirmation copié presse-papiers sélection"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse conferma copiato appunti selezione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse 確認 コピー クリップボード 選択"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse បញ្ជាក់ ចម្លង ក្ដារតម្រៀប ជ្រើស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse 확인 복사됨 클립보드 선택"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse bekreftelse kopiert utklippstavle markering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse potwierdzenie skopiowano schowek zaznaczenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse confirmação copiado área de transferência seleção"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse подтверждение скопировано буфер обмена выделение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse ยืนยัน คัดลอก คลิปบอร์ด เลือก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse onay kopyalandı pano seçim"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse підтвердження скопійовано буфер обміну виділення"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse 确认 已复制 剪贴板 选择"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse 確認 已複製 剪貼簿 選取"
+          }
+        }
+      }
+    },
+    "settings.terminal.showCopyConfirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار تأكيد النسخ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži potvrdu kopiranja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis kopieringsbekræftelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopierbestätigung anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Copy Confirmation"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar confirmación de copia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la confirmation de copie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra conferma di copia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピーの確認を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញការបញ្ជាក់ការចម្លង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복사 확인 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis kopieringsbekreftelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuj potwierdzenie kopiowania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar confirmação de cópia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать подтверждение копирования"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงการยืนยันการคัดลอก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopyalama onayını göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати підтвердження копіювання"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示复制确认"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示複製確認"
+          }
+        }
+      }
+    },
+    "settings.terminal.showCopyConfirmation.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض «تم النسخ إلى الحافظة» لفترة وجيزة أسفل الطرفية عندما يؤدي تحديد النص إلى نسخه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kratko prikazuje „Kopirano u međuspremnik“ na dnu terminala kada se odabrani tekst kopira."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser kortvarigt „Kopieret til udklipsholder“ nederst i en terminal, når markering af tekst kopierer den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt unten im Terminal kurz „In die Zwischenablage kopiert“ an, wenn durch Auswählen von Text kopiert wird."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Briefly shows “Copied to clipboard” at the bottom of a terminal when selecting text copies it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra brevemente «Copiado al portapapeles» en la parte inferior de una terminal cuando al seleccionar texto se copia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche brièvement « Copié dans le presse-papiers » en bas d’un terminal lorsque la sélection de texte le copie."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra brevemente «Copiato negli appunti» in fondo a un terminale quando la selezione del testo lo copia."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストを選択してコピーしたときに、ターミナルの下部に「クリップボードにコピーしました」を短く表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ «បានចម្លងទៅក្ដារតម្រៀប» មួយភ្លែតនៅខាងក្រោម terminal នៅពេលការជ្រើសអត្ថបទចម្លងវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "텍스트를 선택해 복사하면 터미널 하단에 “클립보드에 복사됨”을 잠시 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser kort «Kopiert til utklippstavlen» nederst i en terminal når markering av tekst kopierer den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na chwilę wyświetla „Skopiowano do schowka” u dołu terminala, gdy zaznaczenie tekstu go kopiuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra brevemente “Copiado para a área de transferência” na parte inferior do terminal quando selecionar texto o copia."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ненадолго показывает «Скопировано в буфер обмена» внизу терминала, когда выделение текста копирует его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดง “คัดลอกไปยังคลิปบอร์ดแล้ว” ชั่วครู่ที่ด้านล่างของเทอร์มินัลเมื่อการเลือกข้อความคัดลอกข้อความนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metin seçimi onu kopyaladığında terminalin altında kısa süreliğine “Panoya kopyalandı” gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ненадовго показує «Скопійовано в буфер обміну» внизу термінала, коли виділення тексту копіює його."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择文本并复制时，在终端底部短暂显示“已复制到剪贴板”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選取文字並複製時，在終端機底部短暫顯示「已複製到剪貼簿」。"
+          }
+        }
+      }
+    },
+    "pricing.native.compare.resources": {
+      "extractionState": "manual",
+      "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resursi Cloud VM-ova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM-ressourcer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risorse delle Cloud VM"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធនធាន Cloud VM"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM-ressurser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zasoby Cloud VM"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recursos das Cloud VMs"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурсы Cloud VM"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทรัพยากร Cloud VM"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM kaynakları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурси Cloud VM"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM resources"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-VM-Ressourcen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressources de VM cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موارد الجهاز الافتراضي السحابي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recursos de VM en la nube"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端虛擬機資源"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM 资源"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM 리소스"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM のリソース"
+          }
+        }
+      }
+    },
+    "pricing.native.compare.resources.standard": {
+      "extractionState": "manual",
+      "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU-a i 40 GB RAM-a, zajednički"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU'er og 40 GB RAM, delt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU e 40 GB di RAM, condivisi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU 20 និង RAM 40 GB ប្រើរួមគ្នា"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU-er og 40 GB RAM, delt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU i 40 GB RAM, współdzielone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPUs e 40 GB de RAM, compartilhados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU и 40 ГБ RAM, общие"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU และ RAM 40 GB ใช้ร่วมกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU ve 40 GB RAM, paylaşımlı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU і 40 ГБ RAM, спільні"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPUs and 40 GB RAM, shared"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPUs und 40 GB RAM, gemeinsam genutzt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU et 40 Go de RAM partagés"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 وحدة معالجة مركزية افتراضية و40 جيجابايت من الذاكرة مشتركة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU y 40 GB de RAM compartidos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共用 20 個虛擬 CPU 與 40 GB 記憶體"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享 20 个虚拟 CPU 和 40 GB 内存"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU 20개와 RAM 40 GB 공유"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU と 40 GB RAM を共有"
+          }
+        }
+      }
+    },
+    "pricing.native.compare.resources.team": {
+      "extractionState": "manual",
+      "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU-a i 40 GB RAM-a po plaćenom mjestu, zajednički za cijeli tim"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU'er og 40 GB RAM pr. betalt plads, delt på tværs af teamet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU e 40 GB di RAM per postazione a pagamento, condivisi da tutto il team"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU 20 និង RAM 40 GB ក្នុងមួយកៅអីបង់ប្រាក់ ដែលក្រុមទាំងមូលប្រើរួមគ្នា"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU-er og 40 GB RAM per betalt plass, delt på tvers av teamet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU i 40 GB RAM na płatne miejsce, współdzielone w całym zespole"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPUs e 40 GB de RAM por assento pago, compartilhados por toda a equipe"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU и 40 ГБ RAM на оплаченное место, общие для всей команды"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU และ RAM 40 GB ต่อที่นั่งแบบชำระเงิน ใช้ร่วมกันทั้งทีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ücretli koltuk başına 20 vCPU ve 40 GB RAM, tüm ekipçe paylaşılır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU і 40 ГБ RAM на оплачене місце, спільні для всієї команди"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPUs and 40 GB RAM per paid seat, shared across the team"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPUs und 40 GB RAM pro bezahltem Platz, im ganzen Team gemeinsam genutzt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU et 40 Go de RAM par siège payant, partagés dans toute l’équipe"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 وحدة معالجة مركزية افتراضية و40 جيجابايت من الذاكرة لكل مقعد مدفوع، مشتركة على مستوى الفريق"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 vCPU y 40 GB de RAM por puesto de pago, compartidos en todo el equipo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個付費席位 20 個虛擬 CPU 與 40 GB 記憶體，由整個團隊共用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个付费席位 20 个虚拟 CPU 和 40 GB 内存，由整个团队共享"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유료 시트당 vCPU 20개와 RAM 40 GB, 팀 전체가 공유"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有料シートごとに 20 vCPU と 40 GB RAM（チーム全体で共有）"
+          }
+        }
+      }
+    },
+    "pricing.native.compare.resources.max": {
+      "extractionState": "manual",
+      "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "80 vCPU-a i 160 GB RAM-a, zajednički"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "80 vCPU'er og 160 GB RAM, delt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "80 vCPU e 160 GB di RAM, condivisi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU 80 និង RAM 160 GB ប្រើរួមគ្នា"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "80 vCPU-er og 160 GB RAM, delt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "80 vCPU i 160 GB RAM, współdzielone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "80 vCPUs e 160 GB de RAM, compartilhados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "80 vCPU и 160 ГБ RAM, общие"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "80 vCPU และ RAM 160 GB ใช้ร่วมกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "80 vCPU ve 160 GB RAM, paylaşımlı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "80 vCPU і 160 ГБ RAM, спільні"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "80 vCPUs and 160 GB RAM, shared"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "80 vCPUs und 160 GB RAM, gemeinsam genutzt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "80 vCPU et 160 Go de RAM partagés"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "80 وحدة معالجة مركزية افتراضية و160 جيجابايت من الذاكرة مشتركة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "80 vCPU y 160 GB de RAM compartidos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共用 80 個虛擬 CPU 與 160 GB 記憶體"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享 80 个虚拟 CPU 和 160 GB 内存"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU 80개와 RAM 160 GB 공유"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "80 vCPU と 160 GB RAM を共有"
+          }
+        }
+      }
+    },
+    "sudo.approval.hidden_characters.badge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hidden characters"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隠し文字"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Versteckte Zeichen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caractères masqués"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أحرف مخفية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caracteres ocultos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏字元"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏字符"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "숨겨진 문자"
+          }
+        }
+      }
+    },
+    "sudo.approval.hidden_characters.warning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This request contains %ld invisible or text-direction characters. They are shown as ⟨U+XXXX⟩ markers. Deny it unless you expected them."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このリクエストには不可視文字またはテキスト方向を変える文字が %ld 個含まれています。⟨U+XXXX⟩ の形式で表示しています。想定していない場合は拒否してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Anfrage enthält %ld unsichtbare oder textrichtungsändernde Zeichen. Sie werden als ⟨U+XXXX⟩-Markierungen angezeigt. Lehnen Sie sie ab, wenn Sie diese nicht erwartet haben."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette demande contient %ld caractères invisibles ou de direction du texte. Ils sont affichés sous forme de marqueurs ⟨U+XXXX⟩. Refusez-la si vous ne les attendiez pas."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتوي هذا الطلب على %ld من الأحرف غير المرئية أو أحرف اتجاه النص. تُعرض كعلامات ⟨U+XXXX⟩. ارفضه ما لم تكن تتوقعها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta solicitud contiene %ld caracteres invisibles o de dirección del texto. Se muestran como marcadores ⟨U+XXXX⟩. Deniégala a menos que los esperaras."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此請求包含 %ld 個不可見或改變文字方向的字元，已顯示為 ⟨U+XXXX⟩ 標記。除非你預期會有這些字元，否則請拒絕。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此请求包含 %ld 个不可见或改变文本方向的字符，已显示为 ⟨U+XXXX⟩ 标记。除非你预期会有这些字符，否则请拒绝。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 요청에는 보이지 않거나 텍스트 방향을 바꾸는 문자가 %ld개 포함되어 있습니다. ⟨U+XXXX⟩ 표시로 나타납니다. 예상한 것이 아니라면 거부하세요."
+          }
+        }
+      }
+    },
+    "account.callbackApproval.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t Sign In"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインしない"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht anmelden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne pas se connecter"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدم تسجيل الدخول"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No iniciar sesión"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不要登入"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不登录"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인하지 않기"
+          }
+        }
+      }
+    },
+    "account.callbackApproval.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmelden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se connecter"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الدخول"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인"
+          }
+        }
+      }
+    },
+    "account.callbackApproval.replace.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを切り替える"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto wechseln"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changer de compte"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل الحساب"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar de cuenta"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換帳戶"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换账户"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정 전환"
+          }
+        }
+      }
+    },
+    "account.callbackApproval.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux from a link?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクから cmux にサインインしますか？"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von einem Link bei cmux anmelden?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se connecter à cmux depuis un lien ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الدخول إلى cmux من رابط؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Iniciar sesión en cmux desde un enlace?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要從連結登入 cmux 嗎？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要从链接登录 cmux 吗？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크에서 cmux에 로그인하시겠습니까?"
+          }
+        }
+      }
+    },
+    "account.callbackApproval.replace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch cmux to another account?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を別のアカウントに切り替えますか？"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux zu einem anderen Konto wechseln?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changer cmux pour un autre compte ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل cmux إلى حساب آخر؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Cambiar cmux a otra cuenta?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要將 cmux 切換到其他帳戶嗎？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要将 cmux 切换到其他账户吗？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux를 다른 계정으로 전환하시겠습니까?"
+          }
+        }
+      }
+    },
+    "account.callbackApproval.message.email": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクが cmux に %@ としてサインインするよう求めています。ブラウザで cmux にサインインした直後の場合にのみ続行してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Link bittet cmux, sich als %@ anzumelden. Fahren Sie nur fort, wenn Sie sich gerade in Ihrem Browser bei cmux angemeldet haben."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un lien demande à cmux de se connecter en tant que %@. Continuez uniquement si vous venez de vous connecter à cmux dans votre navigateur."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يطلب رابط من cmux تسجيل الدخول باسم %@. لا تتابع إلا إذا سجلت الدخول إلى cmux للتو في متصفحك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un enlace pide a cmux iniciar sesión como %@. Continúa solo si acabas de iniciar sesión en cmux en tu navegador."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連結要求 cmux 以 %@ 的身分登入。只有在你剛在瀏覽器中登入 cmux 後，才可繼續。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "链接要求 cmux 以 %@ 的身份登录。只有在你刚在浏览器中登录 cmux 后，才可继续。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크에서 cmux가 %@ 계정으로 로그인하도록 요청합니다. 브라우저에서 방금 cmux에 로그인한 경우에만 계속하세요."
+          }
+        }
+      }
+    },
+    "account.callbackApproval.message.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクが cmux にアカウントへのサインインを求めています。ブラウザで cmux にサインインした直後の場合にのみ続行してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Link bittet cmux, sich bei einem Konto anzumelden. Fahren Sie nur fort, wenn Sie sich gerade in Ihrem Browser bei cmux angemeldet haben."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un lien demande à cmux de se connecter à un compte. Continuez uniquement si vous venez de vous connecter à cmux dans votre navigateur."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يطلب رابط من cmux تسجيل الدخول إلى حساب. لا تتابع إلا إذا سجلت الدخول إلى cmux للتو في متصفحك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un enlace pide a cmux iniciar sesión en una cuenta. Continúa solo si acabas de iniciar sesión en cmux en tu navegador."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連結要求 cmux 登入帳戶。只有在你剛在瀏覽器中登入 cmux 後，才可繼續。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "链接要求 cmux 登录账户。只有在你刚在浏览器中登录 cmux 后，才可继续。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크에서 cmux가 계정으로 로그인하도록 요청합니다. 브라우저에서 방금 cmux에 로그인한 경우에만 계속하세요."
+          }
+        }
+      }
+    },
+    "account.callbackApproval.replace.current": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在 %@ としてサインインしています。続行するとそのセッションが置き換えられ、以降の cmux のアクティビティはリンクのアカウントに属します。このアカウントを自分で選んだ直後でない場合は、「サインインしない」をクリックしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sie sind als %@ angemeldet. Wenn Sie fortfahren, wird diese Sitzung ersetzt, und neue cmux-Aktivitäten gehören dem Konto im Link. Wenn Sie dieses Konto nicht gerade selbst ausgewählt haben, klicken Sie auf „Nicht anmelden“."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous êtes connecté en tant que %@. Continuer remplacera cette session, et la nouvelle activité cmux appartiendra au compte du lien. Si vous n’avez pas choisi vous-même ce compte, cliquez sur « Ne pas se connecter »."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أنت مسجل الدخول باسم %@. سيؤدي المتابعة إلى استبدال هذه الجلسة، وستتبع أنشطة cmux الجديدة الحساب الموجود في الرابط. إذا لم تختر هذا الحساب بنفسك للتو، فانقر على «عدم تسجيل الدخول»."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Has iniciado sesión como %@. Continuar reemplazará esa sesión y la nueva actividad de cmux pertenecerá a la cuenta del enlace. Si no acabas de elegir esta cuenta tú mismo, haz clic en «No iniciar sesión»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你目前以 %@ 的身分登入。繼續後將取代目前的工作階段，新的 cmux 活動將屬於連結中的帳戶。如果你不是剛剛親自選擇此帳戶，請按一下「不要登入」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你当前以 %@ 的身份登录。继续后将替换当前会话，新的 cmux 活动将属于链接中的账户。如果你不是刚刚亲自选择此账户，请点击“不登录”。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 계정으로 로그인되어 있습니다. 계속하면 이 세션이 대체되고 새로운 cmux 활동은 링크의 계정에 속합니다. 직접 방금 이 계정을 선택한 것이 아니라면 “로그인하지 않기”를 클릭하세요."
+          }
+        }
+      }
+    },
+    "account.callbackApproval.replace.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すでにサインインしています。続行するとそのセッションが置き換えられ、以降の cmux のアクティビティはリンクのアカウントに属します。このアカウントを自分で選んだ直後でない場合は、「サインインしない」をクリックしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sie sind bereits angemeldet. Wenn Sie fortfahren, wird diese Sitzung ersetzt, und neue cmux-Aktivitäten gehören dem Konto im Link. Wenn Sie dieses Konto nicht gerade selbst ausgewählt haben, klicken Sie auf „Nicht anmelden“."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous êtes déjà connecté. Continuer remplacera cette session, et la nouvelle activité cmux appartiendra au compte du lien. Si vous n’avez pas choisi vous-même ce compte, cliquez sur « Ne pas se connecter »."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أنت مسجل الدخول بالفعل. سيؤدي المتابعة إلى استبدال هذه الجلسة، وستتبع أنشطة cmux الجديدة الحساب الموجود في الرابط. إذا لم تختر هذا الحساب بنفسك للتو، فانقر على «عدم تسجيل الدخول»."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya has iniciado sesión. Continuar reemplazará esa sesión y la nueva actividad de cmux pertenecerá a la cuenta del enlace. Si no acabas de elegir esta cuenta tú mismo, haz clic en «No iniciar sesión»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你已登入。繼續後將取代目前的工作階段，新的 cmux 活動將屬於連結中的帳戶。如果你不是剛剛親自選擇此帳戶，請按一下「不要登入」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你已登录。继续后将替换当前会话，新的 cmux 活动将属于链接中的账户。如果你不是刚刚亲自选择此账户，请点击“不登录”。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미 로그인되어 있습니다. 계속하면 이 세션이 대체되고 새로운 cmux 활동은 링크의 계정에 속합니다. 직접 방금 이 계정을 선택한 것이 아니라면 “로그인하지 않기”를 클릭하세요."
+          }
+        }
+      }
+    },
+    "sshPane.newTerminalFailed.shortTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t open SSH terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-Terminal konnte nicht geöffnet werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’ouvrir le terminal SSH"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر فتح طرفية SSH"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo abrir el terminal SSH"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法開啟 SSH 終端機"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开 SSH 终端"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 터미널을 열 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ターミナルを開けませんでした"
+          }
+        }
+      }
+    },
+    "sshPane.newTerminalFailed.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the SSH connection, then retry this request."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfe die SSH-Verbindung und versuche die Anfrage erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifiez la connexion SSH, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحقّق من اتصال SSH ثم أعد محاولة هذا الطلب."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprueba la conexión SSH y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請檢查 SSH 連線後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请检查 SSH 连接，然后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 연결을 확인한 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 接続を確認してから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "sshPane.newTerminalFailed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH connection could not be established."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Verbindung konnte nicht hergestellt werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion SSH n’a pas pu être établie."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إنشاء اتصال SSH."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo establecer la conexión SSH."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法建立 SSH 連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法建立 SSH 连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 연결을 설정할 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 接続を確立できませんでした."
+          }
+        }
+      }
+    },
+    "terminal.copyConfirmation.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم النسخ إلى الحافظة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopirano u međuspremnik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopieret til udklipsholder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In die Zwischenablage kopiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied to clipboard"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiado al portapapeles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copié dans le presse-papiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiato negli appunti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップボードにコピーしました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានចម្លងទៅក្ដារតម្រៀប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클립보드에 복사됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiert til utklippstavlen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skopiowano do schowka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiado para a área de transferência"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировано в буфер обмена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกไปยังคลิปบอร์ดแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panoya kopyalandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопійовано в буфер обміну"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制到剪贴板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已複製到剪貼簿"
+          }
+        }
+      }
+    },
+    "cli.hooks.setup.error.agentRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent requires a value. Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب --agent قيمة. الاستخدام: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent erfordert einen Wert. Verwendung: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent requiere un valor. Uso: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent nécessite une valeur. Utilisation : cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent には値が必要です。使い方: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent에는 값이 필요합니다. 사용법: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 需要一个值。用法：cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 需要一個值。用法：cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        }
+      }
+    },
+    "cli.hooks.setup.error.unknownOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown option %@. Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خيار غير معروف %@. الاستخدام: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannte Option %@. Verwendung: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opción desconocida %@. Uso: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option inconnue %@. Utilisation : cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なオプション %@。使い方: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 옵션 %@. 사용법: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知选项 %@。用法：cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的選項 %@。用法：cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        }
+      }
+    },
+    "cli.hooks.setup.error.conflictingAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent was given more than once with different values. Specify one agent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تمرير --agent أكثر من مرة بقيم مختلفة. حدد وكيلًا واحدًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent wurde mehrmals mit unterschiedlichen Werten angegeben. Gib einen Agenten an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent se indicó más de una vez con valores distintos. Indica un solo agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent a été indiqué plusieurs fois avec des valeurs différentes. Indiquez un seul agent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent が異なる値で複数回指定されました。エージェントを 1 つだけ指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent가 서로 다른 값으로 여러 번 지정되었습니다. 에이전트를 하나만 지정하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 被多次指定且值不同。请只指定一个代理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 被多次指定且值不同。請只指定一個代理程式。"
+          }
+        }
+      }
+    },
+    "cloudTree.displays.starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting display…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスプレイを起動中…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display wird gestartet…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciando pantalla…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrage de l’écran…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디스플레이 시작 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在启动显示器…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在啟動顯示器…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ بدء الشاشة…"
+          }
+        }
+      }
+    },
+    "surface.split.noSpace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no room to split this pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインを分割する余地がありません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für eine Teilung dieses Bereichs ist kein Platz."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay espacio para dividir este panel."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il n’y a pas assez de place pour diviser ce volet."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 패널을 분할할 공간이 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有空间拆分此窗格。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有空間分割此窗格。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مساحة لتقسيم هذا الجزء."
+          }
+        }
+      }
+    },
+    "cloud.display.starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting display…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスプレイを起動中…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display wird gestartet…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciando pantalla…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrage de l’écran…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디스플레이 시작 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在启动显示器…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在啟動顯示器…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ بدء الشاشة…"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.detector.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find shortcut by keys"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البحث عن اختصار بالمفاتيح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pronađi prečicu po tipkama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find genvej ud fra taster"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastenkürzel anhand der Tasten finden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar atajo por teclas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trouver un raccourci par ses touches"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trova scorciatoia dai tasti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーでショートカットを探す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វែងរកផ្លូវកាត់តាមគ្រាប់ចុច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키로 단축키 찾기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finn snarvei etter taster"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Znajdź skrót po klawiszach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encontrar atalho pelas teclas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найти сочетание по клавишам"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค้นหาคีย์ลัดจากปุ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kısayolu tuşlarla bul"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Знайти сполучення за клавішами"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按按键查找快捷键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依按鍵尋找快速鍵"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.detector.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press keys to see which shortcut uses them"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اضغط المفاتيح لمعرفة الاختصار الذي يستخدمها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pritisnite tipke da vidite koja ih prečica koristi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryk på taster for at se, hvilken genvej der bruger dem"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tasten drücken, um zu sehen, welches Tastenkürzel sie verwendet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulsa las teclas para ver qué atajo las usa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appuyez sur des touches pour voir quel raccourci les utilise"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premi i tasti per vedere quale scorciatoia li usa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーを押すと、そのキーを使うショートカットを表示します"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចុចគ្រាប់ចុចដើម្បីមើលថាផ្លូវកាត់ណាប្រើវា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키를 눌러 해당 키를 사용하는 단축키를 확인하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trykk på taster for å se hvilken snarvei som bruker dem"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naciśnij klawisze, aby zobaczyć, który skrót ich używa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pressione as teclas para ver qual atalho as usa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите клавиши, чтобы увидеть, какое сочетание их использует"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กดปุ่มเพื่อดูว่าคีย์ลัดใดใช้ปุ่มเหล่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hangi kısayolun bu tuşları kullandığını görmek için tuşlara basın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Натисніть клавіші, щоб побачити, яке сполучення їх використовує"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按下按键以查看使用它们的快捷键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按下按鍵以查看使用它們的快速鍵"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.detector.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detect Shortcut"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اكتشاف اختصار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otkrij prečicu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrér genvej"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastenkürzel erkennen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detectar atajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détecter un raccourci"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rileva scorciatoia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ショートカットを検出"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកឃើញផ្លូវកាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단축키 감지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdag snarvei"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wykryj skrót"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detectar atalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Определить сочетание"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจจับคีย์ลัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kısayolu algıla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Визначити сполучення"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检测快捷键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "偵測快速鍵"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.detector.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listening…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ الاستماع…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slušam…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lytter…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warte auf Tasten …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escuchando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En écoute…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In ascolto…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力待ち…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងស្តាប់…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력 대기 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lytter…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nasłuchiwanie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvindo…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ожидание нажатия…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังรอการกด…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dinleniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очікування натискання…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在监听…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在聆聽…"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.search.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear search"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسح البحث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obriši pretragu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ryd søgning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suche löschen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limpiar búsqueda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer la recherche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancella ricerca"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索をクリア"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម្អាតការស្វែងរក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검색 초기화"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tøm søk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyczyść wyszukiwanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limpar pesquisa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить поиск"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ล้างการค้นหา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aramayı temizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистити пошук"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除搜索"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除搜尋"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.search.noResults": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No shortcuts match"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد اختصارات مطابقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema odgovarajućih prečica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen matchende genveje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine passenden Tastenkürzel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay atajos coincidentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun raccourci correspondant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna scorciatoia corrispondente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致するショートカットはありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមានផ្លូវកាត់ដែលត្រូវគ្នាទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일치하는 단축키가 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen samsvarende snarveier"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak pasujących skrótów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum atalho correspondente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет подходящих сочетаний клавиш"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีคีย์ลัดที่ตรงกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşen kısayol yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає відповідних сполучень клавіш"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有匹配的快捷键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有符合的快速鍵"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.search.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search shortcuts"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البحث في الاختصارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pretraži prečice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søg i genveje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastenkürzel suchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar atajos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher des raccourcis"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca scorciatoie"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ショートカットを検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វែងរកផ្លូវកាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단축키 검색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søk i snarveier"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szukaj skrótów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pesquisar atalhos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск сочетаний клавиш"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค้นหาคีย์ลัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kısayollarda ara"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пошук сполучень клавіш"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索快捷键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋快速鍵"
           }
         }
       }

@@ -14178,6 +14178,17 @@ extension Workspace: BonsplitDelegate {
                 return
             }
 
+            // Closing an unselected tab must not move selection to its
+            // neighbor: keep the tab the user was already using so an
+            // automation caller cleaning up another agent cannot steal
+            // keyboard input. Bonsplit itself keeps the selection here.
+            if let selectedTabId = controller.selectedTab(inPane: pane)?.id,
+               selectedTabId != tab.id,
+               tabs.contains(where: { $0.id == selectedTabId }) {
+                postCloseSelectTabId[tab.id] = selectedTabId
+                return
+            }
+
             let target: TabID? = {
                 if idx + 1 < tabs.count { return tabs[idx + 1].id }
                 if idx > 0 { return tabs[idx - 1].id }
@@ -14582,6 +14593,7 @@ extension Workspace: BonsplitDelegate {
            bonsplitController.allPaneIds.contains(pane),
            bonsplitController.tabs(inPane: pane).contains(where: { $0.id == selectTabId }),
            bonsplitController.focusedPaneId == pane {
+            // selectTab also focuses the pane, so only call it for the focused pane.
             bonsplitController.selectTab(selectTabId)
             applyTabSelection(tabId: selectTabId, inPane: pane)
         } else if let focusedPane = bonsplitController.focusedPaneId,
@@ -14620,6 +14632,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didReorderTabsInPane pane: PaneID, orderedTabIds: [TabID]) {
+        cloudLayoutDidChange()
         // A remote tmux mirror tab reorder propagates to tmux window order.
         // Mirror transactions send their desired order explicitly. Their local
         // mutations, including rollback and remote updates, must not echo it.
@@ -14679,6 +14692,7 @@ extension Workspace: BonsplitDelegate {
         normalizePinnedTabs(in: source)
         normalizePinnedTabs(in: destination)
         scheduleTerminalGeometryReconcile()
+        cloudLayoutDidChange()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()
         }
@@ -15261,6 +15275,8 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         let deviceLayoutExternal = remoteTmuxMirrorMutations.suppressesFocusActivation
+        // Before deferral: a graph event queued behind this edit must not re-apply the old tree.
+        if !deviceLayoutExternal { cloudLayoutDidChange() }
         // Capture the user's arrangement before deferred delivery: an incoming
         // remote snapshot must not replace the intent while this event waits.
         let deviceLayoutSnapshot = !deviceLayoutExternal

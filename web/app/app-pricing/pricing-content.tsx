@@ -534,8 +534,10 @@ type BillingBannerModel = {
 
 /// In-webview sign-in that also signs the native app in: Stack sign-in sets
 /// the webview's session cookies, then /handler/after-sign-in hands tokens to
-/// the app through its <scheme>://auth-callback URL. The stateless callback is
-/// accepted by the app's fallback path (HostBrowserSignInFlow.handleCallbackURL).
+/// the app through its <scheme>://auth-callback URL. The app applies this
+/// stateless callback without a prompt only when its embedded browser delivers
+/// it (same-origin, user-activated link); from any other route the user must
+/// approve it in a native dialog.
 /// web_return_to lets the embedded browser navigate back to this pricing page
 /// (with its appearance params intact) once the app has consumed the callback.
 function appPricingSignInHref(
