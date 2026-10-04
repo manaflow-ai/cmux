@@ -1,37 +1,14 @@
-// Detail sections of the selected machine: snapshots, publications, domains, network and firewall.
-// Deletes and firewall changes go to the host's native confirmation (detail.ts `native`); other
-// changes call the op with an idempotency key and re-read the section after the owner answers.
-// Restore makes a new machine (`snapshot.restore`), shown as a pending create in the list. A
-// section whose op the owner does not serve yet shows "Not available yet" and no controls.
-import { useState, type KeyboardEvent } from "react";
-import type { Strings } from "../shared/i18n";
-import { SECTION_OPS, type DetailSection, type MachineDetail } from "./detail";
-import { formatDate, plain } from "./model";
-import { CloudOps, type CloudDomain, type FirewallEndpoint } from "./ops";
-import type { CloudStore } from "./store";
-import { L } from "./strings";
-
-interface SectionProps {
-  store: CloudStore;
-  machine: string;
-  detail: MachineDetail;
-  /** Ops the owner does not serve yet. */
-  unavailable: readonly string[];
-  strings: Strings;
-}
-
-const isUnavailable = (unavailable: readonly string[], section: DetailSection) =>
-  unavailable.includes(SECTION_OPS[section]);
-
-function Unavailable({ t }: { t: (key: string) => string }) {
-  return <p className="cloud-muted cloud-unavailable">{t(L.unavailable)}</p>;
-}
-
-const DomainLabel: Record<CloudDomain["status"], string> = {
-  verified: L.domainVerified,
-  pending: L.domainPending,
-  failed: L.domainFailed,
-};
+// Detail sections of the selected machine: snapshots, publications and domains (network and firewall
+// are NetworkSection.tsx, ports PortsSection.tsx, files FilesSection.tsx). Deletes and publication
+// changes go to the host's native confirmation (detail.ts `native`); other changes call the op with an
+// idempotency key and re-read the section after the owner answers. Restore makes a new machine
+// (`snapshot.restore`), shown as a pending create in the list. A section whose op the owner does not
+// serve yet shows "Not available yet" and no controls.
+import { useState } from "react";
+import { formatDate } from "./model";
+import { CloudOps, type AccessMode } from "./ops";
+import { isUnavailable, PortField, stateLabel, Unavailable, type SectionProps } from "./sectionParts";
+import { format, L } from "./strings";
 
 export function SnapshotsSection({ store, machine, detail, unavailable, strings }: SectionProps) {
   const { t, language } = strings;
@@ -84,41 +61,18 @@ export function SnapshotsSection({ store, machine, detail, unavailable, strings 
   );
 }
 
-/** A small number field that submits on plain Return. */
-function PortField({ label, onSubmit }: { label: string; onSubmit: (port: number) => void }) {
-  const [value, setValue] = useState("");
-  const port = Number(value);
-  const valid = Number.isInteger(port) && port > 0 && port < 65536;
-  const submit = () => {
-    if (!valid) return;
-    onSubmit(port);
-    setValue("");
-  };
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (!plain(event) || event.key !== "Enter") return;
-    event.preventDefault();
-    submit();
-  };
-  return (
-    <span className="cloud-inline-form">
-      <input
-        className="cloud-input cloud-port-input"
-        inputMode="numeric"
-        placeholder={label}
-        aria-label={label}
-        value={value}
-        onChange={(event) => setValue(event.target.value.replace(/[^0-9]/g, ""))}
-        onKeyDown={onKeyDown}
-      />
-      <button type="button" className="cloud-button" aria-label={label} aria-disabled={!valid} onClick={submit}>
-        +
-      </button>
-    </span>
-  );
-}
+const ACCESS_MODES: readonly AccessMode[] = ["personal", "team", "public"];
+
+const AccessLabel: Record<AccessMode, string> = {
+  personal: L.accessPersonal,
+  team: L.accessTeam,
+  public: L.accessPublic,
+};
 
 export function PublicationsSection({ store, machine, detail, unavailable, strings }: SectionProps) {
   const { t } = strings;
+  // The page always sends the mode it shows, so the native confirmation names the mode that applies.
+  const [access, setAccess] = useState<AccessMode>("personal");
   if (isUnavailable(unavailable, "publications"))
     return (
       <>
@@ -130,21 +84,40 @@ export function PublicationsSection({ store, machine, detail, unavailable, strin
     <>
       <div className="cloud-subsection-header">
         <h3 className="cloud-subsection-title">{t(L.publications)}</h3>
-        <PortField
-          label={t(L.publicationPort)}
-          onSubmit={(port) => void store.detail.createPublication(machine, port)}
-        />
+        {!unavailable.includes(CloudOps.publicationCreate) && (
+          <PortField
+            label={t(L.publicationPort)}
+            button={t(L.publicationAdd)}
+            inputClass="cloud-publication-port"
+            buttonClass="cloud-publication-add"
+            before={
+              <select
+                className="cloud-input cloud-publication-access"
+                aria-label={t(L.accessMode)}
+                value={access}
+                onChange={(event) => setAccess(event.target.value as AccessMode)}
+              >
+                {ACCESS_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {t(AccessLabel[mode])}
+                  </option>
+                ))}
+              </select>
+            }
+            onSubmit={(port) => void store.detail.createPublication(machine, port, access)}
+          />
+        )}
       </div>
       {detail.publications?.length ? (
         <ul className="cloud-items">
           {detail.publications.map((publication) => (
-            <li key={publication.id} className="cloud-item">
-              <span className="cloud-item-title cloud-mono">{publication.hostname}</span>
+            <li key={publication.id} className="cloud-item cloud-publication">
+              <span className="cloud-item-title cloud-mono">{publication.url || publication.hostname}</span>
               <span className="cloud-item-detail">
-                {`${t(L.publicationPort)} ${publication.port} · ${t(DomainLabel[publication.status === "active" ? "verified" : publication.status])}`}
+                {`${t(L.publicationPort)} ${publication.port} · ${t(AccessLabel[publication.accessMode] ?? L.accessPersonal)} · ${stateLabel(publication.state, t)}`}
               </span>
               <span className="cloud-item-actions">
-                {publication.status !== "active" && (
+                {publication.state !== "active" && (
                   <button
                     type="button"
                     className="cloud-link-button"
@@ -155,8 +128,8 @@ export function PublicationsSection({ store, machine, detail, unavailable, strin
                 )}
                 <button
                   type="button"
-                  className="cloud-link-button destructive"
-                  onClick={() => void store.detail.deletePublication(machine, publication.id)}
+                  className="cloud-link-button destructive cloud-publication-delete"
+                  onClick={() => void store.detail.deletePublication(publication.id)}
                 >
                   {t(L.delete)}
                 </button>
@@ -181,91 +154,45 @@ export function DomainsSection({ store, detail, unavailable, strings }: Omit<Sec
       ) : detail.domains?.length ? (
         <ul className="cloud-items">
           {detail.domains.map((domain) => (
-            <li key={domain.name} className="cloud-item">
-              <span className="cloud-item-title cloud-mono">{domain.name}</span>
-              <span className={`cloud-item-detail domain-${domain.status}`}>{t(DomainLabel[domain.status])}</span>
+            <li key={domain.id} className="cloud-item cloud-domain">
+              <span className="cloud-item-title cloud-mono cloud-domain-hostname">{domain.hostname}</span>
+              <span className={`cloud-item-detail domain-${domain.verificationState}`}>
+                {[
+                  stateLabel(domain.verificationState, t),
+                  domain.certificateState
+                    ? format(t(L.domainCertificate), { state: stateLabel(domain.certificateState, t) })
+                    : "",
+                  format(t(L.domainPublications), { count: domain.publications.length }),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
               <span className="cloud-item-actions">
-                {domain.status !== "verified" && (
+                {domain.verificationState !== "verified" && (
                   <button
                     type="button"
                     className="cloud-link-button"
-                    onClick={() => void store.detail.verifyDomain(domain.name)}
+                    onClick={() => void store.detail.verifyDomain(domain.hostname)}
                   >
                     {t(L.verify)}
                   </button>
                 )}
               </span>
+              {!!domain.dnsInstructions?.length && (
+                <div className="cloud-dns">
+                  <span className="cloud-muted">{t(L.domainDns)}</span>
+                  {domain.dnsInstructions.map((record, index) => (
+                    <code key={index} className="cloud-dns-record cloud-mono">
+                      {[record.recordTypes?.join("/"), record.name, record.value].filter(Boolean).join("  ")}
+                    </code>
+                  ))}
+                </div>
+              )}
             </li>
           ))}
         </ul>
       ) : (
         <p className="cloud-muted">{detail.loading ? t(L.loading) : t(L.noDomains)}</p>
-      )}
-    </>
-  );
-}
-
-function endpoint(value: FirewallEndpoint, t: (key: string) => string): string {
-  const where = value.public ? t(L.firewallPublic) : (value.cidr ?? value.vmId ?? value.vpcId ?? value.tunnelId ?? "");
-  const port = value.port ? `:${value.port}${value.protocol ? `/${value.protocol}` : ""}` : "";
-  return `${where}${port}`;
-}
-
-export function NetworkSection({ store, machine, detail, unavailable, strings }: SectionProps) {
-  const { t } = strings;
-  const firewallUnavailable = isUnavailable(unavailable, "firewall");
-  return (
-    <>
-      <h3 className="cloud-subsection-title">{t(L.network)}</h3>
-      {isUnavailable(unavailable, "networks") ? (
-        <Unavailable t={t} />
-      ) : detail.networks?.length ? (
-        <ul className="cloud-items">
-          {detail.networks.map((network) => (
-            <li key={network.id} className="cloud-item">
-              <span className="cloud-item-title cloud-mono">{network.cidr ?? network.cidrV6 ?? network.id}</span>
-              <span className="cloud-item-detail">{network.scope}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="cloud-muted">{detail.loading ? t(L.loading) : t(L.noNetworks)}</p>
-      )}
-      <div className="cloud-subsection-header">
-        <h3 className="cloud-subsection-title">{t(L.firewall)}</h3>
-        {!firewallUnavailable && (
-          <PortField
-            label={t(L.firewallAdd)}
-            onSubmit={(port) =>
-              void store.detail.createFirewallRule(machine, { action: "allow", port, protocol: "tcp" })
-            }
-          />
-        )}
-      </div>
-      {firewallUnavailable ? (
-        <Unavailable t={t} />
-      ) : detail.firewall?.length ? (
-        <ul className="cloud-items">
-          {detail.firewall.map((rule) => (
-            <li key={rule.id} className="cloud-item cloud-firewall-rule">
-              <span className="cloud-item-title">
-                {`${t(rule.action === "deny" ? L.firewallDeny : L.firewallAllow)} ${endpoint(rule.source, t)} → ${endpoint(rule.destination, t)}`}
-              </span>
-              {rule.description && <span className="cloud-item-detail">{rule.description}</span>}
-              <span className="cloud-item-actions">
-                <button
-                  type="button"
-                  className="cloud-link-button destructive"
-                  onClick={() => void store.deleteFirewallRule(machine, rule.id)}
-                >
-                  {t(L.delete)}
-                </button>
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="cloud-muted">{detail.loading ? t(L.loading) : t(L.noFirewall)}</p>
       )}
     </>
   );

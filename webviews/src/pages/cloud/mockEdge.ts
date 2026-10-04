@@ -56,8 +56,11 @@ export class MockFiles {
     switch (op) {
       case CloudOps.fsList: {
         only(p, ["machine", "path"]);
-        if (this.get(tree, path).kind !== "directory") throw pageError("cmux.cloud.invalid_args", `${path} is not a folder`);
-        const entries = [...tree.keys()].filter((key) => key !== path && parent(key) === path).map((key) => this.entry(tree, key, false));
+        if (this.get(tree, path).kind !== "directory")
+          throw pageError("cmux.cloud.invalid_args", `${path} is not a folder`);
+        const entries = [...tree.keys()]
+          .filter((key) => key !== path && parent(key) === path)
+          .map((key) => this.entry(tree, key, false));
         return { path, entries };
       }
       case CloudOps.fsStat:
@@ -67,7 +70,8 @@ export class MockFiles {
         only(p, ["machine", "path"]);
         const file = this.get(tree, path);
         const size = this.size(file);
-        if (size > READ_LIMIT || file.text === undefined) throw pageError("cmux.cloud.file_too_large", `${path} is too large`);
+        if (size > READ_LIMIT || file.text === undefined)
+          throw pageError("cmux.cloud.file_too_large", `${path} is too large`);
         return { path, dataBase64: encode(file.text), size };
       }
       case CloudOps.fsWrite: {
@@ -84,7 +88,7 @@ export class MockFiles {
       case CloudOps.fsRemove:
         only(p, ["machine", "path"]);
         this.get(tree, path);
-        for (const key of [...tree.keys()]) if (key === path || key.startsWith(`${path}/`)) tree.delete(key);
+        for (const key of tree.keys()) if (key === path || key.startsWith(`${path}/`)) tree.delete(key);
         return { ok: true, path };
       case CloudOps.filePush:
         only(p, ["machine", "localPath", "path"]);
@@ -139,14 +143,24 @@ export class MockEdge {
     switch (op) {
       case CloudOps.portList:
         only(p, ["machine"]);
-        return { forwards: this.forwards.filter((forward) => p.machine === undefined || forward.machine === p.machine) };
+        return {
+          forwards: this.forwards.filter((forward) => p.machine === undefined || forward.machine === p.machine),
+        };
       case CloudOps.portForward: {
         only(p, ["machine", "port"]);
         const machine = machineOf(p);
         const port = Number(p.port);
         const open = this.forwards.find((f) => f.machine === machine && f.port === port && f.state === "up");
         if (open) return open;
-        const forward: PortForward = { machine, port, host: "127.0.0.1", localPort: this.nextPort++, generation: 1, state: "up", reason: null };
+        const forward: PortForward = {
+          machine,
+          port,
+          host: "127.0.0.1",
+          localPort: this.nextPort++,
+          generation: 1,
+          state: "up",
+          reason: null,
+        };
         this.forwards = [...this.forwards.filter((f) => !(f.machine === machine && f.port === port)), forward];
         return forward;
       }

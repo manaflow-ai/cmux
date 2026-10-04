@@ -5,6 +5,7 @@
 // React reads it through `useSyncExternalStore`; tests drive it directly.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { DetailReader, type MachineDetail } from "./detail";
+import { FilesReader } from "./files";
 import {
   applyEvent,
   atMachineLimit,
@@ -88,6 +89,7 @@ export class CloudStore {
    */
   private session = 0;
   readonly detail: DetailReader;
+  readonly files: FilesReader;
 
   constructor(
     private readonly client: PageClient | null,
@@ -104,14 +106,16 @@ export class CloudStore {
       layout: options.layout ?? "rows",
       unavailable: [],
     };
-    this.detail = new DetailReader(client, {
+    const host = {
       get: () => this.state.detail,
-      set: (detail) => this.set({ detail }),
-      fail: (error) => this.set(failure(error)),
-      unsupported: (op) => this.markUnavailable(op),
+      set: (detail: MachineDetail | undefined) => this.set({ detail }),
+      fail: (error: unknown) => this.set(failure(error)),
+      unsupported: (op: string) => this.markUnavailable(op),
       canChange: () => this.canChange(),
       key: () => this.key(),
-    });
+    };
+    this.detail = new DetailReader(client, host);
+    this.files = new FilesReader(client, host);
   }
 
   getSnapshot = (): CloudState => this.state;
@@ -372,8 +376,9 @@ export class CloudStore {
     return this.detail.native(CloudOps.snapshotDelete, { machine, snapshot }, "snapshots");
   }
 
-  deleteFirewallRule(machine: string, rule: string): Promise<void> {
-    return this.detail.native(CloudOps.firewallDelete, { machine, rule }, "firewall");
+  /** `cloud.firewall.delete` takes the rule id only. */
+  deleteFirewallRule(rule: string): Promise<void> {
+    return this.detail.native(CloudOps.firewallDelete, { rule }, "firewall");
   }
 
   // Internals.

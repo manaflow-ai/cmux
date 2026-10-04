@@ -90,9 +90,15 @@ describe("Cloud files", () => {
     await store.files.pull("/home/cmux/src/main.rs");
     for (const op of [CloudOps.fsRemove, CloudOps.filePush, CloudOps.filePull]) expect(ops(provider, op)).toEqual([]);
     expect(runs(provider)).toEqual([
-      { action: CloudOps.fsRemove, args: { machine: running().id, path: "/home/cmux/notes.txt", idempotency_key: "k1" } },
+      {
+        action: CloudOps.fsRemove,
+        args: { machine: running().id, path: "/home/cmux/notes.txt", idempotency_key: "k1" },
+      },
       { action: CloudOps.filePush, args: { machine: running().id, path: "/home/cmux", idempotency_key: "k2" } },
-      { action: CloudOps.filePull, args: { machine: running().id, path: "/home/cmux/src/main.rs", idempotency_key: "k3" } },
+      {
+        action: CloudOps.filePull,
+        args: { machine: running().id, path: "/home/cmux/src/main.rs", idempotency_key: "k3" },
+      },
     ]);
     expect(files(store).entries?.map((entry) => entry.name)).not.toContain("notes.txt");
     expect(store.getSnapshot().error).toBeUndefined();

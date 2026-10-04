@@ -57,10 +57,16 @@ function key(target: HTMLElement, keyName: string, init: KeyboardEventInit = {})
   target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: keyName, bubbles: true, ...init }));
 }
 
+/**
+ * Sets a field's value and calls its React `onChange`. A dispatched `input` event does not reach
+ * React's change plugin in this jsdom setup (the acpmux page tests use the same helper).
+ */
 function typeInto(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
   setter.call(input, value);
-  input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  const key = Object.keys(input).find((name) => name.startsWith("__reactProps$"));
+  const props = key ? (input as unknown as Record<string, { onChange?: (event: unknown) => void }>)[key] : undefined;
+  props?.onChange?.({ target: input, currentTarget: input });
 }
 
 describe("CloudPage", () => {
