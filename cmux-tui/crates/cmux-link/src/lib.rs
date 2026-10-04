@@ -13,6 +13,8 @@
 //! - [`overlay_addr`]: the overlay address of an install.
 //! - [`pairing`]: the paired peers the link accepts and dials (slice 1: a
 //!   file written by `cmux link peer add`).
+//! - [`registration`]: `link.json` in the daemon state dir, which names
+//!   the running link's socket.
 //! - [`caller`]: who may connect to the link's socket and to the daemon's
 //!   remote entry (same user, and on macOS the cmux code signature).
 
@@ -21,6 +23,7 @@ pub mod dial;
 pub mod entry_path;
 pub mod overlay_addr;
 pub mod pairing;
+pub mod registration;
 pub mod stamp;
 
 /// The overlay TCP port of the link service (transport.md 3.1).
