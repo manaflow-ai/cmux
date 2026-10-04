@@ -113,8 +113,10 @@ verify_credentials() {
       project_id="454ecd03-1db2-4050-845e-4ce5b0cd9895"
       client_key="pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g" ;;
     production)
+      # No publishable key: the production project does not require one, and
+      # the apps send none (a revoked key would fail the check).
       project_id="9790718f-14cd-4f7e-824d-eaf527a82b82"
-      client_key="pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr" ;;
+      client_key="" ;;
     *) return 1 ;;
   esac
   if ! command -v curl >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
@@ -132,7 +134,7 @@ json.dump({"email": email, "password": password}, sys.stdout)
       -X POST "https://api.stack-auth.com/api/v1/auth/password/sign-in" \
       -H "content-type: application/json" \
       -H "x-stack-project-id: $project_id" \
-      -H "x-stack-publishable-client-key: $client_key" \
+      ${client_key:+-H "x-stack-publishable-client-key: $client_key"} \
       -H "x-stack-access-type: client" \
       -H "x-stack-override-error-status: true" \
       --data-binary @- 2>/dev/null
