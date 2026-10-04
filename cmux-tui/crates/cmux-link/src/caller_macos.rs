@@ -162,7 +162,13 @@ pub(crate) fn verify_app_token(token: &[u32; 8]) -> Result<(), crate::app_caller
     {
         return Err(NotTheApp::Unavailable(format!("unexpected Team ID {team:?}")));
     }
-    let identifier = containing_app_identifier(&team).map_err(NotTheApp::Unavailable)?;
+    // Read once per process: a later swap of the bundle on disk cannot move
+    // the identifier the daemon expects.
+    static IDENTIFIER: std::sync::OnceLock<Result<String, String>> = std::sync::OnceLock::new();
+    let identifier = IDENTIFIER
+        .get_or_init(|| containing_app_identifier(&team))
+        .clone()
+        .map_err(NotTheApp::Unavailable)?;
     let requirement = requirement(&format!(
         "anchor apple generic and certificate leaf[subject.OU] = \"{team}\" and identifier \"{identifier}\""
     ))
@@ -173,11 +179,14 @@ pub(crate) fn verify_app_token(token: &[u32; 8]) -> Result<(), crate::app_caller
         .map_err(NotTheApp::Signature)
 }
 
-/// Whether this binary is Team-signed and sits inside an app bundle, so
-/// prover A can work at all.
-pub(crate) fn signed_inside_app() -> bool {
-    let team = own_code().and_then(|code| signing(&code)).ok().and_then(|own| own.team);
-    team.is_some_and(|team| containing_app_identifier(&team).is_ok())
+/// Whether this binary is Team-signed. Fails closed: when the signing
+/// information cannot be read the binary counts as signed, so the
+/// install-key proof is refused and only prover A could pass.
+pub(crate) fn team_signed() -> bool {
+    match own_code().and_then(|code| signing(&code)) {
+        Ok(own) => own.team.is_some(),
+        Err(_) => true,
+    }
 }
 
 /// Resolves `token` to running code (tests: a pid-reused token must fail).

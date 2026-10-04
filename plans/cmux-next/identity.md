@@ -100,14 +100,38 @@ Rules:
   id and credential. A restart that keeps the terminal public id keeps the old
   credential valid, because it still names the same terminal (checked in slice 3;
   if restart changes the id, the old credential is refused as closed).
-- Frontend proof (daemon owner review, accepted 2026-10-03). `DaemonLauncher`
-  passes the app's install key id to the daemon over an inherited pipe fd at
-  spawn (never argv or env). After an app restart the app proves itself with
-  `client.hello {install_id, proof}`, proof = HMAC-SHA256(Keychain install key,
-  daemon nonce). A daemon the app did not start has no frontend until the app
-  pairs again. Known gap: DEV builds are ad-hoc signed, so their Keychain item
-  ACL does not keep other same-uid processes out; only signed builds give a real
-  frontend proof.
+- Frontend proof (daemon owner review, accepted 2026-10-03; built in slice
+  3b-2). `verified_app` is a per-connection fact: the connection is local
+  (Unix socket), declared role `main` in `client-hello`, and passed a prover.
+  - Wire: line 1 (after at most one `identify`) `{cmd: client-hello, role:
+    main|page_relay, install_id?}` -> `{connection_id, nonce?}`; a nonce comes
+    for role main with an install id, known or not (no oracle). Line 2 must
+    be `{cmd: client-hello, install_id, proof}`, proof = HMAC-SHA256(key,
+    "cmux-frontend-hello-v1" 0 install_id 0 nonce) -> `{verified,
+    install_id, connection_id}`; checks run in constant time. Any other line
+    closes the window; no retry; the identity never changes. page_relay and
+    connections with no hello are never the verified app.
+  - Prover A (signed builds): the peer's audit token (read at accept, never a
+    pid) satisfies `anchor apple generic and certificate leaf[subject.OU] =
+    <daemon team> and identifier <id>`, where id is the signed identifier of
+    the app bundle that contains the daemon (validated against the team,
+    read once). The team-signed CLI and helpers have other identifiers.
+  - Prover B (unsigned DEV builds only): the app's install key. The app runs
+    `server ensure --install-key-stdin` with `cmuxik1 <install_id> <hex>` on
+    stdin; ensure passes it to an owner it spawns on `--owner-install-key-fd`;
+    the owner reads it, closes the fd and keeps it in memory. A running owner
+    never takes a new key. DEV key: a 0600 file in the tag state dir, created
+    with O_EXCL, refused with any other mode or owner. Signed builds keep the
+    key in the login Keychain and never read the DEV file.
+  - A Team-signed daemon accepts ONLY prover A (security review P1: a
+    same-uid process could restart the owner with its own key). Unreadable
+    signing information counts as signed (fail closed); a signed daemon
+    outside a verifiable app verifies nobody.
+  - Accepted limit (security review): a same-uid process can run an ad-hoc
+    re-signed copy of the daemon (no Team ID), which accepts the key it was
+    given, and point clients at it. `verified_app` cannot stop that; the
+    boundary against same-uid code is the daemon's state directory and the
+    app's choice of socket, not this proof.
 - Precedence on one request: request credential > connection identity
   (`frontend`) > pid ancestry (slice 4) > `user`. Requests the app forwards for
   someone else (for example `action.run` for a CLI call) carry `forwarded: true`

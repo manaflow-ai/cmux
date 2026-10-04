@@ -114,14 +114,16 @@ pub fn verify_containing_app(token: &PeerToken) -> Result<(), NotTheApp> {
     }
 }
 
-/// Whether prover A applies to this process: a Team-signed binary inside a
-/// signed app bundle (Release and signed builds). Checked once.
+/// Whether this process is a Team-signed build (Release and signed
+/// builds). Such a daemon accepts only prover A; one that is not inside a
+/// verifiable app bundle then verifies no connection at all. Checked once;
+/// unreadable signing information counts as signed (fail closed).
 pub fn signed_app_build() -> bool {
     static SIGNED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *SIGNED.get_or_init(|| {
         #[cfg(target_os = "macos")]
         {
-            crate::caller::macos::signed_inside_app()
+            crate::caller::macos::team_signed()
         }
         #[cfg(not(target_os = "macos"))]
         {
