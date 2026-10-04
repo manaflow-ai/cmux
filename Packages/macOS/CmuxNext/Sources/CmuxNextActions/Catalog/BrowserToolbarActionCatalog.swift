@@ -1,9 +1,8 @@
 // The browser toolbar's menu buttons (design mode, profile, theme, DevTools,
-// More; plans/cmux-next R80). Design mode, theme and DevTools reuse
+// More; plans/cmux-next R80). Design mode, theme and DevTools run
 // `toggleBrowserDesignMode`, `browserTheme` and `toggleBrowserDeveloperTools`
-// (their `browser.*` spellings are aliases in `ActionCatalog.legacyAliases`);
-// these two open the profile and More menus at their buttons. Titles live in
-// BrowserToolbarActions.xcstrings.
+// (one action id per behavior); these two open the profile and More menus at
+// their buttons. Titles live in BrowserToolbarActions.xcstrings.
 
 nonisolated enum BrowserToolbarActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {

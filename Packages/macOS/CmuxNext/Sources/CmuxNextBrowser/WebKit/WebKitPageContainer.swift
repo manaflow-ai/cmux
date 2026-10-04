@@ -25,4 +25,18 @@ final class WebKitPageContainer: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override var isFlipped: Bool { false }
+
+    /// WebKit added or removed a view beside the page (the attached Web
+    /// Inspector shows and hides this way).
+    var onSubviewsChange: (() -> Void)?
+
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        onSubviewsChange?()
+    }
+
+    override func willRemoveSubview(_ subview: NSView) {
+        super.willRemoveSubview(subview)
+        onSubviewsChange?()
+    }
 }

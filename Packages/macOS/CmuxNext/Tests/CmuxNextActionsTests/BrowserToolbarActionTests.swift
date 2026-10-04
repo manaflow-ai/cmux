@@ -1,12 +1,12 @@
 import CmuxNextActions
 import Testing
 
-/// The browser toolbar's five buttons each run a catalog action (R80), by
-/// the names the toolbar spec gave them.
+/// The browser toolbar's five buttons each run a catalog action (R80): one
+/// action id per behavior.
 @MainActor
 @Suite struct BrowserToolbarActionTests {
     static let toolbarIDs: [ActionID] = [
-        "browser.designMode.toggle", "browser.profile.choose", "browser.theme.set", "browser.devtools.toggle", "browser.overflow.menu",
+        "toggleBrowserDesignMode", "browser.profile.choose", "browserTheme", "toggleBrowserDeveloperTools", "browser.overflow.menu",
     ]
 
     @Test func everyToolbarActionIsACatalogEntry() throws {
@@ -20,20 +20,18 @@ import Testing
         }
     }
 
-    /// The design mode, theme and DevTools buttons share the existing
-    /// actions (their shortcuts and `cmux.json` ids stay); the spec's names
-    /// are aliases.
-    @Test func togglesShareTheExistingActions() {
+    /// Design mode, theme and DevTools reuse the existing actions (their
+    /// shortcuts and `cmux.json` ids stay); no second id names them.
+    @Test func togglesAreTheExistingActionsWithoutAliases() {
         let registry = ActionRegistry.standard()
-        #expect(registry.canonicalID(for: "browser.designMode.toggle") == "toggleBrowserDesignMode")
-        #expect(registry.canonicalID(for: "browser.devtools.toggle") == "toggleBrowserDeveloperTools")
-        #expect(registry.canonicalID(for: "browser.theme.set") == "browserTheme")
-        #expect(registry.canonicalID(for: "browser.profile.choose") == "browser.profile.choose")
-        #expect(registry.canonicalID(for: "browser.overflow.menu") == "browser.overflow.menu")
+        for id: ActionID in ["browser.designMode.toggle", "browser.devtools.toggle", "browser.theme.set"] {
+            #expect(registry.descriptor(for: id) == nil, "\(id)")
+        }
+        for id in Self.toolbarIDs { #expect(registry.canonicalID(for: id) == id, "\(id)") }
     }
 
-    @Test func themeSetOffersEachMode() throws {
-        let descriptor = try #require(ActionRegistry.standard().descriptor(for: "browser.theme.set"))
+    @Test func browserThemeOffersEachMode() throws {
+        let descriptor = try #require(ActionRegistry.standard().descriptor(for: "browserTheme"))
         let argument = try #require(descriptor.arguments.first { $0.name == "theme" })
         guard case .enumeration(let cases) = argument.kind else {
             Issue.record("theme is not an enumeration")

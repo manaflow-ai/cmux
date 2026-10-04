@@ -17,18 +17,18 @@ struct BrowserToolbarBindingTests {
         }
     }
 
-    @Test func buttonsMapToTheSpecActionNames() {
+    @Test func buttonsRunOneActionPerBehavior() {
         let ids = BrowserToolbarButton.allCases.map { BrowserToolbarHandlers.actionID(for: $0).rawValue }
-        #expect(ids == ["browser.designMode.toggle", "browser.profile.choose", "browser.theme.set", "browser.devtools.toggle",
+        #expect(ids == ["toggleBrowserDesignMode", "browser.profile.choose", "browserTheme", "toggleBrowserDeveloperTools",
                         "browser.overflow.menu"])
     }
 
     @Test(arguments: [("light", BrowserColorScheme.light), ("dark", .dark), ("system", .system), ("sepia", .system)])
-    func themeSetReadsEachMode(value: String, scheme: BrowserColorScheme) {
+    func browserThemeReadsEachMode(value: String, scheme: BrowserColorScheme) {
         #expect(BrowserToolbarHandlers.colorScheme(ActionInvocation(arguments: ["theme": .string(value)])) == scheme)
     }
 
-    @Test func themeSetWithoutAModeFollowsTheApp() {
+    @Test func browserThemeWithoutAModeFollowsTheApp() {
         #expect(BrowserToolbarHandlers.colorScheme(ActionInvocation()) == .system)
     }
 
@@ -37,7 +37,7 @@ struct BrowserToolbarBindingTests {
     @Test func toolbarActionsRefuseWithoutABrowser() {
         let services = ActionBindingCoverageTests.boundServices()
         services.registry.context = [.browserFocused]
-        for id in ["browser.profile.choose", "browser.overflow.menu", "browser.designMode.toggle", "browser.devtools.toggle"] {
+        for id in ["browser.profile.choose", "browser.overflow.menu", "toggleBrowserDesignMode", "toggleBrowserDeveloperTools"] {
             #expect(ActionBindingCoverageTests.run(services, id) == .refused(MiscHandlerStrings.noBrowser), "\(id)")
         }
     }

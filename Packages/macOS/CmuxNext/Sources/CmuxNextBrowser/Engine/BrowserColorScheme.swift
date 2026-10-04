@@ -1,7 +1,7 @@
 public import AppKit
 
 /// The color scheme a page sees (`prefers-color-scheme`), chosen per tab
-/// with the toolbar's theme button or `browserTheme` (`browser.theme.set`).
+/// with the toolbar's theme button or `browserTheme`.
 public nonisolated enum BrowserColorScheme: String, CaseIterable, Hashable, Sendable {
     /// Follows the app's appearance.
     case system

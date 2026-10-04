@@ -26,10 +26,6 @@ public nonisolated enum ActionCatalog {
         // Browser profile placeholders from before browser profiles existed.
         "browserNewProfile": "browserProfile.new",
         "browserRenameProfile": "browserProfile.rename",
-        // The browser toolbar's buttons by the names R80 gave them.
-        "browser.designMode.toggle": "toggleBrowserDesignMode",
-        "browser.devtools.toggle": "toggleBrowserDeveloperTools",
-        "browser.theme.set": "browserTheme",
         // Rooms became Spaces (Leo, 2026-10-02): keybindings and scripts keep working.
         "browserProfile.clearRoomDefault": "browserProfile.clearSpaceDefault",
         "browserProfile.setRoomDefault": "browserProfile.setSpaceDefault",

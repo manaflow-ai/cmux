@@ -154,4 +154,17 @@ import Testing
         #expect(second.commands.contains(.applyColorScheme(.dark)))
         #expect(!modes.designMode)
     }
+
+    /// WebKit shows and hides an attached Web Inspector by adding and
+    /// removing its view beside the page; the container reports both, so
+    /// the DevTools button reads the inspector's state again.
+    @Test func webKitContainerReportsInspectorViewChanges() {
+        let container = WebKitPageContainer(page: NSView())
+        var changes = 0
+        container.onSubviewsChange = { changes += 1 }
+        let inspector = NSView()
+        container.addSubview(inspector)
+        inspector.removeFromSuperview()
+        #expect(changes == 2)
+    }
 }
