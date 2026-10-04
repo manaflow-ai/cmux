@@ -310,6 +310,88 @@ struct BrowserReplFileSystemRaceTests {
     }
 }
 
+/// A file that is not a regular file (a FIFO, a device) or one too large
+/// to hold in memory must not hold a session's fs, or every session's.
+@Suite("Browser REPL fs on special and large files")
+struct BrowserReplFileSystemSpecialFileTests {
+    private typealias Scratch = BrowserReplFileSandboxTests.Scratch
+
+    /// Runs `operation` off the test's thread and returns its error code
+    /// (`"ok"` on success); nil when it is still running after 10 s.
+    /// Opening the FIFO for reading and writing then lets a blocked open or
+    /// read finish, so a red run does not leave fs stuck.
+    private func performBounded(
+        _ fs: BrowserReplFileSystem,
+        _ operation: String,
+        _ arguments: [String: String],
+        fifo: String
+    ) async -> String? {
+        let task = Task.detached { fs.perform(operation, arguments: arguments).failureCode }
+        let result = await browserReplWithDeadline(seconds: 10) { await task.value }
+        guard result == nil else { return result }
+        // A blocked writer then gets EPIPE, not a signal that ends the tests.
+        signal(SIGPIPE, SIG_IGN)
+        var finished: String?
+        while finished == nil {
+            let unblock = open(fifo, O_RDWR | O_NONBLOCK)
+            if unblock >= 0 { _ = write(unblock, "x", 1) }
+            finished = await browserReplWithDeadline(seconds: 1) { await task.value }
+            if unblock >= 0 { close(unblock) }
+            if finished == nil { finished = await browserReplWithDeadline(seconds: 1) { await task.value } }
+        }
+        return nil
+    }
+
+    @Test("readFile, writeFile and copyFile refuse a FIFO at once instead of waiting for its other end")
+    func fifoIsRefusedAtOnce() async throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let fifo = scratch.root + "/pipe"
+        #expect(mkfifo(fifo, 0o600) == 0)
+        let fs = BrowserReplFileSystem(sandbox: BrowserReplFileSandbox(root: scratch.root), temporaryDirectory: scratch.base + "/tmp")
+
+        let read = await performBounded(fs, "readFile", ["path": "pipe"], fifo: fifo)
+        let written = await performBounded(fs, "writeFile", ["path": "pipe", "base64": "eA=="], fifo: fifo)
+        let copied = await performBounded(fs, "copyFile", ["from": "pipe", "to": "copy"], fifo: fifo)
+
+        for (name, result) in [("readFile", read), ("writeFile", written), ("copyFile", copied)] {
+            let failure = try #require(result, "\(name) waited for the FIFO's other end")
+            #expect(failure == "EINVAL", "\(name): \(failure)")
+        }
+        #expect(!FileManager.default.fileExists(atPath: scratch.root + "/copy"))
+    }
+
+    @Test("readFile refuses a file larger than its limit before reading it")
+    func largeFileIsRefused() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        // A sparse file: its size, not its blocks, is past the limit.
+        let path = scratch.root + "/large.bin"
+        let descriptor = open(path, O_WRONLY | O_CREAT, 0o600)
+        #expect(descriptor >= 0)
+        #expect(ftruncate(descriptor, off_t((64 << 20) + 1)) == 0)
+        close(descriptor)
+        let fs = BrowserReplFileSystem(sandbox: BrowserReplFileSandbox(root: scratch.root), temporaryDirectory: scratch.base + "/tmp")
+
+        let result = fs.perform("readFile", arguments: ["path": "large.bin"])
+
+        guard case .failure(let error) = result else {
+            Issue.record("a 64 MiB + 1 byte file was read whole")
+            return
+        }
+        #expect(error.code == "ERR_FS_FILE_TOO_LARGE")
+        #expect(error.message.contains("64 MiB"), "\(error.message)")
+    }
+}
+
+private extension Result where Success == Any, Failure == BrowserReplFileSystemError {
+    /// The error code, or `"ok"`.
+    var failureCode: String {
+        if case .failure(let error) = self { return error.code }
+        return "ok"
+    }
+}
+
 /// A flag one task sets and another polls.
 private final class BrowserReplRaceFlag: @unchecked Sendable {
     private let lock = NSLock()
