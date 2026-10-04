@@ -163,20 +163,35 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
     runInDurableObject(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user)), async (_i, state) => Number((state.storage.sql.exec("SELECT COALESCE(SUM(bytes), 0) AS b FROM home_attachment_stored").toArray()[0] as { b: number }).b))
   const objects = async (id: string) => (await testEnv.HOME_ATTACHMENTS.list({ prefix: `home/v1/${id}/` })).objects.length
   /**
-   * Makes the UserDO stored-bytes release (or `method`) fail until `restore` runs. RPC dispatch
-   * reads prototype methods, so the class method is swapped (this file's tests run one at a time);
-   * the ConversationDO's own RPCs, also from its runtime alarm, then see the failure.
+   * Makes the ConversationDO's own call to the UserDO stored-bytes release (or `method`) fail until
+   * `restore` runs: the object's `gc` dependencies are overridden on the instance, so the failure is
+   * a local rejection the GC catches (no RPC callee logs an uncaught rejection), and an unexpected
+   * unhandled rejection stays visible in the test output.
    */
-  const failReleases = async (user: string, method = "releaseAttachmentStorage") => {
-    const userStub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
-    const original = await runInDurableObject(userStub, async (i) => {
-      const proto = Object.getPrototypeOf(i)
-      const real = proto[method]
-      proto[method] = async () => Promise.reject(new Error(`${method} unavailable`))
-      return real
+  const failReleases = (stub: unknown, method = "releaseAttachmentStorage") =>
+    runInDurableObject(stub, async (i) => {
+      const base = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(i), "gc")!.get!
+      Object.defineProperty(i, "gc", {
+        configurable: true,
+        get() {
+          const deps = base.call(this)
+          return {
+            ...deps,
+            users: (user: string) => {
+              const real = deps.users(user) as any
+              return {
+                releaseAttachmentStorage: (...a: Array<unknown>) => (method === "releaseAttachmentStorage" ? Promise.reject(new Error(`${method} unavailable`)) : real.releaseAttachmentStorage(...a)),
+                refundAttachmentQuota: (...a: Array<unknown>) => (method === "refundAttachmentQuota" ? Promise.reject(new Error(`${method} unavailable`)) : real.refundAttachmentQuota(...a))
+              }
+            }
+          }
+        }
+      })
+      return () => runInDurableObject(stub, async (j) => void delete j.gc)
     })
-    return () => runInDurableObject(userStub, async (i) => void (Object.getPrototypeOf(i)[method] = original))
-  }
+  /** Storage deletion run inside the object (a local call): an expected failure is returned, never logged as an uncaught RPC rejection. */
+  const deleteStorage = (stub: unknown, id: string) =>
+    runInDurableObject(stub, async (i) => i.deleteAttachmentStorage(id).then((n: number) => ({ ok: true as const, n }), (e: unknown) => ({ ok: false as const, error: String(e) })))
   const drops = (stub: unknown) =>
     runInDurableObject(stub, async (_i, state) => state.storage.sql.exec("SELECT * FROM home_attachment_drops").toArray() as Array<{ object_key: string; next_attempt_at?: number; attempts?: number; dead?: number }>)
 
@@ -260,9 +275,8 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
     const g = await group(alice)
     const stub = doOf(g.id)
     await upload(alice, g.id, bytesOf("deleted with its conversation, release fails"))
-    const restore = await failReleases(alice.user)
-    const conv = stub as unknown as { deleteAttachmentStorage(e: string): Promise<number> }
-    await conv.deleteAttachmentStorage(g.id).catch(() => undefined)
+    const restore = await failReleases(stub)
+    await deleteStorage(stub, g.id)
     expect((await drops(stub)).length).toBe(1)
     // A commit afterwards (its outbox and the drop's retry both want the alarm).
     expect((await op(alice.token, "message.send", { conversation: g.id, client_msg_id: "after", parts: [{ type: "text", text: "hi" }] }, "after")).json.ok).toBe(true)
@@ -293,15 +307,15 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
     expect((await intent(alice, g.id, bytesOf("an upload that never finished"))).json.ok).toBe(true)
     const before = await usageRows(alice.user)
     expect((await slotRows(stub)).length).toBe(1)
-    const conv = stub as unknown as { deleteAttachmentStorage(e: string): Promise<number> }
-    const restore = await failReleases(alice.user, "refundAttachmentQuota")
-    const failed = await conv.deleteAttachmentStorage(g.id).then(() => null, (e: unknown) => e)
-    expect(String(failed)).toContain("refundAttachmentQuota unavailable")
+    const restore = await failReleases(stub, "refundAttachmentQuota")
+    const failed = await deleteStorage(stub, g.id)
+    expect(failed).toMatchObject({ ok: false })
+    expect(failed.ok ? "" : failed.error).toContain("refundAttachmentQuota unavailable")
     await restore()
     // Nothing was forgotten yet: the open slot and its charge are still there for the retry.
     expect((await slotRows(stub)).length).toBe(1)
     expect(await usageRows(alice.user)).toEqual(before)
-    await conv.deleteAttachmentStorage(g.id)
+    expect(await deleteStorage(stub, g.id)).toMatchObject({ ok: true })
     expect((await slotRows(stub)).length).toBe(0)
     expect((await usageRows(alice.user)).length).toBe(before.length - 1)
   })
@@ -313,7 +327,7 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
     const age = () => runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_objects SET created_at = ?", Date.now() - 25 * 3_600_000))
     await upload(alice, g.id, bytesOf("first orphan, its release keeps failing"))
     await age()
-    const restore = await failReleases(alice.user)
+    const restore = await failReleases(stub)
     await wake(stub)
     expect((await drops(stub)).length).toBe(1)
     // A second orphan: the sweep still runs and deletes its object although the first drop keeps failing.
