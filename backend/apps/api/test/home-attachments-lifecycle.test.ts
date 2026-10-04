@@ -127,3 +127,29 @@ describe("Home attachments: a release during a sweep's R2 delete is not lost (B)
     expect(left).toBe(0)
   })
 })
+
+describe("Home attachments: conversation storage deletion catches late presigned PUTs (C)", { timeout: 120_000 }, () => {
+  it("after deleteAttachmentStorage, a PUT that lands on an open slot's URL is deleted by a later prefix delete", async () => {
+    const alice = await signIn("att-life-purge-alice")
+    const g = await group(alice)
+    const stub = doOf(g.id)
+    const big = new Uint8Array(33_000_000).fill(1)
+    const r = await intent(alice, g.id, big, VIDEO)
+    const key = keyOfPresigned(r.json.value.upload_url)
+    const conv = stub as unknown as { deleteAttachmentStorage(e: string): Promise<number> }
+    await conv.deleteAttachmentStorage(g.id)
+    expect(await usageRows(alice.user)).toEqual([])
+    // A second delete of the prefix is due once every URL the deletion dropped is past its expiry and the grace.
+    const { UPLOADING_GRACE_MS } = await import("../src/home-attachment-store.ts")
+    const due = await runInDurableObject(stub, async (i: Inst) => i.nextWakeAt(null, Date.now()))
+    expect(due).not.toBeNull()
+    expect(due!).toBeGreaterThanOrEqual(r.json.value.expires_at + UPLOADING_GRACE_MS)
+    // The slow PUT lands after the deletion; once the delayed delete is due, the alarm removes it.
+    await testEnv.HOME_ATTACHMENTS.put(key, big, { sha256: sha(big) })
+    await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_sweep SET purge_at = ?", Date.now() - 1))
+    await drainAlarms(stub)
+    expect(await testEnv.HOME_ATTACHMENTS.head(key)).toBeNull()
+    const after = await runInDurableObject(stub, async (i: Inst) => i.nextWakeAt(null, Date.now()))
+    expect(after).toBeNull()
+  })
+})
