@@ -5,7 +5,16 @@ public import WebKit
 @MainActor
 public final class BrowserNativeInputDeliveryOwner {
     private var dispatchDepth = 0
-    private var heldModifierKeys: [UInt16: BrowserKeyboardNativeModifiers] = [:]
+    /// Modifier keys automation holds, by who holds them: each REPL
+    /// session, and `""` for `cmux browser press`. A holder's events carry
+    /// only its own, so one session's held Meta never turns another's key or
+    /// click into a chord.
+    private var heldModifierKeys: [HeldModifier: BrowserKeyboardNativeModifiers] = [:]
+
+    private struct HeldModifier: Hashable {
+        let holder: String
+        let keyCode: UInt16
+    }
 
     /// Creates an owner with no active dispatch and no held modifiers.
     public init() {}
@@ -20,19 +29,21 @@ public final class BrowserNativeInputDeliveryOwner {
 
     public var isDispatchActive: Bool { dispatchDepth > 0 }
 
-    public var activeModifierFlags: NSEvent.ModifierFlags {
-        heldModifierKeys.values.reduce(into: NSEvent.ModifierFlags()) { flags, modifier in
-            if modifier.contains(.shift) { flags.insert(.shift) }
-            if modifier.contains(.control) { flags.insert(.control) }
-            if modifier.contains(.option) { flags.insert(.option) }
-            if modifier.contains(.command) { flags.insert(.command) }
-            if modifier.contains(.capsLock) { flags.insert(.capsLock) }
-            if modifier.contains(.function) { flags.insert(.function) }
-        }
+    /// The modifier flags `cmux browser press` holds (holder `""`).
+    public var activeModifierFlags: NSEvent.ModifierFlags { activeModifierFlags(heldBy: "") }
+
+    /// The modifier flags `holder` holds.
+    public func activeModifierFlags(heldBy holder: String) -> NSEvent.ModifierFlags {
+        Self.flags(of: heldModifierKeys.filter { $0.key.holder == holder }.values)
     }
 
-    public func modifierFlags(removing keyCode: UInt16) -> NSEvent.ModifierFlags {
-        heldModifierKeys.filter { $0.key != keyCode }.values.reduce(into: NSEvent.ModifierFlags()) { flags, modifier in
+    /// The modifier flags `holder` holds, without the key `keyCode`.
+    public func modifierFlags(removing keyCode: UInt16, heldBy holder: String = "") -> NSEvent.ModifierFlags {
+        Self.flags(of: heldModifierKeys.filter { $0.key.holder == holder && $0.key.keyCode != keyCode }.values)
+    }
+
+    private static func flags(of modifiers: some Sequence<BrowserKeyboardNativeModifiers>) -> NSEvent.ModifierFlags {
+        modifiers.reduce(into: NSEvent.ModifierFlags()) { flags, modifier in
             if modifier.contains(.shift) { flags.insert(.shift) }
             if modifier.contains(.control) { flags.insert(.control) }
             if modifier.contains(.option) { flags.insert(.option) }
@@ -59,17 +70,17 @@ public final class BrowserNativeInputDeliveryOwner {
     /// resend of an unhandled key runs on a later turn, outside every delivery.
     public static var isAnyDispatchActive: Bool { activeDispatchCount > 0 }
 
-    /// Key codes of modifiers currently held by automation.
-    public var heldModifierKeyCodes: [UInt16] {
-        Array(heldModifierKeys.keys)
+    public func setModifier(_ modifier: BrowserKeyboardNativeModifiers, for keyCode: UInt16, heldBy holder: String = "") {
+        heldModifierKeys[HeldModifier(holder: holder, keyCode: keyCode)] = modifier
     }
 
-    public func setModifier(_ modifier: BrowserKeyboardNativeModifiers, for keyCode: UInt16) {
-        heldModifierKeys[keyCode] = modifier
+    public func removeModifier(for keyCode: UInt16, heldBy holder: String = "") {
+        heldModifierKeys.removeValue(forKey: HeldModifier(holder: holder, keyCode: keyCode))
     }
 
-    public func removeModifier(for keyCode: UInt16) {
-        heldModifierKeys.removeValue(forKey: keyCode)
+    /// Forgets every modifier automation holds, for every holder.
+    public func removeAllModifiers() {
+        heldModifierKeys.removeAll()
     }
 
     fileprivate static let associationKey = BrowserNativeInputDeliveryOwnerAssociationKey()
@@ -312,16 +323,20 @@ extension WKWebView {
 
     func replayBrowserNativeModifier(
         _ key: BrowserKeyboardNativeKey,
-        keyDown: Bool
+        keyDown: Bool,
+        heldBy holder: String = ""
     ) -> BrowserKeyboardReplayResult {
         guard let modifierKey = key.modifierKey else { return .unsupported }
-        return replayBrowserModifier(key, modifierKey: modifierKey, action: keyDown ? .keyDown : .keyUp)
+        return replayBrowserModifier(key, modifierKey: modifierKey, action: keyDown ? .keyDown : .keyUp, heldBy: holder)
     }
 
+    /// Sends a modifier key's `flagsChanged`, carrying the modifiers
+    /// `holder` holds (``BrowserNativeInputDeliveryOwner``).
     private func replayBrowserModifier(
         _ key: BrowserKeyboardNativeKey,
         modifierKey: BrowserKeyboardNativeModifiers,
-        action: BrowserKeyboardAction
+        action: BrowserKeyboardAction,
+        heldBy holder: String = ""
     ) -> BrowserKeyboardReplayResult {
         guard let appKitFlag = Self.appKitModifierFlag(for: modifierKey) else {
             return .eventCreationFailed
@@ -329,7 +344,7 @@ extension WKWebView {
 
         switch action {
         case .press:
-            let originalFlags = browserNativeInputDeliveryOwner.activeModifierFlags
+            let originalFlags = browserNativeInputDeliveryOwner.activeModifierFlags(heldBy: holder)
             let pressedFlags = originalFlags.union(appKitFlag)
             guard deliverBrowserFlagsChanged(key, flags: pressedFlags) else {
                 return .eventCreationFailed
@@ -341,18 +356,18 @@ extension WKWebView {
                 return .eventCreationFailed
             }
         case .keyDown:
-            browserNativeInputDeliveryOwner.setModifier(modifierKey, for: key.keyCode)
-            guard deliverBrowserFlagsChanged(key, flags: browserNativeInputDeliveryOwner.activeModifierFlags) else {
-                browserNativeInputDeliveryOwner.removeModifier(for: key.keyCode)
+            browserNativeInputDeliveryOwner.setModifier(modifierKey, for: key.keyCode, heldBy: holder)
+            guard deliverBrowserFlagsChanged(key, flags: browserNativeInputDeliveryOwner.activeModifierFlags(heldBy: holder)) else {
+                browserNativeInputDeliveryOwner.removeModifier(for: key.keyCode, heldBy: holder)
                 return .eventCreationFailed
             }
         case .keyUp:
-            let releasedFlags = browserNativeInputDeliveryOwner.modifierFlags(removing: key.keyCode)
+            let releasedFlags = browserNativeInputDeliveryOwner.modifierFlags(removing: key.keyCode, heldBy: holder)
             guard deliverBrowserFlagsChanged(key, flags: releasedFlags) else {
                 _ = deliverBrowserFlagsChanged(key, flags: releasedFlags)
                 return .eventCreationFailed
             }
-            browserNativeInputDeliveryOwner.removeModifier(for: key.keyCode)
+            browserNativeInputDeliveryOwner.removeModifier(for: key.keyCode, heldBy: holder)
         }
         return .delivered
     }

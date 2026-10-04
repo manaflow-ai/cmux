@@ -12,6 +12,14 @@ extension BrowserReplPasteboardRedirectTests {
     @MainActor
     @Suite("Paste isolation", .serialized)
     struct PasteIsolation {
+        /// Each test starts as a fresh app does, with no change count noted
+        /// as one WebKit may hold a grant at; the redirect moves a tab
+        /// pasteboard past noted ones, which would shift the counts these
+        /// tests set up.
+        init() {
+            BrowserReplPasteboardRedirect.shared.forgetGrantableCounts()
+        }
+
         private final class Loaded: NSObject, WKNavigationDelegate {
             var continuation: CheckedContinuation<Void, Never>?
             func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
