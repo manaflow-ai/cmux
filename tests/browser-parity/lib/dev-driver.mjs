@@ -175,7 +175,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
 
   function register(page) {
     if (tabOf.has(page)) return tabOf.get(page);
-    const tab = { targetId: hexId(), page, frameIds: new WeakMap(), frames: new Map(), clipboard: [], clipboardCommand: null, openerTargetId: undefined, openDialogs: 0, title: "", loadState: "commit", creator: null, handled: new Map(), heldKeys: new Map(), heldButtons: new Map() };
+    const tab = { targetId: hexId(), page, frameIds: new WeakMap(), frames: new Map(), clipboard: [], clipboardCommand: null, openerTargetId: undefined, openDialogs: 0, title: "", loadState: "commit", creator: null, handled: new Map(), inputDrivers: [], heldKeys: new Map(), heldButtons: new Map() };
     tabs.set(tab.targetId, tab);
     tabOf.set(page, tab);
     frameId(tab, page.mainFrame());
@@ -280,6 +280,9 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   function routesToSessions(tab, event) {
     if (tab.creator && drivers.has(tab.creator)) return true;
     for (const [driver, events] of tab.handled) if (drivers.has(driver) && events.has(event)) return true;
+    // As in the app: a dialog or file chooser the page opens while it
+    // handles a session's input or navigation goes to that session.
+    if (event !== "download" && tab.inputDrivers.some((driver) => drivers.has(driver))) return true;
     return false;
   }
 
@@ -949,6 +952,8 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   // Reads and input on a tab whose page the session's policy blocks are
   // refused, as the app's driver does.
   const GUARDED = /^(frame\.evaluate|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond|cookies\.)/;
+  // The session's own input and navigations (WebKitBrowserReplDriver.isActionOnPage).
+  const ACTIONS = /^(input\.|tab\.navigate$|tab\.reload$|tab\.history$)/;
 
   function createDriver() {
     const driver = {
@@ -985,7 +990,19 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
           const reason = driver.blockReason(url);
           if (reason) throw new DriverError("blocked", `the tab shows ${url}, which the domain policy blocks: ${reason}`);
         }
-        return fn(params, driver);
+        const tab = params.targetId && tabs.get(params.targetId);
+        if (!tab || !ACTIONS.test(method)) return fn(params, driver);
+        tab.inputDrivers.push(driver);
+        try {
+          const result = await fn(params, driver);
+          // Like the app's round trip after input: what the page opened while
+          // it handled the input (a file chooser) is reported before the
+          // input counts as done.
+          if (method === "input.mouse" || method === "input.key") await tab.page.evaluate(() => 0).catch(() => {});
+          return result;
+        } finally {
+          tab.inputDrivers.splice(tab.inputDrivers.lastIndexOf(driver), 1);
+        }
       },
       on(event, handler) {
         if (!driver.listeners.has(event)) driver.listeners.set(event, new Set());

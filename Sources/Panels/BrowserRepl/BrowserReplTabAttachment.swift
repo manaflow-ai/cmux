@@ -113,6 +113,8 @@ final class BrowserReplTabAttachment {
     private var resourceObserver: BrowserReplResourceLoadObserver?
     private var consoleHandler: BrowserReplConsoleMessageHandler?
     private weak var instrumentedWebView: WKWebView?
+    /// Whether a web view of this tab was instrumented while attached.
+    private var hasInstrumentedWebView = false
     private var networkIdleWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// An automated left-button press and the HTML5 drag it may have started.
@@ -648,7 +650,12 @@ final class BrowserReplTabAttachment {
         if isAttached { applyContextToWebView() }
         guard let webView = panel?.webView, webView !== instrumentedWebView, isAttached else { return }
         uninstrument()
+        // A web view after the first is a replacement (a restore of a page
+        // cmux unloaded, a crash recovery): its frames have new ids.
+        let isReplacement = hasInstrumentedWebView
+        hasInstrumentedWebView = true
         instrumentedWebView = webView
+        if isReplacement { emit("tab.replaced", [:]) }
         let observer = BrowserReplResourceLoadObserver { [weak self] event, payload in
             guard let self else { return }
             if event == "request" { self.requestGeneration += 1 }
