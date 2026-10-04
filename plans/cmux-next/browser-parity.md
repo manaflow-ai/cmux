@@ -46,8 +46,9 @@ A user who makes cmux the default browser hits these in the first day.
 | --- | --- | --- | --- | --- |
 | Shift-click / Shift-Return opens a new window | fixed (P5) | fixed (R123) | app | C: a page's NEW_WINDOW request goes through the link mapping |
 | Modified link clicks match Chrome and are configurable (`browser.links.*`, Settings > Browser > Links) | fixed (R123) | fixed (R123), UNSURE on a build | app | one mapping (`BrowserLinkClickMapping`, `CEFLinkClicks.placement`). C: the last mouse-up on the requesting page (1 s; cmux UI never counts) separates Shift-Cmd-click from plain target=_blank (both NEW_FOREGROUND_TAB); middle-click follows Cmd-click; Option-click always downloads; Download on another gesture keeps Chrome's default |
-| Link menu: Open in New Tab (background), New Window, Copy Link, Save Link As | partial | partial | app (W), engine (C) | W "New Tab" was foreground (P6); C drops "Open Link in New Window" |
-| Image menu: Copy Image, Open Image in New Tab, Save Image As | works (WebKit menu) | partial | app, engine | C save goes to downloads with no UI |
+| Link menu: Open in New Tab (background), New Window, New Space, New Workspace, Split Right, Incognito Window, Save Link As, Copy Link, Copy Link Text | fixed (R123 B), UNSURE on a build | fixed (R123 B) | app | one cmux menu for both engines (`BrowserHitMenu`, `browserLink` actions with `url`); W hit from a `contextmenu` script; C Save Link As hands back to Chromium until the shim download API |
+| Image menu: Open Image in New Tab, Save Image As, Copy Image, Copy Image Address | fixed (R123 B), UNSURE on a build | fixed (R123 B) | app, engine (C save) | Copy Image loads the address without page cookies; C save as above |
+| Selection menu: Copy, Search <engine> for "…", Look Up "…" | fixed (R123 B), UNSURE on a build | fixed (R123 B) | app | outside editable fields; the omnibar's search engine |
 | Drag a URL or link onto the tab strip | missing | missing | app | strip accepts only tab drags |
 | Audio indicator and mute per tab | missing | missing | app (UI), engine (C audible event) | toggleTabAudioMute unported |
 | Media controls / Now Playing | missing | missing | app (W), engine (C) | MPNowPlayingInfoCenter |
