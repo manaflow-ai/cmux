@@ -172,14 +172,12 @@ enum SessionPersistencePolicy {
         after marker: String.Index,
         before boundary: String.Index
     ) -> Bool {
-        var index = boundary
-        var scanned = 0
-        while index > marker, scanned < maxAnsiStringSequenceScanCharacters {
-            index = text.index(before: index)
+        var index = marker
+        while index < boundary {
             if text[index] == "\u{0007}" {
                 return true
             }
-            scanned += 1
+            index = text.index(after: index)
         }
         return false
     }
