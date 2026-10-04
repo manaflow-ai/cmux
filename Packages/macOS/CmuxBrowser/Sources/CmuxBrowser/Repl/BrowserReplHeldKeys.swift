@@ -17,9 +17,11 @@ public struct BrowserReplHeldKeys: Sendable, Equatable {
     }
 
     /// Records one key event `sessionID` delivered. A repeated key-down
-    /// moves the key to the end and to that session; a key-up releases it.
+    /// moves the key to the end; a key-up releases it. Each session holds
+    /// its own keys (its modifiers apply only to its own input), so another
+    /// session's press or release of the same key leaves this one's held.
     public mutating func record(_ stroke: BrowserReplKeyStroke, keyDown: Bool, sessionID: String = "") {
-        held.removeAll { $0.stroke.keyCode == stroke.keyCode }
+        held.removeAll { $0.stroke.keyCode == stroke.keyCode && $0.sessionID == sessionID }
         if keyDown { held.append((stroke, sessionID)) }
     }
 

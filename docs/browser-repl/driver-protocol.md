@@ -245,7 +245,10 @@ When sessions share a tab, a session's `input.mouse` `down` owns the pointer
 until its `up` (or until the session leaves the tab), and an `input.drag`
 owns it from its press to its release; another session's `input.mouse` or
 `input.drag` waits meanwhile, at most 10 s, then fails with `timeout`
-naming the session that holds the mouse.
+naming the session that holds the mouse. A modifier key a session holds
+down (`input.key` `down` of `Shift`, `Meta`, `Alt` or `Control`) applies only
+to that session's later `input.key`, `input.mouse` and `input.drag` events
+until its `up`; another session's input on the tab never carries it.
 
 ## Capture
 

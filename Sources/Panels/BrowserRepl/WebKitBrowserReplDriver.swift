@@ -2044,7 +2044,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         if let x, let y { attachment.mousePosition = CGPoint(x: x, y: y) }
         let css = attachment.mousePosition
         try await withWindow(panel) { [self] webView, window in
-            let flags = modifiers.union(webView.browserNativeInputDeliveryOwner.activeModifierFlags)
+            // Only the modifiers this session holds: another session's held
+            // Meta must not turn this click into a chord.
+            let flags = modifiers.union(webView.browserNativeInputDeliveryOwner.activeModifierFlags(heldBy: self.sessionID))
             if type == "wheel" {
                 // The REPL is untrusted: any number reaches here, and the
                 // counts are clamped to a wheel count's range.
@@ -2228,7 +2230,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             // AppKit focus (WKWebView+AutomationFocusContainment). WebKit asks
             // for that before it answers the round trip below.
             try await webView.withAutomationFocusContainment {
-                let result = webView.replayBrowserReplKeyStroke(stroke, keyDown: type == "down")
+                let result = webView.replayBrowserReplKeyStroke(stroke, keyDown: type == "down", heldBy: self.sessionID)
                 guard result == .delivered else {
                     throw Self.error("invalid", "Could not deliver key \"\(keyName)\"")
                 }
@@ -2613,7 +2615,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // another session's mouse input never interleaves with it.
         try await attachment.performPointerGesture(sessionID: sessionID) {
             try await withWindow(panel) { [self] webView, window in
-                let flags = modifiers.union(webView.browserNativeInputDeliveryOwner.activeModifierFlags)
+                let flags = modifiers.union(webView.browserNativeInputDeliveryOwner.activeModifierFlags(heldBy: self.sessionID))
                 attachment.mouseState.reset()
                 _ = attachment.mouseState.eventType(forType: "move", button: .left)
                 try await self.deliverMouse(.mouseMoved, button: .left, at: first, clickCount: 0, flags: flags, webView: webView, window: window, attachment: attachment)

@@ -254,13 +254,16 @@ extension CmuxWebView {
 extension WKWebView {
     /// Delivers one REPL key event through WebKit's native keyboard path.
     ///
-    /// Modifier keys update the held-modifier state (and emit `flagsChanged`);
-    /// other keys carry the held modifiers plus their own. `editingCommand`
-    /// is not run here; the driver runs it after key-down.
+    /// Modifier keys update the held-modifier state of `holder` (the REPL
+    /// session that sends the key) and emit `flagsChanged`; other keys carry
+    /// the modifiers `holder` holds plus their own. Another session's held
+    /// modifiers never reach these events. `editingCommand` is not run here;
+    /// the driver runs it after key-down.
     @discardableResult
     public func replayBrowserReplKeyStroke(
         _ stroke: BrowserReplKeyStroke,
-        keyDown: Bool
+        keyDown: Bool,
+        heldBy holder: String = ""
     ) -> BrowserKeyboardReplayResult {
         if let modifierKey = stroke.modifierKey {
             let native = BrowserKeyboardNativeKey(
@@ -269,9 +272,9 @@ extension WKWebView {
                 modifiers: modifierKey,
                 modifierKey: modifierKey
             )
-            return replayBrowserNativeModifier(native, keyDown: keyDown)
+            return replayBrowserNativeModifier(native, keyDown: keyDown, heldBy: holder)
         }
-        let flags = stroke.modifierFlags.union(browserNativeInputDeliveryOwner.activeModifierFlags)
+        let flags = stroke.modifierFlags.union(browserNativeInputDeliveryOwner.activeModifierFlags(heldBy: holder))
         let specification = SyntheticKeySpecification(
             storedKey: stroke.charactersIgnoringModifiers,
             keyCode: stroke.keyCode,
@@ -287,17 +290,15 @@ extension WKWebView {
         )
     }
 
-    /// Forgets that automation holds `stroke`'s modifier, without sending
-    /// the page an event; later automated keys no longer carry it.
-    public func forgetBrowserReplModifier(_ stroke: BrowserReplKeyStroke) {
+    /// Forgets that `holder` holds `stroke`'s modifier, without sending
+    /// the page an event; its later automated keys no longer carry it.
+    public func forgetBrowserReplModifier(_ stroke: BrowserReplKeyStroke, heldBy holder: String = "") {
         guard stroke.modifierKey != nil else { return }
-        browserNativeInputDeliveryOwner.removeModifier(for: stroke.keyCode)
+        browserNativeInputDeliveryOwner.removeModifier(for: stroke.keyCode, heldBy: holder)
     }
 
-    /// Releases every modifier the automation left held.
+    /// Releases every modifier the automation left held, for every holder.
     public func releaseBrowserReplModifiers() {
-        for keyCode in browserNativeInputDeliveryOwner.heldModifierKeyCodes {
-            browserNativeInputDeliveryOwner.removeModifier(for: keyCode)
-        }
+        browserNativeInputDeliveryOwner.removeAllModifiers()
     }
 }

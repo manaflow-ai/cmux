@@ -698,6 +698,8 @@ final class BrowserReplTabAttachment {
 
     /// Keys and buttons one session holds down in this tab.
     struct HeldInput {
+        /// The session that holds it.
+        var sessionID = ""
         var keys: [BrowserReplKeyStroke] = []
         var buttons: [BrowserReplMouseButton] = []
         var drag: DragState?
@@ -710,7 +712,7 @@ final class BrowserReplTabAttachment {
     /// progress (``BrowserReplPointerOwner``: only one session presses at a
     /// time). Another session's keys and press stay.
     func takeHeldInput(of sessionID: String) -> HeldInput {
-        var held = HeldInput(keys: heldKeys.releaseAll(heldBy: sessionID))
+        var held = HeldInput(sessionID: sessionID, keys: heldKeys.releaseAll(heldBy: sessionID))
         if pointer.owner == sessionID {
             held.buttons = mouseState.pressedButtons
             held.drag = drag
@@ -731,7 +733,7 @@ final class BrowserReplTabAttachment {
         if held.drag != nil { webView.automationDragCapture = nil }
         if webView.window != nil {
             for stroke in held.keys {
-                _ = webView.replayBrowserReplKeyStroke(stroke, keyDown: false)
+                _ = webView.replayBrowserReplKeyStroke(stroke, keyDown: false, heldBy: held.sessionID)
             }
         }
         guard let window = webView.window else { return }
@@ -775,7 +777,7 @@ final class BrowserReplTabAttachment {
     func forgetReleased(_ held: HeldInput) {
         guard !held.isEmpty, let webView = panel?.webView as? CmuxWebView else { return }
         for stroke in held.keys {
-            webView.forgetBrowserReplModifier(stroke)
+            webView.forgetBrowserReplModifier(stroke, heldBy: held.sessionID)
         }
         endDragSilently(held.drag, in: webView)
     }
