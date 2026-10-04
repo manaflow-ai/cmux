@@ -237,14 +237,15 @@ from this run remain. Screenshots: `cmux-lawrence-2:~/hq48qp/{pre-1,prompt,post-
 - A quit from the Dock or the app switcher while cmux is inactive: the quit is user-initiated, so
   `QuitCoordinator` activates the app (`NSApp.activate()`) before it presents. That is the one
   exception to "never activates by itself". Test it through `debug.quit {open:true, inactive:true}`.
-- Cmd-Q pressed again while the dialog shows confirms the default (Keep Sessions Running). That
+- Cmd-Q pressed again while the dialog shows confirms the default (Keep Sessions Running; D2,
+  decided). That
   matches "a second Cmd-Q quits" in Terminal and other apps. `requestQuit` (`:27`) sees
   `isQuitting` and calls `sheet.answerDefault()` instead of returning. A third press does nothing.
   On the confirmation step, a second Cmd-Q does nothing, so it can never confirm a destructive
   choice.
 - No prompt for: an update or restart (the existing `.explicit(.keep)`), a signal (keep), or
   power-off and logout (`kAELogOut`, `kAEShutDown`, `kAERestart`, and the show-dialog variants).
-  Power-off always keeps the sessions and ignores `quitAll`, because macOS ends the session
+  Power-off always keeps the sessions and ignores `quitAll` (D3, decided), because macOS ends the session
   processes during logout anyway, and blocking a logout on a cmux shutdown risks the "cmux
   stopped logout" panel. The layout survives through `session_shutdown.rs` (the tabs stay as host
   losses). The setting does not apply to power-off. State that in the Settings help text.
@@ -271,9 +272,8 @@ from this run remain. Screenshots: `cmux-lawrence-2:~/hq48qp/{pre-1,prompt,post-
      (`terminal_host_runtime.rs:4664-4686`).
   3. If either step fails, it is **not silent**: keep the dialog open with "Could not end N
      terminals: <reason>", with Retry and Quit Anyway.
-- Fix G2: `closeEveryWorkspace` must skip a workspace with `extra.kind == home`, or the daemon
-  must accept `close-workspace` of Home as "clear its tabs". Every close error must collect, not
-  throw, before `shutdown-daemon`. Add a red test first.
+- G2 is fixed (section 8): End Everything skips Home and collects every close error before
+  `shutdown-daemon`.
 - Keep sessions running: no change in the daemons. The live run proves the invariants: PPID 1,
   their own PGID and session (cmux-tui `setsid`, acpmux `POSIX_SPAWN_SETSID` plus `set -m`); the
   reaper touches only unplaced terminals; `applicationWillTerminate` only closes sockets. Guard
@@ -363,14 +363,26 @@ work.
 | Q7 | `scripts/fleet-quit-persistence.sh` as a fleet job, run per release | durable-sessions | green on cmux-lawrence-2 |
 | Q8 | Fix the stale Sparkle row in `durable-sessions.md:23` | durable-sessions | doc |
 
-## 7. Decisions for Lawrence
+## 7. Decisions (coordinator, 2026-10-04)
 
-- D1: should "Quit everything" keep the workspace layout (recommended: the terminals and agents
-  end, and the tabs come back with fresh shells), or delete the workspaces as "End Everything"
-  does today? The recommendation keeps "End Everything (delete workspaces)" as a secondary button
-  on the confirmation step only.
-- D2: should a second Cmd-Q while the dialog shows confirm Keep Sessions Running (recommended), or
-  do nothing?
-- D3: logout and shutdown always keep the sessions and ignore `quitAll` (recommended, because
-  macOS ends the processes anyway, and the layout survives). The other choice is to honor
-  `quitAll` and delay logout by up to the end-terminals timeout (60 s).
+- D1 (decided: yes): Quit Everything keeps the workspace layout. Terminals and agents end, and the
+  tabs come back with fresh shells (today's End Sessions, Keep Layout, plus `endAgents`). End
+  Everything (delete the workspaces, Home stays) is a secondary button on the confirmation step
+  only.
+- D2 (decided: yes): a second Cmd-Q while the dialog shows chooses Keep Sessions Running. On the
+  confirmation step it does nothing.
+- D3 (decided: yes): logout, shutdown, an update relaunch and a signal never prompt and always
+  keep. `quitAll` does not apply to them.
+
+## 8. Landed in this lane
+
+- G2 fixed, with a red test commit first: `SessionEnding` (`CmuxNextDaemon/Connection/SessionEnding.swift`)
+  skips the home workspace (`WorkspaceSnapshot.isHome`), never stops at the first error, and
+  returns every failed step in `EndedSessions.failures`.
+  - `DaemonService.endSessionsAndStop` returns the failures and keeps the connection for Retry.
+  - `QuitCompletion` shows them in `QuitFailureAlert` ("Some sessions did not end"), with Retry
+    and Quit Anyway, until the CmuxDialog conversion replaces both alerts. The quit never goes on
+    silently.
+  - `debug.quit` reports `failure` and answers `retry` and `quit-anyway`.
+- `scripts/fleet-quit-persistence.sh` is the 5.2 acceptance test. Its expected-fail list (with
+  owners) is at the top of the script. The `end-everything-*` checks must pass.
