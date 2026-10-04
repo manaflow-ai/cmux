@@ -204,7 +204,7 @@ Order change (binding surfaces above): the REPL session ops (`browser.repl.open/
 
 State at 109d9c613f8: the host has the frame codec, `accept` and `ProviderDriver` (provider.rs, provider_link.rs), but `server.rs` binds only the agent listener, `engines.rs` answers `cef` and `webkit` with `engine_unavailable`, the daemon does not start the host, and the app has no bridge. The shim relay pieces exist (`cmux_shim_devtools_send`, `CEFShimEvent.devToolsMessage`, raw ids from 2^30).
 
-Threat that sets the secret path: a same-uid process (an agent in a terminal) must not be able to pose as the app, because the app's `tab.access` carries the person's per-tab override. Peer uid alone does not stop it, and a secret in a file, an argv or an environment variable is readable by the same uid. So the daemon mints the secret, passes it to the host on an inherited pipe (never argv or env), and gives it to the app only over the app's own daemon connection (app origin).
+Threat that sets the secret path: a same-uid process (an agent in a terminal) must not be able to pose as the app, because the app's `tab.access` carries the person's per-tab override. Peer uid alone does not stop it, and a secret in a file, an argv or an environment variable is readable by the same uid. So the daemon mints the secret, passes it to the host on an inherited pipe (never argv or env), and gives it to the app only over the app's own daemon connection (app origin). The reverse threat is worse (a same-uid process that binds the provider socket path first would get the secret and then raw CDP on the person's tabs), so the host proves itself before the app sends the secret: `browser.host.provider` returns `{socket, secret, host_pid}` (the daemon started the host, so it knows the pid), and the app sends `hello` only after the socket's peer pid (`LOCAL_PEERPID`) equals `host_pid`. The daemon answers `browser.host.provider` only to a caller it proves to be the app (audit token, cmux team code signature, bundle id), never on client-declared identity.
 
 | Slice | Content | Where | Gate |
 | --- | --- | --- | --- |
@@ -213,6 +213,22 @@ Threat that sets the secret path: a same-uid process (an agent in a terminal) mu
 | c3 | App: `CmuxNextBrowserHost` bridge: fetch `browser.host.provider` on daemon connect, dial, `hello` with every tab (`TabAnnounce`), `tab.announced`/`tab.navigated`/`tab.gone` events, WebKit `call` -> `WebKitDriver`, CEF `cdp.attach` -> raw relay via the shim, `tab.access` (`extension_host_access = !AgentExtensionAccess.fromDisk.blockers(store.extensions, url: tab.state.url).isEmpty`, `user_override = TabContentCache.agentMayUseExtensionTab(key)`, resent on URL change and extension store change), lease badge, `user.input`, `markAgentDriven` + password fill off on lease; reconnect after a host restart | CmuxNext (Swift) | module tests with a fake host; live check on cmux-lawrence-2: an agent opens, navigates, snapshots, clicks and types in a visible CEF tab through `browser.repl.eval` |
 
 Order: c1 and c3 in parallel (c3 against a fake host), then c2, then the live check. relay-ext (the `tab.access` rule) lands before c1.
+
+### 6d. Release artifact contract (Linux, for the cmux-next VM image)
+
+The CI lead owns the workflow, signing and the manifest entry; this is the binary contract.
+
+- Targets: `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` (glibc; the VM image's glibc is the floor). One binary per target: `cmux-browser-host`.
+- Build (from `cmux-tui/`, the pinned toolchain in `rust-toolchain.toml`): `CMUX_BUILD_SHA=<40-char commit> cargo build --release --locked -p cmux-browser-host --bin cmux-browser-host --target <triple>`. It needs a C compiler for the target (QuickJS-ng through `rquickjs`); `build.rs` embeds `js/` (no files beside the binary). No runtime dependency other than glibc and libm; Chromium is found at run time (`CMUX_BROWSER_HOST_CHROMIUM`, then `~/.cache/cmux/chromium`, then system paths).
+- Version: `cmux-browser-host version` prints one line `cmux-browser-host <crate version> (<CMUX_BUILD_SHA>)`, exit 0.
+- Smoke (no Chromium needed): `cmux-browser-host version` exits 0 and names the commit; `cmux-browser-host guide` exits 0 with non-empty output; `cmux-browser-host serve --socket "$T/h.sock" &` then `cmux-browser-host list --socket "$T/h.sock"` exits 0 with `{"sessions":[]}`-shaped JSON; then stop the server PID.
+- Run-time switches for Cloud: `CMUX_BROWSER_HOST_HEADLESS=0` (headful Chromium), `CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE=0` (let Chromium throttle background tabs). `--no-sandbox` and `--disable-setuid-sandbox` are always refused.
+
+### 6e. Step c known follow-ups (after c1, 44ce50ad735)
+
+- Provider events go to every session of the provider; filter them per session engine (and per refusal state).
+- Sessions stay bound to the provider connection they opened on; after the app reconnects they must attach to the new one (with c2's lifecycle).
+- No `cdp.detach` when no session uses a CEF tab any more; tie it to the lease (release, session end).
 
 ## 7. Prototype switches (DEV and NIGHTLY)
 

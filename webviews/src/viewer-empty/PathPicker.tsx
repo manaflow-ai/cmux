@@ -1,23 +1,36 @@
 // The in-page folder and file picker. The dev server answers `cmux.diff.chooseFolder` and
 // `cmux.markdown.chooseFile` with it; it is also the reference for the app's palette picker, which
-// keeps the same interaction (pickerModel.ts has the rules):
+// keeps the same interaction (pickerModel.ts has the rules, ui/drillKeys.ts the keys):
 //   - one folder level at a time, recent folders first, git repositories marked;
+//   - a Locations section above the level while the query is empty: home, the computer's root,
+//     recent folders;
 //   - typing filters the level (fuzzy); a query starting with "." also lists hidden entries;
-//   - Tab or Right enters the highlighted folder; Left, or Backspace on an empty query, goes up;
+//   - path mode: a query starting with "/" or "~/" is a path; the picker lists its folder and the
+//     last part filters it ("~/fun/cm");
+//   - Tab or the inline-end arrow enters the highlighted folder; Cmd-Up, the inline-start arrow, or
+//     Backspace on an empty query goes up;
 //   - Enter chooses (a folder in folder mode; a file, or enters a folder, in file mode);
-//   - `~` and `/` jump home and to the root, `name/` enters that folder; the breadcrumb navigates.
+//   - `name/` enters that folder; the breadcrumb navigates.
 // Listings come from `list` (`cmux.picker.list`), which may refuse a folder outside its roots.
-import { useId, useRef, useState, type KeyboardEvent } from "react";
+// The widget (roles, keys, highlight, announcements) is ui/DrillList; this file is the model glue.
+import { useRef, useState } from "react";
 import type { Strings } from "../pages/shared/i18n";
+import { Breadcrumbs } from "../ui/Breadcrumbs";
+import { Dialog } from "../ui/Dialog";
+import { DrillList, type DrillSection } from "../ui/DrillList";
 import { EmptyIcon } from "./icons";
-import { isPickerListing, type PickerListing, type PickerMode } from "./ops";
+import { isPickerListing, tildePath, type PickerListing, type PickerMode } from "./ops";
 import {
   PICKER_ROW_LIMIT,
   breadcrumb,
-  pickerKeyAction,
+  folderQuery,
+  parentPath,
+  pathQuery,
+  pickerLocations,
   pickerRows,
   queryJump,
   recentPathSet,
+  type PickerLocation,
   type PickerRow,
 } from "./pickerModel";
 import { E } from "./strings";
@@ -34,20 +47,37 @@ export interface PathPickerProps {
   start?: string | null;
   onChoose(path: string): void;
   onCancel(): void;
+  /** The title and empty-folder text, when the page has its own (the code editor's any-file mode). */
+  labels?: { title?: string; empty?: string };
 }
 
 type Load = { phase: "loading" } | { phase: "failed" } | { phase: "ready" };
+type Row = PickerRow | PickerLocation;
 
-export function PathPicker({ mode, list, strings, recents = [], start = null, onChoose, onCancel }: PathPickerProps) {
+const isLocation = (row: Row): row is PickerLocation => "location" in row;
+const rowKey = (row: Row) => `${isLocation(row) ? "location" : "row"}:${row.path}`;
+
+export function PathPicker({
+  mode,
+  list,
+  strings,
+  recents = [],
+  start = null,
+  onChoose,
+  onCancel,
+  labels,
+}: PathPickerProps) {
   const { t } = strings;
   const [listing, setListing] = useState<PickerListing | null>(null);
   const [load, setLoad] = useState<Load>({ phase: "loading" });
   const [query, setQuery] = useState("");
-  const [highlight, setHighlight] = useState(0);
+  // The highlighted row by key (section and path), so a new listing or the Locations above it keep
+  // it in place.
+  const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const request = useRef(0);
   const started = useRef(false);
-  const listId = useId();
   const recentSet = recentPathSet(recents, mode);
+  const home = listing?.home ?? null;
 
   const navigate = async (path: string | null, options: { focus?: string; hidden?: boolean } = {}) => {
     const id = ++request.current;
@@ -64,81 +94,89 @@ export function PathPicker({ mode, list, strings, recents = [], start = null, on
     setListing(value);
     setLoad({ phase: "ready" });
     const rows = pickerRows(value.entries, options.hidden ? "." : "", mode, recentSet);
-    const index = options.focus ? rows.findIndex((row) => row.path === options.focus) : -1;
-    setHighlight(Math.max(index, 0));
+    const focus = options.focus ? rows.find((row) => row.path === options.focus) : undefined;
+    const row = focus ?? rows[0];
+    setHighlightKey(row ? rowKey(row) : null);
   };
 
-  // A callback ref: the first listing loads when the picker mounts, and the field takes focus.
-  const mountRef = (element: HTMLDivElement | null) => {
+  // A callback ref: the first listing loads when the picker mounts.
+  const mountRef = (element: HTMLElement | null) => {
     if (!element || started.current) return;
     started.current = true;
     void navigate(start);
   };
 
-  const all = listing ? pickerRows(listing.entries, query.startsWith(".") ? "." : "", mode, recentSet) : [];
-  const rows = listing ? pickerRows(listing.entries, query, mode, recentSet) : [];
+  // Path mode lists the query's folder; the text after its last "/" filters it.
+  const path = pathQuery(query, home);
+  const filter = path ? path.rest : query;
+  const all = listing ? pickerRows(listing.entries, filter.startsWith(".") ? "." : "", mode, recentSet) : [];
+  const rows = listing ? pickerRows(listing.entries, filter, mode, recentSet) : [];
   const shown = rows.slice(0, PICKER_ROW_LIMIT);
-  const current: PickerRow | undefined = shown[Math.min(highlight, shown.length - 1)];
+  const locations =
+    query === "" && listing
+      ? pickerLocations({
+          home,
+          current: listing.path,
+          recents,
+          mode,
+          labels: { home: t(E.pickerHome), computer: t(E.pickerComputer) },
+        })
+      : [];
+  const sections: DrillSection<Row>[] = [
+    { id: "locations", label: t(E.pickerLocations), items: locations },
+    { id: "level", items: shown },
+  ];
+  const flat: Row[] = [...locations, ...shown];
+  const levelStart = locations.length;
+  const found = flat.findIndex((row) => rowKey(row) === highlightKey);
+  // Default: the level's first row; none in an empty level (Enter then chooses the folder).
+  const highlight = found >= 0 ? found : shown.length ? levelStart : -1;
 
-  const go = (path: string | null, focus?: string) => {
+  const go = (target: string | null, focus?: string) => {
     setQuery("");
-    void navigate(path, { focus });
+    void navigate(target, { focus });
+  };
+  /** In path mode the field follows the folder; otherwise the query clears. */
+  const show = (target: string, focus?: string) => {
+    if (path) {
+      setQuery(folderQuery(target, home));
+      void navigate(target, { focus });
+    } else go(target, focus);
   };
   const goUp = () => {
-    if (!listing?.parent) return;
-    go(listing.parent, listing.path);
+    const parent = listing?.parent ?? (listing ? parentPath(listing.path) : null);
+    if (!listing || !parent) return;
+    show(parent, listing.path);
   };
-  const enter = (row: PickerRow | undefined) => {
-    if (row?.kind === "dir") go(row.path);
+  const enter = (row: Row | undefined) => {
+    if (row?.kind === "dir") show(row.path);
   };
-  const choose = (row: PickerRow | undefined) => {
+  const choose = (row: Row | undefined) => {
     if (!row) {
       // Folder mode with nothing to highlight (an empty folder, no subfolders) chooses the folder.
-      if (mode === "folder" && query === "" && listing && load.phase === "ready") onChoose(listing.path);
+      if (mode === "folder" && (query === "" || (path && path.rest === "")) && listing && load.phase === "ready") {
+        onChoose(listing.path);
+      }
       return;
     }
-    if (mode === "file" && row.kind === "dir") return enter(row);
+    if (isLocation(row) || (mode !== "folder" && row.kind === "dir")) return enter(row);
     onChoose(row.path);
   };
 
   const setQueryValue = (value: string) => {
-    const jump = queryJump(value, all, listing?.home ?? null);
+    const jump = queryJump(value, all);
     if (jump) return go(jump.path);
-    const hiddenBefore = query.startsWith(".");
+    const before = pathQuery(query, home);
+    const next = pathQuery(value, home);
+    const hiddenBefore = (before ? before.rest : query).startsWith(".");
+    const hidden = (next ? next.rest : value).startsWith(".");
     setQuery(value);
-    setHighlight(0);
-    if (value.startsWith(".") !== hiddenBefore && listing) {
-      void navigate(listing.path, { hidden: value.startsWith(".") });
-    }
-  };
-
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    const input = event.currentTarget;
-    const action = pickerKeyAction(event, {
-      query,
-      caretStart: input.selectionStart ?? query.length,
-      caretEnd: input.selectionEnd ?? query.length,
-    });
-    if (!action) return;
-    event.preventDefault();
-    event.stopPropagation();
-    switch (action.kind) {
-      case "move":
-        if (shown.length) setHighlight(Math.max(0, Math.min(shown.length - 1, highlight + action.delta)));
-        return;
-      case "edge":
-        setHighlight(action.to === "first" ? 0 : Math.max(0, shown.length - 1));
-        return;
-      case "enter":
-        return enter(current);
-      case "up":
-        return goUp();
-      case "choose":
-        return choose(current);
-      case "clear":
-        return setQueryValue("");
-      case "cancel":
-        return onCancel();
+    setHighlightKey(null);
+    // Leaving path mode keeps the folder it showed.
+    if (next && next.dir !== listing?.path) {
+      void navigate(next.dir, { hidden });
+    } else if (hidden !== hiddenBefore && listing) {
+      void navigate(listing.path, { hidden });
     }
   };
 
@@ -148,107 +186,98 @@ export function PathPicker({ mode, list, strings, recents = [], start = null, on
       ? t(E.pickerFailed)
       : load.phase === "loading" && !listing
         ? t(E.pickerLoading)
-        : query !== ""
+        : filter !== ""
           ? t(E.pickerNoMatches)
-          : t(mode === "folder" ? E.pickerEmptyFolder : E.pickerEmptyFile);
+          : (labels?.empty ?? t(mode === "folder" ? E.pickerEmptyFolder : E.pickerEmptyFile));
+  const title = labels?.title ?? t(mode === "folder" ? E.pickerFolderTitle : E.pickerFileTitle);
+  const status =
+    load.phase === "failed"
+      ? t(E.pickerFailed)
+      : load.phase === "loading"
+        ? t(E.pickerLoading)
+        : listing
+          ? strings.format(E.pickerStatus, tildePath(listing.path, listing.home), String(rows.length))
+          : "";
 
   return (
-    <div
-      ref={mountRef}
-      className="ve-picker"
-      data-mode={mode}
-      data-phase={load.phase}
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-      role="dialog"
-      aria-label={t(mode === "folder" ? E.pickerFolderTitle : E.pickerFileTitle)}
-    >
+    <section ref={mountRef} className="ve-picker" data-mode={mode} data-phase={load.phase} aria-label={title}>
       <div className="ve-picker-head">
-        <span className="ve-picker-title">{t(mode === "folder" ? E.pickerFolderTitle : E.pickerFileTitle)}</span>
-        <nav className="ve-crumbs" aria-label={t(E.pickerLocation)}>
-          {crumbs.map((crumb, index) => (
-            <span key={crumb.path} className="ve-crumb-wrap">
-              {index > 0 && crumbs[index - 1].label !== "/" ? <span className="ve-crumb-sep">/</span> : null}
-              <button
-                type="button"
-                className="ve-crumb"
-                tabIndex={-1}
-                aria-current={index === crumbs.length - 1 ? "location" : undefined}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => go(crumb.path, crumbs[index + 1]?.path)}
-              >
-                {crumb.label}
-              </button>
-            </span>
-          ))}
-        </nav>
+        <span className="ve-picker-title">{title}</span>
+        <Breadcrumbs
+          className="ve-crumbs"
+          crumbClassName="ve-crumb"
+          label={t(E.pickerLocation)}
+          crumbs={crumbs}
+          separator={(index) => (crumbs[index - 1].label !== "/" ? <span className="ve-crumb-sep">/</span> : null)}
+          onNavigate={(crumb, index) => show(crumb.path, crumbs[index + 1]?.path)}
+        />
       </div>
-      <input
-        ref={focusOnMount}
-        className="ve-picker-field"
-        type="text"
-        spellCheck={false}
-        autoComplete="off"
-        autoCapitalize="off"
-        aria-controls={listId}
-        aria-activedescendant={current ? `${listId}-${shown.indexOf(current)}` : undefined}
-        aria-label={t(E.pickerPlaceholder)}
+      <DrillList<Row>
+        sections={sections}
+        getKey={rowKey}
+        highlight={highlight}
+        onHighlight={(index) => setHighlightKey(flat[index] ? rowKey(flat[index]) : null)}
+        query={query}
+        onQueryChange={setQueryValue}
+        onEnter={enter}
+        onUp={goUp}
+        onChoose={choose}
+        onCancel={onCancel}
+        onActivate={(row) => (row.kind === "dir" ? enter(row) : choose(row))}
+        label={t(E.pickerPlaceholder)}
         placeholder={t(E.pickerPlaceholder)}
-        value={query}
-        onChange={(event) => setQueryValue(event.target.value)}
-        onKeyDown={onKeyDown}
-      />
-      {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-      <div className="ve-picker-list" id={listId} role="listbox" aria-label={listing?.path ?? ""}>
-        {shown.length === 0 ? (
-          <div className="ve-picker-empty" role="presentation">
-            {emptyText}
-          </div>
-        ) : (
-          shown.map((row, index) => (
-            <div
-              key={row.path}
-              id={`${listId}-${index}`}
-              ref={index === highlight ? scrollIntoViewRef : undefined}
-              className="ve-picker-row"
-              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-              role="option"
-              tabIndex={-1}
-              aria-selected={index === highlight}
-              data-kind={row.kind}
-              data-git={row.git ? "true" : undefined}
-              data-recent={row.recent ? "true" : undefined}
-              title={row.path}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                setHighlight(index);
-              }}
-              onMouseMove={() => index !== highlight && setHighlight(index)}
-              onDoubleClick={() => (row.kind === "dir" ? enter(row) : choose(row))}
-            >
-              <EmptyIcon
-                name={row.kind === "file" ? "file" : row.git ? "repo" : "folder"}
-                title={row.git ? t(E.pickerGit) : undefined}
-              />
-              <span className="ve-picker-name">{row.name}</span>
-              {row.recent ? (
-                <span className="ve-picker-recent" title={t(E.pickerRecent)}>
-                  <EmptyIcon name="clock" />
-                </span>
-              ) : null}
-              {row.kind === "dir" ? (
-                <span className="ve-picker-chevron">
-                  <EmptyIcon name="chevron" />
-                </span>
-              ) : null}
-            </div>
-          ))
+        listLabel={listing?.path ?? t(E.pickerLoading)}
+        hint={t(E.pickerHintPath)}
+        status={status}
+        empty={emptyText}
+        fieldClassName="ve-picker-field"
+        listClassName="ve-picker-list"
+        rowClassName="ve-picker-row"
+        emptyClassName="ve-picker-empty"
+        sectionClassName="ve-picker-section"
+        hintClassName="ve-picker-hint"
+        itemAttributes={(row) => ({
+          title: row.path,
+          "data-kind": row.kind,
+          "data-location": isLocation(row) ? "true" : undefined,
+          "data-git": !isLocation(row) && row.git ? "true" : undefined,
+          "data-recent": !isLocation(row) && row.recent ? "true" : undefined,
+        })}
+        renderItem={(row) => (
+          <>
+            <EmptyIcon
+              name={
+                isLocation(row)
+                  ? row.path === home
+                    ? "home"
+                    : "folder"
+                  : row.kind === "file"
+                    ? "file"
+                    : row.git
+                      ? "repo"
+                      : "folder"
+              }
+              title={!isLocation(row) && row.git ? t(E.pickerGit) : undefined}
+            />
+            <span className={isLocation(row) ? "ve-picker-location" : "ve-picker-name"}>{row.name}</span>
+            {!isLocation(row) && row.recent ? (
+              <span className="ve-picker-recent" title={t(E.pickerRecent)}>
+                <EmptyIcon name="clock" />
+              </span>
+            ) : null}
+            {row.kind === "dir" ? (
+              <span className="ve-picker-chevron">
+                <EmptyIcon name="chevron" />
+              </span>
+            ) : null}
+          </>
         )}
-        {rows.length > shown.length ? (
-          <div className="ve-picker-more" role="presentation">
-            {strings.format(E.pickerMore, String(rows.length - shown.length))}
-          </div>
-        ) : null}
-      </div>
+        after={
+          rows.length > shown.length ? (
+            <div className="ve-picker-more">{strings.format(E.pickerMore, String(rows.length - shown.length))}</div>
+          ) : null
+        }
+      />
       <div className="ve-picker-foot">
         <span className="ve-picker-hints" aria-hidden="true">
           <span className="ve-hint">
@@ -256,7 +285,7 @@ export function PathPicker({ mode, list, strings, recents = [], start = null, on
             {t(E.pickerHintOpen)}
           </span>
           <span className="ve-hint">
-            <kbd>←</kbd>
+            <kbd>⌘↑</kbd>
             {t(E.pickerHintUp)}
           </span>
           <span className="ve-hint">
@@ -280,29 +309,22 @@ export function PathPicker({ mode, list, strings, recents = [], start = null, on
           ) : null}
         </span>
       </div>
-    </div>
+    </section>
   );
 }
 
-function focusOnMount(element: HTMLInputElement | null): void {
-  element?.focus({ preventScroll: true });
-}
-
-function scrollIntoViewRef(element: HTMLElement | null): void {
-  if (element && typeof element.scrollIntoView === "function") element.scrollIntoView({ block: "nearest" });
-}
-
-/** The picker as a palette-like sheet over the page: a click outside cancels. */
+/** The picker as a modal sheet over the page: Escape (on an empty query) or a press outside cancels. */
 export function PathPickerDialog(props: PathPickerProps) {
+  const { t } = props.strings;
   return (
-    <div
-      className="ve-sheet"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) props.onCancel();
-      }}
+    <Dialog
+      open
+      onOpenChange={(open) => !open && props.onCancel()}
+      label={props.labels?.title ?? t(props.mode === "folder" ? E.pickerFolderTitle : E.pickerFileTitle)}
+      className="ve-sheet-dialog"
+      backdropClassName="ve-sheet"
     >
       <PathPicker {...props} />
-    </div>
+    </Dialog>
   );
 }

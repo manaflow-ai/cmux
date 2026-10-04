@@ -1,6 +1,8 @@
 // Boots the markdown editor page: cmux-page://cmux.markdown/ serves webviews/markdown-page.html
 // from the webviews-app build, which loads this module. The host installs the cmuxPage bridge
 // (host.ts lists the ops); the dev server installs a stand-in (devBridge.ts) before this runs.
+// DESKTOP-FEEL (R139): the shared desktop layer loads first.
+import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { applyDiffViewerAppearance, resolveDiffViewerAppearance } from "../../appearance";
 import { createPageClient, type PageClient } from "../shared/pageClient";
@@ -17,12 +19,15 @@ import { LinkRouter } from "./linkRouter";
 import { LinkResolver, type ResolvedLink } from "./links";
 import { htmlPreview } from "./htmlPreview";
 import { MarkdownPage } from "./MarkdownPage";
+import { LinkOverlays } from "./overlays";
 import { MarkdownStore } from "./store";
 import { bindMarkdownLook, markdownCodeTheme } from "./settings";
 import { L } from "./strings";
 import { MarkdownEmptyState } from "../../viewer-empty/MarkdownEmptyState";
 import { viewerEmptyStrings } from "../../viewer-empty/strings";
+import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import "../shared/pageBase.css";
+import "../../ui/ui.css";
 import "./styles.css";
 import "../../viewer-empty/styles.css";
 
@@ -32,6 +37,7 @@ const LABELS: Record<EditorLabel, string> = {
   definition: L.definition,
   source: L.rawSource,
   plainText: L.plainText,
+  document: L.title,
 };
 
 /** The editor's host: links, images, code colors and diagrams, from the page config. */
@@ -101,6 +107,7 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
   document.documentElement.lang = strings.language;
   document.title = strings.t(L.title);
   let editor: MarkdownEditor | null = null;
+  const overlays = new LinkOverlays();
   // Relative link targets: checked through the host in batches, cached per file.
   const resolver = new LinkResolver(
     client
@@ -136,6 +143,7 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     const next = new MarkdownEditor({
       root: element,
       host,
+      overlays,
       readOnly: store.getState().readOnly,
       onUserEdit: () => store.edited(),
     });
@@ -173,14 +181,17 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     ? () => <MarkdownEmptyState client={client} strings={emptyStrings} open={(path) => store.openFile(path)} />
     : undefined;
   createRoot(root).render(
-    <MarkdownPage
-      store={store}
-      strings={strings}
-      editorRef={editorRef}
-      emptyState={emptyState}
-      onBack={() => void router.go(-1)}
-      onForward={() => void router.go(1)}
-    />,
+    <UiProvider container={root} dir={languageDirection(strings.language)}>
+      <MarkdownPage
+        store={store}
+        strings={strings}
+        editorRef={editorRef}
+        emptyState={emptyState}
+        overlays={overlays}
+        onBack={() => void router.go(-1)}
+        onForward={() => void router.go(1)}
+      />
+    </UiProvider>,
   );
   void store.start();
   return store;

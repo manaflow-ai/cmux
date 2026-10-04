@@ -90,6 +90,9 @@ public nonisolated struct PageNativeOp {
     /// Stream every page may subscribe to: `{command, text?}` from the app's key dispatcher
     /// (`find`, `focusSearch`, `back`, `forward`, `reset`). The page never reads chords itself.
     public static let pageCommand = "cmux.page.command"
+    /// Built in for every page (DESKTOP-FEEL, R139): a double-click on a title bar the page draws
+    /// (`data-titlebar`) runs the window's title bar action (System Settings: zoom or minimize).
+    public static let titleBarDoubleClick = "cmux.app.window.title_bar_double_click"
     /// Stream every page may subscribe to: `{connected}`, the page's owner link (the daemon). The
     /// current state arrives as the first event.
     public static let pageConnection = "cmux.page.connection"

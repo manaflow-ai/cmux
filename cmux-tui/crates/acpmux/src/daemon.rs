@@ -148,6 +148,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         });
     }
     let hub = Hub::new(config, store);
+    // Agents outlive this daemon unless the user opts out for this release.
+    if !std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "0") {
+        hub.enable_agent_hosts();
+    }
     hub.begin_startup(login_env);
     std::fs::write(home().join("daemon.pid"), std::process::id().to_string())?;
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
@@ -175,7 +179,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     {
         let hub = hub.clone();
-        tokio::spawn(async move { hub.finish_startup().await });
+        tokio::spawn(async move {
+            // Agents that outlived the previous daemon come back first.
+            hub.adopt_agent_hosts().await;
+            hub.finish_startup().await
+        });
     }
     tokio::spawn(notify_loop(hub.clone()));
 
@@ -265,6 +273,11 @@ static DAEMON_PREFIX: std::sync::OnceLock<Vec<std::ffi::OsString>> = std::sync::
 /// Set once, before the first `connect`.
 pub fn set_daemon_prefix(prefix: Vec<std::ffi::OsString>) {
     let _ = DAEMON_PREFIX.set(prefix);
+}
+
+/// The prefix set by [`set_daemon_prefix`]; agent hosts start with it too.
+pub fn daemon_prefix() -> Vec<std::ffi::OsString> {
+    DAEMON_PREFIX.get().cloned().unwrap_or_default()
 }
 
 /// How long a started daemon may take to report that its socket is bound.

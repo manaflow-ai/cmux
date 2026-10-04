@@ -2,7 +2,7 @@ import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { applyDictation, type DictationAnchor, type DictationState, type DictationUpdate } from "./dictationText";
 import type { MarkdownFieldHandle } from "./MarkdownField";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 import { NativeError } from "./nativeError";
 
 /// Native dictation for the composer. Swift owns the microphone and speech engine
@@ -62,6 +62,7 @@ export type Dictation = {
 
 /// Dictation into the composer's prompt, which `prompt` holds once the composer mounts.
 export function useDictation(prompt: React.RefObject<MarkdownFieldHandle | null>, call: Call): Dictation {
+  const t = useT();
   const [state, setState] = useState<DictationState>("idle");
   const [notice, setNotice] = useState<DictationUpdate | null>(null);
   const anchor = useRef<DictationAnchor | null>(null);

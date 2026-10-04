@@ -75,6 +75,12 @@ final class SidebarItemRowView: NSView {
 
     override var isFlipped: Bool { true }
     override var wantsUpdateLayer: Bool { true }
+    /// A drag from a press (window points): true once the region drags.
+    var onDragged: ((NSPoint, NSEvent) -> Bool)?
+    var onDragEnded: (() -> Void)?
+    private var pressLocation: NSPoint?
+    private var didDrag = false
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     /// Width of a chip showing `title` (and an unread count): padding,
@@ -230,6 +236,8 @@ final class SidebarItemRowView: NSView {
         guard pill.frame.contains(point) else { return super.mouseDown(with: event) }
         if hitsAccessory(point) { return onAccessory?() ?? () }
         isPressed = true
+        pressLocation = event.locationInWindow
+        didDrag = false
         if let onPressWithModifiers { onPressWithModifiers(event.modifierFlags) } else { onPress?() }
     }
 
@@ -258,7 +266,17 @@ final class SidebarItemRowView: NSView {
         }
     }
 
+    /// Past the drag threshold the region reorders in place (R77).
+    override func mouseDragged(with event: NSEvent) {
+        guard let pressLocation, onDragged?(pressLocation, event) == true else { return super.mouseDragged(with: event) }
+        didDrag = true
+        isPressed = false
+    }
+
     override func mouseUp(with event: NSEvent) {
+        if didDrag { onDragEnded?() }
+        pressLocation = nil
+        didDrag = false
         guard isPressed else { return super.mouseUp(with: event) }
         isPressed = false
     }

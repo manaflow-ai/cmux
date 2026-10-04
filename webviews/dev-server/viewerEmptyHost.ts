@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-export type RecentKind = "diff" | "markdown";
+export type RecentKind = "diff" | "markdown" | "editor";
 
 export interface DevRecent {
   path: string;
@@ -33,9 +33,10 @@ export function devRecents(directory: string, now: () => number = Date.now) {
       return {
         diff: Array.isArray(value?.diff) ? value.diff : [],
         markdown: Array.isArray(value?.markdown) ? value.markdown : [],
+        editor: Array.isArray(value?.editor) ? value.editor : [],
       };
     } catch {
-      return { diff: [], markdown: [] };
+      return { diff: [], markdown: [], editor: [] };
     }
   };
   return {
@@ -103,12 +104,13 @@ function isMarkdownName(name: string): boolean {
 
 /**
  * One folder level for the fallback picker (`cmux.picker.list`): folders (marked when they are a
- * git repository's top level) and, in file mode, markdown files. Hidden entries only when
+ * git repository's top level) and, in file mode, markdown files (any file in `anyFile` mode, the
+ * code editor's). Hidden entries only when
  * `hidden`. `requested` null or `~` is home. A folder outside `roots` is refused.
  */
 export function listPickerDirectory(
   requested: string | null,
-  options: { roots: readonly string[]; home: string; mode: "folder" | "file"; hidden: boolean },
+  options: { roots: readonly string[]; home: string; mode: "folder" | "file" | "anyFile"; hidden: boolean },
 ) {
   const raw = requested == null || requested === "" || requested === "~" ? options.home : requested;
   const expanded = raw.startsWith("~/") ? path.join(options.home, raw.slice(2)) : raw;
@@ -143,7 +145,7 @@ export function listPickerDirectory(
         kind: "dir",
         git: fs.existsSync(path.join(full, ".git")) || undefined,
       });
-    } else if (isFile && options.mode === "file" && isMarkdownName(dirent.name)) {
+    } else if (isFile && (options.mode === "anyFile" || (options.mode === "file" && isMarkdownName(dirent.name)))) {
       entries.push({ name: dirent.name, path: full, kind: "file" });
     }
   }

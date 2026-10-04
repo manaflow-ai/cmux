@@ -1,4 +1,4 @@
-import { tablesFor, type Domain, type EventFrame, type OwnerEngine, type OwnerFrame, type Principal } from "@cmux/ownership"
+import { type Domain, type EventFrame, type OwnerEngine, type OwnerFrame, type Principal } from "@cmux/ownership"
 import { conversation, invites } from "@cmux/home-core"
 
 /** An invite still waiting for its recipient (pending, or waiting for approval). */
@@ -9,6 +9,7 @@ import { publicActor } from "./public-actor.ts"
 import { withAdmit } from "./home-admit.ts"
 import * as store from "./home-attachment-store.ts"
 import * as gc from "./home-attachment-gc.ts"
+import { dmLinkOf, type DmLink } from "./conversation-dm-link.ts"
 
 type Head = conversation.ConversationState
 /** A conversation socket remembers whether its sender last broadcast `typing on` (for close). */
@@ -341,6 +342,11 @@ export class ConversationDO extends OwnerDO<Head> {
     }
   }
 
+  /** Worker only (home-routes.ts rate gate): whether `principal` already decided `key` here (a retry replays, so it is not charged). */
+  async homeDecided(entity: string, principal: Principal, key: string): Promise<boolean> {
+    return this.existingState(entity) !== undefined && this.boundEngine!.gate(principal, { t: "op", op: "", params: {}, idempotency_key: key }) === "replay"
+  }
+
   /** A current, acting participant (not an address) of an existing conversation, with the state. */
   private acting(entity: string, actor: string) {
     const state = this.existingState(entity)
@@ -460,34 +466,10 @@ export class ConversationDO extends OwnerDO<Head> {
     return this.existingState(entity) ? gc.deleteAttachmentStorage(this.gc, entity) : 0
   }
 
-  /**
-   * Worker only (home-reach.ts): the reach facts this DM gives `adder` about `target`. `peer` is
-   * the target's name while both are current human participants; `consented` holds when the
-   * pair gave consent (16.8): both have sent a message here, or the DM came from an invite one of
-   * them sent and the other accepted (16.4). Authorship comes from the private `consent`
-   * markers (home-core consent.ts), which retention never deletes, so an old DM stays connected
-   * after its messages expire. A DM from before the markers falls back to its `msgkey` rows
-   * (keyed `<author>:<client_msg_id>`, an index range read): any commit that deletes such a row
-   * writes the author's marker in the same commit, so the fallback is only read while the rows
-   * it reads still exist.
-   */
-  async homeDmLink(entity: string, adder: string, target: string): Promise<{ peer: string | null; consented: boolean } | null> {
+  /** Worker only (home-reach.ts): the reach facts this DM gives `adder` about `target` (conversation-dm-link.ts). */
+  async homeDmLink(entity: string, adder: string, target: string): Promise<DmLink> {
     const state = this.existingState(entity)
-    if (!state || state.kind !== "dm") return null
-    const current = (id: string) => state.participants.find((p) => p.id === id && p.kind === "human" && p.left_at === undefined)
-    if (!current(adder)) return null
-    const peer = current(target)
-    if (!peer) return { peer: null, consented: false }
-    const rows = tablesFor().rows
-    const authored = (who: string) =>
-      conversation.hasConsentMarker(this.boundEngine!.rows, who) ||
-      this.sqlStore.exec<{ one: number }>(`SELECT 1 AS one FROM ${rows} WHERE tbl = ? AND k >= ? AND k < ? LIMIT 1`, conversation.TABLE_MSGKEY, `${who}:`, `${who};`).length > 0
-    const pair = new Set([adder, target])
-    const invited = () =>
-      [...(state.invites ?? []), ...this.boundEngine!.rows.scan<conversation.Invite>(conversation.TABLE_INV, 1000).map((r) => r.row)].some(
-        (i) => i.status === "accepted" && i.accepted_by !== undefined && i.invited_by !== i.accepted_by && pair.has(i.invited_by) && pair.has(i.accepted_by)
-      )
-    return { peer: peer.display_name, consented: (authored(adder) && authored(target)) || invited() }
+    return state ? dmLinkOf(state, this.boundEngine!.rows, this.sqlStore, adder, target) : null
   }
 
   /** State of an object that already serves this conversation; never creates storage for unknown ids. */

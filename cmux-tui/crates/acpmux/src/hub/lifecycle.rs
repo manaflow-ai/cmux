@@ -3,6 +3,7 @@
 use super::*;
 
 use super::adoption::{Adoption, adopted_in, session_cwd};
+use crate::config::check_preset_args;
 
 impl Hub {
     // --------------------------------------------------------- lifecycle
@@ -73,7 +74,7 @@ impl Hub {
     pub async fn new_session(self: &Arc<Self>, req: NewRequest) -> Result<Arc<Session>, RpcError> {
         // Harness discovery and launcher checks finish in the background.
         self.wait_startup().await;
-        let NewRequest { harness, preset, name, cwd, policy, model, effort, adopt } = req;
+        let NewRequest { harness, preset, name, cwd, policy, model, effort, adopt, remote } = req;
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
@@ -111,6 +112,13 @@ impl Hub {
             let profile = cfg.harnesses[&resolved].clone();
             let mut d = cfg.defaults_for(&resolved);
             if let Some(p) = &preset_cfg {
+                if remote && p.shapes_command() {
+                    return Err(RpcError::invalid_params(format!(
+                        "preset {:?} carries harness args or a system prompt, which a remote-origin session never starts with (remote chains build their settings from scratch)",
+                        preset.as_deref().unwrap_or_default()
+                    )));
+                }
+                check_preset_args(profile.kind, &p.args).map_err(RpcError::invalid_params)?;
                 d.overlay(&crate::config::SessionDefaults {
                     model: p.model.clone(),
                     effort: p.effort.clone(),
@@ -173,6 +181,7 @@ impl Hub {
             tags: Default::default(),
             unread: false,
             last_turn: None,
+            remote_origin: remote,
         };
         // Pick or check the name and insert under one lock, so concurrent
         // creations can never publish the same name twice.
@@ -208,8 +217,11 @@ impl Hub {
         if let Some(a) = &adopt {
             self.append(&session, "mux", "adopted", json!({"agentSessionId": a.agent_session_id}));
         }
-        let spawn = self.spawn_profile(&session, &profile, &defaults.env).await;
-        if let Err(e) = self.ensure_child(&session, &spawn).await {
+        let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
+            Ok(spawn) => self.ensure_child(&session, &spawn).await,
+            Err(e) => Err(e),
+        };
+        if let Err(e) = spawned {
             // A session whose agent never started is not left behind, and
             // neither is a child that spawned but failed to initialize.
             let _ = self.kill(&session, true).await;
@@ -321,8 +333,6 @@ impl Hub {
         unique_name_among(&self.sessions.lock().unwrap(), agent)
     }
 
-    /// Make sure a live child process exists for the session. Spawns, runs
-    /// `initialize`, and either creates or loads the agent session.
     pub(super) async fn ensure_child(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -336,73 +346,28 @@ impl Hub {
         {
             return Ok(child.clone());
         }
+        // A running agent host for this session is reached again, never
+        // started or initialized a second time.
+        if Self::host_record_live(&session.id) {
+            match self.readopt(session).await {
+                Some(child) if child.is_alive().await => return Ok(child),
+                // The host ended meanwhile: start a fresh agent below.
+                _ if !Self::host_record_live(&session.id) => {}
+                _ => {
+                    return Err(RpcError::internal(
+                        "this session's agent host is still running but cannot be reached; close the session to end it",
+                    ));
+                }
+            }
+        }
+
         // A stopped session reopens on demand. Only a purge is final.
         if session.status() == SessionStatus::Closed {
             self.append(session, "mux", "reopened", json!({}));
             self.set_status(session, SessionStatus::Idle);
         }
         let meta = session.meta();
-        let tap_session = session.clone();
-        let tap_hub = self.clone();
-        let tap: crate::agent::Tap = Arc::new(move |dir: Direction, msg: &Message| {
-            let (d, kind) = match (dir, msg) {
-                (Direction::In, Message::Notification { method, params }) => {
-                    let mut kind = method.clone();
-                    if method.starts_with("claude.") {
-                        // Raw stream-json line; translated messages follow.
-                        tap_hub.append(
-                            &tap_session,
-                            "in",
-                            &kind,
-                            params.clone().unwrap_or(Value::Null),
-                        );
-                        return;
-                    }
-                    if method == crate::rpc::method::SESSION_UPDATE {
-                        if let Some(su) = params
-                            .as_ref()
-                            .and_then(|p| p.get("update"))
-                            .and_then(|u| u.get("sessionUpdate"))
-                            .and_then(Value::as_str)
-                        {
-                            kind = su.to_owned();
-                        }
-                        if tap_session.loading.load(Ordering::SeqCst) {
-                            kind.push_str(".replay");
-                        }
-                    }
-                    ("in", kind)
-                }
-                (Direction::In, Message::Request { method, .. }) => ("in", method.clone()),
-                (Direction::In, Message::Response { .. }) => ("in", "response".to_owned()),
-                (Direction::Out, Message::Request { method, .. }) => ("out", method.clone()),
-                (Direction::Out, Message::Notification { method, params })
-                    if method == "claude.stdin" =>
-                {
-                    tap_hub.append(
-                        &tap_session,
-                        "out",
-                        "claude.stdin",
-                        params.clone().unwrap_or(Value::Null),
-                    );
-                    return;
-                }
-                (Direction::Out, Message::Notification { method, .. }) => ("out", method.clone()),
-                (Direction::Out, Message::Response { .. }) => ("out", "response".to_owned()),
-            };
-            // Live agent updates (not a session/load replay) also feed the
-            // stream watcher, which may record `message_superseded` first.
-            let live_update = d == "in"
-                && !kind.ends_with(".replay")
-                && msg.method() == Some(crate::rpc::method::SESSION_UPDATE);
-            if live_update {
-                tap_hub.before_agent_update(&tap_session, msg.params());
-            }
-            let rec = tap_hub.append(&tap_session, d, &kind, msg.to_value());
-            if live_update {
-                tap_hub.after_agent_update(&tap_session, &rec);
-            }
-        });
+        let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         let existing_sid = session.meta().agent_session_id.clone();
         // Cleared only once the fork has started; a failed start retries it.
@@ -435,27 +400,50 @@ impl Hub {
                 &mode,
                 Some(&model),
             );
-            let tr =
-                crate::claude_stdio::Translator::new(session.id.clone(), &mode, &model, &effort);
-            if !fork {
-                // A fresh process was given its id; a resumed one already has it.
-                let known = fresh_id.clone().or_else(|| existing_sid.clone());
+            // A fresh process was given its id; a resumed one already has it.
+            let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
+            if self.agent_hosts_enabled() {
+                let translator = crate::agent_host::TranslatorSpec {
+                    acp_session_id: session.id.clone(),
+                    mode: mode.clone(),
+                    model: model.clone(),
+                    effort: effort.clone(),
+                    claude_session_id: known.clone(),
+                };
+                self.spawn_hosted_child(
+                    session,
+                    profile,
+                    &meta,
+                    Some((plan.program.clone(), plan.args.clone())),
+                    Some(translator),
+                    tap,
+                )
+                .await?
+            } else {
+                let tr = crate::claude_stdio::Translator::new(
+                    session.id.clone(),
+                    &mode,
+                    &model,
+                    &effort,
+                );
                 if let Some(sid) = known {
                     *tr.session_id.lock().await = Some(sid);
                 }
+                ChildAgent::spawn_with(
+                    &meta.harness,
+                    profile,
+                    &meta.cwd,
+                    session.inbound_tx.clone(),
+                    tap,
+                    Some((plan.program, plan.args)),
+                    Some(tr),
+                    Some((&session.id, &meta.name)),
+                )
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))?
             }
-            ChildAgent::spawn_with(
-                &meta.harness,
-                profile,
-                &meta.cwd,
-                session.inbound_tx.clone(),
-                tap,
-                Some((plan.program, plan.args)),
-                Some(tr),
-                Some((&session.id, &meta.name)),
-            )
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()))?
+        } else if self.agent_hosts_enabled() {
+            self.spawn_hosted_child(session, profile, &meta, None, None, tap).await?
         } else {
             ChildAgent::spawn_with(
                 &meta.harness,
@@ -516,7 +504,7 @@ impl Hub {
         if is_claude {
             // A forked process only learns its new id from system/init on the
             // first turn. Prime it then; fresh and resumed ids are known already.
-            let known = child.translator.as_ref().unwrap().session_id.lock().await.clone();
+            let known = child.claude_state().await.and_then(|state| state.session_id);
             if known.is_none() {
                 session.loading.store(true, Ordering::SeqCst);
                 let primed = child
@@ -527,9 +515,8 @@ impl Hub {
                     return Err(RpcError::internal(format!("claude did not start: {}", e.message)));
                 }
             }
-            let sid = child.translator.as_ref().unwrap().session_id.lock().await.clone();
-            let modes = child.translator.as_ref().unwrap().modes_value().await;
-            let opts = child.translator.as_ref().unwrap().config_options_value().await;
+            let state = child.claude_state().await.unwrap_or_default();
+            let (sid, modes, opts) = (state.session_id, state.modes, state.config_options);
             {
                 let mut m = session.meta.lock().unwrap();
                 let level = if fork_from.is_some() {
@@ -783,7 +770,7 @@ impl Hub {
         profile: &HarnessProfile,
     ) -> anyhow::Result<usize> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-        let tap: crate::agent::Tap = Arc::new(|_, _| {});
+        let tap: crate::agent::Tap = Arc::new(|_, _, _| true);
         let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"));
         let child = crate::agent::ChildAgent::spawn(name, profile, &cwd, tx, tap).await?;
         // Drain anything the agent sends so its writer never blocks.
@@ -885,41 +872,8 @@ impl Hub {
                 .ok_or_else(|| RpcError::invalid_params(format!("unknown harness {agent:?}")))?;
             (profile, cfg.defaults_for(&agent))
         };
-        let spawn = self.spawn_profile(session, &profile, &defaults.env).await;
+        let spawn = self.spawn_profile(session, &profile, &defaults.env).await?;
         self.ensure_child(session, &spawn).await
-    }
-
-    /// The profile as it is spawned for this session: family and profile
-    /// default env underneath the profile's own, the preset's env on top,
-    /// then `${cwd}`, `${home}`, `${model}` and a leading `~/` expanded in
-    /// every env value and argv word.
-    pub(super) async fn spawn_profile(
-        &self,
-        session: &Session,
-        profile: &HarnessProfile,
-        defaults_env: &std::collections::BTreeMap<String, String>,
-    ) -> HarnessProfile {
-        let meta = session.meta();
-        let mut p = profile.clone();
-        for (k, v) in defaults_env {
-            p.env.entry(k.clone()).or_insert_with(|| v.clone());
-        }
-        if let Some(name) = &meta.preset
-            && let Some(preset) = self.config.read().await.presets.get(name)
-        {
-            for (k, v) in &preset.env {
-                p.env.insert(k.clone(), v.clone());
-            }
-        }
-        let home = dirs::home_dir().unwrap_or_default();
-        let model = meta.model_request.clone().unwrap_or_default();
-        for v in p.env.values_mut() {
-            *v = expand_env_value(v, &meta.cwd, &home, &model);
-        }
-        for a in p.argv.iter_mut() {
-            *a = expand_env_value(a, &meta.cwd, &home, &model);
-        }
-        p
     }
 }
 
@@ -954,43 +908,8 @@ pub struct NewRequest {
     pub policy: Option<PermissionPolicy>,
     pub model: Option<String>,
     pub effort: Option<String>,
+    /// Requested over a remote-origin connection (the WebSocket listener).
+    pub remote: bool,
     /// A harness session to resume instead of starting a new one.
     pub adopt: Option<crate::adopt::AdoptRequest>,
-}
-
-/// `${cwd}`, `${home}`, `${model}` and a leading `~/` in a profile env value or argv word.
-pub fn expand_env_value(
-    value: &str,
-    cwd: &std::path::Path,
-    home: &std::path::Path,
-    model: &str,
-) -> String {
-    let mut out = value
-        .replace("${cwd}", &cwd.to_string_lossy())
-        .replace("${home}", &home.to_string_lossy())
-        .replace("${model}", model);
-    if let Some(rest) = out.strip_prefix("~/") {
-        out = format!("{}/{rest}", home.to_string_lossy());
-    }
-    out
-}
-
-#[cfg(test)]
-mod env_tests {
-    #[test]
-    fn expands_cwd_and_home() {
-        let cwd = std::path::Path::new("/work/proj");
-        let home = std::path::Path::new("/Users/me");
-        assert_eq!(super::expand_env_value("${cwd}/.codex", cwd, home, ""), "/work/proj/.codex");
-        assert_eq!(super::expand_env_value("~/.omp", cwd, home, ""), "/Users/me/.omp");
-        assert_eq!(
-            super::expand_env_value("${home}/x:${cwd}", cwd, home, ""),
-            "/Users/me/x:/work/proj"
-        );
-        assert_eq!(
-            super::expand_env_value("--model=${model}", cwd, home, "gpt-5.5"),
-            "--model=gpt-5.5"
-        );
-        assert_eq!(super::expand_env_value("plain", cwd, home, ""), "plain");
-    }
 }

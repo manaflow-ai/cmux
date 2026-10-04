@@ -22,7 +22,7 @@ export function pickerRows(
   recent: ReadonlySet<string>,
 ): PickerRow[] {
   const rows = entries
-    .filter((entry) => entry.kind === "dir" || (mode === "file" && isMarkdownName(entry.name)))
+    .filter((entry) => entry.kind === "dir" || mode === "anyFile" || (mode === "file" && isMarkdownName(entry.name)))
     .filter((entry) => query.startsWith(".") || !entry.name.startsWith("."))
     .map((entry) => ({ ...entry, recent: recent.has(entry.path) }));
   rows.sort(
@@ -39,7 +39,7 @@ export function recentPathSet(paths: readonly string[], mode: PickerMode): Set<s
   const set = new Set<string>();
   for (const path of paths) {
     set.add(path);
-    if (mode === "file") set.add(parentPath(path) ?? path);
+    if (mode !== "folder") set.add(parentPath(path) ?? path);
   }
   return set;
 }
@@ -78,79 +78,87 @@ export function breadcrumb(path: string, home: string | null): Crumb[] {
   return crumbs;
 }
 
-export type PickerAction =
-  | { kind: "move"; delta: number }
-  | { kind: "edge"; to: "first" | "last" }
-  | { kind: "enter" }
-  | { kind: "up" }
-  | { kind: "choose" }
-  | { kind: "clear" }
-  | { kind: "cancel" }
-  | null;
+// The key table lives with the drill-down widget (ui/drillKeys.ts); the palette picker reads it here.
+export {
+  drillKeyAction as pickerKeyAction,
+  type DrillAction as PickerAction,
+  type DrillKey as PickerKey,
+} from "../ui/drillKeys";
 
-export interface PickerKey {
-  key: string;
-  shiftKey?: boolean;
-  ctrlKey?: boolean;
-  metaKey?: boolean;
-  altKey?: boolean;
-}
-
-/**
- * What a key in the picker's field does. `caret` is the field's selection (start and end); Right
- * enters and Left goes up only from the end and the start of the text, so they still move the
- * caret inside a query.
- */
-export function pickerKeyAction(
-  event: PickerKey,
-  state: { query: string; caretStart: number; caretEnd: number },
-): PickerAction {
-  const plain = !event.metaKey && !event.altKey;
-  switch (event.key) {
-    case "ArrowDown":
-      return plain ? { kind: "move", delta: 1 } : null;
-    case "ArrowUp":
-      return plain ? { kind: "move", delta: -1 } : null;
-    case "n":
-      return event.ctrlKey && plain ? { kind: "move", delta: 1 } : null;
-    case "p":
-      return event.ctrlKey && plain ? { kind: "move", delta: -1 } : null;
-    case "PageDown":
-      return { kind: "move", delta: 10 };
-    case "PageUp":
-      return { kind: "move", delta: -10 };
-    case "Home":
-      return state.query === "" ? { kind: "edge", to: "first" } : null;
-    case "End":
-      return state.query === "" ? { kind: "edge", to: "last" } : null;
-    case "Tab":
-      return event.shiftKey || !plain || event.ctrlKey ? null : { kind: "enter" };
-    case "ArrowRight":
-      return plain && !event.shiftKey && state.caretStart === state.query.length && state.caretEnd === state.caretStart
-        ? { kind: "enter" }
-        : null;
-    case "ArrowLeft":
-      return plain && !event.shiftKey && state.caretStart === 0 && state.caretEnd === 0 ? { kind: "up" } : null;
-    case "Backspace":
-      return state.query === "" && plain ? { kind: "up" } : null;
-    case "Enter":
-      return plain ? { kind: "choose" } : null;
-    case "Escape":
-      return state.query === "" ? { kind: "cancel" } : { kind: "clear" };
-    default:
-      return null;
-  }
-}
-
-/** A typed query that jumps: `~` home, `/` the root, `name/` into that folder of the level. */
-export function queryJump(query: string, rows: readonly PickerRow[], home: string | null): { path: string } | null {
-  // Before any listing named home, `~` asks the host for it (`cmux.picker.list {path: "~"}`).
-  if (query === "~") return { path: home ?? "~" };
-  if (query === "/") return { path: "/" };
-  if (query.length > 1 && query.endsWith("/")) {
+/** A typed query that jumps: `name/` enters that folder of the level. */
+export function queryJump(query: string, rows: readonly PickerRow[]): { path: string } | null {
+  if (query.length > 1 && query.endsWith("/") && !isPathQuery(query)) {
     const name = query.slice(0, -1).toLowerCase();
     const row = rows.find((candidate) => candidate.kind === "dir" && candidate.name.toLowerCase() === name);
     if (row) return { path: row.path };
   }
   return null;
+}
+
+/** Whether a query is a path: it starts with `/` or `~/` (path mode). */
+export function isPathQuery(query: string): boolean {
+  return query.startsWith("/") || query.startsWith("~/");
+}
+
+/**
+ * A path query split into the folder to list and the text that filters it: `~/fun/cm` lists
+ * `<home>/fun` filtered by `cm`; `/` lists the root. `~` before any listing named home is `"~"`,
+ * which the host resolves (`cmux.picker.list {path: "~"}`). Null when the query is not a path.
+ */
+export function pathQuery(query: string, home: string | null): { dir: string; rest: string } | null {
+  if (!isPathQuery(query)) return null;
+  const cut = query.lastIndexOf("/");
+  const head = query.slice(0, cut);
+  const rest = query.slice(cut + 1);
+  const base = home?.replace(/\/+$/, "") ?? "~";
+  const dir = head.startsWith("~") ? `${base}${head.slice(1)}` : head;
+  return { dir: dir === "" ? "/" : dir.replace(/\/+$/, "") || "/", rest };
+}
+
+/** The path query that shows folder `path` (home written as `~`), ending in `/`. */
+export function folderQuery(path: string, home: string | null): string {
+  const base = home?.replace(/\/+$/, "") ?? null;
+  if (base && (path === base || path.startsWith(`${base}/`))) return `~${path.slice(base.length)}/`;
+  return path === "/" ? "/" : `${path}/`;
+}
+
+export interface PickerLocation {
+  name: string;
+  path: string;
+  kind: "dir";
+  location: true;
+}
+
+/**
+ * The Locations section (shown above the level while the query is empty): home, the computer's
+ * root, then up to `limit` recent folders (in the file modes, the folders of recent files). The shown
+ * folder itself is left out.
+ */
+export function pickerLocations(options: {
+  home: string | null;
+  current: string | null;
+  recents: readonly string[];
+  mode: PickerMode;
+  labels: { home: string; computer: string };
+  limit?: number;
+}): PickerLocation[] {
+  const { home, current, recents, mode, labels, limit = 3 } = options;
+  const seen = new Set<string>();
+  const out: PickerLocation[] = [];
+  const add = (path: string | null, name: string) => {
+    if (!path || seen.has(path) || path === current) return;
+    seen.add(path);
+    out.push({ name, path, kind: "dir", location: true });
+  };
+  if (home) add(home.replace(/\/+$/, ""), labels.home);
+  add("/", labels.computer);
+  let added = 0;
+  for (const recent of recents) {
+    if (added >= limit) break;
+    const folder = mode === "folder" ? recent : parentPath(recent);
+    if (!folder || seen.has(folder) || folder === current) continue;
+    add(folder, folder.split("/").filter(Boolean).pop() ?? folder);
+    added += 1;
+  }
+  return out;
 }

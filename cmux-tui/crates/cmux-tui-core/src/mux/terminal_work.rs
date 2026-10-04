@@ -20,6 +20,9 @@
 
 use super::*;
 
+#[cfg(unix)]
+mod standby_host;
+
 /// Upper bound on concurrent terminal starts and reaps. A start is mostly
 /// process creation and a host handshake, so a few workers overlap them
 /// without starving the rest of the machine.
@@ -43,6 +46,9 @@ struct TerminalWorkState {
 #[derive(Default)]
 pub(crate) struct TerminalWorkPool {
     state: Arc<Mutex<TerminalWorkState>>,
+    /// The host process started ahead of the next new tab (R81, cap one).
+    #[cfg(unix)]
+    standby: Arc<standby_host::StandbyHostSlot>,
 }
 
 impl TerminalWorkPool {
@@ -195,13 +201,29 @@ impl Mux {
             }
             let workspace_key = self.workspace_key_for_pane(target);
             let terminal_id = TerminalId::random()?;
-            let mut host = Surface::prelaunch_hosted(
-                self.next_id(),
-                launch_opts.clone(),
-                Arc::downgrade(self),
-                terminal_id,
-                cell_pixels,
-            )?;
+            // The spare host process, when one is ready (R81); the next one
+            // starts in the background after this launch.
+            let standby = self.terminal_work.standby.take();
+            let used_spare = standby.is_some();
+            let launch = |standby| {
+                Surface::prelaunch_hosted(
+                    self.next_id(),
+                    launch_opts.clone(),
+                    Arc::downgrade(self),
+                    terminal_id,
+                    cell_pixels,
+                    standby,
+                )
+            };
+            let mut launched = launch(standby);
+            // A spare that died after its liveness check fails before
+            // bootstrap: launch on a fresh process, so the tab never fails
+            // or slows down because of the spare.
+            if launched.is_err() && used_spare {
+                launched = launch(None);
+            }
+            self.terminal_work.standby.refill(&self.terminal_work);
+            let mut host = launched?;
             debug_assert!(host.terminal_id() == terminal_id);
             // The deprecated recovery mirror syncs a file twice; do it here,
             // in parallel, instead of under the creation lock. A tab that

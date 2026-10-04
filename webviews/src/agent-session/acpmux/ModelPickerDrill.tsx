@@ -2,7 +2,7 @@ import type React from "react";
 import { useId, useLayoutEffect, useState } from "react";
 import { AgentMark } from "../shared/AgentMark";
 import { SearchIcon } from "./ComposerPickers";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 import { MenuLevel, rowId } from "./MenuLevel";
 import { menuNodes, pickerData, recentKey, typeKey } from "./modelMenuNodes";
 import type { TaxModel } from "./modelTaxonomy";
@@ -17,6 +17,7 @@ import { useMenuTree, type MenuNode } from "./useMenuTree";
 /// row there opens its next layer right above it, best row next to it, so the row under the
 /// pointer stays put as the menu grows up from the chip. Typing filters the level shown.
 export function ModelPickerDrill(props: ModelMenuProps) {
+  const t = useT();
   const { trigger, menu, close } = props;
   const [browsing, setBrowsing] = useState(false);
   const [query, setQuery] = useState("");
@@ -27,6 +28,7 @@ export function ModelPickerDrill(props: ModelMenuProps) {
     order: "bestLast",
     expanded,
     expand: (key) => setExpanded((keys) => new Set([...keys, key])),
+    t,
   });
   const some = (node: MenuNode | undefined) => (node ? [node] : []);
   const home: MenuNode[] = [

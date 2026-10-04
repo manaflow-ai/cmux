@@ -5,6 +5,8 @@
 // dispatcher, which turns Cmd-S into the `save` page command. With `?pick` the page starts with no
 // file (the empty state, src/viewer-empty): `cmux.markdown.chooseFile` shows the in-page fallback
 // picker, and the file `cmux.markdown.open` answers becomes the bridge's file. Nothing here ships.
+// DESKTOP-FEEL (R139): the dev bridge runs before main.tsx, so it loads the desktop layer first too.
+import "../shared/desktop";
 import { PAGE_COMMAND } from "../shared/pageStreams";
 import { RECEIVE_NAME } from "../shared/pageClient";
 import { MARKDOWN_CHANGES, MARKDOWN_LOOK } from "./host";

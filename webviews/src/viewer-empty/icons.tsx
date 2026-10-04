@@ -1,6 +1,6 @@
 // Stroke icons of the empty states and the path picker (16px grid, currentColor), drawn here so
 // the empty states do not depend on the diff toolbar's icon set.
-export type EmptyIconName = "folder" | "repo" | "file" | "clock" | "chevron";
+export type EmptyIconName = "folder" | "repo" | "file" | "clock" | "chevron" | "home";
 
 const PATHS: Record<EmptyIconName, string[]> = {
   folder: [
@@ -13,6 +13,7 @@ const PATHS: Record<EmptyIconName, string[]> = {
   file: ["M4 2.5h5l3 3v8H4z", "M9 2.5v3h3", "M6 9h4M6 11h3"],
   clock: ["M8 2.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11z", "M8 5v3l2 1.5"],
   chevron: ["M6 4l4 4-4 4"],
+  home: ["M2.5 7.5 8 3l5.5 4.5", "M4 6.5v6.5h3v-3.5h2V13h3V6.5"],
 };
 
 export function EmptyIcon({ name, title }: { name: EmptyIconName; title?: string }) {
