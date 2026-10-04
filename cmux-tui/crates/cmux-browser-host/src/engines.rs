@@ -38,13 +38,54 @@ pub fn chromium_candidates() -> Vec<PathBuf> {
     out
 }
 
+/// The app's provider connection, set by the provider listener.
+#[cfg(unix)]
+pub type ProviderSlot = Arc<std::sync::Mutex<Option<Arc<crate::provider_link::ProviderDriver>>>>;
+
 pub struct HostEngines {
     agent_source: Arc<str>,
+    #[cfg(unix)]
+    provider: ProviderSlot,
 }
 
 impl HostEngines {
     pub fn new(agent_source: impl Into<Arc<str>>) -> HostEngines {
-        HostEngines { agent_source: agent_source.into() }
+        HostEngines {
+            agent_source: agent_source.into(),
+            #[cfg(unix)]
+            provider: Arc::default(),
+        }
+    }
+
+    /// Where the provider listener puts the app's connection.
+    #[cfg(unix)]
+    pub fn provider_slot(&self) -> ProviderSlot {
+        self.provider.clone()
+    }
+
+    #[cfg(unix)]
+    fn provider(&self, engine: &str, events: EventSink) -> Result<Arc<dyn Driver>, DriverError> {
+        let provider = self
+            .provider
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+            .filter(|provider| provider.closed_reason().is_none())
+            .ok_or_else(|| {
+                unavailable(engine, "the cmux app is not connected to the browser host")
+            })?;
+        let engine = crate::provider_engine::ProviderEngine::new(
+            provider,
+            engine,
+            self.agent_source.clone(),
+            events,
+        )?;
+        Ok(Arc::new(engine))
+    }
+
+    #[cfg(not(unix))]
+    fn provider(&self, engine: &str, _events: EventSink) -> Result<Arc<dyn Driver>, DriverError> {
+        Err(unavailable(engine, "the cmux app is not connected to the browser host"))
     }
 }
 
@@ -73,9 +114,7 @@ impl crate::host::Engines for HostEngines {
     fn driver(&self, engine: &str, events: EventSink) -> Result<Arc<dyn Driver>, DriverError> {
         match engine {
             "auto" | "headless" => self.headless(events),
-            "cef" | "webkit" => {
-                Err(unavailable(engine, "the cmux app is not connected to the browser host"))
-            }
+            "cef" | "webkit" => self.provider(engine, events),
             other => Err(DriverError::invalid(format!(
                 "engine: expected auto, headless, cef or webkit, got {other:?}"
             ))),

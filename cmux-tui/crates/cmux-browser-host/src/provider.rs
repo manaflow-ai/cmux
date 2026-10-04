@@ -68,6 +68,17 @@ pub struct Lease {
     pub origin: String,
     pub label: String,
     pub since_ms: u64,
+    /// The lease state machine's state (plans/cmux-next/automation-lease.md).
+    pub state: LeaseState,
+}
+
+/// `driving | paused | user_driving` (automation lease contract).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LeaseState {
+    Driving,
+    Paused,
+    UserDriving,
 }
 
 /// One provider frame, tagged by `t`.
@@ -141,6 +152,22 @@ pub enum Frame {
         #[serde(rename = "targetId")]
         target_id: String,
     },
+    /// Whether agents may drive a CEF tab (app -> host, interim extension
+    /// rule): `extension_host_access` is true when an enabled extension of
+    /// the tab's profile holds host permissions on its page; `user_override`
+    /// is the person's per-tab override from the app's native confirmation.
+    /// Only the provider connection sends this; no driver call can set it.
+    #[serde(rename = "tab.access")]
+    TabAccess {
+        #[serde(rename = "targetId")]
+        target_id: String,
+        extension_host_access: bool,
+        #[serde(default)]
+        user_override: bool,
+        /// Names of the extensions with access, for the refusal text.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        extensions: Vec<String>,
+    },
 }
 
 /// Debug output names the frame and its ids only: `call` params, raw CDP
@@ -191,6 +218,12 @@ impl fmt::Debug for Frame {
             Frame::UserInput { target_id } => {
                 f.debug_struct("UserInput").field("target_id", target_id).finish()
             }
+            Frame::TabAccess { target_id, extension_host_access, user_override, .. } => f
+                .debug_struct("TabAccess")
+                .field("target_id", target_id)
+                .field("extension_host_access", extension_host_access)
+                .field("user_override", user_override)
+                .finish(),
         }
     }
 }
@@ -352,6 +385,12 @@ mod tests {
             },
             Frame::Lease { target_id: "tab_1".into(), lease: None },
             Frame::UserInput { target_id: "tab_1".into() },
+            Frame::TabAccess {
+                target_id: "tab_1".into(),
+                extension_host_access: true,
+                user_override: false,
+                extensions: vec!["Ext".into()],
+            },
         ];
         let mut stream = Vec::new();
         for frame in &frames {
@@ -367,6 +406,24 @@ mod tests {
         assert_eq!(value["t"], "cdp");
         assert_eq!(value["targetId"], "tab_1");
         assert_eq!(serde_json::to_value(&frames[4]).unwrap()["t"], "cdp.attach");
+        let access = serde_json::to_value(&frames[8]).unwrap();
+        assert_eq!(access["t"], "tab.access");
+        assert_eq!(access["extension_host_access"], true);
+        assert_eq!(access["user_override"], false);
+        // An app that omits user_override sends no override.
+        let parsed: Frame = serde_json::from_value(
+            json!({"t": "tab.access", "targetId": "t", "extension_host_access": false}),
+        )
+        .unwrap();
+        assert_eq!(
+            parsed,
+            Frame::TabAccess {
+                target_id: "t".into(),
+                extension_host_access: false,
+                user_override: false,
+                extensions: Vec::new(),
+            }
+        );
     }
 
     #[test]

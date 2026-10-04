@@ -36,11 +36,26 @@ pub(super) const MAX_CRASHES: u32 = 5;
 pub struct ApiError {
     pub code: String,
     pub message: String,
+    /// The owner's error details, passed through unchanged (for example a
+    /// server's `details.status` and `details.upstream_code`).
+    pub details: Option<Value>,
+    pub retryable: bool,
 }
 
 impl ApiError {
     pub fn new(code: &str, message: impl Into<String>) -> Self {
-        Self { code: code.to_string(), message: message.into() }
+        Self { code: code.to_string(), message: message.into(), details: None, retryable: false }
+    }
+
+    /// An error body in the ABI shape `{code, message, details?, retryable}`,
+    /// with `fallback` as the code when the body has none.
+    pub fn from_body(body: &Value, fallback: &str) -> Self {
+        Self {
+            code: body["code"].as_str().unwrap_or(fallback).to_string(),
+            message: body["message"].as_str().unwrap_or(fallback).to_string(),
+            details: body.get("details").filter(|d| !d.is_null()).cloned(),
+            retryable: body["retryable"] == true,
+        }
     }
 }
 
@@ -71,6 +86,8 @@ pub struct Config {
     /// Arguments for the host binary (empty in production; the tests run a
     /// scripted host from the test executable).
     pub host_args: Vec<String>,
+    /// Where first-party app server binaries ship (`servers.rs`).
+    pub server_dir: Option<PathBuf>,
     pub sources: Sources,
     /// `apps.idleStopSeconds` (default 60).
     pub idle_stop: Duration,
@@ -168,6 +185,11 @@ pub(super) struct Inner {
     /// `apps-run` replay by idempotency key (`runs.rs`).
     pub run_keys: HashMap<String, super::runs::RunKey>,
     pub run_key_order: VecDeque<String>,
+    /// One server process per app with a manifest `server` (`servers.rs`).
+    pub servers: HashMap<String, super::servers::Server>,
+    /// Open tokens minted for user runs of server ops (`servers.rs`).
+    pub open_tokens: HashMap<String, super::open_tokens::OpenToken>,
+    pub server_crashes: HashMap<String, super::servers::Crashes>,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -238,6 +260,9 @@ impl Supervisor {
                 next_provider_request: 0,
                 run_keys: HashMap::new(),
                 run_key_order: VecDeque::new(),
+                servers: HashMap::new(),
+                open_tokens: HashMap::new(),
+                server_crashes: HashMap::new(),
             }),
             config,
             router,
@@ -250,6 +275,7 @@ impl Supervisor {
         if seeded {
             let _ = supervisor.persist(&supervisor.inner.lock().unwrap().mirror);
         }
+        supervisor.start_always_servers();
         supervisor
     }
 
@@ -319,6 +345,7 @@ impl Supervisor {
         transaction: &str,
         outs: &mut Vec<Out>,
     ) -> Result<(), ApiError> {
+        let app = op.app.clone();
         let facts = inner.catalog.packages.get(&op.app).map(Package::facts);
         let outcome = mirror::reduce(&inner.mirror, &Op::Set(op), facts.as_ref())
             .map_err(|r| ApiError::new(r.code(), r.message()))?;
@@ -331,6 +358,9 @@ impl Supervisor {
         inner.mirror = outcome.mirror;
         for effect in &outcome.effects {
             outs.extend(self.apply_effect(inner, effect));
+        }
+        if outcome.changed {
+            outs.extend(self.sync_server_locked(inner, &app));
         }
         if outcome.changed {
             outs.push(Out::Broadcast(json!({ "event": "apps-changed", "revision": inner.mirror.revision, "transaction": transaction })));
@@ -346,9 +376,14 @@ impl Supervisor {
                 if let Some(storage) = self.storage().as_ref() {
                     let _ = storage.clear(app);
                 }
+                self.remove_server_dirs(app);
                 vec![]
             }
-            Effect::StopHost(app) => self.stop_app_locked(inner, app, "disabled"),
+            Effect::StopHost(app) => {
+                let mut outs = self.stop_app_locked(inner, app, "disabled");
+                outs.extend(self.stop_server_locked(inner, app, "disabled"));
+                outs
+            }
             Effect::GrantsChanged(app) => self.regrant_locked(inner, app),
         }
     }
@@ -482,6 +517,10 @@ impl Drop for Supervisor {
                 process.shutdown();
             }
         }
+        // Servers are children of the daemon; none outlives the supervisor.
+        for server in inner.servers.values() {
+            server.process.kill();
+        }
     }
 }
 
@@ -502,6 +541,27 @@ fn load_mirror(state_dir: Option<&std::path::Path>) -> Mirror {
     }
 }
 
+/// `{scope: class}` for the manifest's scopes and optionalScopes; a scope
+/// the class table does not know is `unknown`.
+fn scope_classes(facts: &mirror::Facts) -> serde_json::Map<String, Value> {
+    use cmux_app_manifest::ScopeClass;
+    facts
+        .requested
+        .iter()
+        .chain(&facts.optional)
+        .map(|scope| {
+            let class = match cmux_app_manifest::scope_info(scope).map(|info| info.class) {
+                Some(ScopeClass::Standard) => "standard",
+                Some(ScopeClass::Sensitive) => "sensitive",
+                Some(ScopeClass::Restricted) => "restricted",
+                Some(ScopeClass::Elevated) => "elevated",
+                None => "unknown",
+            };
+            (scope.clone(), json!(class))
+        })
+        .collect()
+}
+
 /// One `apps-list` entry.
 pub(super) fn entry(id: &str, package: Option<&Package>, record: Option<&Record>) -> Value {
     let facts = package.map(Package::facts);
@@ -519,6 +579,9 @@ pub(super) fn entry(id: &str, package: Option<&Package>, record: Option<&Record>
         "hidden_access": record.hidden_access,
         "source": record.source,
         "grants": record.grants,
+        // The class of every scope the manifest asks for, so the
+        // confirmation sheet can warn on sensitive, restricted and elevated.
+        "scope_classes": facts.as_ref().map(scope_classes).unwrap_or_default(),
         "sandboxed": record.sandboxed,
         "available": package.is_some(),
         // Local connections only (apps commands refuse remote ones), so the

@@ -1,15 +1,11 @@
 //! Op dispatch: name and alias lookup, origin rules, idempotency, then the
-//! op group (`machine`, `snapshot`, `plan`, `auth`, `network`, `domain`).
+//! op group (`machine`, `snapshot`, `plan`, `migration`, `auth`).
 
 mod auth;
 mod delete_retry;
-mod domain;
 mod machine;
 mod machine_projection;
-mod network;
-mod network_args;
-mod network_firewall;
-mod network_models;
+mod migration;
 mod plan;
 mod snapshot;
 
@@ -27,7 +23,8 @@ enum Kind {
     Read,
     /// `class: mutation`: an idempotency key is required.
     Mutation,
-    /// A destructive mutation: also only for origin `user`.
+    /// A destructive or money mutation: also only for origin `user`
+    /// (contract 1.1: the host stamps it after its native confirmation).
     UserOnly,
 }
 
@@ -37,45 +34,31 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.machine.list", Kind::Read),
     ("cloud.machine.watch", Kind::Read),
     ("cloud.machine.get", Kind::Read),
-    ("cloud.machine.create", Kind::Mutation),
+    // Create and resize spend money (resize may go up; only the plan knows),
+    // delete destroys: a person confirms them (contract 1.1).
+    ("cloud.machine.create", Kind::UserOnly),
     ("cloud.machine.rename", Kind::Mutation),
     ("cloud.machine.start", Kind::Mutation),
     ("cloud.machine.pause", Kind::Mutation),
-    ("cloud.machine.resize", Kind::Mutation),
+    ("cloud.machine.resize", Kind::UserOnly),
     ("cloud.machine.delete", Kind::UserOnly),
-    ("cloud.machine.stats", Kind::Read),
     ("cloud.machine.idle_policy.set", Kind::Mutation),
+    ("cloud.machine.connect_info", Kind::Read),
     ("cloud.snapshot.list", Kind::Read),
     ("cloud.snapshot.create", Kind::Mutation),
     ("cloud.snapshot.restore", Kind::Mutation),
-    ("cloud.snapshot.fork", Kind::Mutation),
     ("cloud.snapshot.delete", Kind::UserOnly),
     ("cloud.plan.get", Kind::Read),
-    ("cloud.usage.get", Kind::Read),
+    ("cloud.billing.checkout", Kind::UserOnly),
+    // Classic migration (contract 4): one way per user, then per machine.
+    ("cloud.migration.status", Kind::Read),
+    ("cloud.migration.start", Kind::UserOnly),
+    ("cloud.machine.upgrade", Kind::UserOnly),
     // Attach (crate::link): connect may start a paused machine, so all three
     // are mutations with a key.
     ("cloud.machine.connect", Kind::Mutation),
     ("cloud.machine.disconnect", Kind::Mutation),
     ("cloud.rescue.open", Kind::Mutation),
-    // Network, domains and publications (R71 C6). Firewall and publication
-    // changes decide what reaches a machine, so only a person makes them.
-    ("cloud.network.list", Kind::Read),
-    // Attach and a new key give a device a path into the network: a person
-    // only (any valid public key would let the caller join as that device).
-    ("cloud.tunnel.attach", Kind::UserOnly),
-    ("cloud.tunnel.detach", Kind::Mutation),
-    ("cloud.tunnel.rotate_key", Kind::UserOnly),
-    ("cloud.firewall.list", Kind::Read),
-    ("cloud.firewall.get", Kind::Read),
-    ("cloud.firewall.create", Kind::UserOnly),
-    ("cloud.firewall.delete", Kind::UserOnly),
-    ("cloud.domain.list", Kind::Read),
-    ("cloud.domain.verify", Kind::Mutation),
-    ("cloud.publication.list", Kind::Read),
-    ("cloud.publication.create", Kind::UserOnly),
-    ("cloud.publication.update", Kind::UserOnly),
-    ("cloud.publication.delete", Kind::UserOnly),
-    ("cloud.publication.verify", Kind::Mutation),
     // Files (crate::fs): reads through the Cloud API file routes; remove is
     // destructive, so only a person may run it.
     ("cloud.fs.list", Kind::Read),
@@ -138,7 +121,8 @@ pub fn op_policy(name: &str) -> Option<(bool, bool)> {
 }
 
 /// The relay names take `vm_id` and `snapshot_id`; the fragment ops take
-/// `machine` and `snapshot` (a restore needs only the snapshot).
+/// `machine` and `snapshot` (a snapshot restore or delete needs only the
+/// snapshot).
 fn relay_args(called: &str, name: &str, args: &Value) -> Value {
     let (true, Value::Object(map)) = (called.starts_with("vm."), args) else {
         return args.clone();
@@ -150,7 +134,7 @@ fn relay_args(called: &str, name: &str, args: &Value) -> Value {
             "snapshot_id" => "snapshot",
             other => other,
         };
-        if name == "cloud.snapshot.restore" && k == "machine" {
+        if matches!(name, "cloud.snapshot.restore" | "cloud.snapshot.delete") && k == "machine" {
             continue;
         }
         out.insert(k.to_owned(), v.clone());
@@ -161,31 +145,21 @@ fn relay_args(called: &str, name: &str, args: &Value) -> Value {
 /// Machine mutations whose result carries the projection `revision` its
 /// change reached, so a client settles its intent when its mirror has seen
 /// that revision on `cloud.machine.watch` (no refetch). Deletes keep their
-/// `{ok: true}` result; the `removed` event for the id settles them.
+/// `{deleted: true}` result; the `removed` event for the id settles them.
 const REVISION_RESULTS: &[&str] = &[
     "cloud.machine.create",
     "cloud.machine.rename",
     "cloud.machine.start",
     "cloud.machine.pause",
     "cloud.machine.resize",
+    "cloud.machine.idle_policy.set",
+    "cloud.machine.upgrade",
     "cloud.snapshot.restore",
-    "cloud.snapshot.fork",
 ];
-
-/// Verify ops read fresh DNS and certificate state (and may take a waiting
-/// publication live): a same-key replay of an old answer would be stale, so
-/// they run every time, like the live link ops.
-const RERUN_OPS: &[&str] = &["cloud.domain.verify", "cloud.publication.verify"];
 
 /// Ops that need the host's `open_token` (stamped after the user's
 /// gesture). The op itself checks it; a ledger replay checks it too.
 const TOKEN_OPS: &[&str] = &["cloud.rescue.open"];
-
-/// Creates the Cloud API does not dedup by key. After an attempt with no
-/// answer (the relay failed), a same-key retry is refused with
-/// `outcome_unknown`: the caller lists first. A 4xx answer made nothing, so
-/// it frees the key.
-const NO_UPSTREAM_DEDUP: &[&str] = &["cloud.firewall.create", "cloud.publication.create"];
 
 /// A request that passed the guards: its canonical name, its args (relay
 /// names mapped), and its trimmed key (`Some` exactly for mutations).
@@ -360,6 +334,13 @@ impl<C: ControlPlane> Server<C> {
         self.attach.take_host_link_events()
     }
 
+    /// Applies one team wire event (`cloud.machine.upsert`,
+    /// `cloud.machine.removed`; other Cloud events change no machine) to
+    /// the projection by revision (`crate::api::events`).
+    pub fn team_event(&mut self, event: &str, data: &Value) -> Result<(), CloudError> {
+        crate::api::events::apply(&mut self.projection, event, data)
+    }
+
     /// Runs one request.
     pub fn handle(&mut self, request: &Request) -> Result<Value, CloudError> {
         let Admitted { name, args, key } = admit(request)?;
@@ -369,21 +350,12 @@ impl<C: ControlPlane> Server<C> {
         if crate::link::ops::live_state_op(name)
             || crate::ports::live_state_op(name)
             || crate::fs::live_state_op(name)
-            || RERUN_OPS.contains(&name)
         {
-            // The answer is live state (a carrier, a forward, or DNS and
-            // certificate state): a replay of an old answer would be stale.
-            // These ops are idempotent by themselves, so they run every time.
+            // The answer is live state (a carrier, a forward or a
+            // transfer): a replay of an old answer would be stale. These
+            // ops are idempotent by themselves, so they run every time.
             let upstream = upstream_key(name, &args, key);
             return self.run(name, &args, request, Some(&upstream));
-        }
-        if NO_UPSTREAM_DEDUP.contains(&name) && self.ledger.unfinished(key, name, &args) {
-            return Err(CloudError::new(
-                codes::OUTCOME_UNKNOWN,
-                format!(
-                    "an earlier {name} with this key got no answer: list first, then retry with a new key"
-                ),
-            ));
         }
         if let Some(done) = self.ledger.replay(key, name, &args)? {
             // The host's open token is never cached: a replay of an op that
@@ -394,20 +366,12 @@ impl<C: ControlPlane> Server<C> {
             }
             return Ok(done);
         }
-        // A delete retried after an attempt whose outcome is unknown: a 404
-        // with the kind's own not-found code now means that attempt (or
-        // another) deleted it (delete_retry.rs).
-        let gone_is_done =
-            delete_retry::is_delete(name) && self.ledger.outcome_unknown(key, name, &args);
         self.ledger.attempt(key, name, &args);
-        let upstream = upstream_key(name, &args, key);
-        let outcome = match self.run(name, &args, request, Some(&upstream)) {
-            Err(error) if gone_is_done && delete_retry::is_gone(name, &error) => {
-                delete_retry::gone_answer(name, &args).ok_or(error)
-            }
-            other => other,
-        };
-        match outcome {
+        // The caller's key goes to the backend unchanged: the backend's
+        // ledger compares the op and params itself (`idempotency.conflict`),
+        // and a retry after an unknown outcome must carry the same key
+        // (delete_retry.rs).
+        match self.run(name, &args, request, Some(key)) {
             Ok(mut result) => {
                 // Recorded with the result, so a same-key replay answers the
                 // same revision and emits nothing new.
@@ -419,19 +383,16 @@ impl<C: ControlPlane> Server<C> {
                 self.ledger.succeed(key, result.clone());
                 Ok(result)
             }
-            Err(error) => {
-                // Bad args never changed anything: the key stays free for the fix.
-                let refused = NO_UPSTREAM_DEDUP.contains(&name)
-                    && error.status.is_some_and(|s| (400..500).contains(&s));
-                // A delete key whose earlier attempt may have acted is kept,
-                // so its retry still knows that (delete_retry.rs).
-                if (error.code == codes::INVALID_ARGS || refused) && !gone_is_done {
-                    self.ledger.forget(key);
-                } else if delete_retry::outcome_unknown(&error) {
-                    self.ledger.failed_unknown(key);
-                }
+            // Bad args never changed anything: the key stays free for the fix.
+            Err(error) if error.code == codes::INVALID_ARGS => {
+                self.ledger.forget(key);
                 Err(error)
             }
+            // The attempt stays open: the same-key retry reaches the backend.
+            Err(error) if delete_retry::indeterminate(&error) => {
+                Err(delete_retry::retry_with_same_key(name, error))
+            }
+            Err(error) => Err(error),
         }
     }
 
@@ -453,15 +414,16 @@ impl<C: ControlPlane> Server<C> {
         if crate::ports::serves(name) {
             return crate::ports::run(self, name, args, origin, key);
         }
-        let mut ctx = Ctx::new(&mut self.control_plane, &mut self.projection, name, key);
+        let mut ctx = Ctx::new(&mut self.control_plane, &mut self.projection, name, key)
+            .with_origin(request.origin);
         let group = name.split('.').nth(1).unwrap_or_default();
         match group {
             "auth" => auth::run(&mut ctx, name, args),
+            _ if name == "cloud.machine.upgrade" => migration::run(&mut ctx, name, args),
             "machine" => machine::run(&mut ctx, name, args),
             "snapshot" => snapshot::run(&mut ctx, name, args),
-            "plan" | "usage" => plan::run(&mut ctx, name, args),
-            "network" | "tunnel" | "firewall" => network::run(&mut ctx, name, args),
-            "domain" | "publication" => domain::run(&mut ctx, name, args),
+            "plan" | "billing" => plan::run(&mut ctx, name, args),
+            "migration" => migration::run(&mut ctx, name, args),
             _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
         }
     }

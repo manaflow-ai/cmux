@@ -25,6 +25,14 @@ pub struct RunRequest {
     pub gesture: Option<String>,
 }
 
+/// Where a run goes.
+enum Target {
+    /// The app's QuickJS host, with the export that implements the op.
+    Host(HostKey, String),
+    /// The app's server (`servers.rs`).
+    Server,
+}
+
 pub(super) enum RunKey {
     Pending(Vec<Responder>),
     Done(Result<Value, ApiError>),
@@ -33,10 +41,16 @@ pub(super) enum RunKey {
 impl Supervisor {
     pub fn run(&self, request: RunRequest, respond: Responder) {
         let RunRequest { app, op, args, idempotency_key, origin, gesture } = request;
-        let (app, op) = (app.as_str(), op.as_str());
         let outs = {
             let mut inner = self.inner.lock().unwrap();
-            let respond = match idempotency_key {
+            // Full names (`cmux.cloud.machine.list`) and short names run the
+            // same op and share its idempotency keys.
+            let op = match inner.catalog.packages.get(&app) {
+                Some(package) => package.resolve_op(&op).to_string(),
+                None => op,
+            };
+            let (app, op) = (app.as_str(), op.as_str());
+            let respond = match idempotency_key.clone() {
                 None => respond,
                 Some(key) => {
                     match self.keyed_locked(&mut inner, format!("{app}\n{op}\n{key}"), respond) {
@@ -51,7 +65,16 @@ impl Supervisor {
             };
             match self.prepare_run(&inner, app, op, origin) {
                 Err(error) => vec![Out::Respond(respond, Err(error))],
-                Ok((key, export)) => {
+                Ok(Target::Server) => self.call_server_locked(
+                    &mut inner,
+                    app,
+                    op,
+                    args,
+                    origin,
+                    idempotency_key,
+                    respond,
+                ),
+                Ok(Target::Host(key, export)) => {
                     let gesture = gesture.filter(|_| origin == Origin::User).and_then(|token| {
                         inner.gestures.accept_client(app, &token, Instant::now())
                     });
@@ -119,18 +142,28 @@ impl Supervisor {
         app: &str,
         op: &str,
         origin: Origin,
-    ) -> Result<(HostKey, String), ApiError> {
+    ) -> Result<Target, ApiError> {
         let package = inner
             .catalog
             .packages
             .get(app)
             .ok_or_else(|| ApiError::new("apps.unknown", "no such app"))?;
-        let export = package
-            .export_for_op(op)
-            .ok_or_else(|| ApiError::new("apps.op.unknown", format!("{app} has no op {op}")))?;
-        if !package.has_runtime() {
-            return Err(ApiError::new("apps.native", format!("{app} has no script to run {op}")));
-        }
+        // A catalog op of an app with a server runs in that server.
+        let server = Self::server_op_locked(inner, app, op);
+        let export = if server {
+            None
+        } else {
+            let export = package
+                .export_for_op(op)
+                .ok_or_else(|| ApiError::new("apps.op.unknown", format!("{app} has no op {op}")))?;
+            if !package.has_runtime() {
+                return Err(ApiError::new(
+                    "apps.native",
+                    format!("{app} has no script to run {op}"),
+                ));
+            }
+            Some(export)
+        };
         let record = inner.mirror.apps.get(app);
         let Some(record) = record.filter(|r| r.installed) else {
             return Err(ApiError::new("apps.notInstalled", "the app is not installed"));
@@ -150,10 +183,14 @@ impl Supervisor {
         if !reachable {
             return Err(ApiError::new("apps.hidden", "the app is hidden from this surface"));
         }
+        let Some(export) = export else {
+            Self::admit_server_op(inner, app, op, origin)?;
+            return Ok(Target::Server);
+        };
         if self.config.host_binary.is_none() {
             return Err(ApiError::new("apps.unavailable", "this daemon has no app host"));
         }
-        Ok((HostKey { app: app.to_string(), preview: false }, export))
+        Ok(Target::Host(HostKey { app: app.to_string(), preview: false }, export))
     }
 
     fn start_run_locked(

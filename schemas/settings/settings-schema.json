@@ -5527,7 +5527,7 @@
           "value" : "both"
         }
       ],
-      "default" : "off",
+      "default" : "bottom",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -7231,7 +7231,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "bbc12ac893dd1c48d61e1550ef8effbff4179798a686b91a9b74674698fdebbb",
+  "schema_hash" : "41bbb12f8b0344ff9aae328bdd19f41aec7b3296e24b6e66d038ac87131bcbb1",
   "sections" : [
     {
       "id" : "general",

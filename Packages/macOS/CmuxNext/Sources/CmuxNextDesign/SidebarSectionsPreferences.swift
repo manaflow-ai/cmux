@@ -29,7 +29,8 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// Whether the workspace list expands each workspace into its tab rows.
     public var showWorkspaceTabs: Bool
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
-    public var minimalMode: SidebarMinimalMode = .off
+    /// R100: the Settings/account band shows only while the pointer is over the sidebar.
+    public var minimalMode: SidebarMinimalMode = .bottom
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
                 pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = false) {

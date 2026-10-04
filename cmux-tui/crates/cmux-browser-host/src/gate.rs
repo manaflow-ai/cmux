@@ -30,6 +30,9 @@ pub struct Gate {
     grants: Grants,
     /// Navigations the policy refused (`session.blockedNavigations()`).
     log: Mutex<Vec<Value>>,
+    /// False while a policy is active that the engine cannot enforce on the
+    /// page's own requests (no request filter): every call fails closed.
+    filter_enforced: std::sync::atomic::AtomicBool,
 }
 
 /// Finds the URL of the frame that holds keyboard focus. Same-origin child
@@ -47,6 +50,7 @@ impl Gate {
             vault: Mutex::new(Vault::default()),
             grants,
             log: Mutex::new(Vec::new()),
+            filter_enforced: std::sync::atomic::AtomicBool::new(true),
         }
     }
 
@@ -78,7 +82,9 @@ impl Gate {
             });
             filter
         });
-        self.driver.set_request_filter(filter);
+        let wanted = filter.is_some();
+        let installed = self.driver.set_request_filter(filter);
+        self.filter_enforced.store(!wanted || installed, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Owner-side secrets (`browser.secrets.load`): values never enter the VM.
@@ -205,6 +211,15 @@ impl Gate {
 
 impl VmHost for Gate {
     fn driver_call(&self, method: &str, params: Value) -> Result<Value, DriverError> {
+        if !self.filter_enforced.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(DriverError::new(
+                ErrorCode::Forbidden,
+                format!(
+                    "{method}: this engine cannot apply the domain policy to requests the page makes itself; \
+                     clear the policy or use engine \"headless\""
+                ),
+            ));
+        }
         self.check(method, &params)?;
         let mut params = params;
         if matches!(method, "input.insertText" | "input.key") {
@@ -215,6 +230,7 @@ impl VmHost for Gate {
             Err(mut error) => {
                 error.message = self.mask(&error.message);
                 error.error_name = error.error_name.map(|name| self.mask(&name));
+                error.data = error.data.map(|data| self.mask_value(&data));
                 Err(error)
             }
         }

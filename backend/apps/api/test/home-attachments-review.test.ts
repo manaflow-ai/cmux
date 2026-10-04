@@ -37,11 +37,7 @@ describe("Home attachments: review fixes (P2/P3)", { timeout: 120_000 }, () => {
     const bob = await signIn("att-ret-bob")
     const g = await group(alice, [bob])
     const doStub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(g.id))
-    // Drive the alarm directly; the runtime's own alarm is removed first so it cannot interleave.
-    const wake = () => runInDurableObject(doStub, async (i, state) => {
-      await state.storage.deleteAlarm()
-      await i.alarm()
-    })
+    const wake = () => fireAlarm(doStub)
     await runInDurableObject(doStub, async (i) => {
       i.boundEngine.state = { ...i.boundEngine.currentState, retention_days: 30 }
     })

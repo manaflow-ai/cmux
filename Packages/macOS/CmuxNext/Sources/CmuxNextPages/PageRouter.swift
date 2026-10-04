@@ -77,7 +77,15 @@ public final class PageRouter {
         }
     }
 
+    /// The window's title bar action (DESKTOP-FEEL): a double-click on a title bar the page draws.
+    public var titleBarDoubleClick: (@MainActor () -> Void)?
+
     private func call(_ op: String, params: JSONValue) async throws -> JSONValue {
+        if op == PageNativeOp.titleBarDoubleClick {
+            guard !closed else { throw PageError.closed }
+            titleBarDoubleClick?()
+            return .object([:])
+        }
         let (provider, params) = try admit(op, params: params)
         return try await provider.call(op, params: params, context: PageCallContext(page: descriptor.id))
     }

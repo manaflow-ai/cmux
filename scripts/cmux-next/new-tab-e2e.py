@@ -19,6 +19,13 @@ parser.add_argument("--tag", required=True)
 parser.add_argument("--runs", type=int, default=20)
 parser.add_argument("--budget-ms", type=float, default=16)
 parser.add_argument("--text", default="hello")
+parser.add_argument("--bench", action="store_true",
+                    help="R81: Cmd-W and ! latency (main-thread ms, missed frames, span breakdown) instead of the open test")
+parser.add_argument("--budget-close-ms", type=float, default=10)
+parser.add_argument("--neighbor", choices=["terminal", "chief"], default="terminal",
+                    help="the tab the bench's new tab pages open beside (Cmd-W shows it again)")
+parser.add_argument("--trace", action="store_true",
+                    help="with --bench: record a Time Profiler trace during the runs and print the main thread's heaviest frames")
 opts = parser.parse_args()
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 APP = next(iter(sorted(glob.glob(os.path.expanduser(
@@ -102,6 +109,131 @@ def open_and_check(expect_spare, snapshot=None, close=1, window=0):
     return opening
 
 
+def p95(values):
+    values = sorted(values)
+    return values[max(0, int(round(0.95 * len(values))) - 1)] if values else 0
+
+
+def summarize(label, results):
+    keys = [r["key_ms"] for r in results]
+    visible = [r["visible_ms"] for r in results if r.get("visible_ms") is not None]
+    missed = [r["frames"]["missed"] for r in results]
+    worst = [r["frames"]["max_ms"] for r in results]
+    print(f"{label}: key p50={statistics.median(keys):.2f} p95={p95(keys):.2f} ms; "
+          f"visible p50={statistics.median(visible) if visible else -1:.1f} p95={p95(visible):.1f} ms; "
+          f"missed frames total={sum(missed)} runs-with-misses={sum(1 for m in missed if m)}; "
+          f"worst frame p95={p95(worst):.1f} max={max(worst):.1f} ms", flush=True)
+    names = {}
+    for r in results:
+        for span in r["spans"]:
+            names.setdefault(span["name"], []).append(span["ms"])
+    for name, values in sorted(names.items(), key=lambda kv: -statistics.median(kv[1])):
+        print(f"  span {name}: n={len(values)} p50={statistics.median(values):.2f} p95={p95(values):.2f} ms", flush=True)
+    # Where the missed frames fall (ms after the key, interval), to match them with spans.
+    for i, r in enumerate(results):
+        t, misses = 0.0, []
+        period = r["frames"]["refresh_ms"] or 8.33
+        for interval in r["frames"]["intervals_ms"]:
+            t += interval
+            if interval > period * 1.5:
+                misses.append(f"{t:.0f}ms:{interval:.1f}")
+        if misses:
+            spans = ", ".join(f"{s['name']}@{s['at']:.0f}={s['ms']:.1f}" for s in r["spans"] if s["ms"] >= 0.5 or s["name"].startswith(("daemon", "bridge")))
+            print(f"  run {i}: misses {misses}; spans {spans}", flush=True)
+
+
+def ready_spare():
+    return wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
+
+
+def main_thread_profile(trace):
+    """Heaviest main-thread frames (inclusive and leaf sample counts) in a Time Profiler trace."""
+    import xml.etree.ElementTree as ET
+    toc = subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--toc"], capture_output=True, text=True).stdout
+    schema = "time-profile" if 'schema="time-profile"' in toc else "time-sample"
+    xml = subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
+                          f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]'], capture_output=True, text=True).stdout
+    root = ET.fromstring(xml)
+    ids = {}
+
+    def resolve(element):
+        ref = element.get("ref")
+        if ref is not None:
+            return ids.get(ref, element)
+        if element.get("id") is not None:
+            ids[element.get("id")] = element
+        for child in element:
+            resolve(child)
+        return element
+
+    inclusive, leaf, samples = {}, {}, 0
+    for row in root.iter("row"):
+        thread = backtrace = None
+        for child in row:
+            node = resolve(child)
+            if child.tag == "thread":
+                thread = node
+            elif child.tag in ("backtrace", "tagged-backtrace"):
+                backtrace = node
+        if thread is None or backtrace is None:
+            continue
+        if "Main Thread" not in (thread.get("fmt") or ""):
+            continue
+        samples += 1
+        bt = backtrace if backtrace.tag == "backtrace" else next(iter(backtrace.iter("backtrace")), None)
+        if bt is None:
+            continue
+        frames = [resolve(f).get("name") or "?" for f in bt.iter("frame")]
+        if frames:
+            leaf[frames[0]] = leaf.get(frames[0], 0) + 1
+        for name in set(frames):
+            inclusive[name] = inclusive.get(name, 0) + 1
+    print(f"main-thread samples: {samples}", flush=True)
+    skip = ("main", "start", "NSApplicationMain", "-[NSApplication run]", "_DPSNextEvent", "CFRunLoopRun")
+    for name, count in sorted(inclusive.items(), key=lambda kv: -kv[1])[:60]:
+        if not name.startswith(skip):
+            print(f"  incl {count:5d} {name[:160]}", flush=True)
+    for name, count in sorted(leaf.items(), key=lambda kv: -kv[1])[:25]:
+        print(f"  leaf {count:5d} {name[:160]}", flush=True)
+
+
+def run_bench():
+    closes, bangs = [], []
+    if opts.neighbor == "terminal":
+        print(f"neighbor terminal: {rpc('action.run', {'id': 'newSurface'})}", flush=True)
+        time.sleep(1.5)  # test harness: the terminal starts
+    recorder = None
+    trace = os.path.join(os.environ.get("NX_ARTIFACTS", SCRATCH), "new-tab-bench.trace")
+    if opts.trace:
+        recorder = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", str(app.pid),
+                                     "--time-limit", "40s", "--output", trace], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        time.sleep(3)  # test harness: the recorder attaches
+    for _ in range(opts.runs):
+        ready_spare()
+        rpc("debug.new_tab", {"action": "open_and_type", "text": ""})
+        time.sleep(0.4)  # test harness: the page settles before the measured close
+        closes.append(rpc("debug.new_tab", {"action": "bench_close"}))
+        closes[-1]["recycle_refusal"] = state().get("last_recycle_refusal")
+    for _ in range(opts.runs):
+        ready_spare()
+        rpc("debug.new_tab", {"action": "open_and_type", "text": ""})
+        time.sleep(0.4)  # test harness: the page settles before the measured key
+        bangs.append(rpc("debug.new_tab", {"action": "bench_bang"}))
+        time.sleep(0.3)  # test harness
+        rpc("debug.key", {"key": "w", "modifiers": ["command"]})
+    bad = [r for r in closes + bangs if not isinstance(r, dict) or "error" in r]
+    if bad:
+        sys.exit(f"FAIL bench errors: {bad[:3]}")
+    print(f"recycle refusals on Cmd-W: {[c.get('recycle_refusal') for c in closes]}", flush=True)
+    summarize("Cmd-W on the new tab page", closes)
+    summarize("! on the new tab page", bangs)
+    desync = rpc("debug.desync") or {}
+    print(f"desync reports: {json.dumps(desync)[:2500]}", flush=True)
+    if recorder:
+        recorder.wait(timeout=120)
+        main_thread_profile(trace)
+
+
 app = None
 try:
     if os.path.exists(SOCKET):
@@ -116,6 +248,9 @@ try:
     wait("the tagged app comes up", lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 90)
     print("app is up", flush=True)
     time.sleep(2)  # test harness: let the first workspace settle
+    if opts.bench:
+        run_bench()
+        sys.exit(0)
     spare_ms, footprints = [], []
     for run in range(opts.runs):
         spares = wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)

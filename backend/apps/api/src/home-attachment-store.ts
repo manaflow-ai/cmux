@@ -57,6 +57,8 @@ export const SWEEP_DELETE = 100
 const OBJECTS = "home_attachment_objects"
 const SLOTS = "home_attachment_slots"
 const SWEEP = "home_attachment_sweep"
+/** Records the store forgot whose R2 objects and stored-bytes release are still to do (retried by the next wake). */
+const DROPS = "home_attachment_drops"
 /** The main engine's row table (OwnerEngine default prefix `own_`). */
 const ENGINE_ROWS = "own_rows"
 const MAX_UPLOADERS = 64
@@ -304,11 +306,15 @@ export const sweepBatch = (sql: Sql, before: number): { records: Array<Record>; 
     }
   }
   const done = !stopped && rows.length < SWEEP_SCAN
+  queueDrops(sql, records)
   ensure(sql)
   sql.exec(`INSERT INTO ${SWEEP} (id, cutoff) VALUES (1, ?) ON CONFLICT (id) DO NOTHING`, Number.MIN_SAFE_INTEGER)
   sql.exec(`UPDATE ${SWEEP} SET cursor_at = ?, cursor_hash = ?, running = 1 WHERE id = 1`, done || !last ? null : Number(last.created_at), done || !last ? null : last.hash)
   return { records, done }
 }
+
+/** Every upload slot, without forgetting them (storage deletion refunds them first). */
+export const allSlots = (sql: Sql): Array<UploadSlot> => (has(sql, SLOTS) ? sql.exec<SlotRow>(`SELECT * FROM ${SLOTS}`).map(slotRow) : [])
 
 /** Forgets every record and slot (conversation storage deletion); answers both (the caller deletes the prefix and refunds). */
 export const forgetAll = (sql: Sql): { records: Array<Record>; slots: Array<UploadSlot> } => {
@@ -317,6 +323,7 @@ export const forgetAll = (sql: Sql): { records: Array<Record>; slots: Array<Uplo
   const slots = sql.exec<SlotRow>(`SELECT * FROM ${SLOTS}`).map(slotRow)
   sql.exec(`DELETE FROM ${OBJECTS}`)
   sql.exec(`DELETE FROM ${SLOTS}`)
+  queueDrops(sql, records)
   return { records, slots }
 }
 
@@ -379,3 +386,52 @@ export const purgeAt = (sql: Sql): number | null => {
 
 /** After the delayed prefix delete that was due at `at` (a later schedule stays). */
 export const clearPurge = (sql: Sql, at: number): void => void sql.exec(`UPDATE ${SWEEP} SET purge_at = NULL WHERE id = 1 AND purge_at <= ?`, at)
+
+/**
+ * A forgotten record joins the drop queue in the same synchronous step that forgets it, so a
+ * failed R2 delete or stored-bytes release is never lost: the row leaves only after both
+ * succeeded (clearDrop). Each drop has its own next attempt and backoff (failDrop), so a failing
+ * drop never makes the owner's wake time 0 and a commit can never cancel its retry.
+ */
+const ensureDrops = (sql: Sql) =>
+  sql.exec(`CREATE TABLE IF NOT EXISTS ${DROPS} (object_key TEXT PRIMARY KEY, record TEXT NOT NULL, next_attempt_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, dead INTEGER NOT NULL DEFAULT 0)`)
+
+const queueDrops = (sql: Sql, records: ReadonlyArray<Record>): void => {
+  if (records.length === 0) return
+  ensureDrops(sql)
+  const now = Date.now()
+  for (const r of records) sql.exec(`INSERT OR REPLACE INTO ${DROPS} (object_key, record, next_attempt_at, attempts, dead) VALUES (?, ?, ?, 0, 0)`, r.object_key, JSON.stringify(r), now)
+}
+
+/** Drops due at `now` (their next attempt reached), oldest attempt first. */
+export const dueDrops = (sql: Sql, now: number, limit = 100): Array<Record> =>
+  has(sql, DROPS) ? sql.exec<{ record: string }>(`SELECT record FROM ${DROPS} WHERE dead = 0 AND next_attempt_at <= ? ORDER BY next_attempt_at, object_key LIMIT ?`, now, limit).map((r) => JSON.parse(r.record) as Record) : []
+
+/** The earliest next attempt of a queued drop (a real time, never 0), or null. */
+export const nextDropAt = (sql: Sql): number | null => {
+  if (!has(sql, DROPS)) return null
+  const at = sql.exec<{ at: number | null }>(`SELECT MIN(next_attempt_at) AS at FROM ${DROPS} WHERE dead = 0`)[0]?.at
+  return at === null || at === undefined ? null : Number(at)
+}
+
+/** Drop retry backoff: 30 s doubling, at most an hour. */
+export const dropBackoffMs = (attempts: number): number => Math.min(3_600_000, 30_000 * 2 ** Math.max(0, attempts - 1))
+
+/**
+ * Attempts before a drop is dead-lettered. With the backoff (30 s doubling, at most 1 h) ten
+ * attempts span about three hours: longer than a typical R2 or Durable Object incident, short
+ * enough that a stuck drop is surfaced (logged, kept with dead = 1) the same day instead of
+ * retried forever. A dead drop takes no wake time; an operator retries it by resetting the row.
+ */
+export const DROP_MAX_ATTEMPTS = 10
+
+/** A failed attempt for `objectKey`: one more attempt counted, the next one after the backoff; true when it is now dead-lettered. */
+export const failDrop = (sql: Sql, objectKey: string, now: number): boolean => {
+  const row = sql.exec<{ attempts: number }>(`SELECT attempts FROM ${DROPS} WHERE object_key = ?`, objectKey)[0]
+  const attempts = Number(row?.attempts ?? 0) + 1
+  const dead = attempts >= DROP_MAX_ATTEMPTS
+  sql.exec(`UPDATE ${DROPS} SET attempts = ?, next_attempt_at = ?, dead = ? WHERE object_key = ?`, attempts, now + dropBackoffMs(attempts), dead ? 1 : 0, objectKey)
+  return dead
+}
+
+export const clearDrop = (sql: Sql, objectKey: string): void => void sql.exec(`DELETE FROM ${DROPS} WHERE object_key = ?`, objectKey)

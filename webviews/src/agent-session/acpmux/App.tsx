@@ -1745,7 +1745,6 @@ function AcpmuxPane() {
               snapshot={composerSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
-              mode={newTab.mode}
               lastAgent={newTab.lastAgent}
               home={newTab.home}
               {...newTabScreenActions({

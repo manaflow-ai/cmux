@@ -3,7 +3,8 @@
 # cmux CLI, with bin/cmux-tui and bin/acpmux as relative symlinks to it (the binary
 # picks its program from argv[0]; plans/cmux-next/cli.md). When the manifest publishes
 # cmux-tui-app-host-<target>, the app host goes to Contents/Resources/bin/cmux-app-host,
-# where the daemon looks for it. The app carries the exact client that talks to cmux
+# where the daemon looks for it; cmux-tui-cloud-server-<target> (the first-party Cloud
+# app server, cmux/cloud) goes beside it as bin/cmux-cloud. The app carries the exact client that talks to cmux
 # Cloud machines, so the Machines panel needs no separate install.
 #
 # The build comes from the artifacts manifest the cmux-tui-artifacts workflow publishes
@@ -165,11 +166,13 @@ check_acpmux() {
 if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   [[ -f "$CMUX_TUI_CLIENT_LOCAL" ]] || { echo "error: CMUX_TUI_CLIENT_LOCAL not found: $CMUX_TUI_CLIENT_LOCAL" >&2; exit 1; }
   install_binary "$CMUX_TUI_CLIENT_LOCAL"
-  # A local client brings its app host when one sits beside it.
-  rm -f "$DEST_DIR/cmux-app-host"
-  if [[ -f "$(dirname "$CMUX_TUI_CLIENT_LOCAL")/cmux-app-host" ]]; then
-    install -m 755 "$(dirname "$CMUX_TUI_CLIENT_LOCAL")/cmux-app-host" "$DEST_DIR/cmux-app-host"
-  fi
+  # A local client brings its app host and app servers when they sit beside it.
+  for companion in cmux-app-host cmux-cloud; do
+    rm -f "$DEST_DIR/$companion"
+    if [[ -f "$(dirname "$CMUX_TUI_CLIENT_LOCAL")/$companion" ]]; then
+      install -m 755 "$(dirname "$CMUX_TUI_CLIENT_LOCAL")/$companion" "$DEST_DIR/$companion"
+    fi
+  done
   verify_probe
   check_acpmux
   echo "Installed local cmux-tui client at $DEST"
@@ -264,34 +267,40 @@ case "$ARCH" in
     ;;
 esac
 install_binary "$CLIENT"
-# The app host (apps-v1) ships from the same build when the manifest has it.
-# Older builds have none; then no app host is bundled and the app reports that
-# it needs a newer cmux-tui.
-APP_HOST_DEST="$DEST_DIR/cmux-app-host"
+# The app host (apps-v1) and the first-party app servers ship from the same build when
+# the manifest has them. Older builds have none; then none is bundled (the app reports
+# that it needs a newer cmux-tui, and the supervisor answers apps.server_missing).
 manifest_has() {
   python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["binaries"].get(sys.argv[2]) else 1)' "$MANIFEST" "$1"
 }
-if manifest_has cmux-tui-app-host-aarch64-apple-darwin && manifest_has cmux-tui-app-host-x86_64-apple-darwin; then
+# install_companion <artifact prefix> <installed name>: both darwin slices, lipo'd
+# like the client, sha256-verified by fetch_slice.
+install_companion() {
+  local prefix="$1" name="$2" dest="$DEST_DIR/$2" binary arm x64 arch
+  if ! { manifest_has "$prefix-aarch64-apple-darwin" && manifest_has "$prefix-x86_64-apple-darwin"; }; then
+    rm -f "$dest"
+    echo "note: cmux-tui ${COMMIT:0:10} publishes no $name"
+    return 0
+  fi
   case "$ARCH" in
-    arm64) APP_HOST="$(fetch_slice cmux-tui-app-host-aarch64-apple-darwin)" ;;
-    x86_64) APP_HOST="$(fetch_slice cmux-tui-app-host-x86_64-apple-darwin)" ;;
+    arm64) binary="$(fetch_slice "$prefix-aarch64-apple-darwin")" ;;
+    x86_64) binary="$(fetch_slice "$prefix-x86_64-apple-darwin")" ;;
     universal)
-      APP_HOST_ARM="$(fetch_slice cmux-tui-app-host-aarch64-apple-darwin)"
-      APP_HOST_X64="$(fetch_slice cmux-tui-app-host-x86_64-apple-darwin)"
-      APP_HOST="$BUILD_DIR/cmux-app-host-universal"
-      if [[ ! -f "$APP_HOST" ]]; then
-        lipo -create "$APP_HOST_ARM" "$APP_HOST_X64" -output "$APP_HOST.tmp"
-        mv -f "$APP_HOST.tmp" "$APP_HOST"
+      arm="$(fetch_slice "$prefix-aarch64-apple-darwin")"
+      x64="$(fetch_slice "$prefix-x86_64-apple-darwin")"
+      binary="$BUILD_DIR/$name-universal"
+      if [[ ! -f "$binary" ]]; then
+        lipo -create "$arm" "$x64" -output "$binary.tmp"
+        mv -f "$binary.tmp" "$binary"
       fi
       ;;
   esac
-  rm -f "$APP_HOST_DEST"
-  install -m 755 "$APP_HOST" "$APP_HOST_DEST"
-  for arch in "${VERIFY_ARCHS[@]}"; do lipo "$APP_HOST_DEST" -verify_arch "$arch"; done
-else
-  rm -f "$APP_HOST_DEST"
-  echo "note: cmux-tui ${COMMIT:0:10} publishes no app host; apps stay unavailable"
-fi
+  rm -f "$dest"
+  install -m 755 "$binary" "$dest"
+  for arch in "${VERIFY_ARCHS[@]}"; do lipo "$dest" -verify_arch "$arch"; done
+}
+install_companion cmux-tui-app-host cmux-app-host
+install_companion cmux-tui-cloud-server cmux-cloud
 # One arch per invocation: some lipo builds (Xcode 27 beta 4) consume only one
 # arch after -verify_arch and read the second as an extra input file, failing
 # with "requires exactly one input file".

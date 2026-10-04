@@ -11,6 +11,7 @@ import {
 } from "../src/collapsed-files";
 import { createDiffViewerLabelResolver } from "../src/labels";
 import { resolveFileIcon } from "../src/file-icons";
+import { diffStatSpriteSheet, diffStatSymbolId } from "../src/file-tree-stats";
 import { sanitizeViewerPrefs } from "../src/viewer-prefs";
 
 const label = createDiffViewerLabelResolver(undefined, { language: "en" });
@@ -146,7 +147,7 @@ test("controls inside the header bar keep their own action and do not toggle", (
     cmuxDeferredReason: "generated",
   });
   click(doc.querySelector(".file-review-viewed")!);
-  click(doc.querySelector(".file-review-checkbox")!);
+  click(doc.querySelector(".file-review-eye")!);
   click(doc.querySelector(".file-review-load")!);
   expect(calls).toEqual({ toggles: 0, viewed: 2, loads: 1 });
 
@@ -201,6 +202,22 @@ test("Enter and Space on the focused bar toggle the file; keys on its controls d
   expect(calls.toggles).toBe(2);
 });
 
+test("the bar's ... menu opens without toggling and acts on the file", async () => {
+  const { calls, click, doc } = renderToggleHeader(false);
+  const button = doc.querySelector<HTMLElement>(".file-header-menu-button")!;
+  expect(button.getAttribute("aria-label")).toBe("More actions for SidebarBridge.swift");
+  expect(button.hasAttribute("data-file-header-control")).toBe(true);
+  flushSync(() => click(button));
+  expect(calls.toggles).toBe(0);
+  // The popover places itself after the open render (useAnchoredPopover).
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const items = Array.from(doc.querySelectorAll<HTMLElement>(".file-header-menu [role='menuitem']"));
+  expect(items.map((item) => item.textContent)).toEqual(["Mark as viewed"]);
+  flushSync(() => click(items[0]!));
+  expect(calls).toEqual({ toggles: 0, viewed: 1, loads: 0 });
+  expect(doc.querySelector(".file-header-menu")).toBeNull();
+});
+
 test("the caret label is localized in Japanese", () => {
   const ja = createDiffViewerLabelResolver(undefined, { language: "ja" });
   expect(ja("collapseFile").replace("{file}", "a.ts")).toBe("a.ts を折りたたむ");
@@ -221,14 +238,35 @@ test("header icons resolve through the same @pierre/trees icon set as the files 
   expect(resolveFileIcon("bin/tool").symbol).toBeTruthy();
 });
 
-test("tree rows show the viewed mark and only the nonzero +N and -N counts", () => {
-  expect(fileTreeRowDecoration({ added: 75, deleted: 10 }, "unviewed", label)?.text).toBe("+75 -10");
-  expect(fileTreeRowDecoration({ added: 0, deleted: 1 }, undefined, label)?.text).toBe("-1");
-  expect(fileTreeRowDecoration({ added: 18, deleted: 0 }, "viewed", label)).toEqual({
-    text: "✓ +18",
-    title: "Viewed, Additions 18",
-  });
-  expect(fileTreeRowDecoration(undefined, undefined, label)).toBeNull();
+test("tree rows show only the nonzero +N and -N counts, drawn in their own colors", () => {
+  const measure = (text: string) => text.length * 7;
+  const both = fileTreeRowDecoration({ added: 75, deleted: 10 }, label, measure);
+  expect(both?.title).toBe("Additions 75, Deletions 10");
+  expect(both?.icon.name).toBe(diffStatSymbolId({ added: 75, deleted: 10 }));
+  expect(fileTreeRowDecoration({ added: 0, deleted: 1 }, label, measure)?.title).toBe("Deletions 1");
+  expect(fileTreeRowDecoration(undefined, label, measure)).toBeNull();
+  expect(fileTreeRowDecoration({ added: 0, deleted: 0 }, label, measure)).toBeNull();
+
+  const sheet = diffStatSpriteSheet(
+    [
+      { added: 75, deleted: 10 },
+      { added: 75, deleted: 10 },
+      { added: 0, deleted: 1 },
+    ],
+    measure,
+  );
+  const doc = new JSDOM(`<!doctype html><body>${sheet}</body>`).window.document;
+  const symbols = Array.from(doc.querySelectorAll("symbol"));
+  expect(symbols.map((symbol) => symbol.id)).toEqual(["cmux-diff-stat-75-10", "cmux-diff-stat-0-1"]);
+  const spans = Array.from(symbols[0]!.querySelectorAll("tspan")).map((span) => [
+    span.textContent,
+    span.getAttribute("style"),
+  ]);
+  expect(spans).toEqual([
+    ["+75", "fill: var(--trees-status-added)"],
+    ["-10", "fill: var(--trees-status-deleted)"],
+  ]);
+  expect(Array.from(symbols[1]!.querySelectorAll("tspan")).map((span) => span.textContent)).toEqual(["-1"]);
 });
 
 test("collapsed files are keyed by repository, ordered, deduplicated and capped", () => {

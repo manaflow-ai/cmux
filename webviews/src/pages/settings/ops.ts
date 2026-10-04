@@ -36,6 +36,27 @@ export type SnapshotResult = {
   domains?: Partial<PublishedDomains> | null;
 };
 
+/** One space or machine row (`cmux.settings.host.lists`). */
+export type HostListRow = { id: string; title: string; subtitle: string | null; active: boolean };
+
+/** One browser profile row. */
+export type BrowserProfile = {
+  id: string;
+  name: string;
+  color: string | null;
+  icon: string | null;
+  is_default: boolean;
+  source: string | null;
+};
+
+/** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
+export type HostLists = {
+  rooms: HostListRow[] | null;
+  machines: HostListRow[];
+  browser_profiles: BrowserProfile[];
+  profile_colors: Array<{ name: string; swatch: string; fill: string }>;
+};
+
 /** The v2 mutation result: `revision` is a decimal string. */
 export type MutationResult = { value: { keys: string[] }; revision: string; replayed: boolean };
 
@@ -48,6 +69,8 @@ export type SettingsOps = {
   "cmux.settings.set": [Mutation<{ key: string; value: unknown }>, MutationResult];
   "cmux.settings.reset": [Mutation<{ key: string }>, MutationResult];
   "cmux.settings.reset_all": [Mutation<object>, MutationResult];
+  /** Native: spaces, machines and browser profiles from the app's live stores. */
+  "cmux.settings.host.lists": [Record<string, never>, HostLists];
   /** Native: show `value` live while a gesture runs; never written. */
   "cmux.settings.preview": [{ key: string; value: unknown }, unknown];
   /** Native: drop the live preview of `key`. */
@@ -55,7 +78,7 @@ export type SettingsOps = {
   /** Native: play a notification sound. */
   "cmux.settings.sound.play": [{ name: string }, unknown];
   /** Native: a catalog action, run with origin user (react-pages.md 1.3). */
-  "cmux.app.action.run": [{ action: string; args?: Record<string, unknown> }, unknown];
+  "cmux.app.action.run": [{ action: string; args?: Record<string, unknown>; target?: string }, unknown];
 };
 
 export type SettingsOpName = keyof SettingsOps;
@@ -63,6 +86,8 @@ export type SettingsOpName = keyof SettingsOps;
 /** Streams the page subscribes to. */
 export type SettingsStreams = {
   "cmux.settings.changed": { revision: number; keys: string[]; origin?: string };
+  /** The host lists changed (the event carries the new lists). */
+  "cmux.settings.host.changed": HostLists;
   /** The page bridge's link to the daemon (one stream for every page). */
   "cmux.page.connection": { connected: boolean };
   /** Commands from the app's key dispatcher (the page handles no Cmd or Ctrl chords). */
@@ -118,7 +143,20 @@ export function errorCode(error: WireError): ErrorCode {
  * The only catalog actions the Settings page may run through `cmux.app.action.run`; the page
  * bridge refuses every other action from this page (and the mock does too).
  */
-export const settingsPageActions = ["palette.openCmuxSettingsFile", "openSettings"] as const;
+export const settingsPageActions = [
+  "palette.openCmuxSettingsFile",
+  "openSettings",
+  "browserProfile.new",
+  "browserProfile.rename",
+  "browserProfile.setColor",
+  "browserProfile.clearColor",
+  "browserProfile.setIcon",
+  "browserProfile.clearIcon",
+  "browserProfile.manageExtensions",
+  "browserProfile.delete",
+] as const;
+
+export type SettingsPageAction = (typeof settingsPageActions)[number];
 
 /** v2 revisions are decimal strings in mutation results and numbers in reads. */
 export function revisionNumber(value: unknown): number {

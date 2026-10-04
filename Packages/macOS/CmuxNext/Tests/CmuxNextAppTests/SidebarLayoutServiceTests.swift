@@ -125,11 +125,11 @@ import Testing
         #expect(!expected.isEmpty)
         await settled { owner.calls.count == expected.count }
         #expect(owner.calls.map(\.op) == expected)
-        #expect(service.document.sections == SidebarLayoutDocument.defaults.sections)
+        #expect(service.document.sections == SectionsSidebarDefaultTests.migratedRail)
         for call in owner.calls { owner.accept(call.key) }
         await settled { service.pending.isEmpty }
-        #expect(owner.stored.sections == SidebarLayoutDocument.defaults.sections)
-        #expect(service.mirror.sections == SidebarLayoutDocument.defaults.sections)
+        #expect(owner.stored.sections == SectionsSidebarDefaultTests.migratedRail)
+        #expect(service.mirror.sections == SectionsSidebarDefaultTests.migratedRail)
         // A later fetch of the migrated layout sends nothing more.
         owner.changeToken += 1
         await settled { false }

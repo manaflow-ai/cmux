@@ -123,6 +123,62 @@ a limit itself.
 5. Deletes are idempotent: a provider 404 on delete is success, and the tombstone answers
    `{deleted: true}` for 30 days.
 
+### 1.7 `cloud.machine.connect_info` for `cmux link` (contract for lane 12, 2026-10-04)
+
+Purpose: `cmux link` turns a Cloud host id into a peer it can dial (`link.dial {host, service}`,
+lane 12 slice 2). Owner: `cloud:CloudDO` (the machine row) with the peer data from `TeamDO`'s peer
+map (transport.md section 2: `TeamDO` owns keys and reachability). Product decisions (a9,
+2026-10-04): services are `daemon` and `ssh` only; scp, sftp and rsync use `ssh` with `cmux link`
+as ProxyCommand; the app's own file features use daemon RPC on `daemon`; no `files` service.
+
+Who calls: `cmux link`, through the host credential relay (the host adds the install token of the
+install that runs the link). `cmux-cloud` passes only the host id to `link.dial`; it never sees
+peer keys or link tokens. Principals: `session`, `install`. Class `read`.
+
+Request: `{machine}` or `{host}` (exactly one).
+
+Result:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `machine` | `vm_…` | the machine |
+| `host` | `host_…` | its overlay host id (stable for the machine's life) |
+| `epoch` | int | the VM epoch; a restore or re-bind raises it; the link refuses a hello from a lower epoch |
+| `state` | `CloudMachine.status` | `running`, `paused`, `starting`, ...; peer data is returned in every bound state |
+| `peer.wg_public_key` | base64, 32 bytes | the VM endpoint's WireGuard key |
+| `peer.overlay_address` | IPv6 in `fd7c:6d78::/32` | derived from the host id (transport.md 3.1); the link checks it against its own derivation and refuses a mismatch |
+| `peer.vpc_endpoint` | `[addr]:4101` or null | the VM's VPC address, UDP 4101 (VPC members, no tunnel) |
+| `peer.public_ipv6` | IPv6 or null | for `direct_wan` when the VM has one and the policy opened it for this install's /128 |
+| `gateway` | object or null | this install's own Freestyle tunnel when it is attached to the VM's VPC and the firewall rule for UDP 4101 exists: `{tunnel_id, endpoint, server_public_key, client_address, allowed_ips}`; null = no `tunnel` path for this caller (the link then reports `path_state` without it) |
+| `services` | array of `daemon`, `ssh` | what this caller may dial on this host (team policy); the VM's endpoint enforces the same list |
+| `link_token` | `{token, expires_at}` | single host, single install, the `services` above, this `epoch`; at most 5 minutes; the VM daemon checks it on `hello` (transport.md: a link with no valid token is closed after `hello`) |
+| `daemon` | `{version, capabilities}` | as the VM reported at bind; for the client's capability gates |
+| `revision` | int | the CloudDO stream sequence of the last change to this record |
+
+Errors: `cloud.machine.not_found`; `cloud.machine.not_bound` (still provisioning; wait for the
+`cloud.machine.upsert` with `host` set); `auth.forbidden` (the caller may not reach this machine;
+`link.dial` maps it to `not_authorized`). A paused machine is NOT an error here: the result has
+`state: paused`, and `link.dial` answers `host_paused` when the handshake fails and the cached
+state is paused; the caller runs `cloud.machine.start` with an idempotency key, waits for the
+`running` upsert, and dials again.
+
+Cache rules for `cmux link`:
+1. Cache the result by host id, without `link_token`, for at most 300 s or until a
+   `cloud.machine.upsert` with a higher `revision` arrives (key rotation, epoch change, VPC change,
+   policy change all raise it). Pause and resume do not change peer data.
+2. `link_token` is used for one `hello` and never cached past `expires_at`; a reconnect asks again.
+3. On a handshake failure with a cached entry, fetch once more before reporting `unreachable`.
+4. `cloud.machine.removed` drops the entry at once and closes open links to that host.
+
+Mapping to `link.dial` errors: `unknown_host` = `cloud.machine.not_found`; `not_authorized` =
+`auth.forbidden` or a refused token; `host_paused` = handshake failure with `state: paused`;
+`unreachable` = no path answered; `bad_request` = malformed op line.
+
+Dependencies: VM bind (the backend lead: CloudDO records `host`, `epoch`, `wg_public_key` at bind
+from the image's bind agent); `TeamDO` peer map and the Freestyle tunnel and rule reconciler (lane
+12); for `ssh`, the VM's sshd trusts the team SSH CA (`team_vm.ssh_cert`, team VM lead), so scp and
+sftp use short-lived certificates, never a static key.
+
 ## 2. How the client uses it
 
 ### 2.1 Process shape (unchanged)
@@ -226,8 +282,10 @@ opens a DaemonConnection on the `apps-terminal-link` socket keyed `cmux/cloud/<m
 
 ### 2.4 Files, ports, browser
 
-Files: the VM daemon's file ops over the link (`cmux.fs.provider/1`, kind `cloud-vm`); no backend
-file route and no SSH key. Ports: loopback streams on the link (remote-localhost.md). Browser:
+Files: the app's file features (explorer, upload, download) use daemon RPC on the `daemon` link
+service, streamed like classic `remote rpc --stream` (`cmux.fs.provider/1`, kind `cloud-vm`); the app
+never runs scp. scp, sftp and rsync from a shell use the `ssh` service with `cmux link` as
+ProxyCommand (a9 decision, 2026-10-04). No backend file route and no static SSH key. Ports: loopback streams on the link (remote-localhost.md). Browser:
 `browser.tab.open {url, machineStore{proxy}, engine: cef}` with the proxy on the link.
 
 ### 2.5 Swift path

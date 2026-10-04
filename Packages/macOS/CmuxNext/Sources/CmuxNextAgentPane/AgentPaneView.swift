@@ -55,6 +55,9 @@ public final class AgentPaneView: NSView {
     private var reduceMotionObserver: (any NSObjectProtocol)?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
 
+    /// The process pool every agent page shares (R81: fonts are listed once per pool).
+    private static let processPool = WKProcessPool()
+
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {
         Bundle.module.url(forResource: "index", withExtension: "html", subdirectory: "agent-pane")
@@ -92,6 +95,10 @@ public final class AgentPaneView: NSView {
         } else {
             let configuration = WKWebViewConfiguration()
             configuration.websiteDataStore = .nonPersistent()
+            // One process pool for every agent page: a fresh pool per page made WebKit list the
+            // user-installed fonts again for each new page (registerUserInstalledFonts, about
+            // 25 ms of the 30 ms main-thread page build, R81 trace); a shared pool lists them once.
+            configuration.processPool = Self.processPool
             if renderRate != .capped {
                 configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: false)
             }

@@ -37,6 +37,7 @@ extension BrowserProfileService {
         }
         for (key, entry) in services.cache.browsers {
             entry.chrome.addressBar.setProfileBadge(omnibarBadge(forTab: key))
+            entry.chrome.toolbarButtons.profileName = BrowserToolbarHandlers.profileName(forTab: key, services: services)
         }
     }
 }

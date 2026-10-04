@@ -282,7 +282,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         guard let tab = pane.tabs.first(where: { $0.id == key }) else { return nil }
         switch tab.kind {
         case .pty:
-            let entry = services.cache.terminal(for: tab, daemon: daemon)
+            let entry = BenchSpans.measure("terminal.surface") { services.cache.terminal(for: tab, daemon: daemon) }
             services.themes.terminalDidMount(entry)
             return .terminal(entry)
         case .browser where tab.isFrontendOwned:

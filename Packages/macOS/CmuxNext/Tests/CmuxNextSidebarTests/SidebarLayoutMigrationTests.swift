@@ -18,8 +18,8 @@ import Testing
         let ops = stored.layoutMigrationOps
         #expect(!ops.isEmpty)
         let migrated = try apply(ops, to: stored)
-        #expect(migrated.sections == SidebarLayoutDocument.defaults.sections)
-        #expect(stored.layoutMigration.sections == SidebarLayoutDocument.defaults.sections)
+        #expect(migrated.sections == SidebarLayoutDocument.migrationTarget.sections)
+        #expect(stored.layoutMigration.sections == SidebarLayoutDocument.migrationTarget.sections)
         // Each op is a change the owner commits, so the revision moves on.
         #expect(migrated.revision > stored.revision)
         // Moves keep item ids: Settings is the same item, back at the bottom.
@@ -56,7 +56,7 @@ import Testing
 @Suite struct SidebarGridBottomMigrationTests {
     @Test func theInlineBottomDefaultBecomesTheGridRow() {
         let stored = SidebarLayoutDocument(revision: 4, sections: SidebarLayoutDocument.inlineBottomDefaults.sections)
-        #expect(stored.layoutMigration.sections == SidebarLayoutDocument.defaults.sections)
+        #expect(stored.layoutMigration.sections == SidebarLayoutDocument.migrationTarget.sections)
         #expect(stored.layoutMigration.layoutMigrationOps.isEmpty)
     }
 
