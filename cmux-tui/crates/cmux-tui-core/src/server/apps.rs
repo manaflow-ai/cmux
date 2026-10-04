@@ -266,7 +266,15 @@ pub(super) fn try_handle(
         Command::Run { app, op, args, idempotency_key, gesture } => {
             let writer = writer.clone();
             supervisor.run(
-                crate::apps::RunRequest { app, op, args, idempotency_key, origin, gesture },
+                crate::apps::RunRequest {
+                    app,
+                    op,
+                    args,
+                    idempotency_key,
+                    origin,
+                    gesture,
+                    caller: None,
+                },
                 Box::new(move |result| {
                     reply(&writer, id, result);
                 }),

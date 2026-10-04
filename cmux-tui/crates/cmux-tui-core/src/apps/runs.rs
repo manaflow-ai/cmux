@@ -23,6 +23,14 @@ pub struct RunRequest {
     /// The client's token for a user invocation (palette, keybinding).
     /// Honored only with origin user; the host gets a supervisor-minted token.
     pub gesture: Option<String>,
+    /// The connection and request id that asked; it may cancel the run.
+    pub caller: Option<Caller>,
+}
+
+/// Who asked for a run: a control connection and its request id.
+pub struct Caller {
+    pub client: u64,
+    pub request: Value,
 }
 
 /// Where a run goes.
@@ -39,8 +47,11 @@ pub(super) enum RunKey {
 }
 
 impl Supervisor {
+    /// Cancels `client`'s run with request id `request`.
+    pub fn cancel_request(&self, _client: u64, _request: &Value) {}
+
     pub fn run(&self, request: RunRequest, respond: Responder) {
-        let RunRequest { app, op, args, idempotency_key, origin, gesture } = request;
+        let RunRequest { app, op, args, idempotency_key, origin, gesture, caller: _ } = request;
         let outs = {
             let mut inner = self.inner.lock().unwrap();
             // Full names (`cmux.cloud.machine.list`) and short names run the
