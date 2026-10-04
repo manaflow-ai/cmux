@@ -68,9 +68,10 @@ impl<C: ControlPlane> TerminalConnector for CloudConnector<'_, C> {
 
     fn connect(&mut self, request: ConnectRequest) -> Result<Box<dyn HostLink>, BackendError> {
         allow_kind(self.kinds(), &request.kind)?;
-        // GAP: `request.open_token` is issued by the host after the user's
-        // gesture; no host op checks it for native servers yet, so it is
-        // passed on to nothing. `Debug` hides it, so it never reaches a log.
+        // The host issues the token after the user's gesture; this server
+        // only checks that it is there (the host checks expiry and reuse)
+        // and keeps it out of logs (`Debug` hides it).
+        request.open_token.check()?;
         // A daemon connect is not a person's gesture: origin `remote`
         // (it never changes focus; start needs no person).
         let carrier = connect(self.server, &request.target, Origin::Remote, None).map_err(|e| {

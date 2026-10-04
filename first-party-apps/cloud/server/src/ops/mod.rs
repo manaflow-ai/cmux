@@ -296,7 +296,7 @@ impl<C: ControlPlane> Server<C> {
                     format!("{name} is a read and takes no idempotency key"),
                 ));
             }
-            return self.run(name, &args, request.origin, None);
+            return self.run(name, &args, request, None);
         }
         let key = key.ok_or_else(|| {
             CloudError::new(
@@ -315,7 +315,7 @@ impl<C: ControlPlane> Server<C> {
             // certificate state): a replay of an old answer would be stale.
             // These ops are idempotent by themselves, so they run every time.
             let upstream = upstream_key(name, &args, key);
-            return self.run(name, &args, request.origin, Some(&upstream));
+            return self.run(name, &args, request, Some(&upstream));
         }
         if NO_UPSTREAM_DEDUP.contains(&name) && self.ledger.unfinished(key, name, &args) {
             return Err(CloudError::new(
@@ -335,7 +335,7 @@ impl<C: ControlPlane> Server<C> {
             delete_retry::is_delete(name) && self.ledger.outcome_unknown(key, name, &args);
         self.ledger.attempt(key, name, &args);
         let upstream = upstream_key(name, &args, key);
-        let outcome = match self.run(name, &args, request.origin, Some(&upstream)) {
+        let outcome = match self.run(name, &args, request, Some(&upstream)) {
             Err(error) if gone_is_done && delete_retry::is_gone(name, &error) => {
                 delete_retry::gone_answer(name, &args).ok_or(error)
             }
@@ -373,11 +373,13 @@ impl<C: ControlPlane> Server<C> {
         &mut self,
         name: &str,
         args: &Value,
-        origin: Origin,
+        request: &Request,
         key: Option<&str>,
     ) -> Result<Value, CloudError> {
+        let origin = request.origin;
         if crate::link::ops::serves(name) {
-            return crate::link::ops::run(self, name, args, origin, key);
+            let token = request.open_token.as_ref();
+            return crate::link::ops::run(self, name, args, origin, key, token);
         }
         if crate::fs::serves(name) {
             return crate::fs::run(self, name, args, origin, key);
