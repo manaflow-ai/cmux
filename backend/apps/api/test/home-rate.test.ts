@@ -243,4 +243,16 @@ describe("Home rate limits before reach", { timeout: 120_000 }, () => {
       expect(rec.calls).toEqual([])
     }
   })
+
+  it("a chief whose budget is spent gets home.rate_limited for dm.open without a lookup in its owner's inbox", async () => {
+    const tia = await signIn("rate-chief-reopen-tia", "Tia")
+    const uma = await signIn("rate-chief-reopen-uma", "Uma")
+    const chief = "agent_" + "7".repeat(26)
+    await spend(tia, chief, "conversation.create", 60)
+    const asChief = { ...sessionPrincipal(tia), identity: `${tia.user}:chief`, agent: chief }
+    const rec = recordingEnv()
+    const res = await conversationMutate(rec.env, asChief, { t: "op", op: "dm.open", params: { peer: uma.user }, idempotency_key: crypto.randomUUID() })
+    expect(rejectOf(res)).toMatchObject({ code: "home.rate_limited" })
+    expect(rec.calls).toEqual([])
+  })
 })
