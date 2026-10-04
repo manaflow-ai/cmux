@@ -122,20 +122,38 @@ const withReach = async (env: Env, principal: Principal, ids: ReadonlyArray<unkn
 const participantIds = (list: unknown): Array<unknown> => (Array.isArray(list) ? list.map((p) => (typeof p === "object" && p !== null ? (p as { id?: unknown }).id : undefined)) : [])
 
 /**
- * Whether a rate-gated op's key is already decided in its target conversation: a retry after the
- * budget is spent then replays its stored result instead of home.rate_limited. Only asked once
- * the budget refused (no extra RPC on the normal path). A dm.open whose existing DM has another
- * id (from an accepted invite) is not found here and stays refused.
+ * The ConversationDO and the owner frame a rate-gated op becomes (the same mapping the op's case
+ * below submits), or null: conversation.create (a group per actor and key), dm.open with a user
+ * peer (the pair's DM), participants.add (its conversation, which the frame leaves out).
  */
-const decidedHere = async (env: Env, principal: Principal, frame: OpFrame): Promise<boolean> => {
+const ownerTarget = (principal: Principal, frame: OpFrame): { id: string; frame: OpFrame } | null => {
   const params = (frame.params ?? {}) as Record<string, unknown>
   const me = actorOf(principal)
-  const id =
-    frame.op === "conversation.create" ? createdId(me, String(frame.idempotency_key))
-    : frame.op === "dm.open" && typeof params.peer === "string" && params.peer.startsWith("user_") ? homeConversation.dmConversationId(me, params.peer)
-    : typeof params.conversation === "string" && CONVERSATION_ID.test(params.conversation) ? params.conversation
-    : null
-  return id !== null && typeof frame.idempotency_key === "string" && (await conversationStub(env, id).homeDecided(id, principal, frame.idempotency_key))
+  if (frame.op === "conversation.create") {
+    const id = createdId(me, String(frame.idempotency_key))
+    return { id, frame: { ...frame, params: { ...params, id, kind: "group" } } }
+  }
+  if (frame.op === "dm.open" && typeof params.peer === "string" && params.peer.startsWith("user_")) {
+    const id = homeConversation.dmConversationId(me, params.peer)
+    const self = { id: me, kind: principal.agent ? "agent" : "human", display_name: principal.display_name ?? "Someone" }
+    return { id, frame: { ...frame, params: { id, participants: [self, { id: params.peer, kind: "human", display_name: params.peer }] } } }
+  }
+  const { conversation, ...rest } = params
+  return typeof conversation === "string" && CONVERSATION_ID.test(conversation) ? { id: conversation, frame: { ...frame, params: rest } } : null
+}
+
+/**
+ * A rate-gated op whose key is already decided in its target conversation: the ledger answers it
+ * (its stored result, or idempotency.conflict for other params) from identity and key alone, so it
+ * goes straight to submit with the plain principal, with no charge and no reach RPC. Only asked
+ * once the budget refused. A dm.open whose existing DM has another id (from an accepted invite)
+ * is not found here.
+ */
+const replayDecided = async (env: Env, principal: Principal, frame: OpFrame): Promise<SubmitResult | null> => {
+  const target = ownerTarget(principal, frame)
+  if (!target || typeof frame.idempotency_key !== "string") return null
+  const stub = conversationStub(env, target.id)
+  return (await stub.homeDecided(target.id, principal, frame.idempotency_key)) ? stub.submit(target.id, principal, target.frame) : null
 }
 
 /** A Home ConversationDO mutation from the public API; the principal is already resolved (grant classes). */
@@ -146,16 +164,18 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
   const rateOp = isHomeRateOp(frame.op) ? frame.op : frame.op === "dm.open" && typeof params.peer === "string" && !params.peer.startsWith("agent_") ? "conversation.create" : null
   if (rateOp) {
     const gate = await takeHomeRate(env, principal, actorOf(principal), rateOp)
-    if (!gate.ok && !(await decidedHere(env, principal, frame))) {
+    if (!gate.ok) {
+      const replayed = await replayDecided(env, principal, frame)
+      if (replayed) return replayed
       const message = `too many ${frame.op} requests; retry in ${Math.ceil(gate.retry_after_ms / 1000)} s`
       return { frames: [{ t: "reject", tx: "", idempotency_key: key, code: HOME_RATE_LIMITED, message, retryable: true, replayed: false, details: { retry_after_ms: gate.retry_after_ms } } as OwnerFrame] }
     }
   }
   switch (frame.op) {
     case "conversation.create": {
-      const id = createdId(actorOf(principal), key)
+      const target = ownerTarget(principal, frame)!
       const who = await withReach(env, await withOwnedAgents(env, principal), participantIds(params.participants))
-      return conversationStub(env, id).submit(id, who, { ...frame, params: { ...params, id, kind: "group" } })
+      return conversationStub(env, target.id).submit(target.id, who, target.frame)
     }
     case "dm.open": {
       const me = actorOf(principal)
