@@ -8,7 +8,7 @@ set -Eeuo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 REPAIR_URL="https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md"
-REPAIR_ANCHOR="hotkey-resize-validation"
+REPAIR_ANCHOR="ci-on-main"
 SAMPLE_BIN="${SAMPLE_BIN:-/usr/bin/sample}"
 SAMPLE_PID="${HOTKEY_RESIZE_SAMPLE_PID:-$$}"
 SAMPLE_OUT="${HOTKEY_RESIZE_SAMPLE_OUT:-${TMPDIR:-/tmp}/cmux-hotkey-resize.sample.txt}"
