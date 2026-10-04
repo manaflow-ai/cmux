@@ -2731,7 +2731,14 @@ fn noun_first_viewport_width_rejects_invalid_values_before_connecting() {
 struct PtyChild {
     child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
     output_drain: Option<std::thread::JoinHandle<()>>,
+    /// The last [`PTY_OUTPUT_TAIL_BYTES`] the child wrote (stdout and stderr
+    /// share the PTY), for failure messages.
+    output_tail: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<u8>>>,
 }
+
+/// How much of a PTY child's output a failure message shows.
+#[cfg(unix)]
+const PTY_OUTPUT_TAIL_BYTES: usize = 16 * 1024;
 
 #[cfg(unix)]
 struct CapturingPtyChild {
@@ -2860,11 +2867,29 @@ impl PtyChild {
     fn start_with_env(args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> Self {
         let spawned = spawn_pty_child(args, env);
         let mut master = spawned.master.try_clone_reader().unwrap();
+        let output_tail =
+            std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
+        let tail = output_tail.clone();
         let output_drain = std::thread::spawn(move || {
             let mut buffer = [0; 8192];
-            while master.read(&mut buffer).is_ok_and(|read| read > 0) {}
+            while let Ok(read) = master.read(&mut buffer) {
+                if read == 0 {
+                    break;
+                }
+                let mut tail = tail.lock().unwrap();
+                tail.extend(&buffer[..read]);
+                let excess = tail.len().saturating_sub(PTY_OUTPUT_TAIL_BYTES);
+                tail.drain(..excess);
+            }
         });
-        Self { child: Some(spawned.child), output_drain: Some(output_drain) }
+        Self { child: Some(spawned.child), output_drain: Some(output_drain), output_tail }
+    }
+
+    /// The child's latest output as text, escape sequences included, for a
+    /// failure message.
+    fn output_tail(&self) -> String {
+        let tail = self.output_tail.lock().unwrap();
+        String::from_utf8_lossy(&tail.iter().copied().collect::<Vec<_>>()).into_owned()
     }
 
     fn wait_for_exit(&mut self, timeout: Duration) -> Option<cmux_pty::ExitStatus> {
@@ -3058,10 +3083,17 @@ fn session_shutdown_exits_an_interactive_detached_owner_client() {
     assert_success(&shutdown);
     assert_eq!(json_output(&shutdown)["value"]["accepted"], true);
 
-    let status = client
-        .wait_for_exit(Duration::from_secs(5))
-        .expect("interactive client remained alive after detached owner shutdown");
-    assert!(status.success(), "interactive client exited unsuccessfully: {status}");
+    let status = client.wait_for_exit(Duration::from_secs(5));
+    let output = client.output_tail();
+    let status = status.unwrap_or_else(|| {
+        panic!(
+            "interactive client remained alive after detached owner shutdown; output:\n{output:?}"
+        )
+    });
+    assert!(
+        status.success(),
+        "interactive client exited unsuccessfully: {status}; output:\n{output:?}"
+    );
 }
 
 #[path = "cli/attach_and_raw.rs"]
