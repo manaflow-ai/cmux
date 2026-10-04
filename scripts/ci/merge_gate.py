@@ -388,8 +388,9 @@ def _select_pull_request(source: Mapping[str, Any], candidates: Sequence[Any]) -
             if isinstance(item.get("head"), Mapping)
             and item["head"].get("sha") == source_sha
         ]
-        if matched:
-            items = matched
+        if not matched:
+            return None
+        items = matched
     source_branch = source.get("head_branch")
     if isinstance(source_branch, str) and source_branch:
         matched = [
@@ -397,8 +398,9 @@ def _select_pull_request(source: Mapping[str, Any], candidates: Sequence[Any]) -
             if isinstance(item.get("head"), Mapping)
             and item["head"].get("ref") == source_branch
         ]
-        if matched:
-            items = matched
+        if not matched:
+            return None
+        items = matched
     source_repo = source.get("head_repository")
     source_repo_name = source_repo.get("full_name") if isinstance(source_repo, Mapping) else None
     if isinstance(source_repo_name, str) and source_repo_name:
@@ -408,8 +410,9 @@ def _select_pull_request(source: Mapping[str, Any], candidates: Sequence[Any]) -
             repository = head.get("repo") if isinstance(head, Mapping) else None
             if isinstance(repository, Mapping) and repository.get("full_name") == source_repo_name:
                 matched.append(item)
-        if matched:
-            items = matched
+        if not matched:
+            return None
+        items = matched
     numbers = {_number(item.get("number")) for item in items}
     numbers.discard(None)
     return next(iter(numbers)) if len(numbers) == 1 else None

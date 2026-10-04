@@ -80,6 +80,15 @@ class MergeGateDecisionTests(unittest.TestCase):
         }
         self.assertIsNone(merge_gate._event_pull_request_number({"workflow_run": source}))
 
+    def test_workflow_event_with_mismatched_head_fails_closed(self) -> None:
+        source = {
+            "head_sha": HEAD,
+            "pull_requests": [
+                {"number": 9, "head": {"sha": "other", "ref": "feature"}},
+            ],
+        }
+        self.assertIsNone(merge_gate._event_pull_request_number({"workflow_run": source}))
+
     def test_workflow_event_matches_the_fork_repository(self) -> None:
         event = {
             "check_suite": {
