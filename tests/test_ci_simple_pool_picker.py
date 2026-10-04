@@ -177,6 +177,7 @@ class LiveRunnerReadTests(unittest.TestCase):
         aws = [runner(f"aws-{index}", [aws_label], busy=False) for index in range(10)]
         choice = picker.pick(observed(aws, {}, env=env))
         self.assertEqual(choice.label, aws_label)
+        self.assertEqual(choice.xcode_app, "/Applications/Xcode_26.3.app")
 
     def test_aws_family_queue_does_not_charge_the_mini_family(self):
         aws_label = "glaeda-aws-std-xcode-26.3"
