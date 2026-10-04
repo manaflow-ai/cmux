@@ -224,11 +224,16 @@ async fn a_policy_that_skips_asking_comes_from_the_local_app_or_the_unix_socket_
     let hub = hub();
     let cwd = std::fs::canonicalize(&d.real).unwrap().to_string_lossy().into_owned();
     let mut local = Client::new(&hub, Origin::Local);
-    let id = local.call("session/new", new_session(&cwd, json!({})))
-        .await["result"]["sessionId"].as_str().unwrap().to_owned();
+    let id = local.call("session/new", new_session(&cwd, json!({}))).await["result"]["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let skipping = [
         ("session/new", new_session(&cwd, json!({"policy": "approve-all"}))),
-        ("session/new", new_session(&cwd, json!({"_meta": {"acpmux": {"policy": "approve-edits"}}}))),
+        (
+            "session/new",
+            new_session(&cwd, json!({"_meta": {"acpmux": {"policy": "approve-edits"}}})),
+        ),
         ("_acpmux/set_policy", json!({"sessionId": id, "policy": "approve-all"})),
         ("_acpmux/set_policy", json!({"sessionId": id, "policy": "yolo"})),
         ("_acpmux/set_default_policy", json!({"policy": "approve-reads"})),
@@ -237,7 +242,10 @@ async fn a_policy_that_skips_asking_comes_from_the_local_app_or_the_unix_socket_
         ("_acpmux/set_rules", json!({"sessionId": id, "rules": {"autoApprove": ["execute"]}})),
         ("_acpmux/set_rules", json!({"sessionId": id, "rules": {"default": "approve"}})),
         ("session/set_mode", json!({"sessionId": id, "modeId": "bypassPermissions"})),
-        ("session/set_config_option", json!({"sessionId": id, "configId": "mode", "value": "full-access"})),
+        (
+            "session/set_config_option",
+            json!({"sessionId": id, "configId": "mode", "value": "full-access"}),
+        ),
     ];
     let mut web = Client::new(&hub, Origin::Web);
     for (m, p) in &skipping {
@@ -288,7 +296,11 @@ async fn directory_listings_are_for_the_local_app_and_the_unix_socket() {
     let p = json!({"path": d.base, "cwd": d.base});
     let mut web = Client::new(&hub, Origin::Web);
     let r = web.call("_acpmux/directories", p.clone()).await;
-    assert_eq!(r["error"]["code"], json!(-32601), "the dashboard falls back on Method not found: {r}");
+    assert_eq!(
+        r["error"]["code"],
+        json!(-32601),
+        "the dashboard falls back on Method not found: {r}"
+    );
     for origin in [Origin::LocalApp, Origin::Local] {
         let mut c = Client::new(&hub, origin);
         let r = c.call("_acpmux/directories", p.clone()).await;

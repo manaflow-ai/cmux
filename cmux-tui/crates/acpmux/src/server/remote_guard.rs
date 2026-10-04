@@ -50,8 +50,14 @@ pub(super) async fn check(
     m: &str,
     params: &mut Value,
 ) -> Result<(), RpcError> {
-    // RED stub: no Web-only rules, no peer rule.
-    let _ = (origin, web_only as fn(&str, &Value) -> Result<(), RpcError>);
+    if origin == super::Origin::Web {
+        web_only(m, params)?;
+    }
+    // Which machines this daemon reaches with the user's ssh keys and
+    // tokens changes over the unix socket only (LocalApp included).
+    if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove") {
+        return Err(refused("changing peers"));
+    }
     if non_empty(params.get("mcpServers")) || non_empty(params.pointer("/_meta/acpmux/mcpServers"))
     {
         return Err(refused("mcpServers"));
@@ -136,9 +142,7 @@ fn web_only(m: &str, params: &Value) -> Result<(), RpcError> {
         {
             Err(refused("a permission policy that skips asking"))
         }
-        method::MUX_DEFAULTS | method::MUX_PRESETS
-            if policy_at(params.pointer("/set/policy")) =>
-        {
+        method::MUX_DEFAULTS | method::MUX_PRESETS if policy_at(params.pointer("/set/policy")) => {
             Err(refused("a permission policy that skips asking"))
         }
         method::MUX_SET_RULES => {
@@ -148,16 +152,13 @@ fn web_only(m: &str, params: &Value) -> Result<(), RpcError> {
             if auto { Err(refused("an auto-approve rule")) } else { Ok(()) }
         }
         method::SESSION_SET_MODE | method::SESSION_SET_CONFIG_OPTION => {
-            let value = params.get("modeId").or_else(|| params.get("value")).and_then(Value::as_str);
+            let value =
+                params.get("modeId").or_else(|| params.get("value")).and_then(Value::as_str);
             let skips = |v: &str| {
                 SKIP_ASK_MODES.contains(&v)
                     || (v.parse::<crate::config::PermissionPolicy>().is_ok() && skips_asking(v))
             };
-            if value.is_some_and(skips) {
-                Err(refused("a mode that skips asking"))
-            } else {
-                Ok(())
-            }
+            if value.is_some_and(skips) { Err(refused("a mode that skips asking")) } else { Ok(()) }
         }
         "_acpmux/directories" => Err(RpcError::method_not_found(
             "_acpmux/directories (not served to a remote WebSocket connection)",
