@@ -2,6 +2,7 @@
 // app supervisor owns installs, grants and logs (app-platform.md section 15). Install, uninstall,
 // update and grant changes answer `done` here; in the app the host confirms them natively first.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
+import { LINK_CLOSED, MockPageStreams } from "../shared/pageStreams";
 import {
   AppsOps,
   type AppDetail,
@@ -30,6 +31,8 @@ export class MockAppsProvider implements PageClient {
   installed: Record<string, InstalledApp>;
   grants: Record<string, Grants>;
   offline = false;
+  /** The host's page streams (connection, dispatcher commands). */
+  readonly page = new MockPageStreams();
   private revision = 1;
   private nextSub = 1;
   private readonly watchers = new Map<number, (data: unknown, seq: number) => void>();
@@ -45,7 +48,7 @@ export class MockAppsProvider implements PageClient {
   async call<R>(op: string, rawParams: unknown): Promise<R> {
     const params = (rawParams ?? {}) as Record<string, unknown>;
     this.calls.push({ op, params });
-    if (this.offline) throw pageError("cmux.protocol.transport", "disconnected", true);
+    if (this.offline) throw pageError(LINK_CLOSED, "disconnected", true);
     const app = typeof params.app === "string" ? params.app : "";
     switch (op) {
       case AppsOps.catalogList:
@@ -127,7 +130,9 @@ export class MockAppsProvider implements PageClient {
     onEvent: (data: E, seq: number) => void,
     filter?: Record<string, unknown>,
   ): Promise<() => void> {
-    if (this.offline) throw pageError("cmux.protocol.transport", "disconnected", true);
+    const pageStream = this.page.subscribe(stream, onEvent as (data: unknown, seq: number) => void);
+    if (pageStream) return pageStream;
+    if (this.offline) throw pageError(LINK_CLOSED, "disconnected", true);
     const sub = this.nextSub++;
     const emit = onEvent as (data: unknown, seq: number) => void;
     if (stream === AppsOps.watch) {

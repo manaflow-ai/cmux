@@ -4,6 +4,7 @@
 // answers, and install, uninstall, update and grant changes go through the host's native
 // confirmation (coordinator Q4), so the page shows the owner's result, never its own guess.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import { categories, filterApps, parseRoute, type StoreLayout, type StoreTab } from "./model";
 import {
   AppsOps,
@@ -48,6 +49,7 @@ export class AppsStore {
   private readonly listeners = new Set<() => void>();
   private unwatch?: () => void;
   private unlog?: () => void;
+  private unpage?: () => void;
   private starting = false;
   private generation = 0;
   private detailGeneration = 0;
@@ -103,10 +105,29 @@ export class AppsStore {
     } finally {
       this.starting = false;
     }
+    try {
+      this.unpage = await subscribePageStreams(this.client, {
+        onConnection: (connected) => this.onConnection(connected),
+      });
+    } catch (error) {
+      this.set(failure(error));
+    }
     await this.reload();
   }
 
+  /** The host reports the owner link: down shows the disconnected state; back up re-reads. */
+  private onConnection(connected: boolean): void {
+    if (!connected) {
+      this.set({ connection: "disconnected", loading: false });
+    } else if (this.snapshot.connection === "disconnected") {
+      this.set({ connection: "connecting" });
+      void this.reload();
+    }
+  }
+
   stop(): void {
+    this.unpage?.();
+    this.unpage = undefined;
     this.starting = false;
     this.unwatch?.();
     this.unwatch = undefined;
@@ -263,7 +284,6 @@ function message(error: unknown): string {
 }
 
 function failure(error: unknown): Partial<AppsSnapshot> {
-  if (isPageError(error) && error.code === "cmux.protocol.transport")
-    return { connection: "disconnected", error: error.message };
+  if (isPageError(error) && error.code === LINK_CLOSED) return { connection: "disconnected", error: error.message };
   return { error: message(error) };
 }

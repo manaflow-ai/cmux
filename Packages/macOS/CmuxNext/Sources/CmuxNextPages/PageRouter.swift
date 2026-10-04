@@ -22,6 +22,11 @@ public final class PageRouter {
     private var nextCall: UInt64 = 1
     private var pendingCalls: [UInt64: CheckedContinuation<JSONValue, any Error>] = [:]
     private var closed = false
+    /// Built-in streams every page gets (``PageNativeOp/pageCommand``, ``PageNativeOp/pageConnection``):
+    /// subscription id to stream name.
+    private var builtIn: [UInt64: String] = [:]
+    /// The owner link state the connection stream reports.
+    public private(set) var connected = true
 
     public init(descriptor: PageDescriptor, routes: [PageRoute]) {
         self.descriptor = descriptor
@@ -78,6 +83,19 @@ public final class PageRouter {
     }
 
     private func subscribe(_ stream: String, filter: JSONValue) async throws -> UInt64 {
+        if stream == PageNativeOp.pageCommand || stream == PageNativeOp.pageConnection {
+            guard !closed else { throw PageError.closed }
+            let sub = nextSubscription
+            nextSubscription += 1
+            builtIn[sub] = stream
+            if stream == PageNativeOp.pageConnection {
+                // The current state, after the subscribe reply that names `sub` reaches the page.
+                let connected = connected
+                // task-owner: one event delivery after the reply; ends with the router
+                Task { @MainActor [weak self] in self?.deliver(sub: sub, ["connected": .bool(connected)]) }
+            }
+            return sub
+        }
         let (provider, filter) = try admit(stream, params: filter)
         let sub = nextSubscription
         nextSubscription += 1
@@ -86,14 +104,14 @@ public final class PageRouter {
         }
         guard !closed else {
             subscription.cancel()
-            throw PageError.unavailable("page closed")
+            throw PageError.closed
         }
         subscriptions[sub] = subscription
         return sub
     }
 
     private func admit(_ op: String, params: JSONValue) throws -> (any PageProvider, JSONValue) {
-        guard !closed else { throw PageError.unavailable("page closed") }
+        guard !closed else { throw PageError.closed }
         guard descriptor.admits(op), let route = routes.first(where: { op.hasPrefix($0.prefix) }) else {
             throw PageError.unknownOp(op)
         }
@@ -103,7 +121,7 @@ public final class PageRouter {
     }
 
     private func deliver(sub: UInt64, _ data: JSONValue) {
-        guard subscriptions[sub] != nil else { return }
+        guard subscriptions[sub] != nil || builtIn[sub] != nil else { return }
         let seq = (sequences[sub] ?? 0) + 1
         sequences[sub] = seq
         send?(["t": "ev", "sub": .number(Double(sub)), "seq": .number(Double(seq)), "data": data])
@@ -111,14 +129,38 @@ public final class PageRouter {
 
     private func unsubscribe(_ sub: UInt64) {
         subscriptions.removeValue(forKey: sub)?.cancel()
+        builtIn.removeValue(forKey: sub)
         sequences.removeValue(forKey: sub)
+    }
+
+    // MARK: Built-in streams
+
+    /// Sends a dispatcher command to the page's command subscribers. False when the command is
+    /// not a page command or no subscriber listens.
+    @discardableResult
+    public func publishCommand(_ command: String, arguments: [String: JSONValue] = [:]) -> Bool {
+        guard PageNativeOp.commands.contains(command) else { return false }
+        var data = arguments
+        data["command"] = .string(command)
+        let subs = builtIn.filter { $0.value == PageNativeOp.pageCommand }.keys.sorted()
+        for sub in subs { deliver(sub: sub, .object(data)) }
+        return !subs.isEmpty
+    }
+
+    /// Records the owner link state and tells the page's connection subscribers when it changes.
+    public func publishConnection(_ connected: Bool) {
+        guard connected != self.connected else { return }
+        self.connected = connected
+        for sub in builtIn.filter({ $0.value == PageNativeOp.pageConnection }).keys.sorted() {
+            deliver(sub: sub, ["connected": .bool(connected)])
+        }
     }
 
     // MARK: Host to page
 
     /// Calls an op the page serves (`cmux.page.command`) and waits for its reply.
     public func callPage(_ op: String, params: JSONValue) async throws -> JSONValue {
-        guard !closed, let send else { throw PageError.unavailable("page not loaded") }
+        guard !closed, let send else { throw PageError.closed }
         let id = nextCall
         nextCall += 1
         return try await withCheckedThrowingContinuation { continuation in
@@ -142,10 +184,11 @@ public final class PageRouter {
         closed = true
         for subscription in subscriptions.values { subscription.cancel() }
         subscriptions.removeAll()
+        builtIn.removeAll()
         sequences.removeAll()
         let pending = pendingCalls
         pendingCalls.removeAll()
-        for continuation in pending.values { continuation.resume(throwing: PageError.unavailable("page closed")) }
+        for continuation in pending.values { continuation.resume(throwing: PageError.closed) }
     }
 
     /// Reopens after a reload of the same page (a new document starts with no subscriptions).

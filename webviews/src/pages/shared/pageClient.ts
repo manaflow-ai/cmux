@@ -106,7 +106,7 @@ export class BridgePageClient implements PageClient {
     try {
       reply = await this.handler.postMessage(envelope);
     } catch (error) {
-      throw pageError("cmux.protocol.transport", error instanceof Error ? error.message : String(error), true);
+      throw pageError("cmux.protocol.closed", error instanceof Error ? error.message : String(error), true);
     }
     const message = reply as Partial<Envelope> | null;
     if (message?.t === "ok" && message.id === envelope.id) return (message as { value?: unknown }).value;

@@ -45,7 +45,7 @@ describe("BridgePageClient", () => {
   test("a failed post is a retryable transport error; a malformed reply is invalid_result", async () => {
     const lost: ReplyHandler = { postMessage: () => Promise.reject(new Error("closed")) };
     const error = await new BridgePageClient(lost, {}).call("x", {}).catch((e) => e);
-    expect(error).toMatchObject({ code: "cmux.protocol.transport", retryable: true });
+    expect(error).toMatchObject({ code: "cmux.protocol.closed", retryable: true });
     const { client } = host(() => ({ t: "ok", id: 999 }));
     expect(await client.call("x", {}).catch((e) => e.code)).toBe("cmux.protocol.invalid_result");
   });

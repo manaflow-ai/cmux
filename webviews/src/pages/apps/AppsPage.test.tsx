@@ -112,6 +112,34 @@ describe("AppsPage", () => {
     expect($(".apps-split-detail .apps-detail-name")?.textContent).toBe("CodeRouter");
   });
 
+  test("dispatcher commands: back leaves the detail, find sets the search; the link drives disconnected", async () => {
+    const provider = new MockAppsProvider();
+    const { mountAppsPage } = await import("./main");
+    const host = dom.window.document.createElement("div");
+    dom.window.document.body.append(host);
+    let store!: AppsStore;
+    await act(async () => {
+      store = mountAppsPage(host, provider, "#/discover?app=cmux.coderouter");
+    });
+    await act(async () => {
+      await store.start();
+    });
+    expect(host.querySelector(".apps-detail-name")?.textContent).toBe("CodeRouter");
+    await act(async () => {
+      provider.page.command({ command: "back" });
+    });
+    expect(host.querySelector(".apps-detail-name")).toBeNull();
+    await act(async () => {
+      provider.page.command({ command: "find", text: "awake" });
+    });
+    expect(store.getSnapshot().visible.map((app) => app.id)).toEqual(["acme.caffeinate"]);
+    expect(dom.window.document.activeElement).toBe(host.querySelector(".apps-search"));
+    await act(async () => provider.page.setConnected(false));
+    expect(host.querySelector(".apps-empty")?.textContent).toBe(
+      "The App Store is not available until cmux reconnects.",
+    );
+  });
+
   test("Japanese strings and the disconnected state", async () => {
     await render(null, "", "ja");
     expect($(".apps-empty")?.textContent).toBe("cmux が再接続するまで App Store は使用できません。");

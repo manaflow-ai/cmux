@@ -4,6 +4,7 @@
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
+import { subscribePageStreams } from "../shared/pageStreams";
 import { AppsPage } from "./AppsPage";
 import table from "./generated/strings.json";
 import { MockAppsProvider } from "./mockProvider";
@@ -17,6 +18,21 @@ export function mountAppsPage(
   hash = location.hash,
 ): AppsStore {
   const store = new AppsStore(client, hash);
+  // The app's key dispatcher sends page commands; the page never reads chords.
+  if (client) {
+    void subscribePageStreams(client, {
+      onCommand: ({ command, text }) => {
+        if (command === "back") void store.select(undefined);
+        if (command === "reset") {
+          store.setQuery("");
+          store.setCategory(undefined);
+        }
+        if (command !== "find" && command !== "focusSearch") return;
+        if (typeof text === "string") store.setQuery(text);
+        document.querySelector<HTMLInputElement>(".apps-search")?.focus();
+      },
+    });
+  }
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
   document.title = strings.t("store.window.title");
