@@ -34,11 +34,15 @@ public final class UpdaterService {
     /// build without Sparkle).
     public internal(set) var showsProbeResult = false
     /// A fixed circle phase for screenshots (`debug.update_indicator`).
-    public var debugIndicatorPhase: UpdateIndicatorPhase?
+    public var debugIndicatorPhase: UpdateIndicatorPhase? {
+        didSet { syncFlowPhase() }
+    }
     /// The R114 install gate over ``indicatorPhase``.
     public internal(set) var flow = UpdateFlow()
     /// The `updates.*` settings the gate reads (set by the App).
-    public var preferences = UpdatePreferences.defaults
+    public var preferences = UpdatePreferences.defaults {
+        didSet { if preferences.quietHours != oldValue.quietHours { scheduleQuietBoundary() } }
+    }
     /// The local minute of the day the card is evaluated at.
     public internal(set) var minuteOfDay = 0
     /// Asks the App to confirm an install although agents run (CmuxDialog).
@@ -46,6 +50,12 @@ public final class UpdaterService {
     /// Sparkle's staged install and its cancel (replaced by tests).
     @ObservationIgnored var installStaged: () -> Void = {}
     @ObservationIgnored var cancelStaged: () -> Void = {}
+    @ObservationIgnored var phaseObservation: Task<Void, Never>?
+    /// The App's observation of what a relaunch would interrupt.
+    @ObservationIgnored public var blockersObservation: Task<Void, Never>?
+    @ObservationIgnored var quietTimer: Task<Void, Never>?
+    @ObservationIgnored let clock: any Clock<Duration>
+    @ObservationIgnored let now: () -> Date
 
     /// Asks the App to show the update sheet (set by the App): a failure's
     /// details only.
@@ -77,7 +87,11 @@ public final class UpdaterService {
                 prober: UpdateProber = UpdateProber(),
                 defaults: UserDefaults = .standard,
                 switcher: AppChannelSwitcher = AppChannelSwitcher(),
-                enableSparkle: Bool = true) {
+                enableSparkle: Bool = true,
+                clock: any Clock<Duration> = ContinuousClock(),
+                now: @escaping () -> Date = Date.init) {
+        self.clock = clock
+        self.now = now
         self.identity = identity
         self.policy = policy
         self.prober = prober
@@ -97,6 +111,11 @@ public final class UpdaterService {
         } else {
             controller = nil
         }
+        if let controller {
+            installStaged = { [weak controller] in controller?.installStagedUpdate() }
+            cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() }
+        }
+        minuteOfDay = Self.minuteOfDay(now())
     }
 
     /// Why Sparkle does not run right now, or nil.
@@ -112,6 +131,7 @@ public final class UpdaterService {
     public func start() {
         guard !started else { return }
         started = true
+        observeFlowPhase()
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")
             return
@@ -129,6 +149,7 @@ public final class UpdaterService {
     @discardableResult
     public func checkForUpdates() -> Task<String?, Never>? {
         if needsSheet { presentUpdateUI?() }
+        send(.checkRequested)
         switch disabledReason {
         case .managedPolicy:
             log.append("check suppressed (managed policy)")
@@ -180,11 +201,15 @@ public final class UpdaterService {
         guard let controller, disabledReason == nil else { throw UpdaterUnavailable(reason: disabledReason) }
         if needsSheet { presentUpdateUI?() }
         controller.model.setOverrideState(nil)
-        if controller.stagedUpdate != nil { return controller.installStagedUpdate() }
-        controller.installWhenStaged()
-        switch controller.model.state {
-        case .startingDownload, .downloading, .extracting: return
-        default: controller.attemptUpdate()
+        syncFlowPhase()
+        switch flow.phase {
+        case .ready, .downloading, .checking:
+            // The gate installs once the update is staged and no agent is busy.
+            send(.installRequested)
+        case .hidden, .installing, .note:
+            // Nothing found yet: an explicit install runs Sparkle's attempt
+            // flow (a fresh check that installs the newest at once).
+            controller.attemptUpdate()
         }
     }
 

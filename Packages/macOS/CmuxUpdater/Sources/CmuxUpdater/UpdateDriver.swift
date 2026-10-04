@@ -40,6 +40,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// The update a background check accepted, and its held install once it is ready.
     var backgroundItem: SUAppcastItem?
     var stagedInstall: (() -> Void)?
+    /// Cancels the held installer (Skip on the ready prompt: no skipped version is recorded).
+    var stagedCancel: (() -> Void)?
     var installsWhenStaged = false
     /// Holds a ready update's relaunch while agents are mid-turn or commands are running.
     let relaunchGate: UpdateRelaunchGate

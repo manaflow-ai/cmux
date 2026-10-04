@@ -22,7 +22,7 @@ extension UpdaterService {
     public func indicatorClicked() {
         switch indicatorPhase {
         case .ready, .downloading:
-            try? installAvailableUpdate()
+            installClicked()
         case .note(_, isError: true):
             presentUpdateUI?()
         case .hidden, .checking, .installing, .note:
@@ -38,6 +38,7 @@ extension UpdaterService {
         if case .note = debugIndicatorPhase { debugIndicatorPhase = nil }
         showsProbeResult = false
         if let state = controller?.model.effectiveState, case .error = state { state.cancel() }
+        noteExpired()
     }
 
     /// Whether a check or install opens the sheet instead of relying on the
