@@ -31,7 +31,7 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     /// Surfaces swapped in for a later VT replay (byte-replay attach only).
     public var swappedSurfaces: Int
     /// Local-history restores that did not match the owner's history.
-    public var localHistoryMismatches: Int
+    public var localHistoryMismatches: Int = 0
 
     /// True when the surface can show terminal content right now.
     public var isPresentable: Bool {
