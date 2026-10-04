@@ -105,11 +105,18 @@ impl Mux {
             fields.insert("viewport_width".into(), Value::from(width));
         }
         Self::insert_cell_size(&mut fields, size);
-        let commit = self.commit_ordinary_topology_operation(
-            ResourceOperation::PaneSplit,
-            selectors,
-            fields,
-        )?;
+        let commit = self
+            .commit_ordinary_topology_operation(ResourceOperation::PaneSplit, selectors, fields)
+            .map_err(|error| {
+                // As `new_pane_right_with_options`: caller input errors stay
+                // visible; a viewport column's creation failure is generic.
+                let message = error.to_string();
+                if viewport_width.is_none() || message.starts_with("bad request") {
+                    return error;
+                }
+                eprintln!("cmux-tui: viewport browser pane creation failed: {error:#}");
+                anyhow::anyhow!("pane creation failed")
+            })?;
         self.emit_resource_topology_legacy_events(ResourceOperation::PaneSplit, &commit);
         self.ordinary_created_surface(&commit)
     }

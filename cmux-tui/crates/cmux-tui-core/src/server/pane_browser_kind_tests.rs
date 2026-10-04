@@ -147,6 +147,7 @@ fn public_pane_split_refuses_browser_fields() {
         json!({"kind": "browser", "url": "https://a.test"}),
         json!({"url": "https://a.test"}),
         json!({"pane_browser_url": "https://a.test"}),
+        json!({}),
     ]
     .into_iter()
     .enumerate()
@@ -185,8 +186,18 @@ fn public_pane_split_refuses_browser_fields() {
             assert!(Instant::now() < deadline, "no pane.split response");
             std::thread::sleep(Duration::from_millis(2));
         };
-        assert_eq!(response["ok"], false, "{extra} must be refused: {response}");
-        assert_eq!(wire.pane_count(), 1, "{extra} must create nothing");
+        if extra.as_object().unwrap().is_empty() {
+            assert_eq!(response["ok"], true, "the control request must pass: {response}");
+            assert_eq!(wire.pane_count(), 2);
+        } else {
+            assert_eq!(response["ok"], false, "{extra} must be refused: {response}");
+            let text = response.to_string();
+            assert!(text.contains("unknown parameters"), "{extra}: wrong refusal {response}");
+            for key in extra.as_object().unwrap().keys() {
+                assert!(text.contains(key.as_str()), "{key} not named in {response}");
+            }
+            assert_eq!(wire.pane_count(), 1, "{extra} must create nothing");
+        }
         disconnect_client(&wire.mux, client, false);
     }
 }
