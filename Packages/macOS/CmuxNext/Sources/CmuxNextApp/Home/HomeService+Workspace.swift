@@ -10,9 +10,9 @@ import Foundation
 extension HomeService {
     /// The idempotency key of the chief conversation's creation.
     static let chiefKey = HomeChiefName.createKey
-    /// The key of the chief conversation tab's creation (`origin` + `mutation_id`).
+    /// The origin of the chief conversation tab's creation key; the
+    /// `mutation_id` comes from `chiefTabKey` (one per creation).
     static let tabOrigin = "cmux-next-home"
-    static let chiefTabKey = "home-chief-tab"
 
     /// The home workspace in the local store, once the store reported it:
     /// the one `ensure_home` named, else the one the tree marks `home` (a
@@ -77,6 +77,7 @@ extension HomeService {
         guard !Task.isCancelled, let workspace = found else { return }
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         if tabs.contains(where: { $0.kind == .conversation && $0.snapshot.conversation?.conversation == chief }) {
+            chiefTabKey.settle()
             homeWorkspaceStep = "chief tab present"
             return
         }
@@ -88,10 +89,21 @@ extension HomeService {
             homeWorkspaceStep = "no chief tab: an empty home on a daemon without Workspace.kind"
             return
         }
-        let request = NewConversationTabRequest(conversation: chief, pane: pane, workspace: pane == nil ? workspace.handle : nil,
-                                                origin: Self.tabOrigin, mutationID: Self.chiefTabKey)
-        _ = try await connection.request(request)
+        do {
+            try await requestChiefTab(connection, chief: chief, pane: pane, workspace: workspace)
+        } catch let DaemonError.command(_, _, code, _, _) where code == HomeChiefTabKey.keyClosedCode {
+            // The pending key's tab was created and closed: a new key makes a new tab.
+            chiefTabKey.settle()
+            try await requestChiefTab(connection, chief: chief, pane: pane, workspace: workspace)
+        }
         homeWorkspaceStep = "chief tab requested"
+    }
+
+    private func requestChiefTab(_ connection: DaemonConnection, chief: String, pane: PaneID?, workspace: WorkspaceModel) async throws {
+        let request = NewConversationTabRequest(conversation: chief, pane: pane, workspace: pane == nil ? workspace.handle : nil,
+                                                origin: Self.tabOrigin, mutationID: chiefTabKey.forCreate())
+        _ = try await connection.request(request)
+        chiefTabKey.settle()
     }
 
     // MARK: Tab content
