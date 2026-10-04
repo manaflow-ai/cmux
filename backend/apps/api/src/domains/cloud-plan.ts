@@ -1,4 +1,4 @@
-import type { CloudMachine, CloudPlan } from "@cmux/protocol"
+import { cloudEntryPlan, type CloudMachine, type CloudPlan } from "@cmux/protocol"
 
 /**
  * Plan limits for CloudDO (state-placement.md 5.7, contract 1.5).
@@ -19,7 +19,7 @@ export interface PlanLimits {
   readonly vm_hours_included: number | null
   readonly max_cpu: number
   readonly max_disk_mb: number
-  /** The plan that lifts these limits ("See plans"); null when there is none (the stub plan, no billing yet). */
+  /** The plan that lifts these limits ("See plans"); null only for a plan nothing lifts. */
   readonly upgrade_plan: string | null
 }
 
@@ -32,7 +32,8 @@ export const STUB_PLAN: PlanLimits = {
   vm_hours_included: null,
   max_cpu: 4,
   max_disk_mb: 65536,
-  upgrade_plan: null
+  // CLOUD-LINK-FOLLOWUPS (3): the catalog entry plan, so "See plans" shows on the stub plan too.
+  upgrade_plan: cloudEntryPlan()
 }
 
 /** What CloudDO's reducer needs from the deployment. Fixed per object instance, so the reducer stays pure. */
@@ -76,7 +77,8 @@ export const periodEnd = (now: number) => {
 
 export const planView = (plan: PlanLimits | null, usage: { active: number; saved: number }, now: number): typeof CloudPlan.Type => ({
   plan_id: plan?.plan_id ?? "none",
-  upgrade_plan: plan?.upgrade_plan ?? null,
+  // No plan: the entry plan lifts cloud.plan.required (the same plan its details name).
+  upgrade_plan: plan ? plan.upgrade_plan : cloudEntryPlan(),
   limits: {
     max_active: plan?.max_active ?? 0,
     max_saved: plan?.max_saved ?? 0,
