@@ -800,6 +800,8 @@ SHARED_WEB_WORKFLOW_EXACT = frozenset({
 
 SHARED_WEB_WORKFLOW_PREFIXES = (
     "Native/DiffSidecar/",
+    # The diff sidecar links this crate by path.
+    "cmux-tui/crates/cmux-git/",
 )
 
 

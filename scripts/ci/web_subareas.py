@@ -120,6 +120,8 @@ DIFF_SIDECAR_EXACT = {
 }
 DIFF_SIDECAR_PREFIXES = (
     "Native/DiffSidecar/",
+    # The sidecar links this crate by path.
+    "cmux-tui/crates/cmux-git/",
     "webviews/bench/",
     "webviews/src/diff/",
 )

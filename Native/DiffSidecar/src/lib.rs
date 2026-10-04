@@ -2,10 +2,10 @@
 
 #[cfg(feature = "benchmark")]
 pub mod benchmark;
+mod git_refs;
 pub mod manifest;
 pub mod protocol;
 pub mod server;
-mod session_host_git;
 
 pub const PROTOCOL_VERSION: u32 = 1;
 #[cfg(feature = "http-server")]

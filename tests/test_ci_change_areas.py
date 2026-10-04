@@ -431,6 +431,10 @@ def test_native_diff_sidecar_inputs_route_the_web_workflow_explicitly() -> None:
         actual = module.classify_files([path])
         assert actual.macos is True, (path, actual)
         assert actual.web is True, (path, actual)
+    # The sidecar links cmux-git by path; cmux-tui's own workflow covers the
+    # rest of that crate's checks.
+    actual = module.classify_files(["cmux-tui/crates/cmux-git/src/refs.rs"])
+    assert actual.web is True, actual
 
 
 def test_test_only_pull_request_routes_macos_without_the_release_build() -> None:
@@ -4334,6 +4338,7 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
         (["webviews/src/App.tsx"], (False, False, False, False, True, False, False)),
         (["webviews/src/diff/App.tsx"], (False, True, False, False, True, False, False)),
         (["Native/DiffSidecar/src/server.rs"], (False, True, False, False, False, False, False)),
+        (["cmux-tui/crates/cmux-git/src/refs.rs"], (False, True, False, False, False, False, False)),
         (["Resources/markdown-viewer/webviews-app/main.mjs"], (False, False, False, False, True, False, False)),
         (["config/vite-plus/check.ts"], (False, False, False, False, True, False, False)),
         (["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html"], (False, False, False, False, True, False, False)),
