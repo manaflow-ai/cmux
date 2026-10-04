@@ -10515,10 +10515,10 @@
     "width must be finite."
    ]
   },
-  "set-column-sticky": {
+  "set-column-dock": {
    "authority": "control",
    "since": 12,
-   "capability": "sticky-columns-v1",
+   "capability": "dock-columns-v1",
    "request": {
     "kind": "object",
     "fields": {
@@ -10530,7 +10530,7 @@
       "presence": "required",
       "nullable": false
      },
-     "sticky": {
+     "dock": {
       "type": {
        "kind": "scalar",
        "name": "boolean"
@@ -15455,7 +15455,7 @@
       "nullable": true,
       "default": null
      },
-     "sticky": {
+     "dock": {
       "type": {
        "kind": "ref",
        "name": "ColumnPin"

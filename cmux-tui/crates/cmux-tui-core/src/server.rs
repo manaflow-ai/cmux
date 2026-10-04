@@ -150,10 +150,10 @@ pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guar
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
 pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
 pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
-/// `set-column-sticky` and the optional `Screen.columns[].sticky` field: at
+/// `set-column-dock` and the optional `Screen.columns[].dock` field: at
 /// most one viewport column per edge stays pinned while the others scroll.
-pub const STICKY_COLUMNS_CAPABILITY: &str = "sticky-columns-v1";
-/// Top and bottom docks: `set-column-sticky` and `move-tab-to-column` accept
+pub const DOCK_COLUMNS_CAPABILITY: &str = "dock-columns-v1";
+/// Top and bottom docks: `set-column-dock` and `move-tab-to-column` accept
 /// edges `top` and `bottom`, sent back as `Screen.columns[].dock`.
 pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
 /// `new-row`, `set-row-heights` and `Screen.columns[].rows` (rows.md).
@@ -428,7 +428,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         GUARDED_BROWSER_POINTER_CAPABILITY,
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
-        STICKY_COLUMNS_CAPABILITY,
+        DOCK_COLUMNS_CAPABILITY,
         EDGE_DOCKS_CAPABILITY,
         ROWS_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
@@ -1831,12 +1831,12 @@ enum Command {
         #[serde(default)]
         transaction: Option<u64>,
     },
-    /// `sticky-columns-v1`: pin or unpin the viewport column containing
+    /// `dock-columns-v1`: pin or unpin the viewport column containing
     /// `pane`. `edge` and `mode` stay strings so a bad value answers with
     /// `error_code:"invalid-argument"` instead of a decode error.
-    SetColumnSticky {
+    SetColumnDock {
         pane: PaneId,
-        sticky: bool,
+        dock: bool,
         #[serde(default)]
         edge: Option<String>,
         #[serde(default)]
@@ -14248,14 +14248,14 @@ fn handle_command_with_cancellation(
             )?;
             Ok(json!({}))
         }
-        Command::SetColumnSticky { pane, sticky, edge, mode, transaction } => {
-            let sticky = crate::mux::parse_column_sticky(sticky, edge.as_deref(), mode.as_deref())?;
-            let outcome = mux.set_column_sticky(
+        Command::SetColumnDock { pane, dock, edge, mode, transaction } => {
+            let dock = crate::mux::parse_column_dock(dock, edge.as_deref(), mode.as_deref())?;
+            let outcome = mux.set_column_dock(
                 pane,
-                sticky,
+                dock,
                 transaction.map(|transaction| (client, transaction)),
             )?;
-            let mut data = json!({"column": outcome.column, "sticky": outcome.sticky});
+            let mut data = json!({"column": outcome.column, "dock": outcome.dock});
             if let Some(transaction) = transaction {
                 data["transaction"] = json!(transaction);
             }
@@ -16168,8 +16168,8 @@ mod session_identity_tests;
 mod personal_tests;
 
 #[cfg(test)]
-#[path = "server/sticky_columns_tests.rs"]
-mod sticky_columns_tests;
+#[path = "server/dock_columns_tests.rs"]
+mod dock_columns_tests;
 
 #[cfg(test)]
 #[path = "server/rows_tests.rs"]

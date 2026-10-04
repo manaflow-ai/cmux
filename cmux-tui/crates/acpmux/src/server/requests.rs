@@ -924,7 +924,7 @@ pub(super) async fn handle_request(
                 .map(str::to_owned)
                 .collect();
             if end_agents {
-                hub.end_agents_at_shutdown(keep.clone());
+                hub.end_agents_at_shutdown(keep.clone())?;
             }
             hub.stop_idle_reaper();
             hub.shutdown.notify_waiters();

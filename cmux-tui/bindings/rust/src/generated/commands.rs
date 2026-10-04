@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3d68350e643abae41960f97711e728cf3681b9fc60044ae1fc478ec89addd2a4.
+// cmux-tui mux protocol 12, IR cb87c564b621f28bd70ba05258e2eb6a6c8ac3006763927d09c2bda59de833a4.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1344,13 +1344,13 @@ pub struct MoveTabToColumnRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub after_column: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub dock: Optional<T::ColumnPin>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub respawn: Optional<T::SplitRespawn>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub screen: Optional<T::Id>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub sticky: Optional<T::ColumnPin>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<String>,
@@ -2210,19 +2210,19 @@ pub type SetClientSizingResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SetColumnStickyRequest {
+pub struct SetColumnDockRequest {
+    pub dock: bool,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub edge: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mode: Optional<String>,
     pub pane: T::Id,
-    pub sticky: bool,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<u64>,
 }
 
 #[rustfmt::skip]
-pub type SetColumnStickyResult = T::JsonValue;
+pub type SetColumnDockResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -3386,13 +3386,13 @@ impl CmuxClient {
     }
 
     pub fn move_tab_to_column(&mut self, request: MoveTabToColumnRequest) -> Result<MoveTabToColumnResult> {
+        if !request.dock.is_missing() {
+            self.require_protocol_field("move-tab-to-column", 12)?;
+            self.require_capability_field("move-tab-to-column", "edge-docks-v1")?;
+        }
         if !request.respawn.is_missing() {
             self.require_protocol_field("move-tab-to-column", 12)?;
             self.require_capability_field("move-tab-to-column", "tab-column-respawn-v1")?;
-        }
-        if !request.sticky.is_missing() {
-            self.require_protocol_field("move-tab-to-column", 12)?;
-            self.require_capability_field("move-tab-to-column", "edge-docks-v1")?;
         }
         self.execute(&MOVE_TAB_TO_COLUMN_METADATA, &request)
     }
@@ -3778,8 +3778,8 @@ impl CmuxClient {
         self.execute(&SET_CLIENT_SIZING_METADATA, &request)
     }
 
-    pub fn set_column_sticky(&mut self, request: SetColumnStickyRequest) -> Result<SetColumnStickyResult> {
-        self.execute(&SET_COLUMN_STICKY_METADATA, &request)
+    pub fn set_column_dock(&mut self, request: SetColumnDockRequest) -> Result<SetColumnDockResult> {
+        self.execute(&SET_COLUMN_DOCK_METADATA, &request)
     }
 
     pub fn set_default_colors(&mut self, request: SetDefaultColorsRequest) -> Result<SetDefaultColorsResult> {

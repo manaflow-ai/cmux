@@ -16276,6 +16276,11 @@ Result<Json> Codec<MoveTabToColumnRequest>::encode(const MoveTabToColumnRequest&
         if (!encoded) return std::move(encoded).error();
         object.emplace("after_column", std::move(encoded).value());
     }
+    if (!value.dock.is_absent()) {
+        auto encoded = encode_value(value.dock);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("dock", std::move(encoded).value());
+    }
     if (!value.pane.is_absent()) {
         auto encoded = encode_value(value.pane);
         if (!encoded) return std::move(encoded).error();
@@ -16290,11 +16295,6 @@ Result<Json> Codec<MoveTabToColumnRequest>::encode(const MoveTabToColumnRequest&
         auto encoded = encode_value(value.screen);
         if (!encoded) return std::move(encoded).error();
         object.emplace("screen", std::move(encoded).value());
-    }
-    if (!value.sticky.is_absent()) {
-        auto encoded = encode_value(value.sticky);
-        if (!encoded) return std::move(encoded).error();
-        object.emplace("sticky", std::move(encoded).value());
     }
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
@@ -16326,6 +16326,16 @@ Result<MoveTabToColumnRequest> Codec<MoveTabToColumnRequest>::decode(const Json&
             result.after_column = Field<Id>(std::move(decoded).value());
         }
     }
+    const Json* field_dock = value.find("dock");
+    if (field_dock) {
+        if (field_dock->is_null()) {
+            result.dock = Field<ColumnPin>::null();
+        } else {
+            auto decoded = decode_value<ColumnPin>(*field_dock);
+            if (!decoded) return std::move(decoded).error();
+            result.dock = Field<ColumnPin>(std::move(decoded).value());
+        }
+    }
     const Json* field_pane = value.find("pane");
     if (field_pane) {
         if (field_pane->is_null()) {
@@ -16354,16 +16364,6 @@ Result<MoveTabToColumnRequest> Codec<MoveTabToColumnRequest>::decode(const Json&
             auto decoded = decode_value<Id>(*field_screen);
             if (!decoded) return std::move(decoded).error();
             result.screen = Field<Id>(std::move(decoded).value());
-        }
-    }
-    const Json* field_sticky = value.find("sticky");
-    if (field_sticky) {
-        if (field_sticky->is_null()) {
-            result.sticky = Field<ColumnPin>::null();
-        } else {
-            auto decoded = decode_value<ColumnPin>(*field_sticky);
-            if (!decoded) return std::move(decoded).error();
-            result.sticky = Field<ColumnPin>(std::move(decoded).value());
         }
     }
     const Json* field_surface = value.find("surface");
@@ -20740,9 +20740,12 @@ Result<SetClientSizingRequest> Codec<SetClientSizingRequest>::decode(const Json&
     return result;
 }
 
-Result<Json> Codec<SetColumnStickyRequest>::encode(const SetColumnStickyRequest& value) {
+Result<Json> Codec<SetColumnDockRequest>::encode(const SetColumnDockRequest& value) {
     (void)value;
     Json::Object object;
+    auto encoded_dock = encode_value(value.dock);
+    if (!encoded_dock) return std::move(encoded_dock).error();
+    object.emplace("dock", std::move(encoded_dock).value());
     if (!value.edge.is_absent()) {
         auto encoded = encode_value(value.edge);
         if (!encoded) return std::move(encoded).error();
@@ -20756,9 +20759,6 @@ Result<Json> Codec<SetColumnStickyRequest>::encode(const SetColumnStickyRequest&
     auto encoded_pane = encode_value(value.pane);
     if (!encoded_pane) return std::move(encoded_pane).error();
     object.emplace("pane", std::move(encoded_pane).value());
-    auto encoded_sticky = encode_value(value.sticky);
-    if (!encoded_sticky) return std::move(encoded_sticky).error();
-    object.emplace("sticky", std::move(encoded_sticky).value());
     if (!value.transaction.is_absent()) {
         auto encoded = encode_value(value.transaction);
         if (!encoded) return std::move(encoded).error();
@@ -20767,10 +20767,19 @@ Result<Json> Codec<SetColumnStickyRequest>::encode(const SetColumnStickyRequest&
     return Json(std::move(object));
 }
 
-Result<SetColumnStickyRequest> Codec<SetColumnStickyRequest>::decode(const Json& value) {
+Result<SetColumnDockRequest> Codec<SetColumnDockRequest>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
-    SetColumnStickyRequest result{};
+    SetColumnDockRequest result{};
+    const Json* field_dock = value.find("dock");
+    if (!field_dock) {
+        return make_error(ErrorCode::decode, "missing required field 'dock'");
+    }
+    if (field_dock) {
+        auto decoded = decode_value<bool>(*field_dock);
+        if (!decoded) return std::move(decoded).error();
+        result.dock = std::move(decoded).value();
+    }
     const Json* field_edge = value.find("edge");
     if (field_edge) {
         if (field_edge->is_null()) {
@@ -20799,15 +20808,6 @@ Result<SetColumnStickyRequest> Codec<SetColumnStickyRequest>::decode(const Json&
         auto decoded = decode_value<Id>(*field_pane);
         if (!decoded) return std::move(decoded).error();
         result.pane = std::move(decoded).value();
-    }
-    const Json* field_sticky = value.find("sticky");
-    if (!field_sticky) {
-        return make_error(ErrorCode::decode, "missing required field 'sticky'");
-    }
-    if (field_sticky) {
-        auto decoded = decode_value<bool>(*field_sticky);
-        if (!decoded) return std::move(decoded).error();
-        result.sticky = std::move(decoded).value();
     }
     const Json* field_transaction = value.find("transaction");
     if (field_transaction) {
@@ -29621,8 +29621,8 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand95FieldRequirements{{
     {"transaction", 12U, "tab-drag-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 2> kCommand100FieldRequirements{{
+    {"dock", 12U, "edge-docks-v1"},
     {"respawn", 12U, "tab-column-respawn-v1"},
-    {"sticky", 12U, "edge-docks-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand101FieldRequirements{{
     {"name", 0U, "tab-workspace-name-v1"},
@@ -29887,7 +29887,7 @@ constexpr std::array<CommandMetadata, 213> kCommands{{
     {"set-cell-pixels", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-client-info", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand159FieldRequirements)},
     {"set-client-sizing", "control", 10U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-column-sticky", "control", 12U, "sticky-columns-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"set-column-dock", "control", 12U, "dock-columns-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-default-colors", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand162FieldRequirements)},
     {"set-frontend-browser-history", "control", 12U, "frontend-browser-history-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-personal-terminal", "control", 12U, "personal-terminals-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -31790,13 +31790,13 @@ Result<EmptyResult> Client::set_client_sizing(
     return decode_value<EmptyResult>(response.value());
 }
 
-Result<JsonValue> Client::set_column_sticky(
-    const SetColumnStickyRequest& request, RequestOptions options) {
+Result<JsonValue> Client::set_column_dock(
+    const SetColumnDockRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
     auto parameters = encoded.value().as_object();
     if (!parameters) return std::move(parameters).error();
-    auto response = core_.request("set-column-sticky", *parameters.value(), options.timeout);
+    auto response = core_.request("set-column-dock", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
     return decode_value<JsonValue>(response.value());
 }

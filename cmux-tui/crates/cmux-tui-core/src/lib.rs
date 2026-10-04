@@ -90,12 +90,12 @@ pub use layout::{
     layout_screen_with_viewport, split_for_pane_edge, split_sides, zellij_default_pane_layout,
 };
 pub use model::{
-    ColumnSticky, Node, Pane, Screen, State, StickyEdge, StickyMode, ViewportColumn, Workspace,
+    ColumnDock, DockEdge, DockMode, Node, Pane, Screen, State, ViewportColumn, Workspace,
 };
 pub(crate) use mux::BatchCloseTarget;
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
-    CellPixelUpdateFailure, ColumnStickyError, ColumnStickyOutcome, ConfigReloadError,
+    CellPixelUpdateFailure, ColumnDockError, ColumnDockOutcome, ConfigReloadError,
     DiagnosticReporter, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
     LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEvent, NotificationEvent,
     NotificationLevel, NotificationSource, ProviderWorkspaceAuthority,

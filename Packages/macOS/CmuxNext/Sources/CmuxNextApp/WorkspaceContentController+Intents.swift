@@ -36,7 +36,7 @@ extension WorkspaceContentController {
             }
             let daemonTransaction = gestureTransaction(transaction, phase: .ended)
             let wire = dock.map(LayoutMapping.snapshot)
-            sendGesture(transaction, phase: .ended, label: "set-column-sticky") { connection in
+            sendGesture(transaction, phase: .ended, label: "set-column-dock") { connection in
                 try await connection.setColumnDock(of: handle, dock: wire, transaction: daemonTransaction)
             }
         case .setRowHeights(let column, let heights, let fit):

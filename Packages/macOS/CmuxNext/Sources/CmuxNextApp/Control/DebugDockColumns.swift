@@ -5,7 +5,7 @@ import CmuxNextSettings
 
 /// `debug.dock` (plans/cmux-next/dock-column.md): per window, the
 /// active screen's docked columns, strip range and scrollbar in window
-/// coordinates, plus whether the daemon serves `sticky-columns-v1`.
+/// coordinates, plus whether the daemon serves `dock-columns-v1`.
 /// With `pane` and `dock` (bool, optional `edge`, `mode`) it first
 /// changes that pane's column through the same path as every other entry
 /// point (`ColumnDocking.apply`).

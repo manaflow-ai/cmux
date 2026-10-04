@@ -1,4 +1,4 @@
-//! A screen's stored viewport columns, with their `sticky-columns-v1` flags
+//! A screen's stored viewport columns, with their `dock-columns-v1` flags
 //! and `rows-v1` rows, and their validation.
 
 use super::*;
@@ -17,13 +17,15 @@ pub struct RegistryViewportColumn {
     pub width: f32,
     pub layout: RegistryLayoutNode,
     pub auto_layout: Option<Vec<PanePublicId>>,
-    /// `sticky-columns-v1`. Additive: records written before it omit the
-    /// field, and it is omitted while the column is not sticky, so an older
-    /// daemon still reads every record that has no sticky column. A top or
-    /// bottom dock (`edge-docks-v1`) is never serialized here: it lives in
-    /// `resource_column_docks` (screen_rows.rs) and is overlaid at load.
-    #[serde(default, skip_serializing_if = "not_a_side_flag")]
-    pub sticky: Option<crate::model::ColumnSticky>,
+    /// `dock-columns-v1`. Additive: records written before it omit the
+    /// field, and it is omitted while the column is not docked. The stored
+    /// key stays `sticky` (its pre-R87 name) until the release pin serves
+    /// dock-columns-v1: an older daemon refuses an unknown field and could
+    /// not open the session. `dock` is read too, for the later flip. A top
+    /// or bottom dock (`edge-docks-v1`) is never serialized here: it lives
+    /// in `resource_column_docks` (screen_rows.rs) and is overlaid at load.
+    #[serde(default, rename = "sticky", alias = "dock", skip_serializing_if = "not_a_side_flag")]
+    pub dock: Option<crate::model::ColumnDock>,
     /// `rows-v1`: empty, or the column's rows top to bottom. Never part of
     /// `viewport_json` (an older build would refuse the unknown field): rows
     /// live in `resource_screen_rows` (screen_rows.rs), overlaid at load.
@@ -54,8 +56,8 @@ impl RegistryViewport {
     }
 }
 
-fn not_a_side_flag(sticky: &Option<crate::model::ColumnSticky>) -> bool {
-    sticky.is_none_or(|sticky| sticky.edge.is_band())
+fn not_a_side_flag(dock: &Option<crate::model::ColumnDock>) -> bool {
+    dock.is_none_or(|dock| dock.edge.is_band())
 }
 
 impl RegistryViewportColumn {
@@ -64,9 +66,9 @@ impl RegistryViewportColumn {
         width: f32,
         layout: RegistryLayoutNode,
         auto_layout: Option<Vec<PanePublicId>>,
-        sticky: Option<crate::model::ColumnSticky>,
+        dock: Option<crate::model::ColumnDock>,
     ) -> Self {
-        Self { id, width, layout, auto_layout, sticky, rows: Vec::new() }
+        Self { id, width, layout, auto_layout, dock, rows: Vec::new() }
     }
 
     pub fn with_rows(mut self, rows: Vec<RegistryRow>) -> Self {
@@ -165,4 +167,51 @@ pub(super) fn validate_registry_viewport(
         anyhow::bail!("viewport compatibility layout does not match its ordered columns");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod dock_key_tests {
+    use super::*;
+    use crate::model::{ColumnDock, DockEdge, DockMode};
+
+    fn viewport() -> RegistryViewport {
+        let pane = |n: u128| PanePublicId::parse(format!("pane_{n:032x}")).unwrap();
+        let split = |n: u128| SplitPublicId::parse(format!("split_{n:032x}")).unwrap();
+        let docked = ColumnDock { edge: DockEdge::Left, mode: DockMode::Docked };
+        RegistryViewport {
+            base_width: None,
+            columns: vec![
+                RegistryViewportColumn::new(
+                    split(1),
+                    0.3,
+                    RegistryLayoutNode::Leaf { pane: pane(1) },
+                    None,
+                    Some(docked),
+                ),
+                RegistryViewportColumn::new(
+                    split(2),
+                    0.7,
+                    RegistryLayoutNode::Leaf { pane: pane(2) },
+                    None,
+                    None,
+                ),
+            ],
+        }
+    }
+
+    /// R87 DOCK-WIRE: the stored key stays `sticky` until the release pin
+    /// serves dock-columns-v1, because an older daemon refuses an unknown
+    /// field (`deny_unknown_fields`) and could not open the session. Both
+    /// keys load as the column's dock flag.
+    #[test]
+    fn a_registry_viewport_writes_sticky_and_reads_sticky_or_dock() {
+        let viewport = viewport();
+        let written = serde_json::to_string(&viewport).unwrap();
+        assert!(written.contains("\"sticky\":") && !written.contains("\"dock\""), "{written}");
+        let loaded: RegistryViewport = serde_json::from_str(&written).unwrap();
+        assert_eq!(loaded, viewport);
+        let dock_named = written.replace("\"sticky\":", "\"dock\":");
+        let loaded: RegistryViewport = serde_json::from_str(&dock_named).unwrap();
+        assert_eq!(loaded, viewport);
+    }
 }

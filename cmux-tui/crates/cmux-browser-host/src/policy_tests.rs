@@ -145,3 +145,18 @@ fn browser_pages_follow_the_shared_agent_url_vectors() {
         assert_eq!(is_browser_page(url), refused, "{url:?}");
     }
 }
+
+#[test]
+fn patterns_compare_host_names_as_urls_do() {
+    // A trailing dot names the same host, in the pattern and in the URL.
+    let dotted = DomainPattern::parse("example.com.").unwrap();
+    assert!(dotted.matches(&url("https://example.com/"), false));
+    assert!(dotted.matches(&url("https://www.example.com./"), false));
+    // Internationalized labels compare in Punycode, as the URL parser stores them.
+    let idn = DomainPattern::parse("Bücher.example").unwrap();
+    assert!(idn.matches(&url("https://xn--bcher-kva.example/"), false));
+    assert!(idn.matches(&url("https://BÜCHER.example/"), false));
+    let wild = DomainPattern::parse("*.bücher.example").unwrap();
+    assert!(wild.matches(&url("https://shop.xn--bcher-kva.example/"), false));
+    assert!(!idn.matches(&url("https://bucher.example/"), false));
+}

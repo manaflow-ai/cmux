@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3d68350e643abae41960f97711e728cf3681b9fc60044ae1fc478ec89addd2a4";
+inline constexpr std::string_view kProtocolIrSha256 = "cb87c564b621f28bd70ba05258e2eb6a6c8ac3006763927d09c2bda59de833a4";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -356,7 +356,7 @@ struct ServerStatsRequest;
 struct SetCellPixelsRequest;
 struct SetClientInfoRequest;
 struct SetClientSizingRequest;
-struct SetColumnStickyRequest;
+struct SetColumnDockRequest;
 struct SetDefaultColorsRequest;
 struct SetFrontendBrowserHistoryRequest;
 struct SetPersonalTerminalRequest;
@@ -2462,10 +2462,10 @@ struct SplitRespawn {
 
 struct MoveTabToColumnRequest {
     Field<Id> after_column{};
+    Field<ColumnPin> dock{};
     Field<Id> pane{};
     Field<SplitRespawn> respawn{};
     Field<Id> screen{};
-    Field<ColumnPin> sticky{};
     Id surface{};
     Field<std::string> transaction{};
     Field<float> width{};
@@ -3471,13 +3471,13 @@ struct SetClientSizingRequest {
     friend bool operator==(const SetClientSizingRequest&, const SetClientSizingRequest&) = default;
 };
 
-struct SetColumnStickyRequest {
+struct SetColumnDockRequest {
+    bool dock{};
     Field<std::string> edge{};
     Field<std::string> mode{};
     Id pane{};
-    bool sticky{};
     Field<std::uint64_t> transaction{};
-    friend bool operator==(const SetColumnStickyRequest&, const SetColumnStickyRequest&) = default;
+    friend bool operator==(const SetColumnDockRequest&, const SetColumnDockRequest&) = default;
 };
 
 struct SetDefaultColorsRequest {
@@ -6312,9 +6312,9 @@ struct Codec<SetClientSizingRequest> {
 };
 
 template <>
-struct Codec<SetColumnStickyRequest> {
-    static Result<Json> encode(const SetColumnStickyRequest& value);
-    static Result<SetColumnStickyRequest> decode(const Json& value);
+struct Codec<SetColumnDockRequest> {
+    static Result<Json> encode(const SetColumnDockRequest& value);
+    static Result<SetColumnDockRequest> decode(const Json& value);
 };
 
 template <>

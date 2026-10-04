@@ -72,7 +72,10 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         ensure_private_dir(parent)?;
     }
     let nonce = random_hex(16);
-    let live = lock_live_file(&live_path(&spec.hosts_dir, &spec.session_id, &nonce))?;
+    let live_file = live_path(&spec.hosts_dir, &spec.session_id, &nonce);
+    let live = lock_live_file(&live_file)?;
+    // Until the start succeeds, every early return removes what it created.
+    let mut cleanup = StartCleanup { paths: vec![live_file] };
     let mut cmd = Command::new(&spec.program);
     cmd.args(&spec.args)
         .env_clear()
@@ -89,6 +92,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
     let _ = std::fs::remove_file(&spec.socket);
     let listener = UnixListener::bind(&spec.socket)
         .with_context(|| format!("bind {}", spec.socket.display()))?;
+    cleanup.paths.push(spec.socket.clone());
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&spec.socket, std::fs::Permissions::from_mode(0o600))?;
@@ -114,10 +118,23 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
             unsafe { libc::killpg(pg as i32, libc::SIGKILL) };
         }
         let _ = child.start_kill();
-        let _ = std::fs::remove_file(&spec.socket);
         return Err(e);
     }
+    cleanup.paths.clear();
     Ok(Started { record, listener, child, _live: live })
+}
+
+/// Files a host start created, removed on drop unless the start succeeded.
+struct StartCleanup {
+    paths: Vec<PathBuf>,
+}
+
+impl Drop for StartCleanup {
+    fn drop(&mut self) {
+        for path in &self.paths {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 fn lock_live_file(path: &Path) -> Result<std::fs::File> {
@@ -131,6 +148,7 @@ fn lock_live_file(path: &Path) -> Result<std::fs::File> {
         .with_context(|| format!("create {}", path.display()))?;
     // SAFETY: flock on a descriptor this function owns.
     if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        let _ = std::fs::remove_file(path);
         bail!("lock {}", path.display());
     }
     Ok(file)

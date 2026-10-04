@@ -107,7 +107,7 @@ fn respawned_terminals_follow_the_frontend_flag() {
     let pane = frontend.mux.with_state(|state| state.pane_of(docked).unwrap());
     frontend.run(json!({
         "cmd": "move-tab-to-column", "surface": docked, "pane": pane, "width": 0.4,
-        "sticky": {"edge": "right", "mode": "docked"}, "respawn": respawn,
+        "dock": {"edge": "right", "mode": "docked"}, "respawn": respawn,
     }));
     let fresh = frontend.mux.with_state(|state| state.panes[&pane].tabs[0]);
     assert_eq!(frontend.argv(&json!({"surface": fresh})), vec![FRONTEND_SHELL.to_string()]);

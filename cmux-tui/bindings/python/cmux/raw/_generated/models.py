@@ -2543,8 +2543,8 @@ class MoveTabToColumnRequest:
     pane: Union[Id, None, MissingType] = field(default=MISSING)
     screen: Union[Id, None, MissingType] = field(default=MISSING)
     after_column: Union[Id, None, MissingType] = field(default=MISSING)
+    dock: Union[ColumnPin, None, MissingType] = field(default=MISSING)
     respawn: Union[SplitRespawn, None, MissingType] = field(default=MISSING)
-    sticky: Union[ColumnPin, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
 
@@ -3121,10 +3121,10 @@ class SetClientSizingRequest:
 
 
 @dataclass(frozen=True)
-class SetColumnStickyRequest:
-    __cmux_schema_path__: ClassVar[str] = 'commands/set-column-sticky/request'
+class SetColumnDockRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-column-dock/request'
     pane: Id
-    sticky: bool
+    dock: bool
     edge: Union[str, None, MissingType] = field(default=MISSING)
     mode: Union[str, None, MissingType] = field(default=MISSING)
     transaction: Union[int, None, MissingType] = field(default=MISSING)
@@ -4566,7 +4566,7 @@ __all__ = [
     'SetCellPixelsRequest',
     'SetClientInfoRequest',
     'SetClientSizingRequest',
-    'SetColumnStickyRequest',
+    'SetColumnDockRequest',
     'SetDefaultColorsRequest',
     'SetFrontendBrowserHistoryRequest',
     'SetPersonalTerminalRequest',

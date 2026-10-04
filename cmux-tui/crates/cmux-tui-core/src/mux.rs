@@ -4,6 +4,7 @@
 mod agent_hook_errors;
 pub(crate) mod app_terminals;
 mod conversations;
+mod dock_columns;
 mod exit_settle;
 mod host_close;
 #[cfg(all(test, unix))]
@@ -24,7 +25,6 @@ mod rows;
 mod screen_changed;
 pub(crate) mod screen_groups;
 mod session_paths;
-mod sticky_columns;
 pub(crate) mod tab_drag;
 pub(crate) mod tab_groups;
 pub(crate) mod tab_strip;
@@ -46,6 +46,7 @@ use agent_hook_errors::{
     agent_hook_retry_class, agent_hook_terminal_gone,
 };
 
+pub use dock_columns::{ColumnDockError, ColumnDockOutcome, parse_column_dock};
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use layout_ratio_error::LayoutRatioError;
 pub use presentation::{
@@ -59,7 +60,6 @@ pub(crate) use screen_groups::workspace_screen_groups;
 pub use screen_groups::{
     ScreenDestination, ScreenGroupOutcome, ScreenMoveOutcome, ScreenSpec, WorkspaceScreenGroup,
 };
-pub use sticky_columns::{ColumnStickyError, ColumnStickyOutcome, parse_column_sticky};
 use tab_drag::restore_dragged_tab;
 pub use tab_drag::{ColumnMove, SplitRespawn, TabDragOutcome, TabDropEdge};
 pub(crate) use tab_groups::{PaneTabGroup, pane_tab_groups};
@@ -20170,10 +20170,10 @@ mod tests {
     use std::collections::HashMap;
 
     mod column_update;
+    mod dock_columns;
     mod kitty_reservation;
     mod layout_undo_commit;
     mod rows;
-    mod sticky_columns;
 
     use crate::layout::{DEFAULT_VIEWPORT_PANE_WIDTH, VirtualRect};
     use crate::resource::{BrowserPublicId, MachinePublicId, SessionPublicId, TabPublicId};
@@ -20621,7 +20621,7 @@ mod tests {
                             width: 0.8,
                             layout: first_column_layout,
                             auto_layout: None,
-                            sticky: None,
+                            dock: None,
                             rows: Vec::new(),
                         },
                         RegistryViewportColumn {
@@ -20629,7 +20629,7 @@ mod tests {
                             width: 0.4,
                             layout: RegistryLayoutNode::Leaf { pane: panes[3].clone() },
                             auto_layout: Some(vec![panes[3].clone()]),
-                            sticky: None,
+                            dock: None,
                             rows: Vec::new(),
                         },
                     ],

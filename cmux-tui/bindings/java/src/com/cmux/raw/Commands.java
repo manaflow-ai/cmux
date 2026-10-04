@@ -110,7 +110,7 @@ public final class Commands {
     public static final CommandMetadata MOVE_TAB_GROUP_TO_COLUMN = new CommandMetadata("move-tab-group-to-column", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_TAB_GROUP_TO_NEW_WORKSPACE = new CommandMetadata("move-tab-group-to-new-workspace", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_TAB_GROUP_TO_SPLIT = new CommandMetadata("move-tab-group-to-split", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata MOVE_TAB_TO_COLUMN = new CommandMetadata("move-tab-to-column", Authority.CONTROL, 12, "tab-drag-v1", StreamKind.NONE, Map.ofEntries(Map.entry("respawn", 12L), Map.entry("sticky", 12L)), Map.ofEntries(Map.entry("respawn", "tab-column-respawn-v1"), Map.entry("sticky", "edge-docks-v1")));
+    public static final CommandMetadata MOVE_TAB_TO_COLUMN = new CommandMetadata("move-tab-to-column", Authority.CONTROL, 12, "tab-drag-v1", StreamKind.NONE, Map.ofEntries(Map.entry("dock", 12L), Map.entry("respawn", 12L)), Map.ofEntries(Map.entry("dock", "edge-docks-v1"), Map.entry("respawn", "tab-column-respawn-v1")));
     public static final CommandMetadata MOVE_TAB_TO_NEW_WORKSPACE = new CommandMetadata("move-tab-to-new-workspace", Authority.CONTROL, 12, "tab-drag-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("name", "tab-workspace-name-v1")));
     public static final CommandMetadata MOVE_TAB_TO_SPLIT = new CommandMetadata("move-tab-to-split", Authority.CONTROL, 12, "tab-drag-v1", StreamKind.NONE, Map.ofEntries(Map.entry("respawn", 12L)), Map.ofEntries(Map.entry("respawn", "tab-split-respawn-v1")));
     public static final CommandMetadata MOVE_TAB_TO_WORKSPACE = new CommandMetadata("move-tab-to-workspace", Authority.CONTROL, 12, "tab-workspace-move-v1", StreamKind.NONE, Map.ofEntries(Map.entry("transaction", 12L)), Map.ofEntries(Map.entry("transaction", "tab-drag-v1")));
@@ -171,7 +171,7 @@ public final class Commands {
     public static final CommandMetadata SET_CELL_PIXELS = new CommandMetadata("set-cell-pixels", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_CLIENT_INFO = new CommandMetadata("set-client-info", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("device_id", 12L), Map.entry("device_kind", 12L), Map.entry("device_name", 12L), Map.entry("display_name", 12L), Map.entry("user_id", 12L)), Map.ofEntries(Map.entry("device_id", "shared-sizing-v1"), Map.entry("device_kind", "shared-sizing-v1"), Map.entry("device_name", "shared-sizing-v1"), Map.entry("display_name", "shared-sizing-v1"), Map.entry("user_id", "shared-sizing-v1")));
     public static final CommandMetadata SET_CLIENT_SIZING = new CommandMetadata("set-client-sizing", Authority.CONTROL, 10, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata SET_COLUMN_STICKY = new CommandMetadata("set-column-sticky", Authority.CONTROL, 12, "sticky-columns-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata SET_COLUMN_DOCK = new CommandMetadata("set-column-dock", Authority.CONTROL, 12, "dock-columns-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_DEFAULT_COLORS = new CommandMetadata("set-default-colors", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("complete", 9L), Map.entry("cursor", 9L), Map.entry("cursor_blink", 9L), Map.entry("cursor_style", 9L), Map.entry("palette", 9L), Map.entry("selection_bg", 9L), Map.entry("selection_fg", 9L)), Map.of());
     public static final CommandMetadata SET_FRONTEND_BROWSER_HISTORY = new CommandMetadata("set-frontend-browser-history", Authority.CONTROL, 12, "frontend-browser-history-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_PERSONAL_TERMINAL = new CommandMetadata("set-personal-terminal", Authority.CONTROL, 12, "personal-terminals-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -388,7 +388,7 @@ public final class Commands {
         values.put("set-cell-pixels", SET_CELL_PIXELS);
         values.put("set-client-info", SET_CLIENT_INFO);
         values.put("set-client-sizing", SET_CLIENT_SIZING);
-        values.put("set-column-sticky", SET_COLUMN_STICKY);
+        values.put("set-column-dock", SET_COLUMN_DOCK);
         values.put("set-default-colors", SET_DEFAULT_COLORS);
         values.put("set-frontend-browser-history", SET_FRONTEND_BROWSER_HISTORY);
         values.put("set-personal-terminal", SET_PERSONAL_TERMINAL);

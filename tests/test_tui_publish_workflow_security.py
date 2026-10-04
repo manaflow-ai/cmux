@@ -196,11 +196,24 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     artifacts = workflow("cmux-tui-artifacts.yml")
     triggers = workflow_triggers(artifacts)
     assert "pull_request_target" in triggers
+    pr_trigger = triggers["pull_request_target"]
+    assert pr_trigger.get("branches") == ["feat-cmux-next"]
+    assert set(pr_trigger["paths"]) == {
+        "cmux-tui/**", "ghostty", "ghostty-next",
+        ".github/workflows/cmux-tui-artifacts.yml",
+        ".github/workflows/cmux-tui-build-package.yml",
+    }
+    push_trigger = triggers["push"]
+    assert push_trigger.get("branches") == ["main", "feat-cmux-next", "cmux-tui-pin-*"]
+    assert "paths" not in push_trigger
     daemon = workflow_job(artifacts, "cmux-next-daemon-tests")
     assert 'CARGO_NET_RETRY: "10"' in daemon
     assert 'CARGO_HTTP_TIMEOUT: "120"' in daemon
     assert 'CARGO_HTTP_MULTIPLEXING: "false"' in daemon
     assert "cache-all-crates: true" in daemon
+    publisher = workflow_job(artifacts, "publish-pr-tree")
+    assert "adopting the verified write-once binary" in publisher
+    assert "already published with a different binary" not in publisher
     assert "for attempt in 1 2 3" in daemon
     assert "cargo test --workspace --locked cmux_next_" in daemon
 

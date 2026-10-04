@@ -16,7 +16,7 @@ export default defineConfig({
     watch: {
       usePolling: true,
       interval: 250,
-      ignored: ["**/node_modules/**", "**/src/agent-session/solid/**", "**/src/agent-session/react/**"],
+      ignored: ["**/node_modules/**"],
     },
   },
   plugins: [...reactWithCompiler()],

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "3d68350e643abae41960f97711e728cf3681b9fc60044ae1fc478ec89addd2a4";
+pub const ir_sha256 = "cb87c564b621f28bd70ba05258e2eb6a6c8ac3006763927d09c2bda59de833a4";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -4744,10 +4744,10 @@ pub fn moveTabGroupToSplit(client: anytype, request: MoveTabGroupToSplitRequest)
 
 pub const MoveTabToColumnRequest = struct {
     after_column: wire.Field(Id) = .absent,
+    dock: wire.Field(ColumnPin) = .absent,
     pane: wire.Field(Id) = .absent,
     respawn: wire.Field(SplitRespawn) = .absent,
     screen: wire.Field(Id) = .absent,
-    sticky: wire.Field(ColumnPin) = .absent,
     surface: Id,
     transaction: wire.Field([]const u8) = .absent,
     width: wire.Field(f32) = .absent,
@@ -4764,8 +4764,8 @@ pub fn moveTabToColumn(client: anytype, request: MoveTabToColumnRequest) !wire.D
             .since = 12,
             .capability = "tab-drag-v1",
             .fields = &.{
+                .{ .name = "dock", .since = 12, .capability = "edge-docks-v1" },
                 .{ .name = "respawn", .since = 12, .capability = "tab-column-respawn-v1" },
-                .{ .name = "sticky", .since = 12, .capability = "edge-docks-v1" },
             },
         },
         request,
@@ -6169,24 +6169,24 @@ pub fn setClientSizing(client: anytype, request: SetClientSizingRequest) !wire.D
     );
 }
 
-pub const SetColumnStickyRequest = struct {
+pub const SetColumnDockRequest = struct {
+    dock: bool,
     edge: wire.Field([]const u8) = .absent,
     mode: wire.Field([]const u8) = .absent,
     pane: Id,
-    sticky: bool,
     transaction: wire.Field(u64) = .absent,
 };
 
-pub const SetColumnStickyResult = JsonValue;
+pub const SetColumnDockResult = JsonValue;
 
-pub fn setColumnSticky(client: anytype, request: SetColumnStickyRequest) !wire.Decoded(SetColumnStickyResult) {
+pub fn setColumnDock(client: anytype, request: SetColumnDockRequest) !wire.Decoded(SetColumnDockResult) {
     return client.callTyped(
-        SetColumnStickyResult,
+        SetColumnDockResult,
         .{
-            .name = "set-column-sticky",
+            .name = "set-column-dock",
             .authority = "control",
             .since = 12,
-            .capability = "sticky-columns-v1",
+            .capability = "dock-columns-v1",
         },
         request,
     );
@@ -8555,7 +8555,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-cell-pixels", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-info", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-sizing", .authority = "control", .since = 10, .capability = null, .stream = null },
-    .{ .name = "set-column-sticky", .authority = "control", .since = 12, .capability = "sticky-columns-v1", .stream = null },
+    .{ .name = "set-column-dock", .authority = "control", .since = 12, .capability = "dock-columns-v1", .stream = null },
     .{ .name = "set-default-colors", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "set-frontend-browser-history", .authority = "control", .since = 12, .capability = "frontend-browser-history-v1", .stream = null },
     .{ .name = "set-personal-terminal", .authority = "control", .since = 12, .capability = "personal-terminals-v1", .stream = null },

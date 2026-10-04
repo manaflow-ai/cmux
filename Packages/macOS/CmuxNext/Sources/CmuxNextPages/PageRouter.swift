@@ -50,7 +50,14 @@ public final class PageRouter {
         case "call":
             guard let op = message["op"]?.stringValue else { return Self.error(id: id, .invalidParams("missing op")) }
             do {
-                let value = try await call(op, params: message["params"] ?? .object([:]))
+                var opid: String?
+                if let raw = message["opid"] {
+                    guard let text = raw.stringValue, PageCallContext.isValidOpid(text) else {
+                        return Self.error(id: id, PageError(code: "cmux.protocol.bad_message", message: "opid must be 1-128 characters of [A-Za-z0-9._:-]"))
+                    }
+                    opid = text
+                }
+                let value = try await call(op, params: message["params"] ?? .object([:]), opid: opid)
                 return ["t": "ok", "id": .number(Double(id)), "value": value]
             } catch let error as PageError {
                 return Self.error(id: id, error)
@@ -81,14 +88,14 @@ public final class PageRouter {
     /// The window's title bar action (DESKTOP-FEEL): a double-click on a title bar the page draws.
     public var titleBarDoubleClick: (@MainActor () -> Void)?
 
-    private func call(_ op: String, params: JSONValue) async throws -> JSONValue {
+    private func call(_ op: String, params: JSONValue, opid: String?) async throws -> JSONValue {
         if op == PageNativeOp.titleBarDoubleClick {
             guard !closed else { throw PageError.closed }
             titleBarDoubleClick?()
             return .object([:])
         }
         let (provider, params) = try admit(op, params: params)
-        return try await provider.call(op, params: params, context: PageCallContext(page: descriptor.id))
+        return try await provider.call(op, params: params, context: PageCallContext(page: descriptor.id, opid: opid))
     }
 
     private func subscribe(_ stream: String, filter: JSONValue) async throws -> UInt64 {

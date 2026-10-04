@@ -4731,8 +4731,7 @@
             "state": "needs_review",
             "value": "Pass an absolute Cloud file path without '..'."
           }
-        }
-      ,
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -4863,8 +4862,7 @@
             "state": "needs_review",
             "value": "Pass file contents to write."
           }
-        }
-      ,
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -4995,8 +4993,7 @@
             "state": "needs_review",
             "value": "Pass an Ed25519 SSH public key for the transfer."
           }
-        }
-      ,
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -5127,8 +5124,7 @@
             "state": "needs_review",
             "value": "Cloud Files"
           }
-        }
-      ,
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -5521,8 +5517,7 @@
             "state": "needs_review",
             "value": "Cloud File Contents"
           }
-        }
-      ,
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -5653,8 +5648,7 @@
             "state": "needs_review",
             "value": "Cloud File Details"
           }
-        }
-      ,
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -5785,8 +5779,7 @@
             "state": "needs_review",
             "value": "Cloud File Transfer"
           }
-        }
-      ,
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -6295,6 +6288,400 @@
           }
         }
       }
-    }  },
+    },
+    "cloud.prompt.deleteFirewallRule": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Cloud Firewall Rule?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حذف قاعدة جدار الحماية السحابي؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izbrisati pravilo Cloud vatrozida?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slet Cloud-firewallregel?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud-Firewallregel löschen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Eliminar la regla del cortafuegos de Cloud?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer la règle de pare-feu Cloud ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eliminare la regola del firewall Cloud?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ファイアウォールルールを削除しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុបច្បាប់ជញ្ជាំងភ្លើង Cloud ឬ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud 방화벽 규칙을 삭제할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slette Cloud-brannmurregel?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usunąć regułę zapory Cloud?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Excluir a regra de firewall do Cloud?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить правило брандмауэра Cloud?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบกฎไฟร์วอลล์ Cloud หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud güvenlik duvarı kuralı silinsin mi?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Видалити правило брандмауера Cloud?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa quy tắc tường lửa Cloud?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "删除 Cloud 防火墙规则？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "刪除 Cloud 防火牆規則？"
+          }
+        }
+      }
+    },
+    "cloud.prompt.deleteFirewallRuleBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This permanently removes the selected firewall rule."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يؤدي هذا إلى إزالة قاعدة جدار الحماية المحددة نهائيًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovo trajno uklanja odabrano pravilo vatrozida."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette fjerner den valgte firewallregel permanent."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die ausgewählte Firewallregel wird dauerhaft entfernt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esto elimina de forma permanente la regla del cortafuegos seleccionada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La règle de pare-feu sélectionnée est supprimée définitivement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La regola del firewall selezionata viene rimossa definitivamente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したファイアウォールルールを完全に削除します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វានឹងលុបច្បាប់ជញ្ជាំងភ្លើងដែលបានជ្រើសរើសជាអចិន្ត្រៃយ៍។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "선택한 방화벽 규칙이 영구적으로 삭제됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette fjerner den valgte brannmurregelen permanent."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wybrana reguła zapory zostanie trwale usunięta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isso remove permanentemente a regra de firewall selecionada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выбранное правило брандмауэра будет удалено навсегда."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การดำเนินการนี้จะลบกฎไฟร์วอลล์ที่เลือกอย่างถาวร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seçili güvenlik duvarı kuralı kalıcı olarak kaldırılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вибране правило брандмауера буде видалено назавжди."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thao tác này xóa vĩnh viễn quy tắc tường lửa đã chọn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这会永久移除所选的防火墙规则。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這會永久移除所選的防火牆規則。"
+          }
+        }
+      }
+    },
+    "cloud.button.deleteFirewallRule": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حذف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izbriši"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Löschen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eliminar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elimina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "삭제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usuń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Excluir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Видалити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "删除"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "刪除"
+          }
+        }
+      }
+    }
+  },
   "version": "1.0"
 }

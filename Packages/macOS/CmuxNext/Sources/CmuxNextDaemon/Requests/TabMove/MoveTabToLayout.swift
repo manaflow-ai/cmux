@@ -48,7 +48,7 @@ public struct MoveTabToColumnRequest: DaemonRequest {
         self.transaction = transaction
     }
 
-    enum CodingKeys: String, CodingKey { case surface, pane, screen, afterColumn, width, dock = "sticky", transaction }
+    enum CodingKeys: String, CodingKey { case surface, pane, screen, afterColumn, width, dock, transaction }
     enum PinKeys: String, CodingKey { case edge, mode }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)

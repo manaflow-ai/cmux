@@ -6,7 +6,6 @@
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
   if (!S) return;
   const { URL } = root.CmuxBrowserRepl.core;
-  const T = root.CmuxBrowserRepl.agentTools;
 
   async function rest(arg) {
     const out = [];
@@ -75,15 +74,7 @@
       // Why the session's domain policy blocks home.atlassian.com, or null.
       function homeBlocked() {
         try {
-          if (typeof t.host.policy === "function") return t.host.policy("check", { url: HOME + "/" }) || null;
-          // cmux-next until the native ABI slice (S0b): the host has no URL
-          // check op, so the reason comes from its patterns. An early error
-          // only; the host still enforces the policy on every request.
-          const p = t.host.policyGet();
-          const hits = (list) => (list || []).find((raw) => T.urlMatches(HOME + "/", T.parsePattern(raw, "jira"), false));
-          if (p.allowed && !hits(p.allowed)) return `not in session.allowedDomains (${p.allowed.join(", ")})`;
-          const hit = hits(p.prohibited);
-          return hit ? `prohibited by ${hit} (session.prohibitedDomains)` : null;
+          return t.host.policy("check", { url: HOME + "/" }) || null;
         } catch (e) {
           return null;
         }

@@ -248,6 +248,10 @@ final class AppControl {
             .mainActor("debug.quit") { [weak services] call in
                 .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
             },
+            // Every open cmux dialog (R96): list, fixtures, keys, presses.
+            .mainActor("debug.dialog") { [weak services] call in
+                .value(services.map { DebugDialog.run(call.params, $0) } ?? .null)
+            },
             .mainActor("debug.extensions.prompt") { [weak services] call in
                 .value(services.map { DebugExtensionPrompts.run(call.params, $0) } ?? .null)
             },
