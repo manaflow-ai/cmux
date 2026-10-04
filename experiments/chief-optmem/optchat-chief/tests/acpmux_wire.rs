@@ -530,8 +530,12 @@ fn query_harnesses_reads_the_daemons_harness_metadata() {
                     }, "defaultHarness": "claude-sr"}),
                     _ => json!({}),
                 };
-                writeln!(out, "{}", json!({"jsonrpc": "2.0", "id": req["id"], "result": result}))
-                    .unwrap();
+                writeln!(
+                    out,
+                    "{}",
+                    json!({"jsonrpc": "2.0", "id": req["id"], "result": result})
+                )
+                .unwrap();
             }
         }
     });

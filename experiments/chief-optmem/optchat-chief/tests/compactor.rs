@@ -1088,7 +1088,10 @@ base_url = "http://router:31415/v1"
             .collect();
         names.sort();
         assert_eq!(names, vec!["config.toml"], "slot {k}: only its config");
-        assert_eq!(std::fs::read_to_string(slot.join("config.toml")).unwrap(), text);
+        assert_eq!(
+            std::fs::read_to_string(slot.join("config.toml")).unwrap(),
+            text
+        );
         use std::os::unix::fs::PermissionsExt;
         let mode = std::fs::metadata(&slot).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o700);
@@ -1140,7 +1143,7 @@ fn a_codex_node_leaves_nothing_but_its_config_in_its_codex_home() {
     let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(JOBS));
     run_node(&compactor, &request(1)).unwrap();
     // The node held slot 0: its leftover was gone before the session started.
-    assert_eq!(seen_leftover.lock().unwrap()[0], false);
+    assert!(!seen_leftover.lock().unwrap()[0]);
     let slot = base.join("slot-0");
     let mut names: Vec<String> = std::fs::read_dir(&slot)
         .unwrap()
@@ -1171,10 +1174,7 @@ fn the_probe_fails_when_a_codex_session_offers_skills() {
             model: None,
             ..spec(dir.path())
         };
-        probe(
-            &AcpmuxCompactor::new(agents, spec, Slots::new(JOBS)),
-            "SYS",
-        )
+        probe(&AcpmuxCompactor::new(agents, spec, Slots::new(JOBS)), "SYS")
     };
     let builtin = json!([{"name": "compact", "description": "Summarize"}, {"name": "status"}]);
     assert_eq!(with(builtin), Ok("user: ping".into()));

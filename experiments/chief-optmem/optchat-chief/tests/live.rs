@@ -293,10 +293,10 @@ fn two_turns_and_two_nodes_through_local_acp() {
     use std::sync::Condvar;
 
     use optchat_chief::acpmux::{Acpmux, AgentEvent, AgentPort};
+    use optchat_chief::acpmux::{Family, harness_family, query_harnesses};
     use optchat_chief::compactor::{
         AcpmuxCompactor, Slots, compactor_presets, compactor_spec, prepare_config,
     };
-    use optchat_chief::acpmux::{Family, harness_family, query_harnesses};
     use optchat_chief::host::turn_preset;
     use optchat_chief::paths::{Paths, home_id};
     use optchat_chief::prompt::{Tools, cached_layout, system_text};
@@ -370,7 +370,9 @@ fn two_turns_and_two_nodes_through_local_acp() {
     assert_eq!(preset.name, turn_preset_name);
     let mut presets = compactor_presets(&paths, &home, &harness, family);
     if !keyed {
-        preset.env.remove(optchat_chief::compactor::CODEX_CACHE_KEY_ENV);
+        preset
+            .env
+            .remove(optchat_chief::compactor::CODEX_CACHE_KEY_ENV);
         for p in &mut presets {
             p.env.remove(optchat_chief::compactor::CODEX_CACHE_KEY_ENV);
         }

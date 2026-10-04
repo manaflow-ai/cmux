@@ -813,12 +813,7 @@ pub fn slot_preset(base: &str, k: usize) -> String {
 /// The compactor's acpmux presets (`optchat-compact-<home id>-slot-<k>`, one
 /// per JOBS slot), which every compactor session requires.
 /// OPTCHAT_CHIEF_ISOLATE=0 does not touch them.
-pub fn compactor_presets(
-    paths: &Paths,
-    home: &Path,
-    harness: &str,
-    family: Family,
-) -> Vec<Preset> {
+pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Family) -> Vec<Preset> {
     let base = format!("optchat-compact-{}", home_id(home));
     if family == Family::Codex {
         // Codex: the slot's own CODEX_HOME and the Chief's compactor cache key.

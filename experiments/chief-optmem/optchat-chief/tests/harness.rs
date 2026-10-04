@@ -541,7 +541,10 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
     let codex = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
     assert_eq!(codex.name, format!("optchat-chief-{id}"));
     assert_eq!(codex.env["CODEX_PROMPT_CACHE_KEY"], key);
-    assert!(codex.args.is_empty(), "the preset args allowlist is untouched");
+    assert!(
+        codex.args.is_empty(),
+        "the preset args allowlist is untouched"
+    );
     assert_eq!(codex.system_prompt, None);
     let bare = turn_preset(&paths, &home, "codex", Family::Codex, false, "SYS").unwrap();
     assert_eq!(
