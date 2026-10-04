@@ -128,7 +128,7 @@ crashed, slow or unsure, the tool does not run.
    conversation files under `$MUX_HOME` (for another agent: its session's workspace root), and
    never for: `state/`, `*.token`, `.claude/`, `.env*`, the `MUX_AGENT_TOKEN_FILE` path, and any
    file of the pairing record or install keys. These deny paths win over the read root.
-3. **Own fresh process (acpmux design 3; P1-K, DECISION: fresh start, proposal yes).** A remote
+3. **Own fresh process (acpmux design 3; P1-K, D-I decided).** A remote
    chain runs in its own Claude process and **never forks or resumes a local session** (acpmux
    `fork()` copies the harness, argv, permission policy, modes, config options and models, and
    `--resume --fork-session` brings the whole local transcript with its tool results). It starts
@@ -158,7 +158,7 @@ crashed, slow or unsure, the tool does not run.
      agent definitions with `permissionMode: bypassPermissions`, plugins (hooks, MCP), and managed
      settings, `managed-mcp.json` and managed hooks do **not** let a tool run without the daemon,
      and no plugin hook runs.
-   - **DECISION (P1-L), proposal:** do both: in remote chains the `Skill` and `SlashCommand` tools
+   - **D-J (decided): both.** in remote chains the `Skill` and `SlashCommand` tools
      and custom subagent types are denied by the daemon (only built-in tools and the built-in
      general subagent with no `permissionMode`), **and** the probe runs; at spawn, managed settings
      that add allow rules, hooks or MCP servers refuse the remote chain unless they are named on a
