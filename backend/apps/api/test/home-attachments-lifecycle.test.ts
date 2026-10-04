@@ -164,8 +164,8 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
   const storedBytes = (user: string) =>
     runInDurableObject(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user)), async (_i, state) => Number((state.storage.sql.exec("SELECT COALESCE(SUM(bytes), 0) AS b FROM home_attachment_stored").toArray()[0] as { b: number }).b))
   const objects = async (id: string) => (await testEnv.HOME_ATTACHMENTS.list({ prefix: `home/v1/${id}/` })).objects.length
-  /** Makes every uploader's stored-bytes release fail inside the ConversationDO until `restore` runs. */
-  const failReleases = (stub: unknown) =>
+  /** Makes every uploader's stored-bytes release (or `method`) fail inside the ConversationDO until `restore` runs. */
+  const failReleases = (stub: unknown, method = "releaseAttachmentStorage") =>
     runInDurableObject(stub, async (i) => {
       const real = i.env.USER_DO as DurableObjectNamespace
       const failing = new Proxy(real, {
@@ -176,7 +176,7 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
           }
           return (id: DurableObjectId) => {
             const stubOf = t.get(id) as any
-            return new Proxy(stubOf, { get: (s, m) => (m === "releaseAttachmentStorage" ? async () => Promise.reject(new Error("release unavailable")) : (...a: Array<unknown>) => s[m as string](...a)) })
+            return new Proxy(stubOf, { get: (s, m) => (m === method ? async () => Promise.reject(new Error(`${method} unavailable`)) : (...a: Array<unknown>) => s[m as string](...a)) })
           }
         }
       })
@@ -286,5 +286,25 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
     expect(drop!.next_attempt_at).toBeGreaterThan(0)
     expect(alarm!).toBeLessThanOrEqual(drop!.next_attempt_at!)
     await restore()
+  })
+
+  it("a quota refund that fails during storage deletion is not lost: the slot stays until a retry refunds it", async () => {
+    const alice = await signIn("att-gc-refund-alice")
+    const g = await group(alice)
+    const stub = doOf(g.id)
+    await upload(alice, g.id, bytesOf("stored before the deletion"))
+    expect((await intent(alice, g.id, bytesOf("an upload that never finished"))).json.ok).toBe(true)
+    const before = await usageRows(alice.user)
+    expect((await slotRows(stub)).length).toBe(1)
+    const conv = stub as unknown as { deleteAttachmentStorage(e: string): Promise<number> }
+    const restore = await failReleases(stub, "refundAttachmentQuota")
+    await expect(conv.deleteAttachmentStorage(g.id)).rejects.toThrow()
+    await restore()
+    // Nothing was forgotten yet: the open slot and its charge are still there for the retry.
+    expect((await slotRows(stub)).length).toBe(1)
+    expect(await usageRows(alice.user)).toEqual(before)
+    await conv.deleteAttachmentStorage(g.id)
+    expect((await slotRows(stub)).length).toBe(0)
+    expect((await usageRows(alice.user)).length).toBe(before.length - 1)
   })
 })
