@@ -273,7 +273,11 @@ mod tests {
             assert!(set.roles.is_empty(), "{value}: {:?}", set.roles);
             assert_eq!(set.invalid.len(), 1);
             assert!(set.invalid[0].reason.contains("runAsRoot"), "{}", set.invalid[0].reason);
-            assert!(set.invalid[0].reason.contains("never run as root"), "{}", set.invalid[0].reason);
+            assert!(
+                set.invalid[0].reason.contains("never run as root"),
+                "{}",
+                set.invalid[0].reason
+            );
         }
     }
 
