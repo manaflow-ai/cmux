@@ -214,6 +214,22 @@ impl Mux {
 
     /// Notifications, presentation, and tab directories for serializing the
     /// whole tree. Git HEAD lookups run after the state lock is released.
+    /// A creation whose mark wrote rows the raw tree reads (an app
+    /// workspace's companion kind row): reload them after its commit and
+    /// before its first delta is built, so that delta shows the kind.
+    pub(crate) fn refresh_presentation_for(
+        &self,
+        registry: &WorkspaceRegistry,
+        reload: bool,
+        decorations: &mut TreeDecorations,
+    ) -> anyhow::Result<()> {
+        if reload {
+            self.reload_presentation(registry)?;
+            decorations.presentation = self.presentation_snapshot();
+        }
+        Ok(())
+    }
+
     pub fn tree_decorations(&self) -> TreeDecorations {
         let presentation = self.presentation_snapshot();
         let (notifications, directories) = {

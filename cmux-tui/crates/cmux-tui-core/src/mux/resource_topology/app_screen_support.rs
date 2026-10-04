@@ -15,27 +15,9 @@ impl Mux {
     }
 }
 
-/// A creation's selectors and fields after routing, and the guard that
-/// keeps a second companion creation out until this one commits.
-type RoutedCreation = (ResourceSelectors, Map<String, Value>, Option<CompanionCreation>);
-
-/// Held while a routed creation runs: one companion creation at a time.
-/// When the creation makes the companion, dropping it reloads the
-/// presentation the raw tree reads (its kind and app) and resends the tree.
-pub(crate) struct CompanionCreation {
-    _lock: MutexGuard<'static, ()>,
-    creates: Option<Arc<Mux>>,
-}
-
-impl Drop for CompanionCreation {
-    fn drop(&mut self) {
-        let Some(mux) = self.creates.take() else { return };
-        let reloaded = mux.reload_presentation(&mux.workspace_registry.lock().unwrap());
-        if reloaded.is_ok() {
-            mux.emit(MuxEvent::TreeChanged);
-        }
-    }
-}
+/// A creation's selectors and fields after routing, and the lock that keeps
+/// a second companion creation out until this one commits.
+type RoutedCreation = (ResourceSelectors, Map<String, Value>, Option<MutexGuard<'static, ()>>);
 
 impl Mux {
     /// A new tab sent to an app workspace (a workspace or screen target,
@@ -85,7 +67,6 @@ impl Mux {
         let live = self.read_registry_state(|connection| {
             crate::state::app_screens_store::live_companion(connection, &app)
         })?;
-        let creates = live.is_none().then(|| Arc::clone(self));
         let selectors = match live {
             Some(companion) => ResourceSelectors {
                 workspace: Some(companion),
@@ -104,7 +85,7 @@ impl Mux {
                 ResourceSelectors { workspace: None, screen: None, pane: None, ..selectors }
             }
         };
-        Ok((selectors, fields, Some(CompanionCreation { _lock: guard, creates })))
+        Ok((selectors, fields, Some(guard)))
     }
 }
 

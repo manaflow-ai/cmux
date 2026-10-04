@@ -13987,13 +13987,14 @@ impl Mux {
         Self::validate_workspace_key(&key)?;
         let requested_name = name.clone();
         let ws_id = self.next_id();
-        let notifications = self.tree_decorations();
+        let mut notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut fingerprint = serde_json::json!({
             "op": "create-workspace",
             "name": requested_name,
             "requested_key": requested_key,
         });
+        let fresh_presentation = mark.reloads_presentation();
         if let Some((field, value)) = mark.fingerprint_field() {
             fingerprint[field] = value;
         }
@@ -14096,6 +14097,7 @@ impl Mux {
                     replayed: true,
                 });
             }
+            self.refresh_presentation_for(&registry, fresh_presentation, &mut notifications)?;
             let resource_revision = project_resource
                 .then(|| registry.snapshot())
                 .transpose()?

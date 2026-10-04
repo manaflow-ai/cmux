@@ -150,3 +150,34 @@ fn home_migration_resumes_after_an_interrupted_step() {
     assert!(companion_of(&wire, HOME).is_none(), "nothing needed a companion");
     wire.mux.shutdown();
 }
+
+/// A raw client's FIRST delta for a companion that a routed new tab
+/// creates already shows its kind: `kind: "app_tabs"`, `app`, and
+/// `extra.default_title: true` (no `normal` moment for a client or a sync
+/// replica to record).
+#[test]
+fn the_first_delta_of_a_routed_companion_has_its_kind() {
+    let mut wire = Wire::new();
+    let created = wire.ensure_app(STORE, "app", "open-store");
+    let store_slot = wire.workspace_slot(created["value"]["workspace_id"].as_str().unwrap());
+    let events = wire.mux.subscribe();
+    wire.ok(json!({"cmd": "new-app-tab", "workspace": store_slot, "app": "cmux.agent"}));
+    let companion = companion_of(&wire, STORE).expect("the new tab made the companion");
+    let companion_slot = wire.workspace_slot(&companion);
+    let mut first = None;
+    while let Ok(event) = events.try_recv() {
+        if let MuxEvent::TreeDelta(delta) = event
+            && delta.workspace == companion_slot
+        {
+            first = Some(delta);
+            break;
+        }
+    }
+    let first = first.expect("the companion's creation emitted a tree delta");
+    assert_eq!(first.kind, TreeDeltaKind::WorkspaceAdded, "{:?}", first.entity);
+    let entity = &first.entity;
+    assert_eq!(entity["kind"], "app_tabs", "{entity}");
+    assert_eq!(entity["app"], STORE, "{entity}");
+    assert_eq!(entity["extra"]["default_title"], true, "{entity}");
+    wire.mux.shutdown();
+}

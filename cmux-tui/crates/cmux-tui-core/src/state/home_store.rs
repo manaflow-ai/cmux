@@ -100,6 +100,11 @@ impl EmptyWorkspaceMark {
         if ephemeral { Self::Ephemeral } else { Self::None }
     }
 
+    /// Whether the rows it writes are read by the raw tree's presentation.
+    pub(crate) fn reloads_presentation(&self) -> bool {
+        matches!(self, Self::Companion { .. })
+    }
+
     pub(crate) fn writes(&self) -> bool {
         *self != Self::None
     }
