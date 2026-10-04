@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import Synchronization
 
@@ -22,6 +23,21 @@ nonisolated final class CloudHomeSource: HomeSource {
         var state: String
         /// An event set `state`; the subscribe reply no longer may.
         var fromEvent = false
+    }
+
+    /// The subscription an edit made outside a transcript keeps for its
+    /// echo (`requireEditable` subscribed the conversation for it).
+    struct EditHold {
+        /// Edits of the conversation whose op has not answered yet.
+        var inFlight = 0
+        /// The newest revision an answered op committed at: an event at
+        /// it or later is the echo, and ends the hold.
+        var awaited: UInt64?
+        /// The newest revision a conversation event reported since the hold began.
+        var seen: UInt64 = 0
+        /// Ends the hold when no echo comes (a lost echo, or a refusal the
+        /// store gives up on without telling the source).
+        let deadline: DemandTimer
     }
 
     private struct State {
@@ -88,8 +104,10 @@ nonisolated final class CloudHomeSource: HomeSource {
         var wire: Task<Void, Never>?
         /// Conversations a transcript shows now (read with `snapshot(of:)`
         /// and not closed since). An edit from outside a transcript
-        /// subscribes a conversation for itself and ends that after the op.
+        /// subscribes a conversation for itself and ends that with its echo.
         var viewed: Set<ConversationID> = []
+        /// Edits outside a transcript waiting for their echo, per conversation.
+        var editHolds: [ConversationID: EditHold] = [:]
         /// This source's inbox stream revision: one per inbox event it publishes.
         var inboxRev: Revision = 0
         /// A read or op failed in a way that leaves intents unconfirmed; the
@@ -189,6 +207,9 @@ nonisolated final class CloudHomeSource: HomeSource {
             state.hydrating = []
             state.hydrationQueue = []
             state.hydrationWorkers = 0
+            // Subscriptions of the old connection or account are not this one's to end.
+            for hold in state.editHolds.values { hold.deadline.cancel() }
+            state.editHolds = [:]
             if cleared {
                 state.entries = [:]
                 state.touched = [:]
@@ -240,6 +261,8 @@ nonisolated final class CloudHomeSource: HomeSource {
         case .sessionNeeded:
             break
         }
+        if case .changed(let changed) = event { echoed(ConversationID(changed.conversation), rev: changed.rev) }
+        if case .resynced(let resynced) = event { echoed(ConversationID(resynced.conversation), rev: resynced.rev) }
         // An owner event proves the cloud reachable again.
         if case .changed = event { reached() }
         if case .resynced = event { reached() }
@@ -470,16 +493,19 @@ nonisolated final class CloudHomeSource: HomeSource {
             return try await reply(for: identity) { try await commands.op(request) }
         }
         func edit(_ op: CloudConversationOp, in conversation: ConversationID) async throws -> HomeOpResult {
-            try requireEditable(conversation, commands: commands, generation: generation)
+            beginEdit(conversation, generation: generation)
             let result: CloudConversationOpResult
             do {
+                try requireEditable(conversation, commands: commands, generation: generation)
                 result = try await send(op, in: conversation)
-            } catch let rejection as HomeRejection {
-                // A resend follows a transient failure and needs the socket live.
-                if Self.isFinal(rejection) { endEditSubscription(conversation, generation: generation) }
-                throw rejection
+            } catch {
+                // A resend follows a transient failure and needs the socket
+                // live; one refused for good waits for nothing.
+                let final = (error as? HomeRejection).map(Self.isFinal) ?? false
+                finishEdit(conversation, generation: generation, committedAt: nil, final: final)
+                throw error
             }
-            endEditSubscription(conversation, generation: generation)
+            finishEdit(conversation, generation: generation, committedAt: result.rev ?? 0, final: false)
             return HomeOpResult(rev: result.rev ?? 0, replayed: result.replayed, conversation: conversation)
         }
         switch intent.op {
@@ -535,6 +561,8 @@ nonisolated final class CloudHomeSource: HomeSource {
         var ending: (any CloudConversationCommands)?
         publish { state in
             state.viewed.remove(conversation)
+            // The close ends the subscription an edit kept, too.
+            state.editHolds.removeValue(forKey: conversation)?.deadline.cancel()
             guard state.targets.removeValue(forKey: conversation) != nil else { return nil }
             state.recent.removeAll { $0 == conversation }
             ending = state.commands
@@ -1020,18 +1048,75 @@ nonisolated final class CloudHomeSource: HomeSource {
         return sent
     }
 
-    /// The op of an edit made outside a transcript ended: no transcript
-    /// shows its conversation, so the subscription `requireEditable` made
-    /// for it ends, queued after the op's reply. An echo that the daemon
-    /// relays only after that unsubscribe does not reach this source; the
-    /// inbox entry still moves with UserDO's event.
-    private func endEditSubscription(_ conversation: ConversationID, generation: UInt64) {
+    /// An edit of `conversation` starts: a deadline waiting for an earlier
+    /// edit's echo waits for this one's op too.
+    private func beginEdit(_ conversation: ConversationID, generation: UInt64) {
         state.withLock { state in
-            guard state.generation == generation, !state.viewed.contains(conversation), let commands = state.commands,
-                  state.targets.removeValue(forKey: conversation) != nil else { return }
-            state.recent.removeAll { $0 == conversation }
-            Self.chainUnsubscribes([conversation], commands: commands, &state)
+            guard state.generation == generation else { return }
+            var hold = state.editHolds[conversation]
+                ?? EditHold(deadline: DemandTimer(owner: "App.homeCloud.editEcho", clock: clock))
+            hold.inFlight += 1
+            hold.deadline.cancel()
+            state.editHolds[conversation] = hold
         }
+    }
+
+    /// An edit's op answered (`committedAt`: its revision) or was refused
+    /// (`final`: the store never resends it). Once no edit of the
+    /// conversation is in flight, the subscription ends when the newest
+    /// committed edit's echo has arrived, or at once when nothing waits for
+    /// one; otherwise at the echo or at `editEchoDeadline`, whichever comes
+    /// first. A transcript that shows the conversation keeps its own.
+    private func finishEdit(_ conversation: ConversationID, generation: UInt64, committedAt rev: UInt64?, final: Bool) {
+        state.withLock { state in
+            guard state.generation == generation, var hold = state.editHolds[conversation] else { return }
+            hold.inFlight = max(hold.inFlight - 1, 0)
+            if let rev { hold.awaited = max(hold.awaited ?? 0, rev) }
+            state.editHolds[conversation] = hold
+            guard hold.inFlight == 0 else { return }
+            if state.viewed.contains(conversation) {
+                state.editHolds[conversation] = nil
+                return
+            }
+            let echoed = hold.awaited.map { hold.seen >= $0 } ?? final
+            if echoed {
+                endEditSubscription(conversation, &state)
+                return
+            }
+            hold.deadline.schedule(after: Self.editEchoDeadline) { [weak self] in
+                self?.editDeadlinePassed(conversation, generation: generation)
+            }
+        }
+    }
+
+    /// A conversation event at `rev`: the echo of a held edit ends its subscription.
+    private func echoed(_ conversation: ConversationID, rev: UInt64) {
+        state.withLock { state in
+            guard var hold = state.editHolds[conversation] else { return }
+            hold.seen = max(hold.seen, rev)
+            state.editHolds[conversation] = hold
+            guard hold.inFlight == 0, let awaited = hold.awaited, hold.seen >= awaited else { return }
+            endEditSubscription(conversation, &state)
+        }
+    }
+
+    private func editDeadlinePassed(_ conversation: ConversationID, generation: UInt64) {
+        state.withLock { state in
+            // An edit in flight arms the deadline again when it answers.
+            guard state.generation == generation, state.editHolds[conversation]?.inFlight == 0 else { return }
+            endEditSubscription(conversation, &state)
+        }
+    }
+
+    /// The held edit is done: no transcript shows its conversation, so the
+    /// subscription `requireEditable` made for it ends (call with the lock
+    /// held).
+    private func endEditSubscription(_ conversation: ConversationID, _ state: inout State) {
+        state.editHolds.removeValue(forKey: conversation)?.deadline.cancel()
+        guard !state.viewed.contains(conversation), let commands = state.commands,
+              state.targets.removeValue(forKey: conversation) != nil else { return }
+        state.recent.removeAll { $0 == conversation }
+        Self.chainUnsubscribes([conversation], commands: commands, &state)
     }
 
     /// A reply, a live socket or an owner event: the cloud and the Worker
