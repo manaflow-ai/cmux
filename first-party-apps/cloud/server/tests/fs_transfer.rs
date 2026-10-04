@@ -103,14 +103,15 @@ fn the_key_is_never_in_argv_debug_or_errors() {
         guest: "/home/cmux/notes.txt".into(),
         endpoint,
         route: "127.0.0.1:40022".parse().unwrap(),
+        env: Vec::new(),
+        ssh: cmux_cloud::app_env::SshFiles {
+            config: "/tmp/x/ssh/config".into(),
+            known_hosts: "/tmp/x/ssh/known_hosts".into(),
+        },
+        temp_dir: std::env::temp_dir(),
     };
-    let argv = scp_args(
-        &job,
-        Path::new("/tmp/x/agent.sock"),
-        Path::new("/tmp/x/known_hosts"),
-        Path::new("/tmp/x/transfer.pub"),
-    )
-    .join(" ");
+    let argv =
+        scp_args(&job, Path::new("/tmp/x/agent.sock"), Path::new("/tmp/x/transfer.pub")).join(" ");
     assert!(argv.contains("StrictHostKeyChecking=yes") && argv.contains("HostKeyAlias=cmux-scp"));
     assert!(argv.contains("cmux@127.0.0.1:/home/cmux/notes.txt") && argv.contains(" -- "));
     assert!(!argv.contains(" -i "), "no identity file");
@@ -119,7 +120,8 @@ fn the_key_is_never_in_argv_debug_or_errors() {
     assert!(argv.contains("IdentityFile=\"/tmp/x/transfer.pub\""));
     assert!(argv.starts_with("-s "), "SFTP protocol: no remote shell reads the path");
     // The real transfer with missing binaries fails on its real error path.
-    let mut real = OpenSshTransfer {
+    let real = OpenSshTransfer {
+        ssh: "/nonexistent/ssh".into(),
         ssh_agent: "/nonexistent/ssh-agent".into(),
         ssh_add: "/nonexistent/ssh-add".into(),
         scp: "/nonexistent/scp".into(),

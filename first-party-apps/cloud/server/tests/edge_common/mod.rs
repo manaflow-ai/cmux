@@ -135,7 +135,7 @@ impl FakeTransfer {
 }
 
 impl Transfer for FakeTransfer {
-    fn run(&mut self, job: &TransferJob, key: &TransferKey) -> Result<u64, TransferError> {
+    fn run(&self, job: &TransferJob, key: &TransferKey) -> Result<u64, TransferError> {
         let mut log = self.log();
         log.jobs.push(job.clone());
         log.public_keys.push(key.public_openssh());
@@ -166,13 +166,18 @@ pub struct Rig {
 
 /// A server with the fake control plane, link, tunnel and transfer.
 pub fn rig(fixtures: &[&str]) -> Rig {
+    rig_with_env(fixtures, crate::attach_common::test_env())
+}
+
+/// [`rig`] with the given app environment.
+pub fn rig_with_env(fixtures: &[&str], env: cmux_cloud::app_env::AppEnv) -> Rig {
     let spawner = FakeSpawner::default();
     let tunnel = FakeTunnel::default();
     let transfer = FakeTransfer::default();
     let edge = Edge::new(Arc::new(tunnel.clone()), Box::new(transfer.clone()));
     let server = Server::with_parts(
         FakeControlPlane::with(fixtures),
-        attach(&spawner, &FakeTransport::default()),
+        attach(&spawner, &FakeTransport::default()).with_env(env),
         edge,
     );
     Rig { server, spawner, tunnel, transfer }

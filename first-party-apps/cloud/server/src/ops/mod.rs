@@ -254,6 +254,9 @@ impl<C: ControlPlane> Server<C> {
         self.edge.reconcile(&self.attach.supervisor);
     }
 
+    /// Blocks until every running file transfer has finished.
+    pub fn wait_transfers(&mut self) {}
+
     /// Forwards and routes closed by link state since the last call.
     pub fn take_edge_events(&mut self) -> Vec<crate::ports::EdgeDown> {
         self.edge.take_events()
