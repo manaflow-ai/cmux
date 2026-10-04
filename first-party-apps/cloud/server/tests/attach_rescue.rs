@@ -215,7 +215,7 @@ fn rescue_open_focuses_only_for_a_person_or_an_explicit_ask() {
         if let Some(f) = focus {
             args["focus"] = json!(f);
         }
-        Request::new("cloud.rescue.open", args).origin(origin).key(key)
+        Request::new("cloud.rescue.open", args).origin(origin).key(key).open_token("open-token-test")
     };
     let by_user = s.handle(&open(Origin::User, None, "r-1")).expect("user");
     assert_eq!(by_user["focus"], true);
@@ -230,4 +230,36 @@ fn rescue_open_focuses_only_for_a_person_or_an_explicit_ask() {
     let terminal = s.attach_mut().rescue_terminal(&id).expect("kept for the daemon");
     terminal.write(input(0, "ls\r")).expect("write");
     assert_eq!(transport.written(1), b"ls\r");
+}
+
+#[test]
+fn the_rescue_backend_refuses_an_empty_open_token_before_any_open() {
+    let transport = FakeTransport::default();
+    let mut backend = RescueBackend::new(Box::new(transport.clone()));
+    for token in ["", " "] {
+        let mut request = open_request("cloud-vm-rescue");
+        request.open_token = OpenToken(token.into());
+        let answer = backend.open(request).map(|_| "opened");
+        assert!(matches!(answer, Err(BackendError::Invalid { .. })), "{token:?}: {answer:?}");
+    }
+    assert!(transport.log().opened.is_empty(), "no stream opened");
+}
+
+#[test]
+fn rescue_open_without_the_hosts_open_token_is_refused_before_any_call() {
+    let transport = FakeTransport::default();
+    let mut s = Server::with_attach(
+        FakeControlPlane::with(&["vm-get"]),
+        attach(&FakeSpawner::default(), &transport),
+    );
+    let bare = Request::new("cloud.rescue.open", json!({ "machine": "vm-alpha01" }))
+        .origin(Origin::User)
+        .key("r-1");
+    let empty = bare.clone().key("r-2").open_token("");
+    for request in [bare, empty] {
+        let code = s.handle(&request).map_err(|e| e.code);
+        assert_eq!(code, Err("cmux.cloud.invalid_args"), "{code:?}");
+    }
+    assert!(transport.log().opened.is_empty(), "no stream opened");
+    assert!(s.control_plane().calls.is_empty(), "no Cloud API call, no machine start");
 }
