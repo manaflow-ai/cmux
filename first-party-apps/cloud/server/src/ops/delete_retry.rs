@@ -12,8 +12,10 @@
 use crate::api::{CloudError, codes};
 
 /// True when `error` leaves the outcome unknown.
+/// An undeclared backend code (`protocol_error`) also says nothing about
+/// whether the call acted.
 pub(super) fn indeterminate(error: &CloudError) -> bool {
-    error.code == codes::INDETERMINATE || error.code == codes::RELAY_UNAVAILABLE
+    matches!(error.code, codes::INDETERMINATE | codes::RELAY_UNAVAILABLE | codes::PROTOCOL_ERROR)
 }
 
 /// The answer for an unknown outcome: retryable, and it says how.

@@ -18,6 +18,8 @@ import os from "node:os";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { createReferenceHost } from "./reference-host.mjs";
+import { siteOf } from "./public-suffix.mjs";
+import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "./test-dirs.mjs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -36,7 +38,11 @@ export function loadPlaywright() {
       return require(path.join(d, "playwright"));
     } catch {}
   }
-  return require("playwright");
+  try {
+    return require("playwright");
+  } catch (e) {
+    throw new Error(`playwright not found: set PARITY_PLAYWRIGHT_DIR to a node_modules directory that holds it (${e.message.split("\n")[0]})`);
+  }
 }
 
 // Builds the install script from the recipe in page-agent.js.
@@ -44,6 +50,16 @@ export function agentInstallSource() {
   const injected = fs.readFileSync(path.join(runtimeDir, "vendor/playwright-injected.js"), "utf8");
   const agent = fs.readFileSync(path.join(runtimeDir, "page-agent.js"), "utf8");
   return `(() => {\nconst module = {};\n${injected}\n;const __cmuxInjectedScriptFactory = module.exports.InjectedScript;\n${agent}\n})()`;
+}
+
+// The app's page clipboard guard (BrowserReplPageClipboard): in a tab a
+// session created, the page's Clipboard API and execCommand("copy" | "cut")
+// write the tab's clipboard, never the system's. The app also switches
+// WebKit's asynchronous Clipboard API off; Playwright cannot, so here the
+// same page-clipboard.js replaces it in every document the page loads.
+export function pageClipboardInitScript() {
+  const shim = fs.readFileSync(path.join(runtimeDir, "page-clipboard.js"), "utf8");
+  return `(${shim})(((post) => (message) => post ? post(message) : Promise.reject(new Error("the tab's clipboard is unavailable")))(globalThis.__cmuxReplClipboard));`;
 }
 
 class DriverError extends Error {
@@ -87,6 +103,9 @@ function textPdf(text) {
 
 // `setupContext(context)` runs once on the Playwright context before any tab
 // opens (site-tool tests route real hostnames to local mock sites with it).
+// The id `tabs.list` and `tabs.dataStore` report for the context's one store.
+const DATA_STORE = "default";
+
 export async function createDevBrowser({ headless = true, viewport = { width: 1280, height: 800 }, setupContext } = {}) {
   const { webkit } = loadPlaywright();
   const installSource = agentInstallSource();
@@ -156,7 +175,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
 
   function register(page) {
     if (tabOf.has(page)) return tabOf.get(page);
-    const tab = { targetId: hexId(), page, frameIds: new WeakMap(), frames: new Map(), clipboard: [], openerTargetId: undefined, openDialogs: 0, title: "", loadState: "commit" };
+    const tab = { targetId: hexId(), page, frameIds: new WeakMap(), frames: new Map(), clipboard: [], clipboardCommand: null, openerTargetId: undefined, openDialogs: 0, title: "", loadState: "commit", creator: null, handled: new Map(), inputDrivers: [], heldKeys: new Map(), heldButtons: new Map() };
     tabs.set(tab.targetId, tab);
     tabOf.set(page, tab);
     frameId(tab, page.mainFrame());
@@ -170,12 +189,28 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       emit("pageerror", { targetId, message, stack: e.stack ?? "" });
     });
     page.on("dialog", (d) => {
+      // A user's tab keeps its own UI for dialogs no session handles; this
+      // driver stands in for the user: it lets the page leave on
+      // beforeunload, as cmux does with no session, and dismisses the rest.
+      if (!routesToSessions(tab, "dialog")) {
+        (d.type() === "beforeunload" ? d.accept() : d.dismiss()).catch(() => {});
+        return;
+      }
       const dialogId = `d${nextId++}`;
+      // As in the app: a dialog during Copy, Cut or Paste is dismissed at
+      // once, so it cannot hold the command, and reported.
+      if (tab.clipboardCommand) {
+        d.dismiss().catch(() => {});
+        emit("dialog.opened", { targetId, dialogId, type: d.type(), message: d.message(), defaultValue: d.defaultValue(), dismissedDuring: tab.clipboardCommand });
+        return;
+      }
       dialogs.set(dialogId, d);
       tab.openDialogs++;
       emit("dialog.opened", { targetId, dialogId, type: d.type(), message: d.message(), defaultValue: d.defaultValue() });
     });
     page.on("filechooser", async (c) => {
+      // The user's own file panel: nobody answers it here.
+      if (!routesToSessions(tab, "filechooser")) return;
       const chooserId = `c${nextId++}`;
       choosers.set(chooserId, c);
       const frame = c.element().ownerFrame ? await c.element().ownerFrame() : page.mainFrame();
@@ -184,6 +219,8 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       emit("filechooser.opened", { targetId, chooserId, frameId: frameId(tab, frame), element, multiple: c.isMultiple() });
     });
     page.on("download", (d) => {
+      // The user's download: it is not reported to the sessions.
+      if (!routesToSessions(tab, "download")) return;
       const downloadId = `dl${nextId++}`;
       downloads.set(downloadId, d);
       emit("download.started", { targetId, downloadId, url: d.url(), suggestedFilename: d.suggestedFilename() });
@@ -224,10 +261,39 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     return tab;
   }
 
+  // Session behaviors apply to tabs a session opened (and their popups)
+  // while it is attached; in any other tab only the events a session
+  // registered a handler for (tab.handleEvents) reach the sessions.
+  async function guardPageClipboard(tab) {
+    if (tab.pageClipboardGuarded) return;
+    tab.pageClipboardGuarded = true;
+    await tab.page.exposeBinding("__cmuxReplClipboard", (_source, message) => {
+      const items = message && Array.isArray(message.items) ? message.items : null;
+      if (!items || items.some((i) => !i || typeof i.type !== "string" || typeof i.base64 !== "string")) {
+        throw new Error("the clipboard write is not a list of typed items within the size limit");
+      }
+      tab.clipboard = items.map((i) => ({ type: i.type, base64: i.base64 }));
+    });
+    await tab.page.addInitScript({ content: pageClipboardInitScript() });
+  }
+
+  function routesToSessions(tab, event) {
+    if (tab.creator && drivers.has(tab.creator)) return true;
+    for (const [driver, events] of tab.handled) if (drivers.has(driver) && events.has(event)) return true;
+    // As in the app: a dialog or file chooser the page opens while it
+    // handles a session's input or navigation goes to that session.
+    if (event !== "download" && tab.inputDrivers.some((driver) => drivers.has(driver))) return true;
+    return false;
+  }
+
   context.on("page", async (page) => {
     const tab = register(page);
     const opener = await page.opener().catch(() => null);
-    if (opener && tabOf.has(opener)) tab.openerTargetId = tabOf.get(opener).targetId;
+    if (opener && tabOf.has(opener)) {
+      tab.openerTargetId = tabOf.get(opener).targetId;
+      tab.creator ??= tabOf.get(opener).creator;
+      if (tab.creator) await guardPageClipboard(tab).catch(() => {});
+    }
     if (tab.openerTargetId) activeTarget = tab.targetId;
     emit("tab.created", { targetId: tab.targetId, openerTargetId: tab.openerTargetId, url: page.url() });
   });
@@ -312,41 +378,95 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   const MODIFIER_KEYS = new Set(["Alt", "Control", "Meta", "Shift"]);
 
   // Meta+C, Meta+X and Meta+V use the tab's virtual clipboard, as the app
-  // driver does; the system pasteboard is never touched.
+  // driver does; the system pasteboard is never touched. The app runs
+  // WebKit's own Copy, Cut and Paste, so the page gets copy, cut and paste
+  // events with clipboardData. Playwright WebKit's own commands use the
+  // system clipboard, so this dispatches the events (not trusted) in the
+  // focused frame and does what WebKit does unless the page cancels them.
+  //
+  // As in the app, they run only in tabs a session created, and one the page
+  // keeps running past 5 s ends the tab's web content process (the app
+  // contains a late write to the system clipboard that way). Playwright
+  // cannot end one page's process, so this reports the crash, ignores what
+  // the page does afterwards, and lets its script run out.
+  const CLIPBOARD_COMMAND_TIMEOUT_MS = 5000;
   async function clipboardShortcut(tab, key) {
-    const page = tab.page;
-    if (key === "v") {
-      // The app runs WebKit's Paste against the tab's clipboard, so the page
-      // gets a paste event with clipboardData. Playwright WebKit's own paste
-      // reads the system clipboard, so this double dispatches the event (not
-      // trusted) in the focused frame and inserts the text unless cancelled.
-      const item = tab.clipboard.find((i) => i.type === "text/plain");
-      const text = item ? Buffer.from(item.base64, "base64").toString("utf8") : "";
-      const entries = tab.clipboard.filter((i) => /^[\w.+-]+\/[\w.+-]+$/.test(i.type)).map((i) => [i.type, Buffer.from(i.base64, "base64").toString("utf8")]);
-      let frame = page.mainFrame();
-      for (const f of page.frames()) {
-        if (await f.evaluate(() => document.hasFocus() && !(document.activeElement instanceof HTMLIFrameElement)).catch(() => false)) frame = f;
+    const type = { c: "copy", x: "cut", v: "paste" }[key];
+    const name = { copy: "Copy", cut: "Cut", paste: "Paste" }[type];
+    if (!(tab.creator && drivers.has(tab.creator))) {
+      throw new DriverError(
+        "unsupported",
+        `${name} is refused in a user's tab (one no attached session opened): cmux ends the web content process of a tab whose page keeps a Copy, Cut or Paste running past its timeout, and it never does that to a user's tab. Use page.clipboard here, or open the page with tabs.open()`,
+      );
+    }
+    let timer;
+    const expired = new Promise((resolve) => { timer = setTimeout(() => resolve(true), CLIPBOARD_COMMAND_TIMEOUT_MS); });
+    try {
+      const finished = await Promise.race([runClipboardShortcut(tab, type).then(() => false), expired]);
+      if (finished) {
+        tab.clipboardRun = null;
+        tab.clipboardCommand = null;
+        emit("tab.crashed", { targetId: tab.targetId });
+        throw new DriverError(
+          "timeout",
+          `${name} did not finish within 5 s, so cmux ended the tab's web content process: nothing the page does later reaches the system clipboard. The tab's clipboard is unchanged; call page.reload() or page.goto() to load the page again`,
+        );
       }
-      const cancelled = await frame.evaluate((entries) => {
-        const data = new DataTransfer();
-        for (const [type, value] of entries) data.setData(type, value);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function runClipboardShortcut(tab, type) {
+    const page = tab.page;
+    let frame = page.mainFrame();
+    for (const f of page.frames()) {
+      if (await f.evaluate(() => document.hasFocus() && !(document.activeElement instanceof HTMLIFrameElement)).catch(() => false)) frame = f;
+    }
+    const started = Symbol(type);
+    tab.clipboardCommand = type;
+    tab.clipboardRun = started;
+    // After a timeout the command is abandoned: what it finds later is
+    // dropped, as the app's ended process drops it.
+    const current = () => tab.clipboardRun === started;
+    try {
+      if (type === "paste") {
+        const item = tab.clipboard.find((i) => i.type === "text/plain");
+        const text = item ? Buffer.from(item.base64, "base64").toString("utf8") : "";
+        const entries = tab.clipboard.filter((i) => /^[\w.+-]+\/[\w.+-]+$/.test(i.type)).map((i) => [i.type, Buffer.from(i.base64, "base64").toString("utf8")]);
+        const cancelled = await frame.evaluate((entries) => {
+          const data = new DataTransfer();
+          for (const [type, value] of entries) data.setData(type, value);
+          let el = document.activeElement || document.body;
+          while (el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+          return !el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true, composed: true }));
+        }, entries);
+        if (!cancelled && text && current()) await page.keyboard.insertText(text);
+        return;
+      }
+      // WebKit fires copy and cut only when something is selected.
+      const result = await frame.evaluate((type) => {
         let el = document.activeElement || document.body;
         while (el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
-        return !el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true, composed: true }));
-      }, entries);
-      if (!cancelled && text) await page.keyboard.insertText(text);
-      return;
-    }
-    const selection = await page.evaluate(() => {
-      const el = document.activeElement;
-      if (el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.selectionStart !== null) {
-        return el.value.slice(el.selectionStart, el.selectionEnd);
+        const field = (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.selectionStart !== null;
+        const selection = field ? el.value.slice(el.selectionStart, el.selectionEnd) : String(getSelection() || "");
+        if (!selection) return { selection, items: null };
+        const data = new DataTransfer();
+        const cancelled = !el.dispatchEvent(new ClipboardEvent(type, { clipboardData: data, bubbles: true, cancelable: true, composed: true }));
+        return { selection, items: cancelled ? [...data.types].map((t) => [t, data.getData(t)]) : null };
+      }, type);
+      if (!current()) return;
+      tab.clipboard = result.items
+        ? result.items.map(([t, value]) => ({ type: t, base64: Buffer.from(value).toString("base64") }))
+        : [{ type: "text/plain", base64: Buffer.from(result.selection).toString("base64") }];
+      // The app sends Cocoa's delete: action; execCommand is its page-side twin.
+      if (type === "cut" && !result.items && result.selection) await frame.evaluate(() => document.execCommand("delete"));
+    } finally {
+      if (current()) {
+        tab.clipboardCommand = null;
+        tab.clipboardRun = null;
       }
-      return String(getSelection() || "");
-    });
-    tab.clipboard = [{ type: "text/plain", base64: Buffer.from(selection).toString("base64") }];
-    // The app sends Cocoa's delete: action; execCommand is its page-side twin.
-    if (key === "x" && selection) await page.evaluate(() => document.execCommand("delete"));
+    }
   }
 
   async function keyEvent(tab, { type, key, code, text, modifiers = [] }) {
@@ -374,10 +494,26 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   // matching block or ignore-previous-rules rule decides. A document rule
   // with load-context child-frame covers iframes only; one without
   // load-context covers the main frame too. A blocked main-frame document is
-  // reported as tab.navigationBlocked (the request never reaches the server).
+  // reported as navigation.blocked (the request never reaches the server; reason
+  // null: reference-host.mjs names it from its policy).
   const RESOURCE_TYPES = { image: "image", stylesheet: "style-sheet", script: "script", font: "font", media: "media", fetch: "fetch", xhr: "fetch", websocket: "websocket", ping: "ping", other: "other" };
   let contentRules = [];
   let routed = false;
+  // A main-frame navigation of a tab a session opened, to a URL that
+  // session's domain policy blocks, is cancelled and reported, as the app's
+  // navigation delegate does.
+  function cancelsNavigation(request) {
+    const tab = tabOf.get(request.frame().page());
+    if (!tab) return false;
+    for (const d of drivers) {
+      if (!d.blockReason || !d.opened.has(tab.targetId)) continue;
+      const reason = d.blockReason(request.url());
+      if (!reason) continue;
+      for (const h of d.listeners.get("navigation.blocked") ?? []) h({ targetId: tab.targetId, url: request.url(), reason });
+      return true;
+    }
+    return false;
+  }
   async function setContentRules(rules) {
     contentRules = rules.map((r) => ({ re: new RegExp(r.trigger["url-filter"], "i"), types: r.trigger["resource-type"] || null, child: (r.trigger["load-context"] || []).includes("child-frame"), type: r.action.type }));
     if (routed || !contentRules.length) return;
@@ -388,6 +524,8 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       try {
         isMain = isDocument && request.frame().parentFrame() === null;
       } catch {}
+      // Main's path: a session's own domain policy on the driver (S0b).
+      if (isMain && cancelsNavigation(request)) return route.abort("blockedbyclient");
       const type = isDocument ? "document" : RESOURCE_TYPES[request.resourceType()] || "other";
       let blocked = false;
       for (const r of contentRules) {
@@ -401,7 +539,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         try {
           tab = tabOf.get(request.frame().page());
         } catch {}
-        if (tab) emit("tab.navigationBlocked", { targetId: tab.targetId, url: request.url() });
+        if (tab) emit("navigation.blocked", { targetId: tab.targetId, url: request.url(), reason: null });
       }
       return blocked ? route.abort("blockedbyclient") : route.fallback();
     });
@@ -422,16 +560,32 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         url: t.page.url(),
         active: t.targetId === activeTarget,
         windowId: 1,
+        dataStore: DATA_STORE,
         ...(t.openerTargetId ? { openerTargetId: t.openerTargetId } : {}),
       }))),
-    "tabs.open": async ({ url, background }, driver) => {
+    // One Playwright context, so one data store for every tab.
+    "tabs.dataStore": async ({ targetId } = {}) => {
+      if (targetId !== undefined) tabFor(targetId);
+      return { dataStore: DATA_STORE };
+    },
+    "tabs.open": async ({ url, background, dataStore }, driver) => {
+      if (dataStore !== undefined && dataStore !== DATA_STORE) throw new DriverError("invalid", `tabs.open: no open tab uses data store ${JSON.stringify(dataStore)}`);
       const page = await context.newPage();
       const tab = register(page);
       tab.blankStart = !url;
+      tab.creator = driver;
+      await guardPageClipboard(tab);
       driver.opened.add(tab.targetId);
       if (!background) activeTarget = tab.targetId;
       if (url) await page.goto(url, { waitUntil: "commit" });
       return { targetId: tab.targetId };
+    },
+    "tab.handleEvents": async ({ targetId, events }, driver) => {
+      const known = ["dialog", "filechooser", "download"];
+      if (!Array.isArray(events) || events.some((e) => !known.includes(e))) {
+        throw new DriverError("invalid", `tab.handleEvents: events must be an array of ${known.join(", ")}`);
+      }
+      tabFor(targetId).handled.set(driver, new Set(events));
     },
     "tab.keep": async ({ targetId }, driver) => {
       tabFor(targetId);
@@ -563,8 +717,11 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     "frame.contentFrames": async ({ targetId, frameId: id, elements = [] }) => {
       return Promise.all(elements.map((element) => methods["frame.contentFrame"]({ targetId, frameId: id, element }).catch(() => null)));
     },
-    "input.mouse": async ({ targetId, type, x, y, button = "left", clickCount = 1, modifiers, deltaX = 0, deltaY = 0 }) => {
-      const page = tabFor(targetId).page;
+    "input.mouse": async ({ targetId, type, x, y, button = "left", clickCount = 1, modifiers, deltaX = 0, deltaY = 0 }, driver) => {
+      const tab = tabFor(targetId);
+      const page = tab.page;
+      if (type === "down") tab.heldButtons.set(button, driver);
+      if (type === "up") tab.heldButtons.delete(button);
       await withModifiers(page, modifiers, async () => {
         if (type === "move") await page.mouse.move(x, y);
         else if (type === "down") await page.mouse.down({ button, clickCount });
@@ -575,8 +732,12 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         } else throw new DriverError("invalid", `Unknown mouse event ${type}`);
       });
     },
-    "input.key": async ({ targetId, ...event }) => {
-      await keyEvent(tabFor(targetId), event);
+    "input.key": async ({ targetId, ...event }, driver) => {
+      const tab = tabFor(targetId);
+      const held = event.code || event.key;
+      if (event.type === "down") tab.heldKeys.set(held, { key: event.key, code: event.code, driver });
+      else tab.heldKeys.delete(held);
+      await keyEvent(tab, event);
       // As the app's driver: Command+B/I/U format an editable selection.
       const mods = event.modifiers || [];
       const cmd = { KeyB: "bold", KeyI: "italic", KeyU: "underline" }[event.code];
@@ -587,7 +748,24 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         }, cmd);
       }
     },
-    "input.insertText": async ({ targetId, text }) => tabFor(targetId).page.keyboard.insertText(text),
+    "input.insertText": async ({ targetId, text, secretName, secretDomains }) => {
+      const tab = tabFor(targetId);
+      if (secretName) {
+        // As the app's driver: the frame that has focus must be on one of
+        // the secret's domains, by its own origin.
+        let focused = tab.page.mainFrame();
+        for (const f of tab.page.frames()) {
+          const own = await f.evaluate(() => document.hasFocus() && !!document.activeElement && !/^(IFRAME|FRAME)$/.test(document.activeElement.tagName)).catch(() => false);
+          if (own) focused = f;
+        }
+        const origin = new URL(focused.url()).origin;
+        const T = loadRuntime().agentTools;
+        if (!secretDomains.some((d) => T.urlMatches(origin + "/", d, true))) {
+          throw new DriverError("invalid", `secret ${JSON.stringify(secretName)} may not be typed into ${origin}; its domains are ${secretDomains.map((d) => d.raw).join(", ")}`);
+        }
+      }
+      await tab.page.keyboard.insertText(text);
+    },
     "input.drag": async ({ targetId, path: points, button = "left", modifiers }) => {
       const page = tabFor(targetId).page;
       await withModifiers(page, modifiers, async () => {
@@ -626,23 +804,180 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       if (!d) throw new DriverError("not_found", `Download ${downloadId} is gone`);
       return { path: await d.path() };
     },
-    "tab.screenshot": async ({ targetId, clip, fullPage, format = "png", quality }) => {
+    "tab.screenshot": async ({ targetId, clip, fullPage, format = "png", quality, secretMasks }) => {
       const type = format === "jpeg" ? "jpeg" : "png";
-      const buf = await tabFor(targetId).page.screenshot({ clip, fullPage, type, quality: type === "jpeg" ? quality : undefined });
-      return { base64: buf.toString("base64"), ...pngSize(buf) };
+      const page = tabFor(targetId).page;
+      return withSecretMasks(page, secretMasks, async () => {
+        const buf = await page.screenshot({ clip, fullPage, type, quality: type === "jpeg" ? quality : undefined });
+        return { base64: buf.toString("base64"), ...pngSize(buf) };
+      });
     },
-    "tab.pdf": async ({ targetId }) => {
-      const text = await tabFor(targetId).page.evaluate(() => document.body ? document.body.innerText : "");
-      return { base64: textPdf(text).toString("base64") };
+    "tab.pdf": async ({ targetId, secretMasks }) => {
+      const page = tabFor(targetId).page;
+      return withSecretMasks(page, secretMasks, async () => {
+        const text = await page.evaluate(() => document.body ? document.body.innerText : "");
+        return { base64: textPdf(text).toString("base64") };
+      });
     },
-    "cookies.get": async ({ urls } = {}) => context.cookies(urls),
-    "cookies.set": async ({ cookies }) => context.addCookies(cookies),
-    "cookies.clear": async () => context.clearCookies(),
+    // The session's domain policy covers cookies as in the app: blocked
+    // URLs are refused and blocked sites' cookies are never listed, set or
+    // cleared (driver.cookieBlockReason, from the native-boundary emulation).
+    "cookies.get": async ({ urls } = {}, driver) => {
+      for (const url of urls || []) {
+        const reason = driver.blockReason && driver.blockReason(url);
+        if (reason) throw new DriverError("blocked", `cookies.get: ${url} is blocked: ${reason}`);
+      }
+      return (await context.cookies(urls)).filter((c) => !(driver.cookieBlockReason && driver.cookieBlockReason(c.domain)));
+    },
+    "cookies.set": async ({ cookies }, driver) => {
+      for (const c of cookies || []) {
+        const reason = driver.blockReason && c.url ? driver.blockReason(c.url) : null;
+        if (reason) throw new DriverError("blocked", `cookies.set: ${c.url} is blocked: ${reason}`);
+        const domain = c.domain || (c.url ? new URL(c.url).hostname : "");
+        const check = driver.cookieSetBlockReason || driver.cookieBlockReason;
+        const cookieReason = check && check(domain);
+        if (cookieReason) throw new DriverError("blocked", `cookies.set: a cookie on ${domain} is blocked: ${cookieReason}`);
+      }
+      return context.addCookies(cookies);
+    },
+    // Scoped as in the app, where tabs use the user's profile: the driver
+    // clears the site (registrable domain) of the target tab, else the
+    // active tab, whatever site the caller names, narrowed by exact name,
+    // domain and path. A tab with no site and { all: true } are refused.
+    "cookies.clear": async ({ targetId, all, name, domain, path } = {}, driver) => {
+      if (all) throw new DriverError("invalid", "cookies.clear: { all: true } would clear every site in the user's browser profile, which a session may not do; clear the current tab's site instead (a private tab's store, or one from session.configure({ proxy }), may be cleared whole)");
+      if (domain && driver.cookieBlockReason && driver.cookieBlockReason(domain)) throw new DriverError("blocked", `cookies.clear: ${domain} is blocked: ${driver.cookieBlockReason(domain)}`);
+      const tab = targetId ? tabFor(targetId) : tabs.get(activeTarget);
+      const url = tab ? tab.page.url() : "";
+      const site = /^https?:/i.test(url) ? siteOf(new URL(url).hostname) : null;
+      if (!site) throw new DriverError("invalid", `cookies.clear: the tab (${url || "none"}) has no site to scope to; open the site first`);
+      for (const c of await context.cookies()) {
+        const host = String(c.domain).toLowerCase().replace(/^\.+/, "");
+        if (host !== site && !host.endsWith("." + site)) continue;
+        if (driver.cookieBlockReason && driver.cookieBlockReason(c.domain)) continue;
+        if ((name && c.name !== name) || (domain && c.domain !== domain) || (path && c.path !== path)) continue;
+        await context.clearCookies({ name: c.name, domain: c.domain, path: c.path });
+      }
+    },
     "clipboard.read": async ({ targetId }) => ({ items: tabFor(targetId).clipboard }),
     "clipboard.write": async ({ targetId, items }) => {
       tabFor(targetId).clipboard = items;
     },
   };
+
+  // Captures hide secrets as the app's driver does (BrowserReplCaptureMask):
+  // in frames whose origin is on a secret's domains (the only frames it can
+  // be typed into), fields and text holding its value render as password
+  // dots for the length of the capture. Other frames never receive a value.
+  // Each capture restores only the elements it masked, so one capture ending
+  // does not unmask another's. It fails closed: the capture is refused
+  // (`invalid`) when the mask step fails in one of those frames, or when a
+  // scan after the capture finds a value rendered unmasked. Playwright
+  // evaluates in the page's world, so closed shadow roots, which the app's
+  // mask world sees, are not reached here.
+  async function withSecretMasks(page, masks, capture) {
+    if (!masks || !masks.length) return capture();
+    const T = loadRuntime().agentTools;
+    const token = crypto.randomUUID();
+    const targets = () =>
+      page
+        .frames()
+        .map((f) => {
+          let origin = "";
+          try {
+            origin = new URL(f.url()).origin;
+          } catch {}
+          return { f, origin, values: masks.filter((m) => m.domains.some((d) => T.urlMatches(origin + "/", d, true))).map((m) => m.value) };
+        })
+        .filter((t) => t.values.length);
+    const MASK = ([values, mode, token]) => {
+      const key = Symbol.for("cmux.dev.secretMask");
+      const state = (globalThis[key] ||= { counts: new Map(), captures: new Map() });
+      const prop = "-webkit-text-security";
+      if (mode === "off") {
+        const masked = state.captures.get(token) || [];
+        state.captures.delete(token);
+        for (const el of masked) {
+          const entry = state.counts.get(el);
+          if (!entry || --entry.count > 0) continue;
+          state.counts.delete(el);
+          if (entry.value) el.style.setProperty(prop, entry.value, entry.priority);
+          else el.style.removeProperty(prop);
+        }
+        return 0;
+      }
+      const hits = new Set();
+      const has = (t) => typeof t === "string" && values.some((v) => t.includes(v));
+      const visit = (root) => {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+        for (let n = walker.currentNode; n; n = walker.nextNode()) {
+          if (n.nodeType === 3) {
+            if (n.parentElement && has(n.data)) hits.add(n.parentElement);
+            continue;
+          }
+          if ((n instanceof HTMLInputElement && n.type !== "password") || n instanceof HTMLTextAreaElement) {
+            if (has(n.value)) hits.add(n);
+          }
+          if (n.shadowRoot) visit(n.shadowRoot);
+        }
+      };
+      visit(document.documentElement || document);
+      if (mode === "on") {
+        const styled = (el) => {
+          for (let n = el; n; n = n.parentElement || (n.parentNode && n.parentNode.host) || null) {
+            if (n.style instanceof CSSStyleDeclaration) return n;
+          }
+          return null;
+        };
+        const masked = state.captures.get(token) || new Set();
+        state.captures.set(token, masked);
+        for (const hit of hits) {
+          const el = styled(hit);
+          if (!el || masked.has(el)) continue;
+          masked.add(el);
+          const entry = state.counts.get(el);
+          if (entry) entry.count++;
+          else {
+            state.counts.set(el, { count: 1, value: el.style.getPropertyValue(prop), priority: el.style.getPropertyPriority(prop) });
+            el.style.setProperty(prop, "disc", "important");
+          }
+        }
+      }
+      let unmasked = 0;
+      for (const el of hits) if (getComputedStyle(el).getPropertyValue(prop) === "none") unmasked++;
+      return unmasked;
+    };
+    const refused = (message) => new DriverError("invalid", `the capture was refused: ${message}; try again`);
+    const step = async ({ f, origin, values }, mode) => {
+      let unmasked;
+      try {
+        unmasked = await f.evaluate(MASK, [values, mode, token]);
+      } catch (e) {
+        throw refused(`secrets could not be masked in ${origin} (${e.message})`);
+      }
+      if (unmasked !== 0) throw refused(mode === "verify" ? `the page in ${origin} showed a secret unmasked while it was taken` : `a secret in ${origin} could not be masked`);
+    };
+    const masked = [];
+    try {
+      for (const t of targets()) {
+        masked.push(t);
+        await step(t, "on");
+      }
+      const value = await capture();
+      for (const t of targets()) await step(t, "verify");
+      return value;
+    } finally {
+      for (const { f } of masked) await f.evaluate(MASK, [[], "off", token]).catch(() => {});
+    }
+  }
+
+  // Reads and input on a tab whose page the session's policy blocks are
+  // refused, as the app's driver does.
+  // Of the cookie calls only cookies.clear takes its scope from the page.
+  const GUARDED = /^(frame\.evaluate|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond|cookies\.clear$)/;
+  // The session's own input, script and navigations (WebKitBrowserReplDriver.isActionOnPage).
+  const ACTIONS = /^(input\.|frame\.evaluate$|tab\.navigate$|tab\.reload$|tab\.history$)/;
+  const NAVIGATIONS = /^tab\.(navigate|reload|history)$/;
 
   function createDriver() {
     const driver = {
@@ -650,10 +985,64 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       listeners: new Map(),
       opened: new Set(),
       sessionName: null,
+      blockReason: null,
+      cookieBlockReason: null,
+      policyFailure: null,
+      // Called by the native-boundary emulation, never by the runtime. As
+      // WebKit does, rules with a non-ASCII url-filter do not compile; then
+      // every call fails until a policy that compiles replaces them.
+      async setDomainPolicy(policy, blockReason, cookieBlockReason, cookieSetBlockReason) {
+        driver.cookieSetBlockReason = policy.allowed || policy.prohibited.length || policy.blockIPs ? cookieSetBlockReason || null : null;
+        const rules = loadRuntime().agentTools.policyContentRules(policy);
+        const bad = rules.find((r) => /[^\x00-\x7f]/.test(r.trigger["url-filter"]));
+        if (bad) {
+          driver.policyFailure = new DriverError("invalid", `the domain policy could not be applied: WebKit refused its content rules (contentRules: Only ASCII characters are supported in pattern ${bad.trigger["url-filter"]}); set a policy that compiles (session.allowedDomains, session.prohibitedDomains, session.blockIPAddresses), or reset the session if the policy is locked`);
+          return;
+        }
+        driver.policyFailure = null;
+        const active = !!(policy.allowed || policy.prohibited.length || policy.blockIPs);
+        driver.blockReason = active ? blockReason : null;
+        driver.cookieBlockReason = active ? cookieBlockReason || null : null;
+        await setContentRules(rules);
+      },
       async call(method, params = {}) {
         const fn = methods[method];
         if (!fn) throw new DriverError("unsupported", `Unsupported driver method ${method}`);
-        return fn(params, driver);
+        if (driver.policyFailure) throw driver.policyFailure;
+        if (driver.blockReason && params.targetId && GUARDED.test(method) && tabs.has(params.targetId)) {
+          const url = tabs.get(params.targetId).page.url();
+          const reason = driver.blockReason(url);
+          if (reason) throw new DriverError("blocked", `the tab shows ${url}, which the domain policy blocks: ${reason}`);
+        }
+        const tab = params.targetId && tabs.get(params.targetId);
+        // The runtime's own agent-world reads are not the session's action.
+        if (!tab || !ACTIONS.test(method) || (method === "frame.evaluate" && params.world !== "page")) return fn(params, driver);
+        tab.inputDrivers.push(driver);
+        let ended = false;
+        const end = () => {
+          if (ended) return;
+          ended = true;
+          tab.inputDrivers.splice(tab.inputDrivers.lastIndexOf(driver), 1);
+        };
+        // As in the app, a navigation is the session's action until it
+        // commits; a dialog while the new page loads is not.
+        const navigation = NAVIGATIONS.test(method);
+        const onCommit = (frame) => { if (frame === tab.page.mainFrame()) end(); };
+        if (navigation) tab.page.on("framenavigated", onCommit);
+        // As in the app, a page script holds the window for at most a second.
+        const bound = method === "frame.evaluate" ? setTimeout(end, 1000) : null;
+        try {
+          const result = await fn(params, driver);
+          // Like the app's round trip after input: what the page opened while
+          // it handled the input (a file chooser) is reported before the
+          // input counts as done.
+          if (method === "input.mouse" || method === "input.key") await tab.page.evaluate(() => 0).catch(() => {});
+          return result;
+        } finally {
+          if (navigation) tab.page.off("framenavigated", onCommit);
+          if (bound) clearTimeout(bound);
+          end();
+        }
       },
       on(event, handler) {
         if (!driver.listeners.has(event)) driver.listeners.set(event, new Set());
@@ -664,6 +1053,21 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       // Ends the session: tabs it opened close unless kept.
       async detach() {
         drivers.delete(driver);
+        for (const tab of tabs.values()) {
+          tab.handled.delete(driver);
+          // Keys and buttons this session left pressed are released, last
+          // pressed first, so the page sees keyup and mouseup.
+          for (const [held, k] of [...tab.heldKeys].reverse()) {
+            if (k.driver !== driver) continue;
+            tab.heldKeys.delete(held);
+            await keyEvent(tab, { type: "up", key: k.key, code: k.code }).catch(() => {});
+          }
+          for (const [button, owner] of [...tab.heldButtons].reverse()) {
+            if (owner !== driver) continue;
+            tab.heldButtons.delete(button);
+            await tab.page.mouse.up({ button }).catch(() => {});
+          }
+        }
         for (const targetId of driver.opened) {
           const tab = tabs.get(targetId);
           if (tab) await tab.page.close().catch(() => {});
@@ -714,27 +1118,52 @@ function fsError(code, message) {
 // directory or the temporary directory; downloads the driver reported are
 // readable too (BrowserReplFileSandbox.swift).
 export function createFsOp({ workDir, tmpdir, readable = new Set() }) {
+  // Mirrors BrowserReplFileSystem: reading or writing through a path checks
+  // where its links point; rm, rename and lstat act on a link itself and
+  // check only its parent directories.
   const roots = [fs.realpathSync(workDir), fs.realpathSync(tmpdir)];
+  const lexists = (p) => {
+    try {
+      fs.lstatSync(p);
+      return true;
+    } catch {
+      return false;
+    }
+  };
   const canonical = (p) => {
     let head = path.resolve(p);
     const tail = [];
     while (!fs.existsSync(head) && head !== "/") {
+      // A dangling link: writing through it would create its target,
+      // which may be anywhere. No canonical path.
+      if (lexists(head)) return null;
       tail.unshift(path.basename(head));
       head = path.dirname(head);
     }
     return path.join(fs.realpathSync(head), ...tail);
   };
-  const inside = (p) => roots.some((r) => p === r || p.startsWith(r + "/"));
-  const check = (raw, write) => {
+  const entry = (p) => {
+    const full = path.resolve(p);
+    if (full === "/") return full;
+    const parent = canonical(path.dirname(full));
+    return parent === null ? null : path.join(parent, path.basename(full));
+  };
+  const inside = (p) => p !== null && roots.some((r) => p === r || p.startsWith(r + "/"));
+  const check = (raw, write, followLastLink = true) => {
     if (typeof raw !== "string") throw fsError("EINVAL", "EINVAL: missing path");
-    const p = canonical(path.resolve(workDir, raw));
-    if (inside(p) || (!write && readable.has(p))) return p;
+    const full = path.resolve(workDir, raw);
+    const followed = canonical(full);
+    const candidates = followLastLink ? [followed] : [entry(full), ...(roots.includes(followed) ? [followed] : [])];
+    for (const p of candidates) {
+      if (inside(p) || (p !== null && !write && readable.has(p))) return p;
+    }
     throw fsError("EACCES", `EACCES: permission denied, '${raw}' is outside the REPL's directories`);
   };
   const type = (p) => {
     const st = fs.lstatSync(p);
     return st.isSymbolicLink() ? "symlink" : st.isFile() ? "file" : st.isDirectory() ? "directory" : "other";
   };
+  const statOf = (p, st) => ({ size: st.size, type: type(p), mtimeMs: st.mtimeMs, birthtimeMs: st.birthtimeMs });
   const ops = {
     resolve: (a) => check(a.path, false),
     exists: (a) => {
@@ -761,21 +1190,37 @@ export function createFsOp({ workDir, tmpdir, readable = new Set() }) {
       return fs.readdirSync(p).sort().map((name) => ({ name, type: type(path.join(p, name)) }));
     },
     stat: (a) => {
-      const st = fs.statSync(check(a.path, false));
-      return { size: st.size, type: st.isFile() ? "file" : st.isDirectory() ? "directory" : "other", mtimeMs: st.mtimeMs, birthtimeMs: st.birthtimeMs };
+      const p = check(a.path, false);
+      return statOf(p, fs.statSync(p));
+    },
+    lstat: (a) => {
+      const p = check(a.path, false, false);
+      return statOf(p, fs.lstatSync(p));
     },
     rm: (a) => {
-      const p = check(a.path, true);
+      const p = check(a.path, true, false);
       if (roots.includes(p)) throw fsError("EACCES", "EACCES: refusing to remove the REPL working directory");
+      // fs.rmSync acts on a link itself (lstat), never on what it points to.
       fs.rmSync(p, { recursive: !!a.recursive, force: !!a.force });
       return null;
     },
     rename: (a) => {
-      fs.renameSync(check(a.from, true), check(a.to, true));
+      fs.renameSync(check(a.from, true, false), check(a.to, true, false));
       return null;
     },
     copyFile: (a) => {
-      fs.copyFileSync(check(a.from, false), check(a.to, true));
+      const from = check(a.from, false);
+      const to = check(a.to, true);
+      // Copy next to the destination, then swap it in, so a failed copy
+      // leaves an existing destination untouched.
+      const staging = path.join(path.dirname(to), `.${path.basename(to)}.cmux-copy-${crypto.randomUUID()}`);
+      try {
+        fs.copyFileSync(from, staging);
+        fs.renameSync(staging, to);
+      } catch (e) {
+        fs.rmSync(staging, { force: true });
+        throw e;
+      }
       return null;
     },
   };
@@ -791,10 +1236,26 @@ export function createFsOp({ workDir, tmpdir, readable = new Set() }) {
   };
 }
 
+// Session temporary directories this process made (createNodeHost). A test
+// that does not remove its own leaves it until the process exits, when they
+// go; only directories made here are ever removed (test-dirs.mjs).
+const hostTemporaryDirectories = new Set();
+process.on("exit", () => {
+  for (const dir of hostTemporaryDirectories) {
+    try {
+      removeTestDir(dir);
+    } catch {}
+  }
+});
+
 // Host capabilities the app provides natively (driver-protocol.md, "Native
 // host contract").
 export function createNodeHost({ workDir, sessionId = "dev", print, readable = new Set() }) {
-  const tmpdir = fs.realpathSync(os.tmpdir());
+  // As the app: the session's own private temporary directory,
+  // <tmp>/cmux-browser-repl/<session>-<random>-tmp, mode 0700.
+  const safeID = String(sessionId).slice(0, 64).replace(/[^A-Za-z0-9_-]/g, "_");
+  const tmpdir = makeTestDir(`${safeID}-`, { parent: path.join(os.tmpdir(), "cmux-browser-repl"), mode: 0o700 });
+  hostTemporaryDirectories.add(tmpdir);
   return {
     workDir,
     sessionId,
@@ -810,10 +1271,33 @@ export function createNodeHost({ workDir, sessionId = "dev", print, readable = n
       return file.startsWith(runtimeDir + "/") && fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
     },
     fsOp: createFsOp({ workDir, tmpdir, readable }),
+    // As the app's fetcher: every redirect hop is checked against the
+    // domain policy (init.blockReason, from the native-boundary emulation)
+    // and a body over 64 MiB fails.
     async fetch(url, init = {}) {
-      const res = await fetch(url, { method: init.method, headers: init.headers, body: init.body === undefined ? undefined : Buffer.from(init.body, "base64"), redirect: init.redirect || "follow" });
-      const body = Buffer.from(await res.arrayBuffer());
-      return { status: res.status, statusText: res.statusText, url: res.url, headers: Object.fromEntries(res.headers), base64: body.toString("base64"), redirected: res.redirected };
+      let current = url;
+      let method = init.method;
+      let body = init.body === undefined ? undefined : Buffer.from(init.body, "base64");
+      let res;
+      for (let hop = 0; ; hop++) {
+        res = await fetch(current, { method, headers: init.headers, body, redirect: "manual" });
+        const location = res.status >= 300 && res.status < 400 && res.headers.get("location");
+        // reference-host.mjs follows redirects itself, one checked hop at a time.
+        if (!location || hop >= 20 || init.redirect === "manual") break;
+        const next = new URL(location, current).href;
+        const reason = init.blockReason && init.blockReason(next);
+        if (reason) throw Object.assign(new Error(`fetch: redirect to ${next} is blocked: ${reason}`), { code: "blocked" });
+        if (res.status === 303 || ((res.status === 301 || res.status === 302) && method === "POST")) {
+          method = "GET";
+          body = undefined;
+        }
+        current = next;
+      }
+      const limit = init.maxBodyBytes || 64 * 1024 * 1024;
+      if (Number(res.headers.get("content-length")) > limit) throw new Error(`fetch: the response body is larger than ${limit >> 20} MiB; download it in a tab (page.waitForEvent("download")) instead`);
+      const bytes = Buffer.from(await res.arrayBuffer());
+      if (bytes.length > limit) throw new Error(`fetch: the response body is larger than ${limit >> 20} MiB; download it in a tab (page.waitForEvent("download")) instead`);
+      return { status: res.status, statusText: res.statusText, url: current, headers: Object.fromEntries(res.headers), base64: bytes.toString("base64"), redirected: current !== url };
     },
   };
 }
@@ -846,11 +1330,12 @@ export function createHostedRepl(ns, { host, driver }) {
 // uncaught error.
 export async function runDevCells(cells, { workDir } = {}) {
   const ns = loadRuntime();
-  const dir = fs.realpathSync(workDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "cmux-repl-")));
+  const dir = fs.realpathSync(workDir ?? makeTestDir("cmux-repl-"));
   const browser = await createDevBrowser();
   const named = new Map();
   const readable = new Set();
   const outputs = [];
+  const hosts = [];
   try {
     for (const cell of cells) {
       const lines = [];
@@ -861,6 +1346,7 @@ export async function runDevCells(cells, { workDir } = {}) {
         driver.on("download.finished", (p) => p.path && readable.add(fs.realpathSync(p.path)));
         let current = print;
         const host = createNodeHost({ workDir: dir, sessionId: cell.session || `oneshot-${outputs.length + 1}`, print: (l, t) => current(l, t), readable });
+        hosts.push(host);
         entry = { driver, repl: createHostedRepl(ns, { host, driver }).repl, setPrint: (p) => (current = p) };
         if (cell.session) named.set(cell.session, entry);
       }
@@ -875,7 +1361,10 @@ export async function runDevCells(cells, { workDir } = {}) {
     }
   } finally {
     await browser.close();
-    if (!workDir) fs.rmSync(dir, { recursive: true, force: true });
+    if (!workDir) removeTestDir(dir);
+    // As the app at session close: a session's temporary directory goes
+    // only when nothing is left in it.
+    for (const host of hosts) removeTestDirIfEmpty(host.tmpdir);
   }
   return outputs;
 }

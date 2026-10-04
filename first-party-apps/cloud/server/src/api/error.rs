@@ -47,6 +47,9 @@ pub mod codes {
     /// An op line arrived while a relay call waited and the queue of
     /// waiting lines was full (`api::RELAY_QUEUE_LINES`): retry it.
     pub const RELAY_BUSY: &str = "cmux.cloud.relay_busy";
+    /// The backend answered an error code its op does not declare
+    /// (`upstream_code` keeps it): a protocol break, never guessed at.
+    pub const PROTOCOL_ERROR: &str = "cmux.cloud.protocol_error";
 }
 
 /// `cmux.wire/1` codes and the server code each maps to. Any other code is
@@ -107,6 +110,27 @@ impl CloudError {
 
     pub fn invalid(message: impl Into<String>) -> Self {
         Self::new(codes::INVALID_ARGS, message)
+    }
+
+    /// Maps a typed `cmux.wire/1` error of backend op `op`. A code `op`
+    /// does not declare (`crate::ops::declared_errors`) is
+    /// [`codes::PROTOCOL_ERROR`]; an op the table does not know maps as is.
+    pub fn from_wire_for(op: &str, error: &WireError) -> Self {
+        let declared = crate::ops::declared_errors(op);
+        if declared.is_some_and(|d| !d.contains(&error.code.as_str())) {
+            return Self {
+                upstream_code: Some(error.code.clone()),
+                details: error.details.clone(),
+                ..Self::new(
+                    codes::PROTOCOL_ERROR,
+                    format!(
+                        "{op} answered {}, which it does not declare: {}",
+                        error.code, error.message
+                    ),
+                )
+            };
+        }
+        Self::from_wire(error)
     }
 
     /// Maps a typed `cmux.wire/1` error. `mutation.indeterminate` is

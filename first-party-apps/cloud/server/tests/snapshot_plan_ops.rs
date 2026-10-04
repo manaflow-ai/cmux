@@ -23,7 +23,8 @@ fn snapshot_list_and_create() {
                 "cloud.snapshot.create",
                 json!({ "machine": vm(1), "name": "checkpoint" }),
             )
-            .key("key-snap-1"),
+            .key("key-snap-1")
+            .origin(Origin::User),
         )
         .expect("create");
     assert_eq!(created["snapshot"]["status"], "creating");
@@ -36,7 +37,8 @@ fn restore_adds_a_machine_once_per_key() {
         "cloud.snapshot.restore",
         json!({ "snapshot": snap(1), "name": "restored box" }),
     )
-    .key("key-restore-1");
+    .key("key-restore-1")
+    .origin(Origin::User);
     let first = s.handle(&req).expect("restore");
     assert_eq!(s.handle(&req).expect("replay"), first);
     assert_eq!(first["machine"]["id"], vm(6));

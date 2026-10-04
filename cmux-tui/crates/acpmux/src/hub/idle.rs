@@ -108,7 +108,17 @@ impl Hub {
             }
             if self.idle_eligible(&session) {
                 tracing::info!(session = %session.id, "idle harness exits; the session resumes on its next prompt");
+                // A hosted child whose link is closed cannot take a Terminate
+                // frame: end its host with the nonce proof, as closing does.
+                let child = session.child.lock().await.clone();
+                let link_lost = match &child {
+                    Some(c) => c.host_record().is_some() && !c.is_alive().await,
+                    None => false,
+                };
                 self.detach_child(&session).await;
+                if link_lost {
+                    self.end_unadopted_host(&session).await;
+                }
             } else {
                 // In use at its deadline: a full idle period starts now.
                 self.touch(&session);
