@@ -121,7 +121,7 @@ final class QuitCoordinator {
             remember: { behavior in
                 guard let settings = services.settings,
                       let descriptor = SettingsSchema.descriptor(for: QuitBehaviorSetting.configPath) else { return }
-                do { try await settings.setSetting(descriptor, to: .string(behavior.rawValue)) } catch {
+                do { try await settings.setSetting(descriptor, to: .string(behavior.rawValue), by: .user) } catch {
                     Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
                         .error("quit setting write failed: \(String(describing: error), privacy: .public)")
                 }

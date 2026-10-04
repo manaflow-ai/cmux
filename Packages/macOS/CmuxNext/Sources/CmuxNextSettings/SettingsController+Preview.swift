@@ -33,7 +33,7 @@ extension SettingsController {
     /// applies the same value from the file.
     public func commitPreview(_ descriptor: SettingDescriptor, _ value: JSONValue?) async throws {
         do {
-            try await setSetting(descriptor, to: value)
+            try await setSetting(descriptor, to: value, by: .currentRun())
         } catch {
             endPreview()
             throw error

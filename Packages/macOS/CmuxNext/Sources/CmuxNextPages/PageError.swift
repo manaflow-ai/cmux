@@ -16,15 +16,20 @@ public nonisolated struct PageCallContext: Sendable, Hashable {
     /// reconnect, so an owner can apply the call once. Checked by the router (1-128 characters of
     /// `[A-Za-z0-9._:-]`); nil when the page sent none.
     public let opid: String?
+    /// A real key or mouse event reached the page's view within the last second (the host's
+    /// record, never the page's word): the call is backed by the person's gesture. Only a provider
+    /// that serves the app's own trusted UI (the bundled Settings page) may treat that as the user.
+    public let userGesture: Bool
 
     /// The user's own call: approved on a native sheet. Nothing a page sends can make this true.
     public var isConfirmedUser: Bool { origin == "user" && confirmed }
 
-    public init(page: String, origin: String = "page", confirmed: Bool = false, opid: String? = nil) {
+    public init(page: String, origin: String = "page", confirmed: Bool = false, opid: String? = nil, userGesture: Bool = false) {
         self.page = page
         self.origin = origin
         self.confirmed = confirmed
         self.opid = opid
+        self.userGesture = userGesture
     }
 
     /// Whether `text` is a valid operation id: 1-128 characters of `[A-Za-z0-9._:-]`.

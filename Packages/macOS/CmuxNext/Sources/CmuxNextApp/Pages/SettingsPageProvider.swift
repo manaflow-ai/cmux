@@ -44,14 +44,18 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.set":
             guard let value = params["value"] else { throw PageError.invalidParams("value is required") }
             let descriptor = try descriptor(params)
-            return try await mutation(params) { try await self.write(descriptor, value == .null ? nil : value); return [descriptor.id] }
+            return try await mutation(params) { try await self.write(descriptor, value == .null ? nil : value, by: Self.writer(context)); return [descriptor.id] }
         case "cmux.settings.reset":
             let descriptor = try descriptor(params)
-            return try await mutation(params) { try await self.write(descriptor, nil); return [descriptor.id] }
+            return try await mutation(params) { try await self.write(descriptor, nil, by: Self.writer(context)); return [descriptor.id] }
         case "cmux.settings.reset_all":
             return try await mutation(params) {
                 let before = self.settings.snapshot.root
-                try await self.settings.resetAllSettings()
+                do {
+                    try await self.settings.resetAllSettings(by: Self.writer(context))
+                } catch let userOnly as SettingUserOnly {
+                    throw Self.userOnlyError(userOnly)
+                }
                 await self.settings.reload()
                 return SettingsSchema.all.filter { $0.storedValue(in: before) != $0.storedValue(in: self.settings.snapshot.root) }.map(\.id)
             }
@@ -81,6 +85,9 @@ final class SettingsPageProvider: PageProvider {
             let value = params["value"].flatMap { $0 == .null ? nil : $0 }
             if let source = settings.managedSource(for: descriptor) {
                 throw PageError(code: "cmux.settings.managed", message: "\(descriptor.id) is managed", details: Self.managedInfo(source))
+            }
+            guard Self.writer(context).mayWrite(descriptor) else {
+                throw Self.userOnlyError(SettingUserOnly(key: descriptor.id, writer: Self.writer(context)))
             }
             guard settings.preview(descriptor, value) else {
                 throw PageError(code: "cmux.settings.invalid", message: "\(descriptor.id) does not accept this value")
@@ -197,13 +204,27 @@ final class SettingsPageProvider: PageProvider {
         return value
     }
 
-    private func write(_ descriptor: SettingDescriptor, _ value: JSONValue?) async throws {
+    /// SECURITY (agent_settable): the Settings page writes as the user only for a call backed by a
+    /// real key or mouse event in its view (`context.userGesture`, the host's record) from the
+    /// bundled cmux.settings page (the router admits only its trusted frame). A script write with
+    /// no gesture is a page write and may change only agent-settable keys.
+    static func writer(_ context: PageCallContext) -> SettingWriter {
+        context.page == PageDescriptor.settings.id && context.userGesture ? .user : .caller("page")
+    }
+
+    static func userOnlyError(_ refusal: SettingUserOnly) -> PageError {
+        PageError(code: "cmux.settings.user_only", message: String(describing: refusal), details: ["key": .string(refusal.key)])
+    }
+
+    private func write(_ descriptor: SettingDescriptor, _ value: JSONValue?, by writer: SettingWriter) async throws {
         do {
-            try await settings.setSetting(descriptor, to: value)
+            try await settings.setSetting(descriptor, to: value, by: writer)
         } catch let managed as SettingManaged {
             throw PageError(code: "cmux.settings.managed", message: String(describing: managed), details: Self.managedInfo(managed.source))
         } catch let refused as SettingRefused {
             throw PageError(code: "cmux.settings.invalid", message: String(describing: refused))
+        } catch let userOnly as SettingUserOnly {
+            throw Self.userOnlyError(userOnly)
         }
         // The watcher applies the write; reading it back now keeps the page's refresh current.
         await settings.reload()
