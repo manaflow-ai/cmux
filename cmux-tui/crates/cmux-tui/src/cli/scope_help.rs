@@ -5,7 +5,7 @@ pub(super) const CLOSED_HELP: &str = "\
 USAGE
   cmux closed list [--window <install/window>] [--limit <n>]
   cmux closed reopen [--window <install/window>]
-  cmux closed <closed> reopen [--members <i,j,...>]
+  cmux closed <closed> reopen [--window <install/window>] [--members <i,j,...>]
 
 The session keeps every close as one group: a bulk close (a tab group, the
 tabs to the right) is one group. Reopen restores the whole group, each tab in
