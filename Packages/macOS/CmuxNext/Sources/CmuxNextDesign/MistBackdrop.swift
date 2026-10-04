@@ -1,7 +1,7 @@
 import CmuxTheme
 
 /// The axis on which a mist scrim fades the artwork into the theme surface.
-public nonisolated enum MistGradientAxis: String, Sendable {
+public nonisolated enum MistGradientAxis: String, Equatable, Sendable {
     case vertical
 }
 
@@ -33,7 +33,7 @@ public nonisolated struct MistGradient: Equatable, Sendable {
 }
 
 /// The material used by a local mist card.
-public nonisolated enum MistCardMaterial: String, Sendable {
+public nonisolated enum MistCardMaterial: String, Equatable, Sendable {
     case frosted
 }
 
