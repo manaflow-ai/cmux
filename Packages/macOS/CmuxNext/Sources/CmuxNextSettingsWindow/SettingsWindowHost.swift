@@ -29,6 +29,10 @@ public import SwiftUI
     var themeLevels: [SettingsThemeLevel] { get }
     /// Every Ghostty theme name.
     var themeNames: [String] { get }
+    /// The swatch strip of the theme `name` (R98): its background, six
+    /// ANSI colors and its foreground, read off the main thread and cached
+    /// by the App; empty before it loads or for an unknown name.
+    func themeSwatches(_ name: String) -> [ThemeRGB]
     /// The theme set at `level` of that window; nil is the Ghostty config.
     func theme(at level: SettingsThemeLevel) -> String?
     /// Whether Ghostty accepts `text` as a theme (a name, a path, or a
@@ -54,6 +58,7 @@ extension SettingsWindowHost {
     public func closeSettingsPane() {}
     public var themeLevels: [SettingsThemeLevel] { [] }
     public var themeNames: [String] { [] }
+    public func themeSwatches(_ name: String) -> [ThemeRGB] { [] }
     public func theme(at level: SettingsThemeLevel) -> String? { nil }
     public func acceptsTheme(_ text: String) -> Bool { false }
     public func setTheme(_ spec: String?, at level: SettingsThemeLevel) {}
