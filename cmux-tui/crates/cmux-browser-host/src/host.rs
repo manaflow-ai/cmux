@@ -56,7 +56,17 @@ pub trait Engines: Send + Sync {
         &self,
         engine: &str,
         events: crate::driver::EventSink,
+        session: &SessionContext,
     ) -> Result<Arc<dyn Driver>, DriverError>;
+}
+
+/// The session an engine is opened for (lease identity on provider tabs).
+#[derive(Debug, Clone)]
+pub struct SessionContext {
+    pub name: String,
+    pub caller: Caller,
+    /// The agent's task label (`browser.repl.open {label}`), the lease badge text.
+    pub label: String,
 }
 
 type EventSlot = Arc<Mutex<Option<(Arc<Gate>, std::sync::mpsc::Sender<DriverEvent>)>>>;
@@ -155,7 +165,12 @@ impl Host {
                 let _ = tx.send(DriverEvent { name: event.name, payload });
             }
         });
-        let driver = self.engines.driver(&engine, sink)?;
+        let context = SessionContext {
+            name: name.clone(),
+            caller: caller.clone(),
+            label: params.get("label").and_then(Value::as_str).unwrap_or(&name).to_owned(),
+        };
+        let driver = self.engines.driver(&engine, sink, &context)?;
         let capabilities = driver.capabilities().into_iter().map(str::to_owned).collect();
         let gate = Arc::new(Gate::new(driver, Grants { raw_cdp }));
         let config = VmConfig {

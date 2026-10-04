@@ -204,6 +204,52 @@ pub struct ProviderDriver {
     /// Serializes relay attaches (the reader thread never takes it, so an
     /// attach waiting for its first reply cannot block the reader).
     pub(crate) attach_lock: Mutex<()>,
+    /// The automation leases of the provider's tabs (the host owns them).
+    leases: Leases,
+}
+
+type Leases = Arc<Mutex<crate::lease::LeaseTable>>;
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// Applies a lease operation and sends a `lease` frame for every target
+/// whose rendered lease changed.
+fn apply_lease(
+    leases: &Leases,
+    writer: &SharedWriter,
+    op: &crate::lease::LeaseOp,
+    caller: &crate::lease::LeaseCaller,
+) -> Result<(), crate::lease::LeaseError> {
+    let frames =
+        leases.lock().unwrap_or_else(PoisonError::into_inner).apply(op, caller, now_ms())?;
+    let mut writer = writer.lock().unwrap_or_else(PoisonError::into_inner);
+    for frame in frames {
+        let _ = write_frame(
+            &mut *writer,
+            &Frame::Lease { target_id: frame.target, lease: frame.lease },
+        );
+    }
+    Ok(())
+}
+
+/// A person's lease action from the app (`lease.user`), origin `user`.
+fn user_lease_op(
+    op: &str,
+    target_id: Option<String>,
+    session: Option<String>,
+) -> Option<crate::lease::LeaseOp> {
+    use crate::lease::LeaseOp;
+    Some(match (op, target_id, session) {
+        ("take_over", Some(target), _) => LeaseOp::TakeOver { target },
+        ("hand_back", Some(target), _) => LeaseOp::HandBack { target },
+        ("stop", Some(target), _) => LeaseOp::Stop { target },
+        ("allow", _, Some(session)) => LeaseOp::Allow { session },
+        _ => return None,
+    })
 }
 
 pub(crate) type CefTabs = Arc<Mutex<HashMap<String, Arc<crate::provider_engine::CefTab>>>>;
@@ -247,6 +293,9 @@ impl ProviderDriver {
         let (thread_waiters, thread_closed, thread_tabs) =
             (waiters.clone(), closed.clone(), tabs.clone());
         let cef_tabs: CefTabs = Arc::new(Mutex::new(HashMap::new()));
+        let writer: SharedWriter = Arc::new(Mutex::new(Box::new(writer)));
+        let leases: Leases = Arc::default();
+        let (thread_writer, thread_leases) = (writer.clone(), leases.clone());
         let (thread_relays, thread_subscribers, thread_cef_tabs) =
             (relays.clone(), subscribers.clone(), cef_tabs.clone());
         std::thread::Builder::new().name("cmux-browser-host-provider".into()).spawn(move || {
@@ -286,6 +335,21 @@ impl ProviderDriver {
                             sink(event.clone());
                         }
                         events(event);
+                    }
+                    // A person used a tab: its driving lease pauses.
+                    Ok(Some(Frame::UserInput { target_id })) => {
+                        let op = crate::lease::LeaseOp::UserInput { target: target_id };
+                        let caller = crate::lease::LeaseCaller::default();
+                        let _ = apply_lease(&thread_leases, &thread_writer, &op, &caller);
+                    }
+                    Ok(Some(Frame::LeaseUser { op, target_id, session })) => {
+                        if let Some(op) = user_lease_op(&op, target_id, session) {
+                            let caller = crate::lease::LeaseCaller {
+                                origin: "user".into(),
+                                ..crate::lease::LeaseCaller::default()
+                            };
+                            let _ = apply_lease(&thread_leases, &thread_writer, &op, &caller);
+                        }
                     }
                     Ok(Some(Frame::Cdp { target_id, message })) => {
                         let relay = thread_relays
@@ -337,7 +401,7 @@ impl ProviderDriver {
             }
         })?;
         Ok(Arc::new(ProviderDriver {
-            writer: Arc::new(Mutex::new(Box::new(writer))),
+            writer,
             waiters,
             next_id: AtomicU64::new(1),
             closed,
@@ -347,6 +411,7 @@ impl ProviderDriver {
             next_subscriber: AtomicU64::new(1),
             cef_tabs,
             attach_lock: Mutex::new(()),
+            leases,
         }))
     }
 
@@ -418,6 +483,16 @@ impl ProviderDriver {
                 &frame,
             );
         }
+    }
+
+    /// Applies an agent's lease operation (act, observe, release, session
+    /// end) and sends the changed `lease` frames to the app.
+    pub fn lease(
+        &self,
+        op: &crate::lease::LeaseOp,
+        caller: &crate::lease::LeaseCaller,
+    ) -> Result<(), crate::lease::LeaseError> {
+        apply_lease(&self.leases, &self.writer, op, caller)
     }
 
     /// Adds an event receiver (one per session); returns its id.

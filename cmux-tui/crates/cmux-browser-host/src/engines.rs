@@ -64,7 +64,12 @@ impl HostEngines {
     }
 
     #[cfg(unix)]
-    fn provider(&self, engine: &str, events: EventSink) -> Result<Arc<dyn Driver>, DriverError> {
+    fn provider(
+        &self,
+        engine: &str,
+        events: EventSink,
+        session: &crate::host::SessionContext,
+    ) -> Result<Arc<dyn Driver>, DriverError> {
         let provider = self
             .provider
             .lock()
@@ -74,17 +79,30 @@ impl HostEngines {
             .ok_or_else(|| {
                 unavailable(engine, "the cmux app is not connected to the browser host")
             })?;
+        let lease = crate::lease::LeaseCaller {
+            session: session.name.clone(),
+            actor: session.caller.actor.clone(),
+            on_behalf_of: session.caller.on_behalf_of.clone(),
+            origin: session.caller.origin.clone(),
+            label: session.label.clone(),
+        };
         let engine = crate::provider_engine::ProviderEngine::new(
             provider,
             engine,
             self.agent_source.clone(),
             events,
+            lease,
         )?;
         Ok(Arc::new(engine))
     }
 
     #[cfg(not(unix))]
-    fn provider(&self, engine: &str, _events: EventSink) -> Result<Arc<dyn Driver>, DriverError> {
+    fn provider(
+        &self,
+        engine: &str,
+        _events: EventSink,
+        _session: &crate::host::SessionContext,
+    ) -> Result<Arc<dyn Driver>, DriverError> {
         Err(unavailable(engine, "the cmux app is not connected to the browser host"))
     }
 }
@@ -111,10 +129,15 @@ impl Driver for HeadlessDriver {
 }
 
 impl crate::host::Engines for HostEngines {
-    fn driver(&self, engine: &str, events: EventSink) -> Result<Arc<dyn Driver>, DriverError> {
+    fn driver(
+        &self,
+        engine: &str,
+        events: EventSink,
+        session: &crate::host::SessionContext,
+    ) -> Result<Arc<dyn Driver>, DriverError> {
         match engine {
             "auto" | "headless" => self.headless(events),
-            "cef" | "webkit" => self.provider(engine, events),
+            "cef" | "webkit" => self.provider(engine, events, session),
             other => Err(DriverError::invalid(format!(
                 "engine: expected auto, headless, cef or webkit, got {other:?}"
             ))),
