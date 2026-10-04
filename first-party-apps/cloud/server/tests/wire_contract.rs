@@ -1,0 +1,122 @@
+//! The vectors against the backend's declared error lists (backend answer
+//! a1c6283b256 (b) and (c)), and `cloud.machine.connect_info` as contract
+//! section 1.7 shapes it.
+//!
+//! (b) A backend op answers only the error codes its catalog row declares.
+//! Every error case of `backend/catalog/cloud-vectors.json` uses a declared
+//! code, and the client turns an undeclared code into the typed
+//! `cmux.cloud.protocol_error` instead of guessing a meaning.
+//! (c) `mutation.indeterminate` is retryable (with the same key).
+
+mod wire_common;
+
+use cmux_cloud::{CloudError, Request, Server};
+use serde_json::{Value, json};
+use wire_common::{WireFake, host, vm};
+
+fn errors_of(case: &Value) -> Vec<Value> {
+    case["responses"]
+        .as_array()
+        .expect("responses")
+        .iter()
+        .filter_map(|r| {
+            let body = &r["body"];
+            if r["http"]["status"] != 200 {
+                Some(json!({ "code": body["code"], "retryable": body["retryable"] }))
+            } else if body["ok"] == false {
+                Some(body["error"].clone())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn err_json(out: Result<Value, CloudError>) -> Value {
+    match out {
+        Ok(v) => json!({ "unexpected_ok": v }),
+        Err(e) => serde_json::to_value(&e).expect("error"),
+    }
+}
+
+#[test]
+fn every_vector_error_is_declared_by_its_op() {
+    let doc = wire_common::vectors();
+    let mut undeclared = Vec::new();
+    for case in doc["cases"].as_array().expect("cases") {
+        let op = case["op"].as_str().expect("op");
+        let declared = cmux_cloud::ops::declared_errors(op);
+        for error in errors_of(case) {
+            let code = error["code"].as_str().expect("code").to_owned();
+            if !declared.is_some_and(|d| d.contains(&code.as_str())) {
+                undeclared.push(format!("{} ({op}): {code}", case["name"]));
+            }
+        }
+    }
+    assert!(undeclared.is_empty(), "codes the op does not declare: {undeclared:#?}");
+}
+
+#[test]
+fn mutation_indeterminate_is_retryable_in_the_vectors() {
+    let doc = wire_common::vectors();
+    let mut seen = 0;
+    for case in doc["cases"].as_array().expect("cases") {
+        for error in errors_of(case) {
+            if error["code"] == "mutation.indeterminate" {
+                seen += 1;
+                assert_eq!(error["retryable"], true, "{}", case["name"]);
+            }
+        }
+    }
+    assert!(seen >= 2, "the vectors keep their cut-off cases");
+}
+
+#[test]
+fn an_undeclared_backend_code_is_a_protocol_error() {
+    let mut s = Server::new(WireFake::load());
+    s.control_plane_mut().answer(
+        "cloud.machine.get",
+        json!({ "machine": vm(1) }),
+        None,
+        json!({ "error": { "code": "cloud.machine.paused", "message": "paused", "retryable": false } }),
+    );
+    let out = err_json(s.handle(&Request::new("cloud.machine.get", json!({ "machine": vm(1) }))));
+    assert_eq!(out["code"], "cmux.cloud.protocol_error", "{out}");
+    assert_eq!(out["upstream_code"], "cloud.machine.paused");
+    assert_eq!(out["retryable"], false);
+}
+
+#[test]
+fn connect_info_follows_section_1_7() {
+    let mut s = Server::new(WireFake::load());
+    let info = s.handle(&Request::new("cloud.machine.connect_info", json!({ "machine": vm(1) })));
+    assert!(info.is_ok(), "{info:?}");
+    let info = info.unwrap();
+    for field in
+        ["machine", "host", "epoch", "state", "peer", "gateway", "services", "daemon", "revision"]
+    {
+        assert!(info.get(field).is_some(), "{field} in {info}");
+    }
+    assert_eq!(info["host"], host(1));
+    assert_eq!(info["services"], json!(["daemon", "ssh"]));
+    assert!(info.get("link_token").is_none(), "the link token stays with cmux link: {info}");
+
+    let by_host = s.handle(&Request::new("cloud.machine.connect_info", json!({ "host": host(1) })));
+    assert_eq!(by_host.map(|v| v["machine"].clone()), Ok(json!(vm(1))));
+
+    // A paused machine is not an error: the state says paused.
+    let paused = s.handle(&Request::new("cloud.machine.connect_info", json!({ "machine": vm(2) })));
+    assert_eq!(paused.map(|v| v["state"].clone()), Ok(json!("paused")));
+
+    let unbound = err_json(
+        s.handle(&Request::new("cloud.machine.connect_info", json!({ "machine": vm(4) }))),
+    );
+    assert_eq!(unbound["code"], "cmux.cloud.not_bound", "{unbound}");
+
+    let calls = s.control_plane().calls.len();
+    for bad in [json!({}), json!({ "machine": vm(1), "host": host(1) })] {
+        let out = err_json(s.handle(&Request::new("cloud.machine.connect_info", bad.clone())));
+        assert_eq!(out["code"], "cmux.cloud.invalid_args", "{bad}");
+    }
+    assert_eq!(s.control_plane().calls.len(), calls, "refused before any call");
+}
