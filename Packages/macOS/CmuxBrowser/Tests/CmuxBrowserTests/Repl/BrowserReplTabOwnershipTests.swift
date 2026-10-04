@@ -261,6 +261,66 @@ import Testing
         #expect(own.downloadDelivery(startedBy: nil) == BrowserReplNetworkRecipient(sessionID: "creator", seesCredentials: true))
     }
 
+    /// A download's bytes are a read of every place its request went, so a
+    /// session gets it only when its domain policy allows each of them (the
+    /// navigation's URL and redirects, the download's own redirects, the
+    /// response) and its local files lie inside the session's directories.
+    /// In a user's tab such a download keeps the user's location; in the
+    /// session's own tab it is cancelled.
+    @Test func aDownloadFromAPlaceTheSessionsPolicyBlocksNeverReachesIt() throws {
+        var policy = BrowserReplDomainPolicy()
+        policy.prohibited = [try BrowserReplDomainPattern.parse("blocked.test", title: "test")]
+        let policies: (String) -> BrowserReplDomainPolicy? = { _ in policy }
+        let roots: (String) -> [String]? = { _ in ["/private/tmp/agent-root"] }
+        let start = ContinuousClock.now
+
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        users.setHandledEvents([.download], for: "agent")
+        // The agent clicks a link to an allowed page that redirects to a
+        // blocked one, which answers with a file.
+        users.beginInput(sessionID: "agent")
+        users.noteNavigationAction(1, frame: "main", url: "https://allowed.test/get", at: start)
+        users.endInput(sessionID: "agent")
+        users.noteNavigationAction(2, frame: "main", url: "https://blocked.test/file.zip", continuing: true, at: start + .seconds(1))
+        let taken = users.takeDownloadClaim(responseInFrame: "main", at: start + .seconds(2))
+        let claim = try #require(taken)
+        #expect(claim.sessionID == "agent")
+        #expect(claim.source.hops == ["https://allowed.test/get", "https://blocked.test/file.zip"])
+        var redirected = claim.source
+        redirected.went(to: "https://blocked.test/file.zip")
+        #expect(users.downloadRoute(startedBy: "agent", source: redirected, policy: policies, fileRoots: roots) == .user,
+                "a download through a blocked redirect reached the session")
+
+        // A download that only the download's own redirect sends to the blocked place.
+        let viaDownload = BrowserReplDownloadSource(hops: ["https://allowed.test/a", "https://blocked.test/b", "https://allowed.test/c"])
+        #expect(users.downloadRoute(startedBy: "agent", source: viaDownload, policy: policies, fileRoots: roots) == .user)
+        // A local file outside the session's directories.
+        let file = BrowserReplDownloadSource(hops: ["file:///etc/hosts"])
+        #expect(users.downloadRoute(startedBy: "agent", source: file, policy: { _ in nil }, fileRoots: roots) == .user,
+                "a local file outside the session's directories reached it as a download")
+        // A data: download a blocked document wrote.
+        let written = BrowserReplDownloadSource(
+            hops: ["data:text/plain,hi"],
+            initiator: BrowserReplFrameDocument(origin: "https://blocked.test", place: "https://blocked.test")
+        )
+        #expect(users.downloadRoute(startedBy: "agent", source: written, policy: policies, fileRoots: roots) == .user)
+        // Allowed all the way: the session's.
+        let allowed = BrowserReplDownloadSource(hops: ["https://allowed.test/get", "https://allowed.test/file.zip"])
+        #expect(users.downloadRoute(startedBy: "agent", source: allowed, policy: policies, fileRoots: roots)
+                == .session(BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: false)))
+        let inside = BrowserReplDownloadSource(hops: ["file:///private/tmp/agent-root/out.txt"])
+        #expect(users.downloadRoute(startedBy: "agent", source: inside, policy: { _ in nil }, fileRoots: roots)
+                == .session(BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: false)))
+
+        var own = BrowserReplTabOwnership()
+        own.markCreated(by: "agent")
+        guard case .refused = own.downloadRoute(startedBy: nil, source: viaDownload, policy: policies, fileRoots: roots) else {
+            Issue.record("a blocked download in the session's own tab was not refused")
+            return
+        }
+    }
+
     @Test func aSessionTabsDownloadsStillGoToItsCreator() {
         var ownership = BrowserReplTabOwnership()
         ownership.markCreated(by: "creator")

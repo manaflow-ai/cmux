@@ -8599,16 +8599,35 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         try? FileManager.default.removeItem(at: destURL)
         storeState(DownloadState(downloadID: downloadID, tempURL: destURL, suggestedFilename: safeFilename, sourceURL: sourceURL), for: download)
         // The session whose input started the navigation this download came
-        // from, bound to the download when WebKit made it.
+        // from, bound to the download when WebKit made it, and every place
+        // the request went, the response's URL last.
         let starter = BrowserReplTabAttachment.downloadStarter(of: download)
+        var source = BrowserReplTabAttachment.downloadSource(of: download)
+        if let url = response.url { source.went(to: url.absoluteString) }
         notifyOnMain { [weak self] in
             self?.onDownloadStarted?(safeFilename, downloadID)
-            self?.replAttachment?()?.downloadDidStart(id: downloadID, startedBy: starter, url: response.url, suggestedFilename: safeFilename)
+            // A tab a REPL session created never keeps a download from a
+            // place the session's domain policy or directories refuse.
+            if self?.replAttachment?()?.downloadDidStart(id: downloadID, startedBy: starter, source: source, url: response.url, suggestedFilename: safeFilename) == false {
+                download.cancel(nil)
+            }
         }
         #if DEBUG
         cmuxDebugLog("download.decideDestination file=<redacted>")
         #endif
         completionHandler(destURL)
+    }
+
+    func download(
+        _ download: WKDownload,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        decisionHandler: @escaping (WKDownload.RedirectPolicy) -> Void
+    ) {
+        // A REPL session gets a download only when it may read every place
+        // the request went (BrowserReplDownloadSource).
+        BrowserReplTabAttachment.downloadRedirected(download, to: request.url)
+        decisionHandler(.allow)
     }
 
     func downloadDidFinish(_ download: WKDownload) {

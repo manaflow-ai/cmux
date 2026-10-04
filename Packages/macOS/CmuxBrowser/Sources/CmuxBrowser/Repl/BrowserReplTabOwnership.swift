@@ -25,6 +25,28 @@ public enum BrowserReplEventRoute: Sendable, Equatable {
     case refused
 }
 
+/// The session whose input started a navigation that became a download,
+/// and where that navigation went (``BrowserReplTabOwnership/takeDownloadClaim(navigation:at:)``).
+public struct BrowserReplDownloadClaim: Sendable, Equatable {
+    public var sessionID: String?
+    public var source: BrowserReplDownloadSource
+
+    public init(sessionID: String?, source: BrowserReplDownloadSource) {
+        self.sessionID = sessionID
+        self.source = source
+    }
+}
+
+/// Where a download goes (``BrowserReplTabOwnership/downloadRoute(startedBy:source:policy:fileRoots:)``).
+public enum BrowserReplDownloadRoute: Sendable, Equatable {
+    /// The user's download location; no session gets it.
+    case user
+    /// The session, which reads it from the temporary directory.
+    case session(BrowserReplNetworkRecipient)
+    /// Cancelled: the creating session's tab may not load it.
+    case refused(String)
+}
+
 /// A session a network event goes to, and whether it gets the request's
 /// and response's credential headers (``Swift/Dictionary/removingBrowserReplCredentialHeaders()``).
 public struct BrowserReplNetworkRecipient: Sendable, Equatable {
@@ -205,8 +227,10 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
     private var latestNavigations: [String: NavigationStart] = [:]
     private struct NavigationStart: Sendable, Equatable {
         let navigation: Int
-        let sessionID: String?
+        var sessionID: String?
         let at: ContinuousClock.Instant
+        /// The URLs the navigation went through, and who started it.
+        var source = BrowserReplDownloadSource()
     }
     /// How long a started navigation can claim the download it becomes.
     static let navigationStartLifetime: Duration = .seconds(60)
@@ -236,7 +260,7 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         handlerOrder.removeAll { $0 == sessionID }
         inputSessionIDs.removeAll { $0 == sessionID }
         for (frame, start) in latestNavigations where start.sessionID == sessionID {
-            latestNavigations[frame] = NavigationStart(navigation: start.navigation, sessionID: nil, at: start.at)
+            latestNavigations[frame]?.sessionID = nil
         }
         for index in requestRecipients.indices { requestRecipients[index].sessionIDs.remove(sessionID) }
         guard creatorSessionID == sessionID else { return false }
@@ -394,13 +418,18 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
     public mutating func noteNavigationAction(
         _ navigation: Int,
         frame: String,
+        url: String? = nil,
+        initiator: BrowserReplFrameDocument? = nil,
         continuing: Bool = false,
         at now: ContinuousClock.Instant = .now
     ) {
         let acting = inputSessionID.flatMap { attachedSessionIDs.contains($0) ? $0 : nil }
         let previous = latestNavigations[frame].flatMap { now - $0.at > Self.navigationStartLifetime ? nil : $0 }
         let sessionID = acting ?? (continuing ? previous?.sessionID : nil)
-        latestNavigations[frame] = NavigationStart(navigation: navigation, sessionID: sessionID, at: now)
+        // A redirect goes on from where the navigation went; a new one starts over.
+        var source = continuing ? previous?.source ?? BrowserReplDownloadSource(initiator: initiator) : BrowserReplDownloadSource(initiator: initiator)
+        if let url { source.went(to: url) }
+        latestNavigations[frame] = NavigationStart(navigation: navigation, sessionID: sessionID, at: now, source: source)
         if latestNavigations.count > Self.maximumNavigationStarts,
            let oldest = latestNavigations.min(by: { $0.value.at < $1.value.at })?.key {
             latestNavigations.removeValue(forKey: oldest)
@@ -413,6 +442,13 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
     /// session's input started it (the user's, or the page's own), or when
     /// a later navigation in its frame replaced it.
     public mutating func takeDownloadStarter(navigation: Int, at now: ContinuousClock.Instant = .now) -> String? {
+        takeDownloadClaim(navigation: navigation, at: now)?.sessionID
+    }
+
+    /// ``takeDownloadStarter(navigation:at:)`` with where the navigation
+    /// went (``BrowserReplDownloadSource``); `nil` when no navigation of
+    /// that id is recorded.
+    public mutating func takeDownloadClaim(navigation: Int, at now: ContinuousClock.Instant = .now) -> BrowserReplDownloadClaim? {
         guard let frame = latestNavigations.first(where: { $0.value.navigation == navigation })?.key else { return nil }
         return take(frame, at: now)
     }
@@ -423,14 +459,21 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
     /// the frame after the session's (whatever its URL) replaced the record,
     /// so its download is not the session's.
     public mutating func takeDownloadStarter(responseInFrame frame: String, at now: ContinuousClock.Instant = .now) -> String? {
+        take(frame, at: now)?.sessionID
+    }
+
+    /// ``takeDownloadStarter(responseInFrame:at:)`` with where the
+    /// navigation went (``BrowserReplDownloadSource``); `nil` when the frame
+    /// has no navigation recorded.
+    public mutating func takeDownloadClaim(responseInFrame frame: String, at now: ContinuousClock.Instant = .now) -> BrowserReplDownloadClaim? {
         take(frame, at: now)
     }
 
-    private mutating func take(_ frame: String, at now: ContinuousClock.Instant) -> String? {
+    private mutating func take(_ frame: String, at now: ContinuousClock.Instant) -> BrowserReplDownloadClaim? {
         guard let start = latestNavigations[frame] else { return nil }
-        latestNavigations[frame] = NavigationStart(navigation: start.navigation, sessionID: nil, at: start.at)
-        guard now - start.at <= Self.navigationStartLifetime else { return nil }
-        return start.sessionID
+        latestNavigations[frame]?.sessionID = nil
+        let live = now - start.at <= Self.navigationStartLifetime
+        return BrowserReplDownloadClaim(sessionID: live ? start.sessionID : nil, source: start.source)
     }
 
     /// The session a download goes to (it stays in the temporary directory
@@ -457,6 +500,27 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         guard let recipient = downloadRecipient(startedBy: startedBy) else { return nil }
         let creator = isSessionOwned ? creatorSessionID : nil
         return BrowserReplNetworkRecipient(sessionID: recipient, seesCredentials: recipient == creator)
+    }
+
+    /// Where a download goes, given where it came from (`source`) and each
+    /// session's domain policy and working and temporary directories
+    /// (`nil`: none set): to ``downloadDelivery(startedBy:)``'s session when
+    /// that session may read every place it came from
+    /// (``BrowserReplDownloadSource/refusal(policy:fileRoots:)``). Else, in
+    /// a tab that session created, it is refused (cancelled; that tab never
+    /// loads what its policy blocks), and in a user's tab it keeps the
+    /// user's download location, as one no session's input started does.
+    public func downloadRoute(
+        startedBy: String?,
+        source: BrowserReplDownloadSource,
+        policy: (String) -> BrowserReplDomainPolicy?,
+        fileRoots: (String) -> [String]?
+    ) -> BrowserReplDownloadRoute {
+        guard let delivery = downloadDelivery(startedBy: startedBy) else { return .user }
+        if let reason = source.refusal(policy: policy(delivery.sessionID), fileRoots: fileRoots(delivery.sessionID) ?? []) {
+            return isSessionOwned && delivery.sessionID == creatorSessionID ? .refused(reason) : .user
+        }
+        return .session(delivery)
     }
 
     /// Parses `tab.handleEvents` names.
