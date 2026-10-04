@@ -177,3 +177,32 @@ fn port_close_is_idempotent_without_the_cloud_api() {
     assert_eq!(s.handle(&req).expect("again"), first);
     assert!(s.control_plane().calls.is_empty());
 }
+
+#[test]
+fn an_unknown_outcome_stays_known_after_a_later_definite_failure() {
+    // Lost answer, then a 429 and a 400 on retries, then a 404: the first
+    // attempt may have deleted it, so the 404 is still success.
+    for case in cases() {
+        let mut s = Server::new(FakeControlPlane::with(&[case.fixture]));
+        s.control_plane_mut().lose_next = 1;
+        s.handle(&delete(&case, "u-1")).unwrap_err();
+        for status in [429, 400] {
+            s.control_plane_mut().respond("DELETE", &case.path, status, json!({}));
+            s.handle(&delete(&case, "u-1")).unwrap_err();
+        }
+        not_found(&mut s, &case);
+        assert_eq!(s.handle(&delete(&case, "u-1")), Ok(case.answer.clone()), "{}", case.op);
+    }
+}
+
+#[test]
+fn a_501_is_a_definite_answer() {
+    for case in cases() {
+        let mut s = Server::new(FakeControlPlane::with(&[]));
+        s.control_plane_mut().respond("DELETE", &case.path, 501, json!({}));
+        assert_eq!(s.handle(&delete(&case, "n-1")).unwrap_err().code, "cmux.cloud.unsupported");
+        not_found(&mut s, &case);
+        let again = s.handle(&delete(&case, "n-1")).unwrap_err();
+        assert_eq!(again.code, "cmux.cloud.not_found", "{}", case.op);
+    }
+}
