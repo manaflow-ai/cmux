@@ -11,4 +11,11 @@ extension ScreenContentView {
         }
         return (headers, footers)
     }
+
+    /// The dock bands start past the tab bar of the pane under the
+    /// pointer: below its header, above its footer.
+    func dockInsets(at point: CGPoint) -> (top: CGFloat, bottom: CGFloat) {
+        guard let host = pane(at: point).flatMap({ context.hosts[$0] }) else { return (0, 0) }
+        return (host.headerHeight, host.footerHeight)
+    }
 }

@@ -104,7 +104,9 @@ final class TabHoverCardController: HoverCardSource {
         bodyID = id
         // Once per card, not on every content refresh (resource samples).
         if newCard, case .tab = content { loadThumbnail(for: tab) }
-        return HoverCardBody(view: body, placement: .below, themeAnchor: strip) { [weak body] in body?.applyColors() }
+        // A strip at the bottom of its pane opens cards upward (R109).
+        let placement: HoverCardPlacement = DesignSettings.shared.tabBarPosition == .bottom ? .above : .below
+        return HoverCardBody(view: body, placement: placement, themeAnchor: strip) { [weak body] in body?.applyColors() }
     }
 
     func hoverCardActivated(_ id: HoverTargetID) {

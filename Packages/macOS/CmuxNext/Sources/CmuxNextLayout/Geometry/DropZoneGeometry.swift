@@ -130,6 +130,7 @@ public nonisolated enum DropZoneGeometry {
     /// `topInset` is the tab bar height at the top edge: the tab bar takes
     /// drops into the strip, so the top band starts below it (dogfood
     /// 2026-10-03: a band inside the tab bar was never reached).
+    /// `bottomInset` is the same for a tab bar at the bottom (R109).
     public static func dockTarget(atView point: CGPoint, screen: ScreenID, geometry: ScreenGeometry, style: LayoutStyle,
                                   topInset: CGFloat = 0, bottomInset: CGFloat = 0) -> DropTarget? {
         let size = geometry.viewport
@@ -138,7 +139,8 @@ public nonisolated enum DropZoneGeometry {
         let side = min(style.dockDropBand / 2, size.width / 8)
         let free = { (edge: DockEdge) in !geometry.dock.contains { $0.dock.edge == edge } }
         if point.y >= topInset, point.y <= topInset + topBand, free(.top) { return .newDock(screen: screen, edge: .top) }
-        if point.y >= size.height - band, free(.bottom) { return .newDock(screen: screen, edge: .bottom) }
+        let bottom = size.height - bottomInset
+        if point.y >= bottom - band, point.y <= bottom, free(.bottom) { return .newDock(screen: screen, edge: .bottom) }
         if point.x <= side, free(.left) { return .newDock(screen: screen, edge: .left) }
         if point.x >= size.width - side, free(.right) { return .newDock(screen: screen, edge: .right) }
         return nil

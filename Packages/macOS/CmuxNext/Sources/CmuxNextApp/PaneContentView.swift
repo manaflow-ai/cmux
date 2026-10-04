@@ -6,8 +6,9 @@ import Observation
 /// One layout leaf: the pane's tab strip on top (or at the bottom,
 /// `tabs.barPosition`, R109) and the selected tab's content beside it.
 /// Manual frame layout; heights come from live design tokens.
-/// The strip (plus a browser toolbar) is the pane's header: the layout's
-/// border and rounded corners trace only the content below it.
+/// The strip (plus a browser toolbar) is the pane's header, or with the
+/// strip at the bottom its footer: the layout's border and rounded corners
+/// trace only the content between them.
 final class PaneContentView: NSView, PaneContentChrome {
     let stripView: TabStripView
     /// The strip's colors: its pane's scope, subtler while another pane
