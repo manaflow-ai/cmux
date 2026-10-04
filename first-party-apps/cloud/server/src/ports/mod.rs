@@ -104,7 +104,7 @@ impl Edge {
 
     /// The same edge with `clock` as the time source of the transfer
     /// history (tests inject their own time).
-    pub fn with_clock(mut self, clock: std::sync::Arc<dyn crate::clock::Clock>) -> Self {
+    pub fn with_clock(mut self, clock: Arc<dyn crate::clock::Clock>) -> Self {
         self.transfers.set_clock(clock);
         self
     }
