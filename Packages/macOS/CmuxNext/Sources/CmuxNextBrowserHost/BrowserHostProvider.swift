@@ -38,8 +38,9 @@ public final class BrowserHostProvider {
     /// The page agent bundle's fingerprint from the last `hello.ack`.
     public internal(set) var agentBundleSHA: String?
 
-    /// A lease started, changed or ended on a tab (nil: ended).
-    @ObservationIgnored public var onLeaseChange: ((String, ProviderLease?) -> Void)?
+    /// Consumers of lease changes (`observeLeases`), in registration order.
+    @ObservationIgnored var leaseObservers: [(id: UInt64, consumer: (String, ProviderLease?) -> Void)] = []
+    @ObservationIgnored var nextLeaseObserverID: UInt64 = 0
     /// The host's page agent bundle (`hello.ack`): source and fingerprint.
     @ObservationIgnored public var onAgentBundle: ((String, String) -> Void)?
     /// A tab the host knew left the app (`tab.gone` was sent).
@@ -263,7 +264,7 @@ public final class BrowserHostProvider {
         calledTargets = []
         let ended = leases.keys
         leases = [:]
-        for targetID in ended { onLeaseChange?(targetID, nil) }
+        for targetID in ended { notifyLease(targetID, nil) }
     }
 
     /// Queues a frame on the current link; dropped when there is none.

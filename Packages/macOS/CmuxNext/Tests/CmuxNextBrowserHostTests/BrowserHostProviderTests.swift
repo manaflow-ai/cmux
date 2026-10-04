@@ -117,7 +117,8 @@ struct BrowserHostProviderTests {
     @Test func leasesReachTheAppAndMarkTheTabAndUserInputIsReported() async throws {
         let h = ProviderHarness(tabs: [tab("c1", .cef)])
         var changes: [(String, ProviderLease?)] = []
-        h.provider.onLeaseChange = { changes.append(($0, $1)) }
+        let observation = h.provider.observeLeases { changes.append(($0, $1)) }
+        defer { _ = observation }
         let (host, _) = await h.connected()
         _ = await host.next() // tab.access
         host.ack()
