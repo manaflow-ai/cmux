@@ -3,7 +3,7 @@
 use cmux_conversation::{Message, Op, Summary};
 use std::collections::VecDeque;
 
-use super::{MAX_AUTHORS, Core, Effect, Handling, InboxItem, Paging, Task};
+use super::{Core, Effect, Handling, InboxItem, MAX_AUTHORS, Paging, Task};
 use crate::rules::{AGENT_MUX, PAGE, inbox_prompt, wakes};
 use crate::state::OutstandingPrompt;
 
