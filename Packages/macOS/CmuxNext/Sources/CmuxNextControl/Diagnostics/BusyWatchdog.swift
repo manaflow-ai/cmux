@@ -90,6 +90,11 @@ public final class BusyWatchdog: Sendable {
         helpers.withLock { $0 = source }
     }
 
+    /// Snapshots the callback under the lock, for invocation after releasing it.
+    func helperSource() -> @Sendable () -> [Helper] {
+        helpers.withLock { $0 }
+    }
+
     /// The main run loop woke. Cheap: one atomic store, plus opening a
     /// window when none is open.
     public func noteAwake() {
@@ -100,7 +105,7 @@ public final class BusyWatchdog: Sendable {
 
     private func openWindow() {
         awakeDuringWindow.store(false, ordering: .relaxed)
-        let helperList = helpers.withLock { $0 }()
+        let helperList = helperSource()()
         var sampled: [pid_t: (label: String, usage: ProcessUsage)] = [:]
         for helper in helperList {
             if let usage = ProcessUsage.sample(helper.pid) { sampled[helper.pid] = (helper.label, usage) }
