@@ -88,6 +88,9 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// in the REPL, where output spill files go, and the only `fs` root
     /// besides the working directory.
     private let privateTemporaryDirectory: String
+    /// That directory, held open since the session made it: spill files and
+    /// fs calls go there whatever happens to its path.
+    private let privateTemporaryDescriptor: BrowserReplDescriptor?
     private let homeDirectory: String
 
     // JS-thread state.
@@ -138,17 +141,28 @@ public final class BrowserReplSession: @unchecked Sendable {
         private var continuation: CheckedContinuation<BrowserReplEvalResult, Never>?
         private var timeoutTask: Task<Void, Never>?
         private var finished = false
-        private let spillPath: String
+        /// The session's temporary directory, held open, and the spill file's name in it.
+        private let spillDirectory: BrowserReplDescriptor?
+        private let spillName: String
+        /// Where the spill file is, once it was created.
+        private var spillPath: String?
         private var retainedBytes = 0
         private var spilledBytes = 0
         private var spill: FileHandle?
         private var spilling = false
 
-        init(id: Int, spillDirectory: String, continuation: CheckedContinuation<BrowserReplEvalResult, Never>) {
+        /// - Parameter spillDirectory: The session's temporary directory,
+        ///   held open (nil when it could not be made: output past the
+        ///   ceiling is then dropped), with its path when it was made.
+        init(id: Int, spillDirectory: (path: String, descriptor: BrowserReplDescriptor?), continuation: CheckedContinuation<BrowserReplEvalResult, Never>) {
             self.id = id
-            self.spillPath = spillDirectory + "/output-\(id).txt"
+            self.spillDirectory = spillDirectory.descriptor
+            self.spillDirectoryPath = spillDirectory.path
+            self.spillName = "output-\(id).txt"
             self.continuation = continuation
         }
+
+        private let spillDirectoryPath: String
 
         var isFinished: Bool { lock.withLock { finished } }
 
@@ -175,12 +189,20 @@ public final class BrowserReplSession: @unchecked Sendable {
                 }
                 if !spilling {
                     spilling = true
-                    // O_EXCL: never write into a file that is already there.
-                    let descriptor = open(spillPath, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
-                    if descriptor >= 0 { spill = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true) }
+                    // Created in the directory the session made and holds
+                    // open, so no link put on its path redirects it; O_EXCL:
+                    // never write into a file that is already there.
+                    if let spillDirectory {
+                        let descriptor = openat(spillDirectory.fd, spillName, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+                        if descriptor >= 0 {
+                            spill = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+                            // Where the directory is now, if it was moved.
+                            spillPath = (spillDirectory.currentPath ?? spillDirectoryPath) + "/" + spillName
+                        }
+                    }
                     lines.append(BrowserReplOutputLine(
                         level: "info",
-                        text: spill == nil ? "# output past this point was dropped" : "# output continues in \(spillPath)"
+                        text: spillPath.map { "# output continues in \($0)" } ?? "# output past this point was dropped"
                     ))
                 }
                 spilledBytes += size
@@ -194,7 +216,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             try? spill?.close()
             spill = nil
             let total = retainedBytes + spilledBytes
-            let destination = FileManager.default.fileExists(atPath: spillPath) ? "full output: \(spillPath)" : "the rest was dropped"
+            let destination = spillPath.map { "full output: \($0)" } ?? "the rest was dropped"
             return BrowserReplOutputLine(
                 level: "info",
                 text: "# output truncated: \(retainedBytes) of \(total) bytes shown; \(destination)"
@@ -325,14 +347,15 @@ public final class BrowserReplSession: @unchecked Sendable {
             BrowserReplFileSandbox.lexicallyNormalized(temporaryDirectory ?? NSTemporaryDirectory())
         )
         let resolvedCwd: String
+        var cwdDescriptor: BrowserReplDescriptor?
         if let cwd {
             resolvedCwd = cwd
             ownedWorkingDirectory = nil
         } else {
-            resolvedCwd = Self.makeSessionDirectory(id: id, temporaryRoot: temporaryRoot)
+            (resolvedCwd, cwdDescriptor) = Self.makeSessionDirectory(id: id, temporaryRoot: temporaryRoot)
             ownedWorkingDirectory = resolvedCwd
         }
-        privateTemporaryDirectory = Self.makeSessionDirectory(id: id, temporaryRoot: temporaryRoot, suffix: "-tmp")
+        (privateTemporaryDirectory, privateTemporaryDescriptor) = Self.makeSessionDirectory(id: id, temporaryRoot: temporaryRoot, suffix: "-tmp")
         self.id = id
         self.workingDirectory = resolvedCwd
         self.homeDirectory = homeDirectory ?? NSHomeDirectory()
@@ -345,7 +368,9 @@ public final class BrowserReplSession: @unchecked Sendable {
         self.fetcher = BrowserReplFetcher(driver: driver)
         self.fileSystem = BrowserReplFileSystem(
             sandbox: BrowserReplFileSandbox(root: resolvedCwd),
-            temporaryDirectory: privateTemporaryDirectory
+            temporaryDirectory: privateTemporaryDirectory,
+            rootDescriptor: cwdDescriptor,
+            temporaryDescriptor: privateTemporaryDescriptor
         )
         self.scheduler = BrowserReplTimerScheduler(clock: ContinuousClock(), maximumTimers: maxPendingTimers) { [weak self] id in
             self?.fireTimer(id)
@@ -359,34 +384,51 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// was started without a cwd, and its private temporary directory. Both
     /// and their parent are mode 0700: the agent's files never reach another
     /// local user.
-    private static func makeSessionDirectory(id: String, temporaryRoot: String, suffix: String = "") -> String {
+    ///
+    /// Every step after `temporaryRoot` goes through a held descriptor
+    /// (`mkdirat`, `openat` with `O_NOFOLLOW`): a link in place of the parent
+    /// is never followed, and the new directory is returned open, so later
+    /// use never walks its path again.
+    /// - Returns: The directory's path and its descriptor; nil when it could
+    ///   not be made (an fs call there then fails, and output past the
+    ///   ceiling is dropped).
+    private static func makeSessionDirectory(
+        id: String,
+        temporaryRoot: String,
+        suffix: String = ""
+    ) -> (path: String, descriptor: BrowserReplDescriptor?) {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
         let safeID = String(String.UnicodeScalarView(id.unicodeScalars.prefix(64).map { allowed.contains($0) ? $0 : "_" }))
-        let parent = (temporaryRoot == "/" ? "" : temporaryRoot) + "/cmux-browser-repl"
-        if mkdir(parent, 0o700) == 0 {
-            // Created private.
-        } else if errno == ENOENT {
-            try? FileManager.default.createDirectory(atPath: (parent as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
-            _ = mkdir(parent, 0o700)
-        } else {
-            // An existing parent (an earlier version made it 0755) is
-            // narrowed when it is this user's own directory, never followed
-            // through a symbolic link.
-            var info = stat()
-            if lstat(parent, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR, info.st_uid == getuid() {
-                chmod(parent, 0o700)
-            }
+        let parentName = "cmux-browser-repl"
+        let parentPath = (temporaryRoot == "/" ? "" : temporaryRoot) + "/" + parentName
+        var name = "\(safeID)-\(UUID().uuidString.prefix(8))\(suffix)"
+        var rootDescriptor = open(temporaryRoot, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        if rootDescriptor < 0, errno == ENOENT {
+            try? FileManager.default.createDirectory(atPath: temporaryRoot, withIntermediateDirectories: true)
+            rootDescriptor = open(temporaryRoot, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
         }
-        var path = ""
-        // mkdir(2) creates the directory itself, never one that already
+        guard rootDescriptor >= 0 else { return (parentPath + "/" + name, nil) }
+        let root = BrowserReplDescriptor(rootDescriptor)
+        // The umask can only narrow the mode.
+        _ = mkdirat(root.fd, parentName, 0o700)
+        let parentDescriptor = openat(root.fd, parentName, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard parentDescriptor >= 0 else { return (parentPath + "/" + name, nil) }
+        let parent = BrowserReplDescriptor(parentDescriptor)
+        // An existing parent must be this user's own directory; one an
+        // earlier version made 0755 is narrowed.
+        var info = stat()
+        guard fstat(parent.fd, &info) == 0, info.st_uid == getuid() else { return (parentPath + "/" + name, nil) }
+        if info.st_mode & 0o077 != 0 { fchmod(parent.fd, 0o700) }
+        // mkdirat(2) creates the directory itself, never one that already
         // exists, so no other session's directory is ever reused.
-        for _ in 0..<8 {
-            path = parent + "/\(safeID)-\(UUID().uuidString.prefix(8))\(suffix)"
-            // The umask can only narrow the mode.
-            if mkdir(path, 0o700) == 0 { break }
+        for attempt in 0..<8 {
+            if attempt > 0 { name = "\(safeID)-\(UUID().uuidString.prefix(8))\(suffix)" }
+            guard mkdirat(parent.fd, name, 0o700) == 0 else { continue }
+            let descriptor = openat(parent.fd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            guard descriptor >= 0 else { break }
+            return (parentPath + "/" + name, BrowserReplDescriptor(descriptor))
         }
-        // A failure surfaces as ENOENT on the first fs write.
-        return path
+        return (parentPath + "/" + name, nil)
     }
 
     /// The fs root.
@@ -452,7 +494,11 @@ public final class BrowserReplSession: @unchecked Sendable {
             }
             if let cwd { workingDirectory = cwd }
             nextEvalID += 1
-            let state = EvalState(id: nextEvalID, spillDirectory: privateTemporaryDirectory, continuation: continuation)
+            let state = EvalState(
+                id: nextEvalID,
+                spillDirectory: (privateTemporaryDirectory, privateTemporaryDescriptor),
+                continuation: continuation
+            )
             currentEval = state
             watchdog.setCurrentEval(state.id)
             let submitted = thread.perform { [self] in
