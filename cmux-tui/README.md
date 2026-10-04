@@ -66,7 +66,7 @@ cmux session current events --jsonl
 Use `cmux daemon start|status|stop|reload-config` for one named local durable
 session. `daemon stop` is idempotent when absent and preserves saved topology.
 Shared routing options can precede the scope, as in
-`cmux --session agents server status`. Lifecycle JSON errors use stable codes
+`cmux --session agents daemon status`. Lifecycle JSON errors use stable codes
 and do not expose raw transport or server error text.
 Use the `remote` command group for authenticated network access:
 `cmux remote connect|ssh|forward|browser-proxy|rpc`, `remote enroll`, and
