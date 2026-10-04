@@ -900,3 +900,9 @@ mark {
 .icon-up {
   transform: rotate(180deg);
 }
+
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
