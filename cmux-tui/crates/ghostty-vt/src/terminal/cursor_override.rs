@@ -1,7 +1,5 @@
 //! Tracks DECSCUSR cursor-style overrides the program sets, so replay restores them.
 
-use super::*;
-
 #[derive(Default)]
 pub(super) struct CursorOverrideTracker {
     pub(super) state: CursorTrackState,
