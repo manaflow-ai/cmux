@@ -158,8 +158,7 @@ keys. The AST lands with the fix; the text grammar is the next slice.
   browserPopup`) a key whose binding is a close action closes the popup.
 - Step 1 (IME): while an input method composes, every key it can use reaches it
   undecided (every key but a Command chord; Kotoeri converts with Ctrl-J/K/L); a Command
-  chord (Cmd-W, Cmd-Q) still resolves. Spec section 3 says "nothing else runs"; blocking
-  Cmd-Q during composition would be a regression, so this is a proposed spec edit.
+  chord (Cmd-W, Cmd-Q) still resolves. Decided as K-T3.
 - Decided keys are matched by identity and by signature (timestamp, key code,
   modifiers, characters; `DecidedKeyEvents`), so a copy of the key that Chromium hands
   to its pre-key hook never runs an action twice.
@@ -238,4 +237,11 @@ wherever its tier allows).
   internal pages are `settings` (Settings, Debug Settings), `appStore`, or their page
   id (`tasks`, `inbox`). Outside a pane (sidebar, its fields, other text fields)
   `surfaceKind` is absent and `focus` names the target.
+- K-T3 (coordinator, 2026-10-03): an input method that composes gets every key but a
+  Command chord (the coordinator edits spec section 3).
+- K-T4 (coordinator): `surfaceKind` values as listed above.
+- K-T5 (coordinator): in a browser popup every close action closes the popup.
+- K-T6 (coordinator): keybindings.json is parsed by the Rust `cmux-config` (one config
+  owner); that slice needs a cmux-tui landing window.
+- R59 is done only after a live Ctrl-Tab proof on cmux-lawrence-2 (never the laptop).
 - Reported, not changed: Ctrl-1/2/3 conflict with Spaces (R38) belongs to that lane.
