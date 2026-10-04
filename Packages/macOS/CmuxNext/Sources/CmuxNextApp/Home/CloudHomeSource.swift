@@ -418,7 +418,7 @@ nonisolated final class CloudHomeSource: HomeSource {
     private func apply(_ changed: CloudConversationChanged) {
         let id = ConversationID(changed.conversation)
         publish { state in
-            guard let identity = state.identity else { return nil }
+            guard let identity = state.identity, known(id, state) else { return nil }
             switch changed.change {
             case .message(let wire), .messageUpdated(let wire):
                 let message = CloudHomeMapping.message(wire, identity: identity)
@@ -464,6 +464,10 @@ nonisolated final class CloudHomeSource: HomeSource {
         }
     }
 
+    /// UserDO's inbox events list conversations the account has not seen
+    /// yet, so they are not limited to known ones. A previous account's late
+    /// inbox event leaves with the next inbox list (an entry that list does
+    /// not have is removed, here and in the router's merged inbox).
     private func apply(_ changed: CloudInboxChanged) {
         var missing: [ConversationID] = []
         var unlisted: [ConversationID] = []
@@ -650,11 +654,21 @@ nonisolated final class CloudHomeSource: HomeSource {
         return InboxSnapshot(me: me, conversations: conversations, rev: state.inboxRev)
     }
 
+    /// Whether a conversation belongs to this generation's account: listed,
+    /// created or subscribed since the last account change. A stream event
+    /// of any other conversation is dropped: it can only be a previous
+    /// account's, arriving after the switch (the daemon had not yet
+    /// processed the unsubscribe, or reopened the socket).
+    private func known(_ id: ConversationID, _ state: State) -> Bool {
+        state.targets[id] != nil || state.entries[id] != nil || state.created.contains(id)
+    }
+
     /// Whether a conversation stream event may change what the store shows:
-    /// not while UserDO has taken the conversation out of the inbox
-    /// (UserDO owns inbox membership, home-messaging.md 4.2).
+    /// only for this account's conversations, and not while UserDO has
+    /// taken the conversation out of the inbox (UserDO owns inbox
+    /// membership, home-messaging.md 4.2).
     private func mayShow(_ id: ConversationID, _ state: State) -> Bool {
-        !state.removed.contains(id)
+        known(id, state) && !state.removed.contains(id)
     }
 
     /// Drops what this source kept for a conversation the inbox no longer

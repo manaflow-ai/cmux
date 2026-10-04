@@ -18,7 +18,8 @@ nonisolated final class HomeSourceRouter: HomeSource {
         var lastInbox: HomeEvent?
         /// The owner of every conversation either source reported.
         var owners: [ConversationID: ConversationSummary.Owner] = [:]
-        /// Cloud conversations in the merged inbox now.
+        /// Cloud conversations in the merged inbox now: listed by the cloud
+        /// inbox, or shown by a conversation stream event or page.
         var cloudListed: Set<ConversationID> = []
         var inboxRev: Revision = 0
         var started = false
@@ -208,12 +209,16 @@ nonisolated final class HomeSourceRouter: HomeSource {
                 return .conversationRemoved(id, inboxRev: state.inboxRev)
             }
         case .conversationChanged(let summary, _, _):
+            // A conversation stream event lists the conversation in the store
+            // too, so the next cloud inbox removes it when it does not list it.
             publish { state in
+                state.cloudListed.insert(summary.id)
                 state.owners[summary.id] = .cloud
                 return event
             }
         case .conversationPage(let page):
             publish { state in
+                state.cloudListed.insert(page.conversation.id)
                 state.owners[page.conversation.id] = .cloud
                 return event
             }
