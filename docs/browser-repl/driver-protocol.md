@@ -426,7 +426,13 @@ native (`BrowserReplBoundary` in the session, and the driver):
   local file outside those directories, such as a user's tab opened on
   one before the session reached it, and on a tab the session did not
   create whose page is a document of a local file's origin under another
-  URL (an `about:blank` or `data:` page a file page wrote). In a tab the
+  URL (an `about:blank` page a file page wrote). A document of an opaque
+  origin whose URL names no host (a `data:` page or frame, a `blob:` of an
+  opaque origin, a sandboxed `about:srcdoc`) is judged there by the
+  documents that made it, as under the domain policy below: it is refused
+  when a local file outside those directories, or a document of a local
+  file's origin, made it, or when cmux has no record of who made it (a file
+  can replace itself with a `data:` document that shows its content). In a tab the
   session did not create, a child frame that shows such a document (a
   local page inside the directories can frame files outside them, and
   that tab has no content rules) is judged like a frame the domain policy

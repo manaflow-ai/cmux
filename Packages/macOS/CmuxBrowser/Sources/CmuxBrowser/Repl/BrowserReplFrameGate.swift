@@ -290,10 +290,43 @@ public final class BrowserReplFrameGate {
 
     /// Why a frame of `webView` that shows `document` is refused: the
     /// policy blocks it, or it is a local document the session may not read.
-    func blockReason(_ document: BrowserReplFrameDocument, in webView: WKWebView) -> String? {
+    public func blockReason(_ document: BrowserReplFrameDocument, in webView: WKWebView) -> String? {
         if let reason = policy.blockReason(document: document) { return reason }
-        guard let local = document.local, let roots = localRoots(in: webView) else { return nil }
-        return BrowserReplFileSandbox.localPageRefusal(url: local, documentOrigin: document.origin, roots: roots)
+        guard let roots = localRoots(in: webView) else { return nil }
+        return Self.localBlockReason(document, roots: roots)
+    }
+
+    /// Why a session whose directories are `roots` may not read `document`
+    /// in a tab it did not create, or nil: a local file outside `roots`, a
+    /// document of a local file's origin under another URL, or an opaque
+    /// document (``BrowserReplFrameDocument/isOpaque``) that such a document
+    /// made, or whose maker cmux cannot tell. A file can replace itself with
+    /// a `data:` document that shows its content, whose origin and URL name
+    /// no file, so an opaque document is judged by its makers
+    /// (``BrowserReplDocumentProvenance``, which passes an opaque maker's
+    /// own makers on).
+    public static func localBlockReason(_ document: BrowserReplFrameDocument, roots: [String]) -> String? {
+        if let local = document.local {
+            return BrowserReplFileSandbox.localPageRefusal(url: local, documentOrigin: document.origin, roots: roots)
+        }
+        guard document.isOpaque else { return nil }
+        let kind = "a \(document.place.dropLast(3)): document"
+        guard let makers = document.makers, !makers.isEmpty else {
+            return "\(kind) of an opaque origin whose maker cmux cannot tell, which may be a local file the session may not read; navigate the frame to another page"
+        }
+        for maker in makers {
+            switch maker {
+            case .app:
+                continue
+            case .unknown:
+                return "\(kind) of an opaque origin whose maker cmux cannot tell, which may be a local file the session may not read; navigate the frame to another page"
+            case .page(let page):
+                if let reason = localBlockReason(page, roots: roots) {
+                    return "\(kind) made by \(page.local ?? page.place): \(reason)"
+                }
+            }
+        }
+        return nil
     }
     private let world: WKContentWorld
     /// Bounds each of the gate's own probes (a frame's document, its focus,

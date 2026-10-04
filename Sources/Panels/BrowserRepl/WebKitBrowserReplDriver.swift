@@ -598,8 +598,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     /// Refuses a read or input on a tab the session did not create whose
     /// page is a document of a local file's origin under another URL (an
-    /// `about:blank` or `data:` page a file page wrote): which file made it
-    /// cannot be told (``BrowserReplFileSandbox/localPageRefusal(url:documentOrigin:roots:)``).
+    /// `about:blank` page a file page wrote), whose file cannot be told, or
+    /// an opaque document (`data:`) such a file or a file outside the
+    /// session's directories made (``BrowserReplFrameGate/localBlockReason(_:roots:)``).
     @MainActor
     private func checkLocalDocumentOrigin(method: String, params: [String: Any]) async throws {
         guard Self.isGuarded(method), let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
@@ -609,8 +610,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // A web page has its own origin; a file page is judged by its path.
         guard !["http", "https", "file"].contains(URL(string: url)?.scheme?.lowercased() ?? "") else { return }
         guard let main = await BrowserReplFrameTree.frames(of: panel.webView).first?.info else { return }
-        let origin = BrowserReplFrameDocument(info: main).origin
-        if let reason = BrowserReplFileSandbox.localPageRefusal(url: url, documentOrigin: origin, roots: currentFileRoots) {
+        if let reason = BrowserReplFrameGate.localBlockReason(BrowserReplFrameDocument(info: main), roots: currentFileRoots) {
             throw Self.error("blocked", reason)
         }
     }
