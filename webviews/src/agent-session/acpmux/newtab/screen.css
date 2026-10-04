@@ -1,14 +1,10 @@
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat, no accent color. */
 .nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(48px,18vh,180px) max(16px,calc((100% - 720px)/2)) 32px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
 .nt-screen>*{width:100%}
-.nt-box{display:flex;align-items:center;gap:10px;height:56px;padding:0 6px 0 20px;box-sizing:border-box;border-radius:28px;background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 12px 32px -18px var(--agent-shadow,rgb(0 0 0/.4))}
+.nt-box{display:flex;align-items:center;gap:10px;height:56px;padding:0 20px;box-sizing:border-box;border-radius:28px;background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 12px 32px -18px var(--agent-shadow,rgb(0 0 0/.4))}
 .nt-field{flex:1;min-width:0;height:100%;border:0;outline:0;padding:0;background:none;color:var(--agent-text);caret-color:var(--agent-text);font:inherit;font-size:16px}
 .nt-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
 .nt-hint{flex:none;color:var(--acpmux-composer-dim);font-size:12px;white-space:nowrap}
-.nt-mode{flex:none;display:flex;gap:2px;margin:0;border:0;padding:3px;border-radius:22px;background:color-mix(in srgb,var(--agent-text) 6%,var(--acpmux-base))}
-.nt-mode-option{height:36px;padding:0 14px;border:0;border-radius:18px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:13px;cursor:pointer}
-.nt-mode-option:hover{color:var(--agent-text)}
-.nt-mode-option.is-selected{background:var(--acpmux-composer-bg);color:var(--agent-text);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 1px 2px var(--agent-shadow,rgb(0 0 0/.25))}
 .nt-rows{padding:6px;border-radius:18px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge);max-height:min(56vh,400px);overflow:auto}
 .nt-row{display:flex;align-items:center;gap:10px;height:40px;padding:0 10px 0 12px;border-radius:12px;color:var(--agent-soft);font-size:13.5px;cursor:default;white-space:nowrap}
 .nt-row.is-selected{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
@@ -35,5 +31,4 @@
 .nt-card-message{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--acpmux-composer-dim);font-size:12.5px;line-height:1.35}
 .nt-card[data-state=error] .nt-card-message{color:var(--agent-danger)}
 .nt-card[data-state=input] .nt-card-message{color:var(--agent-warning,var(--agent-text))}
-.nt-mode-option:focus-visible,.nt-chats-all:focus-visible,.nt-card:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
-@media (prefers-reduced-motion:no-preference){.nt-row,.nt-card,.nt-mode-option{transition:background-color var(--agent-motion-hover,.08s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover,.08s) var(--agent-ease-out,ease-out)}}
+@media (prefers-reduced-motion:no-preference){.nt-row,.nt-card{transition:background-color var(--agent-motion-hover,.08s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover,.08s) var(--agent-ease-out,ease-out)}}

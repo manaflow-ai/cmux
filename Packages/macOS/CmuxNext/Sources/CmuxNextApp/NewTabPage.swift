@@ -20,8 +20,8 @@ struct NewTabPageHandler {
     var open: (String, AgentPaneOpenTab) -> Void
     /// `(page tab, text)`: what `!` typed so far, for the terminal being made.
     var typeAhead: (String, String) -> Void = { _, _ in }
-    /// The screen's mode or agent pick (`mode`, `agent`), remembered on this Mac.
-    var remember: (String?, String?) -> Void = { _, _ in }
+    /// The agent the screen picked, remembered on this Mac.
+    var remember: (String) -> Void = { _ in }
     /// The location bar picked an open tab or workspace.
     var jump: (AgentPaneJumpTarget, String) -> Void
     var editShortcut: (AgentPaneTabKind) -> Void
@@ -117,7 +117,7 @@ enum NewTabPage {
             projects: projects(services),
             defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback).rawValue,
             layout: NewTabTunables.layout.value.pageLayout,
-            mode: services.newTabChoices.mode, lastAgent: services.newTabChoices.agent,
+            lastAgent: services.newTabChoices.agent,
             home: NSHomeDirectory()
         )
     }
@@ -127,8 +127,7 @@ enum NewTabPage {
     static func sparePage(_ services: AppServices) -> AgentPaneNewTab {
         AgentPaneNewTab(
             kind: .agent, hotkeys: newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) },
-            layout: NewTabTunables.layout.value.pageLayout, mode: services.newTabChoices.mode,
-            lastAgent: services.newTabChoices.agent, home: NSHomeDirectory()
+            layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent, home: NSHomeDirectory()
         )
     }
 
@@ -144,7 +143,7 @@ enum NewTabPage {
         NewTabPageHandler(
             open: open,
             typeAhead: { [weak services] key, text in services?.newTabTypeAhead.update(key, text: text) },
-            remember: { [weak services] mode, agent in services?.newTabChoices.remember(mode: mode, agent: agent) },
+            remember: { [weak services] agent in services?.newTabChoices.remember(agent: agent) },
             jump: { [weak services] target, id in if let services { jump(target, id: id, services: services) } },
             editShortcut: { [weak services] kind in if let services { editShortcut(kind, services: services) } },
             setDefaultKind: { [weak services] kind in if let services { setDefaultKind(kind, services: services) } },

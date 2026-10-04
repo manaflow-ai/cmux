@@ -27,8 +27,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onOpenTab: ((AgentPaneOpenTab) -> Void)?
     /// What the user typed after `!` so far (`tab.typeAhead`).
     @ObservationIgnored public var onTypeAhead: ((String) -> Void)?
-    /// The screen's mode or agent pick to remember (`newTab.remember`).
-    @ObservationIgnored public var onRememberNewTab: ((String?, String?) -> Void)?
+    /// The agent picked on the new tab screen, to remember (`newTab.remember`).
+    @ObservationIgnored public var onRememberNewTab: ((String) -> Void)?
     /// The location bar picked an open tab or workspace (`tab.jump`).
     @ObservationIgnored public var onJump: ((AgentPaneJumpTarget, String) -> Void)?
     /// The new tab page asked to change a kind's shortcut.
@@ -154,9 +154,9 @@ public final class AgentPaneModel {
             guard newTab != nil, let onTypeAhead else { return Self.unsupported("tab.typeAhead") }
             onTypeAhead(text)
             return AgentPaneReply.success()
-        case .rememberNewTab(let mode, let agent):
+        case .rememberNewTab(let agent):
             guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }
-            onRememberNewTab(mode, agent)
+            onRememberNewTab(agent)
             return AgentPaneReply.success()
         case .runAction(let id):
             guard id == "palette.welcomeChecklist", newTab != nil, let onRunAction else { return Self.unsupported("action.run") }

@@ -1,6 +1,5 @@
 // The new tab screen's actions as host requests (plans/cmux-next/new-tab.md section 5). An agent
 // row starts the chat in this page; everything else asks the host to replace the tab.
-import type { NewTabMode } from "../newTabIntent";
 import type { NewTabScreenActions } from "./NewTabScreen";
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -15,10 +14,10 @@ export function newTabScreenActions(deps: {
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
-  const remember = (fields: { mode?: NewTabMode; agent?: string }) => ignore(callNative("newTab.remember", fields));
+  const remember = (agent: string) => ignore(callNative("newTab.remember", { agent }));
   return {
     onAsk(harness, text) {
-      remember({ agent: harness });
+      remember(harness);
       deps.leave();
       const params: Record<string, unknown> = { harness, ...(cwd ? { cwd } : {}) };
       ignore(callNative("chat.new", params).then(() => (text ? callNative("chat.send", { text }) : undefined)));
@@ -35,6 +34,5 @@ export function newTabScreenActions(deps: {
       deps.selectSession(sessionId);
     },
     onShowAll: deps.showAllChats,
-    onModeChange: (mode) => remember({ mode }),
   };
 }
