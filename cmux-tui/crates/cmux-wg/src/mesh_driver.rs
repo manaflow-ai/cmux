@@ -1,9 +1,10 @@
 //! The task that runs a [`crate::WgMesh`].
 //!
 //! One Tokio task owns everything mutable: the peer table (one boringtun
-//! session per peer), the TCP stack, the pacer, and the UDP socket. Callers
-//! talk to it through commands. Nothing here sleeps to synchronize: the loop
-//! wakes on a datagram, a command, a stream write, the earliest WireGuard
+//! session per peer), the TCP stack, the pacer, the UDP socket and the
+//! gateways. Callers talk to it through commands. Nothing here sleeps to
+//! synchronize: the loop wakes on a datagram (from the UDP socket or a
+//! gateway), a command, a stream write, the earliest WireGuard
 //! timer of any session, the pacer's next departure, or the deadline smoltcp
 //! asks for.
 
@@ -22,7 +23,9 @@ use tokio::time::Instant;
 use crate::config::InterfaceAddress;
 use crate::error::WgError;
 use crate::mesh::{MeshCommand, WgMeshConfig, WgPeer};
+use crate::mesh_gateway::{GATEWAY_INBOX, GatewayDatagram, Outbound};
 use crate::mesh_peers::PeerTable;
+use crate::mesh_route::PeerRoute;
 use crate::pacing::Pacer;
 use crate::stream::WgStream;
 use crate::tcp_stack::TcpStack;
@@ -52,10 +55,12 @@ pub(crate) fn spawn(
 pub(crate) struct MeshDriver {
     pub(crate) table: PeerTable,
     pub(crate) stack: TcpStack,
-    pub(crate) udp: SocketPath<UdpSocket>,
-    /// The socket's own address, to map endpoints to its family.
-    local: SocketAddr,
+    /// The UDP socket and the gateways.
+    pub(crate) out: Outbound,
+    /// Datagrams that arrived through any gateway.
+    gateway_inbox: mpsc::Receiver<GatewayDatagram>,
     addresses: Vec<InterfaceAddress>,
+    mtu: u16,
     /// Checks the MAC of every handshake initiation before the
     /// Diffie-Hellman that identifies its key, and rate-limits them.
     pub(crate) gate: RateLimiter,
@@ -71,6 +76,7 @@ pub(crate) struct MeshDriver {
 
 enum Event {
     Datagram(usize, Option<SocketAddr>),
+    Gateway(Option<GatewayDatagram>),
     Drained,
     Fatal,
     Command(Option<MeshCommand>),
@@ -88,12 +94,14 @@ impl MeshDriver {
         let stack = TcpStack::new(&config.addresses, config.mtu, Arc::clone(&wake), true)?;
         let table = PeerTable::new(&config.private_key);
         let gate = RateLimiter::new(table.public(), HANDSHAKES_PER_SECOND);
+        let (inbox, gateway_inbox) = mpsc::channel(GATEWAY_INBOX);
         Ok(Self {
             table,
             stack,
-            udp: SocketPath::new(socket, None),
-            local,
+            out: Outbound::new(SocketPath::new(socket, None), local, inbox),
+            gateway_inbox,
             addresses: config.addresses,
+            mtu: config.mtu,
             gate,
             pacer: Pacer::default(),
             pace_deadline: None,
@@ -109,8 +117,8 @@ impl MeshDriver {
         loop {
             let stack_deadline = self.stack.poll_delay();
             let next_tick = self.table.next_tick().into_iter().chain(self.pace_deadline).min();
-            let backlogged = self.udp.backlogged();
-            let udp = &mut self.udp;
+            let backlogged = self.out.udp.backlogged();
+            let udp = &mut self.out.udp;
             let io = std::future::poll_fn(|cx| {
                 if backlogged && udp.poll_flush(cx).is_ready() {
                     return Poll::Ready(Ok(None));
@@ -124,6 +132,7 @@ impl MeshDriver {
                     Err(error) if is_transient(&error) => Event::Wake,
                     Err(_) => Event::Fatal,
                 },
+                received = self.gateway_inbox.recv() => Event::Gateway(received),
                 command = self.commands.recv() => Event::Command(command),
                 () = wake.notified() => Event::Wake,
                 () = sleep_until(next_tick) => Event::Wake,
@@ -132,9 +141,10 @@ impl MeshDriver {
             self.run_timers();
             match event {
                 Event::Datagram(count, source) => {
-                    self.handle_datagram(&datagram[..count], source);
+                    self.handle_datagram(&datagram[..count], source.map(PeerRoute::Udp));
                     self.receive_ready(&mut datagram);
                 }
+                Event::Gateway(received) => self.receive_gateways(received),
                 Event::Fatal | Event::Command(Some(MeshCommand::Shutdown) | None) => {
                     self.shutdown();
                     return;
@@ -142,17 +152,19 @@ impl MeshDriver {
                 Event::Command(Some(command)) => self.handle_command(command),
                 Event::Drained | Event::Wake => {}
             }
-            self.udp.flush();
+            self.out.udp.flush();
             self.service();
-            self.udp.flush();
+            self.out.udp.flush();
         }
     }
 
     /// Decrypt the datagrams already waiting on the socket, up to a batch.
     fn receive_ready(&mut self, buffer: &mut [u8]) {
         for _ in 1..RECEIVE_BATCH {
-            match self.udp.socket().try_recv_from(buffer) {
-                Ok((count, source)) => self.handle_datagram(&buffer[..count], Some(source)),
+            match self.out.udp.socket().try_recv_from(buffer) {
+                Ok((count, source)) => {
+                    self.handle_datagram(&buffer[..count], Some(PeerRoute::Udp(source)));
+                }
                 // WouldBlock, or an error the next wait reports.
                 Err(_) => break,
             }
@@ -182,7 +194,7 @@ impl MeshDriver {
             self.pacer.push(packet, now);
         }
         self.pace_deadline = None;
-        while !self.udp.backlogged() {
+        while !self.out.udp.backlogged() {
             let packet = match self.pacer.pop(now) {
                 Ok(Some(packet)) => packet,
                 Ok(None) => break,
@@ -196,7 +208,7 @@ impl MeshDriver {
     }
 
     /// Encrypt one packet for the peer that routes its destination and send
-    /// it. A packet no peer routes, or for a peer with no known endpoint, is
+    /// it. A packet no peer routes, or for a peer with no known route, is
     /// dropped (TCP retransmits). A peer without a session queues it in
     /// boringtun and starts a handshake.
     fn send_packet(&mut self, packet: &[u8], now: Instant) {
@@ -204,13 +216,13 @@ impl MeshDriver {
             return;
         };
         let Some(peer) = self.table.get_mut(&key) else { return };
-        if peer.endpoint.is_none() {
+        if peer.route.is_none() {
             return;
         }
         if let TunnResult::WriteToNetwork(datagram) =
             peer.tunn.encapsulate(packet, &mut self.scratch)
         {
-            transmit(&mut self.udp, self.local, peer.endpoint, datagram);
+            self.out.send(peer.route, datagram);
             peer.schedule.on_activity(now);
         }
     }
@@ -227,7 +239,7 @@ impl MeshDriver {
                 // A handshake retry keeps the timers running until boringtun
                 // gives up; a keepalive alone does not.
                 let retry = classify(packet) == DatagramClass::WireGuardInitiation;
-                transmit(&mut self.udp, self.local, peer.endpoint, packet);
+                self.out.send(peer.route, packet);
                 if retry {
                     peer.schedule.on_activity(now);
                 }
@@ -251,15 +263,14 @@ impl MeshDriver {
             MeshCommand::Listen { port, reply } => {
                 let _ = reply.send(self.stack.begin_listen(port));
             }
-            // Stubs: gateway routes are not implemented yet.
-            MeshCommand::AddGateway { reply, .. } => {
-                let _ = reply.send(Err(WgError::InvalidPeer("gateways are not implemented")));
+            MeshCommand::AddGateway { socket, reply } => {
+                let _ = reply.send(self.out.attach(socket, self.mtu));
             }
-            MeshCommand::RemoveGateway { reply, .. } => {
-                let _ = reply.send(false);
+            MeshCommand::RemoveGateway { gateway, reply } => {
+                let _ = reply.send(self.remove_gateway(gateway));
             }
-            MeshCommand::PeerRoute { reply, .. } => {
-                let _ = reply.send(None);
+            MeshCommand::PeerRoute { public_key, reply } => {
+                let _ = reply.send(self.table.get_mut(&public_key).and_then(|peer| peer.route));
             }
             MeshCommand::Shutdown => {}
         }
@@ -273,13 +284,13 @@ impl MeshDriver {
         // A replaced peer's connections stay only where it still routes.
         let allowed = entry.allowed_ips.clone();
         // Start the session now when the peer's address is known, so a peer
-        // that only answers learns this side's endpoint without waiting for
+        // that only answers learns this side's route without waiting for
         // traffic.
-        if entry.endpoint.is_some()
+        if entry.route.is_some()
             && let TunnResult::WriteToNetwork(packet) =
                 entry.tunn.format_handshake_initiation(&mut self.scratch, false)
         {
-            transmit(&mut self.udp, self.local, entry.endpoint, packet);
+            self.out.send(entry.route, packet);
             entry.schedule.on_activity(now);
         }
         self.stack.abort_conns(|conn| {
@@ -332,7 +343,8 @@ impl MeshDriver {
                 self.send_packet(&packet, now);
             }
         }
-        self.udp.flush();
+        self.out.udp.flush();
+        self.out.detach_all();
         self.stack.clear();
     }
 }
@@ -344,31 +356,11 @@ async fn sleep_until(deadline: Option<Instant>) {
     }
 }
 
-/// Send `datagram` to `target` on the shared socket, mapped to the socket's
-/// address family (a dual-stack IPv6 socket reaches IPv4 peers through
-/// mapped addresses).
-pub(crate) fn transmit(
-    udp: &mut SocketPath<UdpSocket>,
-    local: SocketAddr,
-    target: Option<SocketAddr>,
-    datagram: &[u8],
-) {
-    let Some(target) = target else { return };
-    let target = match (local, target) {
-        (SocketAddr::V6(_), SocketAddr::V4(v4)) => {
-            SocketAddr::new(IpAddr::V6(v4.ip().to_ipv6_mapped()), v4.port())
-        }
-        (SocketAddr::V4(_), SocketAddr::V6(v6)) => match v6.ip().to_ipv4_mapped() {
-            Some(v4) => SocketAddr::new(IpAddr::V4(v4), v6.port()),
-            None => return,
-        },
-        _ => target,
-    };
-    udp.send_to(datagram, target);
-}
-
 #[path = "mesh_receive.rs"]
 mod receive;
+
+#[path = "mesh_driver_gateway.rs"]
+mod gateway;
 
 #[cfg(test)]
 #[path = "mesh_tests.rs"]
