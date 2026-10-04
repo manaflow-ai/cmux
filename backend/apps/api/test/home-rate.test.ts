@@ -53,6 +53,12 @@ const joinTeam = async (owner: Person, member: Person) => {
   })
 }
 const human = (p: Person, name = "anything") => ({ id: p.user, kind: "human", display_name: name })
+/** Attempts counted for `actor` and `op` in `owner`'s UserDO. */
+const spent = (owner: Person, actor: string, op: string) =>
+  inDO(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(owner.user)), async (_i, state) => {
+    state.storage.sql.exec("CREATE TABLE IF NOT EXISTS home_rate (actor TEXT NOT NULL, op TEXT NOT NULL, at INTEGER NOT NULL)")
+    return Number((state.storage.sql.exec("SELECT COUNT(*) AS n FROM home_rate WHERE actor = ? AND op = ?", actor, op).toArray()[0] as { n: number }).n)
+  })
 /** Fills `actor`'s hourly budget for `op` in `owner`'s UserDO with `n` attempts made now (no reach RPCs). */
 const spend = (owner: Person, actor: string, op: string, n: number) =>
   inDO(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(owner.user)), async (_i, state) => {
@@ -267,5 +273,43 @@ describe("Home rate limits before reach", { timeout: 120_000 }, () => {
     const again = await open("Victoria")
     expect(rejectOf(again)).toBeUndefined()
     expect(again.frames.find((f) => f.t === "result")).toMatchObject({ replayed: true })
+  })
+
+  it("with budget left, a same-key retry of a decided op takes no unit and resolves no reach (create, participants.add, dm.open)", async () => {
+    const xia = await signIn("rate-retry-xia", "Xia")
+    const yan = await signIn("rate-retry-yan", "Yan")
+    const zed = await signIn("rate-retry-zed", "Zed")
+    await joinTeam(xia, yan)
+    await joinTeam(xia, zed)
+    const run = (env: never, op: string, params: unknown, key: string) => conversationMutate(env, sessionPrincipal(xia), { t: "op", op, params, idempotency_key: key })
+    const retry = async (op: string, params: unknown, key: string, budget: string) => {
+      const before = await spent(xia, xia.user, budget)
+      const rec = recordingEnv()
+      const again = await run(rec.env, op, params, key)
+      expect(rejectOf(again)).toBeUndefined()
+      expect(again.frames.find((f) => f.t === "result")).toMatchObject({ replayed: true })
+      expect(rec.calls).toEqual([])
+      expect(await spent(xia, xia.user, budget)).toBe(before)
+    }
+    // conversation.create
+    const createKey = crypto.randomUUID()
+    const createParams = { title: "Plans", participants: [human(xia, "Xia"), human(yan)] }
+    const created = (await run(testEnv as never, "conversation.create", createParams, createKey)).frames.find((f) => f.t === "result") as { value: { conversation: { id: string } } }
+    await retry("conversation.create", createParams, createKey, "conversation.create")
+    // participants.add
+    const addKey = crypto.randomUUID()
+    const addParams = { conversation: created.value.conversation.id, participant: human(zed) }
+    expect((await run(testEnv as never, "participants.add", addParams, addKey)).frames.some((f) => f.t === "result")).toBe(true)
+    await retry("participants.add", addParams, addKey, "participants.add")
+    // dm.open: the retry comes after the DM reached the inbox, so the normal path would send the reopen shape.
+    const dmKey = crypto.randomUUID()
+    const dm = ((await run(testEnv as never, "dm.open", { peer: yan.user }, dmKey)).frames.find((f) => f.t === "result") as { value: { conversation: { id: string } } }).value.conversation.id
+    const peerOf = () => inDO(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(xia.user)), async (i) => (await i.readInbox(xia.user, sessionPrincipal(xia), "inbox.dm_peer", { peer: yan.user })).value?.conversation)
+    for (let n = 0; n < 100 && (await peerOf()) !== dm; n++) {
+      await fireAlarm(testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(dm)))
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    expect(await peerOf()).toBe(dm)
+    await retry("dm.open", { peer: yan.user }, dmKey, "conversation.create")
   })
 })
