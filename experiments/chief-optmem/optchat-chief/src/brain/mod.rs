@@ -70,7 +70,10 @@ pub enum Input {
     /// Something the user must hear once (the compactor cannot build a
     /// node): posted in the Chief conversation, with `key` as its
     /// idempotency key, as soon as the conversation is known.
-    Notice { key: String, text: String },
+    Notice {
+        key: String,
+        text: String,
+    },
 }
 
 impl From<DaemonEvent> for Input {
@@ -198,6 +201,10 @@ pub struct Brain {
     /// The stop was sent to acpmux.
     stop_sent: bool,
     after_turn: Option<TurnHook>,
+    /// Notices waiting for the conversation to be known.
+    notices: Vec<(String, String)>,
+    /// Notice keys already handled (each is posted once per process).
+    noticed: HashSet<String>,
 }
 
 impl Brain {
@@ -236,6 +243,8 @@ impl Brain {
             stop_wanted: false,
             stop_sent: false,
             after_turn: None,
+            notices: Vec::new(),
+            noticed: HashSet::new(),
         };
         brain.save();
         brain
@@ -315,7 +324,7 @@ impl Brain {
                 let _ = reply.send(texts);
             }
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, outcome),
-            Input::Notice { .. } => {}
+            Input::Notice { key, text } => self.notice(key, text),
         }
     }
 
@@ -344,6 +353,33 @@ impl Brain {
         self.state
             .outbox
             .push(reply_entry(conversation, &key, text));
+        self.save();
+        self.flush_outbox();
+    }
+
+    /// Posts a notice once, now or as soon as the conversation is known.
+    fn notice(&mut self, key: String, text: String) {
+        if !self.noticed.insert(key.clone()) {
+            return;
+        }
+        (self.log)(&text);
+        self.notices.push((key, text));
+        self.post_notices();
+    }
+
+    /// Moves waiting notices into the outbox once the conversation is known.
+    pub(super) fn post_notices(&mut self) {
+        let Some(conversation) = self.state.conversation.clone() else {
+            return;
+        };
+        if self.notices.is_empty() {
+            return;
+        }
+        for (key, text) in std::mem::take(&mut self.notices) {
+            self.state
+                .outbox
+                .push(reply_entry(conversation.clone(), &key, &text));
+        }
         self.save();
         self.flush_outbox();
     }

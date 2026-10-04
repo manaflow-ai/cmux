@@ -1,6 +1,6 @@
 use crate::memory::{Memory, Store};
 use crate::node::NodeId;
-use crate::{NODE, TRIES};
+use crate::{NODE, STEP_MESSAGE, TRIES};
 
 /// The compactor prompt from Victor Taelin's OptChat specification (section
 /// 4.4), verbatim apart from the agent's name (`{agent}`). The default
@@ -178,13 +178,33 @@ pub fn compact_request(
     }
     context.push_str("</chat>");
     let scale = format!("For scale, this line is exactly {NODE} bytes:\n{SCALE}\n\n");
+    let mut cut = None;
     let step = match node.children() {
         None => {
             let (kind, text) = store.message(node.i);
-            format!(
-                "{scale}Compress this message into one line, in at most {NODE} bytes:\n{}: {text}",
-                kind.as_str()
-            )
+            let total = text.chars().count();
+            if total > STEP_MESSAGE {
+                // Deviation (README): the spec sends the message whole, which
+                // a paste larger than the model's context fails on every try.
+                let shown = cut_middle(&text, STEP_MESSAGE);
+                let unread = total - STEP_MESSAGE;
+                let prefix = format!("(cut: {unread} of {total} characters unread) ");
+                let room = NODE.saturating_sub(prefix.len());
+                let step = format!(
+                    "{scale}This message is too long to show whole: the middle {unread} of its \
+                     {total} characters are cut out of this request (marked [...]). Its line \
+                     will start with \"{prefix}\", added for you; write the rest, in at most \
+                     {room} bytes:\n{}: {shown}",
+                    kind.as_str()
+                );
+                cut = Some(prefix);
+                step
+            } else {
+                format!(
+                    "{scale}Compress this message into one line, in at most {NODE} bytes:\n{}: {text}",
+                    kind.as_str()
+                )
+            }
         }
         Some((a, b)) => format!(
             "{scale}Merge these two lines into one, in at most {NODE} bytes:\n{}\n{}",
@@ -197,14 +217,25 @@ pub fn compact_request(
         system,
         context,
         step,
-        cut: None,
+        cut,
     }
+}
+
+/// The first and last `keep / 2` characters of `text` around a mark.
+fn cut_middle(text: &str, keep: usize) -> String {
+    let head: String = text.chars().take(keep / 2).collect();
+    let total = text.chars().count();
+    let tail: String = text.chars().skip(total - (keep - keep / 2)).collect();
+    format!("{head}\n[...]\n{tail}")
 }
 
 /// The node text for an accepted reply: `request.cut` first, when the call
 /// showed only part of its message.
-pub fn finish_line(_request: &CompactRequest, line: &str) -> String {
-    line.to_string()
+pub fn finish_line(request: &CompactRequest, line: &str) -> String {
+    match &request.cut {
+        Some(prefix) if !line.starts_with(prefix.as_str()) => format!("{prefix}{line}"),
+        _ => line.to_string(),
+    }
 }
 
 /// What to do with the model's latest reply (section 4.3).

@@ -514,7 +514,10 @@ fn a_huge_message_is_cut_for_its_summary_call_only_and_the_line_says_so() {
     let cut = total - STEP_MESSAGE;
     let prefix = request.cut.clone().expect("the request says it is cut");
     assert!(prefix.contains(&cut.to_string()) && prefix.contains(&total.to_string()));
-    assert!(request.step.contains(&prefix), "the model is told the line's start");
+    assert!(
+        request.step.contains(&prefix),
+        "the model is told the line's start"
+    );
     let line = finish_line(&request, "user: pasted a long log");
     assert_eq!(line, format!("{prefix}user: pasted a long log"));
     assert_eq!(finish_line(&request, &line), line, "never twice");

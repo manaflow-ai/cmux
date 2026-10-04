@@ -290,6 +290,18 @@ impl FakeAgents {
         }
     }
 
+    /// Adds a prompt's events after the session's earlier ones (acpmux
+    /// numbers a session's events on, across its prompts).
+    pub fn append_events(&self, session: &str, events: Vec<Value>) {
+        let mut inner = self.inner.lock().unwrap();
+        let list = inner.events.entry(session.to_owned()).or_default();
+        let base = list.last().map_or(0, |e| e.seq);
+        for (i, mut e) in events.into_iter().enumerate() {
+            e["seq"] = json!(base + i as u64 + 1);
+            list.push(serde_json::from_value(e).unwrap());
+        }
+    }
+
     pub fn set_events(&self, session: &str, events: Vec<Value>) {
         let parsed = events.into_iter().enumerate().map(|(i, mut e)| {
             e["seq"] = json!(i as u64 + 1);
@@ -324,7 +336,7 @@ impl AgentPort for FakeAgents {
             inner.prompts.len() - 1
         };
         self.changed.notify_all();
-        self.set_events(session, (self.script)(turn, &blocks));
+        self.append_events(session, (self.script)(turn, &blocks));
         let me = self.me.upgrade().expect("alive");
         std::thread::spawn(move || {
             {

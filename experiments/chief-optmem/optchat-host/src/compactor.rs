@@ -8,7 +8,9 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
-use optchat_core::{compact_request, size_check, CompactRequest, Memory, NodeId, SizeCheck, Work};
+use optchat_core::{
+    compact_request, finish_line, size_check, CompactRequest, Memory, NodeId, SizeCheck, Work,
+};
 
 use crate::clock::Clock;
 use crate::files::FileStore;
@@ -173,7 +175,15 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
 /// The model conversation for one node with the size loop (section 4.3): each
 /// over-long reply is answered in the SAME conversation with where the limit
 /// cuts it; after `TRIES` the shortest try wins.
+/// The model's conversation is ended once, whatever the outcome, and a
+/// line whose call showed only part of its message starts with the cut.
 pub fn run_node(model: &dyn CompactModel, request: &CompactRequest) -> Result<String, ModelError> {
+    let result = size_loop(model, request);
+    model.end(request);
+    result.map(|line| finish_line(request, &line))
+}
+
+fn size_loop(model: &dyn CompactModel, request: &CompactRequest) -> Result<String, ModelError> {
     let mut followups: Vec<Followup> = Vec::new();
     let mut tries: Vec<String> = Vec::new();
     loop {
@@ -193,6 +203,15 @@ pub const PROBE_NODE: NodeId = NodeId::new(63, 0);
 /// Builds one tiny node through `model`, as the compactor would (one
 /// conversation, the size loop, `end`), so a host can say at start that its
 /// compactor cannot build anything instead of every turn waiting silently.
-pub fn probe(_model: &dyn CompactModel, _system: &str) -> Result<String, ModelError> {
-    Err(ModelError::new("probe is not implemented"))
+pub fn probe(model: &dyn CompactModel, system: &str) -> Result<String, ModelError> {
+    let request = CompactRequest {
+        node: PROBE_NODE,
+        system: system.to_owned(),
+        context: "<chat>\n</chat>".to_owned(),
+        step: "This is a start-up check of the compactor. Compress this message into one \
+               line, in at most 64 bytes:\nuser: ping"
+            .to_owned(),
+        cut: None,
+    };
+    run_node(model, &request)
 }

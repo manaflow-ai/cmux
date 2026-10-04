@@ -6,7 +6,9 @@ acpmux session with the turn loop of Victor Taelin's OptChat spec: every human
 message is logged into one endless OptChat memory, and every turn is a fresh
 model call that reads the memory's view (about 128 KB of one-line summaries of
 the whole chat) plus the new messages. The compactor that builds the summaries
-runs inside the host on the team subrouter.
+runs inside the host: on the team subrouter each summary is one short-lived,
+deny-all acpmux session of the normal harness (claude-sr), see
+[Compactor routes](#compactor-routes).
 
 Two engines run a turn (`OPTCHAT_CHIEF_ENGINE`):
 
@@ -25,10 +27,10 @@ Two engines run a turn (`OPTCHAT_CHIEF_ENGINE`):
 
 ## Run it with a tagged cmux-next build
 
-1. Build the binary on the build host (cargo never runs on the laptop):
+1. Build the macOS binary on a fleet Mac (cargo never runs on the laptop):
 
    ```bash
-   nx-remote --worktree "$PWD" --cwd experiments/chief-optmem/optchat-chief \
+   nx-remote --host cmux-mini-6 --xcode 26.6 --worktree "$PWD" --cwd experiments/chief-optmem/optchat-chief \
      --fetch experiments/chief-optmem/optchat-chief/target/release/optchat-chief \
      -- bash -c "umask 022; OPTCHAT_BUILD_COMMIT=$(git rev-parse --short HEAD) cargo build --release"
    ```
@@ -86,8 +88,11 @@ turn when the Chief is idle.
 | `ACPMUX_BIN` | none | started as `$ACPMUX_BIN daemon run` when the socket does not answer |
 | `CMUX_SOCKET_PATH` | none | the app's control socket, passed to the turn's tools |
 | `CMUX_MCP_COMMAND` | none | cmux binary whose `mcp serve` is added as MCP server `cmux` |
-| `OPTCHAT_ANTHROPIC_BASE_URL` | `http://cmux-lawrences-mac-mini:31415` | the Messages API of the compactor and the native engine (team subrouter) |
+| `OPTCHAT_ANTHROPIC_BASE_URL` | `http://cmux-lawrences-mac-mini:31415` | the Messages API of the native engine, and of the compactor's `api` route (team subrouter) |
 | `OPTCHAT_ANTHROPIC_API_KEY` | none | `x-api-key`; else `ANTHROPIC_API_KEY` for any base URL but the subrouter; else `subrouter` |
+| `OPTCHAT_COMPACTOR` | `acpmux` on the subrouter or without a key, else `api` | how summaries are built (see Compactor routes) |
+| `OPTCHAT_COMPACTOR_HARNESS` | `claude-sr` | acpmux route: the harness of the compactor sessions |
+| `OPTCHAT_COMPACTOR_MODEL` | `claude-sonnet-5-5` | acpmux route: their model (the refusal fallback stays `claude-sonnet-5`) |
 | `OPTCHAT_CHIEF_ISOLATE` | `1` | `0` runs turns with the user's own Claude Code configuration |
 | `OPTCHAT_CHIEF_TURN_LIMIT_MIN` | `180` | a turn longer than this is stopped and says so (`0`: no limit) |
 
@@ -103,7 +108,8 @@ $MUX_HOME/optchat/host.json       outbox, logged seq, pending turn, children
 $MUX_HOME/optchat/tools.sock      the live memory for `optchat-chief mcp`
 $MUX_HOME/optchat/session/        every turn's cwd: CLAUDE.md, .mcp.json, .claude/settings*.json
 $MUX_HOME/optchat/bin/chief       launcher for `chief agents ...`
-$MUX_HOME/optchat/claude/         the turn sessions' CLAUDE_CONFIG_DIR (settings.json: no auto-memory, no hooks)
+$MUX_HOME/optchat/claude/         the turn and compactor sessions' CLAUDE_CONFIG_DIR (settings.json: no auto-memory, no hooks)
+$MUX_HOME/optchat/compactor/      the compactor sessions' cwd (0700): only .claude/settings.json, which denies every tool
 ```
 
 `$MUX_HOME/optchat/` is mode 0700 and the log, tree and host.json are 0600:
@@ -125,20 +131,40 @@ byte-identical across turns. The request the model gets is not fully ours:
   environment lines, so the cached prefix changes at least once a day.
   Machine-wide managed settings still apply.
 
-## Known blocker on the team subrouter
+## Compactor routes
 
-Checked live on 2026-10-04 from the build host: the team subrouter routes a
-request it cannot identify as Claude Code to the Codex backend, so both
-clients now send `x-subrouter-agent: claude`; with it, raw Messages API
-calls for Claude models (the compactor's `claude-sonnet-5-5`, the native
-engine's `claude-opus-5-5`) get `429 rate_limit_error` every time. The
-subrouter serves Claude Code clients. So the compactor works through the
-subrouter only while every line is short enough to need no model call, and
-the native engine does not work through it at all. Either point
-`OPTCHAT_ANTHROPIC_BASE_URL` at an endpoint that takes API calls (with
-`OPTCHAT_ANTHROPIC_API_KEY` or `ANTHROPIC_API_KEY`), or give the subrouter
-an API-key Claude provider. `cargo test --release --test live -- --ignored`
-in optchat-host and optchat-chief repeats the check.
+The team subrouter serves Claude Code clients: a raw Messages API call for a
+Claude model gets `429 rate_limit_error` every time (checked live on
+2026-10-04), so a compactor that calls the API there builds no node that
+needs a model, and every turn then waits on settle forever. The host picks
+the route at start (`OPTCHAT_COMPACTOR` overrides):
+
+- `acpmux` (default on the subrouter, or when no real key is configured):
+  each node is built in its own acpmux session of `OPTCHAT_COMPACTOR_HARNESS`
+  (claude-sr), as `mux/host/src/compactor.ts` does. The session runs with the
+  `deny-all` policy, no tools (denied in its cwd's project settings), cwd
+  `$MUX_HOME/optchat/compactor`, and the turn sessions' isolation preset
+  (`CLAUDE_CONFIG_DIR`, no auto-memory). The first prompt is the compactor's
+  system text, the context pieces and the step; each size-loop retry is the
+  next prompt in the same session; the reply text is the line. The session
+  is killed with purge when the node is built or fails. At most JOBS (8)
+  compactor sessions live at once. Nothing pretends to be Claude Code and no
+  API key is involved: the harness signs in as it always does.
+- `api`: the Messages API at `OPTCHAT_ANTHROPIC_BASE_URL` with
+  `OPTCHAT_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY` off the subrouter),
+  for an endpoint that takes API calls.
+
+At start the host builds one probe node through the chosen route. When that
+fails (acpmux down, the harness not signed in, a 429), host.log gets one
+`The memory compactor cannot build summaries ...` line and the Chief
+conversation gets the same text once, instead of a silent wait later.
+Checked live on 2026-10-04 on the build host against a private acpmux daemon
+with claude-sr and the isolation preset: the probe took 2.4 s and a
+120-line message's summary 3.1 s
+(`cargo test --release --test live the_acpmux_compactor -- --ignored`).
+
+The native engine still needs an endpoint that takes API calls; through the
+subrouter it gets the same 429 (`--test live two_native_turns` repeats it).
 
 ## Deviations from the spec
 
@@ -160,6 +186,27 @@ in optchat-host and optchat-chief repeats the check.
 - **Native engine: refusals.** A refused turn says so. Server-side
   `fallbacks: "default"` is off by default (`OPTCHAT_CHIEF_SERVER_FALLBACK`):
   the team subrouter may not forward its beta header.
+- **Compactor through acpmux (section 4.2, 8).** Claude Code's own system
+  prompt (with its date and environment lines) comes first, and the
+  compactor's system text is the first block of the user prompt instead of
+  the API `system` field. acpmux forwards text blocks without
+  `cache_control`, so the context pieces keep the spec's order and cut
+  points but carry no breakpoints: a node reads only what Claude Code's own
+  caching gives it. Each node pays a harness start (about 2 s). The
+  `medium` effort goes to the harness as acpmux's `effort` option; that
+  option was not part of the live check. Size-loop retries stay in the same
+  session, so the earlier reply (thinking included) stays in the harness's
+  context, as section 8 wants, though the host never sees the blocks.
+- **Huge messages (section 4.2, rule 3).** The spec sends a message whole to
+  its compactor call; a paste or tool input larger than the model's context
+  fails that node on every try, and rule 3 then blocks every later level-0
+  node and every turn. A message longer than `STEP_MESSAGE` (200,000
+  characters) shows only its first and last 100,000 characters in that one
+  call (the log keeps it whole, and `zoom(id, 1)` returns it whole), and its
+  line starts with `(cut: N of M characters unread) `, which the host adds
+  (the model is told to leave room for it, so the line can pass 512 bytes by
+  that prefix when the model uses all its room). The WebAssembly build has
+  the cut and the instruction but not the added prefix.
 - **Compactor refusals (section 4.1).** A node the compactor model declines
   is built by `claude-sonnet-5` (fewer safeguard categories) instead of
   being retried forever. Other failures retry every 10 s forever, as the spec
@@ -177,12 +224,17 @@ in optchat-host and optchat-chief repeats the check.
 
 ## Tests
 
+Run them on a Blacksmith Testbox (`skills/blacksmith-testbox/SKILL.md` in a
+cmux checkout), in each of optchat-core, optchat-host and optchat-chief:
+
 ```bash
-nx-remote --worktree "$PWD" --cwd experiments/chief-optmem/optchat-chief \
-  -- bash -c 'umask 022; cargo test --release; cargo clippy --release --all-targets -- -D warnings'
+umask 022; cargo test --release; cargo clippy --release --all-targets -- -D warnings; cargo fmt --check
 ```
 
 `tests/brain.rs` runs the brain against in-process fakes of both owners;
+`tests/compactor.rs` runs the acpmux compactor route against the fake acpmux
+port (one session per node, size loop in it, purge, JOBS cap, route choice,
+the start-up notice);
 `tests/acpmux_wire.rs` and `tests/daemon_wire.rs` run the real clients against
 fake servers on Unix sockets; `tests/lock.rs` runs the binary against a held
 lock; `tests/mcp.rs` runs `optchat-chief mcp` against a live test memory.

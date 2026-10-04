@@ -48,6 +48,7 @@ impl Brain {
                     self.save();
                 }
                 self.summary = Some(conversation);
+                self.post_notices();
                 self.flush_outbox();
                 self.catch_up();
             }

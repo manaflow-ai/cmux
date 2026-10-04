@@ -295,11 +295,19 @@ fn run_node_ends_the_conversation_once_on_every_outcome() {
 
     let model = Ending::new(vec![Err(ModelError::new("HTTP 429"))]);
     assert!(run_node(&model, &node_request("S")).is_err());
-    assert_eq!(model.ended.lock().unwrap().len(), 1, "a failed node is ended too");
+    assert_eq!(
+        model.ended.lock().unwrap().len(),
+        1,
+        "a failed node is ended too"
+    );
 
     let model = Ending::new(vec![Ok(Reply::text("   "))]);
     assert!(run_node(&model, &node_request("S")).is_err());
-    assert_eq!(model.ended.lock().unwrap().len(), 1, "an empty reply is ended too");
+    assert_eq!(
+        model.ended.lock().unwrap().len(),
+        1,
+        "an empty reply is ended too"
+    );
 }
 
 #[test]

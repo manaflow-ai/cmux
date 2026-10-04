@@ -85,7 +85,11 @@ fn a_node_is_built_in_one_deny_all_session_that_is_then_purged() {
         "{:?}",
         chat.status().failures
     );
-    assert!(chat.render_view().text.contains("user: pasted a deploy log"));
+    assert!(
+        chat.render_view()
+            .text
+            .contains("user: pasted a deploy log")
+    );
     let inner = agents.inner.lock().unwrap();
     assert_eq!(inner.specs.len(), 1);
     let s = &inner.specs[0];
@@ -108,13 +112,16 @@ fn the_size_loop_continues_in_the_same_session() {
     let dir = tempfile::tempdir().unwrap();
     let agents = FakeAgents::new(Box::new(|turn, _| {
         if turn == 0 {
-            answer(&"long ".repeat(140))
+            answer(&"long".repeat(175))
         } else {
             answer("user: short now")
         }
     }));
     let compactor = AcpmuxCompactor::new(agents.clone(), spec(dir.path()));
-    assert_eq!(run_node(&compactor, &request(3)).unwrap(), "user: short now");
+    assert_eq!(
+        run_node(&compactor, &request(3)).unwrap(),
+        "user: short now"
+    );
     let inner = agents.inner.lock().unwrap();
     assert_eq!(inner.specs.len(), 1, "one session for the node");
     assert_eq!(inner.prompts.len(), 2);
@@ -139,7 +146,6 @@ fn a_failed_node_kills_its_session_and_a_refusal_is_reported_as_one() {
     let error = run_node(&compactor, &request(1)).unwrap_err();
     assert!(!error.refused);
     assert_eq!(agents.inner.lock().unwrap().ended, vec!["s1", "s2"]);
-
 }
 
 #[test]
@@ -220,7 +226,10 @@ fn the_route_is_acpmux_on_the_subrouter_and_the_api_on_a_configured_endpoint() {
     let real = config("https://api.anthropic.com", "sk-real");
     assert_eq!(compact_route(None, &real), Ok(CompactRoute::Api));
     assert_eq!(compact_route(Some("api"), &sub), Ok(CompactRoute::Api));
-    assert_eq!(compact_route(Some("acpmux"), &real), Ok(CompactRoute::Acpmux));
+    assert_eq!(
+        compact_route(Some("acpmux"), &real),
+        Ok(CompactRoute::Acpmux)
+    );
     assert!(compact_route(Some("bogus"), &sub).is_err());
 }
 
@@ -232,7 +241,10 @@ fn a_notice_is_posted_once_when_the_conversation_is_known() {
         text: "The memory compactor cannot build summaries".into(),
     };
     h.brain.step(notice());
-    assert!(h.owner.lock().unwrap().sends().is_empty(), "no conversation yet");
+    assert!(
+        h.owner.lock().unwrap().sends().is_empty(),
+        "no conversation yet"
+    );
     h.connect();
     h.brain.step(notice());
     let sends = h.owner.lock().unwrap().sends();
