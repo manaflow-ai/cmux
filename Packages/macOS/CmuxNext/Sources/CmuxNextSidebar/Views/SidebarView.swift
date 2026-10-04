@@ -194,8 +194,9 @@ public final class SidebarView: NSView {
 
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.scrollerStyle = .overlay
+        // The system's "Show scroll bars" setting (R111); the list follows
+        // the clip's width when a legacy scroller narrows it.
+        SystemScrollers.follow(scrollView)
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
@@ -203,8 +204,6 @@ public final class SidebarView: NSView {
         NotificationCenter.default.addObserver(self, selector: #selector(clipBoundsChanged), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
         scrollView.contentView.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(clipFrameChanged), name: NSView.frameDidChangeNotification, object: scrollView.contentView)
-        // Sidebars keep overlay scrollers even when the system shows legacy
-        // ones, so rows never reflow when the scroller appears.
         NotificationCenter.default.addObserver(self, selector: #selector(scrollerStyleChanged), name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         scrollView.onHorizontalScroll = { [weak self] phase, dx, time in self?.spacePaging.scroll(phase, deltaX: dx, time: time) }
         edgeFade = ScrollEdgeFadeView(scrollView: scrollView)
@@ -225,7 +224,7 @@ public final class SidebarView: NSView {
     }
 
     @objc private func scrollerStyleChanged(_ note: Notification) {
-        scrollView.scrollerStyle = .overlay
+        scrollView.scrollerStyle = SystemScrollers.preferredStyle
         syncListWidth()
     }
 
