@@ -79,6 +79,57 @@ fn a_use_never_copies_another_use() {
 }
 
 #[test]
+fn reference_chains_that_multiply_or_cycle_are_refused() {
+    // Each level is a mask that draws ten paths, and each path is masked by
+    // the next level: 10^levels draws without a single nested use.
+    let mut body = String::from("<defs>");
+    for level in 0..6 {
+        body.push_str(&format!("<mask id=\"m{level}\">"));
+        for _ in 0..10 {
+            body.push_str(&format!("<path d=\"M0 0\" mask=\"url(#m{})\"/>", level + 1));
+        }
+        body.push_str("</mask>");
+    }
+    body.push_str("<mask id=\"m6\"><path d=\"M0 0\"/></mask></defs><rect mask=\"url(#m0)\"/>");
+    assert!(refused(wrap(&body).as_bytes()).contains("more than"));
+    // The same through uses of masked paths (each use names a path without a use).
+    let mut body = String::from("<defs>");
+    for level in 0..6 {
+        body.push_str(&format!("<path id=\"p{level}\" d=\"M0 0\" mask=\"url(#n{level})\"/><mask id=\"n{level}\">"));
+        for _ in 0..10 {
+            body.push_str(&format!("<use href=\"#p{}\"/>", level + 1));
+        }
+        body.push_str("</mask>");
+    }
+    body.push_str("<path id=\"p6\" d=\"M0 0\"/></defs><use href=\"#p0\"/>");
+    assert!(refused(wrap(&body).as_bytes()).contains("more than"));
+    for cycle in [
+        r##"<mask id="a"><path mask="url(#a)"/></mask><rect mask="url(#a)"/>"##,
+        r##"<clipPath id="a"><rect clip-path="url(#b)"/></clipPath><clipPath id="b"><rect clip-path="url(#a)"/></clipPath><rect clip-path="url(#a)"/>"##,
+        r##"<linearGradient id="a" href="#b"/><linearGradient id="b" href="#a"/><rect fill="url(#a)"/>"##,
+    ] {
+        assert!(refused(wrap(cycle).as_bytes()).contains("cycle"), "{cycle}");
+    }
+    // A small shared definition used several times is fine.
+    let ok = r##"<defs><linearGradient id="g"><stop offset="0"/></linearGradient></defs><rect fill="url(#g)"/><circle fill="url(#g)"/>"##;
+    assert_eq!(clean(&wrap(ok)), wrap(ok));
+}
+
+#[test]
+fn output_never_repeats_an_attribute_or_carries_a_non_xml_character() {
+    let doubled = r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:x="http://www.w3.org/1999/xlink" xmlns:y="http://www.w3.org/1999/xlink"><use x:href="#a" y:href="#b"/></svg>"##;
+    assert_eq!(
+        clean(doubled),
+        format!("{XLINK_OPEN}<use xlink:href=\"#a\"/></svg>")
+    );
+    let odd = "<svg xmlns=\"http://www.w3.org/2000/svg\" id=\"a&#xFFFF;b\"><title>x&#xFFFE;y\u{FFFF}z</title></svg>";
+    assert_eq!(
+        clean(odd),
+        r#"<svg xmlns="http://www.w3.org/2000/svg" id="a b"><title>xyz</title></svg>"#
+    );
+}
+
+#[test]
 fn doctype_entities_processing_instructions_and_cdata_never_reach_the_output() {
     let billion_laughs = r#"<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY lol "lol"><!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;"><!ENTITY lol3 "&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;">]><svg xmlns="http://www.w3.org/2000/svg"><title>&lol3;</title></svg>"#;
     assert!(refused(billion_laughs.as_bytes()).contains("undeclared entity"));

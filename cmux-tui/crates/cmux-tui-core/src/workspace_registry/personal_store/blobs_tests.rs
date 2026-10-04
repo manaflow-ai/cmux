@@ -180,19 +180,34 @@ fn the_sweep_keeps_every_registered_reference_and_deletes_old_unreferenced_blobs
 
 #[test]
 fn a_put_the_sweep_cannot_make_room_for_is_refused() {
+    const MINUTE_MS: u64 = 60 * 1000;
     let (mut registry, _root) = open("cap");
     let count = (MAX_TOTAL_BYTES as usize) / MAX_RASTER_BYTES;
+    let mut first = Vec::new();
     for seed in 0..count {
-        registry.put_blob_at("image/png", &png(seed as u32, MAX_RASTER_BYTES), T0).unwrap();
+        let blob = registry.put_blob_at("image/png", &png(seed as u32, MAX_RASTER_BYTES), T0).unwrap();
+        first.push(blob);
     }
+    // Blob 1 is named by an icon, so no sweep may take it.
+    registry
+        .connection
+        .execute("UPDATE profiles SET icon = ?1 WHERE profile_id = 'default'", [first[1].icon()])
+        .unwrap();
     let extra = png(u32::MAX, 16);
-    assert_eq!(code(registry.put_blob_at("image/png", &extra, T0 + DAY_MS)), "asset_store_full");
+    assert_eq!(
+        code(registry.put_blob_at("image/png", &extra, T0 + MINUTE_MS)),
+        "asset_store_full",
+        "every blob is younger than the full-store grace"
+    );
     // An existing blob is still accepted: it takes no space.
-    registry.put_blob_at("image/png", &png(0, MAX_RASTER_BYTES), T0 + 3 * DAY_MS).unwrap();
-    // Once the unreferenced blobs age out, the put's own sweep makes room.
-    let later = T0 + 9 * DAY_MS;
+    registry.put_blob_at("image/png", &png(0, MAX_RASTER_BYTES), T0 + 15 * MINUTE_MS).unwrap();
+    // A full store collects unreferenced blobs older than the short grace.
+    let later = T0 + 20 * MINUTE_MS;
     assert_eq!(registry.put_blob_at("image/png", &extra, later).unwrap().data, extra);
-    assert_eq!(digests(&registry).len(), 2, "the refreshed blob and the new one");
+    let mut kept = vec![first[0].digest.clone(), first[1].digest.clone()];
+    kept.push(prepare_blob("image/png", &extra).unwrap().digest);
+    kept.sort();
+    assert_eq!(digests(&registry), kept, "the refreshed, the named and the new blob");
 }
 
 #[test]

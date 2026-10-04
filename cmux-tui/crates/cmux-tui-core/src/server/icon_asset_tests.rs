@@ -218,3 +218,28 @@ fn the_sweep_keeps_assets_an_icon_names_and_deletes_old_unreferenced_ones() {
     run(&mux, json!({"cmd":"set-workspace-metadata","key":workspace.key,"icon":null})).unwrap();
     assert_eq!(sweep(now + 8 * DAY_MS), 1);
 }
+
+#[test]
+fn a_create_retry_returns_the_stored_record_after_its_old_icon_was_collected() {
+    let mux = assets_mux();
+    let icon = put(&mux, "image/png", &png(7)).unwrap()["icon"].as_str().unwrap().to_string();
+    let browser = json!({"cmd":"create-browser-profile","browser_profile":PROFILE,"name":"Work",
+                         "icon":icon});
+    let room = json!({"cmd":"create-profile","profile":"prof_art","name":"Art","icon":icon});
+    assert_eq!(run(&mux, browser.clone()).unwrap()["changed"], true);
+    assert!(run(&mux, room.clone()).is_ok());
+    run(&mux, json!({"cmd":"update-browser-profile","browser_profile":PROFILE,"icon":"star"}))
+        .unwrap();
+    run(&mux, json!({"cmd":"update-profile","profile":"prof_art","icon":"star"})).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let swept = mux.workspace_registry.lock().unwrap().sweep_blobs_at(now + 8 * DAY_MS).unwrap();
+    assert_eq!(swept, 1);
+    // The retries are idempotent: they return the stored records.
+    let retried = run(&mux, browser).unwrap();
+    assert_eq!(retried["changed"], false);
+    assert_eq!(retried["browser_profile"]["icon"], "star");
+    assert_eq!(run(&mux, room).unwrap()["profile"]["icon"], "star");
+}
