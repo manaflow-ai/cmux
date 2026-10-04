@@ -15,7 +15,7 @@ import CmuxNextSettings
 enum ColumnDocking {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         DockColumnHandlers.bind(into: registry, context: ctx)
-        registry.bind("tab.moveToNewDockColumn", requires: DaemonCapabilities.shared.edgeDocks, daemon: ctx.services.activeDaemon,
+        registry.bind("tab.moveToNewDockColumn", requires: DaemonCapabilities.shared.dockColumns, daemon: ctx.services.activeDaemon,
                       run: { invocation in
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
             let edge = invocation["edge"]?.stringValue.flatMap(DockEdge.init(rawValue:)) ?? defaultEdge

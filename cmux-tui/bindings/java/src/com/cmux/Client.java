@@ -2648,13 +2648,17 @@ public final class Client implements AutoCloseable {
             "column_id",
             Wire.WIDTH,
             "root",
-            "dock"
+            "dock",
+            "sticky"
         );
+        // `sticky` is the pre-R87 name of `dock`: a replayed or older
+        // result still decodes; `dock` wins when both are present.
+        Object dock = fields.containsKey("dock") ? fields.get("dock") : fields.get("sticky");
         return new Layout.Column(
             requiredExactId(fields, "column_id", Ids.SplitId::new),
             finiteDouble(fields.get(Wire.WIDTH), "layout column width"),
             decodeLayoutNode(fields.get("root")),
-            decodeLayoutColumnDock(fields.get("dock"))
+            decodeLayoutColumnDock(dock)
         );
     }
 

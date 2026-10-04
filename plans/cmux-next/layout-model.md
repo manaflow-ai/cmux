@@ -175,8 +175,13 @@ an emptied column or dock, unpinning on E2) is decided by the store in the same 
   mode}` on the wire and in v2 layout documents, `set-column-dock` and `move-tab-to-column`
   with `dock`, capability `dock-columns-v1` (it replaced `dock-columns-v1` with no alias).
   Before R87 left/right used a separate `sticky` field and top/bottom used `dock`.
-- Storage: left/right flags stay in `RegistryViewportColumn.dock`; top/bottom docks stay in
-  the side table that rows.md adds (`resource_column_docks`).
+- Storage: left/right flags stay in `RegistryViewportColumn.dock`, stored under the key `sticky`
+  until the release pin serves dock-columns-v1 (an older daemon refuses an unknown key and could
+  not open the session); `dock` is read too, and a later commit flips the write. Top/bottom docks
+  stay in the side table that rows.md adds (`resource_column_docks`).
+- An older client's `sticky` (move-tab-to-column, column.update, a layout document) is refused
+  with invalid-argument, never ignored. SDK decoders read a legacy `sticky` as `dock`
+  (replayed mutation results); they write `dock`.
 - One reducer path: `SetPin` extends today's `reduce_column_dock` / `apply_column_dock`
   (cmux-tui `mux/dock_columns.rs`) and `normalize_dock_columns`
   (`model/layout_columns.rs`), never a parallel path; `SetPin` and `SetExtent` land in the

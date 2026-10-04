@@ -818,12 +818,14 @@ function layoutNode(value: unknown): LayoutNode {
     }
     const columns: LayoutColumn[] = payload.columns.map((item) => {
       const column = record(item, "layout column");
-      strictObject(column, ["column_id", "width", "root", "dock"], "layout column");
+      strictObject(column, ["column_id", "width", "root", "dock", "sticky"], "layout column");
       const width = requiredNumber(column, "width");
       if (width < 0.1 || width > 1) {
         throw new CmuxProtocolError("layout column width must be between 0.1 and 1");
       }
-      const dock = layoutColumnDock(column.dock);
+      // `sticky` is the pre-R87 name of `dock`: a replayed or older result
+      // still decodes; `dock` wins when both are present.
+      const dock = layoutColumnDock("dock" in column ? column.dock : column.sticky);
       return Object.freeze({
         columnId: requiredId(column, ["column_id"], splitId),
         width,

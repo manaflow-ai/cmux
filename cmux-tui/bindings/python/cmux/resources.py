@@ -657,9 +657,12 @@ def _layout_node(value: Any) -> LayoutNode:
             column = _mapping(value, "layout column")
             _strict_object(
                 column,
-                ("column_id", "width", "root", "dock"),
+                ("column_id", "width", "root", "dock", "sticky"),
                 "layout column",
             )
+            # `sticky` is the pre-R87 name of `dock`: a replayed or older
+            # result still decodes; `dock` wins when both are present.
+            dock = column["dock"] if "dock" in column else column.get("sticky")
             width = _required_number(column, "width")
             if not 0.1 <= width <= 1:
                 raise ProtocolError(
@@ -670,7 +673,7 @@ def _layout_node(value: Any) -> LayoutNode:
                     _required_id(column, ("column_id",), SplitId),
                     width,
                     _layout_node(column.get("root")),
-                    _layout_column_dock(column.get("dock")),
+                    _layout_column_dock(dock),
                 )
             )
         base_width = _required_number(payload, "base_width")

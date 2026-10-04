@@ -8446,7 +8446,7 @@ fn decodeLayoutNode(
             const column = try detailObject(raw_column);
             try ensureOnlyFields(
                 column,
-                &.{ "column_id", "width", "root", "dock" },
+                &.{ "column_id", "width", "root", "dock", "sticky" },
             );
             const width = try floatValue(
                 column.get("width") orelse return error.MissingField,
@@ -8466,7 +8466,9 @@ fn decodeLayoutNode(
                     column.get("root") orelse
                         return error.MissingField,
                 ),
-                .dock = try decodeLayoutColumnDock(column.get("dock")),
+                // `sticky` is the pre-R87 name of `dock`: a replayed or
+                // older result still decodes; `dock` wins.
+                .dock = try decodeLayoutColumnDock(column.get("dock") orelse column.get("sticky")),
             };
         }
         node.* = .{ .viewport = .{

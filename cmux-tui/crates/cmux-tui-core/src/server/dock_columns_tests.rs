@@ -575,10 +575,11 @@ fn a_layout_apply_refuses_the_old_sticky_field() {
         "params": {"machine": "current", "session": "current", "workspace": workspace, "layout": layout},
         "idempotency_key": "old-sticky",
     });
-    let refused = match crate::resource_router::handle_resource_message(&wire.mux, &request.to_string()) {
-        Err(_) => true,
-        Ok(response) => response.get("error").is_some() || response["ok"] == false,
-    };
+    let refused =
+        match crate::resource_router::handle_resource_message(&wire.mux, &request.to_string()) {
+            Err(_) => true,
+            Ok(response) => response.get("error").is_some() || response["ok"] == false,
+        };
     assert!(refused, "a layout with sticky is refused");
     assert_eq!(wire.dock(), vec![None, None, dock("right", "docked")]);
 }

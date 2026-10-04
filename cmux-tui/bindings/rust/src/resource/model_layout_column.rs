@@ -36,7 +36,9 @@ impl<'de> Deserialize<'de> for LayoutColumn {
             column_id: SplitId,
             width: f64,
             root: Box<LayoutNode>,
-            #[serde(default, deserialize_with = "deserialize_nullable")]
+            // `sticky` is the pre-R87 name: a replayed or older result
+            // still decodes.
+            #[serde(default, alias = "sticky", deserialize_with = "deserialize_nullable")]
             dock: Option<LayoutColumnDock>,
         }
 

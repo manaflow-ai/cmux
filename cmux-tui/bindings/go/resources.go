@@ -300,6 +300,9 @@ func decodeLayoutColumn(data []byte) (LayoutColumn, error) {
 		Width    *float64        `json:"width"`
 		Root     json.RawMessage `json:"root"`
 		Dock     json.RawMessage `json:"dock"`
+		// Sticky is the pre-R87 name of Dock: read so a replayed or
+		// older result still decodes; dock wins when both are present.
+		Sticky json.RawMessage `json:"sticky"`
 	}
 	if err := strictDecode(data, &wire); err != nil {
 		return LayoutColumn{}, err
@@ -318,7 +321,11 @@ func decodeLayoutColumn(data []byte) (LayoutColumn, error) {
 	if err != nil {
 		return LayoutColumn{}, err
 	}
-	dock, err := decodeLayoutColumnDock(wire.Dock)
+	flag := wire.Dock
+	if len(flag) == 0 {
+		flag = wire.Sticky
+	}
+	dock, err := decodeLayoutColumnDock(flag)
 	if err != nil {
 		return LayoutColumn{}, err
 	}

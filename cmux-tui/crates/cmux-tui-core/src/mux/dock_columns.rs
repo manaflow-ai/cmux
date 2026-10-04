@@ -59,6 +59,9 @@ impl fmt::Display for ColumnDockError {
                 write!(formatter, "pane {pane} has no viewport column")
             }
             Self::LastScrollingColumn => formatter.write_str("at least one column must scroll"),
+            Self::InvalidArgument { field: "sticky", .. } => {
+                write!(formatter, "sticky was renamed to dock (dock-columns-v1)")
+            }
             Self::InvalidArgument { field: "edge", value } => {
                 write!(formatter, "bad edge {value:?} (want left, right, top or bottom)")
             }

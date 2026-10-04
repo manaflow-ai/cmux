@@ -361,7 +361,12 @@ LayoutNode parse_layout_node(const Json& value);
 /// An omitted or null flag is empty (the column scrolls).
 std::optional<LayoutColumnDock> parse_layout_column_dock(
     const Json::Object& column) {
-    const auto found = column.find("dock");
+    // `sticky` is the pre-R87 name of `dock`: a replayed or older result
+    // still decodes; `dock` wins when both are present.
+    auto found = column.find("dock");
+    if (found == column.end()) {
+        found = column.find("sticky");
+    }
     if (found == column.end() || found->second.is_null()) {
         return std::nullopt;
     }
@@ -383,7 +388,7 @@ std::optional<LayoutColumnDock> parse_layout_column_dock(
 LayoutColumn parse_layout_column(const Json& value) {
     const auto& object = exact_object(
         value,
-        {"column_id", "width", "root", "dock"},
+        {"column_id", "width", "root", "dock", "sticky"},
         {"column_id", "width", "root"},
         "layout column");
     auto width = field(object, "width", "layout column").as_double();
