@@ -178,6 +178,31 @@ describe("Home human reach", { timeout: 60_000 }, () => {
     expect((await op(ivy.token, "participants.add", { conversation, participant: human(jack) })).error).toBeUndefined()
   })
 
+  it("consent markers: a DM where both wrote stays connected after its messages are deleted; one where only one side wrote is not", async () => {
+    const ada = await signIn("reach-marker-ada", "Ada")
+    const bo = await signIn("reach-marker-bo", "Bo")
+    const cy = await signIn("reach-marker-cy", "Cy")
+    await joinTeam(ada, bo)
+    await joinTeam(ada, cy)
+    const both = (await op(ada.token, "dm.open", { peer: bo.user })).value.conversation.id as string
+    const one = (await op(ada.token, "dm.open", { peer: cy.user })).value.conversation.id as string
+    expect((await send(ada, both, "hello")).error).toBeUndefined()
+    expect((await send(bo, both, "hi")).error).toBeUndefined()
+    expect((await send(ada, one, "hello")).error).toBeUndefined()
+    await waitPeer(ada, bo, both)
+    await waitPeer(ada, cy, one)
+    // Retention deletes every message and its msgkey row (home-core sweep.ts); markers stay.
+    for (const dm of [both, one])
+      await inDO(testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(dm)), async (_i, state) => {
+        state.storage.sql.exec("DELETE FROM own_rows WHERE tbl IN ('msg', 'msgkey')")
+      })
+    await leaveTeam(ada, bo)
+    await leaveTeam(ada, cy)
+    const conversation = (await op(ada.token, "conversation.create", { title: "Plans", participants: [human(ada, "Ada")] })).value.conversation.id as string
+    expect((await op(ada.token, "participants.add", { conversation, participant: human(bo) })).error).toBeUndefined()
+    expect((await op(ada.token, "participants.add", { conversation, participant: human(cy) })).error?.code).toBe("not_reachable")
+  })
+
   it("a human who left a group is added back only by someone with a current link to them", async () => {
     const kim = await signIn("reach-left-kim", "Kim")
     const leo = await signIn("reach-left-leo", "Leo")
