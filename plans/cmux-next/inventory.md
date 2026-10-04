@@ -28,7 +28,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | commandPalette | Command Palette… | ⇧⌘P | KM | KSS:103, cmuxApp:956 |
 | commandPaletteNext / Previous | Palette: Next / Previous | ⌃N / ⌃P | K | KSS:104-105 |
 | goToWorkspace | Go to Workspace… | ⌘P | KM | KSS:102, cmuxApp:951 |
-| focusHistoryBack / Forward / Last | Focus Back / Forward / Last | ⌘[ / ⌘] / — | KM | KSS:134-136, cmuxApp+HistoryMenu:11 |
+| focusHistoryBack / Forward / Last | Focus Back / Forward / Last | ⌃- / ⌃⇧- / — | KM | KSS:134-136, cmuxApp+HistoryMenu:11 |
 | (history) | Recently Focused / Recently Closed lists | — | M | cmuxApp+HistoryMenu:65,90 |
 | palette.openTaskManager | Task Manager | — | PM | VCP:31, cmuxApp:1080 |
 | palette.sleepyMode | Sleepy Mode | — | PM | VCP:37 |

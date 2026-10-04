@@ -17138,10 +17138,9 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "",
+        "key" : "-",
         "modifiers" : [
-          "ctrl",
-          "cmd"
+          "ctrl"
         ]
       },
       "id" : "focusHistoryBack",
@@ -17167,10 +17166,10 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "",
+        "key" : "-",
         "modifiers" : [
           "ctrl",
-          "cmd"
+          "shift"
         ]
       },
       "id" : "focusHistoryForward",

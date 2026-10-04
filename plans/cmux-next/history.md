@@ -118,21 +118,16 @@ one cursor.
 
 | Action (id kept as the cmux.json key) | Title | Default | Tier |
 | --- | --- | --- | --- |
-| `focusHistoryBack` | Go Back | Ctrl-Cmd-Left | 1 (navigation) |
-| `focusHistoryForward` | Go Forward | Ctrl-Cmd-Right | 1 |
+| `focusHistoryBack` | Go Back | Ctrl-- | 1 (navigation) |
+| `focusHistoryForward` | Go Forward | Ctrl-Shift-- | 1 |
 | `focusHistoryLast` | Go to Last Location | none | 1 |
 | `recentlyFocused` | Location History… | none | palette page |
 
-Chord choice. Ctrl-Cmd-Left/Right is Xcode's Go Back/Forward, so Mac users
-already know it for this meaning. Checked against: macOS (Ctrl-Left/Right
-switch Spaces, Ctrl-Cmd-F full screen, Ctrl-Cmd-Q lock, Ctrl-Cmd-Space
-characters; Ctrl-Cmd-arrows are free), the standard browser chords (no
-Ctrl-Cmd-arrow chord; BrowserChordTable unchanged), cmux (free; Ctrl-Cmd-[ / ] stay
-Previous/Next Workspace, Ctrl-Cmd arrows or H/J/K/L resize panes), Ghostty (macOS
-default `super+ctrl+left/right = resize_split`; tier 1 wins in a terminal,
-and cmux's own resize keys remain). Rejected: Cmd-[ / Cmd-] (now page history,
-the user's rule), Ctrl-Cmd-[ / ] (workspaces), Ctrl-- / Ctrl-Shift-- (Ctrl-Shift-- is Ctrl-_, undo in readline, zsh and Emacs, which tier 1 would
-steal from every terminal), Ctrl-Opt-arrows (Rectangle's defaults).
+Chord choice. Ctrl-- and Ctrl-Shift-- follow the VS Code navigation pair,
+while Ctrl-Cmd arrows remain available for pane resize. Checked against macOS,
+the standard browser chords, cmux's workspace keys, and Ghostty's split resize
+bindings. Rejected: Cmd-[ / Cmd-] (page history), Ctrl-Cmd-[ / ] (workspaces),
+and Ctrl-Opt-arrows (Rectangle's defaults).
 
 Cmd-[ / Cmd-] act only in a browser context (user 2026-09-30, "consistency
 is most important for keyboard shortcuts"). In a terminal or any other
@@ -201,7 +196,7 @@ Rules:
 2. The filter is pure: `LocationTrail.back(isAvailable:)` gets `isAvailable && inScope(entry, current, scope)`.
    Property tests: an out-of-scope entry is never returned; changing scope never changes `entries`.
 3. One pair of actions for every entry point: `focusHistoryBack` / `focusHistoryForward` (titlebar
-   buttons, Ctrl-Cmd-Left/Right, palette, CLI `history back|forward`, MCP). No new bindings.
+   buttons, Ctrl-- / Ctrl-Shift--, palette, CLI `history back|forward`, MCP). No new bindings.
 4. Long press or right-click on a titlebar button lists the in-scope entries before (Back) or after
    (Forward) the cursor, newest nearest, with title and workspace; choosing one runs
    `history.goTo {index}` (new action, same execution path as Back, origin user).
@@ -212,7 +207,7 @@ Rules:
 
 | Old | New |
 | --- | --- |
-| `focusHistoryBack` / `Forward` "Focus Back/Forward", Cmd-[ / Cmd-], unbuilt | Go Back / Go Forward on the trail, Ctrl-Cmd-Left/Right |
+| `focusHistoryBack` / `Forward` "Focus Back/Forward", Cmd-[ / Cmd-], unbuilt | Go Back / Go Forward on the trail, Ctrl-- / Ctrl-Shift-- |
 | `focusHistoryLast` "Focus Last", unbuilt | Go to Last Location: toggles between the current and the previous entry (Alt-Tab for locations) |
 | `recentlyFocused` "Recently Focused…", unbuilt | Location History… (palette page of the trail) |
 | `recentlyClosed` "Recently Closed…", unavailable | Recently Closed… (palette page of the closed-items log) |
@@ -308,7 +303,7 @@ Commands (this terminal), Resume Agent Session (this terminal).
 
 ## 9. Status (2026-10-01)
 
-Built: the location trail with Go Back / Go Forward (Ctrl-Cmd-Left/Right)
+Built: the location trail with Go Back / Go Forward (Ctrl-- / Ctrl-Shift--)
 and its app wiring test; Cmd-[ / Cmd-] only in browser contexts, consumed
 elsewhere (focus.md section 5); durable page visits per browser profile
 (a reload of a tab its connection found already there, or of a tab this
