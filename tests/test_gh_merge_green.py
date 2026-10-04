@@ -338,5 +338,89 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertIn("conflict", result.stderr)
 
 
+class WorkflowPresenceRegression(unittest.TestCase):
+    """Repositories without the aggregate workflow use all exact-head verdicts."""
+
+    def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, app_workflow=False, files=None):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            marker = directory / "merged"
+            queries = directory / "queries"
+            payload = {"head": HEAD, "workflow": workflow, "probe_status": probe_status,
+                       "checks": checks if checks is not None else [{"id": 1, "name": "tests", "status": "completed", "conclusion": "success"}],
+                       "statuses": statuses or [], "app_workflow": app_workflow, "files": files or []}
+            fixture = directory / "fixture.json"
+            fixture.write_text(__import__("json").dumps(payload))
+            gh = directory / "gh"
+            gh.write_text("#!/usr/bin/env python3\n" + textwrap.dedent(r"""
+                import json, os, sys
+                from pathlib import Path
+                x = json.loads(Path(os.environ['FIXTURE']).read_text())
+                a = sys.argv[1:]
+                with open(os.environ['QUERIES'], 'a') as f: f.write(' '.join(a) + '\n')
+                if a[:2] == ['pr', 'view']:
+                    print(json.dumps({'headRefOid': x['head'], 'baseRefName': 'main', 'state': 'OPEN'}))
+                elif a[:2] == ['pr', 'merge']:
+                    Path(os.environ['MERGE_MARKER']).touch()
+                elif a[0] == 'api' and any('/contents/' in arg for arg in a):
+                    present = x['app_workflow'] if any('ci-macos.yml' in arg for arg in a) else x['workflow']
+                    code = 200 if present else x['probe_status']
+                    print('HTTP/2.0 ' + str(code))
+                    print()
+                    print('{}')
+                    sys.exit(0 if code == 200 else 1)
+                elif a[0] == 'api' and any('/check-runs' in arg for arg in a):
+                    print(json.dumps([{'check_runs': x['checks']}]))
+                elif a[0] == 'api' and any('/statuses' in arg for arg in a):
+                    print(json.dumps([x['statuses']]))
+                elif a[0] == 'api' and any('/files' in arg for arg in a):
+                    if '.[].filename' in a: print('\n'.join(x['files']))
+                else:
+                    sys.exit(2)
+                """))
+            gh.chmod(0o755)
+            result = subprocess.run([str(ROOT / 'scripts/gh-merge-green'), 'manaflow-ai/cmuxterm-hq#1254', '--squash'],
+                env={**os.environ, 'PATH': str(directory) + os.pathsep + os.environ['PATH'], 'FIXTURE': str(fixture), 'MERGE_MARKER': str(marker), 'QUERIES': str(queries)}, capture_output=True, text=True)
+            return result, marker.exists(), queries.read_text()
+
+    def test_no_ci_workflow_merges_all_green_checks(self):
+        result, merged, queries = self.run_case()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(merged)
+        self.assertIn('ref=main', queries)
+        self.assertIn('/commits/' + HEAD + '/check-runs', queries)
+
+    def test_no_ci_workflow_refuses_pending_failed_and_empty_checks(self):
+        for checks in ([], [{'id': 1, 'name': 'tests', 'status': 'in_progress'}],
+                       [{'id': 1, 'name': 'tests', 'status': 'completed', 'conclusion': 'failure'}]):
+            with self.subTest(checks=checks):
+                result, merged, _ = self.run_case(checks=checks)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+                self.assertIn('REPAIR.md#merging', result.stderr)
+
+    def test_no_ci_workflow_refuses_pending_status_context(self):
+        result, merged, _ = self.run_case(statuses=[{'id': 2, 'context': 'review', 'state': 'pending'}])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+
+    def test_workflow_probe_failure_is_not_absence(self):
+        for code in (403, 500):
+            result, merged, _ = self.run_case(probe_status=code)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(merged)
+
+    def test_present_ci_workflow_still_requires_ci_status(self):
+        result, merged, _ = self.run_case(workflow=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+        self.assertIn('ci-status', result.stderr)
+
+    def test_absent_app_workflow_does_not_require_compile(self):
+        result, merged, _ = self.run_case(workflow=True, files=['Sources/App.swift'], checks=[{'id': 1, 'name': 'ci-status', 'status': 'completed', 'conclusion': 'success'}])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(merged)
+
+
 if __name__ == "__main__":
     unittest.main()
