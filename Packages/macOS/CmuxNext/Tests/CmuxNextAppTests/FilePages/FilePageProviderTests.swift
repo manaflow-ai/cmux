@@ -20,6 +20,8 @@ struct FilePageProviderTests {
         var preferences: [(String, JSONValue)] = []
         var writers: [SettingWriter] = []
         var confirmGestures: [Bool] = []
+        var edits: [(text: String, baseHash: String?)] = []
+        var savedHashes: [String] = []
         var lookValue: JSONValue = ["settings": ["toolbar": true], "themeCSS": ""]
         var lookListeners: [UUID: (JSONValue) -> Void] = [:]
         var remoteImages = true
@@ -46,6 +48,11 @@ struct FilePageProviderTests {
         func openExternal(_ url: URL) { external.append(url) }
         func openFile(_ url: URL) { files.append(url) }
         func isRecent(_ path: String) -> Bool { recentPaths.contains(path) }
+        func edited(_ url: URL, text: String, baseHash: String?, writable: Bool) -> RecoveryDraftAcceptance {
+            edits.append((text, baseHash))
+            return .kept
+        }
+        func saved(_ url: URL, hash: String) { savedHashes.append(hash) }
         func confirmOpen(_ url: URL, userGesture: Bool) async -> Bool {
             confirmations.append(url)
             confirmGestures.append(userGesture)
