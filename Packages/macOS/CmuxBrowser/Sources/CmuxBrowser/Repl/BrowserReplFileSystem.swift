@@ -207,7 +207,7 @@ public struct BrowserReplFileSystem: Sendable {
             }
             if status.isDirectory {
                 if arguments["recursive"] as? Bool == true {
-                    try Self.removeTree(in: location.directory, name: name, display: display, isCancelled: isCancelled)
+                    try Self.removeTree(in: location.directory, name: name, display: display, budget: writeBudget, isCancelled: isCancelled)
                 } else if unlinkat(location.directory.fd, name, AT_REMOVEDIR) != 0 {
                     throw Self.posixError(errno, syscall: "rm", display: display)
                 }
@@ -691,12 +691,29 @@ public struct BrowserReplFileSystem: Sendable {
     /// from `parent` with `O_NOFOLLOW` at each step, so a deep tree cannot
     /// use up descriptors. Stops with `ECANCELED` when `isCancelled` says
     /// so, checked every ``entriesPerCancellationCheck`` entries.
+    ///
+    /// Every entry it removes inside `name` is an entry change taken from
+    /// `budget` before it is removed (`name` itself was taken by the
+    /// caller); when the budget runs out it stops with `EDQUOT`, saying how
+    /// many entries it removed, and leaves the rest.
     private static func removeTree(
         in parent: BrowserReplDescriptor,
         name: String,
         display: String,
+        budget: BrowserReplWriteBudget,
         isCancelled: () -> Bool
     ) throws {
+        var removed = 0
+        func take() throws {
+            do {
+                try budget.takeEntryChange(syscall: "rm", display: display)
+            } catch let error as BrowserReplFileSystemError {
+                throw BrowserReplFileSystemError(
+                    code: error.code,
+                    message: "\(error.message) (the recursive rm stopped after removing \(removed) \(removed == 1 ? "entry" : "entries") inside it; the rest remain)"
+                )
+            }
+        }
         var handled = 0
         func count() throws {
             handled += 1
@@ -721,8 +738,13 @@ public struct BrowserReplFileSystem: Sendable {
                 try count()
                 if entry.type == "directory" {
                     subdirectory = subdirectory ?? entry.name
-                } else if unlinkat(directory.fd, entry.name, 0) != 0, errno != ENOENT {
-                    throw posixError(errno, syscall: "rm", display: display)
+                    continue
+                }
+                try take()
+                if unlinkat(directory.fd, entry.name, 0) != 0 {
+                    guard errno == ENOENT else { throw posixError(errno, syscall: "rm", display: display) }
+                } else {
+                    removed += 1
                 }
             }
             if let subdirectory {
@@ -730,8 +752,12 @@ public struct BrowserReplFileSystem: Sendable {
                 continue
             }
             let holder = try open(path.dropLast())
-            if unlinkat(holder.fd, last, AT_REMOVEDIR) != 0, errno != ENOENT {
-                throw posixError(errno, syscall: "rm", display: display)
+            // `name` itself was taken by the caller.
+            if path.count > 1 { try take() }
+            if unlinkat(holder.fd, last, AT_REMOVEDIR) != 0 {
+                guard errno == ENOENT else { throw posixError(errno, syscall: "rm", display: display) }
+            } else if path.count > 1 {
+                removed += 1
             }
             path.removeLast()
         }
