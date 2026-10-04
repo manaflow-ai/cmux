@@ -28,6 +28,7 @@ public final class WindowMaterialView: NSView {
     private var loadedSelection: BackdropSelection?
     private var loadedArt: BackdropArt?
     private var artImage: NSImage?
+    private let textureCache = BackdropTextureCache()
 
     /// Creates an opaque backdrop (no material view, no tint).
     ///
@@ -79,7 +80,9 @@ public final class WindowMaterialView: NSView {
         if loadedSelection != backdrop.selection || loadedArt != backdrop.art {
             loadedSelection = backdrop.selection
             loadedArt = backdrop.art
-            artImage = backdrop.selection?.image() ?? backdrop.art?.image()
+            let source = backdrop.selection?.image() ?? backdrop.art?.image()
+            let sourceID = backdrop.selection?.id ?? backdrop.art?.rawValue ?? "none"
+            artImage = source.flatMap { textureCache.image(for: sourceID, source: $0, texture: backdrop.texture) }
             artView.layer?.contents = artImage
             updateArtCrop()
         }
