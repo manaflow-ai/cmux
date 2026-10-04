@@ -136,6 +136,17 @@ describe("CloudDO provider-call ledger", { timeout: 60_000 }, () => {
     expect(await stub.fakeControl({})).toMatchObject({ creates: STUB_PLAN.max_active })
   })
 
+  it("refuses an install for create and delete even when its grant has money and destructive (user principal only until ORIGIN)", async () => {
+    const { team, alice, stub } = people()
+    const inst = `inst_${"b".repeat(20)}`
+    const install: Principal = { identity: `install:${inst}`, user: alice.user, team, kind: "install", install: inst, grant_classes: ["read", "mutate-own", "mutate-shared", "money", "destructive"] }
+    expect(await create(stub, team, install)).toMatchObject({ t: "reject", code: "auth.forbidden" })
+    const m = (await create(stub, team, alice)).value.machine
+    expect(reply(await stub.submit(team, install, frame("cloud.machine.delete", { machine: m.id })))).toMatchObject({ t: "reject", code: "auth.forbidden" })
+    // Reads and non-person mutations stay open to the install.
+    expect(await stub.readOp(team, install, "cloud.machine.get", { machine: m.id })).toMatchObject({ ok: true, value: { id: m.id } })
+  })
+
   it("refuses agent principals for create and delete, with no provider call", async () => {
     const { team, alice, agent, stub } = people()
     expect(await create(stub, team, agent)).toMatchObject({ t: "reject", code: "auth.forbidden" })
