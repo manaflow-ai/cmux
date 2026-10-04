@@ -12,8 +12,8 @@ public struct ProcessResult: Sendable {
 /// child cannot fill a pipe and deadlock, and a grandchild that keeps the
 /// descriptor (an agent started from a shell rc file) cannot hold an EOF wait
 /// open forever.
-enum ProcessRunner {
-    static func run(
+public enum ProcessRunner {
+    public static func run(
         executable: URL,
         arguments: [String],
         environment: [String: String]?,
