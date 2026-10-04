@@ -577,11 +577,14 @@ final class BrowserReplTabAttachment {
     private var installedRuleList: WKContentRuleList?
     private weak var ruleListWebView: WKWebView?
 
-    /// Whether the creating session granted `permission` (`camera`,
-    /// `microphone`, `geolocation`, `notifications`). Grants apply only to
-    /// tabs the session created; a user's tab keeps cmux's own answer.
-    func grants(_ permission: String) -> Bool {
-        contextOptions.permissions.contains(permission)
+    /// Whether the creating session granted `request` (`camera`,
+    /// `microphone`, `geolocation`, `notifications`) to the origin and frame
+    /// that ask: only those its current domain policy allows
+    /// (``BrowserReplPermissionRequest/isGranted(by:policy:)``). Grants apply
+    /// only to tabs the session created; a user's tab keeps cmux's own answer.
+    func grants(_ request: BrowserReplPermissionRequest) -> Bool {
+        guard let creator = creatorSessionID else { return false }
+        return request.isGranted(by: contextOptions.permissions, policy: BrowserReplPolicyBoard.shared.policy(for: creator))
     }
 
     /// Puts ``contextOptions`` (user agent, headers, domain rule list) on

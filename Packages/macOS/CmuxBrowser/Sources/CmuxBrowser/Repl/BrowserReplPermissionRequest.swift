@@ -20,9 +20,19 @@ public struct BrowserReplPermissionRequest: Sendable, Equatable {
     }
 
     /// Whether the request is granted, given the creating session's grants
-    /// and its current domain policy (`nil`: none).
+    /// and its current domain policy (`nil`: none). Under a policy the origin
+    /// that asks and the frame's document must both be allowed: a frame the
+    /// policy blocks can still be in the tab (loaded before the policy
+    /// tightened, or while its content rules were replaced), and a grant
+    /// must not hand it the camera, microphone, location or notifications.
+    /// An origin the policy cannot judge (opaque, or not named) is denied.
     public func isGranted(by granted: Set<String>, policy: BrowserReplDomainPolicy?) -> Bool {
-        !permissions.isEmpty && permissions.allSatisfy(granted.contains)
+        guard !permissions.isEmpty, permissions.allSatisfy(granted.contains) else { return false }
+        guard let policy, policy.isActive else { return true }
+        guard let origin, let name = origin.origin, name != "null" else { return false }
+        if policy.blockReason(document: origin) != nil { return false }
+        if let frame, policy.blockReason(document: frame) != nil { return false }
+        return true
     }
 }
 

@@ -394,7 +394,9 @@ rest. Measurements: [performance.md](performance.md).
   session lasts. In them dialogs and file choosers wait for the agent,
   downloads stay in the temporary directory for `download.path()`, camera,
   microphone, geolocation and notification requests are answered from
-  `session.configure({ permissions })`, the user agent and extra headers
+  `session.configure({ permissions })` (granted only to an origin and
+  frame the session's domain policy allows; one it blocks, or an opaque
+  origin under a policy, is denied), the user agent and extra headers
   from `session.configure` apply, the page's scripts copy to the tab's
   clipboard instead of the system's (for the tab's whole life, also after
   the session ends), the domain policy's content rules block
