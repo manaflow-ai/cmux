@@ -34,8 +34,17 @@ Before P8 every connection is refused.
 
 ## Hello and capability
 
-- Hello params add `role` (`client` default, `page_relay`); fixed for the connection life.
-  Hello result adds `connection_id`. P8's client.hello must carry both (coordinator told P8).
+- The Swift app has no separate hello. Each (re)connect pipelines `identify`, `set-client-info
+  {name, kind, capabilities}`, `subscribe`. `set-client-info` gains `role` (`client` default,
+  `page_relay`); its result (today `{}`) gains `connection_id` (backward compatible: Swift
+  ignores extra fields). P8's client.hello must carry both (coordinator told P8).
+- The role is settable only by the first `set-client-info` and is fixed for the connection life;
+  a later role change is refused. `set-client-info` with role page_relay is refused after any
+  request other than `identify` on that connection.
+- A page_relay connection sends no `subscribe`; it is valid without one, and `subscribe` on
+  page_relay is refused.
+- Residual risk: a Swift bug that forwards a page call before `set-client-info` would run it
+  with the client role. Swift test: the relay forwards nothing until set-client-info succeeded.
 - Capability `origin-claim-v1` = the `origin` envelope field + the page_relay role + the issue
   operation. Clients send `origin` / open page_relay only when it is advertised; otherwise the
   relay behaves as today and logs that page calls are not narrowed.
@@ -49,6 +58,8 @@ Before P8 every connection is refused.
 - apps.install/uninstall/enable refused with the A2 error before P8.
 - request with no origin on a client connection behaves as today.
 - origin-claim-v1 advertised.
+- page_relay with no subscribe is served; subscribe on page_relay refused; role change refused;
+  set-client-info result carries connection_id.
 
 ## Swift side (React UIs lead)
 
