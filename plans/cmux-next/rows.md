@@ -173,6 +173,12 @@ Daemon (cmux-tui) under capability `rows-v1`:
   loads the stored `layout` as one row. Row ids are allocated as split ids and registered as
   split resource identities, because the chain uses them as split ids and tombstoning and
   validation collect split ids. A column with one row of 1000 writes no row record.
+  An id that only the rows table names (row 1, and the column of one column with rows, whose
+  `viewport_json` stays empty) is "parked": registered as a split identity and tombstoned in
+  `resource_identities`, because an older build requires the live split identities to equal the
+  splits of `layout_json` and `viewport_json`. It is revived when it enters that projection
+  again (a second column joins), so the column keeps its id. Such a lone column's width is in
+  `resource_lone_columns(screen_id, column_id, width)`, written in the same transaction.
 - Rollback: an older binary ignores the table and loads every pane from the compat chain as
   vertical splits: tab-safe but layout-lossy. If it writes the screen, a re-upgrade sees the
   mismatch and keeps the vertical splits as one row; the rows are gone.

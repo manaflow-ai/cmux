@@ -14,15 +14,19 @@
 //! row of a column with two or more rows. `viewport_json` keeps its shape and
 //! each column's `layout` there is the compat chain. A lone column with rows
 //! is written as no viewport at all ([`RegistryViewport::durable`]), so a
-//! build without `rows-v1` loads its panes as vertical splits. Load keeps a
-//! column's rows only while the stored chain still matches them (a build
+//! build without `rows-v1` loads its panes as vertical splits; its id is the
+//! rows' `column_id` and its width is in `resource_lone_columns`. Load keeps
+//! a column's rows only while the stored chain still matches them (a build
 //! without `rows-v1` may have rewritten the screen); otherwise they are
 //! dropped and the column loads as one row.
+//!
+//! Split identities of ids that only these tables name are in [`identities`].
 
 use super::*;
 use crate::model::{ColumnSticky, StickyEdge, StickyMode};
 
 mod identities;
+pub(super) use identities::validate_screen_splits;
 
 pub(super) fn create_column_dock_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -40,6 +44,11 @@ pub(super) fn create_column_dock_schema(transaction: &Transaction<'_>) -> anyhow
            row_id TEXT NOT NULL,
            height_permille INTEGER NOT NULL,
            PRIMARY KEY (screen_id, column_id, position)
+         );
+         CREATE TABLE IF NOT EXISTS resource_lone_columns (
+           screen_id TEXT PRIMARY KEY NOT NULL,
+           column_id TEXT NOT NULL,
+           width REAL NOT NULL
          );",
     )?;
     Ok(())
@@ -69,16 +78,19 @@ fn write_column_docks(
     Ok(())
 }
 
-/// Deletes a closed screen's docks and rows, in the transaction that
-/// closes it.
+/// Deletes a closed screen's docks, rows and lone column, in the
+/// transaction that closes it, and tombstones the split identities that
+/// only those rows named.
 pub(super) fn delete_side_tables(
     transaction: &Transaction<'_>,
     screen_id: &str,
+    revision: i64,
 ) -> anyhow::Result<()> {
-    transaction
-        .execute("DELETE FROM resource_column_docks WHERE screen_id = ?1", params![screen_id])?;
-    transaction
-        .execute("DELETE FROM resource_screen_rows WHERE screen_id = ?1", params![screen_id])?;
+    identities::retire_side_splits(transaction, screen_id, revision)?;
+    for table in ["resource_column_docks", "resource_screen_rows", "resource_lone_columns"] {
+        transaction
+            .execute(&format!("DELETE FROM {table} WHERE screen_id = ?1"), params![screen_id])?;
+    }
     Ok(())
 }
 
@@ -95,7 +107,40 @@ fn write_screen_rows(transaction: &Transaction<'_>, screen: &RegistryScreen) -> 
             params![screen.public_id.as_str(), column, position, row.0, row.1],
         )?;
     }
+    transaction.execute(
+        "DELETE FROM resource_lone_columns WHERE screen_id = ?1",
+        params![screen.public_id.as_str()],
+    )?;
+    if let Some((column, width)) = lone_column(screen) {
+        transaction.execute(
+            "INSERT INTO resource_lone_columns(screen_id, column_id, width) VALUES(?1, ?2, ?3)",
+            params![screen.public_id.as_str(), column, width],
+        )?;
+    }
     Ok(())
+}
+
+/// `(column id, width)` of a lone column with rows, which `viewport_json`
+/// does not hold.
+fn lone_column(screen: &RegistryScreen) -> Option<(String, f64)> {
+    let viewport = &screen.viewport;
+    viewport
+        .has_lone_row_column()
+        .then(|| (viewport.columns[0].id.to_string(), f64::from(viewport.columns[0].width)))
+}
+
+/// The stored lone column of `screen_id`.
+fn stored_lone_column(
+    connection: &Connection,
+    screen_id: &str,
+) -> anyhow::Result<Option<(String, f64)>> {
+    Ok(connection
+        .query_row(
+            "SELECT column_id, width FROM resource_lone_columns WHERE screen_id = ?1",
+            params![screen_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?)),
+        )
+        .optional()?)
 }
 
 /// `(column id, position, (row id, height))` of every row record, in
@@ -112,8 +157,8 @@ fn desired_rows(screen: &RegistryScreen) -> Vec<(String, i64, (String, i64))> {
     rows
 }
 
-/// Whether both side tables already hold exactly the screen's docks and
-/// rows (a dock-only or row-only change leaves `viewport_json` unchanged).
+/// Whether the side tables already hold exactly the screen's docks, rows
+/// and lone column (such a change alone leaves `viewport_json` unchanged).
 pub(super) fn side_tables_match(
     transaction: &Transaction<'_>,
     screen: &RegistryScreen,
@@ -128,7 +173,9 @@ pub(super) fn side_tables_match(
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, record))
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(stored == desired_rows(screen) && column_docks_match(transaction, screen)?)
+    Ok(stored == desired_rows(screen)
+        && stored_lone_column(transaction, screen.public_id.as_str())? == lone_column(screen)
+        && column_docks_match(transaction, screen)?)
 }
 
 /// `((screen id, column id), [(row id, height)])` as read from the table.
@@ -166,15 +213,24 @@ pub(super) fn with_side_tables(
         else {
             continue;
         };
-        overlay_column_rows(screen, &column_id, &rows);
+        let lone_width = stored_lone_column(connection, &screen_id)?
+            .filter(|(lone, _)| *lone == column_id)
+            .map(|(_, width)| width as f32);
+        overlay_column_rows(screen, &column_id, &rows, lone_width);
     }
     Ok(screens)
 }
 
 /// Attaches stored rows to their column when they are valid and the stored
 /// chain still matches them; anything else is dropped (the column then loads
-/// as one row, and its records go on the screen's next write).
-fn overlay_column_rows(screen: &mut RegistryScreen, column_id: &str, rows: &[(String, i64)]) {
+/// as one row, and its records go on the screen's next write). A lone
+/// column takes `lone_width` when it is valid, else the full width.
+fn overlay_column_rows(
+    screen: &mut RegistryScreen,
+    column_id: &str,
+    rows: &[(String, i64)],
+    lone_width: Option<f32>,
+) {
     let Some(rows) = rows
         .iter()
         .map(|(id, height)| {
@@ -203,8 +259,15 @@ fn overlay_column_rows(screen: &mut RegistryScreen, column_id: &str, rows: &[(St
     }
     if lone {
         let Ok(id) = SplitPublicId::parse(column_id.to_string()) else { return };
-        let column = RegistryViewportColumn::new(id, 1.0, screen.layout.clone(), None, None);
-        screen.viewport = RegistryViewport { base_width: Some(1.0), columns: vec![column] };
+        let width = lone_width
+            .filter(|width| {
+                width.is_finite()
+                    && (crate::MIN_VIEWPORT_PANE_WIDTH..=crate::MAX_VIEWPORT_PANE_WIDTH)
+                        .contains(width)
+            })
+            .unwrap_or(1.0);
+        let column = RegistryViewportColumn::new(id, width, screen.layout.clone(), None, None);
+        screen.viewport = RegistryViewport { base_width: Some(width), columns: vec![column] };
     }
     let column = screen
         .viewport
@@ -338,19 +401,20 @@ pub(super) fn upsert_resource_screen(
         })
         .transpose()?
         .unwrap_or_default();
+    let old_side_splits = identities::stored_side_splits(transaction, screen.public_id.as_str())?;
     upsert_resource_identity(transaction, screen.public_id.as_str(), "screen", revision)?;
     let durable_viewport = screen.viewport.durable();
     let mut desired_splits = Vec::new();
     collect_screen_split_public_ids(&screen.layout, &durable_viewport, &mut desired_splits);
-    for split in &desired_splits {
-        upsert_resource_identity(transaction, split, "split", revision)?;
-    }
-    let desired_splits = desired_splits.into_iter().collect::<HashSet<_>>();
-    for split in old_splits {
-        if !desired_splits.contains(&split) {
-            tombstone_resource_identity(transaction, &split, revision)?;
-        }
-    }
+    identities::register_screen_splits(
+        transaction,
+        identities::ScreenSplits { projection: old_splits, side: old_side_splits },
+        identities::ScreenSplits {
+            projection: desired_splits,
+            side: identities::side_splits(screen),
+        },
+        revision,
+    )?;
     let layout = canonical_json(&serde_json::to_value(&screen.layout)?)?;
     let auto_layout = screen
         .auto_layout

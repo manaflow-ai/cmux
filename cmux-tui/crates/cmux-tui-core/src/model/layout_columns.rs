@@ -62,7 +62,8 @@ pub(crate) enum ColumnProjection {
 /// Restores the row ([`LayoutColumn::normalize_rows`]) and sticky
 /// invariants of `columns` and returns the compatibility projection. Owner
 /// of the "columns mode" rule: two or more columns, or one column with two or
-/// more rows (whose width is then the full viewport).
+/// more rows. Such a lone column keeps its id and width, so a second column
+/// joining it changes neither.
 pub(crate) fn project_layout_columns(columns: &mut Vec<LayoutColumn>) -> ColumnProjection {
     for column in columns.iter_mut() {
         column.normalize_rows();
@@ -73,9 +74,6 @@ pub(crate) fn project_layout_columns(columns: &mut Vec<LayoutColumn>) -> ColumnP
             root: column.root,
             zellij_auto_layout: column.zellij_auto_layout,
         };
-    }
-    if let [column] = columns.as_mut_slice() {
-        column.width = 1.0;
     }
     normalize_sticky_columns(columns);
     let Some(first) = columns.first() else { return ColumnProjection::Unchanged };
@@ -247,10 +245,8 @@ impl Screen {
     }
 
     /// Inserts `column` after the column of `target`. A split screen first
-    /// becomes the column `base_id`. A lone column with rows has no durable
-    /// column identity (`viewport_json` stays empty for it, so its id may be
-    /// a tombstoned split identity); it becomes a strip column again under
-    /// the fresh `base_id`.
+    /// becomes the column `base_id`; a lone column with rows keeps its id
+    /// (the store revives its parked split identity, screen_rows.rs).
     pub(crate) fn insert_layout_column_after(
         &mut self,
         target: PaneId,
@@ -265,8 +261,6 @@ impl Screen {
             let width = self.viewport_base_width.unwrap_or(1.0);
             let auto_layout = self.zellij_auto_layout.take();
             self.layout_columns.push(LayoutColumn::new(base_id, width, root, auto_layout));
-        } else if self.has_lone_row_column() {
-            self.layout_columns[0].id = base_id;
         }
         let Some(index) =
             self.layout_columns.iter().position(|candidate| candidate.root.contains(target))
