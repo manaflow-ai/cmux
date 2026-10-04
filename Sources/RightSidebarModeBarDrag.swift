@@ -266,7 +266,10 @@ struct RightSidebarModeBarTabDrag: ViewModifier {
     private func dragImage(size: CGSize) -> NSImage? {
         let renderer = ImageRenderer(
             content: RightSidebarModeBarDragPreview(mode: mode)
-                .frame(width: size.width, height: size.height)
+                // Keep the preview at its intrinsic width. The resting tab
+                // can be narrower while the drag image must retain the full label.
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minWidth: size.width, minHeight: size.height)
                 .environment(\.colorScheme, colorScheme)
         )
         renderer.scale = controller.anchor.view?.window?.backingScaleFactor ?? 2
