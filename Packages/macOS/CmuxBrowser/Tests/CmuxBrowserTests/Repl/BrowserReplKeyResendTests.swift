@@ -53,20 +53,91 @@ struct BrowserReplKeyResendTests {
         #expect(delivered.isBrowserAutomationKeyEvent)
     }
 
-    // cmux browser press Meta+a selected all through WebKit's resend to the
-    // Edit menu; with the resend dropped, the web view runs the editing
-    // command itself, as the REPL does.
-    @Test func cmuxBrowserPressRunsEditingShortcutsOnTheWebView() throws {
-        let webView = RecordingWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        let meta = try #require(BrowserKeyboardEvent(rawKey: "Meta"))
-        let a = try #require(BrowserKeyboardEvent(rawKey: "a"))
-        #expect(webView.replayBrowserKeyboardEvent(meta, action: .keyDown) == .delivered)
-        #expect(webView.replayBrowserKeyboardEvent(a, action: .press) == .delivered)
-        #expect(webView.replayBrowserKeyboardEvent(meta, action: .keyUp) == .delivered)
-        #expect(webView.selectAllCount == 1)
+    /// A real web view whose Edit menu actions are counted, not run.
+    private final class EditCountingWebView: WKWebView {
+        var commands: [String] = []
+        override func selectAll(_ sender: Any?) { commands.append("selectAll:") }
+        // WebKit's own `copy:` and `paste:`, which Swift does not see.
+        @objc(copy:) func countCopy(_ sender: Any?) { commands.append("copy:") }
+        @objc(paste:) func countPaste(_ sender: Any?) { commands.append("paste:") }
+    }
+
+    private final class Loaded: NSObject, WKNavigationDelegate {
+        var continuation: CheckedContinuation<Void, Never>?
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            continuation?.resume()
+            continuation = nil
+        }
+    }
+
+    private func load(_ html: String) async throws -> EditCountingWebView {
+        _ = NSApplication.shared
+        let webView = EditCountingWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        let loaded = Loaded()
+        webView.navigationDelegate = loaded
+        await withCheckedContinuation { continuation in
+            loaded.continuation = continuation
+            webView.loadHTMLString(html, baseURL: URL(string: "https://example.com/"))
+        }
+        webView.navigationDelegate = nil
+        _ = try await webView.evaluateJavaScript("document.getElementById('i').focus(); true")
+        return webView
+    }
+
+    private func press(_ keys: [String], in webView: WKWebView) throws {
+        let events = try keys.map { try #require(BrowserKeyboardEvent(rawKey: $0)) }
+        for event in events.dropLast() { #expect(webView.replayBrowserKeyboardEvent(event, action: .keyDown) == .delivered) }
+        #expect(webView.replayBrowserKeyboardEvent(events[events.count - 1], action: .press) == .delivered)
+        for event in events.dropLast().reversed() { #expect(webView.replayBrowserKeyboardEvent(event, action: .keyUp) == .delivered) }
+    }
+
+    /// Waits, at most 30 s, until WebKit has handled every key sent so far
+    /// and the page has seen them (`window.keys` counts its keydowns).
+    private func settle(_ webView: WKWebView, keys: Int) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+        while ContinuousClock.now < deadline {
+            if (try await webView.evaluateJavaScript("window.keys || 0") as? Int ?? 0) >= keys { break }
+            await Task.yield()
+        }
+        let pending = NSSelectorFromString("_doAfterProcessingAllPendingKeyEvents:")
+        try #require(webView.responds(to: pending))
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let block: @convention(block) () -> Void = { continuation.resume() }
+            _ = webView.perform(pending, with: block)
+        }
+        // The command runs on the main actor right after WebKit's callback.
+        await Task.yield()
+        _ = try await webView.evaluateJavaScript("0")
+    }
+
+    private static let countKeys = "window.keys = 0; addEventListener('keydown', () => { window.keys++; });"
+
+    // WebKit leaves Command+A/C/X/V/Z to the app's Edit menu by sending a key
+    // no page handled back to the app, which drops an automated key's resend;
+    // so for such a key the web view runs the editing command itself.
+    @Test func cmuxBrowserPressRunsAnEditingShortcutNoPageHandled() async throws {
+        let webView = try await load("<input id=i value=abc><script>\(Self.countKeys)</script>")
+        try press(["Meta", "a"], in: webView)
+        try await settle(webView, keys: 2)
+        #expect(webView.commands == ["selectAll:"])
         // Without Command, a is just a key.
-        #expect(webView.replayBrowserKeyboardEvent(a, action: .press) == .delivered)
-        #expect(webView.selectAllCount == 1)
+        try press(["a"], in: webView)
+        try await settle(webView, keys: 3)
+        #expect(webView.commands == ["selectAll:"])
+    }
+
+    // A page that handles the shortcut (it cancels the keydown) does not get
+    // the editing command as well, as in a browser: run twice, a Copy or
+    // Paste would reach the pasteboard behind the page's back.
+    @Test func cmuxBrowserPressDoesNotRunAnEditingShortcutThePageHandled() async throws {
+        let webView = try await load(
+            "<input id=i value=abc><script>\(Self.countKeys) addEventListener('keydown', e => { if (e.metaKey) e.preventDefault(); });</script>"
+        )
+        try press(["Meta", "a"], in: webView)
+        try press(["Meta", "c"], in: webView)
+        try press(["Meta", "v"], in: webView)
+        try await settle(webView, keys: 6)
+        #expect(webView.commands.isEmpty, "an editing command ran for a shortcut the page handled")
     }
 
     // The mobile browser stream replays a person's keys from their phone
