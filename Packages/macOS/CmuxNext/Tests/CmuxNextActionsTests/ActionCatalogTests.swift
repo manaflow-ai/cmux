@@ -120,6 +120,21 @@ import Testing
         #expect(registry.shortcutConflicts().isEmpty, "\(registry.shortcutConflicts())")
     }
 
+    @Test func browserHistoryOwnsCmdYAndRightSidebarHasNoDigitDefaults() throws {
+        let byID = Dictionary(uniqueKeysWithValues: ActionCatalog.all.map { ($0.id, $0) })
+        let browserHistory = try #require(byID["browserShowHistory"])
+        #expect(browserHistory.defaultShortcut == Shortcut("y", modifiers: [.command]))
+        #expect(browserHistory.requires.contains(.browserFocused))
+        #expect(byID["newCloudMachine"]?.defaultShortcut != Shortcut("y", modifiers: [.command]))
+
+        for id in [
+            "switchRightSidebarToFiles", "switchRightSidebarToFind", "switchRightSidebarToSessions",
+            "switchRightSidebarToFeed", "switchRightSidebarToDock", "switchRightSidebarToMachines",
+        ] {
+            #expect(byID[id]?.defaultShortcut == nil, "\(id) must not claim a default shortcut")
+        }
+    }
+
     @Test func legacyAliasesPointAtCatalogIDs() {
         let ids = Set(ActionCatalog.all.map(\.id))
         for (legacy, canonical) in ActionCatalog.legacyAliases {
