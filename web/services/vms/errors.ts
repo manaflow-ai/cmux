@@ -108,6 +108,16 @@ export class VmFreeAccessExpiredError extends Data.TaggedError("VmFreeAccessExpi
   readonly windowDays: number;
 }> {}
 
+/** A snapshot with this idempotency key is still running on this machine. */
+export class VmSnapshotInProgressError extends Data.TaggedError("VmSnapshotInProgressError")<{
+  readonly vmId: string;
+}> {}
+
+/** This idempotency key already named another snapshot request on this machine. */
+export class VmSnapshotIdempotencyConflictError extends Data.TaggedError("VmSnapshotIdempotencyConflictError")<{
+  readonly vmId: string;
+}> {}
+
 export class VmCreateInProgressError extends Data.TaggedError("VmCreateInProgressError")<{
   readonly idempotencyKey: string;
 }> {}
@@ -249,6 +259,8 @@ export type VmWorkflowError =
   | VmResizeInvalidError
   | VmResizeInProgressError
   | VmSnapshotNotFoundError
+  | VmSnapshotInProgressError
+  | VmSnapshotIdempotencyConflictError
   | VmFreeAccessExpiredError
   | VmCreateInProgressError
   | VmCreateFailedError
@@ -403,6 +415,8 @@ const vmWorkflowErrorTagRecord = {
   VmResizeInvalidError: true,
   VmResizeInProgressError: true,
   VmSnapshotNotFoundError: true,
+  VmSnapshotInProgressError: true,
+  VmSnapshotIdempotencyConflictError: true,
   VmFreeAccessExpiredError: true,
   VmCreateInProgressError: true,
   VmCreateFailedError: true,
