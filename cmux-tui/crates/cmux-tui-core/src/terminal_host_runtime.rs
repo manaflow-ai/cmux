@@ -837,9 +837,9 @@ mod unix {
 
     mod control_responses;
     mod standby;
-    pub(crate) use standby::{StandbyTerminalHost, launch_terminal_host_from};
     use control_responses::ControlResponseWaiter;
     pub(crate) use control_responses::{ControlResponses, DeferredCellPixelResolution};
+    pub(crate) use standby::{StandbyTerminalHost, launch_terminal_host_from};
 
     pub(crate) struct InputAckReceipt {
         request_id: u64,
@@ -10005,9 +10005,9 @@ pub use unix::unadoptable::*;
 #[cfg(unix)]
 pub(crate) use unix::{
     ControlResponses, DecodedHostResize, DeferredCellPixelResolution, StandbyTerminalHost,
-    launch_terminal_host_from,
     acquire_terminal_host_reset_lock, adopt_terminal_host_with_kitty_limits,
-    decode_host_resize_payload_for_version, load_terminal_host_records_for_reset,
+    decode_host_resize_payload_for_version, launch_terminal_host_from,
+    load_terminal_host_records_for_reset,
 };
 #[cfg(unix)]
 pub use unix::{

@@ -64,7 +64,8 @@ impl StandbyTerminalHost {
         Ok(Self { process, stdin, stdout, host_pid })
     }
 
-    /// The process id, for tests and diagnostics.
+    /// The process id, for tests.
+    #[cfg(test)]
     pub(crate) fn pid(&self) -> u32 {
         self.host_pid
     }
@@ -129,7 +130,7 @@ pub(crate) fn launch_terminal_host_from(
         kitty_graphics_limits,
     };
 
-    let StandbyTerminalHost { mut process, mut stdin, mut stdout, host_pid } = match standby {
+    let StandbyTerminalHost { process, mut stdin, mut stdout, host_pid } = match standby {
         Some(standby) => standby,
         None => StandbyTerminalHost::spawn()?,
     };

@@ -12,7 +12,10 @@ fn daemon_host_pids(daemon: libc::pid_t) -> std::collections::BTreeSet<u32> {
         .args(["-P", &daemon.to_string(), "-f", "__terminal-host"])
         .output()
         .expect("run pgrep");
-    String::from_utf8_lossy(&output.stdout).lines().filter_map(|line| line.trim().parse().ok()).collect()
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse().ok())
+        .collect()
 }
 
 fn record_pids(harness: &RecoveryHarness) -> std::collections::BTreeSet<u32> {
@@ -28,10 +31,15 @@ fn wait_for_spare(harness: &RecoveryHarness, daemon: libc::pid_t) -> u32 {
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     loop {
         let published = record_pids(harness);
-        if let Some(spare) = daemon_host_pids(daemon).into_iter().find(|pid| !published.contains(pid)) {
+        if let Some(spare) =
+            daemon_host_pids(daemon).into_iter().find(|pid| !published.contains(pid))
+        {
             return spare;
         }
-        assert!(Instant::now() < deadline, "no spare host process appeared after the first new tab");
+        assert!(
+            Instant::now() < deadline,
+            "no spare host process appeared after the first new tab"
+        );
         std::thread::sleep(Duration::from_millis(20));
     }
 }
@@ -76,8 +84,15 @@ fn the_second_new_tab_adopts_the_spare_host_with_its_own_environment() {
     let (second, terminal) = new_tab(&harness, 4, pane, "second");
     let screen = wait_for_screen(&harness.socket, second, "R81=[second]");
     assert!(screen.contains("R81=[second]"), "{screen}");
-    assert!(!screen.contains("first"), "the spare must not carry a previous tab's environment: {screen}");
-    assert_eq!(host_pid_of(&harness, &terminal), spare, "the second tab's host is the spare process");
+    assert!(
+        !screen.contains("first"),
+        "the spare must not carry a previous tab's environment: {screen}"
+    );
+    assert_eq!(
+        host_pid_of(&harness, &terminal),
+        spare,
+        "the second tab's host is the spare process"
+    );
 }
 
 #[test]
