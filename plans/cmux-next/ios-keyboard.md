@@ -170,11 +170,12 @@ usages, key bar with sticky Ctrl/Alt, preedit, cursor pan).
 
 Verified on an isolated iPhone 17 simulator (iOS 27, cmux-lawrence-2): composer on the keyboard,
 send keeps focus, five-line cap, interactive dismissal, rotation, search and invite fields,
-terminal tap shows the keyboard and key bar, Cmd-F; package tests (router, real-surface key
+terminal tap shows the keyboard and key bar, Cmd-F, Cmd-N, Cmd-[; per-frame keyboard show at 60 fps (rows, field and keyboard move as one; `.cmux-scratch/nx-worker/ios-keyboard/after/keyboard-show-frames-60fps.png`); package tests (router, real-surface key
 bytes: Ctrl-C 0x03, Enter CR, Backspace DEL, arrows, Esc, Tab, F1, Alt-x, preedit sends nothing).
 
 UNVERIFIED (the simulator harness delivers plain hardware keys but drops special keys such as
 Return, Delete and Esc): hardware Return sends / Shift-Return adds a line, Esc back, held-key
-repeat, key bar on a hardware keyboard, real IME composition and dictation, the per-frame
-row/field sync during the keyboard animation (only end states are asserted; a frame-split check
-is next), iPad split view and Stage Manager, VoiceOver frames (A1). These need the device.
+repeat, the key bar hiding with a hardware keyboard (`GCKeyboard`, device only), real IME
+composition and dictation, iPad split view and Stage Manager, VoiceOver frames (A1). These need the device. Device: nxkb (990a6c8c2be) is installed on Lawrence's iPhone; the
+signed-in gate waits for the phone's Tailscale, and typing needs Lawrence (devicectl cannot
+record this phone's screen; screenshots only).
