@@ -140,6 +140,8 @@ public final class BrowserAutomationDragCapture: NSObject {
     /// and the automated drop reads.
     public let pasteboard = NSPasteboard.withUniqueName()
     private var finished = false
+    /// Whether the capture ended (``finish()``); its window no longer opens.
+    public var isFinished: Bool { finished }
 
     public override init() {
         super.init()

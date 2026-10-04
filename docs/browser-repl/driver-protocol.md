@@ -192,9 +192,12 @@ native (`BrowserReplBoundary` in the session, and the driver):
   Results, events, fetch responses, output, errors, written files and
   files read back are redacted by the session. Another session that drives the same tab
   (`tabs.use`) does not hold the secret, so the driver remembers each value
-  it typed, by tab, until the tab closes, and masks it in every result,
+  it typed, by tab, typing session and secret name, from before it types
+  until the tab closes (sessions whose secrets share a name keep separate
+  values), and masks it as typed, `<secret:name>`, in every result,
   event and error it returns to any other session, and in their captures;
   once the typing session ends, also for a later session of the same name.
+  A TOTP secret's typed value is its code, masked as that literal.
   This masks the value as typed and in the encodings the session's
   redaction knows; page script that copies it elsewhere or transforms it
   is outside it, as it is within one session.
@@ -223,14 +226,25 @@ native (`BrowserReplBoundary` in the session, and the driver):
   every point), `input.key` and `input.insertText` while a blocked frame
   holds the focus (its document has it or holds a focused element, or its
   parent's focused element is its frame; a frame that cannot answer counts
-  as focused), captures while any frame shows a blocked page (judged
-  again, on each frame's document, when the capture is prepared, and
-  refused when a frame shows another document after it), and file
-  chooser answers other than `cancel` then too, since the chooser's frame
-  is not recorded. In tabs the session created the content rules keep a
+  as focused), PDFs while any frame shows a blocked page, and file
+  chooser answers other than `cancel` when the chooser's own frame (as
+  WebKit recorded it when the chooser opened, and the document it shows
+  now) is blocked. A screenshot blanks, in gray, the box of each main-frame
+  child frame that is or holds a blocked frame, as the tree is before and
+  after the capture, and shows the rest of the page; it is refused when
+  the main frame is blocked or a blocked frame's content cannot be hidden
+  that way (its box is unknown, its frame element or an ancestor has
+  `-webkit-box-reflect` or `filter`, or an element of the page has
+  `backdrop-filter`). Frame documents are judged again when the capture is prepared, and the capture is refused when a frame shows another document after it. Child frames are matched to their elements through
+  `window.frames`, which leaves out frames in shadow trees, so while the
+  main frame has a frame in a shadow tree every box counts as unknown. In tabs the session created the content rules keep a
   blocked frame from loading at all; its empty frame belongs to the parent
   and refuses nothing. The page can still move a frame or the focus in its
-  own web process between the check and the input reaching it.
+  own web process between the check and the input reaching it. Each of
+  these checks' own scripts (a frame's document, its focus, the frame
+  boxes) must answer within 5 s, or the call fails with `stale`: WebKit
+  drops a script's completion when a navigation replaces its document, and
+  a busy page answers late.
 - Page-opened windows: a window a page opens from a user's tab, also one
   a session drives, goes to the browser's own popup handling and never to
   a session, so no session adopts it or closes it when it ends. A window

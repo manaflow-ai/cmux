@@ -120,7 +120,9 @@ public struct BrowserReplCaptureMask {
             for frame in await frames() {
                 marked.append(frame)
                 let document = try await mark(frame, in: webView)
-                if let reason = policy.blockReason(document: document.policyDocument) {
+                // A child frame the policy blocks is blanked by the driver's
+                // frame gate; only a blocked main frame refuses the capture.
+                if frame?.isMainFrame ?? true, let reason = policy.blockReason(document: document.policyDocument) {
                     throw BrowserReplDriverError(
                         code: "blocked",
                         message: "The tab shows frame \(document.shown), which the domain policy blocks: \(reason); a capture would show it"

@@ -475,6 +475,32 @@ test("storage state reads and writes localStorage only in the page's own data st
   }
 });
 
+// Playwright's context outlives its pages: a closed page's context still
+// reads and adds cookies, through the session's default store.
+test("a closed page's context still reads and adds cookies", async () => {
+  const browser = await createDevBrowser();
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmux-repl-cookie-closed-")));
+  const repl = createDevRepl({ host: createNodeHost({ workDir: dir, sessionId: `cookie-closed-${process.pid}`, print: () => {} }), driver: browser.driver() });
+  try {
+    const r = await repl.evaluate(`
+      const p = await tabs.open(${JSON.stringify(primary)} + "/index.html");
+      const context = p.context();
+      await p.close();
+      await context.addCookies([{ name: "after-close", value: "1", url: ${JSON.stringify(primary)} + "/" }]);
+      (await context.cookies(${JSON.stringify(primary)} + "/")).map((c) => c.name)
+    `);
+    assert.equal(r.ok, true, r.error);
+    assert.ok(r.value.includes("after-close"), JSON.stringify(r.value));
+  } finally {
+    repl.dispose();
+    await browser.close();
+    await servers.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("cookies.clear: the driver clears the target tab's site, never a named one or the whole profile", async () => {
   const servers = await startFixtureServers();
   const { primary, peer } = servers.origins;

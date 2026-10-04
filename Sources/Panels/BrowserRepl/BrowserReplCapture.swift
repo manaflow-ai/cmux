@@ -12,6 +12,12 @@ enum BrowserReplCapture {
     /// Captures the viewport, a clip of it, or the full page at one image
     /// pixel per CSS pixel (Playwright's `deviceScaleFactor: 1`).
     static func snapshot(webView: WKWebView, clip: [String: Any]?, fullPage: Bool) async throws -> CGImage {
+        try await snapshotWithRegion(webView: webView, clip: clip, fullPage: fullPage).image
+    }
+
+    /// As ``snapshot(webView:clip:fullPage:)``, with the region the image
+    /// shows in CSS pixels of the viewport (its top-left at the image's).
+    static func snapshotWithRegion(webView: WKWebView, clip: [String: Any]?, fullPage: Bool) async throws -> (image: CGImage, region: CGRect) {
         let metrics = try? await webView.callAsyncJavaScript(
             """
             const d = document.documentElement;
@@ -58,7 +64,7 @@ enum BrowserReplCapture {
         configuration.snapshotWidth = NSNumber(value: Double(viewRect.width))
         configuration.afterScreenUpdates = true
         let image = try await webView.takeSnapshot(configuration: configuration)
-        return try rasterize(image, width: Int(region.width.rounded()), height: Int(region.height.rounded()))
+        return (try rasterize(image, width: Int(region.width.rounded()), height: Int(region.height.rounded())), region)
     }
 
     private static func rasterize(_ image: NSImage, width: Int, height: Int) throws -> CGImage {

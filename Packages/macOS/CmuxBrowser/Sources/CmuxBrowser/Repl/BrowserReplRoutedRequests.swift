@@ -26,6 +26,12 @@ public struct BrowserReplRoutedRequests<Respond> {
         return entry.respond
     }
 
+    /// Request `id`'s responder when `sessionID` owns it, left in place.
+    public func value(id: String, sessionID: String) -> Respond? {
+        guard let entry = entries[id], entry.owner == sessionID else { return nil }
+        return entry.respond
+    }
+
     /// Removes and returns the responders of `sessionID`'s requests.
     public mutating func removeAll(ownedBy sessionID: String) -> [Respond] {
         let owned = entries.filter { $0.value.owner == sessionID }

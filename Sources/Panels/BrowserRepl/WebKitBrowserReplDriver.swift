@@ -175,16 +175,21 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             BrowserReplTabAttachments.shared.detach(sessionID: sessionID)
             return .failure(Self.closedError)
         }
-        return maskingTypedSecrets(result, method: method)
+        // The store is cached per change of the typed values; the scan of
+        // the result runs off the main thread.
+        guard let store = BrowserReplTabAttachments.shared.typedSecrets.redaction(forReader: sessionID) else { return result }
+        return await Self.maskingTypedSecrets(result, method: method, store: store)
     }
 
     /// A result with the secrets other sessions typed into tabs masked
     /// (``BrowserReplTypedSecrets``): this session does not hold them, so
     /// its own redaction would not. Screenshots and PDFs get them as
     /// capture masks instead (``typedSecretMasks(_:)``).
-    @MainActor
-    private func maskingTypedSecrets(_ result: Result<String, BrowserReplDriverError>, method: String) -> Result<String, BrowserReplDriverError> {
-        guard let store = BrowserReplTabAttachments.shared.typedSecrets.redaction(forReader: sessionID) else { return result }
+    private static func maskingTypedSecrets(
+        _ result: Result<String, BrowserReplDriverError>,
+        method: String,
+        store: BrowserReplSecretStore
+    ) async -> Result<String, BrowserReplDriverError> {
         switch result {
         case .success(let json):
             return method == "tab.screenshot" || method == "tab.pdf" ? result : .success(store.redactJSON(json))
@@ -351,12 +356,19 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         case "input.key", "input.insertText":
             try await frameGate.checkFocus(in: webView, frames: frames)
         case "filechooser.respond":
-            // The chooser's frame is not recorded with it; while any frame
-            // of the tab shows a blocked page, files go to none.
-            if let entry = frameGate.blocked(frames, in: webView).first {
-                throw Self.error("blocked", "the tab shows frame \(entry.frame.url), which the domain policy blocks: \(entry.reason); a file chooser may only be cancelled")
+            // Files go only to the input of the chooser's own frame.
+            guard let chooserID = params["chooserId"] as? String,
+                  let frame = BrowserReplTabAttachments.shared.attachment(for: id)?.fileChooserFrame(id: chooserID, sessionID: sessionID) else {
+                return
             }
+            try await frameGate.checkFileChooser(frame: frame, in: webView, frames: frames)
+        case "tab.screenshot":
+            // Judged during the capture, which blanks blocked frames
+            // (BrowserReplFrameGate.coverBlockedFrames).
+            return
         default:
+            // A PDF is laid out for print; its frames' boxes cannot be
+            // blanked, so any blocked frame refuses it.
             try frameGate.checkCapture(in: webView, frames: frames)
         }
     }
@@ -1558,6 +1570,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             let capture = attachment.drag?.capture
             if let capture {
                 guard await capture.openPasteboardWindow() else {
+                    if !BrowserReplPasteboardRedirect.shared.install() {
+                        throw Self.error("unsupported", "This macOS has no drag pasteboard lookup cmux can redirect, so a drag that would write the system's drag pasteboard is refused; the drag did not move")
+                    }
+                    if capture.isFinished {
+                        throw Self.error("stale", "The drag ended before it moved (the tab's drag state was reset); press the mouse button again")
+                    }
                     throw Self.error("timeout", "Another tab's automated drag did not release the drag pasteboard within 5 s; the drag did not move")
                 }
             }
@@ -1900,17 +1918,20 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 frames: frames
             )
         }
-        try await withWindow(panel) { webView, _ in
-            try await BrowserReplNativeInput.insertText(text, into: webView, checkTarget: checkTarget)
-            await BrowserReplNativeInput.roundTrip(webView)
-        }
-        // The value is in the tab now: other sessions that read the tab do
-        // not hold the secret, so the tab keeps it masked for them.
+        // Recorded before typing: other sessions that read the tab do not
+        // hold the secret, so the tab keeps it masked for them, also when
+        // typing fails partway and part of the value is already in the page.
+        // A value refused by the domain check is masked without being typed,
+        // which hides nothing a reader needs.
         if let name = params["secretName"] as? String {
             let domains = (params["secretDomains"] as? [[String: Any]] ?? []).compactMap(BrowserReplDomainPattern.from(json:))
             BrowserReplTabAttachments.shared.typedSecrets.record(
                 tab: panel.id.uuidString, name: name, value: text, domains: domains, typist: sessionID
             )
+        }
+        try await withWindow(panel) { webView, _ in
+            try await BrowserReplNativeInput.insertText(text, into: webView, checkTarget: checkTarget)
+            await BrowserReplNativeInput.roundTrip(webView)
         }
         return nil
     }
@@ -2090,9 +2111,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let clip = params["clip"] as? [String: Any]
         let masks = typedSecretMasks(params)
         let policy = currentPolicy
+        let frameGate = self.frameGate
         let image: CGImage = try await withWindow(panel) { webView, _ in
             try await Self.withSecretMasks(masks, policy: policy, webView: webView) {
-                try await BrowserReplCapture.snapshot(webView: webView, clip: clip, fullPage: fullPage)
+                // Frames the domain policy blocks (an ad or tracker under
+                // allowedDomains) are blanked, not the whole capture refused.
+                try await frameGate.coverBlockedFrames(in: webView, frames: { await BrowserReplFrameTree.frames(of: webView) }) {
+                    try await BrowserReplCapture.snapshotWithRegion(webView: webView, clip: clip, fullPage: fullPage)
+                }
             }
         }
         let data = try BrowserReplCapture.encode(image, format: format, quality: quality)

@@ -6,11 +6,14 @@ extension NSPasteboard {
     /// `{ type, base64 }`, MIME types or raw pasteboard types) to this
     /// pasteboard as one item, for WebKit's Paste to read.
     ///
-    /// Items that refer to local files are left out: a file URL (also a
-    /// `file:` URL given as `text/uri-list` or another URL type), a Finder
-    /// filename list, an alias, a Finder node or a file promise. WebKit's
-    /// trusted Paste turns those into `File` objects for the page, which
-    /// would hand the page a file outside the session's file root.
+    /// Only the types the virtual clipboard needs are written (an
+    /// allowlist): plain text, HTML, RTF, PNG, TIFF, WebKit's custom web
+    /// data, and a URL whose every entry is `http:` or `https:`. WebKit's
+    /// trusted Paste turns a file reference (a file URL, a Finder filename
+    /// list, an alias, a file promise, RTFD attachments) into `File`
+    /// objects for the page, which would hand the page a file outside the
+    /// session's file root, and a denylist of names or a scan for `file:`
+    /// misses encodings (UTF-16, binary property lists, raw type names).
     @MainActor
     public func writeBrowserReplClipboardItems(_ items: [[String: Any]]) {
         clearContents()
@@ -20,29 +23,33 @@ extension NSPasteboard {
                   let base64 = entry["base64"] as? String,
                   let data = Data(base64Encoded: base64) else { continue }
             let pasteboardType = Self.browserReplPasteboardType(forMIME: type)
-            guard !Self.browserReplRefersToLocalFiles(pasteboardType, data: data) else { continue }
+            guard Self.browserReplMayPaste(pasteboardType, data: data) else { continue }
             item.setData(data, forType: pasteboardType)
         }
         if !(item.types.isEmpty) { writeObjects([item]) }
     }
 
-    /// Whether `data` of `type` names a local file: the type is a file
-    /// reference (file URL, filename list, alias, Finder node, file
-    /// promise), or a URL type whose data holds a `file:` URL.
-    static func browserReplRefersToLocalFiles(_ type: NSPasteboard.PasteboardType, data: Data) -> Bool {
-        let name = type.rawValue.lowercased()
-        let fileMarkers = ["file-url", "fileurl", "filename", "promise", "alias", "finder.node", "0x6675726c", "0x68667320"]
-        if fileMarkers.contains(where: name.contains) { return true }
-        if let uti = UTType(type.rawValue),
-           uti.conforms(to: .fileURL) || uti.conforms(to: .aliasFile) || uti.conforms(to: .resolvable) {
-            return true
+    /// The types a tab's clipboard may put on the pasteboard WebKit pastes from.
+    static let browserReplPastableTypes: Set<NSPasteboard.PasteboardType> = [
+        .string, .html, .rtf, .png, .tiff,
+        NSPasteboard.PasteboardType("com.apple.WebKit.custom-pasteboard-data"),
+    ]
+
+    /// Whether `data` of `type` may be pasted: an allowed type, or a URL
+    /// whose every entry (a `text/uri-list`, comment lines aside) is an
+    /// `http:` or `https:` URL in UTF-8.
+    static func browserReplMayPaste(_ type: NSPasteboard.PasteboardType, data: Data) -> Bool {
+        if browserReplPastableTypes.contains(type) { return true }
+        guard type == .URL, let text = String(data: data, encoding: .utf8) else { return false }
+        let lines = text.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+        guard !lines.isEmpty else { return false }
+        return lines.allSatisfy { line in
+            guard line.unicodeScalars.allSatisfy({ $0.value > 0x20 && $0.value < 0x7f }),
+                  let url = URL(string: line), let scheme = url.scheme?.lowercased(), url.host?.isEmpty == false else { return false }
+            return scheme == "http" || scheme == "https"
         }
-        let isURLType = name.contains("url") || UTType(type.rawValue)?.conforms(to: .url) == true
-        guard isURLType else { return false }
-        // A URL type holds one URL, a list of them or a property list of
-        // them; any `file:` scheme in it counts.
-        let text = String(decoding: data, as: UTF8.self).lowercased()
-        return text.contains("file:")
     }
 
     private static func browserReplPasteboardType(forMIME mime: String) -> NSPasteboard.PasteboardType {
