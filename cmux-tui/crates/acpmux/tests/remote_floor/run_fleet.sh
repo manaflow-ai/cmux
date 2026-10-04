@@ -27,7 +27,20 @@ if [ -z "$claude_bin" ]; then
     case "$("$candidate" --version 2>/dev/null)" in "$version "*) claude_bin=$candidate ;; esac
   done
 fi
-[ -n "$claude_bin" ] || { echo "no claude $version on this host (no npm, no matching install)"; exit 2; }
+if [ -z "$claude_bin" ]; then
+  # The official release binary, checked against the release manifest's sha256.
+  base=https://downloads.claude.ai/claude-code-releases/$version
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64) platform=darwin-arm64 ;; Darwin-x86_64) platform=darwin-x64 ;;
+    Linux-x86_64) platform=linux-x64 ;; Linux-aarch64) platform=linux-arm64 ;;
+  esac
+  want=$(curl -fsS "$base/manifest.json" | python3 -c "import json,sys; print(json.load(sys.stdin)['platforms']['$platform']['checksum'])")
+  curl -fsS -o "$scratch/claude" "$base/$platform/claude"
+  got=$(shasum -a 256 "$scratch/claude" | cut -d' ' -f1)
+  if [ -n "$want" ] && [ "$want" = "$got" ]; then chmod +x "$scratch/claude"; claude_bin="$scratch/claude"
+  else echo "release binary checksum mismatch: want $want got $got"; fi
+fi
+[ -n "$claude_bin" ] || { echo "no claude $version on this host"; exit 2; }
 echo "using $claude_bin"
 TMPDIR="$scratch" python3 "$here/probe_claude.py" --claude "$claude_bin" \
   --real-model "$url" "$@"
