@@ -131,7 +131,6 @@ final class NotificationsPanelView: NSView {
         let emptyTitle = NotificationRowView.label(NotificationsPanelStrings.emptyTitle, font: Typography.bodyEmphasized)
         let emptyDetail = NotificationRowView.label(NotificationsPanelStrings.emptySubtitle, font: Typography.caption)
         tinted = [(title, .primary), (emptyTitle, .secondary), (emptyDetail, .tertiary)]
-        emptyIcon.contentTintColor = Palette.textSecondary
         empty.setViews([emptyIcon, emptyTitle, emptyDetail], in: .center)
         empty.orientation = .vertical
         empty.spacing = Metrics.space2
