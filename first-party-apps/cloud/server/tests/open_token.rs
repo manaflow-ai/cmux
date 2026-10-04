@@ -51,11 +51,11 @@ fn sent(
     spawner: &FakeSpawner,
     transport: &FakeTransport,
 ) -> String {
+    let frames = s.take_host_frames();
     format!(
-        "{:?}\n{:?}\n{:?}\n{:?}",
+        "{:?}\n{:?}\n{frames:?}\n{:?}",
         spawner.log().commands,
         s.control_plane().calls,
-        s.take_host_frames(),
         transport.log().opened
     )
 }
