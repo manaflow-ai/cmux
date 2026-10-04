@@ -6,7 +6,8 @@ usage() {
 usage: verify-app-bundle-licenses.sh <app-path>
 
 Verifies that a built cmux app contains the canonical project GPL and its
-third-party license notices before the app is placed in a distributed DMG.
+third-party license notices before the app is placed in a distributed DMG:
+every Mach-O file must map to its notices (scripts/cmux-next/notices/bundle-map.json).
 EOF
 }
 
@@ -39,6 +40,12 @@ fi
 
 if [[ ! -s "$BUNDLED_THIRD_PARTY" ]]; then
   echo "error: third-party licenses missing or empty at $BUNDLED_THIRD_PARTY" >&2
+  exit 1
+fi
+
+# Every Mach-O in the bundle must map to its notices (scripts/cmux-next/notices/bundle-map.json).
+if ! python3 "$ROOT_DIR/scripts/cmux-next/notices/check_bundle_notices.py" "$APP_PATH"; then
+  echo "error: third-party notices do not cover every binary in $APP_PATH" >&2
   exit 1
 fi
 

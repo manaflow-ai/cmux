@@ -142,6 +142,12 @@ final class ConversationViewController: UIViewController {
         binding.onRefusal = { [weak self] intent, rejection in
             self?.presentRefusal(HomeRefusalAlert(intent: intent, rejection: rejection))
         }
+        // An op that ran out of resends unanswered may not have gone through.
+        // Hosts set the binding hooks, never store.onUnanswered/onRefusal:
+        // the binding chains the store hook per conversation.
+        binding.onUnanswered = { [weak self] intent in
+            self?.presentRefusal(HomeRefusalAlert(unanswered: intent))
+        }
         self.binding = binding
         view.controller.isVisibleToUser = isVisible
         observation.renderNow()
@@ -151,7 +157,8 @@ final class ConversationViewController: UIViewController {
 
     private func presentRefusal(_ content: HomeRefusalAlert) {
         guard presentedViewController == nil else { return }
-        let alert = UIAlertController(title: content.title, message: content.message, preferredStyle: .alert)
+        let alert = UIAlertController(title: content.title, message: content.message.isEmpty ? nil : content.message,
+                                      preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: HomeText.ok, style: .default))
         present(alert, animated: true)
     }

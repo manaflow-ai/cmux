@@ -39,7 +39,7 @@ import Testing
                                                 from: field))
         await waitUntil { !notDelivered.isEmpty }
         #expect(notDelivered.map(\.0) == [intent.key], "the host hears that this send was not delivered")
-        let report = HomeDeliveryReport.pending(store.transcript(for: conversation))
+        let report = store.transcript(for: conversation).pendingDelivery
         let row = try #require(report.first { $0.key == intent.key })
         #expect(row.state == "notDelivered")
         #expect(row.reason == "invalid: attachments unsupported", "the reason is readable, not only a red mark")

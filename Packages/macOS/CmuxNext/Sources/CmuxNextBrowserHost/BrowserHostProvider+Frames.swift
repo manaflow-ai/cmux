@@ -71,6 +71,6 @@ extension BrowserHostProvider {
         let old = leases[targetID]
         leases[targetID] = lease
         if lease != nil, old == nil { marking?.agentWillDrive(targetID: targetID) }
-        if old != lease { onLeaseChange?(targetID, lease) }
+        if old != lease { notifyLease(targetID, lease) }
     }
 }

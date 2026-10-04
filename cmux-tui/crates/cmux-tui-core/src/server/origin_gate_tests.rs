@@ -427,3 +427,66 @@ fn legacy_user_origin_gestures_need_the_verified_app() {
     let reply = send(&mux, &agent, &script);
     assert_ne!(reply["error_code"], "origin.forbidden", "{reply}");
 }
+
+/// P8 prover B through the real hello: `role` declared in step 1 with peer
+/// key `peer`; a role-main hello also runs step 2 with the install key.
+fn hello(mux: &Arc<Mux>, role: &str, peer: &str) -> Conn {
+    use cmux_local_auth::frontend_proof::{NONCE_LEN, hello_proof, unhex};
+    let conn = connect(mux);
+    let mut gate = client_hello::HelloGate::new(ClientTransport::Unix);
+    let peer = || client_hello::Peer { key: Some(peer.to_string()), token: None };
+    let start = json!({"id": 1, "cmd": "client-hello", "role": role, "install_id": "inst_p8"});
+    let started = gate.observe(mux, conn.client, &start.to_string(), peer).expect("handled");
+    assert_eq!(started["ok"], true, "{started}");
+    if role == "main" {
+        let nonce = unhex::<NONCE_LEN>(started["data"]["nonce"].as_str().unwrap()).unwrap();
+        let key = unhex::<32>(P8_KEY_HEX).unwrap();
+        let proof = json!({"id": 2, "cmd": "client-hello", "install_id": "inst_p8",
+            "proof": hello_proof(&key, "inst_p8", &nonce)});
+        let proved = gate.observe(mux, conn.client, &proof.to_string(), peer).expect("handled");
+        assert_eq!(proved["data"]["verified"], true, "{proved}");
+    }
+    conn
+}
+
+const P8_KEY_HEX: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+
+fn keyed_mux(label: &str) -> Arc<Mux> {
+    let mux = mux(label);
+    let key = FrontendKey::parse(&format!("cmuxik1 inst_p8 {P8_KEY_HEX}")).unwrap();
+    assert!(install_frontend_key(&mux, key));
+    mux
+}
+
+/// P8 (DEV build, prover B): the install-key proof makes the main
+/// connection the verified app without changing its peer key, so the page
+/// relay of the same process (same audit-token key) gets a confirmation
+/// that passes gate A2 once.
+#[test]
+fn an_install_proved_main_connection_confirms_for_its_own_page_relay() {
+    let mux = keyed_mux("p8-same-peer");
+    let app = hello(&mux, "main", "token:20.1");
+    let relay = hello(&mux, "page_relay", "token:20.1");
+    let token = issued_token(&issue(&mux, &app, "apps.install", &install_params_sha256(), &relay));
+    assert_not_forbidden(&send(&mux, &relay, &install(Some(user_claim(&token)))));
+}
+
+/// P8: another process (another audit-token key) gets nothing from the
+/// install proof. A relay of another process is no relay target for the
+/// proved main connection, and another process that proves the same install
+/// key cannot confirm for this app's relay either.
+#[test]
+fn another_process_cannot_use_an_install_proved_confirmation() {
+    let mux = keyed_mux("p8-other-peer");
+    let sha = install_params_sha256();
+    let app = hello(&mux, "main", "token:20.1");
+    let foreign_relay = hello(&mux, "page_relay", "token:21.1");
+    assert_forbidden(&issue(&mux, &app, "apps.install", &sha, &foreign_relay));
+    let app_relay = hello(&mux, "page_relay", "token:20.1");
+    let foreign_main = hello(&mux, "main", "token:21.1");
+    assert_forbidden(&issue(&mux, &foreign_main, "apps.install", &sha, &app_relay));
+    // The app's own confirmation stays usable only on its own relay.
+    let token = issued_token(&issue(&mux, &app, "apps.install", &sha, &app_relay));
+    assert_forbidden(&send(&mux, &foreign_relay, &install(Some(user_claim(&token)))));
+    assert_not_forbidden(&send(&mux, &app_relay, &install(Some(user_claim(&token)))));
+}

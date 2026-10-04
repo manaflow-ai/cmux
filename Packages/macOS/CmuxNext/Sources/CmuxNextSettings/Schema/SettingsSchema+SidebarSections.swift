@@ -1,8 +1,9 @@
 public import CmuxNextDesign
 /// Sidebar section settings (plans/cmux-next/sidebar-sections.md 7) in the
 /// Appearance section's Sidebar group.
-extension SettingsSchema {
-    static var sidebarSections: [SettingDescriptor] {
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum SidebarSectionSettingsSchema {
+    static var descriptors: [SettingDescriptor] {
         let sidebar = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         let share = SettingNumber(SidebarSectionsPreferences.shareRange, step: 0.05, unit: .fraction)
         return [

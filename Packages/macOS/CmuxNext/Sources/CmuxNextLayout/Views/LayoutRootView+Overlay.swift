@@ -39,7 +39,7 @@ extension LayoutRootView {
             view.removeFromSuperview()
         }
         reportInteractiveRects()
-        onOverlaySync?()
+        notifyOverlaySync()
     }
 
     /// Rects (this view's coordinates) where native overlays in the root
