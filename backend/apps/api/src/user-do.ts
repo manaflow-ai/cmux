@@ -261,8 +261,8 @@ export class UserDO extends OwnerDO<UserState> {
    * hourly budget for `op` (home-rate.ts homeRateTakeSql).
    */
   async homeRateTake(entity: string, actor: string, op: HomeRateOp): Promise<HomeRateGate> {
-    const bound = this.boundEntity()
-    if (bound !== null && bound !== entity) return { ok: false, retry_after_ms: HOME_RATE_WINDOW_MS }
+    // An object that never served this user creates no storage; the refusal is the one a foreign entity gets.
+    if (!this.isBound(entity)) return { ok: false, retry_after_ms: HOME_RATE_WINDOW_MS }
     return homeRateTakeSql(this.sqlStore, actor, op, Date.now())
   }
 
