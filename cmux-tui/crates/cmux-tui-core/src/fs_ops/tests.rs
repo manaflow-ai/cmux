@@ -473,3 +473,40 @@ fn a_path_with_a_control_character_is_refused() {
     ));
     assert_eq!(names_in(&root.path), Vec::<String>::new());
 }
+
+fn age(path: &Path, seconds: u64) {
+    let when = std::time::SystemTime::now() - std::time::Duration::from_secs(seconds);
+    fs::File::options().write(true).open(path).unwrap().set_modified(when).unwrap();
+}
+
+/// Daemon start: leftover write temporaries older than an hour are
+/// removed; fresh ones, other names, and anything behind a symlink stay.
+#[test]
+fn stale_write_temporaries_are_swept_at_start() {
+    let root = TempRoot::new("sweep");
+    let outside = TempRoot::new("sweep-outside");
+    let old = ".a.txt.cmux-0123456789abcdef.tmp";
+    root.file(old, b"x");
+    root.file(&format!("deep/er/{old}"), b"x");
+    root.file(".b.txt.cmux-fedcba9876543210.tmp", b"fresh");
+    root.file(".c.txt.cmux-short.tmp", b"x");
+    root.file("notes.txt", b"x");
+    outside.file(old, b"x");
+    symlink(&outside.path, root.path.join("out")).unwrap();
+    for path in [
+        root.path.join(old),
+        root.path.join("deep/er").join(old),
+        root.path.join(".c.txt.cmux-short.tmp"),
+        root.path.join("notes.txt"),
+        outside.path.join(old),
+    ] {
+        age(&path, 2 * 60 * 60);
+    }
+    assert_eq!(root.service().sweep_stale_temporaries(), 2);
+    assert!(!root.path.join(old).exists());
+    assert!(!root.path.join("deep/er").join(old).exists());
+    assert!(root.path.join(".b.txt.cmux-fedcba9876543210.tmp").exists(), "fresh: a running write");
+    assert!(root.path.join(".c.txt.cmux-short.tmp").exists(), "not our name shape");
+    assert!(root.path.join("notes.txt").exists());
+    assert!(outside.path.join(old).exists(), "a symlink is never followed");
+}

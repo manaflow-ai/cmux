@@ -15,6 +15,7 @@ mod listing;
 mod ops;
 mod resolve;
 pub mod stream;
+mod sweep;
 mod sys;
 mod write;
 

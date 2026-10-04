@@ -12,17 +12,21 @@ use super::super::{LinkVerifier, serve_remote_entry};
 use super::*;
 use crate::fs_ops::{FS_CAPABILITY, FS_COMMANDS, FsService, Roots};
 
-fn peer() -> RemotePeer {
+pub(super) fn test_mux() -> Arc<Mux> {
+    Mux::new_for_test("fs-wire", crate::SurfaceOptions::default())
+}
+
+pub(super) fn peer() -> RemotePeer {
     RemotePeer { install: "inst_1".into(), user: "42".into(), team: "team_a".into() }
 }
 
 /// A temporary `/home/cmux` stand-in, removed on drop.
-struct Home {
-    path: std::path::PathBuf,
+pub(super) struct Home {
+    pub(super) path: std::path::PathBuf,
 }
 
 impl Home {
-    fn new(label: &str) -> Self {
+    pub(super) fn new(label: &str) -> Self {
         let mut random = [0u8; 6];
         getrandom::fill(&mut random).unwrap();
         let suffix: String = random.iter().map(|b| format!("{b:02x}")).collect();
@@ -35,8 +39,17 @@ impl Home {
         FsService::new(Roots::new([self.path.clone()]))
     }
 
+    /// This home as the remote entry's fs owner (leaked: the entry keeps a
+    /// `'static` owner, as the daemon's installed one is).
+    pub(super) fn entry(&self) -> EntryFs {
+        EntryFs {
+            service: Some(Box::leak(Box::new(self.service()))),
+            first_line_deadline: FIRST_LINE_DEADLINE,
+        }
+    }
+
     /// `line` with the contract's `/home/cmux` mapped onto this home.
-    fn map(&self, line: &str) -> String {
+    pub(super) fn map(&self, line: &str) -> String {
         line.replace("/home/cmux", &self.path.display().to_string())
     }
 }
@@ -233,13 +246,12 @@ fn the_contract_request_lines_get_the_answer_shapes_cmux_cloud_reads() {
 fn routed(home: &Home, line: &str, body: &[u8]) -> (Option<()>, Vec<u8>) {
     let (daemon_side, mut client) = UnixStream::pair().unwrap();
     client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-    let service = home.service();
     let mut sent = home.map(line).into_bytes();
     sent.push(b'\n');
     sent.extend_from_slice(body);
     client.write_all(&sent).unwrap();
     client.shutdown(std::net::Shutdown::Write).unwrap();
-    let left = route_first_line(daemon_side, &FsGate, &peer(), Some(&service)).map(drop);
+    let left = route_first_line(&test_mux(), daemon_side, &FsGate, &peer(), home.entry()).map(drop);
     let mut output = Vec::new();
     let _ = client.read_to_end(&mut output);
     (left, output)
@@ -269,7 +281,7 @@ fn a_dial_that_is_not_a_stream_keeps_its_first_line() {
     let home = Home::new("route-line");
     let (daemon_side, mut client) = UnixStream::pair().unwrap();
     client.write_all(b"{\"id\":1,\"cmd\":\"identify\"}\nnext\n").unwrap();
-    let mut stream = route_first_line(daemon_side, &FsGate, &peer(), Some(&home.service()))
+    let mut stream = route_first_line(&test_mux(), daemon_side, &FsGate, &peer(), home.entry())
         .expect("a line dial is handed back");
     let mut reader = BufReader::new(&mut *stream);
     let mut first = String::new();
@@ -287,7 +299,8 @@ fn a_stream_dial_on_a_host_without_the_owner_is_refused() {
     client
         .write_all(b"{\"id\":4,\"cmd\":\"fs.read\",\"path\":\"/home/cmux/x\",\"stream\":true}\n")
         .unwrap();
-    assert!(route_first_line(daemon_side, &FsGate, &peer(), None).is_none());
+    let entry = EntryFs { service: None, first_line_deadline: FIRST_LINE_DEADLINE };
+    assert!(route_first_line(&test_mux(), daemon_side, &FsGate, &peer(), entry).is_none());
     let mut reader = BufReader::new(client);
     let mut line = String::new();
     reader.read_line(&mut line).unwrap();
