@@ -77,18 +77,23 @@ public final class HomeStore {
     @ObservationIgnored private let clock: any Clock<Duration>
     /// A send or op the owner refused after the call that made it returned
     /// (a resumed upload, a resend): the host says why. On the main actor.
+    /// Each live view of the intent's conversation hears it through its
+    /// registered hooks (`register(_:)`, what `HomeStoreBinding` does);
+    /// this hears it only when no view of that conversation is registered.
     /// Resends that run out without an answer are not refusals and do not
     /// come here (see `HomeSendState.unanswered`).
-    @ObservationIgnored public var onRefusal: ((HomeIntent, HomeRejection) -> Void)? { didSet { chainedHooks += 1 } }
-    /// Closures installed on `onRefusal` so far (tests).
-    @ObservationIgnored var chainedHooks = 0
+    @ObservationIgnored public var onRefusal: ((HomeIntent, HomeRejection) -> Void)?
     /// An op other than a send (a tapback, a retraction, a read cursor)
     /// whose resends ran out without an answer: it left the log, so the
     /// change is gone from the transcript until an echo shows the owner
     /// did commit it. The host says it may not have gone through. On the
-    /// main actor. A send keeps its "Not Delivered" row and does not come
-    /// here (see `HomeSendState.unanswered`).
+    /// main actor. Like `onRefusal`, it hears only what no registered view
+    /// of the conversation hears. A send keeps its "Not Delivered" row and
+    /// does not come here (see `HomeSendState.unanswered`).
     @ObservationIgnored public var onUnanswered: ((HomeIntent) -> Void)?
+    /// The hooks of the views showing each conversation, held weakly (a
+    /// view freed without `unregister` hears nothing and is pruned).
+    @ObservationIgnored private var hooks: [ConversationID: [WeakConversationHooks]] = [:]
     /// Test seam: awaited before the prune deletes each blob directory.
     @ObservationIgnored var pruneWillDelete: (@Sendable (String) async -> Void)?
 
@@ -1210,18 +1215,60 @@ public final class HomeStore {
         }
     }
 
-    /// A refusal nobody awaits reaches the host.
+    // MARK: Conversation hooks
+
+    /// A view of `hooks.conversation` hears that conversation's refusals and
+    /// unanswered ops nobody awaits until `unregister`, or until it is freed
+    /// (the store holds it weakly). Registering it again does nothing.
+    public func register(_ hooks: HomeConversationHooks) {
+        let id = hooks.conversation
+        var list = self.hooks[id, default: []].filter { $0.hooks != nil }
+        if !list.contains(where: { $0.hooks === hooks }) { list.append(WeakConversationHooks(hooks: hooks)) }
+        self.hooks[id] = list
+    }
+
+    /// The view stopped: it hears nothing more. Unregistering hooks that are
+    /// not registered does nothing.
+    public func unregister(_ hooks: HomeConversationHooks) {
+        let id = hooks.conversation
+        let list = self.hooks[id, default: []].filter { $0.hooks != nil && $0.hooks !== hooks }
+        self.hooks[id] = list.isEmpty ? nil : list
+    }
+
+    /// Drops the entries of `conversation`'s hooks that were freed without
+    /// `unregister` (a binding's deinit calls it).
+    public func pruneHooks(for conversation: ConversationID) {
+        let list = hooks[conversation, default: []].filter { $0.hooks != nil }
+        hooks[conversation] = list.isEmpty ? nil : list
+    }
+
+    /// The live hooks of the intent's conversation, in registration order.
+    /// Taken before any is called, so a hook that unregisters (or registers
+    /// another) while it runs changes no delivery of this intent.
+    private func liveHooks(for intent: HomeIntent) -> [HomeConversationHooks] {
+        guard let id = intent.op.conversation else { return [] }
+        pruneHooks(for: id)
+        return hooks[id, default: []].compactMap(\.hooks)
+    }
+
+    /// A refusal nobody awaits: each live view of its conversation hears it
+    /// once; with none, `onRefusal` does.
     func reportRefusal(_ intent: HomeIntent, _ rejection: HomeRejection) {
-        onRefusal?(intent, rejection)
+        let live = liveHooks(for: intent)
+        guard !live.isEmpty else { onRefusal?(intent, rejection); return }
+        for hooks in live { hooks.onRefusal(intent, rejection) }
     }
 
-    /// An op that ran out of resends reaches the host.
+    /// An op that ran out of resends: each live view of its conversation
+    /// hears it once; with none, `onUnanswered` does.
     func reportUnanswered(_ intent: HomeIntent) {
-        onUnanswered?(intent)
+        let live = liveHooks(for: intent)
+        guard !live.isEmpty else { onUnanswered?(intent); return }
+        for hooks in live { hooks.onUnanswered(intent) }
     }
 
-    /// Hooks the store holds for views of conversations now (tests).
-    var registeredHookCount: Int { chainedHooks }
+    /// Hook entries the store holds now, live or freed and not yet pruned (tests).
+    var registeredHookCount: Int { hooks.values.reduce(0) { $0 + $1.count } }
 
     private func settle() {
         let settled = log.settle(against: mirror)

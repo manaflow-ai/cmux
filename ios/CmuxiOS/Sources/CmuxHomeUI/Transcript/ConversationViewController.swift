@@ -86,7 +86,10 @@ final class ConversationViewController: UIViewController {
         close()
     }
 
-    /// Stops the binding and the observers (the screen left the stack).
+    /// Stops the binding and the observers (the screen left the stack). A
+    /// screen freed without it (loaded but never shown, or a navigation
+    /// root replaced without a pop) frees its binding, whose deinit closes
+    /// the conversation; the observers capture this screen weakly.
     func close() {
         guard !closed else { return }
         closed = true
@@ -144,7 +147,7 @@ final class ConversationViewController: UIViewController {
         }
         // An op that ran out of resends unanswered may not have gone through.
         // Hosts set the binding hooks, never store.onUnanswered/onRefusal:
-        // the binding chains the store hook per conversation.
+        // the store tells every live binding of the conversation once each.
         binding.onUnanswered = { [weak self] intent in
             self?.presentRefusal(HomeRefusalAlert(unanswered: intent))
         }
