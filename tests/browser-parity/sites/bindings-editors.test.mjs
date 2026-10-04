@@ -62,7 +62,7 @@ test("googleDocs.insertAfter: the draft states the anchor's single match and pos
     await s.run(`var insD2 = await sites.googleDocs.insertAfter(${JSON.stringify(DOC)}, "Closing line.", " Bye.")`);
     doc.blocks[1] = { type: "paragraph", text: "Intro paragraph, revised." };
     const before2 = JSON.stringify(doc.blocks);
-    assert.match(await s.error("sites.googleDocs.insertAfter(insD2.id, { confirm: true })"), /document_changed/);
+    assert.match(await s.error("sites.googleDocs.insertAfter(insD2.id, { confirm: true })"), /document_changed|document changed/);
     assert.equal(JSON.stringify(doc.blocks), before2);
   } finally {
     doc.blocks = original;

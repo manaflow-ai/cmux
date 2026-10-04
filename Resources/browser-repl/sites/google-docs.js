@@ -68,13 +68,24 @@
           if (typeof anchor !== "string" || !anchor) throw new S.SiteError("invalid", "googleDocs.insertAfter: anchor: expected text");
           if (typeof text !== "string" || !text) throw new S.SiteError("invalid", "googleDocs.insertAfter: text: expected text");
           const r = ref(doc, "googleDocs.insertAfter", options || {});
-          const n = count(await plain(r), anchor);
+          // The document as drafted: the anchor's one match and its offset
+          // in the text export. Find and replace edits every match, so the
+          // write runs only on this same text (no second match, no other
+          // change), read again right before Replace all.
+          const drafted = await plain(r);
+          const n = count(drafted, anchor);
           if (n !== 1) throw new S.SiteError("invalid", `googleDocs.insertAfter: anchor ${JSON.stringify(anchor)} occurs ${n} times; it must occur exactly once`);
+          const at = drafted.indexOf(anchor);
           return ed.edit("googleDocs", "insertAfter", "googleDocs.insertAfter", r, {}, options, () => ({
-            summary: `Insert text after "${anchor}" in Google Doc ${r.id}`,
-            preview: { file: doc, anchor, text },
+            summary: `Insert text after "${anchor}" (its one match, at character ${at}) in Google Doc ${r.id}`,
+            preview: { file: doc, anchor, text, matches: 1, at },
             run: async (page, gate) => {
               await gate();
+              const now = await plain(r);
+              if (now !== drafted) {
+                const k = count(now, anchor);
+                throw new S.SiteError("document_changed", `googleDocs.insertAfter: the document changed since ${k === 1 ? "the anchor was found" : `the anchor was found; it now occurs ${k} times`}; nothing was changed. Make a new call (a new draft for a shared file)`);
+              }
               await ed.findReplace(page, anchor, anchor + text);
               const verified = await ed.verify(async () => (await plain(r)).includes(anchor + text));
               return { status: "inserted", verified };
