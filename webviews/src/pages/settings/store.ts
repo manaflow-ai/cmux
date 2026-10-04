@@ -5,9 +5,11 @@
 // re-reads the rows; an older read never replaces a newer one.
 import type { PageCommand } from "./keyboard";
 import { rowsByKey } from "./schema";
+import { t } from "./strings";
 import {
   errorCode,
   newIdempotencyKey,
+  revisionNumber,
   wireError,
   type Diagnostic,
   type Domains,
@@ -22,10 +24,14 @@ import {
   type WireError,
 } from "./ops";
 
-export type RowError = { code: string; message: string };
+/** A refused write: `message` is a page string; `detail` is the owner's own (English) text. */
+export type RowError = { code: string; message: string; detail?: string };
 
 export type SettingsState = {
+  /** The first read finished (successfully or not). */
   loaded: boolean;
+  /** Rows came from the daemon; until then editors are read-only (defaults are not live values). */
+  readable: boolean;
   connected: boolean;
   revision: number;
   rows: ReadonlyMap<string, ListRow>;
@@ -47,6 +53,7 @@ type Reply<R> = { ok: true; value: R } | { ok: false; error: WireError };
 export class SettingsStore {
   private state: SettingsState = {
     loaded: false,
+    readable: false,
     connected: true,
     revision: 0,
     rows: new Map(),
@@ -66,11 +73,11 @@ export class SettingsStore {
   /** Subscribes to changes and the connection, then reads everything once. */
   async start(): Promise<void> {
     await Promise.all([
-      this.listen("cmux.settings.changed", (event) => {
-        if (event.revision > this.state.revision) void this.refresh();
-      }),
+      // Every change re-reads: rows and revision may come from different moments, so a
+      // revision comparison could skip a newer change. refreshSequence keeps the newest read.
+      this.listen("cmux.settings.changed", () => void this.refresh()),
       this.listen("cmux.page.connection", (event) => {
-        this.update({ connected: event.connected });
+        this.update(event.connected ? { connected: true, errors: new Map() } : { connected: false });
         if (event.connected) void this.refresh();
       }),
       this.listen("cmux.page.command", (event) => {
@@ -116,8 +123,9 @@ export class SettingsStore {
     }
     this.update({
       loaded: true,
+      readable: list.value.length > 0,
       connected: true,
-      revision: snapshot.value.revision,
+      revision: revisionNumber(snapshot.value.revision),
       rows: new Map(list.value.map((row) => [row.key, row])),
       managed: new Map(Object.entries(snapshot.value.managed ?? {})),
       diagnostics: diagnosticsByKey(snapshot.value.diagnostics ?? []),
@@ -191,8 +199,8 @@ export class SettingsStore {
       const { error } = reply;
       const code = errorCode(error);
       if (code === "unavailable") this.update({ connected: false });
-      if (code === "revision_conflict") void this.refresh();
-      else if (key) this.setError(key, { code, message: errorText(error) });
+      else if (code === "revision_conflict") void this.refresh();
+      else if (key) this.setError(key, { code, message: errorText(code), detail: error.message });
       return { ok: false, error };
     }
     if (key) this.setError(key, null);
@@ -214,9 +222,15 @@ export class SettingsStore {
   }
 }
 
-function errorText(error: WireError): string {
-  const reason = error.details?.reason;
-  return errorCode(error) === "managed" && typeof reason === "string" ? reason : error.message;
+function errorText(code: string): string {
+  if (code === "managed") return t("settingsPage.managed");
+  if (code === "invalid") return t("settingsPage.invalidValue");
+  return t("settingsPage.writeFailed");
+}
+
+/** The lock line of a managed row, in the page's language. */
+export function managedText(info: ManagedInfo): string {
+  return info.team ? t("settingsPage.managedByTeam", info.team) : t("settingsPage.managed");
 }
 
 function publishedDomains(snapshot: SnapshotResult): Domains {

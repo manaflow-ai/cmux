@@ -79,3 +79,13 @@ test("reset_all keeps the rows marked kept_on_reset_all", async () => {
   ]);
   close();
 });
+
+test("cmux.app.action.run allows only the page's declared actions", async () => {
+  const { client, close } = createMockClient();
+  await client.call("cmux.app.action.run", { action: "palette.openCmuxSettingsFile" });
+  const refused = await client
+    .call("cmux.app.action.run", { action: "terminal.sendText", args: { text: "rm -rf ~" } })
+    .catch((error: { code: string }) => error.code);
+  expect(refused).toBe("cmux.page.action_refused");
+  close();
+});

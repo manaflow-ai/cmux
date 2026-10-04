@@ -1,5 +1,5 @@
 import { useRouterState } from "@tanstack/react-router";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useSettingsRouter, useSettingsState, useStore } from "../context";
 import { installKeyboard, runPageCommand } from "../keyboard";
 import { parseLocation, sectionHref } from "../router";
@@ -22,32 +22,42 @@ export function SettingsApp() {
   const [query, setQuery] = useState("");
   const searching = query.trim() !== "";
 
-  const go = (section: string, focus?: string) => {
-    setQuery("");
-    router.history.push(sectionHref(section, focus));
-  };
-  const reveal = (key: string) => {
-    const row = rowsByKey.get(key);
-    if (row) go(row.section, key);
-  };
-  const keyboardRef = (root: HTMLDivElement | null) => {
-    if (!root) return;
-    const actions = {
-      back: () => router.history.back(),
-      forward: () => router.history.forward(),
-      reveal,
-      reset: (key: string) => {
-        const current = store.getSnapshot();
-        if (current.rows.get(key)?.customized && !managedOf(current, key)) void store.reset(key);
-      },
-    };
-    const removeKeys = installKeyboard(root, actions);
-    const removeCommands = store.onCommand((command) => runPageCommand(root.ownerDocument, command, actions));
-    return () => {
-      removeKeys();
-      removeCommands();
-    };
-  };
+  const go = useCallback(
+    (section: string, focus?: string) => {
+      setQuery("");
+      router.history.push(sectionHref(section, focus));
+    },
+    [router],
+  );
+  const reveal = useCallback(
+    (key: string) => {
+      const row = rowsByKey.get(key);
+      if (row) go(row.section, key);
+    },
+    [go],
+  );
+  // Stable across renders, so the document listeners are installed once per mount.
+  const keyboardRef = useCallback(
+    (root: HTMLDivElement | null) => {
+      if (!root) return;
+      const actions = {
+        back: () => router.history.back(),
+        forward: () => router.history.forward(),
+        reveal,
+        reset: (key: string) => {
+          const current = store.getSnapshot();
+          if (current.rows.get(key)?.customized && !managedOf(current, key)) void store.reset(key);
+        },
+      };
+      const removeKeys = installKeyboard(root, actions);
+      const removeCommands = store.onCommand((command) => runPageCommand(root.ownerDocument, command, actions));
+      return () => {
+        removeKeys();
+        removeCommands();
+      };
+    },
+    [router, store, reveal],
+  );
   const submit = () => {
     const first = searchRows(query, (key) => valueOf(state, key))[0]?.rows[0];
     if (first) reveal(first.key);
@@ -60,7 +70,11 @@ export function SettingsApp() {
         <SectionList current={searching ? null : location.section} onSelect={(section) => go(section)} />
       </aside>
       <main className="content">
-        {!state.connected && <ReadOnlyBanner />}
+        {!state.connected ? (
+          <ReadOnlyBanner />
+        ) : state.loaded && !state.readable ? (
+          <ReadOnlyBanner reason="loadFailed" />
+        ) : null}
         {searching ? (
           <SearchResults query={query} />
         ) : (

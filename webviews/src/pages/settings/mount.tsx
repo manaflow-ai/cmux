@@ -7,11 +7,16 @@ import type { SettingsClient } from "./ops";
 import { SettingsStore } from "./store";
 import { setLocale, t } from "./strings";
 
-export async function mountSettingsPage(root: HTMLElement, client: SettingsClient): Promise<SettingsStore> {
+/** Renders the page and starts its store; the returned function unmounts both. */
+export async function mountSettingsPage(root: HTMLElement, client: SettingsClient): Promise<() => void> {
   setLocale(document.documentElement.lang || navigator.language);
   document.title = t("settingsPage.title");
   const store = new SettingsStore(client);
-  createRoot(root).render(<SettingsPage store={store} />);
+  const reactRoot = createRoot(root);
+  reactRoot.render(<SettingsPage store={store} />);
   await store.start();
-  return store;
+  return () => {
+    reactRoot.unmount();
+    store.dispose();
+  };
 }

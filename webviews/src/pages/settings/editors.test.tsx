@@ -109,13 +109,13 @@ describe("editors", () => {
     expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "terminal.fontSize", value: 96 }]);
   });
 
-  test("a managed row shows its value, a disabled control and the daemon's reason", async () => {
+  test("a managed row shows its value, a disabled control and a localized lock line", async () => {
     page = await renderPage({ path: "/settings/browser" });
     const row = rowElement(page.container, mockManagedKey);
     const control = row.querySelector<HTMLButtonElement>("[role=switch]")!;
     expect(control.disabled).toBe(true);
     expect(control.getAttribute("aria-checked")).toBe("false");
-    expect(row.querySelector("[data-managed-reason]")?.textContent).toBe("Set by your organization's profile");
+    expect(row.querySelector("[data-managed-reason]")?.textContent).toBe("Managed by your organization");
     expect(row.querySelector("[data-reset]")).toBeNull();
     expect(page.container.querySelector('[data-section-link="browser"] [data-badge="lock"]')).not.toBeNull();
   });
@@ -132,7 +132,7 @@ describe("editors", () => {
     expect(row().querySelector("[data-reset]")).toBeNull();
   });
 
-  test("a refused value shows the daemon's message on the row", async () => {
+  test("a refused value shows a localized error on the row, the daemon's text as detail", async () => {
     page = await renderPage({ path: "/settings/browser" });
     // The page refuses a bad address itself; a value the daemon refuses comes back as a row error.
     const field = rowElement(page.container, "browser.newTabPage").querySelector<HTMLInputElement>("input.text")!;
@@ -143,9 +143,46 @@ describe("editors", () => {
       "https://example.com",
     );
     await run(() => page!.store.set("browser.hibernation", -5));
-    expect(rowElement(page.container, "browser.hibernation").querySelector(".row-error")?.textContent).toContain(
-      "browser.hibernation",
-    );
+    const error = rowElement(page.container, "browser.hibernation").querySelector(".row-error")!;
+    expect(error.textContent).toBe("This value is not accepted.");
+    expect(error.getAttribute("title")).toContain("browser.hibernation");
+  });
+
+  test("a team-managed row names the team; a write the daemon refuses as managed is localized", async () => {
+    page = await renderPage({
+      path: "/settings/general",
+      mock: { managed: { "history.terminalCommands": { value: false, source: "team", reason: "x", team: "Acme" } } },
+    });
+    const row = rowElement(page.container, "history.terminalCommands");
+    expect(row.querySelector("[data-managed-reason]")?.textContent).toBe("Managed by Acme");
+  });
+
+  test("a first read that fails keeps every editor read only and says why", async () => {
+    page = await renderPage({
+      path: "/settings/general",
+      mock: { failing: { "cmux.settings.list": "cmux.protocol.unknown_op" } },
+    });
+    expect(page.container.querySelector('[data-read-only="loadFailed"]')).not.toBeNull();
+    const toggle = rowElement(page.container, "history.terminalCommands").querySelector<HTMLButtonElement>(
+      "[role=switch]",
+    )!;
+    expect(toggle.disabled).toBe(true);
+  });
+
+  test("going offline adds no row error; reconnecting clears earlier row errors", async () => {
+    page = await renderPage({ path: "/settings/browser" });
+    await run(() => page!.store.set("browser.hibernation", -5));
+    expect(rowElement(page.container, "browser.hibernation").querySelector(".row-error")).not.toBeNull();
+    await run(() => page!.provider.setConnected(false));
+    await run(() => page!.provider.setConnected(true));
+    expect(rowElement(page.container, "browser.hibernation").querySelector(".row-error")).toBeNull();
+  });
+
+  test("with no published domains, theme and font rows are text fields", async () => {
+    page = await renderPage({ path: "/settings/appearance", mock: { domains: null } });
+    const theme = rowElement(page.container, "appearance.theme");
+    expect(theme.querySelector("button.domain-button")).toBeNull();
+    expect(theme.querySelector("input.text")).not.toBeNull();
   });
 
   test("a diagnostic shows an inline notice and a warning badge", async () => {

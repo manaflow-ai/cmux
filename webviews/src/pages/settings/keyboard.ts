@@ -10,7 +10,7 @@ export type KeyboardActions = {
 };
 
 /** Commands the app's key dispatcher sends to the focused page. */
-export type PageCommand = "find" | "back" | "forward" | "reset";
+export type PageCommand = "find" | "focusSearch" | "back" | "forward" | "reset";
 
 const rowSelector = "[data-row-key], [data-action-row]";
 const controlSelector = "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)";
@@ -67,7 +67,7 @@ export function installKeyboard(root: HTMLElement, actions: KeyboardActions): ()
 
 /** Performs a dispatcher command; `reset` applies to the row that holds focus. */
 export function runPageCommand(doc: Document, command: PageCommand, actions: KeyboardActions): void {
-  if (command === "find") focusSearch(doc);
+  if (command === "find" || command === "focusSearch") focusSearch(doc);
   else if (command === "back") actions.back();
   else if (command === "forward") actions.forward();
   else if (command === "reset") {

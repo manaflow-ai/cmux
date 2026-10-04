@@ -9,7 +9,16 @@
 import { createMockPair } from "../../protocol/adapters/mock";
 import { ProtocolError, ProtocolErrorCode } from "../../protocol/errors";
 import { Session, type EventSourceContext } from "../../protocol/session";
-import type { Diagnostic, Domains, ListRow, ManagedInfo, MutationResult, SettingsClient, SnapshotResult } from "./ops";
+import {
+  settingsPageActions,
+  type Diagnostic,
+  type Domains,
+  type ListRow,
+  type ManagedInfo,
+  type MutationResult,
+  type SettingsClient,
+  type SnapshotResult,
+} from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { validate } from "./validate";
 
@@ -17,8 +26,11 @@ export type MockOptions = {
   managed?: Record<string, { value: unknown } & ManagedInfo>;
   values?: Record<string, unknown>;
   diagnostics?: Diagnostic[];
-  domains?: Domains;
+  /** `null`: the app published no domains (the daemon refuses publishes until it can attest the app). */
+  domains?: Domains | null;
   connected?: boolean;
+  /** Ops that fail with this code, to test read failures. */
+  failing?: Partial<Record<string, string>>;
 };
 
 export const mockDomains: Domains = {
@@ -36,7 +48,8 @@ export class MockSettingsProvider {
   readonly log: Array<{ op: string; params: unknown }> = [];
   revision = 1;
   diagnostics: Diagnostic[];
-  readonly domains: Domains;
+  readonly domains: Domains | null;
+  private readonly failing: Partial<Record<string, string>>;
   private readonly values = new Map<string, unknown>();
   private readonly managed: Map<string, { value: unknown } & ManagedInfo>;
   private readonly changed = new Set<EventSourceContext>();
@@ -55,7 +68,8 @@ export class MockSettingsProvider {
     );
     for (const [key, value] of Object.entries(options.values ?? {})) this.values.set(key, value);
     this.diagnostics = options.diagnostics ?? [];
-    this.domains = options.domains ?? mockDomains;
+    this.domains = options.domains === undefined ? mockDomains : options.domains;
+    this.failing = options.failing ?? {};
     this.connected = options.connected ?? true;
   }
 
@@ -70,7 +84,13 @@ export class MockSettingsProvider {
       "cmux.settings.preview": () => ({}),
       "cmux.settings.preview.end": () => ({}),
       "cmux.settings.sound.play": () => ({}),
-      "cmux.app.action.run": () => ({}),
+      "cmux.app.action.run": (params) => {
+        // The page bridge allows this page only its declared actions.
+        if (!(settingsPageActions as readonly string[]).includes(params.action as string)) {
+          throw new ProtocolError("cmux.page.action_refused", `action ${String(params.action)} is not allowed here`);
+        }
+        return {};
+      },
     };
     const native = new Set([
       "cmux.settings.preview",
@@ -84,6 +104,8 @@ export class MockSettingsProvider {
         if (!native.has(op) && !this.connected) {
           throw new ProtocolError(ProtocolErrorCode.closed, "cmux is not connected", { retryable: true });
         }
+        const failure = this.failing[op];
+        if (failure) throw new ProtocolError(failure, `${op} failed`);
         return handler((params ?? {}) as Params);
       });
     }
@@ -99,7 +121,7 @@ export class MockSettingsProvider {
   }
 
   /** Simulates the app's key dispatcher sending a page command. */
-  sendCommand(command: "find" | "back" | "forward" | "reset"): void {
+  sendCommand(command: "find" | "focusSearch" | "back" | "forward" | "reset"): void {
     for (const ctx of this.commands) ctx.emit({ command });
   }
 
@@ -123,9 +145,11 @@ export class MockSettingsProvider {
       revision: this.revision,
       schema_hash: schema.schema_hash,
       effective: this.effective(),
-      managed: Object.fromEntries([...this.managed].map(([key, { source, reason }]) => [key, { source, reason }])),
+      managed: Object.fromEntries(
+        [...this.managed].map(([key, { source, reason, team }]) => [key, { source, reason, team: team ?? null }]),
+      ),
       diagnostics: this.diagnostics,
-      domains: this.domains,
+      domains: this.domains ?? { themes: null, font_families: null, sounds: null },
     };
   }
 
@@ -137,7 +161,7 @@ export class MockSettingsProvider {
       value: managed ? managed.value : this.values.has(key) ? this.values.get(key) : row.default,
       default: row.default,
       customized: this.values.has(key),
-      managed: managed ? { source: managed.source, reason: managed.reason } : null,
+      managed: managed ? { source: managed.source, reason: managed.reason, team: managed.team ?? null } : null,
     };
   }
 
@@ -180,7 +204,7 @@ export class MockSettingsProvider {
 
   private set(key: string, value: unknown): MutationResult {
     this.guard(key);
-    const reason = validate(rowsByKey.get(key)!, value, this.domains);
+    const reason = validate(rowsByKey.get(key)!, value, this.domains ?? undefined);
     if (reason) throw new ProtocolError("cmux.settings.invalid", `${key}: ${reason}`, { details: { key, value } });
     this.values.set(key, value);
     return this.commit([key], "user");

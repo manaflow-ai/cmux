@@ -2,7 +2,8 @@
 // settings-react.md, pane-protocol.md "Pages"). The daemon's config owner serves the data ops;
 // until the pane-protocol router reaches the daemon, the app's page bridge relays each one to
 // the daemon's v2 `settings.<verb>` operation unchanged (it moves `idempotency_key` into the v2
-// envelope, stamps origin `user`, and maps error codes `settings.X` to `cmux.settings.X`).
+// envelope, stamps origin `user`, and prefixes every v2 error code with `cmux.`:
+// `settings.managed` -> `cmux.settings.managed`, `revision.conflict` -> `cmux.revision.conflict`).
 // The native ops are served by the app (live preview, sound) or are catalog actions.
 //
 // These types are hand-written until the op set is declared with the cmux-pane-protocol
@@ -65,7 +66,7 @@ export type SettingsStreams = {
   /** The page bridge's link to the daemon (one stream for every page). */
   "cmux.page.connection": { connected: boolean };
   /** Commands from the app's key dispatcher (the page handles no Cmd or Ctrl chords). */
-  "cmux.page.command": { command: "find" | "back" | "forward" | "reset" };
+  "cmux.page.command": { command: "find" | "focusSearch" | "back" | "forward" | "reset" };
 };
 
 export type SettingsStreamName = keyof SettingsStreams;
@@ -86,10 +87,10 @@ export type WireError = { code: string; message: string; details?: Record<string
 export type ErrorCode =
   | "managed"
   | "invalid"
-  | "invalid_params"
   | "removed"
   | "agent_refused"
   | "revision_conflict"
+  | "idempotency_conflict"
   | "unavailable"
   | string;
 
@@ -107,11 +108,22 @@ export function wireError(error: unknown): WireError {
 /** `cmux.settings.managed` -> `managed`; transport loss -> `unavailable`. */
 export function errorCode(error: WireError): ErrorCode {
   if (unavailableCodes.has(error.code)) return "unavailable";
-  if (error.code === "cmux.settings.revision_conflict" || error.code === "cmux.revision.conflict") {
-    return "revision_conflict";
-  }
+  if (error.code === "cmux.revision.conflict") return "revision_conflict";
+  if (error.code === "cmux.idempotency.conflict") return "idempotency_conflict";
   const dot = error.code.lastIndexOf(".");
   return dot === -1 ? error.code : error.code.slice(dot + 1);
+}
+
+/**
+ * The only catalog actions the Settings page may run through `cmux.app.action.run`; the page
+ * bridge refuses every other action from this page (and the mock does too).
+ */
+export const settingsPageActions = ["palette.openCmuxSettingsFile", "openSettings"] as const;
+
+/** v2 revisions are decimal strings in mutation results and numbers in reads. */
+export function revisionNumber(value: unknown): number {
+  const number = typeof value === "string" ? Number(value) : typeof value === "number" ? value : Number.NaN;
+  return Number.isFinite(number) ? number : 0;
 }
 
 /** A fresh idempotency key per user write (the v2 owner replays a retried key). */

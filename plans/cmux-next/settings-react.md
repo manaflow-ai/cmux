@@ -91,7 +91,8 @@ mutation carries an `idempotency_key`. Shapes follow settings-surfaces.md:
 - `settings.list {section?}` (read) -> rows with `value`, `default`, `customized`,
   `managed {source, reason}`.
 - `settings.get {key | path}` (read); `settings.snapshot {}` (read) -> `{revision, effective, file,
-  managed, diagnostics, schema_hash}`.
+  managed, policy, diagnostics, schema_hash, domains}`; `domains` holds the published
+  `themes`, `font_families`, `sounds` (`null` each when never published).
 - `settings.set {key | path, value, if_revision?}`, `settings.reset {key | path}`,
   `settings.reset_all {}` (mutations).
 - `settings.domains.publish {themes, font_families, sounds}` and `settings.team_policy.set {layer}`
@@ -117,9 +118,10 @@ rows with `agent_settable: false`; the owner enforces it, not the MCP server. Th
 generated v2 tools for these operations (`v2_tools.rs`); the old app-method exclusion for settings
 stays for the app socket until slice b deletes those methods.
 
-Refusal codes are the ones the Swift socket stopgap (c9cb3b51eea, 1f08a54bc4c) already returns, so
-clients change once: `managed` (with source and reason) and `invalid_params` (with the kind and the
-accepted values or range); new: `agent_refused`, `revision_conflict`, `idempotency_conflict`.
+Refusal codes (as built, v2 catalog `errors`): `settings.managed` (details: key, source, team,
+reason), `settings.invalid` (details: kind and the accepted values or range), `settings.removed`,
+`settings.agent_refused`, and the shared `revision.conflict` and `idempotency.conflict`. (The Swift
+socket stopgap used bare `managed` / `invalid_params`; it goes with slice b.)
 `SocketSettingsWriteTests` moves to the Rust actor with the same cases when slice b deletes the
 Swift writer. The daemon honors `CMUX_NEXT_CONFIG_FILE` exactly as the
 Swift `CmuxConfigFile.defaultURL` does, so tagged builds never touch the user's file.
@@ -198,17 +200,24 @@ the page use; the page picks the app's language. No string lives only in TypeScr
   generated v2 tools). Until the pane-protocol router reaches the daemon, the page bridge relays
   each data op to the daemon's v2 op of the same verb (`cmux.settings.set` -> `settings.set`):
   it moves `idempotency_key` into the v2 envelope, stamps origin `user` (a page-sent origin is
-  refused), maps error codes `settings.X` to `cmux.settings.X`, and forwards the daemon's
-  `settings-changed` event as `cmux.settings.changed {revision, keys, origin}`.
+  refused), prefixes every v2 error code with `cmux.` (`settings.managed` ->
+  `cmux.settings.managed`, `revision.conflict` -> `cmux.revision.conflict`), sends transport loss as
+  `cmux.protocol.closed`, and forwards the daemon's `settings-changed` event as
+  `cmux.settings.changed {revision, keys, origin}`.
   `settings.domains.publish` and `settings.team_policy.set` are never reachable from a page.
   When the router lands, the daemon module declares the same ops with the `cmux-pane-protocol`
   schemars macro and the relay goes away; no page file changes.
 - Native ops (served by Swift): `cmux.settings.preview {key, value}`, `cmux.settings.preview.end
   {key}`, `cmux.settings.sound.play {name}`; Open cmux.json and the native Settings card are catalog
-  actions through `cmux.app.action.run`.
-- Every page also uses two bridge streams: `cmux.page.connection {connected}` (daemon link) and
-  `cmux.page.command {command}` (find, back, forward, reset from the app's key dispatcher; pages
-  handle no Cmd or Ctrl chords). Locale: the document language; theme: the one web theme
+  actions through `cmux.app.action.run`, limited per page to a declared action allowlist (Settings:
+  `palette.openCmuxSettingsFile`, `openSettings`; `settingsPageActions` in ops.ts). The bridge refuses
+  any other action from that page (`cmux.page.action_refused`): an unrestricted action op would let a
+  compromised page run any catalog action as origin user, including terminal input.
+- Every page also uses two bridge streams (PROPOSAL for pane-protocol.md "Pages", so History and App
+  Store use the same two): `cmux.page.connection {connected}` (daemon link) and
+  `cmux.page.command {command}` (`find`, `back`, `forward`, `reset` from the app's key dispatcher;
+  react-pages.md 1.2 names `find` and `focusSearch`; Settings maps `focusSearch` to `find`). Pages
+  handle no Cmd or Ctrl chords. Locale: the document language; theme: the one web theme
   (`--cmux-*`); route: the URL fragment (`#/settings/<section>?focus=<key>`).
 - Value domains (themes, fonts, sounds) come from `cmux.settings.snapshot.domains` (the app
   publishes them to the daemon), so the page needs no native op for them.

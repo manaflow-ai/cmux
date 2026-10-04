@@ -4,8 +4,8 @@ import { Editor } from "../editors/Editor";
 import { Icon } from "../icons";
 import { revealRow } from "../keyboard";
 import type { SchemaRow } from "../schema";
-import { managedOf, valueOf } from "../store";
-import { t, text } from "../strings";
+import { managedOf, managedText, valueOf } from "../store";
+import { text } from "../strings";
 import { Highlight } from "./Highlight";
 import { ResetButton } from "./ResetButton";
 import { RowNotice } from "./RowNotice";
@@ -24,7 +24,7 @@ export function SettingRow({
   const labelId = useId();
   const managed = managedOf(state, row.key);
   const customized = state.rows.get(row.key)?.customized ?? false;
-  const disabled = !state.connected || managed !== null;
+  const disabled = !state.connected || !state.readable || managed !== null;
   const diagnostics = state.diagnostics.get(row.key);
   const error = state.errors.get(row.key);
   return (
@@ -55,11 +55,11 @@ export function SettingRow({
           {managed && (
             <div className="row-managed" data-managed-reason="">
               <Icon name="lock" />
-              {managed.reason || t("settingsPage.managed")}
+              {managedText(managed)}
             </div>
           )}
           {error && (
-            <div className="row-error" role="alert">
+            <div className="row-error" role="alert" title={error.detail}>
               {error.message}
             </div>
           )}
@@ -67,7 +67,7 @@ export function SettingRow({
         <div className="row-control">
           <Editor row={row} value={valueOf(state, row.key)} disabled={disabled} labelId={labelId} />
           {customized && !managed && row.kind !== "color" && (
-            <ResetButton settingKey={row.key} disabled={!state.connected} />
+            <ResetButton settingKey={row.key} disabled={!state.connected || !state.readable} />
           )}
         </div>
       </div>

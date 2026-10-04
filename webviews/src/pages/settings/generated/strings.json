@@ -275,7 +275,10 @@
     "settingsPage.invalidColor": "Enter a color such as #1A2B3C.",
     "settingsPage.invalidHost": "Enter a host such as example.com or *.example.com.",
     "settingsPage.invalidUrl": "Enter an address such as https://example.com.",
+    "settingsPage.invalidValue": "This value is not accepted.",
+    "settingsPage.loadFailed": "Settings could not be read from cmux. Values shown are defaults and cannot be changed.",
     "settingsPage.managed": "Managed by your organization",
+    "settingsPage.managedByTeam": "Managed by %@",
     "settingsPage.minutes": "%@ min",
     "settingsPage.noResults": "No settings match.",
     "settingsPage.openConfig": "Open cmux.json",
@@ -300,7 +303,8 @@
     "settingsPage.soundDefault": "Default",
     "settingsPage.soundNone": "None",
     "settingsPage.title": "Settings",
-    "settingsPage.useThemeColor": "Use Theme Color"
+    "settingsPage.useThemeColor": "Use Theme Color",
+    "settingsPage.writeFailed": "The setting could not be changed."
   },
   "ar": {
     "settings.app.quitBehavior": "عند الإنهاء",
@@ -578,7 +582,10 @@
     "settingsPage.invalidColor": "أدخل لونًا مثل #1A2B3C.",
     "settingsPage.invalidHost": "أدخل مضيفًا مثل example.com أو *.example.com.",
     "settingsPage.invalidUrl": "أدخل عنوانًا مثل https://example.com.",
+    "settingsPage.invalidValue": "هذه القيمة غير مقبولة.",
+    "settingsPage.loadFailed": "تعذرت قراءة الإعدادات من cmux. القيم المعروضة افتراضية ولا يمكن تغييرها.",
     "settingsPage.managed": "تتم إدارته بواسطة مؤسستك",
+    "settingsPage.managedByTeam": "تتم إدارته بواسطة %@",
     "settingsPage.minutes": "%@ د",
     "settingsPage.noResults": "لا توجد إعدادات مطابقة.",
     "settingsPage.openConfig": "فتح cmux.json",
@@ -603,7 +610,8 @@
     "settingsPage.soundDefault": "الافتراضي",
     "settingsPage.soundNone": "لا شيء",
     "settingsPage.title": "الإعدادات",
-    "settingsPage.useThemeColor": "استخدام لون السمة"
+    "settingsPage.useThemeColor": "استخدام لون السمة",
+    "settingsPage.writeFailed": "تعذر تغيير الإعداد."
   },
   "bs": {
     "settings.app.quitBehavior": "Pri izlasku",
@@ -881,7 +889,10 @@
     "settingsPage.invalidColor": "Unesite boju poput #1A2B3C.",
     "settingsPage.invalidHost": "Unesite host poput example.com ili *.example.com.",
     "settingsPage.invalidUrl": "Unesite adresu poput https://example.com.",
+    "settingsPage.invalidValue": "Ova vrijednost nije prihvaćena.",
+    "settingsPage.loadFailed": "Postavke se nisu mogle pročitati iz cmux-a. Prikazane vrijednosti su zadane i ne mogu se mijenjati.",
     "settingsPage.managed": "Upravlja vaša organizacija",
+    "settingsPage.managedByTeam": "Upravlja %@",
     "settingsPage.minutes": "%@ min",
     "settingsPage.noResults": "Nijedna postavka se ne podudara.",
     "settingsPage.openConfig": "Otvori cmux.json",
@@ -906,7 +917,8 @@
     "settingsPage.soundDefault": "Zadano",
     "settingsPage.soundNone": "Ništa",
     "settingsPage.title": "Postavke",
-    "settingsPage.useThemeColor": "Koristi boju teme"
+    "settingsPage.useThemeColor": "Koristi boju teme",
+    "settingsPage.writeFailed": "Postavka se nije mogla promijeniti."
   },
   "da": {
     "settings.app.quitBehavior": "Ved afslutning",
@@ -1184,7 +1196,10 @@
     "settingsPage.invalidColor": "Angiv en farve som #1A2B3C.",
     "settingsPage.invalidHost": "Angiv en vært som example.com eller *.example.com.",
     "settingsPage.invalidUrl": "Angiv en adresse som https://example.com.",
+    "settingsPage.invalidValue": "Denne værdi accepteres ikke.",
+    "settingsPage.loadFailed": "Indstillingerne kunne ikke læses fra cmux. De viste værdier er standardværdier og kan ikke ændres.",
     "settingsPage.managed": "Administreres af din organisation",
+    "settingsPage.managedByTeam": "Administreres af %@",
     "settingsPage.minutes": "%@ min.",
     "settingsPage.noResults": "Ingen indstillinger matcher.",
     "settingsPage.openConfig": "Åbn cmux.json",
@@ -1209,7 +1224,8 @@
     "settingsPage.soundDefault": "Standard",
     "settingsPage.soundNone": "Ingen",
     "settingsPage.title": "Indstillinger",
-    "settingsPage.useThemeColor": "Brug temafarve"
+    "settingsPage.useThemeColor": "Brug temafarve",
+    "settingsPage.writeFailed": "Indstillingen kunne ikke ændres."
   },
   "de": {
     "settings.app.quitBehavior": "Beim Beenden",
@@ -1487,7 +1503,10 @@
     "settingsPage.invalidColor": "Gib eine Farbe wie #1A2B3C ein.",
     "settingsPage.invalidHost": "Gib einen Host wie example.com oder *.example.com ein.",
     "settingsPage.invalidUrl": "Gib eine Adresse wie https://example.com ein.",
+    "settingsPage.invalidValue": "Dieser Wert wird nicht akzeptiert.",
+    "settingsPage.loadFailed": "Die Einstellungen konnten nicht aus cmux gelesen werden. Die angezeigten Werte sind Standardwerte und können nicht geändert werden.",
     "settingsPage.managed": "Von Ihrer Organisation verwaltet",
+    "settingsPage.managedByTeam": "Von %@ verwaltet",
     "settingsPage.minutes": "%@ Min.",
     "settingsPage.noResults": "Keine passenden Einstellungen.",
     "settingsPage.openConfig": "cmux.json öffnen",
@@ -1512,7 +1531,8 @@
     "settingsPage.soundDefault": "Standard",
     "settingsPage.soundNone": "Keine",
     "settingsPage.title": "Einstellungen",
-    "settingsPage.useThemeColor": "Designfarbe verwenden"
+    "settingsPage.useThemeColor": "Designfarbe verwenden",
+    "settingsPage.writeFailed": "Die Einstellung konnte nicht geändert werden."
   },
   "es": {
     "settings.app.quitBehavior": "Al salir",
@@ -1790,7 +1810,10 @@
     "settingsPage.invalidColor": "Introduce un color como #1A2B3C.",
     "settingsPage.invalidHost": "Introduce un host como example.com o *.example.com.",
     "settingsPage.invalidUrl": "Introduce una dirección como https://example.com.",
+    "settingsPage.invalidValue": "Este valor no se acepta.",
+    "settingsPage.loadFailed": "No se pudieron leer los ajustes de cmux. Los valores mostrados son predeterminados y no se pueden cambiar.",
     "settingsPage.managed": "Administrado por tu organización",
+    "settingsPage.managedByTeam": "Administrado por %@",
     "settingsPage.minutes": "%@ min",
     "settingsPage.noResults": "Ningún ajuste coincide.",
     "settingsPage.openConfig": "Abrir cmux.json",
@@ -1815,7 +1838,8 @@
     "settingsPage.soundDefault": "Predeterminado",
     "settingsPage.soundNone": "Ninguno",
     "settingsPage.title": "Ajustes",
-    "settingsPage.useThemeColor": "Usar color del tema"
+    "settingsPage.useThemeColor": "Usar color del tema",
+    "settingsPage.writeFailed": "No se pudo cambiar el ajuste."
   },
   "fr": {
     "settings.app.quitBehavior": "À la fermeture",
@@ -2093,7 +2117,10 @@
     "settingsPage.invalidColor": "Saisissez une couleur comme #1A2B3C.",
     "settingsPage.invalidHost": "Saisissez un hôte comme example.com ou *.example.com.",
     "settingsPage.invalidUrl": "Saisissez une adresse comme https://example.com.",
+    "settingsPage.invalidValue": "Cette valeur n'est pas acceptée.",
+    "settingsPage.loadFailed": "Impossible de lire les réglages depuis cmux. Les valeurs affichées sont celles par défaut et ne peuvent pas être modifiées.",
     "settingsPage.managed": "Géré par votre organisation",
+    "settingsPage.managedByTeam": "Géré par %@",
     "settingsPage.minutes": "%@ min",
     "settingsPage.noResults": "Aucun réglage ne correspond.",
     "settingsPage.openConfig": "Ouvrir cmux.json",
@@ -2118,7 +2145,8 @@
     "settingsPage.soundDefault": "Par défaut",
     "settingsPage.soundNone": "Aucun",
     "settingsPage.title": "Réglages",
-    "settingsPage.useThemeColor": "Utiliser la couleur du thème"
+    "settingsPage.useThemeColor": "Utiliser la couleur du thème",
+    "settingsPage.writeFailed": "Le réglage n'a pas pu être modifié."
   },
   "it": {
     "settings.app.quitBehavior": "All'uscita",
@@ -2396,7 +2424,10 @@
     "settingsPage.invalidColor": "Inserisci un colore come #1A2B3C.",
     "settingsPage.invalidHost": "Inserisci un host come example.com o *.example.com.",
     "settingsPage.invalidUrl": "Inserisci un indirizzo come https://example.com.",
+    "settingsPage.invalidValue": "Questo valore non è accettato.",
+    "settingsPage.loadFailed": "Impossibile leggere le impostazioni da cmux. I valori mostrati sono predefiniti e non possono essere modificati.",
     "settingsPage.managed": "Gestito dalla tua organizzazione",
+    "settingsPage.managedByTeam": "Gestito da %@",
     "settingsPage.minutes": "%@ min",
     "settingsPage.noResults": "Nessuna impostazione corrisponde.",
     "settingsPage.openConfig": "Apri cmux.json",
@@ -2421,7 +2452,8 @@
     "settingsPage.soundDefault": "Predefinito",
     "settingsPage.soundNone": "Nessuno",
     "settingsPage.title": "Impostazioni",
-    "settingsPage.useThemeColor": "Usa colore del tema"
+    "settingsPage.useThemeColor": "Usa colore del tema",
+    "settingsPage.writeFailed": "Non è stato possibile modificare l'impostazione."
   },
   "ja": {
     "settings.app.quitBehavior": "終了時",
@@ -2699,7 +2731,10 @@
     "settingsPage.invalidColor": "#1A2B3C のような色を入力してください。",
     "settingsPage.invalidHost": "example.com や *.example.com のようなホストを入力してください。",
     "settingsPage.invalidUrl": "https://example.com のようなアドレスを入力してください。",
+    "settingsPage.invalidValue": "この値は使用できません。",
+    "settingsPage.loadFailed": "cmux から設定を読み込めませんでした。表示されている値は既定値で、変更できません。",
     "settingsPage.managed": "組織によって管理されています",
+    "settingsPage.managedByTeam": "%@ によって管理されています",
     "settingsPage.minutes": "%@分",
     "settingsPage.noResults": "一致する設定はありません。",
     "settingsPage.openConfig": "cmux.json を開く",
@@ -2724,7 +2759,8 @@
     "settingsPage.soundDefault": "デフォルト",
     "settingsPage.soundNone": "なし",
     "settingsPage.title": "設定",
-    "settingsPage.useThemeColor": "テーマの色を使用"
+    "settingsPage.useThemeColor": "テーマの色を使用",
+    "settingsPage.writeFailed": "設定を変更できませんでした。"
   },
   "km": {
     "settings.app.quitBehavior": "ពេលចាកចេញ",
@@ -3002,7 +3038,10 @@
     "settingsPage.invalidColor": "បញ្ចូលពណ៌ដូចជា #1A2B3C។",
     "settingsPage.invalidHost": "បញ្ចូលម៉ាស៊ីនដូចជា example.com ឬ *.example.com។",
     "settingsPage.invalidUrl": "បញ្ចូលអាសយដ្ឋានដូចជា https://example.com។",
+    "settingsPage.invalidValue": "តម្លៃនេះមិនត្រូវបានទទួលយកទេ។",
+    "settingsPage.loadFailed": "មិនអាចអានការកំណត់ពី cmux បានទេ។ តម្លៃដែលបង្ហាញជាតម្លៃលំនាំដើម ហើយមិនអាចផ្លាស់ប្ដូរបានទេ។",
     "settingsPage.managed": "គ្រប់គ្រងដោយស្ថាប័នរបស់អ្នក",
+    "settingsPage.managedByTeam": "គ្រប់គ្រងដោយ %@",
     "settingsPage.minutes": "%@ នាទី",
     "settingsPage.noResults": "គ្មានការកំណត់ត្រូវគ្នា។",
     "settingsPage.openConfig": "បើក cmux.json",
@@ -3027,7 +3066,8 @@
     "settingsPage.soundDefault": "លំនាំដើម",
     "settingsPage.soundNone": "គ្មាន",
     "settingsPage.title": "ការកំណត់",
-    "settingsPage.useThemeColor": "ប្រើពណ៌ស្បែក"
+    "settingsPage.useThemeColor": "ប្រើពណ៌ស្បែក",
+    "settingsPage.writeFailed": "មិនអាចផ្លាស់ប្ដូរការកំណត់បានទេ។"
   },
   "ko": {
     "settings.app.quitBehavior": "종료할 때",
@@ -3305,7 +3345,10 @@
     "settingsPage.invalidColor": "#1A2B3C와 같은 색상을 입력하세요.",
     "settingsPage.invalidHost": "example.com 또는 *.example.com과 같은 호스트를 입력하세요.",
     "settingsPage.invalidUrl": "https://example.com과 같은 주소를 입력하세요.",
+    "settingsPage.invalidValue": "이 값은 허용되지 않습니다.",
+    "settingsPage.loadFailed": "cmux에서 설정을 읽을 수 없습니다. 표시된 값은 기본값이며 변경할 수 없습니다.",
     "settingsPage.managed": "조직에서 관리함",
+    "settingsPage.managedByTeam": "%@에서 관리함",
     "settingsPage.minutes": "%@분",
     "settingsPage.noResults": "일치하는 설정이 없습니다.",
     "settingsPage.openConfig": "cmux.json 열기",
@@ -3330,7 +3373,8 @@
     "settingsPage.soundDefault": "기본값",
     "settingsPage.soundNone": "없음",
     "settingsPage.title": "설정",
-    "settingsPage.useThemeColor": "테마 색상 사용"
+    "settingsPage.useThemeColor": "테마 색상 사용",
+    "settingsPage.writeFailed": "설정을 변경할 수 없습니다."
   },
   "nb": {
     "settings.app.quitBehavior": "Ved avslutning",
@@ -3608,7 +3652,10 @@
     "settingsPage.invalidColor": "Skriv inn en farge som #1A2B3C.",
     "settingsPage.invalidHost": "Skriv inn en vert som example.com eller *.example.com.",
     "settingsPage.invalidUrl": "Skriv inn en adresse som https://example.com.",
+    "settingsPage.invalidValue": "Denne verdien godtas ikke.",
+    "settingsPage.loadFailed": "Innstillingene kunne ikke leses fra cmux. Verdiene som vises er standardverdier og kan ikke endres.",
     "settingsPage.managed": "Administreres av organisasjonen din",
+    "settingsPage.managedByTeam": "Administreres av %@",
     "settingsPage.minutes": "%@ min",
     "settingsPage.noResults": "Ingen innstillinger samsvarer.",
     "settingsPage.openConfig": "Åpne cmux.json",
@@ -3633,7 +3680,8 @@
     "settingsPage.soundDefault": "Standard",
     "settingsPage.soundNone": "Ingen",
     "settingsPage.title": "Innstillinger",
-    "settingsPage.useThemeColor": "Bruk temafarge"
+    "settingsPage.useThemeColor": "Bruk temafarge",
+    "settingsPage.writeFailed": "Innstillingen kunne ikke endres."
   },
   "pl": {
     "settings.app.quitBehavior": "Przy zamykaniu",
@@ -3911,7 +3959,10 @@
     "settingsPage.invalidColor": "Wpisz kolor, na przykład #1A2B3C.",
     "settingsPage.invalidHost": "Wpisz host, na przykład example.com lub *.example.com.",
     "settingsPage.invalidUrl": "Wpisz adres, na przykład https://example.com.",
+    "settingsPage.invalidValue": "Ta wartość nie jest akceptowana.",
+    "settingsPage.loadFailed": "Nie można odczytać ustawień z cmux. Wyświetlane wartości są domyślne i nie można ich zmienić.",
     "settingsPage.managed": "Zarządzane przez Twoją organizację",
+    "settingsPage.managedByTeam": "Zarządzane przez %@",
     "settingsPage.minutes": "%@ min",
     "settingsPage.noResults": "Brak pasujących ustawień.",
     "settingsPage.openConfig": "Otwórz cmux.json",
@@ -3936,7 +3987,8 @@
     "settingsPage.soundDefault": "Domyślny",
     "settingsPage.soundNone": "Brak",
     "settingsPage.title": "Ustawienia",
-    "settingsPage.useThemeColor": "Użyj koloru motywu"
+    "settingsPage.useThemeColor": "Użyj koloru motywu",
+    "settingsPage.writeFailed": "Nie można zmienić ustawienia."
   },
   "pt-BR": {
     "settings.app.quitBehavior": "Ao sair",
@@ -4214,7 +4266,10 @@
     "settingsPage.invalidColor": "Digite uma cor como #1A2B3C.",
     "settingsPage.invalidHost": "Digite um host como example.com ou *.example.com.",
     "settingsPage.invalidUrl": "Digite um endereço como https://example.com.",
+    "settingsPage.invalidValue": "Este valor não é aceito.",
+    "settingsPage.loadFailed": "Não foi possível ler os ajustes do cmux. Os valores mostrados são padrões e não podem ser alterados.",
     "settingsPage.managed": "Gerenciado pela sua organização",
+    "settingsPage.managedByTeam": "Gerenciado por %@",
     "settingsPage.minutes": "%@ min",
     "settingsPage.noResults": "Nenhum ajuste corresponde.",
     "settingsPage.openConfig": "Abrir cmux.json",
@@ -4239,7 +4294,8 @@
     "settingsPage.soundDefault": "Padrão",
     "settingsPage.soundNone": "Nenhum",
     "settingsPage.title": "Ajustes",
-    "settingsPage.useThemeColor": "Usar cor do tema"
+    "settingsPage.useThemeColor": "Usar cor do tema",
+    "settingsPage.writeFailed": "Não foi possível alterar o ajuste."
   },
   "ru": {
     "settings.app.quitBehavior": "При выходе",
@@ -4517,7 +4573,10 @@
     "settingsPage.invalidColor": "Введите цвет, например #1A2B3C.",
     "settingsPage.invalidHost": "Введите хост, например example.com или *.example.com.",
     "settingsPage.invalidUrl": "Введите адрес, например https://example.com.",
+    "settingsPage.invalidValue": "Это значение не принимается.",
+    "settingsPage.loadFailed": "Не удалось прочитать настройки из cmux. Показаны значения по умолчанию, их нельзя изменить.",
     "settingsPage.managed": "Управляется вашей организацией",
+    "settingsPage.managedByTeam": "Управляется %@",
     "settingsPage.minutes": "%@ мин",
     "settingsPage.noResults": "Нет подходящих настроек.",
     "settingsPage.openConfig": "Открыть cmux.json",
@@ -4542,7 +4601,8 @@
     "settingsPage.soundDefault": "По умолчанию",
     "settingsPage.soundNone": "Нет",
     "settingsPage.title": "Настройки",
-    "settingsPage.useThemeColor": "Использовать цвет темы"
+    "settingsPage.useThemeColor": "Использовать цвет темы",
+    "settingsPage.writeFailed": "Не удалось изменить настройку."
   },
   "th": {
     "settings.app.quitBehavior": "เมื่อออก",
@@ -4820,7 +4880,10 @@
     "settingsPage.invalidColor": "ป้อนสี เช่น #1A2B3C",
     "settingsPage.invalidHost": "ป้อนโฮสต์ เช่น example.com หรือ *.example.com",
     "settingsPage.invalidUrl": "ป้อนที่อยู่ เช่น https://example.com",
+    "settingsPage.invalidValue": "ไม่รับค่านี้",
+    "settingsPage.loadFailed": "ไม่สามารถอ่านการตั้งค่าจาก cmux ได้ ค่าที่แสดงเป็นค่าเริ่มต้นและเปลี่ยนไม่ได้",
     "settingsPage.managed": "จัดการโดยองค์กรของคุณ",
+    "settingsPage.managedByTeam": "จัดการโดย %@",
     "settingsPage.minutes": "%@ นาที",
     "settingsPage.noResults": "ไม่มีการตั้งค่าที่ตรงกัน",
     "settingsPage.openConfig": "เปิด cmux.json",
@@ -4845,7 +4908,8 @@
     "settingsPage.soundDefault": "ค่าเริ่มต้น",
     "settingsPage.soundNone": "ไม่มี",
     "settingsPage.title": "การตั้งค่า",
-    "settingsPage.useThemeColor": "ใช้สีของธีม"
+    "settingsPage.useThemeColor": "ใช้สีของธีม",
+    "settingsPage.writeFailed": "ไม่สามารถเปลี่ยนการตั้งค่าได้"
   },
   "tr": {
     "settings.app.quitBehavior": "Çıkarken",
@@ -5123,7 +5187,10 @@
     "settingsPage.invalidColor": "#1A2B3C gibi bir renk girin.",
     "settingsPage.invalidHost": "example.com veya *.example.com gibi bir ana bilgisayar girin.",
     "settingsPage.invalidUrl": "https://example.com gibi bir adres girin.",
+    "settingsPage.invalidValue": "Bu değer kabul edilmiyor.",
+    "settingsPage.loadFailed": "Ayarlar cmux'tan okunamadı. Gösterilen değerler varsayılandır ve değiştirilemez.",
     "settingsPage.managed": "Kuruluşunuz tarafından yönetiliyor",
+    "settingsPage.managedByTeam": "%@ tarafından yönetiliyor",
     "settingsPage.minutes": "%@ dk",
     "settingsPage.noResults": "Eşleşen ayar yok.",
     "settingsPage.openConfig": "cmux.json dosyasını aç",
@@ -5148,7 +5215,8 @@
     "settingsPage.soundDefault": "Varsayılan",
     "settingsPage.soundNone": "Yok",
     "settingsPage.title": "Ayarlar",
-    "settingsPage.useThemeColor": "Tema rengini kullan"
+    "settingsPage.useThemeColor": "Tema rengini kullan",
+    "settingsPage.writeFailed": "Ayar değiştirilemedi."
   },
   "uk": {
     "settings.app.quitBehavior": "Під час виходу",
@@ -5426,7 +5494,10 @@
     "settingsPage.invalidColor": "Введіть колір, наприклад #1A2B3C.",
     "settingsPage.invalidHost": "Введіть хост, наприклад example.com або *.example.com.",
     "settingsPage.invalidUrl": "Введіть адресу, наприклад https://example.com.",
+    "settingsPage.invalidValue": "Це значення не приймається.",
+    "settingsPage.loadFailed": "Не вдалося прочитати налаштування з cmux. Показано типові значення, їх не можна змінити.",
     "settingsPage.managed": "Керується вашою організацією",
+    "settingsPage.managedByTeam": "Керується %@",
     "settingsPage.minutes": "%@ хв",
     "settingsPage.noResults": "Немає відповідних параметрів.",
     "settingsPage.openConfig": "Відкрити cmux.json",
@@ -5451,7 +5522,8 @@
     "settingsPage.soundDefault": "Типовий",
     "settingsPage.soundNone": "Немає",
     "settingsPage.title": "Параметри",
-    "settingsPage.useThemeColor": "Використовувати колір теми"
+    "settingsPage.useThemeColor": "Використовувати колір теми",
+    "settingsPage.writeFailed": "Не вдалося змінити налаштування."
   },
   "vi": {
     "settings.app.quitBehavior": "Khi thoát",
@@ -5729,7 +5801,10 @@
     "settingsPage.invalidColor": "Nhập màu như #1A2B3C.",
     "settingsPage.invalidHost": "Nhập máy chủ như example.com hoặc *.example.com.",
     "settingsPage.invalidUrl": "Nhập địa chỉ như https://example.com.",
+    "settingsPage.invalidValue": "Giá trị này không được chấp nhận.",
+    "settingsPage.loadFailed": "Không thể đọc cài đặt từ cmux. Các giá trị hiển thị là mặc định và không thể thay đổi.",
     "settingsPage.managed": "Do tổ chức của bạn quản lý",
+    "settingsPage.managedByTeam": "Được quản lý bởi %@",
     "settingsPage.minutes": "%@ phút",
     "settingsPage.noResults": "Không có cài đặt phù hợp.",
     "settingsPage.openConfig": "Mở cmux.json",
@@ -5754,7 +5829,8 @@
     "settingsPage.soundDefault": "Mặc định",
     "settingsPage.soundNone": "Không có",
     "settingsPage.title": "Cài đặt",
-    "settingsPage.useThemeColor": "Dùng màu chủ đề"
+    "settingsPage.useThemeColor": "Dùng màu chủ đề",
+    "settingsPage.writeFailed": "Không thể thay đổi cài đặt."
   },
   "zh-Hans": {
     "settings.app.quitBehavior": "退出时",
@@ -6032,7 +6108,10 @@
     "settingsPage.invalidColor": "请输入颜色，例如 #1A2B3C。",
     "settingsPage.invalidHost": "请输入主机，例如 example.com 或 *.example.com。",
     "settingsPage.invalidUrl": "请输入地址，例如 https://example.com。",
+    "settingsPage.invalidValue": "不接受此值。",
+    "settingsPage.loadFailed": "无法从 cmux 读取设置。显示的是默认值，无法更改。",
     "settingsPage.managed": "由你的组织管理",
+    "settingsPage.managedByTeam": "由 %@ 管理",
     "settingsPage.minutes": "%@ 分钟",
     "settingsPage.noResults": "没有匹配的设置。",
     "settingsPage.openConfig": "打开 cmux.json",
@@ -6057,7 +6136,8 @@
     "settingsPage.soundDefault": "默认",
     "settingsPage.soundNone": "无",
     "settingsPage.title": "设置",
-    "settingsPage.useThemeColor": "使用主题颜色"
+    "settingsPage.useThemeColor": "使用主题颜色",
+    "settingsPage.writeFailed": "无法更改该设置。"
   },
   "zh-Hant": {
     "settings.app.quitBehavior": "結束時",
@@ -6335,7 +6415,10 @@
     "settingsPage.invalidColor": "請輸入顏色，例如 #1A2B3C。",
     "settingsPage.invalidHost": "請輸入主機，例如 example.com 或 *.example.com。",
     "settingsPage.invalidUrl": "請輸入地址，例如 https://example.com。",
+    "settingsPage.invalidValue": "不接受此值。",
+    "settingsPage.loadFailed": "無法從 cmux 讀取設定。顯示的是預設值，無法變更。",
     "settingsPage.managed": "由你的組織管理",
+    "settingsPage.managedByTeam": "由 %@ 管理",
     "settingsPage.minutes": "%@ 分鐘",
     "settingsPage.noResults": "沒有符合的設定。",
     "settingsPage.openConfig": "打開 cmux.json",
@@ -6360,6 +6443,7 @@
     "settingsPage.soundDefault": "預設",
     "settingsPage.soundNone": "無",
     "settingsPage.title": "設定",
-    "settingsPage.useThemeColor": "使用主題顏色"
+    "settingsPage.useThemeColor": "使用主題顏色",
+    "settingsPage.writeFailed": "無法變更此設定。"
   }
 }
