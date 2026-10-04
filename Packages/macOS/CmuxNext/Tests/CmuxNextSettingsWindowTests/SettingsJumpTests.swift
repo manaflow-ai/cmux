@@ -40,7 +40,7 @@ import Testing
         let imports = model.searchEntries().filter { $0.kind == .action("importFromBrowser") }
         #expect(imports.map(\.anchor) == [.action("importFromBrowser", in: .browser)])
 
-        model.query = "cmux.json"
+        model.query = "cmux-next.json"
         #expect(model.searchEntries().contains { $0.kind == .card(.advanced) })
         #expect(model.searchEntries().contains { $0.kind == .action("palette.openCmuxSettingsFile") })
 
