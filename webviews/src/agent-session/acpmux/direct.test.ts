@@ -869,6 +869,28 @@ describe("direct client session state", () => {
     expect(texts()).toEqual(["b one"]);
   });
 
+  // bench-switch-race.mjs (plans/cmux-next/acp-usability.md, blocker 3): a prompt sent while a
+  // harness switch's session/new is out went to the OLD session, and the pane then moved to the
+  // new chat, so its reply landed out of view.
+  test("a prompt sent while a new chat's session starts goes to that session, not the one on screen", async () => {
+    const client = await connect();
+    ScriptedSocket.held.add("session/new");
+    const switching = client.create("codex");
+    await settle();
+    ScriptedSocket.held.add("session/prompt");
+    const sent = client.send("which harness?").catch(() => undefined);
+    await settle();
+    expect(ScriptedSocket.current.waiting.some((request) => request.method === "session/prompt")).toBe(false);
+    ScriptedSocket.current.release("session/new", { sessionId: "b" });
+    expect(await switching).toBe("b");
+    await settle();
+    const prompt = ScriptedSocket.current.waiting.find((request) => request.method === "session/prompt");
+    expect(prompt?.params.sessionId).toBe("b");
+    expect(texts()).toContain("which harness?");
+    ScriptedSocket.current.release("session/prompt", {});
+    expect(await sent).toBe("b");
+  });
+
   test("lag recovery keeps the live summary, queue and permission", async () => {
     await connect();
     ScriptedSocket.current.notify("_acpmux/permission_pending", {
