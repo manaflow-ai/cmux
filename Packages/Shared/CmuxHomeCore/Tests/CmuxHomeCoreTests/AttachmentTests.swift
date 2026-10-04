@@ -33,6 +33,21 @@ private func makeJPEG(width: Int, height: Int, orientation: Int) throws -> Data 
     return data as Data
 }
 
+/// A `width` x `height` image of `type` (TIFF, HEIF), with or without alpha.
+private func makeImage(type: UTType, width: Int, height: Int, alpha: Bool) throws -> Data {
+    let info = alpha ? CGImageAlphaInfo.premultipliedLast : CGImageAlphaInfo.noneSkipLast
+    let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                         space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: info.rawValue))
+    context.setFillColor(red: 0, green: 0, blue: 1, alpha: alpha ? 0.5 : 1)
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    let image = try #require(context.makeImage())
+    let data = NSMutableData()
+    let destination = try #require(CGImageDestinationCreateWithData(data as CFMutableData, type.identifier as CFString, 1, nil))
+    CGImageDestinationAddImage(destination, image, nil)
+    #expect(CGImageDestinationFinalize(destination))
+    return data as Data
+}
+
 /// A one-second H.264 movie, `width` x `height` encoded, rotated 90 degrees
 /// by its track transform (display size is `height` x `width`).
 private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, fps: Int32 = 10) async throws {
@@ -207,6 +222,41 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         await store.pruneBlobCache(now: now)
         #expect(fm.fileExists(atPath: prepared.fileURL.path))
         #expect(try fm.contentsOfDirectory(atPath: root.path).allSatisfy { !$0.hasPrefix(".incoming-") })
+    }
+
+    /// A pasted macOS screenshot is TIFF, an iPhone photo can be HEIF:
+    /// neither is on the owner's allow list, so the core converts them, PNG
+    /// when the image has alpha, else JPEG.
+    @MainActor @Test func tiffAndHEIFAreConvertedBeforeThePolicy() async throws {
+        let root = try temporaryDirectory()
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root)
+        let screenshot = try makeImage(type: .tiff, width: 30, height: 20, alpha: true)
+        let pasted = try await store.prepareAttachment(data: screenshot, typeIdentifier: UTType.tiff.identifier)
+        #expect(pasted.ref.mimeType == "image/png")
+        #expect(pasted.ref.name == "attachment.png")
+        #expect(pasted.ref.width == 30 && pasted.ref.height == 20)
+        let bytes = try Data(contentsOf: pasted.fileURL)
+        #expect(pasted.ref.hash == sha256Hex(bytes))
+        #expect(pasted.ref.byteCount == bytes.count)
+        let decoded = try #require(CGImageSourceCreateWithData(bytes as CFData, nil))
+        #expect(CGImageSourceGetType(decoded) as String? == UTType.png.identifier)
+
+        let opaque = try makeImage(type: .tiff, width: 12, height: 8, alpha: false)
+        let file = root.appendingPathComponent("Screen Shot.tiff")
+        try opaque.write(to: file)
+        let dropped = try await store.prepareAttachment(fileURL: file)
+        #expect(dropped.ref.mimeType == "image/jpeg")
+        #expect(dropped.ref.name == "Screen Shot.jpg")
+        #expect(dropped.ref.width == 12 && dropped.ref.height == 8)
+
+        // HEIF only where ImageIO can write it (to make the test input).
+        let heifType = try #require(UTType("public.heif"))
+        let writable = (CGImageDestinationCopyTypeIdentifiers() as? [String]) ?? []
+        if writable.contains(heifType.identifier) {
+            let heif = try makeImage(type: heifType, width: 16, height: 16, alpha: false)
+            let photo = try await store.prepareAttachment(data: heif, typeIdentifier: heifType.identifier)
+            #expect(photo.ref.mimeType == "image/jpeg")
+        }
     }
 
     @Test func attachmentRefWithoutNewFieldsDecodes() throws {
