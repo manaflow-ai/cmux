@@ -3,15 +3,15 @@ public import CmuxTheme
 /// Optional per-surface colors. An unset entry always resolves to the
 /// theme's single surface background, so customization never creates a
 /// second implicit palette.
-public struct SurfaceBackgroundOverrides: Sendable {
-    public nonisolated var sidebar: ThemeRGB?
-    public nonisolated var tabStrip: ThemeRGB?
-    public nonisolated var terminal: ThemeRGB?
-    public nonisolated var browser: ThemeRGB?
-    public nonisolated var internalPage: ThemeRGB?
-    public nonisolated var agentPane: ThemeRGB?
-    public nonisolated var splitDivider: ThemeRGB?
-    public nonisolated var settings: ThemeRGB?
+public nonisolated struct SurfaceBackgroundOverrides: Equatable, Sendable {
+    public var sidebar: ThemeRGB?
+    public var tabStrip: ThemeRGB?
+    public var terminal: ThemeRGB?
+    public var browser: ThemeRGB?
+    public var internalPage: ThemeRGB?
+    public var agentPane: ThemeRGB?
+    public var splitDivider: ThemeRGB?
+    public var settings: ThemeRGB?
 
     public nonisolated init(sidebar: ThemeRGB? = nil, tabStrip: ThemeRGB? = nil, terminal: ThemeRGB? = nil,
                 browser: ThemeRGB? = nil, internalPage: ThemeRGB? = nil, agentPane: ThemeRGB? = nil,
