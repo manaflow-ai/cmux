@@ -52,7 +52,7 @@ pub(super) fn remove(source: &str, path: &[String]) -> Result<String, JsoncError
         return Err(JsoncError::RootIsNotObject);
     };
     for key in parents {
-        let Some(position) = object.members.iter().position(|member| &member.key == key) else {
+        let Some(position) = object.members.iter().rposition(|member| &member.key == key) else {
             return Ok(source.to_string());
         };
         let member = object.members.swap_remove(position);
@@ -61,7 +61,7 @@ pub(super) fn remove(source: &str, path: &[String]) -> Result<String, JsoncError
         };
         object = child;
     }
-    let Some(index) = object.members.iter().position(|member| &member.key == last) else {
+    let Some(index) = object.members.iter().rposition(|member| &member.key == last) else {
         return Ok(source.to_string());
     };
     Ok(apply(removal_edits(index, &object, bytes), bytes))
@@ -75,7 +75,8 @@ fn set_in(
     edits: &mut Vec<Edit>,
 ) {
     let (key, rest) = path.split_first().expect("non-empty path");
-    if let Some(member) = object.members.iter().find(|member| &member.key == key) {
+    // The last duplicate wins, as in the parser that reads the file.
+    if let Some(member) = object.members.iter().rev().find(|member| &member.key == key) {
         let indent = line_indent(bytes, member.key_start);
         if rest.is_empty() {
             edits.push(Edit {

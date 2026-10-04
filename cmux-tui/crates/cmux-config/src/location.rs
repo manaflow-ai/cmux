@@ -33,3 +33,10 @@ pub fn config_path_from(env: impl Fn(&str) -> Option<OsString>) -> PathBuf {
 pub fn cache_path(state_dir: &std::path::Path) -> PathBuf {
     state_dir.join("settings").join("effective.json")
 }
+
+/// The saved team policy layer under the daemon's state directory. The app
+/// sends the layer after it connects; until then (and after a daemon restart)
+/// the owner enforces the saved one.
+pub fn team_policy_path(state_dir: &std::path::Path) -> PathBuf {
+    state_dir.join("settings").join("team-policy.json")
+}

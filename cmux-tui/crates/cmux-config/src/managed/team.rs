@@ -67,4 +67,17 @@ impl TeamPolicyLayer {
         };
         Some(layer.limited_to_catalog(schema))
     }
+
+    /// The inverse of `from_device_policy`: the document the owner saves so
+    /// the layer survives a daemon restart.
+    pub fn to_device_policy(&self) -> Value {
+        serde_json::json!({
+            "managed": true,
+            "team": self.team_id,
+            "team_name": self.team_name,
+            "version": self.version,
+            "defaults": self.defaults,
+            "enforced": self.enforced,
+        })
+    }
 }

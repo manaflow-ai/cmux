@@ -40,7 +40,11 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
         if let Ok(existing) = fs::metadata(path) {
             fs::set_permissions(&temporary, existing.permissions())?;
         }
-        fs::rename(&temporary, path)
+        fs::rename(&temporary, path)?;
+        // The rename is durable only once the directory entry is on disk.
+        #[cfg(unix)]
+        File::open(directory)?.sync_all()?;
+        Ok(())
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temporary);

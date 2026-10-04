@@ -297,6 +297,12 @@ pub(super) fn refusal_text(error: &Value) -> String {
 /// An old daemon: `get`, `set` and `reset` through the app socket.
 #[cfg(unix)]
 fn legacy(global: &GlobalArgs, plan: &RequestPlan) -> i32 {
+    // The app socket has no revision check: a conditional write must not
+    // silently become unconditional.
+    if plan.params.get("if_revision").is_some() {
+        eprintln!("cmux: --if-revision needs a session daemon that serves {CAPABILITY}");
+        return 1;
+    }
     let path = plan.params.get("key").cloned().or_else(|| plan.params.get("path").cloned());
     let command = match (&plan.operation, path) {
         (WireOperation::Typed(Op::SettingsGet), Some(path)) => {

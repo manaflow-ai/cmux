@@ -123,7 +123,30 @@ fn set_text(
         accepts(row, &value, &state.domains)?;
     }
     check_managed(state, &path)?;
+    if row.is_none() {
+        check_row_overlap(state, &path)?;
+    }
     jsonc::set(&state.source, &path, &value).map_err(unreadable)
+}
+
+/// A non-row path may not hold or sit inside a row: writing an ancestor
+/// object would replace rows without validating them, and writing below a
+/// row would turn its value into an object.
+fn check_row_overlap(state: &State, path: &[String]) -> Result<(), Refusal> {
+    let overlapping = state.schema.rows.iter().find(|row| {
+        let shorter = row.path.len().min(path.len());
+        row.path[..shorter] == path[..shorter]
+    });
+    match overlapping {
+        None => Ok(()),
+        Some(row) => Err(Refusal::InvalidParams {
+            message: format!(
+                "'{}' overlaps the setting '{}'; set each setting by its own key",
+                dotted(path),
+                row.key
+            ),
+        }),
+    }
 }
 
 fn reset_text(state: &State, target: &Target, meta: &WriteMeta) -> Result<String, Refusal> {
