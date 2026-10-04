@@ -38,6 +38,9 @@ public final class LayoutRootView: NSView {
     /// moved panes (column scroll spring, divider drag). One subscriber: the
     /// App's agent cursor visibility source. Not called while nothing moves.
     public var onOverlaySync: (() -> Void)?
+    /// Overlay sync observers by id (`observeOverlaySync`).
+    var overlaySyncObservers: [Int: () -> Void] = [:]
+    var nextOverlaySyncObserver = 0
 
     /// Everything the view reads from the model, observed as one value.
     private struct Snapshot: Equatable, Sendable {
