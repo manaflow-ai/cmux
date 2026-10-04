@@ -378,6 +378,90 @@ test("a failed branch regeneration leaves cached refs available for retry", asyn
   expect(navigated).toEqual(["/retry-succeeded"]);
 });
 
+test("a branch change answered with a new session hands it over without navigating", async () => {
+  dom = createDom();
+  installDomGlobals(dom);
+  const navigated: string[] = [];
+  const opened: unknown[] = [];
+  const session = {
+    sessionId: "s2",
+    patch: {
+      id: "cmux-page://cmux.diff/__patch/t/develop.patch",
+      mediaType: "text/x-diff",
+      byteLength: 0,
+      revision: 1,
+    },
+    source: { kind: "branch" as const, repoRoot: "/tmp/mock", baseRef: "develop" },
+    generatedPaths: [],
+  };
+  const transport: DiffTransport = {
+    request(command) {
+      if (command.method === "branchList") {
+        return Promise.resolve({
+          type: "branches",
+          value: {
+            groups: [
+              { id: "suggested", label: "Suggested", rows: [{ ref: "develop", label: "develop", reason: "default" }] },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ type: "sessionOpened", value: session });
+    },
+    subscribe: () => () => {},
+    openResource: () => Promise.reject(new Error("unused")),
+    close: () => {},
+  };
+  const picker: BranchPickerPayload = { ...pickerPayload(0), groupId: "1234567890-group", capabilityToken: "t" };
+  root = createRoot(document.getElementById("root")!);
+  flushSync(() => {
+    root?.render(
+      <BranchBasePicker
+        label={label}
+        onBranchSessionOpened={(value) => opened.push(value)}
+        onNavigate={(url) => navigated.push(url)}
+        picker={picker}
+        transport={transport}
+      />,
+    );
+  });
+
+  document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
+  await waitFor(() => rowCount() === 1);
+  // The sidecar's own reason tag is shown with its label, not verbatim.
+  expect(document.querySelector(".base-picker-row-secondary")?.textContent).toBe("default branch");
+  flushSync(() => {
+    document
+      .querySelector<HTMLElement>(".base-picker-row")
+      ?.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  });
+  await waitFor(() => opened.length === 1);
+  expect(opened).toEqual([session]);
+  expect(navigated).toEqual([]);
+  expect(document.querySelector(".base-picker-popover")).toBeNull();
+  expect(document.querySelector(".base-picker-status-error")).toBeNull();
+});
+
+test("a single Suggested group shows its one header and no empty group headers", () => {
+  const rows = buildFlatRows(
+    [
+      {
+        id: "suggested",
+        label: "Suggested",
+        rows: [
+          { ref: "main", label: "main", current: true },
+          { ref: "develop", label: "develop" },
+        ],
+      },
+      { id: "branches", label: "Branches", rows: [] },
+    ],
+    "",
+    label,
+  );
+  expect(rows.filter((row) => row.firstInGroup).map((row) => row.groupLabel)).toEqual(["Suggested"]);
+  expect(rows.map((row) => row.row.ref)).toEqual(["main", "develop"]);
+});
+
 function createDom(): JSDOM {
   return new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
     url: "http://127.0.0.1/diff",
