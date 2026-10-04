@@ -117,6 +117,13 @@ import Testing
         #expect(withoutAccount.account == nil)
 
         #expect(decode("cloud-inbox-reset", #"{"event":"cloud-inbox-reset","seq":9}"#) == .cloudConversations(.inboxReset(seq: 9)))
+        #expect(decode("cloud-inbox-reset", #"{"event":"cloud-inbox-reset","seq":9,"account":"user_a"}"#)
+            == .cloudConversations(.inboxReset(seq: 9, account: "user_a")))
+        #expect(decode("cloud-subscription-state", #"{"event":"cloud-subscription-state","scope":"inbox","state":"live","account":"user_a"}"#)
+            == .cloudConversations(.subscriptionState(CloudSubscriptionState(scope: "inbox", state: "live", account: "user_a"))))
+        let reply = try JSONDecoder().decode(CloudSubscription.self,
+                                             from: Data(#"{"conversation":"conv_A","state":"disconnected","reason":"signed_out","account":"user_a"}"#.utf8))
+        #expect(reply == CloudSubscription(conversation: "conv_A", state: "disconnected", reason: "signed_out", account: "user_a"))
         #expect(decode("cloud-subscription-state", #"{"event":"cloud-subscription-state","scope":"conversation","conversation":"conv_A","state":"closed","reason":"forbidden"}"#)
             == .cloudConversations(.subscriptionState(CloudSubscriptionState(scope: "conversation", conversation: "conv_A", state: "closed",
                                                                               reason: "forbidden"))))

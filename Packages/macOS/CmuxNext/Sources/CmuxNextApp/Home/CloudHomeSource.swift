@@ -222,7 +222,7 @@ nonisolated final class CloudHomeSource: HomeSource {
         if renamed { publishInbox() }
     }
 
-    /// An owner event that names its account (the lease's `sub`) belongs to
+    /// An event that names its account (the lease's `sub`) belongs to
     /// this source only when that is the account it acts as: another one's
     /// is a late event from before a switch, and is dropped. An event that
     /// names none (an older daemon) is kept.
@@ -231,7 +231,9 @@ nonisolated final class CloudHomeSource: HomeSource {
         case .changed(let changed): changed.account
         case .resynced(let resynced): resynced.account
         case .inboxChanged(let changed): changed.account
-        default: nil
+        case .inboxReset(_, let account): account
+        case .subscriptionState(let report): report.account
+        case .sessionNeeded: nil
         }
         guard let account else { return true }
         return state.withLock { $0.identity?.cloudID } == CloudIdentity.cloudID(stackUserID: account)
@@ -624,10 +626,16 @@ nonisolated final class CloudHomeSource: HomeSource {
         await state.withLock { $0.unsubscribing }?.value
         do {
             let reply = try await commands.subscribe(conversation.rawValue)
-            state.withLock { state in
-                guard state.generation == generation, state.targets[conversation]?.fromEvent == false else { return }
+            let live = state.withLock { state -> Bool in
+                // A socket on another account's lease is not this account's state.
+                if let account = reply.account, state.identity?.cloudID != CloudIdentity.cloudID(stackUserID: account) { return false }
+                // The state event that follows the reply (or raced it) wins.
+                guard state.generation == generation, state.targets[conversation]?.fromEvent == false else { return false }
                 state.targets[conversation]?.state = reply.state
+                return reply.state == "live"
             }
+            // Edits refused while it connected go again.
+            if live { recover() }
         } catch {
             state.withLock { state in
                 guard state.generation == generation, state.targets[conversation]?.fromEvent == false else { return }
@@ -637,26 +645,27 @@ nonisolated final class CloudHomeSource: HomeSource {
         }
     }
 
-    /// Holds an edit while the conversation's socket reports it disconnected
+    /// An edit goes out only while its conversation's socket is `live`
+    /// (home-cloud-proxy.md section 5). Before that it waits
     /// (`ownerUnreachable`: nothing was sent, the store resends it after
-    /// `.ownerRecovered`), and refuses it once the socket is closed (the user
-    /// is not a participant). A conversation without a subscription is
-    /// subscribed so its echo can settle the intent (home-cloud-proxy.md section 5).
+    /// `.ownerRecovered`, which a `live` socket publishes), and once the
+    /// socket is closed it is refused (the user is not a participant). A
+    /// conversation without a subscription is subscribed first, so its
+    /// socket can go live and its echo can settle the intent.
     private func requireEditable(_ conversation: ConversationID, commands: any CloudConversationCommands, generation: UInt64) throws {
         let target = state.withLock { $0.targets[conversation] }
-        guard let target else {
+        if target == nil {
             // task-owner: one subscribe; ends with its reply
             Task { [weak self] in await self?.subscribe(conversation, commands: commands, generation: generation) }
-            return
         }
-        switch target.state {
-        case "disconnected":
-            state.withLock { $0.degraded = true }
-            throw HomeRejection.ownerUnreachable
+        switch target?.state {
+        case "live":
+            return
         case "closed":
             throw HomeRejection.notAuthorized
         default:
-            break
+            state.withLock { $0.degraded = true }
+            throw HomeRejection.ownerUnreachable
         }
     }
 

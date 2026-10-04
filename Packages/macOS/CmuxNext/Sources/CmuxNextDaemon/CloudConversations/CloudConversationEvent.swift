@@ -73,12 +73,15 @@ public struct CloudSubscriptionState: Decodable, Sendable, Hashable {
     public var state: String
     /// `signed_out`, `unauthenticated`, `unavailable` (disconnected) or `forbidden` (closed).
     public var reason: String?
+    /// The cloud account (the lease's `sub`) the socket runs as; absent without one.
+    public var account: String?
 
-    public init(scope: String, conversation: String? = nil, state: String, reason: String? = nil) {
+    public init(scope: String, conversation: String? = nil, state: String, reason: String? = nil, account: String? = nil) {
         self.scope = scope
         self.conversation = conversation
         self.state = state
         self.reason = reason
+        self.account = account
     }
 
     public var isLive: Bool { state == "live" }
@@ -106,8 +109,8 @@ public enum CloudConversationsEvent: Sendable, Hashable {
     case changed(CloudConversationChanged)
     case resynced(CloudConversationResynced)
     case inboxChanged(CloudInboxChanged)
-    /// List the inbox again.
-    case inboxReset(seq: UInt64)
+    /// List the inbox again. `account` is the lease's `sub`, when the daemon names it.
+    case inboxReset(seq: UInt64, account: String? = nil)
     case subscriptionState(CloudSubscriptionState)
     case sessionNeeded(CloudSessionNeeded)
 
@@ -116,7 +119,14 @@ public enum CloudConversationsEvent: Sendable, Hashable {
         "cloud-subscription-state", "cloud-session-needed",
     ]
 
-    private struct InboxReset: Decodable { var seq: UInt64? }
+    private struct InboxReset: Decodable {
+        var seq: UInt64?
+        var account: String?
+    }
+
+    private static func reset(from reset: InboxReset) -> CloudConversationsEvent {
+        .inboxReset(seq: reset.seq ?? 0, account: reset.account)
+    }
 
     /// Decodes one `cloud-*` event line; throws on a malformed payload.
     static func decode(name: String, line: Data, decoder: JSONDecoder) throws -> CloudConversationsEvent? {
@@ -124,7 +134,7 @@ public enum CloudConversationsEvent: Sendable, Hashable {
         case "cloud-conversation-changed": .changed(try decoder.decode(CloudConversationChanged.self, from: line))
         case "cloud-conversation-resynced": .resynced(try decoder.decode(CloudConversationResynced.self, from: line))
         case "cloud-inbox-changed": .inboxChanged(try decoder.decode(CloudInboxChanged.self, from: line))
-        case "cloud-inbox-reset": .inboxReset(seq: try decoder.decode(InboxReset.self, from: line).seq ?? 0)
+        case "cloud-inbox-reset": try reset(from: decoder.decode(InboxReset.self, from: line))
         case "cloud-subscription-state": .subscriptionState(try decoder.decode(CloudSubscriptionState.self, from: line))
         case "cloud-session-needed": .sessionNeeded(try decoder.decode(CloudSessionNeeded.self, from: line))
         default: nil
