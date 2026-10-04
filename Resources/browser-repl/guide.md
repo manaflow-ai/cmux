@@ -24,15 +24,18 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
   no limit). Past that, its whole output goes to a file: the start, the
   last lines and the file's path print. Read the file with `fs` or your
   own tools.
-- `page` is ready at once: the first use opens a tab. `tabs.open()` never
-  steals focus.
+- `page` is ready at once: the first use opens a tab. Nothing you do takes
+  the user's focus: `tabs.open()`, input, dialogs and waking a tab never
+  change the user's window, workspace, pane, tab or keyboard focus, also when
+  the user works in the same workspace. Only `page.bringToFront()` shows a
+  tab, and a `sites.browserAuth` sign-in sheet asks the user to type.
 
 ## Globals
 
 - `page`: the current tab, a Playwright `Page` with a stable `page.id`.
 - `tabs`: `list()`, `open(url, { background })`, `current()`, `use(tabOrId)`,
-  `get(id)`. `list()` returns `{ id, title, url, active, current }` for every
-  tab in the workspace without attaching; `list({ all: true })` adds the
+  `get(id)`. `list()` returns `{ id, title, url, active, current, state }`
+  for every tab in the workspace without attaching or waking it; `list({ all: true })` adds the
   user's tabs in other workspaces and windows (with `workspace`), and
   `use(id)` takes any of them; `use(id)` and `get(id)` return a `Page`.
   `content({ urls, format })` loads URLs in background tabs and returns
@@ -154,13 +157,26 @@ dialog or chooser stays open and shows in the snapshot. While a JavaScript
 dialog is open the page cannot run script, so page calls fail with a message
 that says so. A tab you did not open (`tabs.use()` of the user's tab) is the
 user's: its dialogs, file choosers, downloads and permission prompts go to
-the user unless you have a listener for that event on the page. A dialog
+the user unless you have a listener for that event on the page, or your own
+click, key, drag or navigation opened the dialog or chooser, which then
+comes to you as in a tab you opened. A dialog
 that opens during Meta+C, Meta+X or Meta+V is dismissed at once, so it
 cannot hold the clipboard command; listeners still get it, and the next
 snapshot prints `dialog dismissed: ...` once.
 
     page.dialog()        // { type, message, defaultValue, accept(text?), dismiss() } or null
     page.fileChooser()   // { multiple, setFiles(paths), cancel() } or null
+
+## Hibernated and crashed tabs
+
+`state` in `tabs.list()` is `live`, `hibernated` (cmux unloaded the hidden
+page to save memory), `waking` (it is loading again) or `crashed`. Any call
+on a hibernated tab loads it again first, in the background, and waits up to
+30 s; it fails with `hibernated` when the user stopped that load or it ended
+without a page, and with a timeout when it is still loading (retry). A
+crashed tab fails every call but navigation with `crashed`; call
+`page.reload()` or `page.goto(url)`. Errors name the tab as
+`tab <id> ("title", url)`.
 
 ## Page additions
 

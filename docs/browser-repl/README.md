@@ -40,7 +40,7 @@ reference ([parity-report.md](parity-report.md)).
 | Global | Purpose |
 | --- | --- |
 | `page` | The current tab, a Playwright `Page`. |
-| `tabs` | `list()`, `open(url, { background })`, `current()`, `use(tabOrId)`, `get(id)`. `list()` returns `{ id, title, url, active, current }` without attaching; `list({ all: true })` adds tabs in the user's other workspaces and windows, which `use(id)` attaches (reference B's `claimTab`). `open`, `current`, `use` and `get` return a `Page` with a stable `page.id`. `content({ urls, format })` loads URLs in background tabs and extracts text, Markdown, HTML or a snapshot. `history({ query, from, to, limit })` searches cmux browser history. |
+| `tabs` | `list()`, `open(url, { background })`, `current()`, `use(tabOrId)`, `get(id)`. `list()` returns `{ id, title, url, active, current, state }` without attaching or waking a tab (`state`: see [Hibernated and crashed tabs](#hibernated-and-crashed-tabs)); `list({ all: true })` adds tabs in the user's other workspaces and windows, which `use(id)` attaches (reference B's `claimTab`). `open`, `current`, `use` and `get` return a `Page` with a stable `page.id`. `content({ urls, format })` loads URLs in background tabs and extracts text, Markdown, HTML or a snapshot. `history({ query, from, to, limit })` searches cmux browser history. |
 | `snapshot(target?, options?)` | Accessibility snapshot of `page`, a locator, or a ref string. See [Snapshot](#snapshot). |
 | `screenshot(target?, options?)` | PNG of the viewport, full page, locator or ref. `{ annotate: true }` draws each ref's box and label. Returns an `Image` that displays when printed. |
 | `fetch` | Standard `fetch` that sends the current tab's cookies (`credentials`: `"include"` by default, `"same-origin"`, `"omit"`). The domain policy is checked on every redirect hop; a body over 64 MiB fails (download it in a tab instead). |
@@ -318,7 +318,24 @@ rest. Measurements: [performance.md](performance.md).
 - A session binds to the caller's cmux workspace (from `CMUX_WORKSPACE_ID`), or
   to the focused workspace when the caller is outside cmux or the id is unknown
   to this instance.
-- `tabs.open()` never steals focus. `page.bringToFront()` shows a tab.
+- A session never moves the user's focus, so agents can work in the
+  background: `tabs.open()`, navigation, input, dialogs, file choosers,
+  downloads, popups, captures, the clipboard, `tabs.use()`, `page.keep()`,
+  waking a hibernated tab and ending or resetting the session leave the
+  user's key window, window order, Space, selected workspace, pane, tab in
+  a pane, sidebar selection and first responder (terminal, omnibar) as they
+  were, also when the session's workspace is the one the user works in.
+  A new tab is added behind the pane's selected tab. Two things show
+  something: `page.bringToFront()` selects the tab in its pane, and
+  `sites.browserAuth.request` puts a sign-in sheet on the window the user
+  works in (it needs the user to type), naming the site and the tab and
+  workspace that ask; neither changes the selected workspace. Tab or
+  Shift+Tab past a page's last or first control keeps the focus in the
+  page (it wraps, as in a headless browser) instead of moving AppKit's
+  first responder to the next view, which belongs to the user. A key no
+  page handles stops at the page: WebKit hands such a key back to the
+  app's key window, where it would type into the user's terminal or run a
+  menu shortcut, so cmux drops that resend for automated keys.
 - Session behaviors apply only to tabs the session created: tabs from
   `tabs.open()` (and `tabs.content`), and popups of those tabs, while the
   session lasts. In them dialogs and file choosers wait for the agent,
@@ -333,7 +350,13 @@ rest. Measurements: [performance.md](performance.md).
   creating session. Any other tab is the user's, also one a session drives
   with `tabs.use()` or one a finished run kept with `page.keep()`: it keeps
   its own user agent, headers and content, and cmux's own dialogs, file
-  panel, download location, permission prompts and insecure-HTTP prompt.
+  panel, download location, permission prompts and insecure-HTTP prompt,
+  except that a dialog or file chooser the page opens while it handles one
+  of the session's own clicks, keys, drags or navigations goes to that
+  session, as in a tab it created: the agent caused it, so cmux's UI must
+  not come up in front of the user (an Open panel over their work from a
+  hidden workspace) or leave the agent waiting for an answer only the user
+  could give.
   The domain policy there only refuses the session's reads and input while
   the tab, or a frame of it, shows a blocked page (see "Guards" in
   [driver-protocol.md](driver-protocol.md)); it never navigates or filters the user's tab. An event the agent registered a handler for on that
@@ -352,6 +375,35 @@ rest. Measurements: [performance.md](performance.md).
   refreshed after every driver call. The live view returns to the pane as
   soon as the pane is shown, its window becomes key, or the session ends,
   resets or expires.
+
+## Hibernated and crashed tabs
+
+cmux unloads the pages of hidden browser tabs to save memory (Settings,
+Browser, memory saver); the tab keeps its URL, history and title. A tab a
+session drives is never unloaded while the session is attached, but a
+user's tab, or a tab a finished run kept, can be unloaded before a session
+reaches it. `tabs.list()` and `tab.info` report each tab's `state`:
+
+| `state` | Meaning |
+| --- | --- |
+| `live` | The page is loaded. |
+| `hibernated` | cmux unloaded the hidden page. Listing it does not load it. |
+| `waking` | The page is loading again. |
+| `crashed` | The tab's web content process ended (a WebKit crash, or macOS reclaimed its memory) while the tab was shown; the pane offers Reload. |
+
+Any call that needs the page (`tabs.use()` reads `tab.info`, so it is one)
+loads a hibernated tab again first, also when automatic restore of unloaded
+pages is off in Settings, and waits until the restored document is parsed,
+at most 30 s. The load runs off screen like any driven hidden tab; it never
+shows or focuses the tab. Closing, keeping or navigating a hibernated tab
+does not load its old page. A hidden tab whose process died is restored the
+same way on the next call. When the tab cannot be woken the call fails with
+an error that names it ([driver-protocol.md](driver-protocol.md#hibernated-and-crashed-tabs)
+has the exact texts): `hibernated` when the user stopped the tab from
+loading or the restore ended without a page, `timeout` when it is still
+loading after 30 s (retry), and `crashed` for a crashed tab, where only
+navigation, `tab.info`, `page.bringToFront()` and `page.close()` work until
+`page.reload()` or `page.goto(url)` loads it again.
 
 ## Excluded from the references
 
