@@ -447,7 +447,49 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func reachablePanel(_ id: UUID) throws -> BrowserPanel? {
         if let own = try browserPanels().first(where: { $0.id == id }) { return own }
-        return allBrowserPanels().first(where: { $0.panel.id == id })?.panel
+        if let other = allBrowserPanels().first(where: { $0.panel.id == id })?.panel { return other }
+        // A tab a relaunch restored but has not loaded yet is a placeholder
+        // until first use; using it creates its browser, which then loads
+        // like a hibernated tab (prepareTab). Creating it shows nothing.
+        for workspace in allWorkspaces() {
+            if let deferred = workspace.panels[id] as? DeferredBrowserPanel {
+                return workspace.materializeDeferredBrowserPanel(deferred)
+            }
+        }
+        return nil
+    }
+
+    /// Every workspace of every window, the session's own first.
+    @MainActor
+    private func allWorkspaces() -> [Workspace] {
+        let own = try? workspace()
+        var out: [Workspace] = own.map { [$0] } ?? []
+        guard let app = AppDelegate.shared else { return out }
+        for context in app.mainWindowContexts.values.sorted(by: { $0.windowId.uuidString < $1.windowId.uuidString }) {
+            for workspace in context.tabManager.tabs where !out.contains(where: { $0.id == workspace.id }) {
+                out.append(workspace)
+            }
+        }
+        return out
+    }
+
+    /// `tabs.list` rows for a relaunch's not-yet-loaded tabs of `workspace`,
+    /// by panel id: they list as hibernated, and listing does not load them.
+    @MainActor
+    private static func deferredTabRows(_ workspace: Workspace) -> [UUID: [String: Any]] {
+        var rows: [UUID: [String: Any]] = [:]
+        for id in workspace.orderedPanelIds {
+            guard let deferred = workspace.panels[id] as? DeferredBrowserPanel else { continue }
+            rows[id] = [
+                "targetId": id.uuidString,
+                "title": deferred.sessionPanelSnapshot.title ?? "",
+                "url": deferred.sessionPanelSnapshot.browser?.urlString ?? "",
+                "active": false,
+                "windowId": workspace.id.uuidString,
+                "state": BrowserReplTabState.hibernated.rawValue,
+            ]
+        }
+        return rows
     }
 
     /// What the REPL reports about the tab's web content (`tabs.list`, `tab.info`).
@@ -646,23 +688,40 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         if all {
             // The session's own workspace first, then every other workspace.
             let own = try listTabs()
-            let others: [[String: Any]] = allBrowserPanels()
-                .filter { $0.workspace.id != workspace.id }
-                .map { entry in
-                    [
-                        "targetId": entry.panel.id.uuidString,
-                        "title": Self.title(entry.panel),
-                        "url": Self.url(entry.panel),
-                        "active": false,
-                        "windowId": entry.workspace.id.uuidString,
-                        "state": tabCondition(entry.panel).state.rawValue,
-                    ]
+            var others: [[String: Any]] = []
+            for other in allWorkspaces() where other.id != workspace.id {
+                let deferred = Self.deferredTabRows(other)
+                for id in other.orderedPanelIds {
+                    if let row = deferred[id] {
+                        others.append(row)
+                    } else if let panel = other.panels[id] as? BrowserPanel {
+                        others.append([
+                            "targetId": panel.id.uuidString,
+                            "title": Self.title(panel),
+                            "url": Self.url(panel),
+                            "active": false,
+                            "windowId": other.id.uuidString,
+                            "state": tabCondition(panel).state.rawValue,
+                        ])
+                    }
                 }
+            }
             return own + others
         }
         let active = activeTargetID.flatMap(UUID.init(uuidString:)).flatMap { id in panels.first { $0.id == id } }
             ?? panels.first { $0.id == workspace.focusedPanelId }
-        return panels.map { panel in
+        let deferred = Self.deferredTabRows(workspace)
+        guard deferred.isEmpty else {
+            // A relaunch's not-yet-loaded tabs list in their places, hibernated.
+            let live = Dictionary(uniqueKeysWithValues: listTabsLoaded(panels, workspace: workspace, active: active).map { ($0["targetId"] as? String ?? "", $0) })
+            return workspace.orderedPanelIds.compactMap { live[$0.uuidString] ?? deferred[$0] }
+        }
+        return listTabsLoaded(panels, workspace: workspace, active: active)
+    }
+
+    @MainActor
+    private func listTabsLoaded(_ panels: [BrowserPanel], workspace: Workspace, active: BrowserPanel?) -> [[String: Any]] {
+        panels.map { panel in
             var entry: [String: Any] = [
                 "targetId": panel.id.uuidString,
                 "title": Self.title(panel),
