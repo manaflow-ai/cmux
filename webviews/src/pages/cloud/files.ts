@@ -250,7 +250,7 @@ export class FilesReader {
     this.setBusy(machine, undefined);
     // Listen first: the end of a short copy can come right after the answer.
     const watching = await this.transfers.watch();
-    this.transfers.begin();
+    const session = this.transfers.begin();
     try {
       const result = await this.client!.call<TransferActionResult | null>(ACTION_RUN, {
         action,
@@ -258,7 +258,12 @@ export class FilesReader {
       });
       if (result?.confirmed === false) return;
       if (watching && result?.transfer)
-        this.transfers.started({ transfer: result.transfer, machine, direction, path: result.path ?? path });
+        this.transfers.started(session, {
+          transfer: result.transfer,
+          machine,
+          direction,
+          path: result.path ?? path,
+        });
       // No event stream (or no transfer id): show what is there now.
       else if (direction === "push") await this.refresh(machine);
     } catch (error) {
@@ -266,7 +271,7 @@ export class FilesReader {
       if (isPageError(error) && error.code === TRANSFER_BUSY) this.setBusy(machine, { direction, path });
       else this.reject(machine, action, error);
     } finally {
-      this.transfers.end();
+      this.transfers.end(session);
     }
   }
 
@@ -312,7 +317,9 @@ export class FilesReader {
   private update(machine: string, view: Omit<FilesView, "preview">): void {
     const detail = this.host.get();
     if (detail?.machine !== machine) return;
-    this.host.set({ ...detail, files: { ...view, preview: detail.files?.preview, busy: detail.files?.busy } });
+    // A busy refusal is about the folder it was in: another folder drops it.
+    const busy = detail.files?.path === view.path ? detail.files?.busy : undefined;
+    this.host.set({ ...detail, files: { ...view, preview: detail.files?.preview, busy } });
   }
 
   private reject(machine: string, op: string, error: unknown): void {

@@ -63,19 +63,28 @@ export class TransferWatch {
     return this.subscribing;
   }
 
-  /** Call before the action runs, and `end` after it answered (or failed). */
-  begin(): void {
+  /**
+   * Call before the action runs, and `end` with the answer after it answered (or failed). The answer
+   * is the session: an action that answers after `stop` neither adds a row nor clears early ends.
+   */
+  begin(): number {
     this.inFlight += 1;
+    return this.session;
   }
 
-  end(): void {
+  end(session: number): void {
+    if (session !== this.session) return;
     this.inFlight = Math.max(0, this.inFlight - 1);
     // An end no action of this page claimed belongs to another client (the CLI, another page).
     if (this.inFlight === 0) this.early.clear();
   }
 
-  /** The action answered `running`: the row shows until its event (or now, if the event came first). */
-  started(row: Omit<FileTransfer, "state">): void {
+  /**
+   * The action answered `running`: the row shows until its event (or ends now, if the event came
+   * first). Dropped when the session changed: no subscription would ever end that row.
+   */
+  started(session: number, row: Omit<FileTransfer, "state">): void {
+    if (session !== this.session) return;
     const early = this.early.get(row.transfer);
     this.early.delete(row.transfer);
     const running: FileTransfer = { ...row, state: "running" };
