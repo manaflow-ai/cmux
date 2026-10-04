@@ -10,7 +10,11 @@ rules neither reference enforces together:
    through the cookie-bearing REPL `fetch` (Google's export endpoints,
    YouTube, GitHub `.diff`/`/raw/`) or in a background tab of the same
    profile, where its code runs in the page's own world against the site's
-   own origin. A token a site keeps in the page (Slack's `xoxc-` token in
+   own origin. A tool that runs in a site's origin loads a bootstrap page
+   there (`/robots.txt`) and runs nothing when a redirect left that origin:
+   the call fails with `origin_changed` when the tab's URL is elsewhere, and
+   each evaluation first checks its document's own `location.origin`.
+   A token a site keeps in the page (Slack's `xoxc-` token in
    `localStorage`, LinkedIn's CSRF cookie) is used inside that page and never
    returned. Reference A's `slack.getClient()` and `notion.getClient()` extract
    the token into the REPL; its `imagegen` object printed OAuth tokens in a
@@ -34,16 +38,31 @@ rules neither reference enforces together:
    resolved when it is made, and the confirmed call acts only there, so a
    change of shared browser state another session can make between the
    preview and the confirmation never redirects it: a Slack draft holds the
-   workspace and channel ids (`team` omitted means Slack's last-active
-   workspace at draft time, a `#name` the channel it named then), Gmail and
-   Calendar drafts the account's email for their `/u/` index, a Gmail reply
-   the ids of the thread's messages, and LinkedIn and X drafts the
-   signed-in member or user id. When the account at that index, the
+   workspace and channel ids and the member's user id (`team` omitted means
+   Slack's last-active workspace at draft time, a `#name` the channel it
+   named then), Gmail and Calendar drafts the account's email for their
+   `/u/` index, a Gmail reply the ids of the thread's messages, LinkedIn
+   and X drafts the signed-in member or user id, and a Notion draft the
+   Notion user (`{ userId }`, or the one user the session holds; with
+   several, `userId` is required). When the account at that index, the
    signed-in account or the replied thread has changed, the confirmation
    fails with `account_changed` or `thread_changed` and sends nothing; make
-   a new draft. Drive, Docs, Sheets, Slides and Notion drafts already name
-   the file or page by id, and a WebMCP draft fails when its tab left the
-   previewed URL.
+   a new draft. The account is checked again where the write happens,
+   right before it, since another session can switch the shared profile's
+   account while the composer loads: Slack posts in one page call that
+   runs `auth.test` with the same token first (a token names one member);
+   Gmail and Calendar read the account the compose, thread or event page
+   is signed in as (its title, its Google Account button) right before
+   Send or Save (`account_unknown` when the page names none); LinkedIn and
+   X read the member in the composer page right before Post; Notion checks
+   the session's users and then reads and writes with
+   `x-notion-active-user-header` set to the drafted user, so Notion runs
+   the write as that user or refuses it. The remaining window is between
+   that last check and the click (Gmail, Calendar, LinkedIn, X), which no
+   site API closes: none binds a click to an account. Drive, Docs, Sheets
+   and Slides drafts name the file by id (see "Editing Google files" for
+   what else they bind), and a WebMCP draft fails when its tab left the
+   previewed URL or the page's tool changed (see "WebMCP calls").
 3. **Failures say what to do.** A tab that reaches a sign-in page (at load or
    later from script) fails with `not_signed_in` and names the fix; a CAPTCHA
    is reported, never solved; a wrong Google account is an HTTP 403 that names
@@ -114,8 +133,9 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 `not_found`, `forbidden`, `timeout`, `captcha`, `consent_required`,
 `no_captions`, `confirm_required`, `draft_required`, `draft_not_found`,
 `draft_mismatch`, `draft_used`, `draft_expired`, `draft_changed`,
-`compose_mismatch`, `account_changed`, `thread_changed`,
-`write_requires_draft`, `unsupported`.
+`compose_mismatch`, `account_changed`, `account_unknown`, `thread_changed`,
+`tool_changed`, `sharing_changed`, `document_changed`, `sheet_changed`,
+`slide_changed`, `origin_changed`, `write_requires_draft`, `unsupported`.
 
 | Method | Mechanism | Kind |
 | --- | --- | --- |
@@ -125,19 +145,19 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `googleSlides.read(url)`, `.export(url, { format })` | `/export?format=` | read |
 | `googleDrive.download(url)`, `.export(url, { kind, format })` | drive.usercontent.google.com `/download`, Docs export | read |
 | `gmail.search(q, { limit, page, uid })`, `.inbox()`, `.thread(id, { format })`, `.attachment(id, name)` | Gmail web app in a background tab: thread rows (`tr.zA`), messages (`.adn`, expanded first); attachments are Gmail's attachment chips (`.aQH`, `.aZo`, never a link in the message body) whose link is Gmail's own `https://mail.google.com/mail/...view=att` URL, fetched with the session | read |
-| `gmail.send({ to, cc, bcc, subject, body } \| { threadId, body, replyAll })` | draft; confirmed: Gmail compose (`?view=cm`) or the thread's Reply, body checked in the composer, Send, wait for "Message sent" and the undo window | write [9], [14] |
+| `gmail.send({ to, cc, bcc, subject, body } \| { threadId, body, replyAll })` | draft; confirmed: Gmail compose (`?view=cm`) or the thread's Reply, body checked in the composer, the page's account checked against the drafted email, Send, wait for "Message sent" and the undo window | write [9], [14] |
 | `googleCalendar.events({ date, view, query, limit })` | Calendar view or search in a background tab; each `[data-eventid]` and its screen-reader description | read |
-| `googleCalendar.create({ title, start, end, allDay, description, location, guests, timeZone, recurrence })` | draft; confirmed: `calendar/render?action=TEMPLATE`, Save, Send invitations only when the draft has guests | write [9], [14] |
+| `googleCalendar.create({ title, start, end, allDay, description, location, guests, timeZone, recurrence })` | draft; confirmed: `calendar/render?action=TEMPLATE`, the event page's account checked against the drafted email, Save, Send invitations only when the draft has guests | write [9], [14] |
 | `googleSearch.search(q, options)` | the basic results page from the session's fetch (`/url?q=` links carry the destination), parsed in a blank tab; else the full page in a background tab (`div[data-rpos]` blocks, whose opaque `/goto` links are kept with `displayUrl`) | read |
 | `youtube.search`, `.metadata`, `.captions`, `.comments` | desktop watch/results HTML (`ytInitialPlayerResponse`, `ytInitialData`, also as an escaped string), InnerTube `/youtubei/v1/next` | read |
 | `youtube.transcript(v, { lang, timestamps, format })` | in order: InnerTube `/youtubei/v1/player` as the IOS, then ANDROID_VR client through the session's fetch (native clients' caption URLs need no player token; YouTube requires one for WEB subtitles, as yt-dlp's PO Token Guide documents), the track read as json3; the same calls from a youtube.com page; the watch page's track URL; last, the player in a muted background tab. A caption URL is fetched only when it is https on `www.youtube.com`, `m.youtube.com` or `youtube.com` (track URLs come from page data); other tracks are skipped. A video with no track fails as `no_captions` | read |
 | `slack.workspaces()`, `.channels`, `.history`, `.replies`, `.search`, `.user`, `.call(team, readMethod, params)` | Slack Web API from an app.slack.com tab, token from that page's `localStorage` | read |
-| `slack.post({ team, channel, text, threadTs })` | draft with the workspace and channel ids and names; confirmed: `chat.postMessage` to those ids with that workspace's token | write [9] |
+| `slack.post({ team, channel, text, threadTs })` | draft with the workspace, member and channel ids and names; confirmed: one page call that runs `auth.test` with that workspace's token and, when it is the drafted member, `chat.postMessage` to those ids with the same token | write [9] |
 | `notion.accounts()`, `.search(q, { spaceId })`, `.read(url)` | `/api/v3` (`getSpaces`, `search`, `loadPageChunk`, `syncRecordValues`) same-origin, on `app.notion.com`, else `www.notion.so`; `{ origin }` pins one of those two exactly and refuses any other | read |
-| `notion.append(page, markdown)` | draft; confirmed: `saveTransactions` (`set` and `listAfter` per block, after the last block) | write [9] |
+| `notion.append(page, markdown, { userId })` | draft naming the Notion user; confirmed: `getSpaces` must still hold that user, then `syncRecordValues` and `saveTransactions` (`set` and `listAfter` per block, after the last block) with `x-notion-active-user-header` set to that user | write [9] |
 | `linkedin.me()`, `.profile(id)` | Voyager API same-origin, CSRF from the page's cookie | read |
 | `linkedin.search(q, { type })`, `.feed()` | result and feed cards in a background tab | read |
-| `linkedin.post(text)` | draft; confirmed: share composer (`/feed/?shareActive=true&text=`), text checked, Post | write [9] |
+| `linkedin.post(text)` | draft naming the member id and public identifier; confirmed: share composer (`/feed/?shareActive=true&text=`), text checked, the member checked in that page (Voyager `/me`), Post | write [9] |
 | `x.user`, `.userTweets`, `.timeline`, `.search`, `.tweet` | profile and `article[data-testid="tweet"]` cards in a background tab, scrolled for more | read |
 | `x.post(text \| { text, replyTo })` | draft; confirmed: Web Intent `/intent/post`, text checked, Post | write [9] |
 | `github.issue`, `.pull`, `.issues` | pages in a background tab | read |
@@ -147,8 +167,8 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `linear.*` | client-api.linear.app GraphQL from a linear.app tab with the session | read |
 | `linear.query(text, variables, { operationName })` | the same; the document is first lexed and parsed as GraphQL (comments, commas, strings and block strings skipped). It is refused, with nothing sent, when it does not parse, holds a mutation or subscription anywhere, or holds several operations without an `operationName` naming one | read |
 | `jira.*` | `/rest/api/3/issue`, `/search/jql` (falls back to `/search`), `/myself`, same-origin, only on a site whose exact origin is in the signed-in account's `jira.sites()` list (read once per session, again when a site is missing); any other `*.atlassian.net` site fails as `invalid` before a request. When the domain policy blocks `home.atlassian.com` (`allowedDomains: ["*.atlassian.net"]`), the site is checked on its own origin instead: its `/rest/api/3/myself` must answer with an account (one cookie-bearing request to that site, which the policy allows), else the call fails naming `home.atlassian.com` to allow; `jira.sites()` then fails as `blocked` | read |
-| `pageAssets.list(page?)`, `.bundle(inv, { kinds, assetIds, dir })` | DOM, computed styles, `@font-face`, resource timing; downloads through the tab the inventory was listed in (its cookies, whichever tab is current; a closed tab fails with `stale`), with cookies (`credentials: "same-origin"`) only for assets on the listed page's own origin, and none (`"omit"`) for every other asset, since the page chooses the URLs, or for an inventory `list()` did not make in this session | read |
-| `webmcp.tools(page?)`, `.call(name, input, { trustReadOnlyHint })` | the page's `navigator.modelContext` implementation | write; a call with `trustReadOnlyHint: true` to a tool that declares `readOnlyHint` reads |
+| `pageAssets.list(page?)`, `.bundle(inv, { kinds, assetIds, dir })` | DOM, computed styles, `@font-face`, resource timing; downloads through the tab the inventory was listed in (its cookies, whichever tab is current; a closed tab fails with `stale`), with cookies (`credentials: "same-origin"`) only for assets on the origin of that tab's URL as the browser reported it at `list()` (never the page's answer or the returned inventory's `pageUrl`, which agent code can change), none on a redirect hop that leaves that origin, and none (`"omit"`) for every other asset, since the page chooses the URLs, or for an inventory `list()` did not make in this session | read |
+| `webmcp.tools(page?)`, `.call(name, input, { trustReadOnlyHint })` | the page's `navigator.modelContext` implementation; a call runs only the tool whose descriptor (name, title, description, schema, annotations) the draft or the listing just before it saw | write; a call with `trustReadOnlyHint: true` to a tool that declares `readOnlyHint` reads |
 | `browserAuth.request(page?, { origin, fields, submit })` | native sheet, `sites/auth-fill.js` run by the app | fills user-typed values |
 | `sites.list()`, `sites.help(name)`, `sites.drafts.list()/get(id)/discard(id)` | | |
 
@@ -171,14 +191,14 @@ the file back to verify.
 | `googleSheets.cells(url, { sheet, gid, range })` | xlsx export unzipped in a docs.google.com page (`DecompressionStream`): `{ cell, value, formula }` | read |
 | `googleSheets.find(url, text)` | the same, every tab | read |
 | `googleSheets.write(url, range, rows)` | name box selects the top-left cell, then one Meta+V of the rows as TSV from the tab's clipboard (a trusted `paste` whose `clipboardData` Sheets reads; `=` makes a formula); if the export does not show the values within about 5 s, each value is typed with real keys (Tab between cells, Enter after a row). Verified through the xlsx export | write |
-| `googleSheets.append(url, rows)` | the same after the last non-empty row | write |
+| `googleSheets.append(url, rows)` | the same after the last non-empty row; right before the paste the CSV export is read again and the write fails (`sheet_changed`) when the last row moved since the target was chosen, so rows added meanwhile are never overwritten (the web editor has no insert-at-end the session can call; a row added between that read and the paste is the remaining window) | write |
 | `googleSheets.clear(url, range)` | name box selects the range, Delete, verified | write |
 | `googleDocs.structure(url)` | HTML export parsed in a blank tab: headings with levels, paragraphs, lists, tables | read |
 | `googleDocs.replace(url, find, replacement)` | Find and replace (Meta+Shift+H), Replace all, verified through the text export | write |
-| `googleDocs.insertAfter(url, anchor, text)` | the same with `anchor` -> `anchor + text`; the anchor must occur exactly once | write |
+| `googleDocs.insertAfter(url, anchor, text)` | the same with `anchor` -> `anchor + text`; the anchor must occur exactly once. The draft shows the match count (1) and its offset in the text export; right before Replace all the export is read again and the write fails (`document_changed`) unless it is the same text, so a second match or another change is never edited (an edit not yet saved to the export when it is read is the remaining window) | write |
 | `googleDocs.append(url, text)` | end of document (Meta+ArrowDown), Enter, typed text, verified | write |
 | `googleSlides.slides(url)` | pptx export: `{ index, title, text, notes }` per slide | read |
-| `googleSlides.setNotes(url, slide, text)` | the slide's filmstrip thumbnail (`g#filmstrip-slide-<n>-<page>`), the speaker notes box, old notes selected (Meta+ArrowUp, Meta+Shift+ArrowDown) and deleted, new notes typed; verified through the pptx export | write |
+| `googleSlides.setNotes(url, slide, text)` | the slide's filmstrip thumbnail (`g#filmstrip-slide-<n>-<page>`); the draft names the slide by its object id (`<page>`) and title, and the write clicks the thumbnail with that object id wherever the slide moved (a deleted slide fails with `slide_changed`); the speaker notes box, old notes selected (Meta+ArrowUp, Meta+Shift+ArrowDown) and deleted, new notes typed; verified through the pptx export | write |
 | `googleSlides.replace(url, find, replacement)` | Find and replace, verified through the pptx export | write |
 | `googleDrive.create(kind, title)` | `docs.google.com/<kind>/create`, then the title field | creates a private file |
 | `googleDrive.trash(url)` | the editor's File > Move to trash | delete |
@@ -188,7 +208,13 @@ a write first opens the file's editor and reads its Share button. If it
 says "Private to only me", nobody else sees the edit and it runs at once.
 Otherwise, including when the sharing cannot be read, the write returns a
 draft with the file, its title, the sharing text and the change, and runs
-only on `method(draftId, { confirm: true })`. `googleDrive.trash` deletes
+only on `method(draftId, { confirm: true })`. Either way the write reloads
+the editor right before its first input and fails with `sharing_changed`,
+changing nothing, unless the Share button still shows the label the
+decision was made on (the private label, or the previewed one): a file
+shared after that read is not edited without a draft, and a draft whose
+file's sharing changed since the preview does not run. A sharing change
+during the input itself is the remaining window. `googleDrive.trash` deletes
 data ([1]): it is a draft, except for a file `googleDrive.create` made in
 the same REPL session.
 
@@ -217,6 +243,14 @@ The agent can skip the draft for one call with
 only when it declares `readOnlyHint`; any other tool still returns a draft.
 That option is the agent's statement that it accepts the page's claim for
 this call. A name the page does not list fails as `not_found` and is not run.
+The draft binds the tool's descriptor (name, title, description, input
+schema and annotations as sorted-key JSON): its preview shows the schema,
+the annotations and a hash of the descriptor, and the confirmed call passes
+the descriptor into the page call, which runs the tool only when the page
+lists it with that same descriptor, else fails with `tool_changed`. A page
+that keeps the descriptor and swaps the implementation behind it is not
+detected: the page owns its tools' code, so a WebMCP preview describes what
+the page declares, never what its code does.
 
 ## Secure sign-in
 
