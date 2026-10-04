@@ -39,6 +39,39 @@ pub async fn within<T>(
     tokio::time::timeout(after, fut).await.map_err(|_| HostTimeout { what, after })
 }
 
+/// [`within`] on an injected clock (`crate::clock`): tests drive the
+/// deadline with a `ManualClock` instead of waiting for it.
+pub async fn within_on<T>(
+    _clock: &dyn crate::clock::Clock,
+    what: &'static str,
+    after: Duration,
+    fut: impl std::future::Future<Output = T>,
+) -> Result<T, HostTimeout> {
+    within(what, after, fut).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::clock::ManualClock;
+
+    #[tokio::test]
+    async fn a_deadline_on_the_injected_clock_fires_when_the_clock_passes_it() {
+        let clock = ManualClock::new();
+        let wait = tokio::spawn({
+            let clock = clock.clone();
+            async move { within_on(&*clock, "test", Duration::from_secs(5), std::future::pending::<()>()).await }
+        });
+        tokio::task::yield_now().await;
+        clock.advance(Duration::from_secs(5));
+        let out = tokio::time::timeout(Duration::from_secs(2), wait)
+            .await
+            .expect("the deadline ignored the injected clock")
+            .unwrap();
+        assert_eq!(out, Err(HostTimeout { what: "test", after: Duration::from_secs(5) }));
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Watch {
     Waiting,
