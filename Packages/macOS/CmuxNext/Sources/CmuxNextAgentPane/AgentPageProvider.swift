@@ -6,7 +6,12 @@ public extension PageDescriptor {
     /// The agent pane, and with it the new tab page (react-pages.md, agent pane move). It reaches
     /// only its own `cmux.agent.*` ops; the app actions it may run are checked by
     /// ``AgentPaneModel`` (`cmux.agent.action.run`), so it lists no shared native op.
-    static let agent = PageDescriptor(id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace])
+    /// It connects to acpmux on loopback and shows loopback previews in frames (the page's own CSP
+    /// says the same).
+    static let agent = PageDescriptor(
+        id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace],
+        connectSources: ["ws://127.0.0.1:*", "ws://localhost:*"],
+        frameSources: ["http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"])
 }
 
 /// The `cmux.agent.*` ops: one per method of the old `agentSession` bridge, with the same params.

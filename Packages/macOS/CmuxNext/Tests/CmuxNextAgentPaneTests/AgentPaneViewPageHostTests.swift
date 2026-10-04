@@ -49,8 +49,11 @@ import Testing
         defer { view.close() }
         view.previewFeatures = true
         let received = await subscribe(try #require(view.page))
-        #expect(received().map { $0["kind"]?.stringValue } == ["theme", "shortcuts", "preview"])
-        #expect(received().last?["value"] == .bool(true))
+        // A theme change (the view joining a scope) may push the theme again; that is harmless.
+        let kinds = received().compactMap { $0["kind"]?.stringValue }
+        #expect(kinds.first == "theme")
+        #expect(Set(kinds) == ["theme", "shortcuts", "preview"])
+        #expect(received().first { $0["kind"] == "preview" }?["value"] == .bool(true))
     }
 
     /// Commands, focus and links reach the page as events; no script runs.
