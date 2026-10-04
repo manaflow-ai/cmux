@@ -11,7 +11,7 @@
 
 #[cfg(target_os = "macos")]
 #[path = "caller_macos.rs"]
-mod macos;
+pub(crate) mod macos;
 
 use std::fmt;
 use std::io;

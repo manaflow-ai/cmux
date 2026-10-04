@@ -885,6 +885,8 @@ dependencies = [
 name = "cmux-local-auth"
 version = "0.1.0"
 dependencies = [
+ "hmac",
+ "sha2 0.10.9",
  "subtle",
 ]
 

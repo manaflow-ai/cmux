@@ -20,7 +20,10 @@
 //! - [`token`]: the host side's link token check (deny by default).
 //! - [`caller`]: who may connect to the link's socket and to the daemon's
 //!   remote entry (same user, and on macOS the cmux code signature).
+//! - [`app_caller`]: whether a local peer, named by its audit token, is the
+//!   signed cmux app that contains this binary (the daemon's `verified_app`).
 
+pub mod app_caller;
 pub mod caller;
 pub mod connect_info;
 pub mod dial;

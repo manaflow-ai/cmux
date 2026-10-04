@@ -4,20 +4,20 @@ import CmuxNextSettings
 
 /// `debug.home.delivery`: my sends the owner has not confirmed, per
 /// conversation, with the reason a refused one was not delivered
-/// (`HomeDeliveryReport`), so a preflight reads "invalid: attachments
+/// (`HomeDeliveryRow`), so a preflight reads "invalid: attachments
 /// unsupported" instead of a screenshot of the red mark.
 extension DebugHome {
     static func delivery(services: AppServices) -> CmuxNextSettings.JSONValue {
         let store = services.home.homeStore
         let conversations: [CmuxNextSettings.JSONValue] = services.home.conversations.compactMap { summary in
-            let rows = HomeDeliveryReport.pending(store.transcript(for: ConversationID(summary.id)))
+            let rows = store.transcript(for: ConversationID(summary.id)).pendingDelivery
             guard !rows.isEmpty else { return nil }
             return .object(["conversation": .string(summary.id), "sends": .array(rows.map(json))])
         }
         return .object(["online": .bool(store.isOnline), "conversations": .array(conversations)])
     }
 
-    static func json(_ row: HomeDeliveryReport.Row) -> CmuxNextSettings.JSONValue {
+    static func json(_ row: HomeDeliveryRow) -> CmuxNextSettings.JSONValue {
         .object([
             "key": .string(row.key.rawValue),
             "state": .string(row.state),

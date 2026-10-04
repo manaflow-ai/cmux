@@ -16,6 +16,11 @@ pub trait Stream: Read + Write + Send + Sync {
     fn peer_process_key(&self) -> Option<String> {
         None
     }
+    /// The peer's audit token (macOS Unix sockets only; P8 3b-2, prover A
+    /// of `verified_app`). `None` elsewhere.
+    fn peer_token(&self) -> Option<cmux_link::app_caller::PeerToken> {
+        None
+    }
 }
 
 pub struct Listener {
@@ -110,6 +115,10 @@ mod imp {
 
         fn peer_process_key(&self) -> Option<String> {
             crate::platform::peer_process::key(std::os::fd::AsRawFd::as_raw_fd(self))
+        }
+
+        fn peer_token(&self) -> Option<cmux_link::app_caller::PeerToken> {
+            cmux_link::app_caller::peer_token(std::os::fd::AsRawFd::as_raw_fd(self))
         }
     }
 }
