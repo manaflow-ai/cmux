@@ -6,7 +6,8 @@ import Synchronization
 /// acpmux). So the host keeps one table of first-party ids, every `cmux.` id is first party, and no
 /// app manifest or third-party page can claim or be served under one. The browser lead's CEF
 /// scheme registration reads the same table.
-public nonisolated enum PageID {
+public nonisolated struct PageID {
+    public nonisolated init() {}
     /// First-party pages the app ships.
     public static let firstParty: Set<String> = [
         "cmux.history", "cmux.apps", "cmux.settings", "cmux.cloud", "cmux.agent", "cmux.keybindings",

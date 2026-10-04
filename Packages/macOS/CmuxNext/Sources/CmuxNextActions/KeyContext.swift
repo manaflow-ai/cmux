@@ -75,7 +75,8 @@ public nonisolated struct KeyContext: Hashable, Sendable {
     public static let windowKind = "windowKind"
 
     /// Values of ``windowKind``.
-    public enum WindowKindValue {
+    public struct WindowKindValue {
+        public init() {}
         /// A cmux main window (or a Chromium page window over it).
         public static let main = "main"
         /// A browser popup panel (or its page window).

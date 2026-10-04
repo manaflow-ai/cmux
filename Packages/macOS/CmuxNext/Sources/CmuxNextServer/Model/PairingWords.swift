@@ -6,7 +6,8 @@ import CryptoKit
 /// SHA-256 of the 32-byte RFC 7638 thumbprint, the first 44 bits as four
 /// 11-bit indexes into the BIP-39 English list (`pairing-words.txt`, a copy of
 /// the Rust crate's `bip39-english.txt`).
-public nonisolated enum PairingWords {
+public nonisolated struct PairingWords {
+    public nonisolated init() {}
     /// The 2,048 words, or empty when the resource is missing.
     static let list: [String] = {
         guard let url = Bundle.module.url(forResource: "pairing-words", withExtension: "txt"),

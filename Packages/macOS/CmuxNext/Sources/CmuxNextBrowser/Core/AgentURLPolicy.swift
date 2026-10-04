@@ -7,7 +7,8 @@ public import Foundation
 /// script; `chrome://extensions` and `chrome://settings` change the profile.
 /// One rule for every agent path: navigate, Back/Forward targets, reload and
 /// evaluate while one shows, and a commit that reaches one anyway.
-public nonisolated enum AgentURLPolicy {
+public nonisolated struct AgentURLPolicy {
+    public nonisolated init() {}
     /// What an agent-driven tab shows instead of a refused page.
     public static let replacementURL = URL(string: BrowserNewTabPage.blankURL)
 
