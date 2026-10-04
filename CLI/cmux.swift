@@ -11839,10 +11839,23 @@ struct CMUXCLI {
 
         case "rename":
             let (nameOpt, rem0) = parseOption(rest, name: "--name")
-            let gid = try resolveGroupId(in: rem0)
+            let (groupOpt, rem1) = parseOption(rem0, name: "--group")
+            // Strip --window too, so its value is never read as the new name.
+            let (_, rem2) = parseOption(rem1, name: "--window")
+            var positionals: [String] = []
+            var pastTerminator = false
+            for argument in rem2 {
+                if !pastTerminator, argument == "--" {
+                    pastTerminator = true
+                } else if pastTerminator || !argument.hasPrefix("-") {
+                    positionals.append(argument)
+                }
+            }
+            guard let gid = groupOpt ?? positionals.first else {
+                throw CLIError(message: "workspace-group rename requires a group id or --group <id>")
+            }
             params["group_id"] = gid
-            let positional = rem0.filter { !$0.hasPrefix("--") && $0 != gid }
-            guard let newName = nameOpt ?? positional.first else {
+            guard let newName = nameOpt ?? positionals.dropFirst(groupOpt == nil ? 1 : 0).first else {
                 throw CLIError(message: "rename requires --name <name>")
             }
             params["name"] = newName
@@ -11916,7 +11929,7 @@ struct CMUXCLI {
             // when both flags are passed; --hex wins.
             let (colorOpt, rem0) = parseOption(rem1, name: "--color")
             params["group_id"] = try resolveGroupId(in: rem0)
-            // Treat --hex/--color with no value (or `""`) as a clear.
+            // Leaving out --hex/--color, or passing `""`, clears the color.
             params["hex"] = hexOpt ?? colorOpt ?? ""
             let resp = try client.sendV2(method: "workspace.group.set_color", params: params)
             printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)

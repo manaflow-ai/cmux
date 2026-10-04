@@ -147,6 +147,11 @@ class WorkspaceGroupArgumentTests(unittest.TestCase):
                           {"group_id": G1, "remove_generated_anchor": True})
         self.assert_sends(["rename", G1, "--name", "New"], "workspace.group.rename", {"group_id": G1, "name": "New"})
         self.assert_sends(["rename", G1, "New"], "workspace.group.rename", {"group_id": G1, "name": "New"})
+        # The --window value is not the new name, and after -- the name is literal.
+        self.assert_sends(["rename", G1, "--window", WIN, "New"], "workspace.group.rename",
+                          {"group_id": G1, "name": "New"})
+        self.assert_sends(["rename", G1, "--", "--draft"], "workspace.group.rename",
+                          {"group_id": G1, "name": "--draft"})
         self.assert_sends(["collapse", G1], "workspace.group.collapse", {"group_id": G1})
         self.assert_sends(["add", "--group", G1, "--workspace", WS], "workspace.group.add",
                           {"group_id": G1, "workspace_id": WS})
