@@ -304,6 +304,10 @@
           "type": "boolean",
           "description": "The app may also open as a page tab (Open as Tab, drag into a workspace)."
         },
+        "hiddenByDefault": {
+          "type": "boolean",
+          "description": "Installed but hidden until the user shows it; still reachable from the palette, CLI and App Store."
+        },
         "primaryInput": {
           "type": "string",
           "minLength": 1,

@@ -937,6 +937,12 @@ fn a_fresh_daemon_with_the_bundle_path_lists_coderouter_installed_by_default() {
     let root = temp_dir();
     let first_party = root.0.join("first-party");
     write_app(&first_party, "coderouter", "cmux/coderouter", json!({ "workspace:read": "r" }));
+    // The manifest says the app starts hidden (presentation.hiddenByDefault).
+    let path = first_party.join("coderouter/cmux-app.json");
+    let mut manifest: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    manifest["presentation"] = json!({ "hiddenByDefault": true });
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    write_app(&first_party, "notes", "cmux/notes", json!({ "workspace:read": "r" }));
     let supervisor = Supervisor::new(
         Config {
             state_dir: Some(root.0.join("state")),
@@ -971,6 +977,8 @@ fn a_fresh_daemon_with_the_bundle_path_lists_coderouter_installed_by_default() {
         (coderouter["hidden"].clone(), coderouter["hide_only"].clone()),
         (json!(true), json!(true))
     );
+    // A default without the field starts visible.
+    assert_eq!(app_entry(&supervisor.list(), "cmux/notes")["hidden"], json!(false));
     let mut op = SetOp {
         key: "rm".into(),
         app: "cmux/coderouter".into(),
