@@ -25,6 +25,9 @@ public nonisolated enum TerminalStreamPlan {
         case grid(columns: Int, rows: Int)
         /// Full screen state for a fresh mirror.
         case replay(TerminalReplay)
+        /// GHOSTSNP restore on the live mirror: `ready` replaces its state
+        /// (preceded by its grid), `history` adds that READY's scrollback.
+        case snapshot(TerminalSnapshotFrame)
         case output(Data)
         /// The terminal's process is gone.
         case exited
@@ -43,9 +46,12 @@ public nonisolated enum TerminalStreamPlan {
             [.output(data)]
         case .closed, .colorsChanged, .scrollChanged:
             []
-        case .snapshot:
-            // Views do not attach in snapshot mode yet (S2b slice 2).
-            []
+        case .snapshot(let frame):
+            if frame.phase == .ready, let cols = frame.cols, let rows = frame.rows {
+                [.grid(columns: cols, rows: rows), .snapshot(frame)]
+            } else {
+                [.snapshot(frame)]
+            }
         }
     }
 

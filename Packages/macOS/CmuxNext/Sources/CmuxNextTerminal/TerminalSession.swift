@@ -191,6 +191,9 @@ public final class TerminalSession {
             surfaceView.lane?.processOutput(replay.vt)
             surfaceHasContent = true
             TerminalTimings.contentApplied()
+        case .snapshot:
+            // In-place restore lands in S2b slice 3.
+            break
         case .output(let data):
             ExpectedActivity.shared.note(.terminalOutput)
             guard let lane = surfaceView.lane else { return }

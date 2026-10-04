@@ -35,7 +35,7 @@ public nonisolated final class TerminalStepQueue: Sendable {
     /// Queues `step`, first waiting while the consumer is behind. Returns
     /// at once after ``finish()``.
     public func push(_ step: TerminalStreamPlan.Step) async {
-        if case .replay = step {
+        if Self.supersedes(step) {
             enqueue(step, supersede: true)
             return
         }
@@ -120,10 +120,8 @@ public nonisolated final class TerminalStepQueue: Sendable {
             guard !state.finished else { return nil }
             if supersede {
                 // Grids stay: they are ordered with the replay and cheap.
-                state.items = state.items[state.head...].filter {
-                    if case .output = $0 { return false }
-                    return true
-                }
+                // Output and an older READY's history are replaced by it.
+                state.items = state.items[state.head...].filter { Self.outputSize($0) == 0 }
                 state.head = 0
                 state.outputBytes = 0
             }
@@ -138,8 +136,22 @@ public nonisolated final class TerminalStepQueue: Sendable {
         consumer?.resume(returning: step)
     }
 
+    /// Bulk bytes of a step: output and snapshot history pages.
     private static func outputSize(_ step: TerminalStreamPlan.Step) -> Int {
-        if case .output(let data) = step { return data.count }
-        return 0
+        switch step {
+        case .output(let data): data.count
+        case .snapshot(let frame) where frame.phase == .history: frame.data.count
+        default: 0
+        }
+    }
+
+    /// A replay or READY snapshot holds the whole screen: it never waits and
+    /// replaces queued bulk steps.
+    private static func supersedes(_ step: TerminalStreamPlan.Step) -> Bool {
+        switch step {
+        case .replay: true
+        case .snapshot(let frame): frame.phase == .ready
+        default: false
+        }
     }
 }
