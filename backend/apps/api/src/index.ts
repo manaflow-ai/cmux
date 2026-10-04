@@ -9,6 +9,7 @@ import { handleInviteCard, handleInvitePreview } from "./home-routes.ts"
 import { handleAttachmentCommit, handleAttachmentDownload, handleAttachmentIntent, handleAttachmentDerived, handleAttachmentUpload, handleAttachmentUrl } from "./home-attachments.ts"
 import { CARD_PATH, handleContactCard, handleSendblueHook } from "./home-text.ts"
 import { handleOutboxReplay } from "./admin-outbox.ts"
+import { handleTeamVmAdmin } from "./team-vm-admin.ts"
 import { signInRules, ssoGate, versionRefusal } from "./policy-gate.ts"
 import type { PresenceKeyBody } from "./user-do.ts"
 import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
@@ -126,6 +127,7 @@ export default {
     if (url.pathname === CARD_PATH && request.method === "GET") return handleContactCard(env)
     if (url.pathname === "/v1/hooks/sendblue") return handleSendblueHook(request, env)
     if (url.pathname === "/v1/admin/outbox/replay") return handleOutboxReplay(request, env)
+    if (url.pathname.startsWith("/v1/admin/team-vm/")) return handleTeamVmAdmin(request, env)
     // Webhook ingress: no bearer; each route verifies its own signature before any DO call.
     const hook = url.pathname.match(/^\/v1\/hooks\/automation\/([^/]+)\/([^/]+)$/)
     if (hook) return handleAutomationHook(request, env, hook[1]!, hook[2]!)

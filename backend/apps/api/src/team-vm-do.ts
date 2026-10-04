@@ -5,6 +5,16 @@ import { DriverError, FakeDriver, providerRefusal, teamVmDriver } from "./team-v
 import { MAX_ATTEMPTS, teamVmDomain, teamVmSlug, teamVmWakeAt, type TeamVmState } from "./domains/team-vm.ts"
 import { fromBase64, isStream, MAX_ENTRY_BYTES, sha256Hex, TeamJournal } from "./team-vm-journal.ts"
 import { TeamVmLedger, type LedgerRow } from "./team-vm-ledger.ts"
+import { RegistryOutbox } from "./team-vm-registry-outbox.ts"
+import { TeamVmRegistry, type RegistryCounts, type RegistryEvent, type RegistryEventKind } from "./team-vm-registry.ts"
+import { TEAM_VM_REGISTRY } from "./team-vm-admin.ts"
+
+/** Prefix report bounds: pages of this size, at most this many pages, at most this many names in the answer. */
+const REPORT_PAGE = 100
+const REPORT_MAX_PAGES = 50
+const REPORT_MAX_NAMES = 200
+/** Retry of undelivered registry events when the alarm next runs for this object. */
+const REGISTRY_RETRY_MS = 60_000
 
 /** How long the request path waits for the provider before it answers with the current state. */
 const ENSURE_AWAKE_WAIT_MS = 25_000
@@ -79,8 +89,11 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     }
   }
 
-  protected override nextWakeAt(state: TeamVmState, _now: number): number | null {
-    return teamVmWakeAt(state)
+  protected override nextWakeAt(state: TeamVmState, now: number): number | null {
+    const own = teamVmWakeAt(state)
+    // Undelivered registry events retry with the alarm (only while some are left; no idle work).
+    const outbox = this.outbox.size() > 0 ? now + REGISTRY_RETRY_MS : null
+    return own === null ? outbox : outbox === null ? own : Math.min(own, outbox)
   }
 
   protected override async onWake(now: number): Promise<void> {
@@ -89,6 +102,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     const state = engine.currentState
     if (Object.values(state.leases).some((l) => l.expires_at <= now)) this.submitSystem("team_vm.leases_expire", { now }, `leases_expire:${now}`)
     if (state.pending && state.pending.retry_at <= now) await this.reconcile()
+    await this.drainRegistry()
   }
 
   /**
@@ -171,21 +185,27 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     const earlier = this.vmLedger.createRowFor(epoch)
     if (earlier) {
       // An `absent` name opens again as an intent (the lookup may have run before the create landed).
-      if (earlier.state === "absent") this.vmLedger.recordIntent({ name: earlier.name, env: earlier.env, team, epoch, created_by: createdBy, now: Date.now() })
+      if (earlier.state === "absent") {
+        this.vmLedger.recordIntent({ name: earlier.name, env: earlier.env, team, epoch, created_by: createdBy, now: Date.now() })
+        this.enqueueRegistry("intent", team, earlier.name, null)
+      }
       return earlier.name
     }
     this.sqlStore.exec(`CREATE TABLE IF NOT EXISTS team_vm_create_attempt (epoch INTEGER PRIMARY KEY, slug TEXT NOT NULL)`)
     const tried = this.sqlStore.exec<{ slug: string }>(`SELECT slug FROM team_vm_create_attempt WHERE epoch = ?`, epoch)[0]
     const slug = tried?.slug ?? teamVmSlug(prefix, team, epoch)
     this.vmLedger.recordIntent({ name: slug, env: this.env.ENVIRONMENT ?? "unknown", team, epoch, created_by: createdBy, now: Date.now() })
+    this.enqueueRegistry("intent", team, slug, null)
     return slug
   }
 
   /** Backfill: the team record's VM enters the ledger by its exact id if no row holds it yet. */
   private backfillLedger(): void {
+    this.outbox.seed(this.vmLedger.rows())
     const state = this.boundEngine?.currentState
     if (!state?.vm || !state.team) return
     const wrote = this.vmLedger.backfill({ id: state.vm, name: state.slug ?? state.vm, env: this.env.ENVIRONMENT ?? "unknown", team: state.team, epoch: state.epoch, now: Date.now() })
+    if (wrote) this.enqueueRegistry("backfilled", state.team, state.slug ?? state.vm, state.vm)
     if (wrote) console.log(JSON.stringify({ msg: "team vm ledger backfill", team: state.team, vm: state.vm, epoch: state.epoch }))
   }
 
@@ -193,6 +213,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   async ledger(entity: string): Promise<{ rows: LedgerRow[] }> {
     this.bind(entity)
     this.backfillLedger()
+    await this.drainRegistry()
     return { rows: this.vmLedger.rows() }
   }
 
@@ -221,6 +242,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
           counts.absent++
         } else if (found.team === row.team && !this.vmLedger.byId(found.id)) {
           this.vmLedger.confirm(row.name, found.id)
+          this.enqueueRegistry("created", row.team, row.name, found.id)
           counts.confirmed++
         } else {
           console.warn(JSON.stringify({ msg: "team vm ledger name held by another VM", team: row.team, name: row.name }))
@@ -230,6 +252,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
         counts.unresolved++
       }
     }
+    await this.drainRegistry()
     return counts
   }
 
@@ -253,6 +276,8 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     if (!driver) return { ok: false, code: refusal ?? "team_vm.not_configured", message: "no team VM provider is configured for this deployment" }
     await driver.deleteVm(providerId)
     this.vmLedger.markDeleted(providerId, Date.now())
+    this.enqueueRegistry("deleted", row.team, row.name, providerId)
+    await this.drainRegistry()
     console.log(JSON.stringify({ msg: "team vm deleted", team: row.team, vm: providerId, name: row.name, by }))
     return { ok: true }
   }
@@ -264,6 +289,14 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   }
 
   private async runPending(): Promise<void> {
+    try {
+      await this.runPendingSteps()
+    } finally {
+      await this.drainRegistry()
+    }
+  }
+
+  private async runPendingSteps(): Promise<void> {
     // Every pass first puts the team record's VM into the ledger (a no-op once it is there).
     this.backfillLedger()
     // At most start, then (VM missing) create, then start; each step commits before the next reads the state.
@@ -291,6 +324,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
           const vm = await driver.ensureVm(slug, state.team, state.epoch + 1)
           this.submitSystem("team_vm.driver_result", { action: "create", epoch: state.epoch, ok: true, vm: vm.id, slug, observed: vm.state }, key)
           this.vmLedger.confirm(slug, vm.id)
+          this.enqueueRegistry("created", state.team, slug, vm.id)
           this.sqlStore.exec(`DELETE FROM team_vm_create_attempt WHERE epoch <= ?`, state.epoch + 1)
         } else {
           if (!state.vm) return
@@ -308,6 +342,86 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     }
   }
 
+  // Registry delivery (team instances): team-vm-registry-outbox.ts.
+  private outboxStore: RegistryOutbox | null = null
+  private get outbox(): RegistryOutbox {
+    if (!this.outboxStore) this.outboxStore = new RegistryOutbox(this.sqlStore)
+    return this.outboxStore
+  }
+
+  private enqueueRegistry(kind: RegistryEventKind, team: string, name: string, providerId: string | null): void {
+    this.outbox.enqueue(kind, team, name, providerId)
+  }
+
+  private async drainRegistry(): Promise<void> {
+    const ns = this.env.TEAM_VM_DO as unknown as DurableObjectNamespace
+    const registry = ns.get(ns.idFromName(TEAM_VM_REGISTRY)) as unknown as { registryEvent(ev: RegistryEvent): Promise<void> }
+    if ((await this.outbox.drain((ev) => registry.registryEvent(ev))) && this.boundEngine) this.scheduleAlarm()
+  }
+
+  // Registry instance (TEAM_VM_REGISTRY only).
+
+  private registryStore: TeamVmRegistry | null = null
+  private get registry(): TeamVmRegistry {
+    if (!this.registryStore) this.registryStore = new TeamVmRegistry(this.sqlStore)
+    return this.registryStore
+  }
+
+  /** RPC from a team instance's registry outbox; idempotent by provider id. */
+  async registryEvent(ev: RegistryEvent): Promise<void> {
+    this.refuseOnTeamInstance()
+    this.registry.event(ev, Date.now())
+  }
+
+  async registryCounts(): Promise<RegistryCounts> {
+    this.refuseOnTeamInstance()
+    return this.registry.counts()
+  }
+
+  /** The registry RPCs run only on the registry instance, which is never bound to a team record. */
+  private refuseOnTeamInstance(): void {
+    if (this.boundEngine) throw new Error("registry RPCs run only on the registry instance")
+  }
+
+  /**
+   * On demand only (the operator route), report-only: pages through the provider account's VMs,
+   * keeps the names with this environment's team VM prefix, and names those whose id no team's
+   * ledger holds. Never adopts, deletes or writes anything; other names never leave this method.
+   */
+  async prefixReport(): Promise<{ prefix: string; listed: number; matched: number; in_registry: number; not_in_registry: string[]; truncated: boolean }> {
+    this.refuseOnTeamInstance()
+    const refusal = providerRefusal(this.env)
+    const driver = refusal ? null : teamVmDriver(this.env, this.sqlStore)
+    if (!driver) throw new Error(refusal ?? "team_vm.not_configured")
+    // The same prefix new team VMs get (createSlug); offset paging over a changing list may skip or repeat a row (a report, not a ledger).
+    const prefix = (driver instanceof FakeDriver ? driver.slugPrefix() : null) ?? this.env.TEAM_VM_SLUG_PREFIX ?? ""
+    if (!prefix) throw new Error("team_vm.no_prefix")
+    let listed = 0
+    let matched = 0
+    let known = 0
+    const unknown: string[] = []
+    let truncated = false
+    for (let page = 0; ; page++) {
+      if (page >= REPORT_MAX_PAGES) {
+        truncated = true
+        break
+      }
+      const r = await driver.listPage(REPORT_PAGE, page * REPORT_PAGE)
+      listed += r.size
+      for (const vm of r.vms) {
+        if (!vm.slug?.startsWith(prefix)) continue
+        matched++
+        if (this.registry.knows(vm.id)) known++
+        else if (unknown.length < REPORT_MAX_NAMES) unknown.push(vm.slug)
+        else truncated = true
+      }
+      if (r.size < REPORT_PAGE || (r.total !== null && (page + 1) * REPORT_PAGE >= r.total)) break
+    }
+    const report = { prefix, listed, matched, in_registry: known, not_in_registry: unknown, truncated }
+    console.log(JSON.stringify({ msg: "team vm prefix report", ...report, counts: this.registry.counts() }))
+    return report
+  }
+
   /** Test only (ENVIRONMENT=test): drive the fake provider. */
   async fakeControl(cmd: {
     fail_next?: number
@@ -317,10 +431,14 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     lose_next_create?: number
     seed_vm?: { slug: string; id: string }
     drop_ledger?: boolean
+    drop_registry?: boolean
+    reset_registry_seed?: boolean
   }): Promise<{ creates: number; starts: number }> {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     teamVmDriver(this.env, this.sqlStore)
     if (cmd.seed_vm) this.sqlStore.exec(`INSERT OR REPLACE INTO fake_vm (slug, id, state, team) VALUES (?, ?, 'running', NULL)`, cmd.seed_vm.slug, cmd.seed_vm.id)
+    if (cmd.drop_registry) this.registry.clear()
+    if (cmd.reset_registry_seed) this.outbox.resetSeed()
     if (cmd.drop_ledger) {
       void this.vmLedger
       this.sqlStore.exec(`DELETE FROM team_vm_ledger`)
