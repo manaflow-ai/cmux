@@ -94,6 +94,20 @@ struct AcpmuxQuitProofTests {
         #expect(AcpmuxQuitProof.decide(facts, chief: [], daemonExited: true) == .agentsStillRunning(["broken"]))
     }
 
+    /// A record cannot point the probe outside hosts/: a session id or nonce
+    /// with "/" or ".." is unknown (counted as running), never probed.
+    @Test func aRecordThatEscapesHostsIsUnknown() throws {
+        let home = try Home()
+        home.lockFile("outside.x.live", held: false)
+        for (index, (session, nonce)) in [("../outside", "x"), ("a/b", "x"), ("ok", "../x"), ("..", "x")].enumerated() {
+            let record = #"{"record_version":1,"session_id":"\#(session)","host_pid":1,"incarnation":"i","start_nonce":"\#(nonce)"}"#
+            try record.write(to: home.url.appendingPathComponent("hosts/r\(index).json"), atomically: true, encoding: .utf8)
+        }
+        let facts = AcpmuxQuitProof.read(home: home.url)
+        #expect(facts.liveHostSessions.isEmpty)
+        #expect(facts.unknownHostSessions == ["r0", "r1", "r2", "r3"])
+    }
+
     @Test func theDecisionNeedsAFreeDaemonLockAndNoNonChiefHost() {
         #expect(AcpmuxQuitProof.decide(.init(daemon: .held, daemonPID: 42), chief: [], daemonExited: false) == .shutdownInProgress(pid: 42))
         #expect(AcpmuxQuitProof.decide(.init(daemon: .unknown), chief: [], daemonExited: true) == .shutdownInProgress(pid: nil),
