@@ -188,6 +188,24 @@ class MergeGateDecisionTests(unittest.TestCase):
         )
         self.assertFalse(result.passed)
 
+    def test_not_on_main_reason_must_name_each_failing_check(self) -> None:
+        result = merge_gate.evaluate_gate(
+            base(
+                required_checks=["ci-status", "CI fast guards"],
+                check_runs=[
+                    {"name": "ci-status", "head_sha": HEAD, "conclusion": "failure", "completed_at": "2026-10-03T15:05:00Z"},
+                    {"name": "CI fast guards", "head_sha": HEAD, "conclusion": "failure", "completed_at": "2026-10-03T15:06:00Z"},
+                ],
+                comments=[
+                    override(
+                        "merge-override: ci-status is not on main. CI fast guards failed, "
+                        "and the change is safe because review and focused tests cover the affected behavior."
+                    )
+                ],
+            )
+        )
+        self.assertFalse(result.passed)
+
     def test_fresh_override_can_explain_that_failure_is_not_on_main(self) -> None:
         result = merge_gate.evaluate_gate(
             base(

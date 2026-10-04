@@ -158,6 +158,13 @@ def _has_real_sentence(rationale: str) -> bool:
     return normal not in _BOILERPLATE and not any(normal == phrase for phrase in _BOILERPLATE)
 
 
+def _not_on_main_for_check(rationale: str, check: str) -> bool:
+    """Require the explicit not-on-main reason to name this check."""
+    check_pattern = re.compile(rf"(?<![A-Za-z0-9_-]){re.escape(check)}(?![A-Za-z0-9_-])")
+    clauses = re.split(r"(?<=[.!?;])\s+", rationale)
+    return any(check_pattern.search(clause) and _NOT_ON_MAIN.search(clause) for clause in clauses)
+
+
 def _main_failure(
     run: Mapping[str, Any], check: str, repository: str, expected_state: str | None
 ) -> bool:
@@ -263,7 +270,7 @@ def evaluate_gate(data: Mapping[str, Any]) -> Decision:
         if not all(
             re.search(rf"(?im)(?<![A-Za-z0-9_-]){re.escape(check)}(?![A-Za-z0-9_-])", rationale)
             and (
-                _NOT_ON_MAIN.search(rationale)
+                _not_on_main_for_check(rationale, check)
                 or _linked_main_failure(
                     rationale,
                     check,
