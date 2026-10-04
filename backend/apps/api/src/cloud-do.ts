@@ -229,9 +229,9 @@ export class CloudDO extends OwnerDO<CloudState> {
       if (!oldest) return
       const due = oldest.r!
       const row = due.row
-      // A request runs calls at once, except the backed-off finds of a cancelled create (a client
-      // retrying fast must not spend them); the alarm runs what is due.
-      const dueLimit = dueBy ?? (row.cancel ? Date.now() + this.skewMs : Infinity)
+      // N4: a request runs a call at once only for its first attempt; after a failure it waits for
+      // the backoff like the alarm, so fast same-key retries cannot spend the attempts.
+      const dueLimit = dueBy ?? (row.attempts === 0 ? Infinity : Date.now() + this.skewMs)
       if (oldest.p.due_at > dueLimit) return
       // Cancelled-create finds restart at attempt 0: their keys must differ from the create's own.
       const commitKey = `driver:${due.n}:${row.cancel ? "c" : "a"}${row.attempts}`
