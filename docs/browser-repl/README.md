@@ -418,7 +418,9 @@ rest. Measurements: [performance.md](performance.md).
   a dialog or file chooser the page opens then goes to that session, as in
   a tab it created, and a window it opens becomes a background tab that
   the session gets as a `popup` (under the session's domain policy) and
-  that stays the user's (never closed with the session). The agent caused
+  that stays the user's (never closed with the session, nor for the
+  session's domain policy, which only keeps the session's reads and input
+  out of it). The agent caused
   them, so cmux's UI must not come up in front of the user (an Open panel
   or a key popup window over their work from a hidden workspace) or leave
   the agent waiting for an answer only the user could give. Windows the
