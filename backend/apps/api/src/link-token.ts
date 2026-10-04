@@ -67,7 +67,8 @@ export const parseSigningKeys = (raw: string | undefined): SigningKeys | null =>
   if (kids.length < 1 || kids.length > MAX_ACTIVE_KIDS || !kids.includes(v.active)) return null
   if (!kids.every((k) => KID.test(k) && isEd25519Private(keys[k]))) return null
   const pub = (v as { published_at?: unknown }).published_at
-  const published: Record<string, number> = {}
+  // No prototype: a kid named constructor or __proto__ must not look published (review P3-1).
+  const published: Record<string, number> = Object.create(null) as Record<string, number>
   if (pub !== undefined) {
     if (!pub || typeof pub !== "object") return null
     for (const [k, t] of Object.entries(pub as Record<string, unknown>)) {
@@ -76,7 +77,7 @@ export const parseSigningKeys = (raw: string | undefined): SigningKeys | null =>
     }
   }
   // A rotation (two kids) must say when each kid was published; only a lone legacy kid may omit it.
-  if (kids.length > 1 && !kids.every((k) => k in published)) return null
+  if (kids.length > 1 && !kids.every((k) => Object.hasOwn(published, k))) return null
   return { active: v.active, keys: keys as Record<string, JWK>, published_at: published }
 }
 
@@ -86,7 +87,7 @@ export const parseSigningKeys = (raw: string | undefined): SigningKeys | null =>
  * published_at signs at once.
  */
 export const signingKid = (k: SigningKeys, now: number): string | null => {
-  const ready = (kid: string) => (k.published_at[kid] === undefined ? Object.keys(k.keys).length === 1 : k.published_at[kid]! + KID_PUBLISH_LEAD_MS <= now)
+  const ready = (kid: string) => (!Object.hasOwn(k.published_at, kid) ? Object.keys(k.keys).length === 1 : k.published_at[kid]! + KID_PUBLISH_LEAD_MS <= now)
   if (ready(k.active)) return k.active
   return Object.keys(k.keys).find((kid) => kid !== k.active && ready(kid)) ?? null
 }
