@@ -26,6 +26,8 @@ public nonisolated enum AgentPaneTransportError: String, Error, Equatable, Senda
     case pathInvalid = "transport.path_invalid"
     /// A `cwd` or `path` param outside the pane's workspace roots (``AcpmuxPathPolicy``).
     case pathOutsideRoots = "transport.path_outside_roots"
+    /// A kill or permission answer for a session this pane did not start and does not show.
+    case sessionNotInPane = "transport.session_not_in_pane"
     /// The page did not take frames as fast as the daemon sent them; the socket was closed.
     case inboundOverflow = "transport.inbound_overflow"
     /// The daemon did not take the page's frames; the socket was closed.
@@ -149,8 +151,20 @@ public extension AgentPaneTransportPacer {
     public let gestures: AgentPaneUserGestures
     /// The permission options the daemon sent, to tell an allow from a deny.
     public let permissionOptions = AcpmuxPermissionOptions()
-    /// The pane's workspace roots (``AcpmuxPathPolicy``); asked at each frame that names a path.
+    /// The sessions this pane started or shows.
+    public let sessions = AcpmuxPaneSessions()
+    /// The pane's own roots (``AcpmuxPathPolicy/Scope/roots``), asked at each frame.
     public var roots: @MainActor () -> [String] = { [] }
+    /// Folders that are roots only when the user picks one by a gesture (the new tab page's scan).
+    public var gestureRoots: @MainActor () -> [String] = { [] }
+    /// The pane's workspace root, the cwd of a `session/new` that names none.
+    public var primaryRoot: @MainActor () -> String? = { nil }
+    /// Asks the user to add a refused folder as a root (a native sheet); the answer is true for
+    /// Add. Asked only after a real gesture, one at a time.
+    public var requestRoot: (@MainActor (_ folder: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
+    /// Folders the user added or picked by a gesture: roots from then on.
+    public private(set) var addedRoots: [String] = []
+    private var askingRoot = false
 
     /// Pushes and flushes so far (tests and the bench read them).
     public private(set) var flushes = 0
@@ -175,7 +189,7 @@ public extension AgentPaneTransportPacer {
         let id = current
         localAppToken = connection.localAppToken
         sentFirst = false
-        let socket = AcpmuxPaneSocket(request: connection.request, limits: limits, options: permissionOptions) { [weak self] in
+        let socket = AcpmuxPaneSocket(request: connection.request, limits: limits, options: permissionOptions, sessions: sessions) { [weak self] in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.arrived(id) } }
         }
         self.socket = socket
@@ -210,13 +224,32 @@ public extension AgentPaneTransportPacer {
         for frame in frames {
             guard id == current, let socket else { return firstError ?? .staleConnection }
             var decision = AcpmuxPaneMethods.decide(frame, isFirst: !sentFirst, localAppToken: localAppToken)
+            var rootRequested = false
+            // A kill or a permission answer only for this pane's sessions.
+            if case .send(let text) = decision, sentFirst, let refusal = sessionRefusal(text) {
+                decision = refusal
+            }
             if case .send(let text) = decision, sentFirst {
-                switch await AcpmuxPathPolicy.check(text, roots: roots()) {
-                case .success(let checked): decision = .send(checked)
-                case .failure(let refusal): decision = .refuse(refusal.error, method: refusal.method, requestID: refusal.requestID)
-                }
+                let scope = AcpmuxPathPolicy.Scope(roots: roots() + addedRoots, gestureRoots: gestureRoots(), fillCwd: primaryRoot())
+                let result = await AcpmuxPathPolicy.check(text, scope: scope)
                 // The connection may have changed while the disk was read.
                 guard id == current, self.socket === socket else { return firstError ?? .staleConnection }
+                switch result {
+                case .success(let checked):
+                    decision = .send(checked.text)
+                    // A folder of the new tab page's scan counts only when the user picked it.
+                    if !checked.gestureRootsUsed.isEmpty {
+                        if gestures.consume() {
+                            addedRoots += checked.gestureRootsUsed.filter { !addedRoots.contains($0) }
+                        } else {
+                            let identity = AcpmuxPaneMethods.identity(text)
+                            decision = .refuse(.pathOutsideRoots, method: identity.method, requestID: identity.id)
+                        }
+                    }
+                case .failure(let refusal):
+                    decision = .refuse(refusal.error, method: refusal.method, requestID: refusal.requestID)
+                    if refusal.error == .pathOutsideRoots, let folder = refusal.outsidePath { rootRequested = offerRoot(folder) }
+                }
             }
             // A frame that grants uses the user's gesture (one per grant).
             if case .send(let text) = decision, sentFirst, AcpmuxPaneMethods.needsGesture(text, options: permissionOptions),
@@ -224,6 +257,7 @@ public extension AgentPaneTransportPacer {
                 let identity = AcpmuxPaneMethods.identity(text)
                 decision = .refuse(.gestureRequired, method: identity.method, requestID: identity.id)
             }
+            if case .send(let text) = decision, sentFirst { noteSent(text) }
             switch decision {
             case .send(let text):
                 if !sentFirst {
@@ -243,11 +277,44 @@ public extension AgentPaneTransportPacer {
                     return firstError
                 }
                 if let requestID {
-                    socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method))
+                    socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method, rootRequested: rootRequested))
                 }
             }
         }
         return firstError
+    }
+
+    /// The refusal of a session-scoped frame for a session that is not this pane's.
+    private func sessionRefusal(_ text: String) -> AcpmuxPaneMethods.Decision? {
+        guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+              let method = object["method"] as? String, AcpmuxPaneMethods.sessionScoped.contains(method), false else { return nil } // RED STUB
+        let session = (object["params"] as? [String: Any])?["sessionId"] as? String
+        guard let session, sessions.contains(session) else {
+            return .refuse(.sessionNotInPane, method: method, requestID: object["id"].flatMap(AcpmuxPaneMethods.rawID))
+        }
+        return nil
+    }
+
+    /// Records what a sent frame starts or shows.
+    private func noteSent(_ text: String) {
+        guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+              let method = object["method"] as? String,
+              method == "_acpmux/attach" || AcpmuxPaneSessions.starting.contains(method) else { return }
+        sessions.sent(method: method, id: object["id"].flatMap(AcpmuxPaneMethods.rawID), params: object["params"] as? [String: Any] ?? [:])
+    }
+
+    /// Offers the user to add `folder` as a root: only after a real gesture (which the offer uses),
+    /// one sheet at a time. True when the sheet is shown.
+    private func offerRoot(_ folder: String) -> Bool {
+        if true { return false } // RED STUB: no sheet
+        guard !askingRoot, let requestRoot, gestures.consume() else { return false }
+        askingRoot = true
+        requestRoot(folder) { [weak self] add in
+            guard let self else { return }
+            self.askingRoot = false
+            if add, !self.addedRoots.contains(folder) { self.addedRoots.append(folder) }
+        }
+        return true
     }
 
     /// Closes the connection if it is the current one.
@@ -315,14 +382,16 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private let request: URLRequest
     private let limits: AgentPaneTransport.Limits
     private let options: AcpmuxPermissionOptions
+    private let sessions: AcpmuxPaneSessions
     private let signal: @Sendable () -> Void
     private let state = Mutex(State())
 
     init(request: URLRequest, limits: AgentPaneTransport.Limits, options: AcpmuxPermissionOptions,
-         signal: @escaping @Sendable () -> Void) {
+         sessions: AcpmuxPaneSessions, signal: @escaping @Sendable () -> Void) {
         self.request = request
         self.limits = limits
         self.options = options
+        self.sessions = sessions
         self.signal = signal
     }
 
@@ -369,6 +438,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     private func arrived(_ text: String) {
         options.observe(text)
+        sessions.observe(text)
         let bytes = text.utf8.count
         let (wake, overflow) = state.withLock { state -> (Bool, Bool) in
             guard state.closed == nil else { return (false, false) }

@@ -96,17 +96,36 @@ public final class AgentPaneModel {
         self.seed = seed
         self.newTab = sessionId == nil ? newTab : nil
         transport.roots = { [weak self] in self?.roots() ?? [] }
+        transport.gestureRoots = { [weak self] in self?.gestureRoots() ?? [] }
+        transport.primaryRoot = { [weak self] in self?.primaryRoot() }
+        transport.requestRoot = { [weak self] folder, answer in
+            guard let onRequestRoot = self?.onRequestRoot else { return answer(false) }
+            onRequestRoot(folder, answer)
+        }
+        if let sessionId { transport.sessions.add(sessionId) }
     }
 
-    /// The workspace roots for ``AcpmuxPathPolicy``.
+    /// Asks the user to add a folder the page named outside every root (the view's native sheet).
+    @ObservationIgnored public var onRequestRoot: (@MainActor (_ folder: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
+
+    /// The host's own roots for ``AcpmuxPathPolicy``: the workspace's local tab folders, the
+    /// handshake's cwd and the new tab page's cwd.
     func roots() -> [String] {
         var roots = workspaceRoots?() ?? []
         if let handshakeCwd { roots.append(handshakeCwd) }
-        if let newTab {
-            if let cwd = newTab.cwd { roots.append(cwd) }
-            roots += newTab.projects + newTab.omnibar.folders
-        }
+        if let cwd = newTab?.cwd { roots.append(cwd) }
         return roots
+    }
+
+    /// The new tab page's project scan and open folders: roots only when the user picks one.
+    func gestureRoots() -> [String] {
+        guard let newTab else { return [] }
+        return newTab.projects + newTab.omnibar.folders
+    }
+
+    /// The pane's workspace root: what a `session/new` without a cwd gets.
+    func primaryRoot() -> String? {
+        handshakeCwd ?? workspaceRoots?().first ?? newTab?.cwd
     }
 
     /// Cmd-T adopted this prewarmed new tab page: `page` is the context of
@@ -166,6 +185,7 @@ public final class AgentPaneModel {
                 pendingRevealTurn = nil
                 hasHandshake = true
                 if let cwd = handshake.cwd { handshakeCwd = cwd }
+                if let session = handshake.sessionId { transport.sessions.add(session) }
                 // The connection stays here; the reply never encodes it.
                 pendingConnection = handshake.connection
                 handshake.connection = nil
@@ -176,6 +196,7 @@ public final class AgentPaneModel {
             }
         case .persistSession(let id):
             sessionMustExist = false
+            transport.sessions.add(id)
             if id != sessionId {
                 sessionId = id
                 newTab = nil

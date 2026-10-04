@@ -140,9 +140,11 @@ nonisolated final class AcpmuxStandInServer: Sendable {
               let id = object["id"], let method = object["method"] as? String,
               let idData = try? JSONSerialization.data(withJSONObject: [id]) else { return }
         let rawID = String(String(decoding: idData, as: UTF8.self).dropFirst().dropLast())
-        let result = method == "initialize"
-            ? #"{"protocolVersion":1,"_meta":{"acpmux":{"origin":"local","extensions":[]}}}"#
-            : "{}"
+        let result = switch method {
+        case "initialize": #"{"protocolVersion":1,"_meta":{"acpmux":{"origin":"local","extensions":[]}}}"#
+        case "session/new": #"{"sessionId":"s-new"}"#
+        default: "{}"
+        }
         push(#"{"jsonrpc":"2.0","id":"# + rawID + #","result":"# + result + "}", to: index)
     }
 

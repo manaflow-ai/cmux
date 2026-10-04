@@ -158,6 +158,13 @@ public final class AgentPaneView: NSView {
             MainActor.assumeIsolated { self?.noteGesture(event) }
             return event
         }
+        // A folder the page named outside every root: the user may add it (the sheet is the gesture).
+        model.onRequestRoot = { [weak self] folder, answer in
+            guard let self, let window = self.window else { return answer(false) }
+            let spec = CmuxDialogSpec(title: Self.addRootTitle, lines: [String(format: Self.addRootMessage, folder)],
+                                      buttons: [.cancel(), CmuxDialogButton(id: "add", title: Self.addRootButton)])
+            _ = CmuxDialogCenter.shared.present(spec, in: .window(window)) { reply in answer(reply.button == "add") }
+        }
         // The host owns the acpmux socket; its frames reach the page in display-frame batches.
         let pacer = AgentPaneFramePacer(view: self)
         transportPacer = pacer

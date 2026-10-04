@@ -79,10 +79,15 @@ public nonisolated enum AcpmuxPaneMethods {
         return allowed ? .send(text) : .refuse(.methodRefused, method: method, requestID: id)
     }
 
+    /// The methods allowed only for a session this pane started or shows (``AcpmuxPaneSessions``).
+    public static let sessionScoped: Set<String> = ["_acpmux/kill", "_acpmux/permission_respond", "_acpmux/permission_group_respond"]
+
     /// The error frame that answers a refused request, as the daemon would answer an unknown one.
-    public static func refusal(requestID: String, error: AgentPaneTransportError, method: String?) -> String {
+    /// `rootRequested`: the host offered the user to add the refused folder as a root.
+    public static func refusal(requestID: String, error: AgentPaneTransportError, method: String?, rootRequested: Bool = false) -> String {
         var data: [String: Any] = ["code": error.rawValue, "origin": "native"]
         if let method { data["method"] = method }
+        if rootRequested { data["rootRequested"] = true }
         let body: [String: Any] = ["code": -32601, "message": "Refused by the cmux host", "data": data]
         let encoded = (try? JSONSerialization.data(withJSONObject: body)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
         return #"{"jsonrpc":"2.0","id":"# + requestID + #","error":"# + encoded + "}"

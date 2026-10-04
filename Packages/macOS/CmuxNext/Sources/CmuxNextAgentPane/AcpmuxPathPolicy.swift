@@ -18,61 +18,130 @@ public nonisolated enum AcpmuxPathPolicy {
         public var error: AgentPaneTransportError
         public var requestID: String?
         public var method: String?
+        /// The canonical path that is outside every root (the host may offer to add it).
+        public var outsidePath: String? = nil
+
+        public init(error: AgentPaneTransportError, requestID: String?, method: String?, outsidePath: String? = nil) {
+            self.error = error
+            self.requestID = requestID
+            self.method = method
+            self.outsidePath = outsidePath
+        }
+
+        public static func == (lhs: Refusal, rhs: Refusal) -> Bool {
+            lhs.error == rhs.error && lhs.requestID == rhs.requestID && lhs.method == rhs.method
+        }
     }
 
-    /// `text` with each path param canonical, or the refusal. Off the main actor: it touches the disk.
-    @concurrent public static func check(_ text: String, roots: [String]) async -> Result<String, Refusal> {
-        checkNow(text, roots: roots)
+    /// The folders a pane's frames may name.
+    public nonisolated struct Scope: Sendable {
+        /// The host's own roots: the workspace's local tab folders, the handshake's cwd, the new
+        /// tab page's cwd, and folders the user added or picked.
+        public var roots: [String]
+        /// Folders that are roots only when the user picked one by a gesture (the new tab page's
+        /// project scan and open folders); a frame under one must use a gesture.
+        public var gestureRoots: [String] = []
+        /// The cwd a `session/new` (or adopt) without one gets (the pane's workspace root); nil
+        /// refuses such a frame with `transport.path_invalid`.
+        public var fillCwd: String? = nil
+
+        public init(roots: [String], gestureRoots: [String] = [], fillCwd: String? = nil) {
+            self.roots = roots
+            self.gestureRoots = gestureRoots
+            self.fillCwd = fillCwd
+        }
     }
 
+    /// A checked frame: its text with every folder canonical, and the gesture roots it used.
+    public nonisolated struct Checked: Equatable, Sendable {
+        public var text: String
+        public var gestureRootsUsed: [String]
+    }
+
+    /// `text` checked against `scope`, or the refusal. Off the main actor: it touches the disk.
+    @concurrent public static func check(_ text: String, scope: Scope) async -> Result<Checked, Refusal> {
+        checkNow(text, scope: scope)
+    }
+
+    /// The frame with only trusted `roots` (tests and callers without a scope).
     static func checkNow(_ text: String, roots: [String]) -> Result<String, Refusal> {
+        checkNow(text, scope: Scope(roots: roots)).map(\.text)
+    }
+
+    static func checkNow(_ text: String, scope: Scope) -> Result<Checked, Refusal> {
         // Parsed every time: a substring test would miss an escaped key ("c\u0077d").
-        guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
-              let params = object["params"] else { return .success(text) }
+        guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else {
+            return .success(Checked(text: text, gestureRootsUsed: []))
+        }
         let method = object["method"] as? String
         let id = object["id"].flatMap(AcpmuxPaneMethods.rawID)
-        let canonicalRoots = roots.compactMap(canonical).filter { $0 != "/" }
-        var changed = false
+        var context = Context(roots: scope.roots.compactMap(canonical).filter { $0 != "/" },
+                              gestureRoots: scope.gestureRoots.compactMap(canonical).filter { $0 != "/" })
+        var params = object["params"]
+        // Product rule 1: session/new (adopt too) without a cwd gets the pane's workspace root.
+        if false, method == "session/new" { // RED STUB: no cwd fill
+            var fields = params as? [String: Any] ?? [:]
+            if fields["cwd"] == nil {
+                guard let fill = scope.fillCwd else { return .failure(Refusal(error: .pathInvalid, requestID: id, method: method)) }
+                fields["cwd"] = fill
+                context.changed = true
+            }
+            params = fields
+        }
+        guard let params else { return .success(Checked(text: text, gestureRootsUsed: [])) }
         let checked: Any
         do {
-            checked = try rewrite(params, roots: canonicalRoots, changed: &changed)
-        } catch let error as AgentPaneTransportError {
-            return .failure(Refusal(error: error, requestID: id, method: method))
+            checked = try rewrite(params, context: &context)
+        } catch let refusal as Refusal {
+            return .failure(Refusal(error: refusal.error, requestID: id, method: method, outsidePath: refusal.outsidePath))
         } catch {
             return .failure(Refusal(error: .invalidFrame, requestID: id, method: method))
         }
-        guard changed else { return .success(text) }
+        let used = Array(context.used)
+        guard context.changed else { return .success(Checked(text: text, gestureRootsUsed: used)) }
         object["params"] = checked
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]) else {
             return .failure(Refusal(error: .invalidFrame, requestID: id, method: method))
         }
-        return .success(String(decoding: data, as: UTF8.self))
+        return .success(Checked(text: String(decoding: data, as: UTF8.self), gestureRootsUsed: used))
+    }
+
+    struct Context {
+        var roots: [String]
+        var gestureRoots: [String]
+        var changed = false
+        var used: Set<String> = []
     }
 
     /// `value` with every folder field made canonical; throws the refusal of the first bad one.
-    static func rewrite(_ value: Any, roots: [String], changed: inout Bool) throws -> Any {
+    static func rewrite(_ value: Any, context: inout Context) throws -> Any {
         if var object = value as? [String: Any] {
             for (key, inner) in object {
                 if keys.contains(key) {
-                    object[key] = try folder(inner, key: key, roots: roots)
-                    changed = true
+                    object[key] = try folder(inner, key: key, context: &context)
+                    context.changed = true
                 } else {
-                    object[key] = try rewrite(inner, roots: roots, changed: &changed)
+                    object[key] = try rewrite(inner, context: &context)
                 }
             }
             return object
         }
-        if let list = value as? [Any] { return try list.map { try rewrite($0, roots: roots, changed: &changed) } }
+        if let list = value as? [Any] { return try list.map { try rewrite($0, context: &context) } }
         return value
     }
 
     /// One folder field's value (a path, or a list of paths), canonical and inside a root.
-    static func folder(_ value: Any, key: String, roots: [String]) throws -> Any {
-        if let list = value as? [Any] { return try list.map { try folder($0, key: key, roots: roots) } }
-        guard let path = value as? String, let resolved = canonical(path),
-              key == "path" || isDirectory(resolved) else { throw AgentPaneTransportError.pathInvalid }
-        guard roots.contains(where: { contains(root: $0, path: resolved) }) else { throw AgentPaneTransportError.pathOutsideRoots }
-        return resolved
+    static func folder(_ value: Any, key: String, context: inout Context) throws -> Any {
+        if let list = value as? [Any] { return try list.map { try folder($0, key: key, context: &context) } }
+        guard let path = value as? String, let resolved = canonical(path), key == "path" || isDirectory(resolved) else {
+            throw Refusal(error: .pathInvalid, requestID: nil, method: nil)
+        }
+        if context.roots.contains(where: { contains(root: $0, path: resolved) }) { return resolved }
+        if let root = context.gestureRoots.first(where: { contains(root: $0, path: resolved) }) {
+            _ = root // RED STUB: a scanned folder counts as a root
+            return resolved
+        }
+        throw Refusal(error: .pathOutsideRoots, requestID: nil, method: nil, outsidePath: resolved)
     }
 
     /// The canonical form of an absolute path that exists, nil otherwise: `realpath` (symlinks and

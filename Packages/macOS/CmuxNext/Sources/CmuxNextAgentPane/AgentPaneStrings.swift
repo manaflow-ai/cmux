@@ -33,6 +33,20 @@ extension AgentPaneModel {
 }
 
 extension AgentPaneView {
+    /// The sheet that offers to add a folder the agent asked for outside the workspace's folders.
+    static var addRootTitle: String {
+        String(localized: "agentPane.addRoot.title", defaultValue: "Add this folder to the workspace?", bundle: .module)
+    }
+
+    /// `%@` is the folder's path.
+    static var addRootMessage: String {
+        String(localized: "agentPane.addRoot.message", defaultValue: "The agent asked to work in %@, which is outside this workspace's folders.", bundle: .module)
+    }
+
+    static var addRootButton: String {
+        String(localized: "agentPane.addRoot.add", defaultValue: "Add Folder", bundle: .module)
+    }
+
     /// Shown when the pane's page keeps crashing and no longer reloads itself.
     static var crashedMessage: String {
         String(localized: "agentPane.crashed.message", defaultValue: "The agent pane crashed repeatedly.", bundle: .module)

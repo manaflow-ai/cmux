@@ -72,6 +72,8 @@ import Testing
         transport.deliver = { event, done in events.append(event); done() }
         let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
         _ = await transport.send(connection: id, frames: [Self.initialize])
+        // The pane shows session s (its answers are session-scoped).
+        transport.sessions.add("s")
         server.push(Self.pending, to: 0)
         #expect(await eventually { events.flatMap(\.frames).contains { $0.contains("permission_pending") } })
 

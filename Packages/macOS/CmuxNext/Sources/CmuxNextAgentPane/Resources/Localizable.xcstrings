@@ -12183,6 +12183,399 @@
         }
       }
     }
+  },
+    "agentPane.addRoot.title": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "هل تريد إضافة هذا المجلد إلى مساحة العمل؟"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Dodati ovaj folder u radni prostor?"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Vil du føje denne mappe til arbejdsområdet?"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Diesen Ordner zum Arbeitsbereich hinzufügen?"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Add this folder to the workspace?"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "¿Añadir esta carpeta al espacio de trabajo?"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ajouter ce dossier à l’espace de travail ?"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Aggiungere questa cartella allo spazio di lavoro?"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "このフォルダをワークスペースに追加しますか？"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "បន្ថែមថតនេះទៅកន្លែងធ្វើការ?"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "이 폴더를 워크스페이스에 추가할까요?"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Vil du legge til denne mappen i arbeidsområdet?"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Dodać ten folder do obszaru roboczego?"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Adicionar esta pasta ao espaço de trabalho?"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Добавить эту папку в рабочее пространство?"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "เพิ่มโฟลเดอร์นี้ลงในพื้นที่ทำงานหรือไม่"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Bu klasör çalışma alanına eklensin mi?"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Додати цю папку до робочого простору?"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Thêm thư mục này vào không gian làm việc?"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "要将此文件夹添加到工作区吗？"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "要將此檔案夾加入工作區嗎？"
+        }
+      }
+    }
+  },
+    "agentPane.addRoot.message": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "طلب الوكيل العمل في %@، وهو خارج مجلدات مساحة العمل هذه."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agent je tražio da radi u %@, koji je izvan foldera ovog radnog prostora."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agenten bad om at arbejde i %@, som ligger uden for dette arbejdsområdes mapper."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Der Agent möchte in %@ arbeiten, das außerhalb der Ordner dieses Arbeitsbereichs liegt."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "The agent asked to work in %@, which is outside this workspace's folders."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "El agente pidió trabajar en %@, que está fuera de las carpetas de este espacio de trabajo."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "L’agent a demandé à travailler dans %@, qui se trouve hors des dossiers de cet espace de travail."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "L’agente ha chiesto di lavorare in %@, che è fuori dalle cartelle di questo spazio di lavoro."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "エージェントが %@ での作業を求めています。このフォルダはワークスペースのフォルダの外にあります。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ភ្នាក់ងារបានស្នើធ្វើការក្នុង %@ ដែលនៅក្រៅថតនៃកន្លែងធ្វើការនេះ។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "에이전트가 이 워크스페이스의 폴더 밖에 있는 %@에서 작업하려고 합니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agenten ba om å jobbe i %@, som ligger utenfor mappene i dette arbeidsområdet."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agent poprosił o pracę w %@, który jest poza folderami tego obszaru roboczego."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "O agente pediu para trabalhar em %@, que está fora das pastas deste espaço de trabalho."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Агент запросил работу в %@, а эта папка находится вне папок рабочего пространства."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "เอเจนต์ขอทำงานใน %@ ซึ่งอยู่นอกโฟลเดอร์ของพื้นที่ทำงานนี้"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Aracı, bu çalışma alanının klasörleri dışında kalan %@ içinde çalışmak istedi."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Агент попросив працювати в %@, що поза папками цього робочого простору."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Tác tử yêu cầu làm việc trong %@, nằm ngoài các thư mục của không gian làm việc này."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "代理请求在 %@ 中工作，它位于此工作区的文件夹之外。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "代理要求在 %@ 中工作，它位於此工作區的檔案夾之外。"
+        }
+      }
+    }
+  },
+    "agentPane.addRoot.add": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "إضافة المجلد"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Dodaj folder"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Tilføj mappe"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ordner hinzufügen"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Add Folder"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Añadir carpeta"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ajouter le dossier"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Aggiungi cartella"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "フォルダを追加"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "បន្ថែមថត"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "폴더 추가"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Legg til mappe"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Dodaj folder"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Adicionar pasta"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Добавить папку"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "เพิ่มโฟลเดอร์"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Klasör Ekle"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Додати папку"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Thêm thư mục"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "添加文件夹"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "加入檔案夾"
+        }
+      }
+    }
   }
   },
   "version": "1.0"
