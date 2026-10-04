@@ -264,3 +264,37 @@ async fn a_wrong_token_gets_no_hello() {
     wait_dead(lock).await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A harness whose child calls setsid keeps the output pipe open after the
+/// harness exits. The host still reports the exit after a bounded drain
+/// instead of waiting for that pipe forever (and living forever).
+#[tokio::test]
+async fn an_escaped_grandchild_does_not_hold_back_the_exit() {
+    let dir = scratch("escape");
+    let pid_file = dir.join("grandchild.pid");
+    let mut spec = spec(&dir, "s-escape");
+    spec.program = "python3".into();
+    spec.args = vec![
+        "-c".into(),
+        format!(
+            "import os,time\nif os.fork()==0:\n    os.setsid()\n    open({:?},'w').write(str(os.getpid()))\n    time.sleep(60)\nelse:\n    time.sleep(0.2)\n    os._exit(0)\n",
+            pid_file.display().to_string()
+        ),
+    ];
+    let record = link::spawn(&launcher(), &spec).await.expect("spawn host");
+    let (link, _) = connected(&record, 0).await;
+    let mut after = 0;
+    let exited = tokio::time::timeout(
+        Duration::from_secs(15),
+        read_until(&link, &mut after, |e| matches!(e, Entry::Exit { .. })),
+    )
+    .await;
+    // End the escaped grandchild this test started.
+    if let Ok(pid) = std::fs::read_to_string(&pid_file).map(|p| p.trim().parse::<i32>().unwrap_or(0))
+        && pid > 0
+    {
+        // SAFETY: the pid this test's harness wrote for its own grandchild.
+        unsafe { libc::kill(pid, libc::SIGKILL) };
+    }
+    assert!(exited.is_ok(), "the host never reported the harness exit");
+}
