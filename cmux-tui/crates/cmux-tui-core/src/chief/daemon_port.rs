@@ -8,7 +8,10 @@
 
 use std::time::{Duration, Instant};
 
-use cmux_chief::rules::{AGENT_MUX, DEFAULT_CONVERSATION_KEY, MUX_SESSION_NAME, USER_LOCAL};
+use cmux_chief::rules::{
+    AGENT_MUX, CHIEF_CONVERSATION_TITLE, CHIEF_DISPLAY_NAME, DEFAULT_CONVERSATION_KEY,
+    MUX_SESSION_NAME, USER_LOCAL,
+};
 use cmux_chief::{Effect, Input, Port};
 use cmux_conversation::{AgentClass, Participant, ParticipantKind};
 
@@ -80,7 +83,7 @@ pub(super) fn default_participants(display_name: &str) -> Vec<Participant> {
         Participant {
             id: AGENT_MUX.to_owned(),
             kind: ParticipantKind::Agent,
-            display_name: "mux".to_owned(),
+            display_name: CHIEF_DISPLAY_NAME.to_owned(),
             agent_class: Some(AgentClass::Mux),
             acp_session: Some(MUX_SESSION_NAME.to_owned()),
         },
@@ -112,7 +115,7 @@ impl Actor {
         match self.mux.conversation_create_as(
             DEFAULT_CONVERSATION_KEY,
             USER_LOCAL,
-            "mux",
+            CHIEF_CONVERSATION_TITLE,
             &participants,
         ) {
             Ok(outcome) => {
