@@ -148,7 +148,8 @@ async fn dispatch_request(
                     "sessionCapabilities": {"list": {}, "fork": {}, "close": {}, "delete": {}},
                 },
                 "authMethods": [],
-                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD, "extensions": [
+                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD,
+                "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
@@ -583,7 +584,8 @@ async fn dispatch_request(
                 // REMOTE-FLOOR v3: a remote-origin client builds its settings
                 // from scratch, so it never sets, changes or clears a preset
                 // that shapes the harness command line (args, systemPrompt).
-                let remote = conn.origin == Origin::Web;
+                // The local app included: only the unix socket shapes a command.
+                let remote = conn.origin != Origin::Local;
                 if remote
                     && (cfg.presets.get(&name).is_some_and(|p| p.shapes_command())
                         || set.is_some_and(|s| {

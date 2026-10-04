@@ -173,10 +173,28 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.begin_startup(login_env);
     std::fs::write(home().join("daemon.pid"), std::process::id().to_string())?;
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
+    // A new LocalApp token at every launch (`server/local_app.rs`), for the
+    // app's bundled pane and an explicit `--allow-dev-origin` page only.
+    let local_app = if ws_listener.is_some() {
+        let mut pages = vec![crate::server::AGENT_PANE_ORIGIN.to_owned()];
+        // The validated `--allow-dev-origin` values (loopback http, a port).
+        pages.extend(hub.config.read().await.dev_origins.iter().cloned());
+        match crate::server::local_app::LocalAppAuth::create(&home(), &pages) {
+            Ok(auth) => Some(std::sync::Arc::new(auth)),
+            Err(e) => {
+                // Without it the pane is served as remote-origin, never wrongly local.
+                tracing::warn!("no LocalApp token this run: {e:#}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
     let ws_task = ws_listener.map(|(l, token)| {
         // `needs_token` above gave the saved listener a token.
         let token = token.unwrap_or_else(random_token);
-        tokio::spawn(crate::server::serve_ws(hub.clone(), l, token))
+        tokio::spawn(crate::server::serve_ws_with(hub.clone(), l, token, local_app))
     });
     let ready = serde_json::json!({
         "ready": true,
@@ -238,6 +256,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.flush();
     }
     let _ = std::fs::remove_file(home().join("daemon.pid"));
+    if let Some(file) = local_app_file {
+        let _ = std::fs::remove_file(file);
+    }
     tracing::info!("stopped");
     Ok(())
 }
