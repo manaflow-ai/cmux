@@ -47,7 +47,7 @@ jobs:
       checks: write
       contents: read
       issues: write
-      pull-requests: read
+      pull-requests: write
       statuses: read
     steps:
       # Explicitly pin this to main. The evaluator is trusted workflow code;

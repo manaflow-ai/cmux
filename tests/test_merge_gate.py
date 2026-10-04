@@ -56,6 +56,85 @@ def override(
 
 
 class MergeGateDecisionTests(unittest.TestCase):
+    def test_workflow_event_selects_pull_request_matching_event_head(self) -> None:
+        event = {
+            "workflow_run": {
+                "head_sha": HEAD,
+                "head_branch": "feature",
+                "head_repository": {"full_name": "manaflow-ai/cmux"},
+                "pull_requests": [
+                    {"number": 15570, "head": {"sha": "other", "ref": "feature", "repo": {"full_name": "manaflow-ai/cmux"}}},
+                    {"number": 17241, "head": {"sha": HEAD, "ref": "feature", "repo": {"full_name": "manaflow-ai/cmux"}}},
+                ],
+            }
+        }
+        self.assertEqual(merge_gate._event_pull_request_number(event), 17241)
+
+    def test_workflow_event_with_ambiguous_pull_requests_fails_closed(self) -> None:
+        source = {
+            "head_sha": HEAD,
+            "pull_requests": [
+                {"number": 1, "head": {"sha": HEAD}},
+                {"number": 2, "head": {"sha": HEAD}},
+            ],
+        }
+        self.assertIsNone(merge_gate._event_pull_request_number({"workflow_run": source}))
+
+    def test_workflow_event_with_mismatched_head_fails_closed(self) -> None:
+        source = {
+            "head_sha": HEAD,
+            "pull_requests": [
+                {"number": 9, "head": {"sha": "other", "ref": "feature"}},
+            ],
+        }
+        self.assertIsNone(merge_gate._event_pull_request_number({"workflow_run": source}))
+
+    def test_workflow_event_matches_the_fork_repository(self) -> None:
+        event = {
+            "check_suite": {
+                "head_sha": HEAD,
+                "head_branch": "feature",
+                "head_repository": {"full_name": "outside/cmux"},
+                "pull_requests": [
+                    {"number": 7, "head": {"sha": HEAD, "ref": "feature", "repo": {"full_name": "manaflow-ai/cmux"}}},
+                    {"number": 8, "head": {"sha": HEAD, "ref": "feature", "repo": {"full_name": "outside/cmux"}}},
+                ],
+            }
+        }
+        self.assertEqual(merge_gate._event_pull_request_number(event), 8)
+
+    def test_diagnostic_comment_403_is_reported_without_raising(self) -> None:
+        class FailingGitHub:
+            def request(self, path, method="GET", body=None):
+                raise RuntimeError(f"GitHub API {method} {path} failed: HTTP Error 403")
+
+        error = merge_gate._publish_diagnostic(
+            FailingGitHub(),
+            "manaflow-ai/cmux",
+            17241,
+            [],
+            "<!-- merge-gate -->\nmerge-override required",
+        )
+        self.assertIn("PR #17241", error or "")
+        self.assertIn("403", error or "")
+        self.assertIn("REPAIR.md#merging", error or "")
+
+    def test_unexpected_comment_failure_is_reported_without_raising(self) -> None:
+        class BrokenGitHub:
+            def request(self, path, method="GET", body=None):
+                raise ValueError("malformed GitHub response")
+
+        error = merge_gate._publish_diagnostic(
+            BrokenGitHub(),
+            "manaflow-ai/cmux",
+            17250,
+            [],
+            "<!-- merge-gate -->\nci-status failed",
+        )
+        self.assertIn("PR #17250", error or "")
+        self.assertIn("malformed GitHub response", error or "")
+        self.assertIn("REPAIR.md#merging", error or "")
+
     def test_opened_event_seeds_freshness_for_current_head(self) -> None:
         event = {
             "action": "opened",
