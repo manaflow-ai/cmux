@@ -36,11 +36,26 @@ pub(super) const MAX_CRASHES: u32 = 5;
 pub struct ApiError {
     pub code: String,
     pub message: String,
+    /// The owner's error details, passed through unchanged (for example a
+    /// server's `details.status` and `details.upstream_code`).
+    pub details: Option<Value>,
+    pub retryable: bool,
 }
 
 impl ApiError {
     pub fn new(code: &str, message: impl Into<String>) -> Self {
-        Self { code: code.to_string(), message: message.into() }
+        Self { code: code.to_string(), message: message.into(), details: None, retryable: false }
+    }
+
+    /// An error body in the ABI shape `{code, message, details?, retryable}`,
+    /// with `fallback` as the code when the body has none.
+    pub fn from_body(body: &Value, fallback: &str) -> Self {
+        Self {
+            code: body["code"].as_str().unwrap_or(fallback).to_string(),
+            message: body["message"].as_str().unwrap_or(fallback).to_string(),
+            details: body.get("details").filter(|d| !d.is_null()).cloned(),
+            retryable: body["retryable"] == true,
+        }
     }
 }
 

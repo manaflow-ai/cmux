@@ -41,9 +41,15 @@ pub(super) enum RunKey {
 impl Supervisor {
     pub fn run(&self, request: RunRequest, respond: Responder) {
         let RunRequest { app, op, args, idempotency_key, origin, gesture } = request;
-        let (app, op) = (app.as_str(), op.as_str());
         let outs = {
             let mut inner = self.inner.lock().unwrap();
+            // Full names (`cmux.cloud.machine.list`) and short names run the
+            // same op and share its idempotency keys.
+            let op = match inner.catalog.packages.get(&app) {
+                Some(package) => package.resolve_op(&op).to_string(),
+                None => op,
+            };
+            let (app, op) = (app.as_str(), op.as_str());
             let respond = match idempotency_key.clone() {
                 None => respond,
                 Some(key) => {

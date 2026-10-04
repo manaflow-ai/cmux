@@ -22,6 +22,8 @@ fn write_server_app(root: &Path, dir: &str, server: Value) {
     wipe["gesture"] = json!("required");
     let operations = [
         op("ping", "read", "read", "forbidden"),
+        op("fail", "read", "read", "forbidden"),
+        op("notify", "read", "read", "forbidden"),
         op("write", "mutation", "mutate-own", "forbidden"),
         wipe,
     ];
@@ -40,12 +42,13 @@ fn write_server_app(root: &Path, dir: &str, server: Value) {
 /// A fake server binary: appends `start` and `stop` to the marker file (its
 /// first argument), writes its environment to `<marker>.env`, appends every
 /// line it receives to `<marker>.lines`, and answers every op line with
-/// `{served: true}`.
+/// `{served: true}`, except `*.fail` (an error with details, retryable) and
+/// `*.notify` (an event `<op>.changed` first).
 fn write_fake_server(dir: &Path) {
     write_script(
         dir,
         "fake-server",
-        "#!/bin/sh\nmarker=\"$1\"\necho start >> \"$marker\"\nprintf '%s\\n' \"id=$CMUX_APP_ID\" \"data=$CMUX_APP_DATA_DIR\" \"tmp=$TMPDIR\" \"home=$HOME\" \"cargo=$CARGO_MANIFEST_DIR\" > \"$marker.env\"\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> \"$marker.lines\"\n  id=${line#*\\\"id\\\":\\\"}\n  id=${id%%\\\"*}\n  printf '{\"type\":\"result\",\"id\":\"%s\",\"ok\":true,\"result\":{\"served\":true}}\\n' \"$id\"\ndone\necho stop >> \"$marker\"\n",
+        "#!/bin/sh\nmarker=\"$1\"\necho start >> \"$marker\"\nprintf '%s\\n' \"id=$CMUX_APP_ID\" \"data=$CMUX_APP_DATA_DIR\" \"tmp=$TMPDIR\" \"home=$HOME\" \"cargo=$CARGO_MANIFEST_DIR\" > \"$marker.env\"\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> \"$marker.lines\"\n  id=${line#*\\\"id\\\":\\\"}\n  id=${id%%\\\"*}\n  op=${line#*\\\"op\\\":\\\"}\n  op=${op%%\\\"*}\n  case \"$op\" in\n    *.fail)\n      printf '{\"type\":\"result\",\"id\":\"%s\",\"ok\":false,\"error\":{\"code\":\"cmux.cloud.not_found\",\"message\":\"no such machine\",\"retryable\":true,\"details\":{\"status\":404,\"upstream_code\":\"vm_not_found\"}}}\\n' \"$id\" ;;\n    *.notify)\n      printf '{\"type\":\"event\",\"event\":\"%s.changed\",\"data\":{\"n\":1}}\\n' \"$op\"\n      printf '{\"type\":\"result\",\"id\":\"%s\",\"ok\":true,\"result\":{\"served\":true}}\\n' \"$id\" ;;\n    *)\n      printf '{\"type\":\"result\",\"id\":\"%s\",\"ok\":true,\"result\":{\"served\":true}}\\n' \"$id\" ;;\n  esac\ndone\necho stop >> \"$marker\"\n",
     );
 }
 
@@ -450,4 +453,56 @@ fn only_user_runs_of_open_ops_get_an_open_token() {
     assert_eq!((token(1), token(2)), (None, None), "{lines:?}");
     let used = f.supervisor.consume_open_token(&first, "cmux/opn").expect("valid");
     assert_eq!(used.op, "opn.ping");
+}
+
+#[test]
+fn full_op_names_resolve_for_first_party_apps_only() {
+    let root = temp_dir();
+    let marker = root.0.join("alias.marker");
+    write_fake_server(&root.0.join("servers"));
+    write_server_app(&root.0.join("bundled"), "alias", native_server(&marker, json!({})));
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/alias");
+    let served = json!({ "value": { "served": true } });
+    // The full name is canonical; the short name stays accepted.
+    assert_eq!(run_server_op(&f, "cmux/alias", "cmux.alias.ping").unwrap(), served);
+    assert_eq!(run_server_op(&f, "cmux/alias", "alias.ping").unwrap(), served);
+    let lines = op_lines(&marker, 2);
+    assert_eq!(
+        (lines[0]["op"].clone(), lines[1]["op"].clone()),
+        (json!("alias.ping"), json!("alias.ping"))
+    );
+    // A third-party op is its own namespace: no prefix is stripped.
+    f.install("local/spy");
+    let refused = run_server_op(&f, "local/spy", "cmux.local.spy.go").unwrap_err();
+    assert_eq!(refused.code, "apps.op.unknown");
+}
+
+#[test]
+fn server_errors_keep_details_and_events_use_full_names() {
+    let root = temp_dir();
+    write_fake_server(&root.0.join("servers"));
+    write_server_app(
+        &root.0.join("bundled"),
+        "detail",
+        native_server(&root.0.join("detail.marker"), json!({})),
+    );
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/detail");
+    let error = run_server_op(&f, "cmux/detail", "cmux.detail.fail").unwrap_err();
+    assert_eq!(
+        (error.code.as_str(), error.message.as_str(), error.details.clone(), error.retryable),
+        (
+            "cmux.cloud.not_found",
+            "no such machine",
+            Some(json!({ "status": 404, "upstream_code": "vm_not_found" })),
+            true
+        )
+    );
+    run_server_op(&f, "cmux/detail", "detail.notify").unwrap();
+    let event = f.wait("server event", |e| e["event"] == "apps-server-event");
+    assert_eq!(
+        (event["app"].clone(), event["name"].clone(), event["data"].clone()),
+        (json!("cmux/detail"), json!("cmux.detail.notify.changed"), json!({ "n": 1 }))
+    );
 }

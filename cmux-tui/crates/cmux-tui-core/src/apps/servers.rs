@@ -24,7 +24,8 @@
 //!   server -> supervisor `{"type":"result","id":"s1","ok":true,"result":{}}`
 //!   or `{"type":"result","id":"s1","ok":false,"error":{"code","message"}}`.
 //!   Server events `{"type":"event","event","data"}` are broadcast to apps
-//!   clients as `apps-server-event {app, name, data}`.
+//!   clients as `apps-server-event {app, name, data}`, under the full
+//!   name (`cmux.<event>` for a first-party app).
 //! - Host-only ops (`host.request` frames) are answered in `host_ops.rs`.
 //!
 //! Open tokens for user runs are minted in `open_tokens.rs`.
@@ -583,11 +584,7 @@ impl Supervisor {
                     let result = if value["ok"] == true {
                         Ok(json!({ "value": value.get("result").cloned().unwrap_or(Value::Null) }))
                     } else {
-                        let error = &value["error"];
-                        Err(ApiError::new(
-                            error["code"].as_str().unwrap_or("command.failed"),
-                            error["message"].as_str().unwrap_or("command failed"),
-                        ))
+                        Err(ApiError::from_body(&value["error"], "command.failed"))
                     };
                     if let Some(crashes) = inner.server_crashes.get_mut(app) {
                         crashes.count = 0;
@@ -597,10 +594,18 @@ impl Supervisor {
                     outs.extend(self.server_idle_check_locked(&mut inner, app));
                     outs
                 }
-                Some("event") => vec![Out::Broadcast(json!({
-                    "event": "apps-server-event", "app": app,
-                    "name": value["event"], "data": value["data"],
-                }))],
+                Some("event") => {
+                    // Events go out under their full name (`cmux.cloud.…`).
+                    let name = value["event"].as_str().unwrap_or_default();
+                    let name = match inner.catalog.packages.get(app) {
+                        Some(package) => package.full_name(name),
+                        None => name.to_string(),
+                    };
+                    vec![Out::Broadcast(json!({
+                        "event": "apps-server-event", "app": app,
+                        "name": name, "data": value["data"],
+                    }))]
+                }
                 _ => self.log_locked(
                     &mut inner,
                     app,
