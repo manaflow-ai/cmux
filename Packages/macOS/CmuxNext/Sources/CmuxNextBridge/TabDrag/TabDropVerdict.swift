@@ -29,7 +29,7 @@ public nonisolated enum TabDropVerdict: Hashable, Sendable {
     case refuse(TabDropRefusal)
 }
 
-extension TabDragResolver {
+nonisolated extension TabDragResolver {
     /// The verdict for `kind`. `accepts` is `verdict == .accept`.
     public static func verdict(_ kind: TabDropKind, context: TabDragContext) -> TabDropVerdict {
         switch kind {

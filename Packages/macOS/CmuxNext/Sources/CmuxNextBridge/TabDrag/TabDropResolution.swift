@@ -33,7 +33,7 @@ public nonisolated struct TabDropResolution: Hashable, Sendable {
     }
 }
 
-extension TabDragResolver {
+nonisolated extension TabDragResolver {
     /// The preview and the outcome for the first surface that answered
     /// (`proposal`, nil when none did). The outcome is the preview's: an
     /// accepted target commits its outcome; a stay, a refusal or no answer

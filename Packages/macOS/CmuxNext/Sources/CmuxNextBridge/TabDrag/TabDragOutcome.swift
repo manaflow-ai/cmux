@@ -96,7 +96,7 @@ public nonisolated struct TabDragContext: Hashable, Sendable {
     }
 
     /// The drag carries every tab of its pane: the pane closes when they leave.
-    var emptiesSourcePane: Bool { draggedTabCount >= sourcePaneTabCount }
+    public var emptiesSourcePane: Bool { draggedTabCount >= sourcePaneTabCount }
     /// The drag carries every tab of its workspace (the last tab of the last
     /// pane): the workspace moves with it, or closes once they land in
     /// another workspace (coordinator decision 2026-09-30).
