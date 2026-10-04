@@ -327,6 +327,7 @@ def write_json(path, value):
 
 
 SECRET = "probe-secret-7f3a9c"
+MODEL = ["claude-sonnet-4-5"]
 
 
 def tool_input_for(tool, marker, secret_path, project):
@@ -411,7 +412,7 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90, real_url=None):
     if "project" in opts:
         write_json(os.path.join(project, ".claude", "settings.json"), opts["project"])
     args = [claude, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-            "--permission-prompt-tool", "stdio", "--model", "claude-sonnet-4-5"]
+            "--permission-prompt-tool", "stdio", "--model", MODEL[0]]
     if "inject" in opts:
         # Inline JSON, not a file a same-uid tool could rewrite (P2-L).
         args += ["--settings", json.dumps(opts["inject"]),
@@ -550,6 +551,7 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90, real_url=None):
     result["side_effects"] = side
     result["plugin_log"] = plugin_log
     result["exit"] = proc.returncode
+    result["result_text"] = " | ".join(result_texts)[-300:]
     result["stderr"] = proc.stderr.read()[-600:]
     result["ran"] = os.path.exists(marker)
     log = os.path.join(case, "model.log")
@@ -573,8 +575,10 @@ def main():
     parser.add_argument("--json")
     parser.add_argument("--skip-machine-wide", action="store_true",
                         help="skip scenarios that write /etc or /Library managed settings (shared hosts)")
+    parser.add_argument("--model", default="claude-sonnet-4-5")
     parser.add_argument("--real-model", help="Anthropic-compatible base URL (the subrouter) instead of the fake")
     ns = parser.parse_args()
+    MODEL[0] = ns.model
     root = os.path.realpath(tempfile.mkdtemp(prefix="remote-floor-"))
     version = subprocess.run([ns.claude, "--version"], capture_output=True, text=True).stdout.strip()
     print(f"claude {version}; work dir {root}; model {ns.real_model or 'fake'}")
@@ -604,7 +608,9 @@ def main():
               + (f" set_mode={r['set_mode_reply']}" if r["set_mode_reply"] else ""))
         for line in r["plugin_log"]:
             print("      " + line)
-        if r["result"] is None and r["stderr"]:
+        if r["exit"] not in (0, None) and r.get("result_text"):
+            print("      result: " + r["result_text"].replace("\n", " ")[:300])
+        if (r["result"] is None or r["exit"] not in (0, None)) and r["stderr"]:
             print("      stderr: " + r["stderr"].strip().replace("\n", " | ")[:400])
     if ns.json:
         with open(ns.json, "w") as f:
