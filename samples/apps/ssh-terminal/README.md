@@ -1,7 +1,7 @@
 # SSH Terminal (sample third-party backend)
 
-A sample app from an outside publisher (`example/ssh-terminal`, unverified
-tier) that brings its own terminal backend: plain SSH to any host that runs an
+A sample app that acts as an outside publisher (`manaflow-ai/ssh-terminal`: the
+publisher is not `cmux`, so it gets the unverified tier; we own the GitHub owner) that brings its own terminal backend: plain SSH to any host that runs an
 SSH server. The far host runs no cmux. The app implements
 `cmux.terminal.backend/1` in bytes mode for kind `ssh`. Its purpose is to
 prove that the public interface works for an outside author, and to find
@@ -107,7 +107,7 @@ app-provided terminal backends):
 "server": { "kind": "<third-party server kind>", "instances": "user", "hosts": ["local"] }
 ```
 
-Registry id: `app:example/ssh-terminal/ssh`.
+Registry id: `app:manaflow-ai/ssh-terminal/ssh`.
 
 ## Interface gaps (found by this sample)
 

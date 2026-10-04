@@ -86,7 +86,7 @@ fn signal_reaches_the_server() {
 #[test]
 fn identity_and_capabilities() {
     let f = fixture(Trust::Known);
-    assert_eq!(f.backend.id().as_str(), "app:example/ssh-terminal/ssh");
+    assert_eq!(f.backend.id().as_str(), "app:manaflow-ai/ssh-terminal/ssh");
     let kinds: Vec<&str> = f.backend.kinds().iter().map(|k| k.as_str()).collect();
     assert_eq!(kinds, ["ssh"]);
     let caps = f.backend.capabilities();

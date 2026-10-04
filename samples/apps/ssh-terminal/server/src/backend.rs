@@ -16,10 +16,10 @@ use std::sync::Arc;
 use tokio::runtime::Runtime;
 
 /// The app id of this sample (manifest `id`).
-pub const APP_ID: &str = "example/ssh-terminal";
+pub const APP_ID: &str = "manaflow-ai/ssh-terminal";
 /// The only kind this backend serves (`options.kinds`).
 pub const SSH_KIND: &str = "ssh";
-/// The implementation id; the registry id is `app:example/ssh-terminal/ssh`.
+/// The implementation id; the registry id is `app:manaflow-ai/ssh-terminal/ssh`.
 pub const SSH_ID: &str = "ssh";
 /// Plain SSH: the far end is a shell, not a session host, so the local host
 /// answers terminal queries. Not in the mirrored capabilities yet (README).
