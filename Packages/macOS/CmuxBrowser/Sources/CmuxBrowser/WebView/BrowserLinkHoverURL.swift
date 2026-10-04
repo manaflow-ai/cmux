@@ -1,7 +1,8 @@
 import CmuxSettings
 public import Foundation
 
-/// The link destination a browser pane shows while the pointer is over a link.
+/// The link destination a browser pane shows while the pointer is over a link
+/// or a link has keyboard focus.
 public struct BrowserLinkHoverURL: Equatable, Sendable {
     /// The longest string handed to the indicator. A `data:` link can run to
     /// megabytes, and the indicator truncates to one line anyway.

@@ -250,7 +250,7 @@ public struct BrowserSection: View {
             SettingsCardRow(
                 configurationReview: .json("browser.showLinkHoverURL"),
                 String(localized: "settings.browser.showLinkHoverURL", defaultValue: "Show Link URLs on Hover"),
-                subtitle: String(localized: "settings.browser.showLinkHoverURL.subtitle", defaultValue: "Shows a link's destination at the bottom of a browser pane while the pointer is over it.")
+                subtitle: String(localized: "settings.browser.showLinkHoverURL.subtitle", defaultValue: "Shows a link's destination at the bottom of a browser pane while the pointer is over it or it has keyboard focus.")
             ) {
                 Toggle("", isOn: Binding(get: { showLinkHoverURL.current }, set: { showLinkHoverURL.set($0) }))
                     .labelsHidden()

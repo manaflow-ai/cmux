@@ -538,7 +538,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .browser,
                 id: "link-hover-url",
                 title: String(localized: "settings.browser.showLinkHoverURL", defaultValue: "Show Link URLs on Hover"),
-                detailText: String(localized: "settings.browser.showLinkHoverURL.subtitle", defaultValue: "Shows a link's destination at the bottom of a browser pane while the pointer is over it."),
+                detailText: String(localized: "settings.browser.showLinkHoverURL.subtitle", defaultValue: "Shows a link's destination at the bottom of a browser pane while the pointer is over it or it has keyboard focus."),
                 synonyms: String(localized: "settings.search.alias.setting.browser.link-hover-url", defaultValue: "browser.showLinkHoverURL link hover url destination address status bar preview")
             ),
             .init(section: .browser, id: "terminal-links", title: String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"), synonyms: "Open Terminal Links in cmux Browser browser.openTerminalLinksInCmuxBrowser click url terminal links open in browser href"),

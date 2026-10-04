@@ -82,7 +82,7 @@ public struct BrowserCatalogSection: SettingCatalogSection {
     )
 
     /// Shows a link's destination at the bottom-left of a browser pane while
-    /// the pointer is over the link.
+    /// the pointer is over the link or the link has keyboard focus.
     public let showLinkHoverURL = DefaultsKey<Bool>(
         id: "browser.showLinkHoverURL",
         defaultValue: true,
