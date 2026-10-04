@@ -26,34 +26,58 @@
           if (!Number.isInteger(index) || index < 1) throw new S.SiteError("invalid", `googleSlides.setNotes: index: expected a slide number from 1, got ${JSON.stringify(index)}`);
           if (typeof text !== "string") throw new S.SiteError("invalid", "googleSlides.setNotes: text: expected text");
           const r = ref(deck, "googleSlides.setNotes", options || {});
-          const count = (await ed.deck("googleSlides.setNotes", r)).length;
+          const slides = await ed.deck("googleSlides.setNotes", r);
+          const count = slides.length;
           if (index > count) throw new S.SiteError("invalid", `googleSlides.setNotes: slide ${index} does not exist; the deck has ${count} slides`);
           const norm = (x) => String(x).replace(/\s+/g, " ").trim();
-          return ed.edit("googleSlides", "setNotes", "googleSlides.setNotes", r, {}, options, () => ({
-            summary: `Set the speaker notes of slide ${index} in Google Slides ${r.id}`,
-            preview: { file: deck, slide: index, notes: text },
-            run: async (page, gate) => {
-              await gate();
-              // The slide's thumbnail in the filmstrip, then the notes box, with typed keys.
-              await page.locator(`[id^="filmstrip-slide-${index - 1}-"]`).first().click();
-              await t.sleep(500);
-              await page.locator("#speakernotes-workspace").click();
-              await t.sleep(300);
-              // Select all notes (Meta+A selects nothing there): to the start, then to the end; delete.
-              await page.keyboard.press("Meta+ArrowUp");
-              await page.keyboard.press("Meta+Shift+ArrowDown");
-              await page.keyboard.press("Delete");
-              const lines = text.split("\n");
-              for (let i = 0; i < lines.length; i++) {
-                if (i) await page.keyboard.press("Enter");
-                if (lines[i]) await page.keyboard.type(lines[i]);
-              }
-              await page.keyboard.press("Escape");
-              await ed.saved(page);
-              const verified = await ed.verify(async () => norm((await ed.deck("googleSlides.setNotes", r))[index - 1].notes) === norm(text));
-              return { status: "notes set", slide: index, verified };
-            },
-          }));
+          // Filmstrip thumbnails are g#filmstrip-slide-<position>-<object id>:
+          // the object id stays with the slide when slides move.
+          const findSlide = (arg) => {
+            for (const g of document.querySelectorAll('[id^="filmstrip-slide-"]')) {
+              const m = /^filmstrip-slide-(\d+)-(.+)$/.exec(g.id);
+              if (m && (arg.id === undefined ? Number(m[1]) === arg.position : m[2] === arg.id)) return { position: Number(m[1]), id: m[2] };
+            }
+            return null;
+          };
+          return ed.edit("googleSlides", "setNotes", "googleSlides.setNotes", r, {}, options, async (label, page) => {
+            // The draft names the slide by its object id, read from the
+            // editor now; the write finds that slide wherever it moved.
+            const found = await page.evaluate(findSlide, { position: index - 1 });
+            if (!found || !/^[\w-]+$/.test(found.id)) throw new S.SiteError("not_found", `googleSlides.setNotes: slide ${index} is not in the editor's filmstrip`);
+            const slideId = found.id;
+            const slideTitle = slides[index - 1].title;
+            return {
+              summary: `Set the speaker notes of slide ${index} ("${slideTitle}", object ${slideId}) in Google Slides ${r.id}`,
+              preview: { file: deck, slide: index, slideId, slideTitle, notes: text },
+              run: async (page, gate) => {
+                await gate();
+                const now = await page.evaluate(findSlide, { id: slideId });
+                if (!now) throw new S.SiteError("slide_changed", `googleSlides.setNotes: slide ${slideId} ("${slideTitle}") is no longer in the deck; nothing was changed`);
+                const at = now.position + 1;
+                return setNotesOn(page, `[id="filmstrip-slide-${now.position}-${slideId}"]`, at);
+              },
+            };
+          });
+          // The slide's thumbnail in the filmstrip, then the notes box, with typed keys.
+          async function setNotesOn(page, thumbnail, at) {
+            await page.locator(thumbnail).first().click();
+            await t.sleep(500);
+            await page.locator("#speakernotes-workspace").click();
+            await t.sleep(300);
+            // Select all notes (Meta+A selects nothing there): to the start, then to the end; delete.
+            await page.keyboard.press("Meta+ArrowUp");
+            await page.keyboard.press("Meta+Shift+ArrowDown");
+            await page.keyboard.press("Delete");
+            const lines = text.split("\n");
+            for (let i = 0; i < lines.length; i++) {
+              if (i) await page.keyboard.press("Enter");
+              if (lines[i]) await page.keyboard.type(lines[i]);
+            }
+            await page.keyboard.press("Escape");
+            await ed.saved(page);
+            const verified = await ed.verify(async () => norm((await ed.deck("googleSlides.setNotes", r))[at - 1].notes) === norm(text));
+            return { status: "notes set", slide: at, verified };
+          }
         },
         // Replaces every occurrence of `find` in the deck (Find and replace):
         // { status: "replaced", count, verified }. Private deck: at once; else a draft.
