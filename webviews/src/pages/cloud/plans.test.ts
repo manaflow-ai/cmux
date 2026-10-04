@@ -119,4 +119,17 @@ describe("no machine image configured", () => {
     expect(store.getSnapshot().error).toBeUndefined();
     expect(store.getSnapshot().pending).toEqual([]);
   });
+
+  test("a restore the backend cannot serve yet shows the same sentence on the page, not the raw error", async () => {
+    const provider = new MockCloudProvider();
+    provider.noSnapshotConfigured = true;
+    const { store } = await started(provider);
+    await store.restoreSnapshot(provider.snapshots[0]!);
+    expect(store.getSnapshot().blocked).toBe("no_snapshot_configured");
+    expect(store.getSnapshot().error).toBeUndefined();
+    expect(store.getSnapshot().refusal).toBeUndefined();
+    expect(store.getSnapshot().pending).toEqual([]);
+    store.dismissError();
+    expect(store.getSnapshot().blocked).toBeUndefined();
+  });
 });

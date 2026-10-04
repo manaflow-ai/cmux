@@ -122,7 +122,7 @@ export class MockCloudProvider implements PageClient {
   planRequired = false;
   /** `details.plan` of quota and size refusals: the plan that lifts the limit (null = none does). */
   liftingPlan: string | null = null;
-  /** No machine image is configured yet: create answers `no_snapshot_configured`. */
+  /** No machine image is configured yet: create and restore answer `no_snapshot_configured`. */
   noSnapshotConfigured = false;
   holdTransfers: boolean;
   pageSize: number;
@@ -461,6 +461,8 @@ export class MockCloudProvider implements PageClient {
         // A new machine from the snapshot; the source machine does not change.
         const snapshot = this.snapshots.find((s) => s.id === p.snapshot);
         if (!snapshot) throw notFound(`no snapshot ${String(p.snapshot)}`);
+        if (this.noSnapshotConfigured)
+          throw pageError(CloudErrors.noSnapshotConfigured, "no machine image is configured yet", false);
         this.checkPlan(undefined, 1);
         return this.create(typeof p.name === "string" ? p.name : (snapshot.name ?? null), undefined);
       }
