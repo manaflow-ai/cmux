@@ -66,9 +66,9 @@ export interface Env {
    */
   readonly CLOUD_FREESTYLE_API_KEY?: string
   readonly CLOUD_FREESTYLE_API_URL?: string
-  /** Var: the image every Cloud machine boots from. */
+  /** Var: the image every Cloud machine boots from; must start with cmuxnp-<env>-vmimg- (CLOUD-DEV-SNAPSHOT). */
   readonly CLOUD_FREESTYLE_SNAPSHOT?: string
-  /** Var: provider name prefix; must equal this environment's (cmuxnp-dev-, cmuxnp-stg-, cmuxnp-prod-) or the provider is off. */
+  /** Var: provider name prefix; must equal this environment's (cmuxnp-dev-cld-, cmuxnp-stg-cld-, cmuxnp-prod-cld-; FREESTYLE-NAMES) or the provider is off. */
   readonly CLOUD_NAME_PREFIX?: string
   /** Var: comma-separated team ids that get the stub plan and provider calls outside production (P1-1); unset = nobody. */
   readonly CLOUD_ALLOWED_TEAMS?: string
