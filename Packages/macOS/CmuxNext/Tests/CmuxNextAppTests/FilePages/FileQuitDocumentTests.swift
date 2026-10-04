@@ -237,6 +237,29 @@ struct FileQuitDocumentTests {
         #expect(await drafts.fileChangedSince(draft))
     }
 
+    /// The restore handler gets no "changed on disk" flag: the page compares the file's hash with
+    /// the draft's base itself. Changed: the draft opens as unsaved changes with a conflict notice.
+    /// The file is never written on open.
+    @Test func aRestoreAfterAnOutsideChangeShowsTheConflictAndNeverWrites() async throws {
+        let (drafts, _) = try Self.store()
+        let url = try Self.file()
+        let document = FileQuitDocument(url: url, drafts: drafts, writable: { true })
+        document.edited(text: "mine\n", baseHash: FileDocument.hash(Data("v1\n".utf8)))
+        await drafts.writePending()
+        let draft = try #require(await drafts.drafts().first)
+        let same = try #require(await FilePageRecovery.restore(draft))
+        #expect(same.url.path == url.path && same.text == "mine\n" && !same.conflict)
+
+        try Data("outside\n".utf8).write(to: url)
+        let changed = try #require(await FilePageRecovery.restore(draft))
+        #expect(changed.conflict && changed.text == "mine\n")
+        let (provider, _, folder, _) = try FilePageProviderTests.world(.editor, file: "main.swift", text: "let x = 1\n")
+        provider.recoveredText = "let x = 9\n"
+        _ = try await FilePageProviderTests.call(provider, "cmux.editor.config")
+        #expect(try String(contentsOf: url, encoding: .utf8) == "outside\n")
+        #expect(try String(contentsOf: folder.appending(path: "main.swift"), encoding: .utf8) == "let x = 1\n")
+    }
+
     /// A recovered draft opens in the code editor page as an unsaved edit.
     @Test func aRecoveredDraftOpensAsAnUnsavedEdit() async throws {
         let (provider, _, _, _) = try FilePageProviderTests.world(.editor, file: "main.swift", text: "let x = 1\n")
