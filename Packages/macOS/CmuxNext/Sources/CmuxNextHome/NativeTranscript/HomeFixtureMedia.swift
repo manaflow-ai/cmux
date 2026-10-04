@@ -71,6 +71,7 @@ nonisolated enum HomeFixtureMedia {
 }
 
 /// Feeds frames when the writer asks for them (no polling), then finishes.
+// crash-allow: DEBUG fixture only; after run() starts, the writer's own serial queue is the only thread that touches this state
 nonisolated final class VideoJob: @unchecked Sendable {
     private let writer: AVAssetWriter
     private let input: AVAssetWriterInput

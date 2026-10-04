@@ -36,9 +36,10 @@ extension HomeNativeTranscriptView {
         panel.canChooseFiles = true
         panel.prompt = HomeStrings.attachPrompt
         panel.allowedContentTypes = HomeAttachmentPolicy.allowedTypes.keys.sorted().compactMap { UTType(mimeType: $0) }
-        panel.beginSheetModal(for: window) { [weak self] response in
-            guard response == .OK else { return }
-            MainActor.assumeIsolated { self?.handlePicked(panel.urls) }
+        // task-owner: the sheet belongs to the window; the task ends when it closes
+        Task { [weak self] in
+            guard await panel.beginSheetModal(for: window) == .OK else { return }
+            self?.handlePicked(panel.urls)
         }
     }
 
