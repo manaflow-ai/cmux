@@ -5950,9 +5950,9 @@ pub const UndoLayoutOptions = struct {
     confirmation_token: ?[]const u8 = null,
 };
 
-/// `column.update`: set `sticky`, `width`, or both. `edge` ("left" or
-/// "right") and `mode` ("docked" or "overlay") apply only when `sticky` is
-/// true.
+/// `column.update`: set `sticky`, `width`, or both. `edge` ("left",
+/// "right", "top" or "bottom") and `mode` ("docked" or "overlay") apply only
+/// when `sticky` is true.
 pub const ColumnUpdateOptions = struct {
     sticky: ?bool = null,
     edge: ?[]const u8 = null,

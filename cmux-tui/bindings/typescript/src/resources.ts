@@ -3611,7 +3611,7 @@ export class Screen extends Handle<ScreenId, ScreenSnapshot> {
     column: string,
     update: {
       sticky?: boolean;
-      edge?: "left" | "right";
+      edge?: "left" | "right" | "top" | "bottom";
       mode?: "docked" | "overlay";
       width?: number;
     },
