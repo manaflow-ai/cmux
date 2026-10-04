@@ -54,6 +54,70 @@ struct BrowserReplSecretFormsTests {
         #expect(lines.contains { $0.contains("withheld") }, "\(lines.map { String($0.prefix(200)) })")
     }
 
+    /// Every redaction scans for every secret, so the store a script fills
+    /// must stay bounded: in count, in each value's length and in each
+    /// secret's domains. Each refusal says the limit.
+    @Test("A session holds at most 256 secrets of at most 4 KiB with at most 64 domains each")
+    func secretStoreIsBounded() throws {
+        let store = BrowserReplSecretStore()
+        func refusal(_ name: String, _ value: String, domains: [String] = ["example.com"]) -> String? {
+            do {
+                try store.set(name: name, value: value, domains: domains, totp: false, title: "secrets.set")
+                return nil
+            } catch {
+                return (error as? BrowserReplDriverError)?.message ?? "\(error)"
+            }
+        }
+        for index in 0..<256 {
+            #expect(refusal("s\(index)", "value-\(index)") == nil)
+        }
+        // Replacing a secret is not another one.
+        #expect(refusal("s0", "replaced") == nil)
+        let tooMany = try #require(refusal("s256", "value-256"), "a 257th secret was accepted")
+        #expect(tooMany.contains("256"), "\(tooMany)")
+        #expect(store.delete("s1"))
+        #expect(refusal("s256", "value-256") == nil)
+
+        #expect(refusal("s0", String(repeating: "v", count: 4096)) == nil)
+        let tooLong = try #require(refusal("s0", String(repeating: "v", count: 4097)), "a 4097-byte value was accepted")
+        #expect(tooLong.contains("4096"), "\(tooLong)")
+        let manyDomains = (0..<65).map { "d\($0).example.com" }
+        let tooManyDomains = try #require(refusal("s0", "v", domains: manyDomains), "65 domains were accepted")
+        #expect(tooManyDomains.contains("64"), "\(tooManyDomains)")
+    }
+
+    /// 256 values of 4 KiB that share all but their last bytes, against
+    /// text made of that shared prefix: each position starts a match of
+    /// every value that runs 4 KiB before it fails. Masking must still end
+    /// in time linear in the text (masked, unchanged, or withheld), never
+    /// in time proportional to the text times every value's length.
+    @Test("Masking stays bounded in the text's length with many long secrets that share a prefix")
+    func sharedPrefixSecretsStayBounded() async throws {
+        let store = BrowserReplSecretStore()
+        let prefix = String(repeating: "a", count: 4090)
+        for index in 0..<256 {
+            try store.set(name: "s\(index)", value: prefix + String(format: "%03d", index), domains: ["example.com"], totp: false, title: "t")
+        }
+        let text = String(repeating: "a", count: 1 << 14)
+
+        let redacted = await browserReplWithDeadline(seconds: 60) { store.redact(text) }
+
+        let result = try #require(redacted, "masking 16 KiB took more than 60 s")
+        #expect(result == text || result.contains("withheld"), "\(result.prefix(200))")
+        // A value in such text is masked or withheld, never shown.
+        let shown = store.redact("x " + prefix + "007 y")
+        #expect(shown == "x <secret:s7> y" || shown.contains("withheld"), "\(shown.prefix(200))")
+
+        // 256 values without a long shared prefix are masked as usual.
+        let distinct = BrowserReplSecretStore()
+        let values = (0..<256).map { "key-\($0)-\(UUID().uuidString)" }
+        for (index, value) in values.enumerated() {
+            try distinct.set(name: "k\(index)", value: value, domains: ["example.com"], totp: false, title: "t")
+        }
+        let filler = String(repeating: "lorem ipsum k3y-%41 \\u0041 &amp; ", count: 1 << 8)
+        #expect(distinct.redact(filler + values[200] + filler) == filler + "<secret:k200>" + filler)
+    }
+
     /// Base64 a page or server hands back: of a value too short for an
     /// eight-character run (a PIN), at each of the three offsets that put a
     /// value's encoding out of step with the run it sits in (`"x" +

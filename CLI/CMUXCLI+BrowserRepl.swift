@@ -92,13 +92,18 @@ extension CMUXCLI {
         }
 
         // Interactive: one line per cell in a session that lives until EOF.
-        let session = sessionOption ?? "cli-\(getpid())"
+        // Without --session it is this process's own: a random name and a
+        // random owner token only this process sends, so no other client
+        // lists, attaches to or resets it, also after this process is killed.
+        let ownSession = sessionOption == nil ? Self.browserReplPrivateSession(prefix: "cli") : nil
+        let session = sessionOption ?? ownSession?.name ?? ""
         // A session belongs to a workspace; once the first cell bound one,
         // every later call names it, so a change of focus never reaches
         // another workspace's session.
         var callParams = baseParams
+        if let ownSession { callParams["session_owner"] = ownSession.owner }
         defer {
-            if sessionOption == nil {
+            if ownSession != nil {
                 _ = try? client.sendV2(method: "browser.repl.reset", params: Self.browserReplWorkspaceScope(of: callParams).merging(["session": session]) { _, new in new })
             }
         }
@@ -122,9 +127,19 @@ extension CMUXCLI {
         params.removeValue(forKey: "caller_workspace_id")
     }
 
-    /// The workspace params of `params`, for `browser.repl.reset`.
+    /// A session name and owner token for a session only this process uses:
+    /// `<prefix>-<pid>-<random>` and 128 random bits the app requires on
+    /// every call to it (`session_owner`).
+    private static func browserReplPrivateSession(prefix: String) -> (name: String, owner: String) {
+        let name = "\(prefix)-\(getpid())-\(String(UInt32.random(in: .min ... .max), radix: 36))"
+        let owner = (0..<2).map { _ in String(UInt64.random(in: .min ... .max), radix: 16) }.joined(separator: "-")
+        return (name, owner)
+    }
+
+    /// The workspace params and the owner token of `params`, for
+    /// `browser.repl.reset`.
     private static func browserReplWorkspaceScope(of params: [String: Any]) -> [String: Any] {
-        params.filter { $0.key == "workspace_id" || $0.key == "caller_workspace_id" }
+        params.filter { $0.key == "workspace_id" || $0.key == "caller_workspace_id" || $0.key == "session_owner" }
     }
 
     /// Parses `--timeout`, `--workspace` and `--max-output` into the params
@@ -231,8 +246,11 @@ extension CMUXCLI {
         // MCP clients never share variables and tabs by accident; a named
         // session is how clients share one on purpose.
         let namedSession = sessionOption.flatMap { $0.isEmpty ? nil : $0 }
-        let session = namedSession
-            ?? "mcp-\(getpid())-\(String(UInt32.random(in: .min ... .max), radix: 36))"
+        // The server's own session also has an owner token only this
+        // process sends, so knowing its name gives another client nothing.
+        let ownSession = namedSession == nil ? Self.browserReplPrivateSession(prefix: "mcp") : nil
+        let session = namedSession ?? ownSession?.name ?? ""
+        if let ownSession { baseParams["session_owner"] = ownSession.owner }
         let responseTimeout = TimeInterval(timeoutMilliseconds) / 1000 + 15
         let evaluate = { (code: String, maxOutput: Int?) throws -> [String: Any] in
             var params = baseParams

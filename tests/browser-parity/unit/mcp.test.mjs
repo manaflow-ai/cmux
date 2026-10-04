@@ -125,6 +125,7 @@ test("repl mcp: handshake, tools/list and each tool over the REPL socket methods
     const evals = calls.filter((c) => c.method === "browser.repl.eval");
     assert.equal(evals.length, 5);
     assert.ok(evals.every((c) => c.params.session === "t1"), "every tool runs in the --session");
+    assert.ok(evals.every((c) => c.params.session_owner === undefined), "a named session is shared by name, with no owner token");
     assert.equal(evals.find((c) => c.params.code.includes("cmux-mcp-image:")).params.max_output, 0, "a screenshot is not cut by the output cap");
     assert.deepEqual(calls.filter((c) => c.method === "browser.repl.reset").map((c) => c.params.session), ["t1"]);
     assert.deepEqual(nonJSON, [], "stdout carries only JSON-RPC");
@@ -184,14 +185,25 @@ test("repl mcp: without --session each server process gets its own session", { s
       const before = calls.length;
       const reset = await s.request("tools/call", { name: "reset", arguments: {} });
       const resetCall = calls.slice(before).find((c) => c.method === "browser.repl.reset");
-      sessions.push({ eval: calls.filter((c) => c.method === "browser.repl.eval").at(-1).params.session, reset: resetCall.params.session, text: reset.result.content[0].text });
+      const evalCall = calls.filter((c) => c.method === "browser.repl.eval").at(-1);
+      sessions.push({
+        eval: evalCall.params.session,
+        owner: evalCall.params.session_owner,
+        reset: resetCall.params.session,
+        resetOwner: resetCall.params.session_owner,
+        text: reset.result.content[0].text,
+      });
     }
     for (const [i, s] of sessions.entries()) {
       assert.match(s.eval, new RegExp(`^mcp-${servers[i].child.pid}-[a-z0-9]+$`), "the default session names this server process");
       assert.equal(s.reset, s.eval, "reset targets the same session");
+      // The name can be listed or guessed; the app needs this token too.
+      assert.match(String(s.owner), /^[0-9a-f]+-[0-9a-f]+$/, "the server's own session carries its owner token");
+      assert.equal(s.resetOwner, s.owner, "reset sends the same owner token");
       assert.ok(s.text.includes(s.eval));
     }
     assert.notEqual(sessions[0].eval, sessions[1].eval, "two clients without --session do not share a session");
+    assert.notEqual(sessions[0].owner, sessions[1].owner, "each server has its own owner token");
     // Nobody else can reach a server's own session, so it ends with the server.
     const before = calls.length;
     await Promise.all(servers.map((s) => s.stop()));

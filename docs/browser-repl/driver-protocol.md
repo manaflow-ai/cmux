@@ -286,7 +286,20 @@ native (`BrowserReplBoundary` in the session, and the driver):
   A TOTP secret's typed value is its code, masked as that literal.
   This masks the value as typed and in the encodings the session's
   redaction knows; page script that copies it elsewhere or transforms it
-  is outside it, as it is within one session.
+  is outside it, as it is within one session. Accepted by the threat
+  model: a page on the secret's own allowed domain already holds the
+  value, so it can hand it back transformed (hex, compressed, split
+  across strings or lines, Base64 or percent-encoding applied once more)
+  and redaction does not find it.
+  A session holds at most 256 secrets (`secrets.set`, `secrets.load`;
+  replacing one is not another) of at most 4 KiB with at most 64 domains
+  each, refused with an error naming the limit. Each masking pass tries,
+  at each position, only the values whose first byte can start there (the
+  byte, or the first byte of the character an escape there stands for),
+  and stops after comparing 64 bytes per byte of its input past a 1 MiB
+  allowance; text it stops on is withheld, as text masking would grow by
+  more than 8 MiB is, so values that share a long prefix cannot make
+  masking quadratic.
 - Domain policy: the session refuses `tab.navigate`/`tabs.open` to a blocked
   URL (`blocked`) and `session.configure` content rules, and calls the
   driver's `setDomainPolicy(policy)` (Swift only). The driver applies the
@@ -495,9 +508,9 @@ structured values cross the boundary as JSON strings.
 | `fetch(callId, requestJSON)` | request `{ url, method, headers: [[k, v]], bodyBase64?, targetId?, credentials?, origin? }`; result via `__cmuxHostOnResult`: `{ url, status, statusText, headers: [[k, v]], bodyBase64, redirected }`. Cookies come from, and `Set-Cookie` goes back to, the attached tab's cookie store (a cookie goes to a URL its domain matches and whose path its path matches by RFC 6265, so a `/account` cookie never goes to `/accounting`), for `credentials` `include` (default) always, `same-origin` only for URLs on `origin`, `omit` never. The domain policy is checked on the URL and every redirect hop (`blocked`); once a redirect leaves the first URL's origin, the request drops `Authorization`, `Proxy-Authorization`, `Cookie` and every header whose name marks a credential (`auth`, `token`, `api-key`, `secret`, `session`, `password`, `csrf`, `xsrf`, `credential`, `signature`), also on later hops back to it, and gets only the tab cookies the credentials rules give the new URL; a body over 64 MiB fails, and so does one that would take the bodies a session's fetches hold at once (received and not yet taken by the runtime) past 128 MiB; a fetch that has not finished after 10 minutes fails with `timeout`; a session has at most 16 fetches waiting for their response headers and 64 open in all, queues up to 256 more in order and fails one past that at once (`fetch: 256 fetches are already waiting ...`); a fetch whose headers arrived leaves its slot, so un-awaited fetches of bodies that never end (event streams) cannot hold every slot; when a cell times out, the fetches it started are cancelled and its queued ones fail with `cancelled`; the session redacts the URL, headers and the body (text and other bytes alike, in one linear pass over the bytes: each value's UTF-8 bytes and their encoded and Base64 forms); a response that masking would grow by more than 8 MiB (a mask is longer than a short value) fails with `invalid` instead |
 | `secrets(op, argsJSON)` | synchronous, `{"ok": value}` or `{"error": {code, message}}`: `set { name, value, domains, totp }`, `load { path }` (read natively) or `load { object }`, `list`, `has { name }`, `delete { name }`, `clear`. No result holds a value |
 | `policy(op, argsJSON)` | synchronous, as `secrets`: `get` → `{ allowed, prohibited, blockIPs, locked }`, `check { url }` → reason or `null`, `site { host }` → the host's site (registrable domain by the Public Suffix List, or the host itself when it has none), the same site `cookies.clear` scopes to, `publicSuffix { name }` → whether the name is itself a public suffix (the runtime's `tools.register` refuses a wildcard over one), `set { allowed?, prohibited?, blockIPs?, lock?, title }` (a locked policy refuses) |
-| `fs(op, argsJSON)` | synchronous; returns `{"ok": value}` or `{"error": {"code": "ENOENT"\|"EACCES"\|"EEXIST"\|"ENOTDIR"\|"EISDIR"\|"ENOTEMPTY"\|"EINVAL"\|"ELOOP"\|"ERR_FS_FILE_TOO_LARGE", "message"}}`. Every operation walks from an open descriptor of its root with `openat` and `O_NOFOLLOW`, follows a link only by reading it and while it stays inside a root, and acts relative to the directory it holds open (`fstatat`, `mkdirat`, `unlinkat`, `renameat`, `fcopyfile`), so another session or local process cannot swap a link in between the check and the use. Files open with `O_NONBLOCK` and are checked with `fstat` first: a FIFO, socket or device fails with `EINVAL` at once, and `readFile` refuses a file over 64 MiB (`ERR_FS_FILE_TOO_LARGE`). No lock is shared between sessions, so a slow operation holds only its own session |
+| `fs(op, argsJSON)` | synchronous; returns `{"ok": value}` or `{"error": {"code": "ENOENT"\|"EACCES"\|"EEXIST"\|"ENOTDIR"\|"EISDIR"\|"ENOTEMPTY"\|"EINVAL"\|"ELOOP"\|"ERR_FS_FILE_TOO_LARGE"\|"EFBIG"\|"EDQUOT"\|"ECANCELED", "message"}}`. Each root (`cwd`, `tmpdir`) is opened once (`O_DIRECTORY`, `O_NOFOLLOW`) when the session starts, or when an operation first opens or creates it, and held: every operation walks from that held directory with `openat` and `O_NOFOLLOW`, follows a link only by reading it and while it stays inside a root, and acts relative to the directory it holds open (`fstatat`, `mkdirat`, `unlinkat`, `renameat`), so another session or local process can neither swap a link in between the check and the use nor redirect a root by renaming it away and putting a link or another directory at its path. Files open with `O_NONBLOCK` and are checked with `fstat` first: a FIFO, socket or device fails with `EINVAL` at once, and `readFile` refuses a file over 64 MiB (`ERR_FS_FILE_TOO_LARGE`). One `writeFile` (also an append) or `copyFile` writes at most 256 MiB (`EFBIG`, before the file is opened) and a session at most 2 GiB over its life (`EDQUOT`; a reset starts a new budget); they write 1 MiB at a time and stop with `ECANCELED` when the cell times out or the session ends (a stopped copy leaves no file). No lock is shared between sessions, so a slow operation holds only its own session. Residual, outside the threat model: a same-user process that changes a path inside a root between two operations changes what the second one finds there (never a path outside the roots) |
 | `readResource(relativePath)` | text of a bundled `Resources/browser-repl/` file, or `null` |
-| `tmpdir`, `homedir` | the session's private temporary directory (`<app temp>/cmux-browser-repl/<session>-<random>-tmp`, mode 0700, removed on close when empty; no other session's files are in it) and the canonical home directory, for `node:os` |
+| `tmpdir`, `homedir` | the session's private temporary directory (`<app temp>/cmux-browser-repl/<session>-<random>-tmp`, mode 0700, removed on close when empty; no other session's files are in it) and the canonical home directory, for `node:os`. The directory and its parent are made with `mkdirat` and `openat` (`O_NOFOLLOW`) from the app's temporary directory: a link in place of `cmux-browser-repl`, or a parent another user owns, makes no directory (fs calls there then fail). The session holds the new directory open; output spills are created in it with `openat` |
 
 `fs` ops, paths relative to `cwd` (absolute paths must stay inside `cwd` or
 the session's own `tmpdir`, never the system temporary directory that other
@@ -508,7 +521,7 @@ sessions and apps share, except files the driver reported through
 `lstat {path}` (as `stat`, for the link itself), `rm {path, recursive?, force?}`,
 `rename {from, to}`, `copyFile {from, to}`, `exists {path}` → boolean,
 `resolve {path}` → absolute path. `rm` refuses `cwd` and `tmpdir`
-themselves.
+themselves. `writeFile` and `copyFile` take from the write budget above.
 
 Symbolic links follow Node. `rm`, `rename` and `lstat` act on the link itself
 and check only that its parent directory is inside a root, so a link pointing
@@ -519,9 +532,8 @@ roots, and a dangling link is refused for writing. `readdir` reports a link as
 `symlink`. `rename` uses `rename(2)` and `copyFile` copies to a temporary
 file beside the destination before renaming it into place, so an existing
 destination stays intact until the new file is complete.
-Every `fs` operation of every session runs under one process-wide lock from
-its path check to its last system call, so a session moving a link (agent
-code cannot create one) never changes what another session's checked path
+The descriptor walk, not a lock, keeps a session moving a link (agent code
+cannot create one) from changing what another session's checked path
 reaches.
 
 Entry points the runtime defines, called by the app:

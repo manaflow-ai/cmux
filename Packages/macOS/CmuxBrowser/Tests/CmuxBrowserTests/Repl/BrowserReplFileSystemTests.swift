@@ -308,6 +308,51 @@ struct BrowserReplFileSystemRaceTests {
         #expect(escape == nil, "\(escape ?? "")")
         #expect(!fileManager.fileExists(atPath: escaped))
     }
+
+    /// The fs holds each root open from when it first opens it: another
+    /// process that renames the working directory or the temporary root
+    /// away and puts a link to outside in its place redirects nothing.
+    @Test("A root renamed away after the fs opened it, with a link to outside in its place, is still the root")
+    func rootSwappedAfterSetupStaysTheRoot() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let fileManager = FileManager.default
+        let temporary = scratch.base + "/tmp"
+        try fileManager.createDirectory(atPath: temporary, withIntermediateDirectories: true)
+        let fs = BrowserReplFileSystem(sandbox: BrowserReplFileSandbox(root: scratch.root), temporaryDirectory: temporary)
+        let payload = Data("x".utf8).base64EncodedString()
+        // The session has used both roots once.
+        for path in ["first.txt", temporary + "/first.txt"] {
+            if case .failure(let error) = fs.perform("writeFile", arguments: ["path": path, "base64": payload]) {
+                Issue.record("\(path): \(error.message)")
+            }
+        }
+
+        // Another process moves both roots away and links them to outside.
+        let movedRoot = scratch.base + "/moved-work"
+        let movedTemporary = scratch.base + "/moved-tmp"
+        #expect(rename(scratch.root, movedRoot) == 0)
+        #expect(rename(temporary, movedTemporary) == 0)
+        try fileManager.createSymbolicLink(atPath: scratch.root, withDestinationPath: scratch.outside)
+        try fileManager.createSymbolicLink(atPath: temporary, withDestinationPath: scratch.outside)
+
+        for path in ["second.txt", temporary + "/third.txt"] {
+            if case .failure(let error) = fs.perform("writeFile", arguments: ["path": path, "base64": payload]) {
+                Issue.record("\(path): \(error.message)")
+            }
+        }
+        let read = fs.perform("readFile", arguments: ["path": "secret.txt"])
+        let listed = fs.perform("readdir", arguments: ["path": "."])
+
+        for name in ["second.txt", "third.txt"] {
+            #expect(!fileManager.fileExists(atPath: scratch.outside + "/" + name), "\(name) went through the link")
+        }
+        #expect(fileManager.fileExists(atPath: movedRoot + "/second.txt"))
+        #expect(fileManager.fileExists(atPath: movedTemporary + "/third.txt"))
+        if case .success = read { Issue.record("read outside/secret.txt through the swapped root") }
+        let names = ((try? listed.get()) as? [[String: Any]])?.compactMap { $0["name"] as? String }
+        #expect(names == ["first.txt", "second.txt"], "\(String(describing: names))")
+    }
 }
 
 /// A file that is not a regular file (a FIFO, a device) or one too large
@@ -381,6 +426,125 @@ struct BrowserReplFileSystemSpecialFileTests {
         }
         #expect(error.code == "ERR_FS_FILE_TOO_LARGE")
         #expect(error.message.contains("64 MiB"), "\(error.message)")
+    }
+
+    @Test("copyFile refuses a source larger than one call's write limit before creating the destination")
+    func largeCopyIsRefused() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        // A sparse file: its size, not its blocks, is past the limit.
+        let path = scratch.root + "/large.bin"
+        let descriptor = open(path, O_WRONLY | O_CREAT, 0o600)
+        #expect(descriptor >= 0)
+        #expect(ftruncate(descriptor, off_t((256 << 20) + 1)) == 0)
+        close(descriptor)
+        let fs = BrowserReplFileSystem(sandbox: BrowserReplFileSandbox(root: scratch.root), temporaryDirectory: scratch.base + "/tmp")
+
+        let result = fs.perform("copyFile", arguments: ["from": "large.bin", "to": "copy.bin"])
+
+        guard case .failure(let error) = result else {
+            Issue.record("a 256 MiB + 1 byte file was copied whole")
+            return
+        }
+        #expect(error.code == "EFBIG")
+        #expect(error.message.contains("256 MiB"), "\(error.message)")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: scratch.root) == ["large.bin"])
+    }
+
+    private func makeFileSystem(
+        _ scratch: Scratch,
+        budget: BrowserReplWriteBudget,
+        isCancelled: @escaping @Sendable () -> Bool = { false }
+    ) -> BrowserReplFileSystem {
+        BrowserReplFileSystem(
+            sandbox: BrowserReplFileSandbox(root: scratch.root),
+            temporaryDirectory: scratch.base + "/tmp",
+            rootDescriptor: nil,
+            temporaryDescriptor: nil,
+            writeBudget: budget,
+            isCancelled: isCancelled
+        )
+    }
+
+    @Test("writeFile past one call's limit is refused and keeps the existing file")
+    func largeWriteIsRefused() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        try Data("keep".utf8).write(to: URL(fileURLWithPath: scratch.root + "/file.txt"))
+        let fs = makeFileSystem(scratch, budget: BrowserReplWriteBudget(perCall: 1000, perSession: 1 << 20))
+
+        let result = fs.perform("writeFile", arguments: ["path": "file.txt", "base64": Data(count: 1001).base64EncodedString()])
+
+        guard case .failure(let error) = result else {
+            Issue.record("a write past the limit was made")
+            return
+        }
+        #expect(error.code == "EFBIG")
+        #expect(error.message.contains("1000 bytes"), "\(error.message)")
+        #expect(FileManager.default.contents(atPath: scratch.root + "/file.txt") == Data("keep".utf8))
+    }
+
+    @Test("Writes, appends and copies share one session budget; past it they are refused with a way out")
+    func sessionBudgetIsShared() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let budget = BrowserReplWriteBudget(perCall: 2000, perSession: 4000)
+        let fs = makeFileSystem(scratch, budget: budget)
+        // A session that changes its root keeps its budget.
+        let moved = makeFileSystem(scratch, budget: budget)
+        let chunk = Data(count: 1500).base64EncodedString()
+
+        let first = fs.perform("writeFile", arguments: ["path": "a.bin", "base64": chunk])
+        let appended = fs.perform("writeFile", arguments: ["path": "a.bin", "base64": chunk, "append": true])
+        let tooMuch = moved.perform("copyFile", arguments: ["from": "a.bin", "to": "b.bin"])
+        let small = moved.perform("writeFile", arguments: ["path": "c.bin", "base64": Data(count: 1000).base64EncodedString()])
+        let past = moved.perform("writeFile", arguments: ["path": "d.bin", "base64": "eA=="])
+
+        #expect(first.failureCode == "ok" && appended.failureCode == "ok" && small.failureCode == "ok")
+        // 3,000 bytes is past one call's 2,000.
+        #expect(tooMuch.failureCode == "EFBIG")
+        guard case .failure(let error) = past else {
+            Issue.record("a write past the session's budget was made")
+            return
+        }
+        #expect(error.code == "EDQUOT")
+        #expect(error.message.contains("cmux browser repl reset"), "\(error.message)")
+        #expect(!FileManager.default.fileExists(atPath: scratch.root + "/d.bin"))
+    }
+
+    @Test("A cancelled copy or write stops between chunks and a copy leaves no file")
+    func cancelledCopyStops() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let size = 3 * BrowserReplFileSystem.chunkBytes
+        try Data(count: size).write(to: URL(fileURLWithPath: scratch.root + "/source.bin"))
+        let fs = makeFileSystem(scratch, budget: BrowserReplWriteBudget(), isCancelled: { true })
+
+        let copied = fs.perform("copyFile", arguments: ["from": "source.bin", "to": "copy.bin"])
+        let written = fs.perform("writeFile", arguments: ["path": "written.bin", "base64": Data(count: size).base64EncodedString()])
+
+        #expect(copied.failureCode == "ECANCELED")
+        #expect(written.failureCode == "ECANCELED")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: scratch.root).sorted() == ["source.bin", "written.bin"])
+        let partial = try FileManager.default.attributesOfItem(atPath: scratch.root + "/written.bin")[.size] as? NSNumber
+        #expect((partial?.intValue ?? size) < size)
+    }
+
+    @Test("copyFile copies the bytes, the mode and replaces the destination")
+    func copyKeepsBytesAndMode() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let bytes = Data((0..<(2 * BrowserReplFileSystem.chunkBytes + 7)).map { UInt8(truncatingIfNeeded: $0) })
+        try bytes.write(to: URL(fileURLWithPath: scratch.root + "/source.bin"))
+        #expect(chmod(scratch.root + "/source.bin", 0o640) == 0)
+        try Data("old".utf8).write(to: URL(fileURLWithPath: scratch.root + "/copy.bin"))
+        let fs = makeFileSystem(scratch, budget: BrowserReplWriteBudget())
+
+        #expect(fs.perform("copyFile", arguments: ["from": "source.bin", "to": "copy.bin"]).failureCode == "ok")
+
+        #expect(FileManager.default.contents(atPath: scratch.root + "/copy.bin") == bytes)
+        let mode = try FileManager.default.attributesOfItem(atPath: scratch.root + "/copy.bin")[.posixPermissions] as? NSNumber
+        #expect(mode?.intValue == 0o640)
     }
 }
 

@@ -45,6 +45,12 @@ final class BrowserReplHost: @unchecked Sendable {
 /// else the focused one. `reset` and `list` act on that workspace unless
 /// `all_workspaces` is true.
 ///
+/// A session a client makes without `--session` (the interactive REPL and
+/// `mcp`) carries the client's random `session_owner` token on every call,
+/// and a one-shot run's session a token only this call holds: the registry
+/// lists such a session, attaches to it and resets it only for that token,
+/// so another local client that learns or guesses its name gets nothing.
+///
 /// Evaluations await the REPL's JavaScriptCore thread and the main-actor
 /// driver without parking a socket worker thread. These methods execute
 /// scripts that drive local browser tabs and read and write files under the
@@ -71,6 +77,18 @@ extension TerminalController {
         String(localized: "cli.browser.repl.error.sessionRequired", defaultValue: "A session name is required")
     }
 
+    private nonisolated static var browserReplOwnedSessionMessage: String {
+        String(
+            localized: "cli.browser.repl.error.sessionOwned",
+            defaultValue: "That REPL session belongs to another client; name a session with --session to share one"
+        )
+    }
+
+    /// The caller's owner token for a session only it may use, or nil.
+    private nonisolated static func browserReplOwner(_ params: [String: Any]) -> String? {
+        (params["session_owner"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
     private nonisolated static var browserReplInvalidSessionNameMessage: String {
         String(
             localized: "cli.browser.repl.error.sessionName",
@@ -90,15 +108,16 @@ extension TerminalController {
             return .err(code: "invalid_params", message: Self.browserReplInvalidSessionNameMessage, data: nil)
         }
         let registry = BrowserReplHost.shared.registry
+        let owner = Self.browserReplOwner(params)
         if params["all_workspaces"] as? Bool == true {
-            let count = registry.reset(name: name, workspaceID: nil)
+            let count = registry.reset(name: name, workspaceID: nil, owner: owner)
             return .ok(["session": name, "existed": count > 0, "count": count])
         }
         switch await v2BrowserReplResolvedWorkspace(params: params) {
         case .failure(let error):
             return error
         case .success(let workspaceID):
-            let existed = registry.reset(BrowserReplSessionKey(workspaceID: workspaceID, name: name))
+            let existed = registry.reset(BrowserReplSessionKey(workspaceID: workspaceID, name: name), owner: owner)
             return .ok(["session": name, "existed": existed, "count": existed ? 1 : 0, "workspace_id": workspaceID.uuidString])
         }
     }
@@ -116,7 +135,10 @@ extension TerminalController {
                 workspaceID = id
             }
         }
-        let sessions = BrowserReplHost.shared.registry.list(workspaceID: workspaceID).map { entry -> [String: Any] in
+        let sessions = BrowserReplHost.shared.registry.list(
+            workspaceID: workspaceID,
+            owner: Self.browserReplOwner(params)
+        ).map { entry -> [String: Any] in
             [
                 "session": entry.name,
                 "workspace_id": entry.workspaceID.uuidString,
@@ -167,6 +189,8 @@ extension TerminalController {
             return .err(code: "invalid_params", message: Self.browserReplInvalidSessionNameMessage, data: nil)
         }
         let sessionName = named ?? "oneshot-\(UUID().uuidString)"
+        // A one-shot session is this call's alone: a token no client holds.
+        let owner = named == nil ? UUID().uuidString : Self.browserReplOwner(params)
 
         let workspaceID: UUID
         switch await v2BrowserReplResolvedWorkspace(params: params) {
@@ -191,7 +215,7 @@ extension TerminalController {
         let key = BrowserReplSessionKey(workspaceID: workspaceID, name: sessionName)
         let session: BrowserReplSession
         do {
-            session = try host.registry.session(for: key) { instanceID in
+            session = try host.registry.session(for: key, owner: owner) { instanceID in
                 BrowserReplSession(
                     id: sessionName,
                     cwd: cwd,
@@ -205,6 +229,8 @@ extension TerminalController {
                 defaultValue: "Too many browser REPL sessions are open; reset one with `cmux browser repl reset NAME` (`cmux browser repl list --all-workspaces` lists them)"
             )
             return .err(code: "unavailable", message: "\(prefix) (\(limit))", data: nil)
+        } catch BrowserReplSessionRegistry.Refusal.ownedByAnotherClient {
+            return .err(code: "invalid_params", message: Self.browserReplOwnedSessionMessage, data: nil)
         } catch {
             return .err(code: "invalid_params", message: Self.browserReplInvalidSessionNameMessage, data: nil)
         }
@@ -215,7 +241,7 @@ extension TerminalController {
             maxOutput: (params["max_output"] as? NSNumber)?.intValue
         )
         if named == nil {
-            host.registry.reset(key)
+            host.registry.reset(key, owner: owner)
         }
         var payload: [String: Any] = [
             "session": named ?? NSNull(),

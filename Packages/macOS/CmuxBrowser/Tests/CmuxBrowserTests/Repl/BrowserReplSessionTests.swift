@@ -332,6 +332,94 @@ struct BrowserReplSessionTests {
         }
     }
 
+    /// A spill file is created in the temporary directory the session made
+    /// and holds open, never through a path another process can change.
+    @Test("Spilled output goes to the session's own temporary directory after another process swaps a link in for it")
+    func spillIgnoresSwappedTemporaryDirectory() async throws {
+        let fileManager = FileManager.default
+        let base = BrowserReplFileSandbox.canonicalize(
+            fileManager.temporaryDirectory.appendingPathComponent("cmux-repl-spill-\(UUID().uuidString)").path
+        )
+        let attacker = base + "/attacker"
+        try fileManager.createDirectory(atPath: base + "/work", withIntermediateDirectories: true)
+        try fileManager.createDirectory(atPath: attacker, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(atPath: base) }
+        let session = BrowserReplSession(
+            id: "spill",
+            cwd: base + "/work",
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "stub.js", source: stubRuntime)], agentScripts: []),
+            driver: RecordingReplDriver(),
+            temporaryDirectory: base
+        )
+        defer { session.close() }
+        let temporary = try #require(await session.evaluate(code: "console.log(native.tmpdir);").lines.first?.text)
+
+        // Another process moves the directory away and links its path to its own.
+        let moved = base + "/moved-tmp"
+        #expect(rename(temporary, moved) == 0)
+        try fileManager.createSymbolicLink(atPath: temporary, withDestinationPath: attacker)
+
+        // Past the native ceiling (16 MiB), output goes to a file.
+        let result = await browserReplWithDeadline(seconds: 60) {
+            await session.evaluate(code: """
+            const line = "x".repeat(1 << 20);
+            for (let i = 0; i < 17; i++) native.print("log", line);
+            native.print("log", "last");
+            """)
+        }
+        let summary = try #require(result?.lines.last?.text)
+
+        #expect(try fileManager.contentsOfDirectory(atPath: attacker).isEmpty)
+        let path = try #require(summary.range(of: "full output: ").map { String(summary[$0.upperBound...]) }, "\(summary)")
+        #expect(path.hasPrefix(moved + "/"), "\(path)")
+        #expect(try String(contentsOfFile: path, encoding: .utf8).hasSuffix("last\n"))
+    }
+
+    @Test("A link in place of the cmux-browser-repl parent is never followed to make a session's directories")
+    func linkedParentIsNotFollowed() throws {
+        let fileManager = FileManager.default
+        let base = BrowserReplFileSandbox.canonicalize(
+            fileManager.temporaryDirectory.appendingPathComponent("cmux-repl-parent-\(UUID().uuidString)").path
+        )
+        let attacker = base + "/attacker"
+        try fileManager.createDirectory(atPath: attacker, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(atPath: base) }
+        try fileManager.createSymbolicLink(atPath: base + "/cmux-browser-repl", withDestinationPath: attacker)
+
+        let session = BrowserReplSession(
+            id: "linked",
+            cwd: nil,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "stub.js", source: stubRuntime)], agentScripts: []),
+            driver: RecordingReplDriver(),
+            temporaryDirectory: base
+        )
+        defer { session.close() }
+
+        #expect(try fileManager.contentsOfDirectory(atPath: attacker).isEmpty)
+    }
+
+    /// Without JavaScriptCore's execution time limit nothing could stop a
+    /// looping cell, and the session's thread would be held for good.
+    @Test("A session whose JavaScriptCore cannot stop a running script refuses to run cells")
+    func missingExecutionLimitRefusesCells() async throws {
+        let session = BrowserReplSession(
+            id: "unguarded",
+            cwd: FileManager.default.temporaryDirectory.path,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "stub.js", source: stubRuntime)], agentScripts: []),
+            driver: RecordingReplDriver(),
+            executionTimeLimitSupported: false
+        )
+        defer { session.close() }
+
+        let first = await session.evaluate(code: "console.log('ran');")
+        let second = await session.evaluate(code: "console.log('ran');")
+
+        for result in [first, second] {
+            #expect(result.lines.isEmpty)
+            #expect(result.error?.contains("cannot stop a running script") == true, "\(String(describing: result.error))")
+        }
+    }
+
     @Test("The injected home directory is the one refused")
     func injectedHomeDirectoryIsRefused() async throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-home-\(UUID().uuidString)")
