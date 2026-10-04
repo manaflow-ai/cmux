@@ -54,11 +54,18 @@ const MAX_NUMBER: f64 = 1_000_000_000.0;
 /// Functions whose string arguments are selectors.
 const SELECTOR_METHODS: &[&str] = &["queryAll", "strictError", "splitFrames"];
 
-/// A selector that tests an attribute value (`[value^=...]`, `internal:attr=`)
-/// can read a field value one character at a time, so observe refuses it.
+/// A selector that tests the `value` attribute (`[value^=...]`, also inside
+/// `internal:attr=`) can read a field value one character at a time, so
+/// observe refuses it. Other attribute tests (`role=button[name="x"]`,
+/// `[data-test=a]`) stay allowed.
 fn tests_a_value(selector: &str) -> bool {
     let lower = selector.to_ascii_lowercase();
-    lower.contains("internal:attr") || lower.split('[').skip(1).any(|part| part.contains('='))
+    lower.split('[').skip(1).any(|part| {
+        let part = part.trim_start();
+        part.strip_prefix("value").is_some_and(|rest| {
+            matches!(rest.trim_start().chars().next(), Some('=' | '^' | '$' | '*' | '~' | '|'))
+        })
+    })
 }
 
 fn numbers_in_range(value: &Value) -> bool {
@@ -242,7 +249,14 @@ mod tests {
             assert_eq!(error.error_name.as_deref(), Some(NOT_ALLOWED), "{selector}");
         }
         assert!(evaluate_params(&json!({"method": "queryAll", "args": ["input#pw"]})).is_ok());
-        assert!(evaluate_params(&json!({"method": "queryAll", "args": ["[data-x]"]})).is_ok());
+        for allowed in
+            ["[data-x]", "[data-value=a]", "internal:role=button[name=\"Go\"i]", "input[value]"]
+        {
+            assert!(
+                evaluate_params(&json!({"method": "queryAll", "args": [allowed]})).is_ok(),
+                "{allowed}"
+            );
+        }
         let huge = json!({"method": "snapshot", "args": [{"base": 9_007_199_254_740_991u64}]});
         assert_eq!(evaluate_params(&huge).unwrap_err().code, ErrorCode::Invalid);
         assert!(evaluate_params(&json!({"method": "snapshot", "args": [{"base": 40}]})).is_ok());
