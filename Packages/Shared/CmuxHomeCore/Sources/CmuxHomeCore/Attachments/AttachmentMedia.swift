@@ -322,7 +322,7 @@ enum AttachmentMedia {
         try HomeAttachmentPolicy.check(mimeType: mime, byteCount: size, name: name)
         if !keepLocation {
             if mime.hasPrefix("image/"), let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
-               let clean = try imageWithoutLocation(source, name: name) {
+               let clean = try imageWithoutLocation(source, name: name, bytes: { try Data(contentsOf: fileURL) }) {
                 return try await prepare(data: clean.data, typeIdentifier: clean.type.identifier, root: root,
                                          name: renamed(name, mimeType: mime, as: clean.type), keepLocation: true)
             }
@@ -373,7 +373,7 @@ enum AttachmentMedia {
         try HomeAttachmentPolicy.check(mimeType: mime, byteCount: data.count, name: name)
         if !keepLocation {
             if mime.hasPrefix("image/"), let source = CGImageSourceCreateWithData(data as CFData, nil),
-               let clean = try imageWithoutLocation(source, name: name) {
+               let clean = try imageWithoutLocation(source, name: name, bytes: { data }) {
                 let typeIdentifier = clean.type.identifier == UTType(mimeType: mime)?.identifier ? typeIdentifier : clean.type.identifier
                 return try await prepare(data: clean.data, typeIdentifier: typeIdentifier, root: root,
                                          name: renamed(name, mimeType: mime, as: clean.type), keepLocation: true)
@@ -448,12 +448,20 @@ enum AttachmentMedia {
     /// The image without location metadata (EXIF GPS, IPTC place text,
     /// XMP location tags), orientation and all other metadata kept. It is
     /// copied without re-encoding when ImageIO can, else re-encoded in its
-    /// own type, else (a type ImageIO cannot write, such as WebP, or a
-    /// HEIC encode that fails) converted to PNG when it has alpha, else
-    /// JPEG. Nil when the image has no location. Throws
+    /// own type. A WebP (ImageIO cannot write it) keeps its own bytes
+    /// minus its EXIF and XMP chunks (`webPWithoutMetadataChunks`), so an
+    /// animated WebP keeps its frames and its size; that fails verification
+    /// when the EXIF held a rotation, which would be lost. Else (that WebP,
+    /// another type ImageIO cannot write, or a HEIC encode that fails) the
+    /// first frame is converted to PNG when it has alpha, else JPEG: an
+    /// animation keeps only its first frame, and a PNG can be larger than
+    /// the original, up to the size limit (then `prepare` refuses it as too
+    /// large). Nil when the image has no location. `bytes` reads the
+    /// original (only for a WebP). Throws
     /// `HomeAttachmentError.locationNotRemoved` rather than send a
     /// location it could not remove.
-    static func imageWithoutLocation(_ source: CGImageSource, name: String) throws -> (data: Data, type: UTType)? {
+    static func imageWithoutLocation(_ source: CGImageSource, name: String,
+                                     bytes: () throws -> Data? = { nil }) throws -> (data: Data, type: UTType)? {
         let count = CGImageSourceGetCount(source)
         guard count > 0, (0..<count).contains(where: { hasLocation(source, at: $0) }) else { return nil }
         let orientations = (0..<count).map { index -> Int in
@@ -486,10 +494,42 @@ enum AttachmentMedia {
             }
             if let data = reencoded(source, as: type, frames: count, verified: verified) { return (data, utType) }
         }
+        if CGImageSourceGetType(source) as String? == UTType.webP.identifier, let original = try bytes(),
+           let stripped = webPWithoutMetadataChunks(original),
+           let data = verified(NSMutableData(data: stripped), frames: count) {
+            return (data, .webP)
+        }
         let hasAlpha = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])?[kCGImagePropertyHasAlpha] as? Bool ?? false
         let target: UTType = hasAlpha ? .png : .jpeg
         if let data = reencoded(source, as: target.identifier as CFString, frames: 1, verified: verified) { return (data, target) }
         throw HomeAttachmentError.locationNotRemoved(name: name)
+    }
+
+    /// A WebP without its `EXIF` and `XMP ` chunks, the VP8X flags for them
+    /// cleared and every other chunk (frames, animation, ICC profile) kept
+    /// byte for byte. Nil when the bytes are not a well-formed WebP RIFF.
+    static func webPWithoutMetadataChunks(_ data: Data) -> Data? {
+        let bytes = [UInt8](data)
+        func le32(_ at: Int) -> Int { (0..<4).reduce(0) { $0 | Int(bytes[at + $1]) << (8 * $1) } }
+        func le32Bytes(_ value: Int) -> [UInt8] { (0..<4).map { UInt8(value >> (8 * $0) & 0xff) } }
+        guard bytes.count >= 12, bytes[0..<4].elementsEqual("RIFF".utf8), bytes[8..<12].elementsEqual("WEBP".utf8) else {
+            return nil
+        }
+        var body = Array("WEBP".utf8)
+        var index = 12
+        while index < bytes.count {
+            guard index + 8 <= bytes.count else { return nil }
+            let size = le32(index + 4)
+            guard size >= 0, index + 8 + size <= bytes.count else { return nil }
+            let end = min(bytes.count, index + 8 + size + (size & 1))
+            let tag = bytes[index..<(index + 4)]
+            defer { index = end }
+            if tag.elementsEqual("EXIF".utf8) || tag.elementsEqual("XMP ".utf8) { continue }
+            var chunk = Array(bytes[index..<end])
+            if tag.elementsEqual("VP8X".utf8), chunk.count > 8 { chunk[8] &= ~UInt8(0x0C) } // EXIF and XMP flags
+            body += chunk
+        }
+        return Data(Array("RIFF".utf8) + le32Bytes(body.count) + body)
     }
 
     /// The first `frames` images encoded as `type` with their metadata
@@ -662,8 +702,10 @@ enum AttachmentMedia {
                                previewURL: previewURL)
     }
 
-    /// A cached thumbnail next to the blob (`thumb-<maxPixel>.jpg`, or
-    /// `.png` for a transparent image).
+    /// A cached thumbnail next to the blob (`thumb-v2-<maxPixel>.jpg`, or
+    /// `.png` for a transparent image). Builds before v2 drew transparent
+    /// images on black into `thumb-<maxPixel>.jpg`: such a file is deleted,
+    /// never reused.
     static func localThumbnail(of files: LocalAttachmentFiles, ref: AttachmentRef, maxPixel: Int) throws -> URL {
         let sourceURL: URL
         if let poster = files.posterURL {
@@ -677,12 +719,13 @@ enum AttachmentMedia {
         }
         let directory = files.fileURL.deletingLastPathComponent()
         for fileExtension in ["jpg", "png"] {
-            let cached = directory.appendingPathComponent("thumb-\(maxPixel).\(fileExtension)")
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent("thumb-\(maxPixel).\(fileExtension)"))
+            let cached = directory.appendingPathComponent("thumb-v2-\(maxPixel).\(fileExtension)")
             if FileManager.default.fileExists(atPath: cached.path) { return cached }
         }
         let thumb = try thumbnail(of: sourceURL, maxPixel: maxPixel)
         try Task.checkCancellation()
-        let target = directory.appendingPathComponent("thumb-\(maxPixel).\(thumb.fileExtension)")
+        let target = directory.appendingPathComponent("thumb-v2-\(maxPixel).\(thumb.fileExtension)")
         try thumb.data.write(to: target, options: .atomic)
         return target
     }
