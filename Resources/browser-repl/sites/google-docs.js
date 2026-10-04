@@ -44,21 +44,27 @@
         },
         // Replaces every occurrence of `find` (Find and replace, match case off as in Docs):
         // { status: "replaced", count, verified }. Private doc: at once; else a draft.
-        replace(doc, find, replacement, options) {
+        // The draft states the match count and offsets in the text export;
+        // Replace all edits every match, so the write runs only on that same
+        // text, read again right before it (document_changed otherwise).
+        async replace(doc, find, replacement, options) {
           if (typeof doc === "string" && /^draft-\d+-[0-9a-f]+$/.test(doc)) return ed.edit("googleDocs", "replace", "googleDocs.replace", null, doc, find);
           if (typeof find !== "string" || !find) throw new S.SiteError("invalid", "googleDocs.replace: find: expected text");
           // Read once, so the preview and the edit use the same text.
           replacement = String(replacement);
           const r = ref(doc, "googleDocs.replace", options || {});
+          const drafted = await plain(r);
+          const at = ed.matchesIn(drafted, find);
           return ed.edit("googleDocs", "replace", "googleDocs.replace", r, {}, options, () => ({
-            summary: `Replace "${find}" with "${replacement}" in Google Doc ${r.id}`,
-            preview: { file: doc, find, replace: replacement },
+            summary: `Replace ${at.length} match(es) of "${find}" (case ignored) with "${replacement}" in Google Doc ${r.id}`,
+            preview: { file: doc, find, replace: replacement, matches: at.length, at: at.slice(0, 100) },
             run: async (page, gate) => {
-              const before = count(await plain(r), find);
               await gate();
+              const now = await plain(r);
+              if (now !== drafted) throw new S.SiteError("document_changed", `googleDocs.replace: the document changed since the ${at.length} match(es) were counted (it now has ${ed.matchesIn(now, find).length}); nothing was changed. Make a new call (a new draft for a shared file)`);
               await ed.findReplace(page, find, replacement);
-              const verified = before === 0 || (await ed.verify(async () => { const now = await plain(r); return replacement.includes(find) ? count(now, replacement) >= before : count(now, find) === 0; }));
-              return { status: "replaced", count: before, verified };
+              const verified = at.length === 0 || (await ed.verify(async () => { const after = await plain(r); return replacement.includes(find) ? count(after, replacement) >= at.length : count(after, find) === 0; }));
+              return { status: "replaced", count: at.length, verified };
             },
           }));
         },
@@ -73,8 +79,10 @@
           // write runs only on this same text (no second match, no other
           // change), read again right before Replace all.
           const drafted = await plain(r);
-          const n = count(drafted, anchor);
-          if (n !== 1) throw new S.SiteError("invalid", `googleDocs.insertAfter: anchor ${JSON.stringify(anchor)} occurs ${n} times; it must occur exactly once`);
+          // Find and replace ignores case: the anchor must occur once that
+          // way, and that one match must be the anchor as given.
+          const n = ed.matchesIn(drafted, anchor).length;
+          if (n !== 1 || count(drafted, anchor) !== 1) throw new S.SiteError("invalid", `googleDocs.insertAfter: anchor ${JSON.stringify(anchor)} occurs ${n} times; it must occur exactly once`);
           const at = drafted.indexOf(anchor);
           return ed.edit("googleDocs", "insertAfter", "googleDocs.insertAfter", r, {}, options, () => ({
             summary: `Insert text after "${anchor}" (its one match, at character ${at}) in Google Doc ${r.id}`,
@@ -83,7 +91,7 @@
               await gate();
               const now = await plain(r);
               if (now !== drafted) {
-                const k = count(now, anchor);
+                const k = ed.matchesIn(now, anchor).length;
                 throw new S.SiteError("document_changed", `googleDocs.insertAfter: the document changed since ${k === 1 ? "the anchor was found" : `the anchor was found; it now occurs ${k} times`}; nothing was changed. Make a new call (a new draft for a shared file)`);
               }
               await ed.findReplace(page, anchor, anchor + text);

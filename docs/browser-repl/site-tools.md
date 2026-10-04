@@ -44,7 +44,7 @@ rules neither reference enforces together:
    `/u/` index, a Gmail reply the ids of the thread's messages, LinkedIn
    and X drafts the signed-in member or user id, and a Notion draft the
    Notion user (`{ userId }`, or the one user the session holds; with
-   several, `userId` is required). When the account at that index, the
+   several, the draft fails as `invalid` until `{ userId }` names one). When the account at that index, the
    signed-in account or the replied thread has changed, the confirmation
    fails with `account_changed` or `thread_changed` and sends nothing; make
    a new draft. The account is checked again where the write happens,
@@ -53,7 +53,7 @@ rules neither reference enforces together:
    runs `auth.test` with the same token first (a token names one member);
    Gmail and Calendar read the account the compose, thread or event page
    is signed in as (its title, its Google Account button) right before
-   Send or Save (`account_unknown` when the page names none); LinkedIn and
+   Send or Save, and fail closed with `account_unknown`, sending nothing, when the page names no account; LinkedIn and
    X read the member in the composer page right before Post; Notion checks
    the session's users and then reads and writes with
    `x-notion-active-user-header` set to the drafted user, so Notion runs
@@ -194,12 +194,12 @@ the file back to verify.
 | `googleSheets.append(url, rows)` | the same after the last non-empty row; right before the paste the CSV export is read again and the write fails (`sheet_changed`) when the last row moved since the target was chosen, so rows added meanwhile are never overwritten (the web editor has no insert-at-end the session can call; a row added between that read and the paste is the remaining window) | write |
 | `googleSheets.clear(url, range)` | name box selects the range, Delete, verified | write |
 | `googleDocs.structure(url)` | HTML export parsed in a blank tab: headings with levels, paragraphs, lists, tables | read |
-| `googleDocs.replace(url, find, replacement)` | Find and replace (Meta+Shift+H), Replace all, verified through the text export | write |
-| `googleDocs.insertAfter(url, anchor, text)` | the same with `anchor` -> `anchor + text`; the anchor must occur exactly once. The draft shows the match count (1) and its offset in the text export; right before Replace all the export is read again and the write fails (`document_changed`) unless it is the same text, so a second match or another change is never edited (an edit not yet saved to the export when it is read is the remaining window) | write |
+| `googleDocs.replace(url, find, replacement)` | Find and replace (Meta+Shift+H), Replace all, verified through the text export. The draft states the match count and offsets in the text export (case ignored, as Find and replace matches by default); right before Replace all the export is read again and the write fails (`document_changed`) unless it is the same text, so a match added since the preview is never edited | write |
+| `googleDocs.insertAfter(url, anchor, text)` | the same with `anchor` -> `anchor + text`; the anchor must occur exactly once, also with case ignored (as Find and replace matches). The draft shows the match count (1) and its offset in the text export; right before Replace all the export is read again and the write fails (`document_changed`) unless it is the same text, so a second match or another change is never edited (an edit not yet saved to the export when it is read is the remaining window) | write |
 | `googleDocs.append(url, text)` | end of document (Meta+ArrowDown), Enter, typed text, verified | write |
 | `googleSlides.slides(url)` | pptx export: `{ index, title, text, notes }` per slide | read |
 | `googleSlides.setNotes(url, slide, text)` | the slide's filmstrip thumbnail (`g#filmstrip-slide-<n>-<page>`); the draft names the slide by its object id (`<page>`) and title, and the write clicks the thumbnail with that object id wherever the slide moved (a deleted slide fails with `slide_changed`); the speaker notes box, old notes selected (Meta+ArrowUp, Meta+Shift+ArrowDown) and deleted, new notes typed; verified through the pptx export | write |
-| `googleSlides.replace(url, find, replacement)` | Find and replace, verified through the pptx export | write |
+| `googleSlides.replace(url, find, replacement)` | Find and replace, verified through the pptx export. The draft states the match count per slide (slide text and notes, case ignored); right before Replace all the pptx export is read again and the write fails (`document_changed`) unless the deck is unchanged | write |
 | `googleDrive.create(kind, title)` | `docs.google.com/<kind>/create`, then the title field | creates a private file |
 | `googleDrive.trash(url)` | the editor's File > Move to trash | delete |
 
