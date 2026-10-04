@@ -16,10 +16,14 @@ Two engines run a turn (`OPTCHAT_CHIEF_ENGINE`):
   editor, `zoom` and `date`. It is the engine that keeps sections 7 and 8
   whole: three cache breakpoints in the view plus the request end, model
   output resent verbatim and tool results capped at CAP.
-- `acpmux` (default): a fresh acpmux session per turn (`MUX_HARNESS`, default
-  claude-sr), named `optchat-<home id>-<first id>`. Claude Code's own
-  breakpoints never land in the view, so each turn rewrites the view in the
-  cache. Claude Code's Task/Agent subagents are denied (their steps would be
+- `acpmux` (default): the Chief on local ACP only. Each turn is a fresh
+  acpmux session of the Chief's harness, named `optchat-<home id>-<first
+  id>`, and each summary is one too (see [Harnesses and cache
+  layout](#harnesses-and-cache-layout)); no Messages API is called. The
+  harness is one setting (`OPTCHAT_CHIEF_HARNESS`): claude-sr by default
+  (acpmux's own Claude Code ACP adapter, `claude_stdio`, launched through
+  the team subrouter's account pool), codex, or any acpmux harness.
+  Claude Code's Task/Agent subagents are denied (their steps would be
   logged as the Chief's); `chief agents` starts agents instead. So are
   AskUserQuestion, EnterPlanMode and ExitPlanMode: acpmux keeps those for a
   human under every policy, and nobody answers them in a turn.
@@ -99,7 +103,8 @@ turn when the Chief is idle.
 | `OPTCHAT_CHIEF_MODEL` | `claude-opus-5-5` (native), harness default (acpmux) | the turn model |
 | `OPTCHAT_CHIEF_EFFORT` | `high` | native: `output_config.effort` |
 | `OPTCHAT_CHIEF_SERVER_FALLBACK` | off | native: `1` sends `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) |
-| `MUX_HARNESS` | `claude-sr` | acpmux: harness of each turn session (and children's default) |
+| `OPTCHAT_CHIEF_HARNESS` | `MUX_HARNESS`, else `claude-sr` | acpmux: the harness of each turn session, and of the compactor unless `OPTCHAT_COMPACTOR_HARNESS` names another |
+| `MUX_HARNESS` | `claude-sr` | acpmux: the children's default harness, and the turn harness when `OPTCHAT_CHIEF_HARNESS` is unset |
 | `MUX_POLICY` | `approve-all` | acpmux: permission policy of each turn session |
 | `ACPMUX_SOCKET`, `ACPMUX_HOME` | `~/.acpmux/acpmux.sock` | the acpmux daemon |
 | `ACPMUX_BIN` | none | started as `$ACPMUX_BIN daemon run` when the socket does not answer |
@@ -107,9 +112,10 @@ turn when the Chief is idle.
 | `CMUX_MCP_COMMAND` | none | cmux binary whose `mcp serve` is added as MCP server `cmux` |
 | `OPTCHAT_ANTHROPIC_BASE_URL` | `http://cmux-lawrences-mac-mini:31415` | the Messages API of the native engine, and of the compactor's `api` route (team subrouter) |
 | `OPTCHAT_ANTHROPIC_API_KEY` | none | `x-api-key`; else `ANTHROPIC_API_KEY` for any base URL but the subrouter; else `subrouter` |
-| `OPTCHAT_COMPACTOR` | `acpmux` on the subrouter or without a key, else `api` | how summaries are built (see Compactor routes) |
-| `OPTCHAT_COMPACTOR_HARNESS` | `claude-sr` | acpmux route: the harness of the compactor sessions |
-| `OPTCHAT_COMPACTOR_MODEL` | `claude-sonnet-5-5` | acpmux route: their model (the refusal fallback stays `claude-sonnet-5`) |
+| `OPTCHAT_COMPACTOR` | `acpmux` | how summaries are built; `api` only when set (see Compactor routes) |
+| `OPTCHAT_COMPACTOR_HARNESS` | the Chief's harness | acpmux route: the harness of the compactor sessions |
+| `OPTCHAT_COMPACTOR_MODEL` | `claude-sonnet-5-5` on a Claude harness, else the harness's default | acpmux route: their model (the refusal fallback `claude-sonnet-5` exists on a Claude harness only) |
+| `OPTCHAT_COMPACTOR_EFFORT` | the harness's default | acpmux route: acpmux `effort` of the compactor sessions |
 | `OPTCHAT_CHIEF_ISOLATE` | `1` | `0` runs turns with the user's own Claude Code configuration; it never changes the compactor's isolation |
 | `OPTCHAT_CHIEF_TURN_LIMIT_MIN` | `180` | a turn longer than this is stopped and says so (`0`: no limit) |
 
@@ -123,16 +129,21 @@ $MUX_HOME/optchat/AGENTS.md       the user's own instructions, the end of the sy
 $MUX_HOME/optchat/memory.html     `optchat-chief browse` output
 $MUX_HOME/optchat/host.json       outbox, logged seq, pending turn, children
 $MUX_HOME/optchat/tools.sock      the live memory for `optchat-chief mcp`
-$MUX_HOME/optchat/session/        every turn's cwd: CLAUDE.md, .mcp.json, .claude/settings*.json
+$MUX_HOME/optchat/session/        every turn's cwd: CLAUDE.md (Claude harness, old layout only) or AGENTS.md
+                                  (any other harness), .mcp.json, .claude/settings*.json
 $MUX_HOME/optchat/bin/chief       launcher for `chief agents ...`
 $MUX_HOME/optchat/claude/         the turn sessions' CLAUDE_CONFIG_DIR (settings.json: no auto-memory, no hooks,
                                   transcripts kept 2 days)
 $MUX_HOME/optchat/compactor-claude/  the compactor sessions' own CLAUDE_CONFIG_DIR (0700; same settings as below;
                                   unused on claude-sr, which resets CLAUDE_CONFIG_DIR)
-$TMPDIR/optchat-compact-<home id>/slot-<k>/  the compactor sessions' working directories (0700), one per slot:
-                                  .claude/settings.json (every tool denied, all hooks off, no auto-memory,
-                                  no bundled skills, transcripts kept 1 day), and while a node runs in the
-                                  cached layout system.md (0600, the session's system prompt, deleted with the node)
+$TMPDIR/optchat-compact-<home id>/slot-<k>/  the compactor sessions' working directories (0700), one per slot
+                                  on a Claude harness (`shared/` for any other): .claude/settings.json (every
+                                  tool denied, all hooks off, no auto-memory, no bundled skills, transcripts
+                                  kept 1 day)
+<acpmux state>/presets/<preset>/system.md  acpmux's own copy of a preset's systemPrompt (0400 in a 0700
+                                  directory; acpmux checks its sha256 at every session start): the turn
+                                  preset holds the system text and the view up to 50k, each compactor slot
+                                  preset its node's (emptied when the node ends)
 ```
 
 `$MUX_HOME/optchat/` is mode 0700 and the log, tree and host.json are 0600:
@@ -161,19 +172,84 @@ byte-identical across turns. The request the model gets is not fully ours:
   environment lines, so the cached prefix changes at least once a day.
   Machine-wide managed settings still apply.
 
+## Harnesses and cache layout
+
+The Chief runs purely on local ACP: turns and summaries are acpmux
+sessions, and the harness is one setting, `OPTCHAT_CHIEF_HARNESS` (the
+Chief record in the app can carry the same value later). The default,
+claude-sr, is acpmux's own Claude Code adapter (`cmux-tui/crates/acpmux/src/claude_stdio`,
+first-party since 2026-09-17; it drives `claude -p` over stream-json and
+`sr claude proxy` gives it the subrouter's account pool). The compactor
+follows the Chief's harness unless `OPTCHAT_COMPACTOR_HARNESS` says
+otherwise. Changing the value needs no code change; each family gets the
+layout its cache needs:
+
+| harness | turn layout | node layout | cache mechanism | measured (2026-10-04, cmux-lawrence-2) |
+| --- | --- | --- | --- | --- |
+| claude, claude-sr (any `claude*`) | turn preset `systemPrompt` = system text + view up to 50k; prompt = rest of the view, ONE `cache_control` marker on the piece ending at the last mark, then the new messages; no CLAUDE.md | slot preset `systemPrompt` = compactor system text + context up to 50k; rest of the context with one marker; then the step | Claude Code's own breakpoints (system prompt, last messages) plus ours; the replaced system prompt drops Claude Code's date and cwd lines | turns: 2nd turn read 64,893 / wrote 11,085 (85% read); nodes: 2nd node read 37,671 / wrote 10,442 (78%), $0.121 then $0.035 |
+| codex | view pieces first, new messages last, no marker; instructions in the session directory's AGENTS.md; memory tools as `chief zoom` / `chief date` | system text, context pieces, step; all nodes in one shared cwd | OpenAI automatic prefix caching (1024-token blocks), routed by `prompt_cache_key` | turns: 2nd turn read 12,032 of 56,632 (21%); nodes: 2nd node read 12,032 of 48,653 (25%) |
+| any other acpmux harness | as codex | as codex | whatever the harness does with a byte-stable prefix | not measured |
+
+Every turn logs `turn <key> cache: first request read .. written ..
+uncached ..; turn total|last request ...` to host.log (Claude Code reports
+the turn's total and its first request; codex-acp reports the turn's last
+request), and every node `compactor node <id> (<harness>, <model>): ..,
+uncached .. cache write .. cache read .. output ..`. The live check is
+`OPTCHAT_CHIEF_HARNESS=<h> cargo test --release --test live
+two_turns_and_two_nodes_through_local_acp -- --ignored --nocapture` against
+a private acpmux daemon built from `feat-cache-control-preset-args`
+(measured at e2715f27657): two consecutive turns over a 120 KB view (marks
+49,983 / 79,975 / 99,919) and two consecutive nodes over a 127 KB context,
+the turns on the harness's default model, the Claude nodes on
+`claude-sonnet-5-5`.
+
+**Claude.** acpmux takes a preset's system prompt as text
+(`systemPrompt`), writes it into its own preset directory, records its
+sha256 and checks it at every session start, and passes
+`--system-prompt-file` itself; preset `args` are an allowlist that can only
+take capabilities away (`--tools ""`, `--strict-mcp-config`,
+`--no-session-persistence`). A turn sets the turn preset's prompt just
+before its session starts (turns run one at a time); each compactor slot
+has its own preset (`optchat-compact-<home id>-slot-<k>`), so concurrent
+nodes never race on one prompt. The prompt changes only when the view
+before the 50k mark changes (a merge of old lines), so consecutive turns
+send byte-identical system prompts. A 4-breakpoint refusal (`A maximum of 4
+blocks with cache_control`) reruns the turn once without the marker, and
+later turns skip it. An acpmux without `systemPrompt` keeps the old layout
+(no marker, CLAUDE.md, host.log says so).
+
+**Codex.** Its request is `instructions`, the tool list, the permission and
+environment messages (cwd, shell, date), AGENTS.md, then our blocks, so
+the prefix is byte-stable up to the first changed view line except once a
+day (the date). codex sets `prompt_cache_key` to the thread id
+(`codex-rs/core/src/client.rs`, no config key overrides it), and acpmux
+starts a fresh thread per turn and per node, so every request has a new
+key. The measured 12,032 cached tokens are codex's own instructions and
+tools, which are warm everywhere; the view itself was not read back. A
+stable key per Chief would need a change outside this branch (open item).
+acpmux gives codex no MCP servers, so the memory tools are the launcher's
+`zoom` and `date` commands (`optchat-chief zoom ID N`, `optchat-chief date
+ID`), named by absolute path in AGENTS.md.
+
+**Session tags.** Every turn session and compactor session carries
+`cmux.chief=<home id>` and `cmux.chief.role=turn|compactor`, set right
+after `session/new` (a session that cannot be tagged is killed), so quit
+counts and endAgents can exclude the Chief's own sessions. Children keep
+`mux.parent` only.
+
 ## Compactor routes
 
 The team subrouter serves Claude Code clients: a raw Messages API call for a
 Claude model gets `429 rate_limit_error` every time (checked live on
 2026-10-04), so a compactor that calls the API there builds no node that
-needs a model, and every turn then waits on settle forever. The host picks
-the route at start (`OPTCHAT_COMPACTOR` overrides):
+needs a model, and every turn then waits on settle forever. The route is
+acpmux unless `OPTCHAT_COMPACTOR=api`:
 
-- `acpmux` (default on the subrouter, or when no real key is configured):
+- `acpmux` (default):
   each node is built in its own acpmux session of `OPTCHAT_COMPACTOR_HARNESS`
   (claude-sr), as `mux/host/src/compactor.ts` does. The session runs with the
-  `deny-all` policy and the compactor's own acpmux preset
-  (`optchat-compact-<home id>`), which it requires: when acpmux refuses the
+  `deny-all` policy and the compactor's own acpmux presets
+  (`optchat-compact-<home id>-slot-<k>`, one per slot), which it requires: when acpmux refuses the
   preset, no compactor session starts (nodes fail and are retried, and the
   probe says why), so a node never runs with the user's `~/.claude` hooks,
   MCP servers or auto-memory. The preset sets `CLAUDE_CONFIG_DIR` to
@@ -184,7 +260,7 @@ the route at start (`OPTCHAT_COMPACTOR` overrides):
   `.claude/settings.json` denies every built-in tool (the interactive ones
   included; a denied tool leaves the model's tool list), disables all hooks
   and auto-memory. The first prompt follows the cached layout (see
-  [Compactor cache](#compactor-cache)) when acpmux took the preset's args,
+  [Compactor cache](#compactor-cache)) when acpmux took the presets' `systemPrompt`,
   else the old layout: the compactor's system text, the context pieces and
   the step; each size-loop retry is the next prompt in the same session;
   the reply text is the line, with a lead-in line ("Here is the line:") dropped. When the node
@@ -235,17 +311,16 @@ $0.035 (measured below).
 
 ## Compactor cache
 
-acpmux with preset `args` and `cache_control` forwarding
-([manaflow-ai/cmux#17283](https://github.com/manaflow-ai/cmux/pull/17283),
-on `feat-cmux-next`) lets each node read most of its view from the cache.
-The compactor preset (Claude harnesses only) carries
-`--system-prompt-file ${cwd}/system.md --tools "" --strict-mcp-config
---no-session-persistence`; acpmux expands `${cwd}` to the slot directory's
-absolute path (Claude Code would resolve a relative path against its cwd,
-checked live on 2.1.287). A node in the cached layout:
+acpmux with preset `args`, `systemPrompt` and `cache_control` forwarding
+(landed on `feat-cmux-next` at 3a6d7b3ec59) lets each node read most of
+its view from the cache. Each slot preset (Claude harnesses only) carries
+the args `--tools "" --strict-mcp-config --no-session-persistence` and a
+`systemPrompt` the node sets before its session starts (acpmux writes the
+file into its own preset directory, never the slot directory the agent can
+write, and checks its sha256 at the start). A node in the cached layout:
 
-1. `system.md` in the slot: the compactor's system text, a blank line, and
-   the context up to its first cache mark (50k characters). It replaces
+1. The slot preset's system prompt: the compactor's system text, a blank
+   line, and the context up to its first cache mark (50k characters). It replaces
    Claude Code's default system prompt, whose cwd and date lines made every
    node (8 slot directories) miss the cache, so the cache now crosses slots.
 2. The first prompt: the context from 50k on, one block per piece, with ONE
@@ -285,11 +360,12 @@ Trade-offs and risks:
   (...); retrying without it, and later nodes go without it`; later nodes of
   that host skip the marker (only the system prompt is cached) until it
   restarts.
-- **Feature detection.** The host installs the preset with its args; an
-  acpmux from before #17283 refuses the key (`unknown preset key "args"`),
-  host.log says `acpmux refused the args of preset ...; installed without
-  them`, and nodes keep the old layout below. A non-Claude
-  `OPTCHAT_COMPACTOR_HARNESS` gets no args and the old layout too.
+- **Feature detection.** The host installs the presets with their args and
+  a seed `systemPrompt`; an acpmux that does not know a key refuses it
+  (`unknown preset key "systemPrompt"`), host.log says `acpmux refused the
+  systemPrompt of preset ...; installed without it`, and turns and nodes
+  keep the old layout. A non-Claude harness gets neither and the old
+  layout.
 
 **claude-sr resets `CLAUDE_CONFIG_DIR`.** `sr claude proxy` points Claude
 Code at the user's `~/.claude` whatever the session's env says (checked
@@ -311,13 +387,13 @@ subrouter it gets the same 429 (`--test live two_native_turns` repeats it).
 
 ## Deviations from the spec
 
-- **acpmux engine only: cache breakpoints in the view (section 8).** A
-  turn's blocks carry no `cache_control` (acpmux forwards it since #17283,
-  but turns do not place one yet, and Claude Code's default system prompt
-  with its date and cwd lines comes first), so a turn rewrites the view in
-  the cache. The native engine places them. Each turn
-  logs `turn <key> cache: first request read .. written .. uncached ..` to
-  host.log either way; the first request's numbers show what crossed turns.
+- **acpmux engine: cache breakpoints in the view (section 8).** On a Claude
+  harness the view's first piece is the system prompt (Claude Code's
+  breakpoint) and one marker sits at the last mark: two of the spec's three
+  breakpoints (50k and 100k; 80k is lost to Claude Code's own three). On
+  codex there are no breakpoints, only automatic prefix caching, which the
+  per-thread `prompt_cache_key` defeats across turns (see Harnesses and
+  cache layout).
 - **Messages during a turn (section 7, MASTER).** The spec delivers them at
   the next tool boundary; here a human message interrupts at once (see the
   top of this file), and MASTER's line says so. On the acpmux engine the
@@ -402,6 +478,7 @@ the start-up notice, the cached layout's system prompt file and single
 marker, the retry without the marker, the old layout without preset args); `tests/audit3.rs` covers interrupts on the acpmux
 engine and home-scoped turn names, `tests/native.rs` interrupts on the
 native engine;
-`tests/acpmux_wire.rs` (preset args and their feature detection included) and `tests/daemon_wire.rs` run the real clients against
+`tests/harness.rs` covers the harness switch, the Claude turn layout (preset system prompt, one marker, no CLAUDE.md, the 4-breakpoint rerun, the old layout), the codex turn layout and AGENTS.md, both usage shapes (also when the answer follows `turn_end`), `chief zoom`/`date`, and the `cmux.chief` tags;
+`tests/acpmux_wire.rs` (preset args, `systemPrompt` and their feature detection, session tags included) and `tests/daemon_wire.rs` run the real clients against
 fake servers on Unix sockets; `tests/lock.rs` runs the binary against a held
 lock; `tests/mcp.rs` runs `optchat-chief mcp` against a live test memory.
