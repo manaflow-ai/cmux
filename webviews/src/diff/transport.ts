@@ -5,17 +5,9 @@ import type {
   DiffResult,
   DiffResponse,
   DiffTransportConfig,
-  DiffTransportKind,
 } from "./generated/protocol";
 import { isPageError, type PageClient } from "../pages/shared/pageClient";
 import { DIFF_PAGE_EVENTS, diffPageClient, diffPageOp, pagePatchURL } from "./page";
-
-/**
- * The transport kinds the viewer speaks: the sidecar's (`DiffTransportKind`) plus `page`, the
- * shared page host (diff-host.md S3). The sidecar names `page` itself once S2 lands.
- */
-export type DiffViewerTransportKind = DiffTransportKind | "page";
-export type DiffViewerTransportConfig = Omit<DiffTransportConfig, "kind"> & { kind: DiffViewerTransportKind };
 
 type WithoutEnvelope<T> = T extends unknown ? Omit<T, "id" | "version"> : never;
 type DiffCommand = WithoutEnvelope<DiffRequest>;
@@ -313,7 +305,7 @@ export class WebSocketDiffTransport extends BaseDiffTransport {
 }
 
 export function createDiffTransport(
-  config: DiffViewerTransportConfig | undefined,
+  config: DiffTransportConfig | undefined,
   page: () => PageClient | null = diffPageClient,
 ): DiffTransport | null {
   if (!config) {
