@@ -467,6 +467,13 @@ touch it.
   (c) op names stay `closed.list` / `closed.reopen` with new optional fields (no new ops, so no
   catalog count churn); the `history.closed.*` names are aliases for S1b only if the coordinator
   wants them.
+- S1 v1 compatibility (landed fix): v1 `closed_history` is COPIED, never moved, and stays read-only
+  for one release (drop it later in its own commit). A ledger keeps each copied row's v1 sequence.
+  At each open, a copied row the older daemon removed counts as reopened only when a copied row
+  with a LOWER sequence is still present (v1 evicts the lowest first); its group then goes. Every
+  other removed row keeps its group. A v2 reopen or delete of a copied group also removes its v1
+  row. Residual: when the older daemon reopens its lowest-sequence row, v1 data cannot tell that
+  from an eviction, so the group stays and the item can be reopened once more.
 - S1b (daemon): `closed.delete {closed | members | all | since}`, retention settings
   (`history.closed.maxGroups`, `maxAgeDays`), `surface.restore_state.put` and inline restore state
   on close ops (only for state the daemon cannot own, 3.0), privacy deny-list for env and URL query
