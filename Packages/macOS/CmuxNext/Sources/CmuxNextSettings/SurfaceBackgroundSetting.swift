@@ -5,11 +5,7 @@ public import CmuxTheme
 /// overrides. Missing entries inherit the one per-theme surface token.
 public enum SurfaceBackgroundSetting {
     public static let path = ["appearance", "surfaceBackgrounds"]
-    private static let names: [(String, WritableKeyPath<SurfaceBackgroundOverrides, ThemeRGB?>)] = [
-        ("sidebar", \.sidebar), ("tabStrip", \.tabStrip), ("terminal", \.terminal),
-        ("browser", \.browser), ("internalPage", \.internalPage), ("agentPane", \.agentPane),
-        ("splitDivider", \.splitDivider), ("settings", \.settings)
-    ]
+    private static let names = ["sidebar", "tabStrip", "terminal", "browser", "internalPage", "agentPane", "splitDivider", "settings"]
 
     public static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> SurfaceBackgroundOverrides {
         guard let value = root.value(at: path) else { return SurfaceBackgroundOverrides() }
@@ -18,16 +14,26 @@ public enum SurfaceBackgroundSetting {
             return SurfaceBackgroundOverrides()
         }
         var result = SurfaceBackgroundOverrides()
-        for (name, keyPath) in names {
+        for name in names {
             guard let value = object[name] else { continue }
-            if value.isNull { result[keyPath: keyPath] = nil; continue }
+            if value.isNull { continue }
             guard let text = value.stringValue, let color = ThemeRGB(cssHex: text) else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue,
                                                       path: "appearance.surfaceBackgrounds.\(name)",
                                                       message: "expected #RRGGBB or #RRGGBBAA"))
                 continue
             }
-            result[keyPath: keyPath] = color
+            switch name {
+            case "sidebar": result.sidebar = color
+            case "tabStrip": result.tabStrip = color
+            case "terminal": result.terminal = color
+            case "browser": result.browser = color
+            case "internalPage": result.internalPage = color
+            case "agentPane": result.agentPane = color
+            case "splitDivider": result.splitDivider = color
+            case "settings": result.settings = color
+            default: break
+            }
         }
         return result
     }

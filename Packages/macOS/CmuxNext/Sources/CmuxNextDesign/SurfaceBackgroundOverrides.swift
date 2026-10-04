@@ -13,7 +13,7 @@ public struct SurfaceBackgroundOverrides: Equatable, Sendable {
     public var splitDivider: ThemeRGB?
     public var settings: ThemeRGB?
 
-    public init(sidebar: ThemeRGB? = nil, tabStrip: ThemeRGB? = nil, terminal: ThemeRGB? = nil,
+    public nonisolated init(sidebar: ThemeRGB? = nil, tabStrip: ThemeRGB? = nil, terminal: ThemeRGB? = nil,
                 browser: ThemeRGB? = nil, internalPage: ThemeRGB? = nil, agentPane: ThemeRGB? = nil,
                 splitDivider: ThemeRGB? = nil, settings: ThemeRGB? = nil) {
         self.sidebar = sidebar
