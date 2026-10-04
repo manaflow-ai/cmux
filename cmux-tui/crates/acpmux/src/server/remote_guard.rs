@@ -18,6 +18,19 @@
 //!   harness (`requests.rs` catch-all), so no harness extension method can
 //!   take caller params that spawn or read.
 //!
+//! - Web only (ACP-REMOTE-GUARD): no permission setting that skips asking
+//!   (`approve-reads`, `approve-edits`, `approve-all`, an auto-approve rule,
+//!   a harness mode that bypasses its own asks) at `session/new`,
+//!   `session/set_mode`, `session/set_config_option`, `_acpmux/set_policy`,
+//!   `_acpmux/set_default_policy`, `_acpmux/set_rules`, or a defaults or
+//!   preset write; and no `_acpmux/directories` listing (answered "Method not found", so
+//!   the dashboard falls back to typed paths, which `session/new` checks).
+//!   LocalApp keeps both: the daemon cannot see user gestures, and the
+//!   native relay enforces a fresh gesture for LocalApp before it sends one.
+//! - Web and LocalApp: no `_acpmux/peer_add` or `_acpmux/peer_remove` (they
+//!   change which machines this daemon reaches with the user's ssh keys and
+//!   tokens); `peer_reconnect` only retries a configured peer.
+//!
 //! The unix socket keeps today's behavior.
 
 use crate::rpc::{RpcError, method};
@@ -32,7 +45,13 @@ fn refused(what: &str) -> RpcError {
 
 /// Check (and canonicalize the folder fields of) a request from a
 /// connection that is not the unix socket.
-pub(super) async fn check(m: &str, params: &mut Value) -> Result<(), RpcError> {
+pub(super) async fn check(
+    origin: super::Origin,
+    m: &str,
+    params: &mut Value,
+) -> Result<(), RpcError> {
+    // RED stub: no Web-only rules, no peer rule.
+    let _ = (origin, web_only as fn(&str, &Value) -> Result<(), RpcError>);
     if non_empty(params.get("mcpServers")) || non_empty(params.pointer("/_meta/acpmux/mcpServers"))
     {
         return Err(refused("mcpServers"));
@@ -84,6 +103,67 @@ pub(super) async fn check(m: &str, params: &mut Value) -> Result<(), RpcError> {
         }
     }
     Ok(())
+}
+
+/// Harness modes that skip the harness's own permission asks.
+const SKIP_ASK_MODES: &[&str] =
+    &["bypassPermissions", "acceptEdits", "dontAsk", "yolo", "full-access", "auto"];
+
+fn skips_asking(policy: &str) -> bool {
+    !matches!(policy.parse::<crate::config::PermissionPolicy>(), Ok(p) if matches!(p, crate::config::PermissionPolicy::Ask | crate::config::PermissionPolicy::DenyAll))
+}
+
+/// What a Web (remote-origin) connection may never do; LocalApp and the
+/// unix socket may. The daemon cannot see user gestures: for LocalApp the
+/// native relay enforces a fresh gesture before it sends a policy that
+/// skips asking.
+fn web_only(m: &str, params: &Value) -> Result<(), RpcError> {
+    let refused = |what: &str| {
+        RpcError::invalid_params(format!(
+            "{what} is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
+        ))
+    };
+    let policy_at = |v: Option<&Value>| v.and_then(Value::as_str).is_some_and(skips_asking);
+    match m {
+        method::SESSION_NEW
+            if policy_at(params.get("policy"))
+                || policy_at(params.pointer("/_meta/acpmux/policy")) =>
+        {
+            Err(refused("a permission policy that skips asking"))
+        }
+        method::MUX_SET_POLICY | "_acpmux/set_default_policy"
+            if policy_at(params.get("policy")) =>
+        {
+            Err(refused("a permission policy that skips asking"))
+        }
+        method::MUX_DEFAULTS | method::MUX_PRESETS
+            if policy_at(params.pointer("/set/policy")) =>
+        {
+            Err(refused("a permission policy that skips asking"))
+        }
+        method::MUX_SET_RULES => {
+            let rules = params.get("rules");
+            let auto = non_empty(rules.and_then(|r| r.get("autoApprove")))
+                || rules.and_then(|r| r.get("default")).and_then(Value::as_str) == Some("approve");
+            if auto { Err(refused("an auto-approve rule")) } else { Ok(()) }
+        }
+        method::SESSION_SET_MODE | method::SESSION_SET_CONFIG_OPTION => {
+            let value = params.get("modeId").or_else(|| params.get("value")).and_then(Value::as_str);
+            let skips = |v: &str| {
+                SKIP_ASK_MODES.contains(&v)
+                    || (v.parse::<crate::config::PermissionPolicy>().is_ok() && skips_asking(v))
+            };
+            if value.is_some_and(skips) {
+                Err(refused("a mode that skips asking"))
+            } else {
+                Ok(())
+            }
+        }
+        "_acpmux/directories" => Err(RpcError::method_not_found(
+            "_acpmux/directories (not served to a remote WebSocket connection)",
+        )),
+        _ => Ok(()),
+    }
 }
 
 fn non_empty(v: Option<&Value>) -> bool {
