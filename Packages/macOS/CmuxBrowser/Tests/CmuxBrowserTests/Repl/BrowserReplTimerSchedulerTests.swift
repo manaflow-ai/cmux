@@ -172,6 +172,26 @@ struct BrowserReplTimerSchedulerTests {
         #expect(await fired.wait(forCount: 2) == [7, 8])
     }
 
+    @Test("A fired timer counts toward the cap until its callback ran")
+    func firedTimersCountUntilDelivered() async {
+        let clock = BrowserReplManualClock()
+        let fired = FiredTimers()
+        let scheduler = BrowserReplTimerScheduler(clock: clock, maximumTimers: 2) { fired.record($0) }
+
+        #expect(scheduler.schedule(id: 1, after: .milliseconds(1), repeating: false))
+        #expect(scheduler.schedule(id: 2, after: .milliseconds(1), repeating: false))
+        #expect(!scheduler.schedule(id: 3, after: .milliseconds(1), repeating: false))
+        clock.advance(by: .milliseconds(1))
+        #expect(await fired.wait(forCount: 2) == [1, 2])
+
+        // Both fired, but the busy JS thread has not run their callbacks.
+        #expect(scheduler.count == 0)
+        #expect(!scheduler.schedule(id: 3, after: .milliseconds(1), repeating: false))
+        scheduler.delivered(id: 1)
+        #expect(scheduler.schedule(id: 3, after: .milliseconds(1), repeating: false))
+        #expect(!scheduler.schedule(id: 4, after: .milliseconds(1), repeating: false))
+    }
+
     @Test("Invalidation drops pending timers and refuses new ones")
     func invalidation() async {
         let clock = BrowserReplManualClock()

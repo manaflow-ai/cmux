@@ -263,7 +263,7 @@ public final class BrowserReplSession: @unchecked Sendable {
 
     /// The most timers a session has scheduled, or fired with their callback
     /// not yet run, at once; `setTimer` returns false past it.
-    static let maxPendingTimers = 10_000
+    public static let maxPendingTimers = 10_000
 
     /// The most output, in UTF-8 bytes, one evaluation keeps in memory; the
     /// rest goes to a file in the session's temporary directory.
@@ -308,6 +308,8 @@ public final class BrowserReplSession: @unchecked Sendable {
     ///   - callbackTimeLimit: How long JavaScript that runs outside a cell
     ///     (a timer or event callback after its cell ended) may run before
     ///     it is terminated.
+    ///   - maxPendingTimers: The most timers scheduled, or fired with their
+    ///     callback not yet run, at once (tests lower it).
     public init(
         id: String,
         cwd: String?,
@@ -316,7 +318,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         sleeper: any BrowserReplSleeping = BrowserReplClockSleeper(clock: ContinuousClock()),
         temporaryDirectory: String? = nil,
         homeDirectory: String? = nil,
-        callbackTimeLimit: Duration = BrowserReplSession.defaultCallbackTimeLimit
+        callbackTimeLimit: Duration = BrowserReplSession.defaultCallbackTimeLimit,
+        maxPendingTimers: Int = BrowserReplSession.maxPendingTimers
     ) {
         let temporaryRoot = BrowserReplFileSandbox.canonicalize(
             BrowserReplFileSandbox.lexicallyNormalized(temporaryDirectory ?? NSTemporaryDirectory())
@@ -343,7 +346,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             sandbox: BrowserReplFileSandbox(root: resolvedCwd),
             temporaryDirectory: privateTemporaryDirectory
         )
-        self.scheduler = BrowserReplTimerScheduler(clock: ContinuousClock(), maximumTimers: Self.maxPendingTimers) { [weak self] id in
+        self.scheduler = BrowserReplTimerScheduler(clock: ContinuousClock(), maximumTimers: maxPendingTimers) { [weak self] id in
             self?.fireTimer(id)
         }
         let boundary = self.boundary
