@@ -284,7 +284,8 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       const key = fireKey(f.automation, f.trigger, f.scheduled_at)
       if ((this.retryAt(key) ?? 0) > now) continue
       const r = rejected(this.submitSystem("automation.fire", f, key))
-      if (r?.code === "rate.limited") this.retrySoon(key, now)
+      // A run limit or a policy not loaded yet is temporary: retry in a second, no backoff, no error log.
+      if (r?.code === "rate.limited" || r?.code === "policy.pending") this.retrySoon(key, now)
       else if (r) this.failed(key, now, `${r.code}: ${r.message}`)
       else this.succeeded(key)
     }
