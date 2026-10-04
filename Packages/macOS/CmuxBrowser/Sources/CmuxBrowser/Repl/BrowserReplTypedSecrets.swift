@@ -110,16 +110,19 @@ public final class BrowserReplTypedSecrets: @unchecked Sendable {
         }
     }
 
-    /// The mark of the values `sessionID` would mask now, for
-    /// ``typedSince(_:forReader:)``. Seam.
+    /// The mark of the values `sessionID` would mask now, taken with a
+    /// capture's masks, for ``typedSince(_:forReader:)``.
     public func captureMark(forReader sessionID: String) -> Int {
-        0
+        lock.withLock { nextKey }
     }
 
-    /// Whether another session typed a value `sessionID` must not see since
-    /// `mark` (``captureMark(forReader:)``). Seam.
+    /// Whether another session recorded a value `sessionID` must not see
+    /// since `mark` (``captureMark(forReader:)``), in any tab. The driver
+    /// records a value before it types it, so a value a capture's pixels can
+    /// show was recorded before the capture ended: a capture that finds one
+    /// recorded since its masks were taken is refused.
     public func typedSince(_ mark: Int, forReader sessionID: String) -> Bool {
-        false
+        lock.withLock { entriesLocked(forReader: sessionID).contains { $0.key > mark } }
     }
 
     /// The values other sessions typed, as the driver's `secretMasks`

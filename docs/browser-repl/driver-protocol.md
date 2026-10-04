@@ -295,6 +295,9 @@ native (`BrowserReplBoundary` in the session, and the driver):
   separate values), and masks it as typed, `<secret:name>`, in every result,
   event and error it returns to any other session, and in their captures;
   once the typing session ends, also for a later session of the same name.
+  A capture takes those masks before it waits for the page, so one during
+  which another session recorded a value to type (in any tab) fails with
+  `stale` instead of returning pixels that may show it.
   The driver hands those sessions the same values as a store
   (`typedSecretRedaction()`, Swift only), and each session masks them
   wherever it masks its own secrets: fetch responses (read with the tab's

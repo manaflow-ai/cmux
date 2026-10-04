@@ -254,6 +254,20 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             + BrowserReplTabAttachments.typedSecrets.captureMasks(forReader: sessionID)
     }
 
+    /// Runs `capture` with the typed-secret masks it takes, and refuses its
+    /// result (`stale`) when another session typed a secret meanwhile: that
+    /// value is not among the masks, and the capture's pixels may show it.
+    @MainActor
+    private func withTypedSecretMasks<T>(_ params: [String: Any], _ capture: ([[String: Any]]) async throws -> T) async throws -> T {
+        let typed = BrowserReplTabAttachments.typedSecrets
+        let mark = typed.captureMark(forReader: sessionID)
+        let result = try await capture(typedSecretMasks(params))
+        guard !typed.typedSince(mark, forReader: sessionID) else {
+            throw Self.error("stale", "Another session typed a secret into a tab while the capture was taken, so it may show the value unmasked; try again")
+        }
+        return result
+    }
+
     @MainActor
     private func dispatchAttached(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
         if let pending = lock.withLock({ policyTask }) { await pending.value }
@@ -2581,10 +2595,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let quality = (params["quality"] as? NSNumber)?.doubleValue
         let fullPage = params["fullPage"] as? Bool ?? false
         let clip = params["clip"] as? [String: Any]
-        let masks = typedSecretMasks(params)
         let policy = currentPolicy
         let frameGate = self.frameGate
-        let image: CGImage = try await withWindow(panel) { webView, _ in
+        let image: CGImage = try await withTypedSecretMasks(params) { masks in try await withWindow(panel) { webView, _ in
             try await Self.withSecretMasks(masks, policy: policy, blockedChildFrames: .handToCapture, webView: webView) { blockedChildFrames in
                 // Frames the domain policy blocks (an ad or tracker under
                 // allowedDomains) are blanked, not the whole capture refused:
@@ -2598,7 +2611,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                     try await BrowserReplCapture.snapshotWithRegion(webView: webView, clip: clip, fullPage: fullPage)
                 }
             }
-        }
+        } }
         let data = try BrowserReplCapture.encode(image, format: format, quality: quality)
         return ["base64": data.base64EncodedString(), "width": image.width, "height": image.height]
     }
@@ -2606,9 +2619,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func pdf(_ params: [String: Any]) async throws -> [String: Any] {
         let panel = try panel(params)
-        let masks = typedSecretMasks(params)
         let policy = currentPolicy
-        let data: Data = try await withWindow(panel) { [self] webView, _ in
+        let data: Data = try await withTypedSecretMasks(params) { masks in try await withWindow(panel) { [self] webView, _ in
             // A PDF cannot blank a frame: any frame whose marked document
             // the policy blocks refuses it, also one that navigated after
             // checkFramePolicy read the tree.
@@ -2621,7 +2633,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                     try await self.printPDF(webView: webView, params: params)
                 }
             }
-        }
+        } }
         return ["base64": data.base64EncodedString()]
     }
 
