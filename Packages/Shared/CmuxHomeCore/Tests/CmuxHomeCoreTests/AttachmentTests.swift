@@ -405,6 +405,44 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         #expect(await !source.hasBlob(a.ref.hash))
     }
 
+    /// Sends reach the owner in the order the user made them, per
+    /// conversation: a text sent while an earlier photo uploads waits for it.
+    @Test func aTextSentDuringAnUploadDoesNotOvertakeIt() async throws {
+        let (store, source) = try await started()
+        let (a, _) = try await twoAttachments(store)
+        await source.setUploadsPaused(true)
+        let photoKey = IdempotencyKey("attach-order-photo")
+        let textKey = IdempotencyKey("attach-order-text")
+        let photo = Task { try await store.send(conversation: conversation, text: "", attachments: [a], key: photoKey) }
+        await waitUntil { store.transcript(for: self.conversation).last?.attachmentProgress[a.ref.hash] == 0.5 }
+        let conversation = self.conversation
+        let text = Task { try await store.perform(.sendMessage(conversation: conversation, parts: [.text("after")]), key: textKey) }
+        await drainTasks()
+        #expect(store.transcript(for: conversation).suffix(2).map(\.id) == [photoKey, textKey])
+        #expect(try await source.snapshot(of: conversation, tail: 5).messages.allSatisfy { $0.clientMessageID != textKey })
+
+        await source.setUploadsPaused(false)
+        try await photo.value
+        _ = try await text.value
+        await waitUntil { store.log.isEmpty }
+        let page = try await source.snapshot(of: conversation, tail: 5)
+        let photoSeq = try #require(page.messages.first { $0.clientMessageID == photoKey }?.seq)
+        let textSeq = try #require(page.messages.first { $0.clientMessageID == textKey }?.seq)
+        #expect(photoSeq < textSeq)
+        #expect(store.transcript(for: conversation).suffix(2).map(\.id) == [photoKey, textKey])
+    }
+
+    /// A failed upload does not hold later sends back.
+    @Test func aFailedUploadDoesNotBlockLaterSends() async throws {
+        let (store, source) = try await started()
+        let (a, _) = try await twoAttachments(store)
+        await source.failNextUpload(hash: a.ref.hash)
+        _ = try? await store.send(conversation: conversation, text: "", attachments: [a], key: IdempotencyKey("attach-order-failed"))
+        let textKey = IdempotencyKey("attach-order-next")
+        _ = try await store.perform(.sendMessage(conversation: conversation, parts: [.text("next")]), key: textKey)
+        #expect(try await source.snapshot(of: conversation, tail: 5).messages.last?.clientMessageID == textKey)
+    }
+
     @Test func discardDropsAFailedUpload() async throws {
         let (store, source) = try await started()
         let (a, _) = try await twoAttachments(store)
