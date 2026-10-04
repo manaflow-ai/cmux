@@ -546,6 +546,57 @@ async fn a_failed_model_probe_is_reported_with_its_reason() {
     assert!(listed["harnesses"]["fake"].get("probeError").is_none(), "{listed}");
 }
 
+/// A session's harness that nobody uses exits after the idle period
+/// (measured on the hub's injected clock): no client attached, no turn, no
+/// activity. The session keeps its record and resumes on the next prompt.
+/// An attached session's harness stays.
+#[tokio::test]
+async fn an_idle_detached_session_harness_exits_and_resumes_on_the_next_prompt() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let clock = acpmux::clock::ManualClock::new();
+    hub.set_clock(clock.clone());
+    hub.set_idle_child(Some(Duration::from_secs(300)));
+    let mut ids = Vec::new();
+    for name in ["idle-gone", "idle-attached"] {
+        let s = c
+            .request(
+                method::SESSION_NEW,
+                json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": name}}}),
+            )
+            .await
+            .unwrap();
+        ids.push(s["sessionId"].as_str().unwrap().to_owned());
+    }
+    // session/new attached this connection to both; let go of the first.
+    c.request(method::MUX_DETACH, json!({"sessionId": ids[0]})).await.unwrap();
+    let status = |name: &str| hub.session_summary(&hub.resolve(name).unwrap())["status"].clone();
+    let settle = || tokio::time::sleep(Duration::from_millis(150));
+    clock.advance(Duration::from_secs(299));
+    settle().await;
+    assert_eq!(status("idle-gone"), "ready", "stopped before the idle period ended");
+    clock.advance(Duration::from_secs(2));
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while status("idle-gone") != "idle" {
+        assert!(std::time::Instant::now() < deadline, "the idle harness never exited");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    clock.advance(Duration::from_secs(900));
+    settle().await;
+    assert_eq!(status("idle-attached"), "ready", "an attached session's harness was stopped");
+    // The stopped session resumes on its next prompt.
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": ids[0], "prompt": [{"type": "text", "text": "back"}]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r["stopReason"], "end_turn");
+    let kinds: Vec<String> =
+        hub.events(&ids[0], 0, 1000).unwrap().into_iter().map(|e| e.kind).collect();
+    assert!(kinds.iter().any(|k| k == "resumed"), "{kinds:?}");
+}
+
 #[tokio::test]
 async fn attach_replays_and_watch_broadcasts() {
     let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;

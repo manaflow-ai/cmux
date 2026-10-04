@@ -46,6 +46,10 @@ use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::{Mutex, Notify, RwLock, broadcast, mpsc, oneshot};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// How long a session's harness may sit unused (no client, no turn, no
+/// activity) before it exits; the session resumes on its next prompt.
+pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 /// Git hash and date stamped at build time (see build.rs).
 pub const BUILD: &str = env!("ACPMUX_BUILD");
 
@@ -259,6 +263,10 @@ pub struct Hub {
     /// Harnesses whose last model probe failed, with the reason; reported in
     /// `_acpmux/models` and `_acpmux/harnesses` (`probeError`).
     pub probe_errors: StdMutex<HashMap<String, String>>,
+    /// Lifecycle timers (the idle harness exit) run on this clock.
+    pub(super) clock: StdMutex<Arc<dyn crate::clock::Clock>>,
+    /// A session harness unused for this long exits (`idle.rs`); None: never.
+    pub(super) idle_child: StdMutex<Option<std::time::Duration>>,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -322,6 +330,8 @@ impl Hub {
             settled_by_shutdown: StdMutex::new(Default::default()),
             launchers: StdMutex::new(HashMap::new()),
             probe_errors: StdMutex::new(HashMap::new()),
+            clock: StdMutex::new(crate::clock::TokioClock::new()),
+            idle_child: StdMutex::new(Some(IDLE_CHILD)),
         });
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {
@@ -332,6 +342,16 @@ impl Hub {
             }
         }
         hub
+    }
+
+    /// Drive lifecycle timers from `clock` (tests pass a `ManualClock`).
+    pub fn set_clock(&self, clock: Arc<dyn crate::clock::Clock>) {
+        *self.clock.lock().unwrap() = clock;
+    }
+
+    /// How long an unused session harness lives; None keeps it forever.
+    pub fn set_idle_child(&self, idle: Option<std::time::Duration>) {
+        *self.idle_child.lock().unwrap() = idle;
     }
 
     /// Points adopt at other harness stores (tests use fixture stores).
