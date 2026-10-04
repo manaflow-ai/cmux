@@ -7,7 +7,7 @@ import Testing
 /// Live libghostty surfaces for tests (no window).
 @MainActor
 enum LiveTerminal {
-    final class Sink: @unchecked Sendable {
+    nonisolated final class Sink: @unchecked Sendable {
         var data = Data()
     }
 
@@ -38,7 +38,7 @@ enum LiveTerminal {
     /// The owner's history check (`ghostty_surface_history_digest`).
     static func historyCheck(_ session: TerminalSession) async throws -> (rows: UInt64, digest: Data) {
         let lane = try #require(session.surfaceView.lane)
-        final class Box: @unchecked Sendable { var rows: UInt64 = 0; var digest = Data(count: Int(GHOSTTY_SURFACE_HISTORY_DIGEST_LEN)) }
+        nonisolated final class Box: @unchecked Sendable { var rows: UInt64 = 0; var digest = Data(count: Int(GHOSTTY_SURFACE_HISTORY_DIGEST_LEN)) }
         let box = Box()
         lane.perform { surface in
             var rows: UInt64 = 0
