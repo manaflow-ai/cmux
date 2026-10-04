@@ -41,6 +41,21 @@ extension cmuxApp {
             Button(String(localized: "debug.menu.cloudSidebarSpacingLab", defaultValue: "Cloud Sidebar Spacing Lab…")) {
                 AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugLabController.show()
             }
+            Button(String(localized: "debug.menu.showCloudWelcome", defaultValue: "Show Cloud Welcome…")) {
+                AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow)
+            }
+            Button(String(localized: "debug.menu.showCloudWelcomeStacked", defaultValue: "Show Cloud Welcome (Stacked Title)…")) {
+                AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow, layout: .stacked)
+            }
+            Button(String(localized: "debug.menu.showCloudWelcomeStackedNoBadge", defaultValue: "Show Cloud Welcome (Stacked, No Badge)…")) {
+                AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow, layout: .stackedNoBadge)
+            }
+            Button(String(localized: "debug.menu.showCloudWelcomeMachineFocusNoPorts", defaultValue: "Show Cloud Welcome (Machine Focus, No Ports)…")) {
+                AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow, layout: .machineFocus)
+            }
+            Button(String(localized: "debug.menu.showCloudWelcomeMachineFocusNoBadge", defaultValue: "Show Cloud Welcome (Machine Focus, No Badge)…")) {
+                AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow, layout: .machineFocusNoBadge)
+            }
             Button(String(localized: "menu.help.showProWelcomeChecklist", defaultValue: "Show Pro Welcome Checklist…")) {
                 ProWelcomeChecklistPresenter.present()
             }
