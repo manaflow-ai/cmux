@@ -39,9 +39,8 @@ def main() -> int:
     failures = []
     try:
         repo = scratch / "cmux"
-        (repo / "scripts/ci").mkdir(parents=True)
-        for name in ("package-test-lane.sh", "hung_test_watchdog.py", "require_swift_test_execution.py"):
-            shutil.copy(ROOT / "scripts/ci" / name, repo / "scripts/ci" / name)
+        (repo / "scripts").mkdir(parents=True)
+        shutil.copytree(ROOT / "scripts/ci", repo / "scripts/ci")
         pkg = repo / "Packages/macOS/Pkg"
         pkg.mkdir(parents=True)
         (pkg / "Package.swift").write_text("// swift-tools-version: 6.0\n")
