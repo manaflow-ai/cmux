@@ -239,6 +239,37 @@ struct BrowserReplFrameGateTests {
         #expect(await Self.error { try await gate.checkPointer(at: [CGPoint(x: 250, y: 50)], in: page.webView, frames: page.frames) } == nil)
     }
 
+    // MARK: Incomplete frame trees
+
+    /// WebKit's frame tree can come back without some frames (no `_frames:`,
+    /// a child it could not describe): a blocked frame missing from it would
+    /// look like no blocked frame at all. The gate fails closed instead: a
+    /// tree that has fewer child frames than the main document refuses
+    /// input and captures with `stale`.
+    @Test func aTreeReadThatLostFramesRefusesInputAndCaptures() async throws {
+        let page = try await FramePage.load()
+        let gate = Self.gate()
+        let blocked = try #require(page.frame(host: "blocked.test"))
+        _ = try await page.run("document.getElementById('f').focus(); return document.activeElement.id", in: blocked)
+        let partial = page.frames.filter { $0.frameID != blocked.frameID }
+        for (name, frames) in [("without the blocked frame", partial), ("main frame only", [page.main])] {
+            let pointer = await Self.error { try await gate.checkPointer(at: [CGPoint(x: 250, y: 50)], in: page.webView, frames: frames) }
+            #expect(pointer?.code == "stale", "\(name): a point over a frame the tree lost was allowed: \(String(describing: pointer))")
+            let focus = await Self.error { try await gate.checkFocus(in: page.webView, frames: frames) }
+            #expect(focus?.code == "stale", "\(name): typing while a frame the tree lost has the focus was allowed: \(String(describing: focus))")
+            let input = await Self.error { try await gate.guardingInput(in: page.webView, frames: { frames }, checkFocusAfter: false) { true } }
+            #expect(input?.code == "stale", "\(name): input was let through without guarding a frame the tree lost: \(String(describing: input))")
+            let capture = await Self.error {
+                try await gate.coverBlockedFrames(in: page.webView, frames: { frames }) {
+                    (try await FramePage.viewportImage(of: page.webView), CGRect(x: 0, y: 0, width: 400, height: 300))
+                }
+            }
+            #expect(capture?.code == "stale", "\(name): a screenshot showed a frame the tree lost: \(String(describing: capture))")
+        }
+        // The whole tree still passes where no blocked frame is in the way.
+        #expect(await Self.error { try await gate.checkPointer(at: [CGPoint(x: 50, y: 50)], in: page.webView, frames: page.frames) } == nil)
+    }
+
     // MARK: Probes that never answer
 
     /// The gate's own probes (the focus probe, the frame boxes, a frame's
