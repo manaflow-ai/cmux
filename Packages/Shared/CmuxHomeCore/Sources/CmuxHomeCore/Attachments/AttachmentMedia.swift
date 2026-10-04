@@ -161,15 +161,17 @@ enum AttachmentMedia {
         return (try jpeg(image), "jpg")
     }
 
-    /// True when the image may show through: ImageIO reports
-    /// `kCGImagePropertyHasAlpha`, or `sample` (a decoded copy) has an
-    /// alpha channel with a pixel that is not fully opaque.
+    /// True when the image really shows through: `sample` (a decoded copy,
+    /// at most 512 px for a preview) has a pixel that is not fully opaque.
+    /// `kCGImagePropertyHasAlpha` only says an alpha channel exists; many
+    /// opaque PNGs have one, so the pixels decide. Without a sample, or when
+    /// the decoder dropped the channel, the flag decides.
     static func isTransparent(_ source: CGImageSource, sample: CGImage?) -> Bool {
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
-        if (properties?[kCGImagePropertyHasAlpha] as? Bool) == true { return true }
-        guard let sample else { return false }
+        let hasAlpha = (properties?[kCGImagePropertyHasAlpha] as? Bool) == true
+        guard let sample else { return hasAlpha }
         switch sample.alphaInfo {
-        case .none, .noneSkipFirst, .noneSkipLast: return false
+        case .none, .noneSkipFirst, .noneSkipLast: return hasAlpha
         default: return !isOpaque(sample)
         }
     }
@@ -193,9 +195,11 @@ enum AttachmentMedia {
     /// An image's preview: a JPEG at most `previewMaxPixel` on its long edge
     /// and `previewMaxBytes`, trying lower quality and size before giving
     /// up. Nil when the image is small enough to show itself (and not HEIC,
-    /// which some readers cannot decode), when it is transparent (a JPEG
-    /// has no alpha, and the owner keeps the first preview of a hash for
-    /// good; readers load the original), or when no attempt fits.
+    /// which some readers cannot decode), when a pixel of its 512 px sample
+    /// is transparent (Lawrence's rule: transparent images get no preview;
+    /// a JPEG has no alpha, and the owner keeps the first preview of a hash
+    /// for good; readers load the original), or when no attempt fits. An
+    /// opaque image with an alpha channel gets a preview.
     static func previewJPEG(of url: URL, mimeType: String, byteCount: Int, displaySize: (width: Int, height: Int)) -> Data? {
         let maxPixel = HomeAttachmentPolicy.previewMaxPixel
         let maxBytes = HomeAttachmentPolicy.previewMaxBytes
