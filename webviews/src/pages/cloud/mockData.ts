@@ -92,6 +92,8 @@ export function sampleFiles(): Map<string, SampleFile> {
     ["/home/cmux/src", { kind: "directory" }],
     ["/home/cmux/src/main.rs", { kind: "file", text: "fn main() {}\n", mode: 420 }],
     ["/home/cmux/big.bin", { kind: "file", size: 20_971_520 }],
+    // fs-dir.json lists a symlink with no size.
+    ["/home/cmux/latest", { kind: "symlink" }],
   ]);
 }
 

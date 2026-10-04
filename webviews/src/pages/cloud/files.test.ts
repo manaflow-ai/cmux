@@ -30,7 +30,7 @@ describe("Cloud files", () => {
     const { provider, store } = await browsing();
     expect(ops(provider, CloudOps.fsList)[0].params).toEqual({ machine: running().id, path: "/home/cmux" });
     expect(files(store).path).toBe("/home/cmux");
-    expect(files(store).entries?.map((entry) => entry.name)).toEqual(["notes.txt", "src", "big.bin"]);
+    expect(files(store).entries?.map((entry) => entry.name)).toEqual(["notes.txt", "src", "big.bin", "latest"]);
   });
 
   test("a small text file previews through stat then read", async () => {
@@ -118,5 +118,32 @@ describe("Cloud files", () => {
     await listing;
     expect(store.getSnapshot().detail?.machine).toBe(other.id);
     expect(store.getSnapshot().detail?.files).toBeUndefined();
+  });
+
+  test("an item without a size is never read for a preview", async () => {
+    const { provider, store } = await browsing();
+    await store.files.preview("/home/cmux/latest");
+    expect(ops(provider, CloudOps.fsRead)).toEqual([]);
+    expect(files(store).preview).toMatchObject({ path: "/home/cmux/latest", unread: true });
+  });
+
+  test("Browse during the first detail read keeps the listing", async () => {
+    const provider = new MockCloudProvider();
+    const store = new CloudStore(provider, { newKey: () => "k" });
+    store.subscribe(() => undefined);
+    await store.start();
+    await settle();
+    const selection = store.select(running().id);
+    const listing = store.files.open("/home/cmux");
+    await Promise.all([selection, listing]);
+    expect(files(store).entries?.map((entry) => entry.name)).toContain("notes.txt");
+    expect(store.getSnapshot().detail!.snapshots?.length).toBeGreaterThan(0);
+  });
+
+  test("a failed write answers false so the editor keeps the text", async () => {
+    const { provider, store } = await browsing();
+    provider.failNext = CloudOps.fsWrite;
+    expect(await store.files.save("/home/cmux/notes.txt", "draft\n")).toBe(false);
+    expect(await store.files.save("/home/cmux/notes.txt", "draft\n")).toBe(true);
   });
 });
