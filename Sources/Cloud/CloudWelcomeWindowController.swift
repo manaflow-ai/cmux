@@ -54,6 +54,11 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
             onNext: { [weak self] step in self?.perform(step) }
         )
         let hosting = NSHostingView(rootView: rootView)
+        // The content clears the traffic lights with its own top padding, so it
+        // needs no titlebar safe area. Tracking it also loops in the app: the
+        // hosting view keeps invalidating its safe area and constraints until
+        // AppKit aborts (too many Update Constraints passes, 2026-10-04).
+        hosting.safeAreaRegions = []
         let size = hosting.fittingSize
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: NSSize(width: CloudWelcomeView.windowWidth, height: size.height)),
@@ -83,9 +88,6 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
             window.contentView = glass
         }
         #endif
-        // Size from the hosted view once it is in the window, so nothing clips.
-        window.contentView?.layoutSubtreeIfNeeded()
-        window.setContentSize(hosting.fittingSize)
         window.delegate = self
         return window
     }

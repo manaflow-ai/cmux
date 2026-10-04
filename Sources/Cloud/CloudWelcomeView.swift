@@ -46,9 +46,6 @@ struct CloudWelcomeView: View {
         }
         .frame(width: Self.windowWidth)
         .background(windowBackground)
-        // The title row clears the traffic lights with its own padding; without
-        // this the titlebar inset would push the content down and clip the footer.
-        .ignoresSafeArea()
         .accessibilityIdentifier("CloudWelcomeWindow")
     }
 
@@ -64,9 +61,11 @@ struct CloudWelcomeView: View {
             Color.clear
         } else {
             CloudWelcomeVisualEffect()
+                .ignoresSafeArea()
         }
         #else
         CloudWelcomeVisualEffect()
+            .ignoresSafeArea()
         #endif
     }
 
@@ -84,13 +83,6 @@ struct CloudWelcomeView: View {
                     text: String(
                         localized: "cloud.enable.benefit.agents",
                         defaultValue: "Agents and terminals keep running after you close your laptop."
-                    )
-                )
-                CloudWelcomeReasonRow(
-                    symbol: "externaldrive",
-                    text: String(
-                        localized: "cloud.enable.benefit.files",
-                        defaultValue: "Files and installed tools stay on the machine between sessions."
                     )
                 )
                 CloudWelcomeReasonRow(
