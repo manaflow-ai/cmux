@@ -51,12 +51,26 @@ impl Forward {
     }
 }
 
+/// A forward (`port: Some`) or a browser route (`port: None`) that closed
+/// because its link went down or was replaced. The serve loop sends it to
+/// the host as a `cloud.port.changed` line right after the link change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EdgeDown {
+    pub machine: String,
+    pub port: Option<u16>,
+    pub local_port: u16,
+    pub generation: u64,
+    pub reason: String,
+}
+
 /// Files transfers, forwards and proxy routes of this server.
 pub struct Edge {
     pub(crate) tunnel: Arc<dyn PortTunnel>,
     pub(crate) transfer: Box<dyn Transfer>,
     pub(crate) forwards: BTreeMap<(String, u16), Forward>,
     pub(crate) proxies: BTreeMap<String, Forward>,
+    /// Closes by link state since the last [`Edge::take_events`], in order.
+    events: Vec<EdgeDown>,
 }
 
 /// A tunnel for platforms without Unix sockets: every open fails.
@@ -72,7 +86,13 @@ impl PortTunnel for NoTunnel {
 
 impl Edge {
     pub fn new(tunnel: Arc<dyn PortTunnel>, transfer: Box<dyn Transfer>) -> Self {
-        Self { tunnel, transfer, forwards: BTreeMap::new(), proxies: BTreeMap::new() }
+        Self {
+            tunnel,
+            transfer,
+            forwards: BTreeMap::new(),
+            proxies: BTreeMap::new(),
+            events: Vec::new(),
+        }
     }
 
     /// The real tunnel (`loopback-forward-v1` on the link socket) and the
@@ -90,19 +110,31 @@ impl Edge {
     }
 
     /// Closes every forward and route whose link generation is not the live
-    /// one. Reads link state only; never blocks.
+    /// one, and records each close for the host (forwards in (machine, port)
+    /// order, then routes in machine order). Reads link state only; never
+    /// blocks.
     pub(crate) fn reconcile(&mut self, links: &LinkSupervisor) {
+        const REASON: &str = "the link to the machine went down";
         let live = |machine: &str| links.carrier(machine).map(|c| c.generation);
-        for ((machine, _), forward) in &mut self.forwards {
+        let forwards = self.forwards.iter_mut().map(|((m, p), f)| (m, Some(*p), f));
+        let routes = self.proxies.iter_mut().map(|(m, f)| (m, None, f));
+        for (machine, port, forward) in forwards.chain(routes) {
             if forward.down.is_none() && live(machine) != Some(forward.generation) {
-                forward.close("the link to the machine went down");
+                forward.close(REASON);
+                self.events.push(EdgeDown {
+                    machine: machine.clone(),
+                    port,
+                    local_port: forward.local_port,
+                    generation: forward.generation,
+                    reason: REASON.to_owned(),
+                });
             }
         }
-        for (machine, route) in &mut self.proxies {
-            if route.down.is_none() && live(machine) != Some(route.generation) {
-                route.close("the link to the machine went down");
-            }
-        }
+    }
+
+    /// Forwards and routes closed by link state since the last call, in order.
+    pub fn take_events(&mut self) -> Vec<EdgeDown> {
+        std::mem::take(&mut self.events)
     }
 
     /// A listener whose connections each open one stream to `host:port`.
@@ -127,8 +159,8 @@ impl Edge {
 /// The link socket file as it was when a forward or route opened. A new link
 /// generation for the same machine binds a new socket file at the same path,
 /// so a listener of an old generation compares the file identity before each
-/// stream and never reaches the new link (the op loop closes it at the next
-/// op). `None` when the file did not exist (fakes): then only the tunnel's
+/// stream and never reaches the new link (the serve loop closes it as soon
+/// as the link change wakes it). `None` when the file did not exist (fakes): then only the tunnel's
 /// own open decides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkIdentity(Option<(u64, u64)>);

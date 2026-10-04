@@ -234,10 +234,16 @@ impl<C: ControlPlane> Server<C> {
         (&mut self.edge, &self.attach.supervisor)
     }
 
-    /// Closes forwards and routes whose link went down or was replaced.
+    /// Closes forwards and routes whose link went down or was replaced, by
+    /// the link state as last pumped: the serve loop pumps and sends the
+    /// link events first, so each close follows the change that caused it.
     pub fn reconcile_edge(&mut self) {
-        let (edge, links) = self.edge_parts();
-        edge.reconcile(links);
+        self.edge.reconcile(&self.attach.supervisor);
+    }
+
+    /// Forwards and routes closed by link state since the last call.
+    pub fn take_edge_events(&mut self) -> Vec<crate::ports::EdgeDown> {
+        self.edge.take_events()
     }
 
     /// One Cloud API call context for an attach op.
