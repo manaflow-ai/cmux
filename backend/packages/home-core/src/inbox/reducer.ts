@@ -51,6 +51,12 @@ export interface InboxBumpParams {
   readonly mentions?: number
   readonly dm_peer?: string
   readonly removed?: boolean
+  /** Push facts of the last message (fanout.ts InboxBump); read by the UserDO push decision, never stored in the entry. */
+  readonly last_author?: string
+  readonly last_author_kind?: "human" | "agent"
+  readonly last_approval?: boolean
+  readonly last_mention?: boolean
+  readonly joined_seq?: number
 }
 
 /** The small per-user head next to the entry rows. */
@@ -92,7 +98,12 @@ export const validBump = (params: unknown): params is InboxBumpParams => {
     (p.unread === undefined) === (p.mentions === undefined) &&
     (p.dm_peer === undefined || isText(p.dm_peer, 128)) &&
     (p.removed === undefined || typeof p.removed === "boolean") &&
-    (p.user === undefined || isText(p.user, 128))
+    (p.user === undefined || isText(p.user, 128)) &&
+    (p.last_author === undefined || isText(p.last_author, 128)) &&
+    (p.last_author_kind === undefined || p.last_author_kind === "human" || p.last_author_kind === "agent") &&
+    (p.last_approval === undefined || typeof p.last_approval === "boolean") &&
+    (p.last_mention === undefined || typeof p.last_mention === "boolean") &&
+    (p.joined_seq === undefined || isCount(p.joined_seq))
   )
 }
 

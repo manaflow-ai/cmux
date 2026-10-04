@@ -8,8 +8,10 @@ import { grantFor, installActive, jwkThumbprint, makeUserDomain, type UserState 
 import { appIdHashFor, confirmView } from "./domains/user-confirm.ts"
 import { chiefList } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
+import { HomePushQueue, homeApnsMessage, pushCandidate, stillPushable } from "./home-push.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
+import { apnsConfig, sendApnsMessage, type ApnsMessage, type SendResult } from "./push/apns.ts"
 
 /** Inbox entries a list scans at most (p99 2,000 conversations per user, design section 6). */
 const INBOX_SCAN_LIMIT = 10_000
@@ -25,6 +27,13 @@ export type RedeemResult = ({ ok: true } & InstallClaims) | { ok: false; code: "
  * credentials, not shared entity state.
  */
 /** POST /v1/presence-key body. */
+/** Which client is active, from `presence.set` (sync-and-transport.md 3.1); socket attachment only, never committed. */
+interface Presence {
+  readonly active: boolean
+  readonly client: string
+  readonly at: number
+}
+
 export interface PresenceKeyBody {
   readonly platform?: unknown
   readonly jwk?: unknown
@@ -36,10 +45,22 @@ export interface PresenceKeyBody {
 export class UserDO extends OwnerDO<UserState> {
   /** Second stream `inbox:<user>` (lane 15 E2): Home inbox entries, pins, mutes, archive. */
   private readonly inbox: SecondaryStream<homeInbox.InboxHead>
+  /** Home push queue (home-push.ts): one row per conversation, the dedupe for redelivered and coalesced bumps. */
+  private readonly homePush: HomePushQueue
+
+  /**
+   * Sends one Home alert through the APNs sender FeedDO uses; null when APNs is not
+   * configured (the decision is only logged). Tests replace it inside the object.
+   */
+  protected homePushSender = async (targets: ReadonlyArray<PushTarget>, message: ApnsMessage, now: number): Promise<ReadonlyArray<SendResult> | null> => {
+    const config = apnsConfig(this.env)
+    return config ? sendApnsMessage(config, targets, message, now) : null
+  }
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env, makeUserDomain(appIdHashFor(env.IOS_APP_ID)), "user")
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
+    this.homePush = new HomePushQueue(this.sqlStore)
     this.inbox = new SecondaryStream(ctx, this.sqlStore, {
       prefix: "inbox",
       tablePrefix: "inbox_",
@@ -83,7 +104,8 @@ export class UserDO extends OwnerDO<UserState> {
     this.boundInbox()
     const inbox = this.inbox.nextWakeAt()
     const pending = Object.keys(this.boundEngine?.currentState.ssh_revoke_pending ?? {}).length > 0 ? Math.max(Date.now(), this.sshRetryAt ?? 0) : null
-    return inbox === null ? pending : pending === null ? inbox : Math.min(inbox, pending)
+    const times = [inbox, pending, this.homePush.nextDueAt()].filter((t): t is number => t !== null)
+    return times.length ? Math.min(...times) : null
   }
 
   /** Backoff after a failed KRL notice (in memory: a restart retries at once). */
@@ -95,6 +117,97 @@ export class UserDO extends OwnerDO<UserState> {
    * when every team confirmed (S4). TeamDO's side is idempotent, so a retry after a crash is safe.
    */
   protected override async onWake(now: number): Promise<void> {
+    await this.drainHomePush(now)
+    await this.deliverKrlNotices(now)
+  }
+
+  /** `presence.set {state: {active, client}}` from a connected client, as FeedDO; feeds the foreground check of Home push. */
+  protected override onFrame(ws: WebSocket, frame: { readonly t?: string } & Record<string, unknown>): boolean {
+    if (frame.t !== "presence.set") return false
+    const st = (frame.state ?? {}) as { active?: unknown; client?: unknown }
+    const a = (ws.deserializeAttachment() ?? {}) as Record<string, unknown>
+    const presence: Presence = { active: st.active === true, client: typeof st.client === "string" ? st.client.slice(0, 16) : "unknown", at: Date.now() }
+    ws.serializeAttachment({ ...a, presence })
+    return true
+  }
+
+  /** A socket of this user whose client says it is in the foreground (until it says otherwise or closes). */
+  private userForeground(entity: string): boolean {
+    return this.ctx.getWebSockets().some((ws) => {
+      const a = ws.deserializeAttachment() as (Attachment & { presence?: Presence }) | null
+      return Boolean(a?.presence?.active && a.principal.user === entity)
+    })
+  }
+
+  /**
+   * Home push decision for one delivered `inbox.bump` (home-messaging.md section 5 step 3):
+   * the committed rules here, queued once per conversation and seq; the user's own message or
+   * a full read settles what was pending. Runs synchronously in the delivery, so the queue row
+   * is written in the same storage batch as the bump's commit.
+   */
+  protected override afterOp(principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>, params?: unknown) {
+    super.afterOp(principal, op, frames, params)
+    if (op === "inbox.bump" && principal.kind === "system") this.decideHomePush(frames, params)
+    else if (op === "install.revoke" || op === "install.revoke_by_team") this.closeRevoked(frames)
+  }
+
+  private decideHomePush(frames: ReadonlyArray<OwnerFrame>, params: unknown) {
+    const engine = this.existing()
+    const result = frames.find((f) => f.t === "result")
+    if (!engine || !result || result.t !== "result" || !homeInbox.validBump(params)) return
+    const entity = engine.stream.slice("user:".length)
+    const entry = result.value as homeInbox.InboxEntry
+    const now = Date.now()
+    const decision = pushCandidate(entity, params, entry, now)
+    if (decision.push) {
+      this.homePush.offer(params.conversation, decision.seq, decision.approval, now)
+      return
+    }
+    // The user wrote or read up to here elsewhere: nothing older is worth a notification.
+    if (decision.reason === "own" || decision.reason === "read") this.homePush.settle(params.conversation, params.last_seq, now, false)
+  }
+
+  /**
+   * Sends due Home pushes. Device facts are checked here: a foreground socket or no push
+   * target settles the row without a send. A row is settled before its send (at most once),
+   * so a retried alarm never sends it again; tokens APNs refuses are dropped by this owner.
+   */
+  private async drainHomePush(now: number): Promise<void> {
+    const due = this.homePush.due(now)
+    const engine = this.existing()
+    if (due.length === 0 || !engine) return
+    const entity = engine.stream.slice("user:".length)
+    const inbox = this.inbox.open(entity)
+    const foreground = this.userForeground(entity)
+    let targets: ReadonlyArray<PushTarget> | undefined
+    for (const row of due) {
+      const entry = inbox.rows.get<homeInbox.InboxEntry>(homeInbox.TABLE_ENTRY, row.conversation)?.row
+      targets ??= await this.pushTargets(entity)
+      const message = entry ? homeApnsMessage(entry, row.seq, row.approval, now) : null
+      const skip = foreground ? "foreground" : (stillPushable(entry, row.approval, now) ?? (targets.length === 0 ? "no_target" : message === null ? "empty" : null))
+      this.homePush.settle(row.conversation, row.seq, now, skip === null)
+      if (skip !== null || !message) {
+        console.log(JSON.stringify({ msg: "home.push.skipped", reason: skip, conversation: row.conversation, seq: row.seq }))
+        continue
+      }
+      try {
+        const results = await this.homePushSender(targets, message, now)
+        if (results === null) {
+          console.log(JSON.stringify({ msg: "home.push.skipped", reason: "apns not configured", conversation: row.conversation, seq: row.seq }))
+          continue
+        }
+        const dropped = new Set(results.filter((r) => r.outcome === "drop_target").map((r) => r.token))
+        for (const token of dropped) await this.dropPushTarget(entity, token, results.find((r) => r.token === token)?.reason ?? "rejected")
+        targets = targets.filter((t) => !dropped.has(t.token))
+        console.log(JSON.stringify({ msg: "home.push.sent", conversation: row.conversation, seq: row.seq, results: results.map((r) => ({ outcome: r.outcome, status: r.status, reason: r.reason })) }))
+      } catch (e) {
+        // An effect after the settle never throws out of the wake: the decision stands (at most once).
+        console.error(JSON.stringify({ msg: "home.push.failed", conversation: row.conversation, error: String(e).slice(0, 200) }))
+      }
+    }
+  }
+
+  private async deliverKrlNotices(now: number): Promise<void> {
     const engine = this.existing()
     const pending = Object.entries(engine?.currentState.ssh_revoke_pending ?? {})
     if (pending.length === 0 || (this.sshRetryAt !== null && now < this.sshRetryAt)) return
@@ -281,8 +394,7 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /** A revoked install loses its open sockets at once, not at token expiry. */
-  protected override afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>) {
-    if (op !== "install.revoke" && op !== "install.revoke_by_team") return
+  private closeRevoked(frames: ReadonlyArray<OwnerFrame>) {
     const result = frames.find((f) => f.t === "result")
     const revoked = result && result.t === "result" ? (result.value as { id?: string }).id : undefined
     if (revoked) this.closeSockets((p) => p.install === revoked, "install revoked")
@@ -307,7 +419,7 @@ export class UserDO extends OwnerDO<UserState> {
     return row ? this.bind(row.entity) : undefined
   }
 
-  /** For FeedDO: the user's push targets whose install is still active (feed.md 7.3). */
+  /** For FeedDO and Home push: the user's push targets whose install is still active (feed.md 7.3). */
   async pushTargets(entity: string): Promise<ReadonlyArray<PushTarget>> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return []
@@ -315,7 +427,7 @@ export class UserDO extends OwnerDO<UserState> {
     return Object.values(state.push_targets ?? {}).filter((t) => state.installs[t.install]?.revoked_at === null)
   }
 
-  /** For FeedDO: APNs rejected this token (unregistered or bad); the owner drops it in its own op. */
+  /** For FeedDO and Home push: APNs rejected this token (unregistered or bad); the owner drops it in its own op. */
   async dropPushTarget(entity: string, token: string, reason: string): Promise<void> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return

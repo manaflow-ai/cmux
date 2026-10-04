@@ -17,6 +17,7 @@ export {
 export type { Domain, OutboxItem, Principal, ReduceContext, ReduceResult, RowRange, RowReader, RowWrite, StoredRow } from "./engine-types.ts"
 export {
   fanOut,
+  hasApprovalPart,
   mentionsOf,
   PREVIEW_CHARS,
   previewOf,

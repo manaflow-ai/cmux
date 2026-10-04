@@ -172,8 +172,11 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     }
   }
 
-  /** Hook after each committed op (for example: close a revoked install's sockets). */
-  protected afterOp(_principal: Principal, _op: string, _frames: ReadonlyArray<OwnerFrame>) {}
+  /**
+   * Hook after each committed op (for example: close a revoked install's sockets). `params`
+   * is passed for system ops delivered by another owner's outbox (systemDeliver).
+   */
+  protected afterOp(_principal: Principal, _op: string, _frames: ReadonlyArray<OwnerFrame>, _params?: unknown) {}
 
   /**
    * When this owner next needs its alarm for its own work (for example the next
@@ -252,7 +255,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
       )
       const reject = frames.find((f) => f.t === "reject")
       if (reject && reject.t === "reject") console.warn(JSON.stringify({ msg: "system op refused", target: engine.stream, source, op: item.op, code: reject.code }))
-      this.afterOp(principal, item.op, frames)
+      this.afterOp(principal, item.op, frames, item.params)
       done.push(item.id)
     }
     this.afterCommit()
