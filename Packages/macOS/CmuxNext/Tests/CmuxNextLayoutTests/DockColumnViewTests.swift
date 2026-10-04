@@ -64,6 +64,25 @@ struct DockColumnViewTests {
         #expect(view.model.visiblePanes.isSuperset(of: ["c", "d"]))
     }
 
+    /// `debug.dock` (nxdog35 preflight): the report lists every docked
+    /// column with its edge, frame and the rim (the inner-edge resize
+    /// handle) in window coordinates, so a test can find and drag the rim.
+    @Test func theDockReportListsTheDockWithItsRim() {
+        let (view, window) = makeRoot(DockColumn(edge: .right, mode: .docked))
+        defer { window.close() }
+        let report = view.dockReport
+        let column = report?.columns.first
+        #expect(report?.columns.count == 1)
+        #expect(column?.column == ColumnID("cd"))
+        #expect(column?.dock.edge == .right)
+        #expect(column?.shownAsDock == true)
+        let frame = column?.frameInWindow ?? .zero
+        #expect(frame.width == 292 && frame.height == 600)
+        let rim = column?.rimInWindow ?? .zero
+        #expect(rim.width > 0 && rim.height == frame.height)
+        #expect(rim.minX <= frame.minX && rim.maxX >= frame.minX, "the rim is on the inner (left) edge: \(rim) vs \(frame)")
+    }
+
     @Test func anOverlayColumnFloatsOnAGlassBackdrop() {
         let (view, window) = makeRoot(DockColumn(edge: .right, mode: .overlay))
         defer { window.close() }

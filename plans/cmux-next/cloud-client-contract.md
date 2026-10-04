@@ -45,10 +45,15 @@ plans `cloud-app.md`, `transport.md`, `team-vm-plan.md`, `identity.md`, backend 
   key and never makes a new one (C7's delete retry logic maps to this one code).
 - Every mutation result carries the entity `revision`; the client applies it to its projection and
   drops any older event (C4i watch/revision logic survives).
-- Principals: `session` and `install` for everything the owner may do; destructive and money ops
-  (`machine.delete`, `snapshot.delete`, `machine.create`, `machine.resize` up) need origin `user`
-  on the client side (native confirmation) and are refused for agent principals (`agt` claim) by
-  the backend.
+- Principals: `session` and `install` for reads and ordinary mutations. Money and destructive ops
+  (`machine.create`, `machine.delete`, `machine.resize`, `machine.upgrade`, `snapshot.create`,
+  `snapshot.restore`, `snapshot.delete`, `billing.checkout`, `migration.start`) never use the default
+  install grants (coordinator decision, 2026-10-04): they need a user principal (session), or, after
+  the origin window lands, an install carrying a fresh single-use `origin.confirmation` token from the
+  native confirmation sheet (decision ORIGIN). Until then an install is refused with `auth.forbidden`,
+  also when its grant lists money or destructive; agent principals (`agt` claim) are always refused.
+  Vectors: `machine.create.install`, `machine.delete.install` (refusals) and
+  `machine.create.install_confirmed` (marked PENDING ORIGIN).
 - Target: `team` (a personal account is a team of one). Ownership: a machine belongs to a team and
   has a creator user; v1 shows the caller's own machines and the team machines the policy allows.
 

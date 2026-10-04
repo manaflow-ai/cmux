@@ -69,6 +69,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         if let planeLayer = layoutView.overlayPlane.layer {
             agentCursor = AgentCursorStack(hostLayer: planeLayer)
         }
+        agentCursor?.resolver.inner = services.agentCursorVisibility.resolver(for: self)
         observe()
         screenBar = ScreenBarController(content: self)
         contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)

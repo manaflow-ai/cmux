@@ -74,3 +74,17 @@ import Testing
         #expect(plane.sublayers?.isEmpty ?? true)
     }
 }
+
+@MainActor
+@Suite struct AgentCursorLayerHostLeaseTests {
+    /// Lease frames reach every content's stack; a pause for a session that
+    /// never drew here must not create a cursor (an arrow at the origin).
+    @Test func pausingASessionWithNoCursorCreatesNoLayer() {
+        let plane = CALayer()
+        let host = AgentCursorLayerHost(hostLayer: plane) { _ in CGColor(gray: 0.9, alpha: 1) }
+        host.apply(.setPaused(session: "a", paused: true))
+        host.apply(.setPaused(session: "a", paused: false))
+        #expect(plane.sublayers == nil)
+        #expect(host.cursorLayer(for: "a") == nil)
+    }
+}

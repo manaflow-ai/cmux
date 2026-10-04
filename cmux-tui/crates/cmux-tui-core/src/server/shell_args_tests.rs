@@ -145,7 +145,7 @@ fn run_json_command(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
         outbound: Arc::new(BoundedOutbound::default()),
         control: None,
     });
-    handle_command(mux, 0, command, &writer)
+    handle_command(mux, mux.local_test_client(0), command, &writer)
 }
 
 /// The argv the created terminal was spawned with (the in-process test
