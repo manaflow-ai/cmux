@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::apps::runs::Caller;
+use crate::apps::supervisor::Supervisor;
 
 type Answer = Result<Value, super::super::super::supervisor::ApiError>;
 
@@ -20,6 +21,31 @@ fn cancel_fixture(name: &str) -> (Fixture, PathBuf) {
     let f = fixture_with(&[], Duration::from_secs(60), root);
     f.install("cmux/cncl");
     (f, marker)
+}
+
+/// An installed `cmux/cncl` server app for the socket test in
+/// `server/apps.rs`; the fixture keeps its files alive.
+pub(crate) struct SocketFixture {
+    pub supervisor: Arc<Supervisor>,
+    marker: PathBuf,
+    _fixture: Fixture,
+}
+
+pub(crate) fn socket_fixture() -> SocketFixture {
+    let (f, marker) = cancel_fixture("socket");
+    SocketFixture { supervisor: f.supervisor.clone(), marker, _fixture: f }
+}
+
+impl SocketFixture {
+    /// Waits until the server received `count` lines and returns them.
+    pub fn wait_server_lines(&self, count: usize) -> Vec<Value> {
+        wait_lines(&self.marker, count)
+    }
+
+    /// The `op.cancel` lines the server received.
+    pub fn server_cancels(&self) -> Vec<Value> {
+        cancels(&self.marker)
+    }
 }
 
 /// Runs `op` for `client`'s request `request` and returns its answers.

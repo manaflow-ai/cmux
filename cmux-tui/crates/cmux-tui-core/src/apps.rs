@@ -127,6 +127,19 @@ impl AppsSlot {
         let _ = (client, target, &self.supervisor);
     }
 
+    /// Apps commands run here: this build has an app host, or a supervisor
+    /// already runs.
+    #[cfg(unix)]
+    pub(crate) fn available(&self) -> bool {
+        self.supervisor.get().is_some() || advertised().is_some()
+    }
+
+    /// Uses `supervisor` (a test's own configuration) for this daemon.
+    #[cfg(all(test, unix))]
+    pub(crate) fn install_for_test(&self, supervisor: Arc<Supervisor>) {
+        assert!(self.supervisor.set(supervisor).is_ok(), "a supervisor already runs");
+    }
+
     pub(crate) fn disconnect(&self, client: u64) {
         #[cfg(unix)]
         if let Some(supervisor) = self.supervisor.get() {
@@ -136,6 +149,10 @@ impl AppsSlot {
         let _ = (client, &self.supervisor);
     }
 }
+
+/// A server app fixture for socket tests (`server/apps.rs`).
+#[cfg(all(test, unix))]
+pub(crate) use supervisor_tests::servers::cancel::socket_fixture;
 
 /// The generic `cancel-request` frame (every build answers it).
 pub(crate) const CANCEL_REQUEST_CAPABILITY: &str = "cancel-request-v1";

@@ -215,7 +215,7 @@ pub(super) fn try_handle(
     if let Err(e) = crate::apps::admit_origin(request.origin, &claim_for(mux, client)) {
         return Some(reply(writer, request.id, Err(e)));
     }
-    if crate::apps::advertised().is_none() {
+    if !mux.control_clients.apps.available() {
         return Some(reply(
             writer,
             request.id,
@@ -491,5 +491,46 @@ mod tests {
         }
         assert!(outbound.try_pop().is_none(), "a no-op cancel sends nothing else");
         assert!(super::super::advertised_capabilities(false).contains(&"cancel-request-v1"));
+    }
+
+    /// A live `apps-run` on the socket, then `cancel-request` from the same
+    /// connection: the frame answers `{}`, the run answers exactly once with
+    /// `cmux.op.cancelled` (in either order), and the server gets `op.cancel`.
+    #[test]
+    fn cancel_request_cancels_a_live_apps_run_on_the_socket() {
+        let fixture = crate::apps::socket_fixture();
+        let mux = Mux::new_for_test("apps-cancel-socket", SurfaceOptions::default());
+        mux.control_clients.apps.install_for_test(fixture.supervisor.clone());
+        let (client, outbound) = connection(&mux, Some("cli"), false);
+        let writer = mux.control_clients.state.lock().unwrap().clients[&client].writer.clone();
+        let run = json!({ "id": "apps-run-1", "cmd": "apps-run", "app": "cmux/cncl", "op": "cncl.hang", "idempotency_key": "k1" });
+        assert_eq!(try_handle(&mux, client, &run.to_string(), &writer), Some(true));
+        let op_id = fixture.wait_server_lines(1)[0]["id"].clone();
+        let cancel: super::super::Request = serde_json::from_value(
+            json!({ "id": "cancel-request-1", "cmd": "cancel-request", "target": "apps-run-1" }),
+        )
+        .unwrap();
+        assert!(super::super::handle_request(&mux, client, cancel, &writer));
+        fixture.wait_server_lines(2);
+        assert_eq!(fixture.server_cancels(), vec![json!({ "type": "op.cancel", "id": op_id })]);
+        // The server's own cancelled answer arrives; it must not reach the client.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let mut replies: Vec<Value> = Vec::new();
+        while let Some(message) = outbound.try_pop() {
+            let value: Value = serde_json::from_str(&message).unwrap();
+            if value.get("id").is_some() {
+                replies.push(value);
+            }
+        }
+        let for_id = |id: &str| replies.iter().filter(|r| r["id"] == id).collect::<Vec<_>>();
+        let run_replies = for_id("apps-run-1");
+        assert_eq!(run_replies.len(), 1, "{replies:?}");
+        assert_eq!(run_replies[0]["ok"], false);
+        assert_eq!(run_replies[0]["error_code"], "cmux.op.cancelled");
+        assert_eq!(run_replies[0]["retryable"], false);
+        let cancel_replies = for_id("cancel-request-1");
+        assert_eq!(cancel_replies.len(), 1, "{replies:?}");
+        assert_eq!(cancel_replies[0]["ok"], true);
+        assert_eq!(cancel_replies[0]["data"], json!({}));
     }
 }
