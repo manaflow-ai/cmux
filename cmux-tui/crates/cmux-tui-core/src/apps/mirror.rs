@@ -169,9 +169,16 @@ pub struct SetOp {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
     /// A deployment-list app seen for the first time: installed for
-    /// everyone with its required scopes, no consent. Never re-installs an
-    /// app the user removed (its record stays).
+    /// everyone with its required scopes, no consent, and `hidden` when the
+    /// deployment ships it hidden. Never changes an app that has a record.
     Seed {
+        app: String,
+        hidden: bool,
+    },
+    /// Load-time migration: a first-party app removed before the hide-only
+    /// rule (its record says installed false) is installed again, hidden,
+    /// with its required scopes. Other apps are not touched.
+    Restore {
         app: String,
     },
     Set(SetOp),
@@ -208,6 +215,8 @@ pub enum Reject {
     ScopeRestricted(String),
     /// An elevated scope is granted only with origin user.
     ScopeElevated(String),
+    /// A first-party app is hidden, never removed.
+    FirstPartyHideOnly,
     /// The change needs an installed app.
     NotInstalled,
     /// The same key was used for a different op.
@@ -223,6 +232,7 @@ impl Reject {
             Self::ScopeNotRequested(_) => "apps.scope",
             Self::ScopeRestricted(_) => "apps.scope_restricted",
             Self::ScopeElevated(_) => "apps.scope_elevated",
+            Self::FirstPartyHideOnly => "apps.first_party_hide_only",
             Self::NotInstalled => "apps.notInstalled",
             Self::KeyConflict => "idempotency.conflict",
             Self::BadRequest(_) => "bad-request",
@@ -239,6 +249,9 @@ impl Reject {
             }
             Self::ScopeElevated(scope) => {
                 format!("{scope} is elevated: only you can grant it, in the confirmation sheet")
+            }
+            Self::FirstPartyHideOnly => {
+                "a first-party app cannot be removed; hide it instead".into()
             }
             Self::NotInstalled => "the app is not installed".into(),
             Self::KeyConflict => "this idempotency key was used for a different change".into(),
@@ -276,23 +289,43 @@ pub fn absent(source: Source, facts: Option<&Facts>) -> Record {
 /// Validates `op` against `mirror` and returns the next mirror and effects.
 pub fn reduce(mirror: &Mirror, op: &Op, facts: Option<&Facts>) -> Result<Outcome, Reject> {
     match op {
-        Op::Seed { app } => {
+        Op::Seed { app, hidden } => {
             let facts = facts.ok_or(Reject::UnknownApp)?;
             if mirror.apps.contains_key(app) {
                 return Ok(unchanged(mirror, false));
             }
             let mut next = mirror.clone();
-            let mut record = fresh(facts, Source::Default);
-            // Default apps get their required scopes without consent, whatever
-            // the tier; never an elevated one (that needs a user grant).
-            record.grants = facts.requested.iter().filter(|s| !is_elevated(s)).cloned().collect();
-            record.sandboxed = false;
+            let mut record = seeded(facts, Source::Default);
+            record.hidden = *hidden;
+            next.apps.insert(app.clone(), record);
+            next.revision += 1;
+            Ok(Outcome { mirror: next, effects: vec![], replayed: false, changed: true })
+        }
+        Op::Restore { app } => {
+            let facts = facts.ok_or(Reject::UnknownApp)?;
+            let Some(current) = mirror.apps.get(app) else { return Ok(unchanged(mirror, false)) };
+            if facts.tier != Tier::FirstParty || current.installed {
+                return Ok(unchanged(mirror, false));
+            }
+            let mut next = mirror.clone();
+            let mut record = seeded(facts, current.source);
+            record.hidden = true;
             next.apps.insert(app.clone(), record);
             next.revision += 1;
             Ok(Outcome { mirror: next, effects: vec![], replayed: false, changed: true })
         }
         Op::Set(set) => reduce_set(mirror, set, facts),
     }
+}
+
+/// A default app's record: installed with its required scopes without
+/// consent, whatever the tier; never an elevated one (that needs a user
+/// grant).
+fn seeded(facts: &Facts, source: Source) -> Record {
+    let mut record = fresh(facts, source);
+    record.grants = facts.requested.iter().filter(|s| !is_elevated(s)).cloned().collect();
+    record.sandboxed = false;
+    record
 }
 
 fn unchanged(mirror: &Mirror, replayed: bool) -> Outcome {
@@ -340,6 +373,10 @@ fn reduce_set(mirror: &Mirror, set: &SetOp, facts: Option<&Facts>) -> Result<Out
         ));
     };
     let before = current.cloned().unwrap_or_else(|| absent(facts.source, Some(facts)));
+    // First-party apps ship with cmux: hide them, never remove them.
+    if set.installed == Some(false) && facts.tier == Tier::FirstParty {
+        return Err(Reject::FirstPartyHideOnly);
+    }
     let user = set.origin == Origin::User;
     if set.installed.is_some_and(|i| i != before.installed) && !user {
         return Err(Reject::Origin("installed"));

@@ -214,12 +214,16 @@ pub struct Catalog {
     pub rejected: Vec<(PathBuf, String)>,
 }
 
+/// Shipped default apps that start hidden: installed, and reachable by op
+/// and palette, but not listed in the sidebar until the user shows them.
+pub const HIDDEN_DEFAULTS: &[&str] = &["cmux/coderouter"];
+
 /// Where packages come from.
 #[derive(Debug, Clone, Default)]
 pub struct Sources {
     /// The first-party bundles shipped with cmux: every valid package here is
     /// a default app (installed for everyone with its required scopes,
-    /// hideable, removable with a tombstone). The Mac app passes
+    /// hide-only: hidden, never removed). The Mac app passes
     /// `Contents/Resources/apps/first-party` as `CMUX_APPS_FIRST_PARTY_DIR`;
     /// elsewhere it is `apps/first-party` next to the daemon.
     pub first_party: Option<PathBuf>,
