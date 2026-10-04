@@ -1474,7 +1474,10 @@ public final class BrowserReplSession: @unchecked Sendable {
                     return failure("EINVAL", "writeFile: \(BrowserReplSecretStore.limitMessage(Data(base64Encoded: base64)?.count ?? 0))")
                 }
             }
-            let result = self.fileSystem.perform(op, arguments: args)
+            // So is a copy: its source may be a file the session never
+            // wrote (a page's download, a secrets file).
+            let copyContents = op == "copyFile" ? self.boundary.fileCopyRedaction() : nil
+            let result = self.fileSystem.perform(op, arguments: args, copyContents: copyContents)
             switch result {
             case .success(var value):
                 // So is a file read back (a secrets file, a page's download),

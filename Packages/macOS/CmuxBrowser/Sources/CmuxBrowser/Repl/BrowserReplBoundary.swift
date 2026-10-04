@@ -68,6 +68,22 @@ final class BrowserReplBoundary: @unchecked Sendable {
         try redactionStores.reduce(data) { try $1.redact($0) }
     }
 
+    /// What `fs.copyFile` writes in place of a file's bytes while any value
+    /// is masked (the session's secrets, or values other sessions typed):
+    /// the bytes redacted with the stores held now, as written files are.
+    /// `nil` when nothing is masked, so the copy streams the bytes as they are.
+    func fileCopyRedaction() -> ((Data) throws -> Data)? {
+        let stores = redactionStores
+        guard !stores.isEmpty else { return nil }
+        return { data in
+            do {
+                return try stores.reduce(data) { try $1.redact($0) }
+            } catch {
+                throw BrowserReplFileSystemError(code: "EINVAL", message: "EINVAL: copyfile: \(BrowserReplSecretStore.limitMessage(data.count))")
+            }
+        }
+    }
+
     /// Methods whose results are images or documents; their pixels are
     /// masked by the driver instead.
     static let binaryMethods: Set<String> = ["tab.screenshot", "tab.pdf"]

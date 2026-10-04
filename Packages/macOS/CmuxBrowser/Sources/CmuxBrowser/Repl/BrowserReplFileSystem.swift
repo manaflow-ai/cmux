@@ -104,8 +104,24 @@ public struct BrowserReplFileSystem: Sendable {
 
     /// Runs one operation. See `docs/browser-repl/driver-protocol.md` for ops.
     public func perform(_ operation: String, arguments: [String: Any]) -> Result<Any, BrowserReplFileSystemError> {
+        perform(operation, arguments: arguments, copyContents: nil)
+    }
+
+    /// Runs one operation like ``perform(_:arguments:)``.
+    ///
+    /// - Parameter copyContents: What `copyFile` writes in place of the
+    ///   source's bytes (the session masks its secrets there), or `nil` to
+    ///   copy them as they are. With it, the copy reads the whole source
+    ///   first, so a source over ``maxReadFileBytes`` is refused
+    ///   (`ERR_FS_FILE_TOO_LARGE`); an error it throws fails the copy and
+    ///   leaves no file.
+    func perform(
+        _ operation: String,
+        arguments: [String: Any],
+        copyContents: ((Data) throws -> Data)?
+    ) -> Result<Any, BrowserReplFileSystemError> {
         do {
-            return .success(try run(operation, arguments))
+            return .success(try run(operation, arguments, copyContents: copyContents))
         } catch let error as BrowserReplFileSystemError {
             return .failure(error)
         } catch {
@@ -119,7 +135,7 @@ public struct BrowserReplFileSystem: Sendable {
         [sandbox.root] + (temporaryRoot.map { [$0] } ?? [])
     }
 
-    private func run(_ operation: String, _ arguments: [String: Any]) throws -> Any {
+    private func run(_ operation: String, _ arguments: [String: Any], copyContents: ((Data) throws -> Data)?) throws -> Any {
         func raw(_ key: String) throws -> String {
             guard let value = arguments[key] as? String else {
                 throw BrowserReplFileSystemError(code: "EINVAL", message: "EINVAL: missing '\(key)'")
@@ -248,8 +264,20 @@ public struct BrowserReplFileSystem: Sendable {
             let (source, size) = try openFile(try locate(.read, key: "from"), display: fromDisplay, syscall: "copyfile")
             let destination = try locate(.write, key: "to")
             guard let name = destination.name else { throw Self.isDirectoryError }
+            // A filtered copy is read whole first (secrets are masked across
+            // the whole file), so it is bounded like readFile.
+            let contents: Data? = try copyContents.map { filter in
+                guard size <= Self.maxReadFileBytes else { throw Self.filteredCopyTooLarge(size) }
+                let data: Data
+                do {
+                    data = try readAll(source, display: fromDisplay)
+                } catch let error as BrowserReplFileSystemError where error.code == "ERR_FS_FILE_TOO_LARGE" {
+                    throw Self.filteredCopyTooLarge(size)
+                }
+                return try filter(data)
+            }
             if (try? destination.status()) == nil { try writeBudget.takeEntryChange(syscall: "copyfile", display: pair) }
-            try writeBudget.take(size, syscall: "copyfile", display: pair)
+            try writeBudget.take(contents?.count ?? size, syscall: "copyfile", display: pair)
             // Copy next to the destination, then swap it in, so a failed copy
             // leaves an existing destination untouched.
             let staging = ".\(name).cmux-copy-\(UUID().uuidString)"
@@ -257,7 +285,11 @@ public struct BrowserReplFileSystem: Sendable {
             guard descriptor >= 0 else { throw Self.posixError(errno, syscall: "copyfile", display: pair) }
             let copy = BrowserReplDescriptor(descriptor)
             do {
-                try copyData(from: source, to: copy, size: size, display: pair)
+                if let contents {
+                    try writeAll(contents, to: copy, display: pair)
+                } else {
+                    try copyData(from: source, to: copy, size: size, display: pair)
+                }
                 // Mode, times and extended attributes, as fcopyfile's own copy.
                 guard fcopyfile(source.fd, copy.fd, nil, copyfile_flags_t(COPYFILE_STAT | COPYFILE_XATTR)) == 0,
                       renameat(destination.directory.fd, staging, destination.directory.fd, name) == 0 else {
@@ -568,6 +600,14 @@ public struct BrowserReplFileSystem: Sendable {
 
     /// Reads the file to its end; past `maxReadFileBytes` (a file that grew
     /// after its size was checked) it fails.
+    /// Why a copy whose contents the session masks refused a large source.
+    private static func filteredCopyTooLarge(_ size: Int) -> BrowserReplFileSystemError {
+        BrowserReplFileSystemError(
+            code: "ERR_FS_FILE_TOO_LARGE",
+            message: "File size (\(size)) is greater than 64 MiB, the most fs.copyFile copies while secrets are masked (it reads the file whole to mask them); download or save it in a tab instead"
+        )
+    }
+
     private func readAll(_ file: BrowserReplDescriptor, display: String) throws -> Data {
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 1 << 16)
