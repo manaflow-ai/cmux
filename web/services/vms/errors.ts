@@ -101,6 +101,11 @@ export class VmSnapshotNotFoundError extends Data.TaggedError("VmSnapshotNotFoun
   readonly snapshotId: string;
 }> {}
 
+/** A Cloud VM file path that does not exist (route: 404 vm_file_not_found, so a retried delete is correct). */
+export class VmFileNotFoundError extends Data.TaggedError("VmFileNotFoundError")<{
+  readonly path: string;
+}> {}
+
 /** A free-plan machine whose access window has lapsed; upgrading unlocks it. */
 export class VmFreeAccessExpiredError extends Data.TaggedError("VmFreeAccessExpiredError")<{
   readonly vmId: string;
@@ -229,6 +234,7 @@ export type VmWorkflowError =
   | VmResizeInvalidError
   | VmResizeInProgressError
   | VmSnapshotNotFoundError
+  | VmFileNotFoundError
   | VmFreeAccessExpiredError
   | VmCreateInProgressError
   | VmCreateFailedError
@@ -378,6 +384,7 @@ const vmWorkflowErrorTagRecord = {
   VmResizeInvalidError: true,
   VmResizeInProgressError: true,
   VmSnapshotNotFoundError: true,
+  VmFileNotFoundError: true,
   VmFreeAccessExpiredError: true,
   VmCreateInProgressError: true,
   VmCreateFailedError: true,

@@ -37,7 +37,7 @@ function fakes(statFailure?: unknown) {
 const caller = { userId: "user-1", billingTeamId: "team-1", callerPlanId: "pro", teamIds: ["team-1"], providerVmId: "fs-1" };
 
 async function failureTag(layer: Layer.Layer<VmRepository | VmProviderGateway>, path: string): Promise<string | null> {
-  const exit = await Effect.runPromiseExit(removeVmFile(caller, path).pipe(Effect.provide(layer)));
+  const exit = await Effect.runPromiseExit(removeVmFile(caller, path).pipe(Effect.provide(layer)) as Effect.Effect<void, unknown>);
   if (Exit.isSuccess(exit)) return null;
   const failure = Cause.failureOption(exit.cause);
   return failure._tag === "Some" ? ((failure.value as { _tag?: string })._tag ?? "unknown") : "die";
