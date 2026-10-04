@@ -5364,8 +5364,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             queue: .main
         ) { [weak self] notification in
             guard let occludedWindow = notification.object as? NSWindow else { return }
-            // Delivered on the main queue (`queue: .main`), which is the main actor.
-            MainActor.assumeIsolated {
+            // NotificationCenter's `queue: .main` selects the main operation
+            // queue, but it does not establish Swift concurrency's main-actor
+            // executor. AppKit can also post this notification during window
+            // teardown from a non-actor callback. Hop explicitly instead of
+            // assuming the executor, which otherwise traps with EXC_BAD_ACCESS
+            // while a terminal view is being detached.
+            Task { @MainActor [weak self] in
                 self?.applyRendererWindowVisibility(for: occludedWindow)
             }
         }
@@ -5379,7 +5384,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 queue: .main
             ) { [weak self] notification in
                 guard let keyWindow = notification.object as? NSWindow else { return }
-                MainActor.assumeIsolated {
+                Task { @MainActor [weak self] in
                     self?.applyRendererWindowVisibility(for: keyWindow)
                 }
             })
@@ -9907,6 +9912,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// occlusion `.visible` bit is remembered per window so the rule can tell a
     /// trustworthy occlusion verdict from a virtual display that never sets it.
     private func applyRendererWindowVisibility(for window: NSWindow) {
+        guard let currentWindow = self.window, currentWindow === window else { return }
         let occlusionVisible = window.occlusionState.contains(.visible)
         if occlusionVisible {
             Self.windowsThatReportedVisible.add(window)

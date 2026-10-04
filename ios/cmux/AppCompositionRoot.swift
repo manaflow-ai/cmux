@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileAnalytics
+import CmuxMobileBilling
 import CmuxMobileCrashReporting
 import CmuxMobileDiagnostics
 import CmuxMobileShell
@@ -33,6 +34,11 @@ final class AppCompositionRoot {
     let pushCoordinator: MobilePushCoordinator
     let signOutHook: MobileSignOutHook
     let analytics: MobileAnalyticsComposition
+    /// App Store billing. Built and started once here, at launch, so the
+    /// StoreKit `Transaction.updates` listener delivers renewals, approved
+    /// Ask to Buy requests and purchases from other devices for the whole
+    /// process lifetime. Nil when the build has no API origin.
+    let billing: BillingModel?
     let featureFlags: MobileFeatureFlags
     let displaySettings: MobileDisplaySettings
     /// App-lifetime keyboard frame record, injected into the view tree via
@@ -157,6 +163,12 @@ final class AppCompositionRoot {
             diagnosticLog: diagnosticLog
         )
         self.analytics = analytics
+        let billing = MobileBillingComposition(
+            auth: auth,
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        ).makeModel(analytics: analytics.emitter)
+        billing?.start()
+        self.billing = billing
         let networkOutcomeReporter = analytics.networkOutcomeReporter
         self.networkOutcomeReporter = networkOutcomeReporter
         let initialConnectionReporter = analytics.initialConnectionReporter
