@@ -31,6 +31,21 @@ struct PageFactory {
         return page
     }
 
+    /// The React Settings page (R82) on `route` (`#/settings/<section>?focus=<key>`). Its namespace
+    /// goes to `SettingsPageProvider` (interim owner; the daemon relay once the config actor
+    /// serves `settings.*`), `cmux.app.` to the native ops.
+    func settingsPage(route: String?) -> PageWebView? {
+        guard let settings = services.settings else { return nil }
+        let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
+            ["themes": services?.themes?.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds]
+        })
+        let native = AppPageNativeProvider(services: services, page: .settings)
+        let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
+        let page = PageWebView(descriptor: .settings, routes: routes, route: route)
+        native.anchor = { [weak page] in page }
+        return page
+    }
+
     /// The routes of `page`: its namespaces to the daemon relay, `cmux.app.` to the native ops
     /// (whose confirmed ops run on the namespace relay after the sheet).
     func pageRoutes(for page: PageDescriptor) -> [PageRoute] {
