@@ -189,3 +189,60 @@ fn a_final_host_error_is_link_unavailable_with_the_hosts_code() {
     assert_eq!(read["ok"], true, "no retry request came before this answer either: {read}");
     assert_eq!(host.spawner.spawns(), 0);
 }
+
+/// The details with no live `cmux link`: the supervisor sends a null hub.
+fn no_hub() -> Value {
+    let mut value = details("/opt/cmux/bin/cmux-tui");
+    value["hub_socket"] = Value::Null;
+    value
+}
+
+#[test]
+fn a_null_hub_socket_is_link_unavailable_and_nothing_spawns() {
+    let mut host = host();
+    link_get(&mut host);
+    host.send(&json!({ "t": "host.result", "id": 1, "value": no_hub() }));
+    let answer = connect(&mut host, "c-1");
+    assert_eq!(answer["error"]["code"], "cmux.cloud.link_unavailable", "{answer}");
+    assert_eq!(answer["error"]["retryable"], true, "a later link.changed may bring the hub");
+    assert_eq!(host.spawner.spawns(), 0);
+}
+
+#[test]
+fn a_link_changed_with_a_hub_lets_the_next_connect_spawn() {
+    let mut host = host();
+    link_get(&mut host);
+    host.send(&json!({ "t": "host.result", "id": 1, "value": no_hub() }));
+    let early = connect(&mut host, "c-1");
+    assert_eq!(early["error"]["code"], "cmux.cloud.link_unavailable", "{early}");
+    host.send(&json!({ "t": "host.event", "op": "cmux.host.link.changed",
+        "data": details("/opt/cmux/bin/cmux-tui") }));
+    let up = connect(&mut host, "c-2");
+    assert_eq!(up["ok"], true, "{up}");
+    assert_eq!(host.spawner.spawns(), 1);
+}
+
+#[test]
+fn a_link_changed_back_to_a_null_hub_ends_the_live_link() {
+    let mut host = host();
+    link_get(&mut host);
+    host.send(&json!({ "t": "host.result", "id": 1, "value": details("/opt/cmux/bin/cmux-tui") }));
+    let up = connect(&mut host, "c-1");
+    assert_eq!(up["ok"], true, "{up}");
+    while let Some(line) = host.next() {
+        if line["event"] == "cloud.link.changed" && line["state"] == "up" {
+            break;
+        }
+    }
+    host.send(&json!({ "t": "host.event", "op": "cmux.host.link.changed", "data": no_hub() }));
+    let down = host.next();
+    assert_eq!(
+        down.as_ref().map(|l| (l["event"].clone(), l["state"].clone(), l["generation"].clone())),
+        Some((json!("cloud.link.changed"), json!("down"), json!(1))),
+        "the live link ends when the hub goes away: {down:?}"
+    );
+    assert_eq!(host.spawner.log().terminated.len(), 1, "its process ended");
+    let again = connect(&mut host, "c-2");
+    assert_eq!(again["error"]["code"], "cmux.cloud.link_unavailable", "{again}");
+    assert_eq!(host.spawner.spawns(), 1, "no new link without a hub");
+}
