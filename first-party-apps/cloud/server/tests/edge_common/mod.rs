@@ -123,6 +123,8 @@ pub struct TransferLog {
     pub public_keys: Vec<String>,
     /// The next run fails with this message.
     pub fail_with: Option<String>,
+    /// The next run blocks until the test sends on (or drops) the sender.
+    pub hold: Option<std::sync::mpsc::Receiver<()>>,
 }
 
 #[derive(Clone, Default)]
@@ -136,6 +138,10 @@ impl FakeTransfer {
 
 impl Transfer for FakeTransfer {
     fn run(&self, job: &TransferJob, key: &TransferKey) -> Result<u64, TransferError> {
+        let hold = self.log().hold.take();
+        if let Some(hold) = hold {
+            let _ = hold.recv();
+        }
         let mut log = self.log();
         log.jobs.push(job.clone());
         log.public_keys.push(key.public_openssh());
