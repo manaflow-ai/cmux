@@ -478,7 +478,11 @@ fn the_turn_line_reports_the_answers_usage_after_turn_end() {
             s,
             Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_owned())),
         );
-        h.agents.inner.lock().unwrap().answer = Some(answer);
+        {
+            let mut inner = h.agents.inner.lock().unwrap();
+            inner.answer = Some(answer);
+            inner.answer_delay = Some(std::time::Duration::from_millis(300));
+        }
         h.connect();
         h.say("user_local", "hello");
         h.settle();

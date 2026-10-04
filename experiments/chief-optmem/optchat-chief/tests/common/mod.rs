@@ -276,6 +276,9 @@ pub struct Agents {
     /// The next this many `cancel` calls are recorded but change nothing
     /// (a cancel that reached acpmux before the prompt did).
     pub ignore_cancels: usize,
+    /// The prompt's answer comes this long after its events (acpmux records
+    /// `turn_end` before it answers the prompt).
+    pub answer_delay: Option<Duration>,
     /// Each session's turn signals, for `push_events`.
     pub signals: BTreeMap<String, Sender<TurnSignal>>,
 }
@@ -401,15 +404,19 @@ impl AgentPort for FakeAgents {
                     inner = me.changed.wait(inner).unwrap();
                 }
             }
-            let (lose, answer, error) = {
+            let (lose, answer, error, delay) = {
                 let mut inner = me.inner.lock().unwrap();
                 (
                     std::mem::take(&mut inner.lose),
                     inner.answer.take(),
                     inner.answer_error.take(),
+                    inner.answer_delay,
                 )
             };
             let _ = signals.send(TurnSignal::Changed);
+            if let Some(delay) = delay {
+                std::thread::sleep(delay);
+            }
             if lose {
                 let _ = signals.send(TurnSignal::Lost);
             } else if let Some(error) = error {
