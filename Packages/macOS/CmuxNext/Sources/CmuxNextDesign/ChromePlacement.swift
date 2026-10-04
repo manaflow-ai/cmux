@@ -14,3 +14,12 @@ public nonisolated enum SpacesPosition: String, Sendable, CaseIterable, Codable 
     /// Above the Settings and account row (the default).
     case bottom
 }
+
+/// `tabs.barPosition` (R109): the edge of each pane its tab bar sits on.
+public nonisolated enum TabBarPosition: String, Sendable, CaseIterable, Codable {
+    /// Above the pane's content (the default).
+    case top
+    /// Below the pane's content; the window then uses the standard title
+    /// bar, so the traffic lights never sit over content.
+    case bottom
+}
