@@ -345,6 +345,7 @@ fn policy_ops_answer_get_check_set_and_site() {
         assert_eq!(policy(&gate, "site", json!({"host": host})).unwrap(), json!(site), "{host}");
     }
     assert!(policy(&gate, "nope", json!({})).is_err());
+}
 
 /// frame.observe reads a tab another session holds, so a secret one
 /// session typed into a tab is masked for every session of the host, and
