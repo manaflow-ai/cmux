@@ -272,6 +272,14 @@ export const nextFrame = (run: () => void) => {
   setTimeout(once, 50);
 };
 
+/// A thought chunk continues the thought it follows: a thought streams into one growing item,
+/// not one row per chunk.
+export function appendThought(items: AcpmuxActivity[], text: string): AcpmuxActivity[] {
+  const last = items.at(-1);
+  if (last?.kind === "thought" && !last.tool) return [...items.slice(0, -1), { ...last, text: last.text + text }];
+  return [...items, { kind: "thought", text }];
+}
+
 /// Transcript rows in the daemon's event order: each row keeps the sequence number of the event
 /// that created it, so two wall clocks (or one millisecond) never put a prompt under its reply.
 /// Rows made without an event (a prompt still sending or one that failed, the typing row) order
@@ -1114,7 +1122,7 @@ export class AcpmuxDirectClient {
         at: existing?.at ?? event.at,
         kind: "activity",
         toolCount: existing?.toolCount ?? 0,
-        items: [...(existing?.items ?? []), { kind: "thought", text }],
+        items: appendThought(existing?.items ?? [], text),
       });
       this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
