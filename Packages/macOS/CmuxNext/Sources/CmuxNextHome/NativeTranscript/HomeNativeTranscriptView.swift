@@ -35,6 +35,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// The drafts of the last send by content hash: a send the owner
     /// refuses before logging it gets them back (`onRestoreAttachments`).
     var sentDrafts: [String: HomeDraftAttachment] = [:]
+    /// Cancels my pending send (`HomeStoreBinding.cancelSend`); the menu
+    /// offers it only while `HomeController.cancellableSend` is true.
+    public var onCancelSend: (IdempotencyKey) -> Bool = { _ in false }
     private var observers: [any NSObjectProtocol] = []
 
     static let fieldInset: CGFloat = 16
@@ -84,6 +87,7 @@ public final class HomeNativeTranscriptView: NSView {
             self.rowHost.accessibilityChanged()
             return true
         }
+        rowHost.onCancelSend = { [weak self] key in self?.onCancelSend(key) ?? false }
         controller.onRestoreAttachments = { [weak self] refs in
             guard let self else { return }
             for ref in refs { if let draft = self.sentDrafts[ref.hash] { self.field.addDraft(draft) } }

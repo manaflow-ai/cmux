@@ -92,6 +92,7 @@ import Testing
         await waitUntil { !(store.transcript(for: self.conversation).last?.attachmentProgress.isEmpty ?? true) }
         let item = try #require(store.transcript(for: conversation).last)
         #expect(item.key == intent.key)
+        await waitUntil { c.cancellableSend(item.key) != nil }  // the binding delivers store changes on the next main-actor turn
         #expect(c.cancellableSend(item.key) == true, "an uploading send offers Cancel")
         #expect(binding.cancelSend(item.key))
         await waitUntil { !store.transcript(for: self.conversation).contains { $0.key == intent.key } }

@@ -37,6 +37,15 @@ public final class HomeStoreBinding {
             return try await store.fetchAttachment(ref, variant: variant, in: id)
         }
         controller.attachmentLoader = HomeFetchLoader(fetch: fetchAttachment)
+        // Refusals nobody awaits (a resumed upload, a resend after backoff)
+        // reach the host like any other refusal. One store serves several
+        // bindings: each takes its own conversation and passes the rest on.
+        let previous = store.onRefusal
+        store.onRefusal = { [weak self] intent, rejection in
+            guard intent.op.conversation == id else { previous?(intent, rejection); return }
+            guard let self, !self.stopped else { return }
+            self.onRefusal(intent, rejection)
+        }
         controller.onIntent = { [weak self] intent in self?.perform(intent) }
         controller.onNeedsOlder = { [weak store] in
             guard let store else { return }
@@ -47,6 +56,14 @@ public final class HomeStoreBinding {
     }
 
     /// Stops forwarding (the conversation closed).
+    /// Cancels my pending send `key` (an upload, a queued send or a failed
+    /// one; `HomeController.cancellableSend` says when it can). The row leaves
+    /// the transcript. Returns false when the store could not cancel it.
+    @discardableResult
+    public func cancelSend(_ key: IdempotencyKey) -> Bool {
+        store.cancelSend(key)
+    }
+
     public func stop() {
         stopped = true
         controller.onIntent = { _ in }

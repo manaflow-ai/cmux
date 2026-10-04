@@ -32,6 +32,24 @@ enum HomeStrings {
         String(format: String(localized: "home.composer.attach.invalidName", defaultValue: "“%@” is not a valid file name.",
                               bundle: .module), name)
     }
+    static func attachLocationNotRemoved(_ name: String) -> String {
+        String(format: String(localized: "home.composer.attach.locationNotRemoved",
+                              defaultValue: "Location data couldn’t be removed from “%@”, so it was not attached.", bundle: .module), name)
+    }
+    static var cancelUpload: String { String(localized: "home.menu.cancelUpload", defaultValue: "Cancel Upload", bundle: .module) }
+    /// The composer notice for a send the owner refused after it left the
+    /// composer (a resumed upload, a resend).
+    static func rejection(_ rejection: HomeRejection) -> String {
+        switch rejection {
+        case .notAuthorized:
+            String(localized: "home.send.refused.notAuthorized", defaultValue: "You can’t send messages in this conversation.",
+                   bundle: .module)
+        case .rateLimited:
+            String(localized: "home.send.refused.rateLimited", defaultValue: "Too many messages. Try again in a moment.", bundle: .module)
+        case .ownerUnreachable, .indeterminate, .invalid:
+            String(localized: "home.send.refused.generic", defaultValue: "A message couldn’t be sent.", bundle: .module)
+        }
+    }
     static func attachTooMany(_ limit: Int) -> String {
         String(format: String(localized: "home.composer.attach.tooMany", defaultValue: "Too many attachments. Limit: %lld.",
                               bundle: .module), limit)
@@ -43,6 +61,7 @@ enum HomeStrings {
         case .tooLarge: name.map(attachTooLarge) ?? attachTooLargeAny()
         case .empty(let file): attachEmpty(name ?? file)
         case .invalidName(let file): attachInvalidName(name ?? file)
+        case .locationNotRemoved(let file): attachLocationNotRemoved(name ?? file)
         case .tooManyParts(let limit): attachTooMany(limit - 1)
         }
     }

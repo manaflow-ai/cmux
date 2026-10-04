@@ -96,6 +96,12 @@ extension HomeNativeTranscriptView {
         field.showNotice(HomeStrings.attachmentRefusal(refusal))
     }
 
+    /// A send the owner refused after it left the composer (a resumed
+    /// upload, a resend after backoff): `HomeStoreBinding.onRefusal`.
+    public func showRefusal(_ rejection: HomeRejection) {
+        field.showNotice(HomeStrings.rejection(rejection))
+    }
+
     /// Returns when every attachment given so far is in the draft (tests).
     func attachmentsReady() async {
         while let current = intake {

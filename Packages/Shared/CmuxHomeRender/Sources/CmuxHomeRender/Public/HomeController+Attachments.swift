@@ -80,6 +80,20 @@ extension HomeController {
         scene.setUploadProgress(progress)
     }
 
+    /// Whether my pending send `key` can be cancelled now: true while its
+    /// attachments upload or after it failed ("Not Delivered"), false once
+    /// it was sent and waits for the owner's answer (the store retries until
+    /// it answers or fails; a Cancel then would do nothing), nil when `key`
+    /// is not one of my pending sends.
+    public func cancellableSend(_ key: IdempotencyKey) -> Bool? {
+        guard let item = items.first(where: { $0.key == key }), item.seq == nil, item.author == me else { return nil }
+        switch item.delivery {
+        case .notDelivered: return true
+        case .sending: return !item.attachmentProgress.isEmpty
+        case .committed: return nil
+        }
+    }
+
     /// The playback state of a video part (nil when the part is not a video).
     public func videoState(for item: IdempotencyKey, partIndex: Int) -> HomeVideoState? {
         guard let parts = items.first(where: { $0.key == item })?.parts, parts.indices.contains(partIndex),

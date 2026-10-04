@@ -12,6 +12,8 @@ final class HomeRowHostView: NSView {
     var onEmptyClick: () -> Void = {}
     /// A click on a video bubble plays or pauses it (true when it was a video).
     var onVideoClick: (HomeHit) -> Bool = { _ in false }
+    /// Cancel Upload on my pending send (the parent forwards it to the store).
+    var onCancelSend: (IdempotencyKey) -> Bool = { _ in false }
     /// False while the owner is unreachable: nothing queues, so no tapback
     /// picker and no reaction actions (the parent mirrors `isSendEnabled`).
     var reactionsEnabled = true {
@@ -132,6 +134,13 @@ final class HomeRowHostView: NSView {
         let copy = NSMenuItem(title: HomeStrings.copyMessage, action: #selector(copyMessage(_:)), keyEquivalent: "")
         copy.target = self
         menu.addItem(copy)
+        // Only while a Cancel really stops something: an upload, or a send
+        // that failed. A sent, unanswered message has no Cancel.
+        if hit.isMine, controller.cancellableSend(hit.item) == true {
+            let cancel = NSMenuItem(title: HomeStrings.cancelUpload, action: #selector(cancelUpload(_:)), keyEquivalent: "")
+            cancel.target = self
+            menu.addItem(cancel)
+        }
         return menu
     }
 
@@ -140,6 +149,11 @@ final class HomeRowHostView: NSView {
     func react(_ tapback: Reaction.Tapback, to target: HomeReactionTarget) -> HomeIntent? {
         guard reactionsEnabled else { return nil }
         return controller?.react(tapback, to: target)
+    }
+
+    @objc func cancelUpload(_ sender: Any?) {
+        guard let key = menuHit?.item else { return }
+        _ = onCancelSend(key)
     }
 
     @objc func copyMessage(_ sender: Any?) {
@@ -205,6 +219,7 @@ extension HomeRowHostView: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         if item.action == #selector(copy(_:)) { return !selection.isEmpty }
         if item.action == #selector(copyMessage(_:)) { return menuHit != nil }
+        if item.action == #selector(cancelUpload(_:)) { return menuHit != nil }
         return true
     }
 }

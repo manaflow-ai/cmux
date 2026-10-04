@@ -203,7 +203,11 @@ public final class HomeController {
         // Upload progress and local files change no row: they never lay out.
         let unchanged = Self.layoutEqual(newItems, items) && newTyping == typing && newHasOlder == hasOlder
             && newSummary?.readCursors == summary?.readCursors && newSummary?.participants == summary?.participants
-        guard !unchanged else { return }
+        guard !unchanged else {
+            // Same rows; keep the newest progress for `cancellableSend`.
+            items = newItems
+            return
+        }
         let oldOthersTyping = !typing.subtracting([me]).isEmpty
         let newOthersTyping = !newTyping.subtracting([me]).isEmpty
         var change = TranscriptChange.classify(old: items, new: newItems, me: me, typing: (oldOthersTyping, newOthersTyping),
