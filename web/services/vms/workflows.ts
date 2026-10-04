@@ -3770,11 +3770,15 @@ function firewallProvider(input: VmFirewallInput) {
 }
 
 const FIREWALL_IDENTITY_KEYS = ["vmId", "vpcId", "tunnelId"] as const;
+const FIREWALL_ENDPOINT_KEYS: ReadonlySet<string> = new Set([...FIREWALL_IDENTITY_KEYS, "cidr", "public", "port", "protocol"]);
 
 /** Whether the caller owns the resource one endpoint names; a CIDR or public end names none. */
 function ownsFirewallEndpoint(repo: VmRepositoryShape, input: VmFirewallInput, networkId: string, endpoint: VMFirewallEndpoint) {
   return Effect.gen(function* () {
     const provider = input.provider ?? "freestyle";
+    // The provider adds selectors as new optional fields; one this code does not know could name
+    // another tenant's resource, so it makes the endpoint not the caller's.
+    if (Object.keys(endpoint).some((key) => !FIREWALL_ENDPOINT_KEYS.has(key))) return false;
     if (endpoint.vpcId && endpoint.vpcId !== networkId) return false;
     if (endpoint.vmId) {
       if (!repo.findUserVm) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider, reason: "firewall VM ownership lookup is unavailable" }));

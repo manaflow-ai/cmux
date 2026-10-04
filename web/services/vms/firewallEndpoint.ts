@@ -21,7 +21,8 @@ function endpointIdentity(value: Record<string, unknown>, field: string): Omit<F
   for (const key of ["vmId", "vpcId", "tunnelId", "cidr"] as const) if (value[key] !== undefined) {
     if (typeof value[key] !== "string" || !value[key].trim()) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field}.${key} must be a non-empty string.`, action: "Pass a valid resource id or CIDR." });
     if (key === "cidr" && !validCidr(String(value[key]))) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field}.cidr must be a CIDR range.`, action: "Pass an IPv4 or IPv6 address with a prefix length." });
-    result[key] = value[key].trim();
+    // The provider expects the canonical range (network address, lowercase IPv6).
+    result[key] = key === "cidr" ? canonicalCidr(value[key]) : value[key].trim();
   }
   if (value.public !== undefined && value.public !== true) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field}.public must be true when present.`, action: "Set public:true for public traffic." });
   if (value.public === true) result.public = true;
