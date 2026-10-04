@@ -22,7 +22,7 @@ use cmux_feed_core::{
 
 use super::*;
 use crate::workspace_registry::feed_local_store::{
-    feed_item_id, notify_dedupe_key, write_feed_local_changes,
+    feed_item_id, notify_dedupe_key, record_feed_local_folded, write_feed_local_changes,
 };
 
 /// The daemon hosts the local feed owner: notifications are local items,
@@ -78,8 +78,15 @@ impl Mux {
         let item_id = notice.id.clone();
         let mut feed = self.feed_local.lock().unwrap();
         let mut next = (*feed).clone();
+        // The item that took the notice (its own, or the one it coalesced
+        // into); the folded set records it so the ledger pass never posts
+        // the notice again.
+        let mut folded_into = None;
         let changes = match next.post(notice) {
-            Ok((_, changes)) => changes,
+            Ok((outcome, changes)) => {
+                folded_into = Some(outcome.item().id.clone());
+                changes
+            }
             Err(error) => {
                 // The notification still commits; the feed keeps its old copy.
                 eprintln!("cmux-tui: local feed post of item {item_id} refused: {error}");
@@ -91,7 +98,18 @@ impl Mux {
                 Changes::default()
             }
         };
-        let write = |tx: &rusqlite::Transaction<'_>| write_feed_local_changes(tx, &changes);
+        let write = |tx: &rusqlite::Transaction<'_>| {
+            write_feed_local_changes(tx, &changes)?;
+            match &folded_into {
+                Some(item) => record_feed_local_folded(
+                    tx,
+                    notification.id.as_str(),
+                    item,
+                    notification.created_at_ms,
+                ),
+                None => Ok(()),
+            }
+        };
         let mut registry = self.workspace_registry.lock().unwrap();
         let revision = registry.commit_resource_effect_with(
             idempotency_key,
@@ -110,10 +128,11 @@ impl Mux {
     }
 
     /// `feed-local-read`: read explicit items, all or nothing. A moved item
-    /// refuses with `owner.unreachable` (B5); nothing queues. A terminal with
-    /// no unread local item left loses its unread marker, and its retained
-    /// ledger entries are acknowledged in the same transaction, so a restart
-    /// does not bring the ring back.
+    /// refuses with `owner.unreachable` (B5); nothing queues. A terminal, or
+    /// a tab without a terminal, with no unread local item left loses its
+    /// unread marker (`tab-changed` per placement), and its retained ledger
+    /// entries are acknowledged in the same transaction, so a restart does
+    /// not bring the ring back.
     pub fn feed_local_read(&self, ids: &[String]) -> anyhow::Result<Vec<Item>> {
         let mut feed = self.feed_local.lock().unwrap();
         let mut next = (*feed).clone();
@@ -121,23 +140,63 @@ impl Mux {
         if changes.is_empty() {
             return Ok(ids.iter().filter_map(|id| next.get(id).cloned()).collect());
         }
-        let settled: Vec<TerminalPublicId> = changes
-            .upserts
-            .iter()
-            .filter_map(|item| item.context.terminal.clone())
-            .filter(|terminal| {
-                !next.items().iter().any(|item| {
-                    item.is_unread() && item.context.terminal.as_deref() == Some(terminal)
+        // A terminal, or a tab without a terminal, settles when this read
+        // left it no unread item: its ledger entries are acknowledged in the
+        // same transaction and its ring clears, as `ack-tab-notifications`
+        // would do.
+        let unread_left = |matches: &dyn Fn(&Item) -> bool| {
+            next.items().iter().any(|item| item.is_unread() && matches(item))
+        };
+        let mut terminals: Vec<TerminalPublicId> = Vec::new();
+        let mut tabs: Vec<String> = Vec::new();
+        for item in &changes.upserts {
+            match (&item.context.terminal, &item.context.tab) {
+                (Some(terminal), _) => {
+                    if !unread_left(&|other| other.context.terminal.as_ref() == Some(terminal))
+                        && let Ok(id) = TerminalPublicId::parse(terminal)
+                        && !terminals.contains(&id)
+                    {
+                        terminals.push(id);
+                    }
+                }
+                (None, Some(tab)) => {
+                    if !unread_left(&|other| {
+                        other.context.terminal.is_none() && other.context.tab.as_ref() == Some(tab)
+                    }) && !tabs.contains(tab)
+                    {
+                        tabs.push(tab.clone());
+                    }
+                }
+                (None, None) => {}
+            }
+        }
+        let (tab_surfaces, terminal_placements) = self.with_state(|state| {
+            let tab_surfaces: Vec<SurfaceId> = state
+                .resource_indexes
+                .tab_ids
+                .iter()
+                .filter(|(_, tab)| tabs.iter().any(|settled| settled == tab.as_str()))
+                .map(|(surface, _)| *surface)
+                .collect();
+            let placements: Vec<Vec<SurfaceId>> = terminals
+                .iter()
+                .map(|terminal| {
+                    state
+                        .placements_of_content(&ContentPublicId::Terminal(terminal.clone()))
+                        .to_vec()
                 })
-            })
-            .filter_map(|terminal| TerminalPublicId::parse(terminal).ok())
-            .collect();
+                .collect();
+            (tab_surfaces, placements)
+        });
         let acked: Vec<String> = self
             .notification_ledger
             .lock()
             .unwrap()
             .iter()
-            .filter(|entry| entry.terminal_id.as_ref().is_some_and(|t| settled.contains(t)))
+            .filter(|entry| match &entry.terminal_id {
+                Some(terminal) => terminals.contains(terminal),
+                None => entry.surface.is_some_and(|surface| tab_surfaces.contains(&surface)),
+            })
             .map(|entry| entry.id.as_str().to_string())
             .collect();
         let write = |tx: &rusqlite::Transaction<'_>| write_feed_local_changes(tx, &changes);
@@ -149,10 +208,23 @@ impl Mux {
         )?;
         *feed = next;
         drop(feed);
+        let mut cleared = Vec::new();
         let mut markers = self.terminal_notifications.lock().unwrap();
-        let cleared = settled.iter().filter(|terminal| markers.remove(*terminal).is_some()).count();
+        for (terminal, placements) in terminals.iter().zip(terminal_placements) {
+            if markers.remove(terminal).is_some() {
+                cleared.extend(placements);
+            }
+        }
         drop(markers);
-        if cleared > 0 {
+        let mut placement_markers = self.placement_notifications.lock().unwrap();
+        cleared.extend(
+            tab_surfaces.into_iter().filter(|surface| placement_markers.remove(surface).is_some()),
+        );
+        drop(placement_markers);
+        if !cleared.is_empty() {
+            for placement in cleared {
+                self.emit_tab_changed(placement);
+            }
             self.emit(MuxEvent::TreeChanged);
         }
         self.publish_journal_event();

@@ -10,11 +10,18 @@
 //! `feed.post` commits with its `notification.create` receipt, and an
 //! `ack-tab-notifications` read commits with the persisted ack.
 //!
-//! On every open the 256-entry notification ledger is folded into items (B4):
-//! an entry becomes READ when any client's `read_by` mark or a persisted ack
-//! exists, also when an older daemon wrote it after a downgrade. The dedupe
-//! key `notify:<daemon session>:<notification id>` makes the pass idempotent;
-//! the meta marker [`FEED_LOCAL_MIGRATION_META_KEY`] records the first pass.
+//! `feed_local_folded` records each notification the local owner took, in
+//! the transaction that took it, whatever happened to its item later
+//! (coalesced into another item, moved, pruned). It keeps the newest
+//! [`FOLDED_KEEP`] rows, more than the 256-entry ledger can name.
+//!
+//! On every open the notification ledger is folded into items (B4): an entry
+//! that is not in the folded set becomes an item, READ when any client's
+//! `read_by` mark or a persisted ack exists (this also picks up what an older
+//! daemon wrote after a downgrade). For a folded entry only a persisted ack
+//! counts: it reads the item when it is still open here, as the live ack
+//! would have. The meta marker [`FEED_LOCAL_MIGRATION_META_KEY`] records the
+//! first pass.
 
 use cmux_feed_core::{Changes, Context as FeedContext, Feed, Item, ItemState, Notice, PostOutcome};
 use rusqlite::{Transaction, params};
@@ -27,6 +34,10 @@ use crate::resource::NotificationPublicId;
 /// Meta key set once the notification ledger migrated into local items.
 pub(crate) const FEED_LOCAL_MIGRATION_META_KEY: &str = "feed_local_ledger_migrated_v1";
 
+/// Folded rows kept: twice the notification ledger's 256 entries, so every
+/// retained entry that was folded still has its row.
+const FOLDED_KEEP: i64 = 512;
+
 pub(super) fn create_feed_local_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS feed_local_items (
@@ -37,7 +48,12 @@ pub(super) fn create_feed_local_schema(transaction: &Transaction<'_>) -> anyhow:
            created_at_ms INTEGER NOT NULL CHECK(created_at_ms >= 0),
            item_json TEXT NOT NULL
          );
-         CREATE INDEX IF NOT EXISTS feed_local_items_state ON feed_local_items(state);",
+         CREATE INDEX IF NOT EXISTS feed_local_items_state ON feed_local_items(state);
+         CREATE TABLE IF NOT EXISTS feed_local_folded (
+           notification_id TEXT PRIMARY KEY NOT NULL,
+           item_id TEXT NOT NULL,
+           created_at_ms INTEGER NOT NULL CHECK(created_at_ms >= 0)
+         );",
     )?;
     Ok(())
 }
@@ -69,6 +85,28 @@ pub(crate) fn write_feed_local_changes(
     for id in &changes.removed {
         transaction.execute("DELETE FROM feed_local_items WHERE item_id = ?1", [id])?;
     }
+    Ok(())
+}
+
+/// Record in the caller's transaction that the local owner took
+/// `notification` into `item`, and keep only the newest [`FOLDED_KEEP`] rows.
+pub(crate) fn record_feed_local_folded(
+    transaction: &Transaction<'_>,
+    notification: &str,
+    item: &str,
+    created_at_ms: u64,
+) -> anyhow::Result<()> {
+    transaction.execute(
+        "INSERT OR IGNORE INTO feed_local_folded(notification_id, item_id, created_at_ms)
+         VALUES(?1, ?2, ?3)",
+        params![notification, item, i64::try_from(created_at_ms)?],
+    )?;
+    transaction.execute(
+        "DELETE FROM feed_local_folded WHERE notification_id NOT IN (
+           SELECT notification_id FROM feed_local_folded
+           ORDER BY created_at_ms DESC, notification_id DESC LIMIT ?1)",
+        [FOLDED_KEEP],
+    )?;
     Ok(())
 }
 
@@ -115,32 +153,41 @@ impl WorkspaceRegistry {
         Ok(Feed::from_items(self.feed_local_items()?))
     }
 
-    /// B4, on every open (at most 256 entries): each retained ledger entry
-    /// without a local item becomes one, READ iff a client read it
-    /// (`read_by`) or an ack was persisted; an existing open unread item whose
-    /// entry has such a mark becomes read. Read is one-way. This also picks
-    /// up what an older daemon wrote after a downgrade. The dedupe keys make
-    /// a rerun a no-op; the meta marker only records the first pass. Returns
-    /// how many items it added.
+    /// B4, on every open (at most 256 entries); see the module comment.
+    /// Read is one-way. Returns how many items it added.
     pub(crate) fn migrate_feed_local_from_ledger(&mut self) -> anyhow::Result<usize> {
         let live = self.live_terminal_public_ids()?;
         let entries = self.durable_notifications(&live)?;
         let acked = self.acked_notification_ids()?;
+        let folded = self.feed_local_folded()?;
         let mut feed = Feed::from_items(self.feed_local_items()?);
         let session = self.session_id().clone();
         let now = unix_epoch_ms()?;
         let mut changes = Changes::default();
+        let mut newly_folded = Vec::new();
         let mut added = 0;
         for entry in entries {
-            let read = !entry.read_by.is_empty() || acked.contains(entry.id.as_str());
+            let notification = entry.id.as_str().to_string();
             let key = notify_dedupe_key(&session, &entry.id);
-            if let Some(item) = feed.find_key(&key) {
-                if read && item.is_unread() && item.state == ItemState::Open {
-                    let id = item.id.clone();
-                    changes.upserts.extend(feed.read(&[id], now)?.upserts);
+            // A folded entry, or (before the folded set existed) one whose
+            // item still carries its key: only a persisted ack reads it.
+            let existing = match folded.get(&notification) {
+                Some(item) => Some(item.clone()),
+                None => feed.find_key(&key).map(|item| item.id.clone()),
+            };
+            if let Some(item_id) = existing {
+                if !folded.contains_key(&notification) {
+                    newly_folded.push((notification.clone(), item_id.clone(), entry.created_at_ms));
+                }
+                let open_unread = feed
+                    .get(&item_id)
+                    .is_some_and(|item| item.is_unread() && item.state == ItemState::Open);
+                if acked.contains(&notification) && open_unread {
+                    changes.upserts.extend(feed.read(&[item_id], now)?.upserts);
                 }
                 continue;
             }
+            let read = !entry.read_by.is_empty() || acked.contains(&notification);
             // A read entry past retention would be pruned at once; skip it so
             // every open does not re-add it.
             if read && now.saturating_sub(entry.created_at_ms) >= cmux_feed_core::RETENTION_MS {
@@ -163,20 +210,23 @@ impl WorkspaceRegistry {
                 coalesce: false,
             };
             // An entry the reducer refuses (an id already taken under another
-            // key) stays out; the ledger keeps it until it is evicted.
-            if let Ok((PostOutcome::Created(_), posted)) = feed.post(notice) {
+            // key) stays out and unfolded; the ledger keeps it until evicted.
+            // Pruning is the reducer's job on the next live op.
+            if let Ok((PostOutcome::Created(item), posted)) = feed.post_unpruned(notice) {
                 changes.upserts.extend(posted.upserts);
+                newly_folded.push((notification, item.id, entry.created_at_ms));
                 added += 1;
             }
         }
         let marked = meta_value(&self.connection, FEED_LOCAL_MIGRATION_META_KEY)?.is_some();
-        if changes.is_empty() && marked {
+        if changes.is_empty() && newly_folded.is_empty() && marked {
             return Ok(0);
         }
-        // Pruning is the reducer's job on the next live op; this pass keeps
-        // every retained entry so nothing read-relevant is lost.
         let tx = self.connection.transaction()?;
         write_feed_local_changes(&tx, &changes)?;
+        for (notification, item, created_at_ms) in &newly_folded {
+            record_feed_local_folded(&tx, notification, item, *created_at_ms)?;
+        }
         if !marked {
             tx.execute(
                 "INSERT INTO meta(key, value) VALUES(?1, ?2)",
@@ -187,11 +237,20 @@ impl WorkspaceRegistry {
         Ok(added)
     }
 
+    /// Notification id -> item id of every folded notification.
+    fn feed_local_folded(&self) -> anyhow::Result<HashMap<String, String>> {
+        let mut statement =
+            self.connection.prepare("SELECT notification_id, item_id FROM feed_local_folded")?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     /// Drop every local item and the migration marker, as a registry written
     /// by a daemon without the local owner.
     #[cfg(test)]
     pub(crate) fn forget_feed_local_for_test(&mut self) -> anyhow::Result<()> {
         self.connection.execute("DELETE FROM feed_local_items", [])?;
+        self.connection.execute("DELETE FROM feed_local_folded", [])?;
         self.forget_feed_local_marker_for_test()
     }
 
@@ -203,6 +262,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<()> {
         for id in ids {
             self.connection.execute("DELETE FROM feed_local_items WHERE item_id = ?1", [id])?;
+            self.connection.execute("DELETE FROM feed_local_folded WHERE item_id = ?1", [id])?;
         }
         Ok(())
     }

@@ -99,6 +99,16 @@ impl Feed {
     /// wins, count + 1). The caller decides this before its commit and writes
     /// the returned changes in it. Pruning runs in the same op.
     pub fn post(&mut self, notice: Notice) -> Result<(PostOutcome, Changes), FeedError> {
+        let at_ms = notice.at_ms;
+        let (outcome, mut changes) = self.post_unpruned(notice)?;
+        changes.merge(self.prune(at_ms));
+        Ok((outcome, changes))
+    }
+
+    /// [`Self::post`] without the prune: the store's ledger pass posts old
+    /// entries with their own times, and a prune at such a time must not
+    /// drop items from the pass's copy while it still matches against it.
+    pub fn post_unpruned(&mut self, notice: Notice) -> Result<(PostOutcome, Changes), FeedError> {
         validate_notice(&notice)?;
         if let Some(existing) = self.find_key(&notice.dedupe_key) {
             return Ok((PostOutcome::Deduped(existing.clone()), Changes::default()));
@@ -162,7 +172,6 @@ impl Feed {
                 PostOutcome::Created(item)
             }
         };
-        changes.merge(self.prune(notice.at_ms));
         Ok((outcome, changes))
     }
 

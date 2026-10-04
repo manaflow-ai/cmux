@@ -4536,10 +4536,13 @@ so `feed.adopt` keeps the same id; `dedupe_key` is
 `notify:<session id>:<notification id>`. `actor` (who posted) is the P8 actor
 stamp (plans/cmux-next/identity.md section 3): `{kind:"terminal", id, host}`
 for a notice from a terminal, `{kind:"user", id:"user_local"}` for one without
-a terminal. It is never part of an idempotency fingerprint. On its first start the daemon
-turns each retained notification into an item, read when any client
-acknowledged it (`read_by` or a persisted ack); a meta marker and the dedupe
-keys make that migration run once.
+a terminal. It is never part of an idempotency fingerprint. On every start the daemon
+turns each retained notification it has not taken yet into an item, read when
+any client acknowledged it (`read_by` or a persisted ack); this also picks up
+notifications an older daemon wrote after a downgrade. The daemon records every
+notification it took (the newest 512), so a coalesced, moved or pruned item
+never comes back. For a notification it already took, only a persisted ack
+counts: it reads the item when the item is still `open` here. Read is one-way.
 
 Result: `object{items:[FeedLocalItem]}`
 
@@ -4554,7 +4557,10 @@ Result: `object{items:[FeedLocalItem]}`
 Marks explicit local items read, all or nothing (at most 500 ids). A moved
 item refuses with `owner.unreachable` and a handing-off item with
 `feed.moving` (both retryable; nothing queues); an unknown id refuses with
-`not_found`. Reading a read item changes nothing.
+`not_found`. Reading a read item changes nothing. When a terminal, or a tab
+without a terminal, has no unread item left, its unread marker clears
+(`tab-changed` for each placement) and its retained notifications are
+acknowledged in the same transaction.
 
 Params: `items` (`[string]`, required).
 
