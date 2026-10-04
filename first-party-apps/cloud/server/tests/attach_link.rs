@@ -230,6 +230,30 @@ fn disconnect_ends_the_link_process_and_reports_down() {
     assert!(s.attach().supervisor().state("vm-alpha01").is_none());
 }
 
+#[test]
+fn a_retry_with_the_same_key_after_down_opens_a_new_link() {
+    let spawner = FakeSpawner::default();
+    let mut s = server(&["vm-get", "attach_endpoint_alpha"], &spawner);
+    let first = s.handle(&connect("vm-alpha01", "same-key")).expect("connect");
+    spawner.exit("vm-alpha01", 1);
+    let again = s.handle(&connect("vm-alpha01", "same-key")).expect("same key again");
+    assert_ne!(first["carrier"], again["carrier"], "never a replayed dead carrier");
+    assert_eq!(spawner.spawns(), 2);
+}
+
+#[test]
+fn a_sign_out_on_attach_ends_every_link_without_revoking() {
+    let spawner = FakeSpawner::default();
+    let mut s =
+        server(&["vm-list", "vm-resume", "attach_endpoint_beta", "attach_endpoint_401"], &spawner);
+    s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
+    s.handle(&connect("vm-beta02", "c-1")).expect("beta link");
+    let err = s.handle(&connect("vm-alpha01", "c-2")).unwrap_err();
+    assert_eq!(err.code, "cmux.cloud.auth_required");
+    assert_eq!(spawner.log().terminated.len(), 1, "the beta link ended");
+    assert!(s.attach().supervisor().state("vm-beta02").is_none(), "forgotten, not revoked");
+}
+
 /// The real spawner with `/bin/sh` standing in for `cmux-tui` (no network).
 #[cfg(unix)]
 mod real_process {
@@ -265,6 +289,20 @@ mod real_process {
         match err {
             LinkFailure::Down { retryable: true, reason } => {
                 assert!(reason.contains('7'), "{reason}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_link_that_never_gets_ready_is_ended_and_down() {
+        let mut supervisor = LinkSupervisor::new(Box::new(ProcessSpawner))
+            .with_ready_deadline(std::time::Duration::from_millis(300));
+        let err =
+            supervisor.spawn_and_wait("vm-real04", &command("exec sleep 30", "stall")).unwrap_err();
+        match err {
+            LinkFailure::Down { retryable: true, reason } => {
+                assert!(reason.contains("no connection"), "{reason}");
             }
             other => panic!("{other:?}"),
         }

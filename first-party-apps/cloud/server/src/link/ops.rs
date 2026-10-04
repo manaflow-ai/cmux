@@ -6,7 +6,7 @@ use super::argv::{AttachEndpoint, link_command};
 use super::supervisor::{LinkFailure, LinkState};
 use crate::api::models::MachineStatus;
 use crate::api::{CloudError, ControlPlane, Origin, Request, args, codes};
-use crate::connector::iface::{BackendError, Carrier};
+use crate::connector::iface::{BackendError, Carrier, CarrierEvent};
 use crate::ops::Server;
 use crate::rescue::iface::{Grid, OpenRequest, TerminalBackend};
 use crate::rescue::{MISSING_ROUTE, RESCUE_KIND};
@@ -21,6 +21,36 @@ pub const TERMINAL_CLOSED: &str = "cmux.cloud.terminal_closed";
 pub(crate) const CONNECT: &str = "cloud.machine.connect";
 pub(crate) const DISCONNECT: &str = "cloud.machine.disconnect";
 pub(crate) const RESCUE_OPEN: &str = "cloud.rescue.open";
+
+/// `cloud.link.changed` lines for the host: carrier events since the last
+/// call. TODO(lead): the serve loop drains them only after an op; a link
+/// that dies between ops is reported with the next op until the loop also
+/// wakes on link events.
+pub(crate) fn take_event_lines<C: ControlPlane>(server: &mut Server<C>) -> Vec<Value> {
+    let supervisor = server.attach_mut().supervisor_mut();
+    supervisor.pump();
+    supervisor
+        .take_events()
+        .into_iter()
+        .map(|event| match event {
+            CarrierEvent::Up { carrier } => json!({ "type": "event", "event": "cloud.link.changed",
+                "machine": carrier.target, "state": "up", "carrier": carrier.id,
+                "generation": carrier.generation }),
+            CarrierEvent::Down { target, generation, retryable, reason } => json!({
+                "type": "event", "event": "cloud.link.changed", "machine": target,
+                "state": "down", "generation": generation, "retryable": retryable,
+                "reason": reason }),
+            CarrierEvent::Revoked { target, reason } => json!({ "type": "event",
+                "event": "cloud.link.changed", "machine": target, "state": "revoked",
+                "reason": reason }),
+        })
+        .collect()
+}
+
+/// Ops whose answer is live link state and must never be replayed.
+pub(crate) fn live_state_op(name: &str) -> bool {
+    matches!(name, CONNECT | DISCONNECT)
+}
 
 pub(crate) fn serves(name: &str) -> bool {
     matches!(name, CONNECT | DISCONNECT | RESCUE_OPEN)
@@ -107,21 +137,32 @@ pub(crate) fn connect<C: ControlPlane>(
     };
     let start_key = match start_key {
         Some(key) => key,
-        None => format!("link-attempt-{}/start", attach.next_attempt()),
+        None => format!("link-{}/start", attach.attempt_nonce()),
     };
-    let answer = ensure_running(server, machine, origin, &start_key).and_then(|()| {
-        server.ctx(CONNECT, None).call(
-            "POST",
-            format!("/api/vm/{machine}/attach-endpoint"),
-            Some(json!({ "transport": "cmux-remote" })),
-        )
-    });
+    let answer = match ensure_running(server, machine, origin, &start_key) {
+        // A start can fail for plan reasons (403): that is not a revocation.
+        Err(error) => Err((error, false)),
+        Ok(()) => server
+            .ctx(CONNECT, None)
+            .call(
+                "POST",
+                format!("/api/vm/{machine}/attach-endpoint"),
+                Some(json!({ "transport": "cmux-remote" })),
+            )
+            .map_err(|e| (e, true)),
+    };
     let answer = match answer {
         Ok(answer) => answer,
-        Err(error) => {
-            // The machine is gone or access ended: refuse new links to it.
-            if error.code == codes::NOT_FOUND || error.code == codes::FORBIDDEN {
-                server.attach_mut().supervisor.revoke(machine, &error.message);
+        Err((error, from_attach)) => {
+            let supervisor = &mut server.attach_mut().supervisor;
+            if error.code == codes::AUTH_REQUIRED {
+                // Signed out: no link may outlive the sign-in.
+                supervisor.disconnect_all("signed out of cmux Cloud");
+            } else if error.code == codes::NOT_FOUND
+                || (from_attach && error.code == codes::FORBIDDEN)
+            {
+                // The machine is gone or access ended: refuse new links to it.
+                supervisor.revoke(machine, &error.message);
             }
             return Err(error);
         }
@@ -182,7 +223,7 @@ fn rescue_open<C: ControlPlane>(
         return Err(CloudError::new(codes::UNSUPPORTED, MISSING_ROUTE));
     }
     let start_key = key.map_or_else(
-        || format!("rescue-attempt-{}/start", server.attach_mut().next_attempt()),
+        || format!("rescue-{}/start", server.attach_mut().attempt_nonce()),
         |k| format!("{k}/start"),
     );
     ensure_running(server, &machine, origin, &start_key)?;

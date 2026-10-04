@@ -9,7 +9,7 @@ mod supervisor;
 
 pub use argv::{AttachEndpoint, LinkCommand, LinkLine, LinkPaths, link_command, parse_line};
 pub use spawner::{LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag, ProcessSpawner};
-pub use supervisor::{CONNECTOR_KIND, LinkFailure, LinkState, LinkSupervisor};
+pub use supervisor::{CONNECTOR_KIND, LinkFailure, LinkState, LinkSupervisor, READY_DEADLINE};
 
 use crate::connector::iface::{BackendId, LocalId, check_kinds};
 use crate::rescue::iface::ByteTerminal;
@@ -118,8 +118,13 @@ impl Attach {
         format!("rescue-{}", self.next_terminal)
     }
 
-    pub(crate) fn next_attempt(&mut self) -> u64 {
+    /// A key part that is unique across server restarts (time, pid,
+    /// counter), so a fallback start key never repeats an earlier one.
+    pub(crate) fn attempt_nonce(&mut self) -> String {
         self.next_attempt += 1;
-        self.next_attempt
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        format!("{nanos:x}-{:x}-{}", std::process::id(), self.next_attempt)
     }
 }
