@@ -260,9 +260,10 @@ private final class HoverRevealProbe: NSView {
                 self?.owner?.windowWillChange()
             }
         }
-        // A pointer already over the region when it joins the window reveals
-        // at once, before any click (no mouseEntered arrives for it).
+        // A pointer already over the region when it joins a shown window
+        // reveals at once, before any click (no mouseEntered arrives for
+        // it). A window that is not on screen cannot be under the pointer.
         let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-        if tracksPointer, bounds.contains(point) { owner?.setPointerInside(true) }
+        if tracksPointer, window.isVisible, bounds.contains(point) { owner?.setPointerInside(true) }
     }
 }
