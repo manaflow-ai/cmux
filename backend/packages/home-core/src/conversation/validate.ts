@@ -139,7 +139,10 @@ export const validateParts = (parts: unknown, allowAttachments = false): Readonl
       const cleanRuns: Array<TextRun> = []
       for (const run of runs as Array<unknown>) {
         if (!isObject(run) || !isU32(run.start) || !isU32(run.length)) return fail("invalid_parts")
-        const mentionOk = run.mention === undefined || (isString(run.mention) && validParticipantId(run.mention))
+        // A cloud head has no paired devices, so a `remote_` mention is refused there
+        // (`allowAttachments` is the cloud flag of apply()).
+        const mentionOk =
+          run.mention === undefined || (isString(run.mention) && validParticipantId(run.mention) && !(allowAttachments && run.mention.startsWith("remote_")))
         const linkOk = run.link === undefined || validShortText(run.link, 2048)
         if (run.length === 0 || run.start + run.length > text.length || !mentionOk || !linkOk) fail("invalid_parts")
         cleanRuns.push({
