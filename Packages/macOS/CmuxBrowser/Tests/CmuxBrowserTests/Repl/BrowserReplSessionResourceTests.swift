@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Testing
 
 @testable import CmuxBrowser
@@ -265,5 +266,153 @@ struct BrowserReplSessionResourceTests {
         for (index, responses) in arrivals.enumerated() where index >= 16 {
             #expect(responses >= index - 15, "fetch \(index + 1) started after \(responses) responses: \(arrivals)")
         }
+    }
+
+    @Test("A fetch past the queue bound fails at once with an error that says why")
+    func fetchQueueIsBounded() async {
+        let driver = HeldCookiesDriver()
+        let session = makeSession(driver)
+        defer {
+            session.close()
+            driver.releaseAll()
+        }
+
+        // The first 16 wait for their cookies in the running slots, the next
+        // ones wait in the queue; past its bound a fetch fails at once.
+        let admitted = BrowserReplSession.maxConcurrentFetches + 256  // the documented queue bound
+        let result = await browserReplWithDeadline(seconds: 60) {
+            await session.evaluate(code: """
+            const all = Array.from({ length: \(admitted + 5) }, () => fetchOnce("http://127.0.0.1:9/held").then(() => "ok", (e) => e.message));
+            const refused = await Promise.all(all.slice(\(admitted)));
+            console.log(refused.length);
+            console.log(refused[0]);
+            """, timeout: .seconds(10))
+        }
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(result?.lines.first?.text == "5")
+        #expect(result?.lines.last?.text.contains("fetches are already waiting") == true, "\(String(describing: result?.lines))")
+    }
+
+    @Test("Fetches whose headers arrived and whose bodies never end do not hold the running slots")
+    func streamingFetchesReleaseTheirSlots() async throws {
+        let streams = try await (0..<4).asyncMap { _ in try await BrowserReplHeldResponseServer.started(bodyPrefix: Data(repeating: 0x61, count: 1024)) }
+        defer { streams.forEach { $0.stop() } }
+        let plain = try BrowserReplTestHTTPServer { _, _, _ in (200, ["Content-Type": "text/plain"], Data("ok".utf8)) }
+        try await plain.start()
+        defer { plain.stop() }
+        let driver = HeldCookiesDriver()
+        driver.releaseAll()
+        let session = makeSession(driver)
+        defer { session.close() }
+
+        // 16 fetches of event streams nobody awaits (four per server, under
+        // URLSession's six connections per host).
+        let urls = streams.flatMap { server in (0..<4).map { "\"http://127.0.0.1:\(server.port)/stream?\($0)\"" } }
+        let started = await session.evaluate(code: "[\(urls.joined(separator: ","))].forEach((url) => fetchOnce(url).catch(() => {}));")
+        #expect(started.error == nil)
+
+        let next = await browserReplWithDeadline(seconds: 60) {
+            await session.evaluate(code: "console.log((await fetchOnce('http://127.0.0.1:\(plain.port)/')).status)", timeout: .seconds(15))
+        }
+        #expect(next?.error == nil, "\(String(describing: next?.error))")
+        #expect(next?.lines.map(\.text) == ["200"])
+    }
+
+    @Test("The response bodies a session's fetches buffer at once are bounded")
+    func fetchBodyBuffersAreBoundedPerSession() async throws {
+        // Three bodies of 50 MiB each fit the per-fetch limit; together they
+        // pass the session's budget, so one fails while the others still wait.
+        let chunk = Data(repeating: 0x62, count: 50 << 20)
+        let server = try await BrowserReplHeldResponseServer.started(bodyPrefix: chunk, declaredLength: 60 << 20)
+        defer { server.stop() }
+        let driver = HeldCookiesDriver()
+        driver.releaseAll()
+        let session = makeSession(driver)
+        defer { session.close() }
+
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            const all = [0, 1, 2].map((i) => fetchOnce("http://127.0.0.1:\(server.port)/body?" + i).then(() => "ok", (e) => e.message));
+            console.log(await Promise.race(all));
+            """, timeout: .seconds(60))
+        }
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(result?.lines.first?.text.contains("hold more than 128 MiB") == true, "\(String(describing: result?.lines))")
+    }
+}
+
+/// Answers every request with its headers and the first part of a body,
+/// then holds the connection open until `stop()`, like an event stream or
+/// a slow download.
+final class BrowserReplHeldResponseServer: @unchecked Sendable {
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "cmux.browser-repl.test-held-http")
+    private let bodyPrefix: Data
+    private let declaredLength: Int
+    private let lock = NSLock()
+    private var connections: [NWConnection] = []
+    private(set) var port: UInt16 = 0
+
+    private init(bodyPrefix: Data, declaredLength: Int) throws {
+        self.bodyPrefix = bodyPrefix
+        self.declaredLength = declaredLength
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        listener = try NWListener(using: parameters)
+    }
+
+    static func started(bodyPrefix: Data, declaredLength: Int? = nil) async throws -> BrowserReplHeldResponseServer {
+        let server = try BrowserReplHeldResponseServer(bodyPrefix: bodyPrefix, declaredLength: declaredLength ?? (bodyPrefix.count + (1 << 20)))
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let box = BrowserReplOnceBox<Void>()
+            box.set(continuation)
+            server.listener.stateUpdateHandler = { [weak server] state in
+                if case .ready = state {
+                    server?.port = server?.listener.port?.rawValue ?? 0
+                    box.resume(())
+                }
+            }
+            server.listener.newConnectionHandler = { [weak server] connection in server?.serve(connection) }
+            server.listener.start(queue: server.queue)
+        }
+        return server
+    }
+
+    func stop() {
+        listener.cancel()
+        let open = lock.withLock {
+            defer { connections.removeAll() }
+            return connections
+        }
+        for connection in open { connection.cancel() }
+    }
+
+    private func serve(_ connection: NWConnection) {
+        lock.withLock { connections.append(connection) }
+        connection.start(queue: queue)
+        receive(connection, buffer: Data())
+    }
+
+    private func receive(_ connection: NWConnection, buffer: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, done, _ in
+            guard let self else { return }
+            var buffer = buffer
+            if let data { buffer.append(data) }
+            guard buffer.range(of: Data("\r\n\r\n".utf8)) != nil else {
+                if !done { self.receive(connection, buffer: buffer) }
+                return
+            }
+            var out = Data("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: \(self.declaredLength)\r\n\r\n".utf8)
+            out.append(self.bodyPrefix)
+            connection.send(content: out, completion: .contentProcessed { _ in })
+        }
+    }
+}
+
+private extension Sequence {
+    func asyncMap<T>(_ transform: (Element) async throws -> T) async rethrows -> [T] {
+        var values: [T] = []
+        for element in self { values.append(try await transform(element)) }
+        return values
     }
 }
