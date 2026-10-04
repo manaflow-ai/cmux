@@ -66,4 +66,18 @@ import Testing
         #expect(intents.isEmpty)
         #expect(paging.neighbor == nil)
     }
+
+    /// Live run (sbr99-v1): the neighbor page took the hit tests, so the
+    /// rest of the swipe went to it and the list stopped following. The
+    /// pages never take events; the gesture stays on the list's scroll view.
+    @Test func theNeighborPageNeverTakesTheGesture() throws {
+        let (view, window) = Self.sidebar()
+        defer { window.close() }
+        let paging = view.spacePaging
+        paging.scroll(.began, deltaX: -20, time: 1.0)
+        #expect(paging.neighbor != nil)
+        let inList = view.scrollView.convert(NSPoint(x: 60, y: view.scrollView.bounds.midY), to: view.superview)
+        let hit = try #require(view.hitTest(inList))
+        #expect(hit.isDescendant(of: view.scrollView), "hit \(type(of: hit))")
+    }
 }

@@ -112,9 +112,9 @@ def record_spaces():
     print("space.previous:", cli("action", "run", "space.previous"), flush=True)
     frames("previous", 1.0)
     # A two-finger swipe toward the next space, 1:1, then a flick release.
-    rpc("debug.mouse", {"x": 100, "y": 260, "action": "scroll", "dx": -10, "phase": "began"})
+    print("swipe began:", rpc("debug.mouse", {"x": 100, "y": 260, "action": "scroll", "dx": -10, "phase": "began"}), flush=True)
     for _ in range(8):
-        rpc("debug.mouse", {"x": 100, "y": 260, "action": "scroll", "dx": -18, "phase": "changed"})
+        print("swipe changed:", rpc("debug.mouse", {"x": 100, "y": 260, "action": "scroll", "dx": -18, "phase": "changed"}), flush=True)
         frames("swipe", 0.05)
     rpc("debug.mouse", {"x": 100, "y": 260, "action": "scroll", "dx": 0, "phase": "ended"})
     frames("release", 1.2)
