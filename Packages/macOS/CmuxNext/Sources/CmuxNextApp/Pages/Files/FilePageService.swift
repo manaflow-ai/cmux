@@ -65,6 +65,13 @@ final class FilePageService: InternalPageProvider {
 
     func pageView(_ key: String) -> PageWebView? { tabs[key]?.page }
 
+    #if DEBUG
+    /// Each tab's key, file and page, for `debug.filepages`.
+    var debugTabs: [(key: String, file: URL?, page: PageWebView?)] {
+        tabs.keys.sorted().map { ($0, file($0), tabs[$0]?.page) }
+    }
+    #endif
+
     func provider(_ key: String) -> FilePageProvider? { tabs[key]?.provider }
 
     /// The file tab `key` shows, nil for the empty state or another tab.

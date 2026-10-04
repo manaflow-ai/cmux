@@ -38,9 +38,32 @@ extension PageWebView {
 
     /// Clicks the first element that matches the CSS `selector` (live GUI proofs drive a page
     /// control with no pointer). Returns whether an element matched.
-    public func debugClick(_ selector: String) async -> Bool {
-        let script = "const el = document.querySelector(selector); if (!el) { return false; } el.click(); return true;"
-        let clicked = try? await webView.callAsyncJavaScript(script, arguments: ["selector": selector], contentWorld: .page)
+    /// Ends this page's WebContent process (WebKit's `_killWebContentProcess`), so a live check can
+    /// prove what the host does when the page crashes. False when WebKit has no such call. DEBUG
+    /// verb only.
+    public func debugKillWebContent() -> Bool {
+        let selector = NSSelectorFromString("_killWebContentProcess")
+        guard webView.responds(to: selector) else { return false }
+        webView.perform(selector)
+        return true
+    }
+
+    /// Whether a real AppKit key or mouse event reached the page in the last second: the same
+    /// `PageCallContext.userGesture` a page call gets. DEBUG verb only.
+    public var debugHasRecentUserGesture: Bool { (webView as? PageWKWebView)?.hasRecentUserGesture() ?? false }
+
+    /// Clicks the first element matching `selector` from page script (not a user gesture);
+    /// `metaKey` makes it a Cmd-click (a markdown link follows on Cmd-click while editing).
+    public func debugClick(_ selector: String, metaKey: Bool = false) async -> Bool {
+        let script = """
+        const el = document.querySelector(selector); if (!el) { return false; }
+        if (!metaKey) { el.click(); return true; }
+        for (const type of ['mousedown', 'mouseup', 'click']) {
+          el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, metaKey: true, view: window }));
+        }
+        return true;
+        """
+        let clicked = try? await webView.callAsyncJavaScript(script, arguments: ["selector": selector, "metaKey": metaKey], contentWorld: .page)
         return clicked as? Bool == true
     }
 

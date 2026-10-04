@@ -65,7 +65,7 @@ enum DebugPages {
             return ["handled": .bool(page.send(command: command, arguments: arguments))]
         case "click":
             guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
-            return ["clicked": .bool(await page.debugClick(selector))]
+            return ["clicked": .bool(await page.debugClick(selector, metaKey: params["meta"]?.boolValue == true))]
         case "type":
             guard let text = params["text"]?.stringValue else { return ["error": "text is required"] }
             return ["inserted": .bool(await page.debugInsertText(text, selector: params["selector"]?.stringValue))]
