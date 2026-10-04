@@ -20,7 +20,10 @@ set -euo pipefail
 repo="${1:-${GITHUB_WORKSPACE:-$PWD}}"
 [[ -f "$repo/.gitmodules" ]] || exit 0
 # Initialized submodules; an uninitialized one (status prefix '-') is already clean.
-stale="$(git -C "$repo" submodule status 2>/dev/null | grep -v '^-' || true)"
+# A failing status (dubious ownership, a corrupt .git/modules) fails here,
+# not later as a confusing dirty-source refusal.
+status="$(git -C "$repo" submodule status)"
+stale="$(printf '%s\n' "$status" | grep -v '^-' || true)"
 [[ -n "$stale" ]] || exit 0
 echo "reset-stale-submodules: dropping submodule checkouts a previous job left:"
 printf '%s\n' "$stale" | sed 's/^/  /'
