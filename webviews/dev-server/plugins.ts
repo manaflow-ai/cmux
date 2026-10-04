@@ -19,7 +19,15 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Plugin, ViteDevServer } from "vite-plus";
-import { isLoopbackHost, payloadFor, readBody, resolveResource, rpcRequestStatus } from "./diffHost";
+import {
+  dependencyCacheName,
+  isDependencyCacheRequest,
+  isLoopbackHost,
+  payloadFor,
+  readBody,
+  resolveResource,
+  rpcRequestStatus,
+} from "./diffHost";
 import { diffLanguagesDirectory, readDiffLanguagePack } from "./diffLanguages";
 import { SHELL_LIBS, SHELL_PLACEHOLDERS, fillShell, markdownFiles, splitStyles } from "./markdownHost";
 
@@ -88,16 +96,28 @@ function devServerShell(): Plugin {
         // One dependency cache per server. A cache shared with another server on the same
         // node_modules (vite.config.acpmux-pane.mjs, another slot) is re-optimized under it, and
         // open pages then fail to load modules and requests mid-load.
-        cacheDir: `node_modules/.vite-dev-server-${config.server?.port ?? DEV_SERVER_PORT}`,
+        cacheDir: `node_modules/${dependencyCacheName(config.server?.port ?? DEV_SERVER_PORT)}`,
         // Every surface's entry, so the first scan finds all dependencies instead of a page
         // discovering one late and triggering an optimizer reload.
         optimizeDeps: { entries: devEntries },
       };
     },
     configureServer(server) {
+      const cacheName = dependencyCacheName(server.config.server.port ?? DEV_SERVER_PORT);
       server.middlewares.use((request, response, next) => {
         const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
         if (pathname === "/" || pathname === "/index.html") return send(response, 200, "text/html", indexPage);
+        // Vite serves optimized dependencies as `immutable` for a year, keyed by a `?v=` hash
+        // of the lockfile and config only. When the set of optimized dependencies changes (a
+        // source file starts importing one directly), the hash stays and the chunks inside are
+        // renamed, so a long-lived WebView (the cmux browser pane) keeps old modules that import
+        // chunks that no longer exist: "Importing a module script failed", then "Load failed".
+        // Revalidating them by ETag costs a 304 per module and never serves a stale graph.
+        if (isDependencyCacheRequest(pathname, cacheName)) {
+          const setHeader = response.setHeader.bind(response);
+          response.setHeader = (name, value) =>
+            setHeader(name, name.toLowerCase() === "cache-control" ? "no-cache" : value);
+        }
         next();
       });
     },

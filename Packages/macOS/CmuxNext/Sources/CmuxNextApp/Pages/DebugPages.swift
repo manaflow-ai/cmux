@@ -1,0 +1,55 @@
+import CmuxNextControl
+import CmuxNextPages
+import CmuxNextSettings
+import Foundation
+
+// `debug.page` (DEBUG builds): the generic page verb for every React page
+// (plans/cmux-next/react-pages.md), from the Settings lead's `debug.settings_web`.
+// Params: `page` (id, default the first live page), `action`:
+// - `state` (default): page id, URL fragment, language, visible text, control count, computed
+//   html/body backgrounds (the one-backdrop check);
+// - `snapshot` (`path`, default /tmp/cmux-page-<id>.png): the page as WebKit rendered it;
+// - `command` (`command`, `text`): a dispatcher command (`find`) as the key dispatcher sends it.
+// The control router's deadline bounds every action.
+extension AppControl {
+    func registerPageDebugMethods() {
+        #if DEBUG
+        service?.router.register([
+            .async("debug.page") { call in await DebugPages.handle(call.params) },
+        ])
+        #endif
+    }
+}
+
+#if DEBUG
+enum DebugPages {
+    @MainActor
+    static func handle(_ params: [String: JSONValue]) async -> JSONValue {
+        let id = params["page"]?.stringValue
+        guard let page = PageRegistry.pages(id: id).first else {
+            return ["error": .string("no live page\(id.map { " " + $0 } ?? "")")]
+        }
+        switch params["action"]?.stringValue ?? "state" {
+        case "state":
+            var state = await page.debugState()
+            if case .object(var members) = state {
+                members["page"] = .string(page.pageID)
+                members["subscriptions"] = .number(Double(page.router.subscriptionCount))
+                state = .object(members)
+            }
+            return state
+        case "snapshot":
+            let path = params["path"]?.stringValue ?? "/tmp/cmux-page-\(page.pageID).png"
+            let written = await page.debugSnapshot(to: URL(fileURLWithPath: path))
+            return written ? ["path": .string(path)] : ["error": "snapshot failed"]
+        case "command":
+            let command = params["command"]?.stringValue ?? "find"
+            var arguments: [String: JSONValue] = [:]
+            if let text = params["text"] { arguments["text"] = text }
+            return ["handled": .bool(await page.send(command: command, arguments: arguments))]
+        default:
+            return ["error": "unknown action"]
+        }
+    }
+}
+#endif

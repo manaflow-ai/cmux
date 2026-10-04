@@ -40,6 +40,7 @@ pub fn validate_catalog(manifest: &Value, catalog: &Value) -> Vec<Issue> {
     }
     let mut names = HashSet::new();
     let mut keys = HashSet::new();
+    let mut seen = crate::cli::Seen::default();
     for (i, op) in catalog["operations"].as_array().into_iter().flatten().enumerate() {
         let at = format!("/catalog/operations/{i}");
         let name = op["name"].as_str().unwrap_or_default();
@@ -100,6 +101,7 @@ pub fn validate_catalog(manifest: &Value, catalog: &Value) -> Vec<Issue> {
                 ));
             }
         }
+        out.extend(crate::cli::check_op(&at, op, &mut seen));
     }
     out
 }

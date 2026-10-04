@@ -245,6 +245,9 @@ pub use frontend_browser_history::FRONTEND_BROWSER_HISTORY_CAPABILITY;
 pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
 pub use split_respawn::TAB_SPLIT_RESPAWN_CAPABILITY;
 pub use tab_column::TAB_COLUMN_RESPAWN_CAPABILITY;
+/// Optional `name` on `move-tab-to-new-workspace`: the new workspace takes
+/// it in the same commit (else the default `workspace-N`).
+pub const TAB_WORKSPACE_NAME_CAPABILITY: &str = "tab-workspace-name-v1";
 /// Durable notification acknowledgement decoupled from focus:
 /// `ack-tab-notifications`, `list-notifications`, and the workspace `unread_count` rollup.
 pub const NOTIFICATION_ACK_CAPABILITY: &str = "notification-ack-v1";
@@ -434,6 +437,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         FRONTEND_BROWSER_TABS_CAPABILITY,
         FRONTEND_BROWSER_HISTORY_CAPABILITY,
         TAB_DRAG_CAPABILITY,
+        TAB_WORKSPACE_NAME_CAPABILITY,
         TAB_SPLIT_RESPAWN_CAPABILITY,
         TAB_COLUMN_RESPAWN_CAPABILITY,
         NOTIFICATION_ACK_CAPABILITY,
@@ -2006,6 +2010,8 @@ enum Command {
         group: Option<String>,
         #[serde(default)]
         index: Option<usize>,
+        #[serde(default)]
+        name: Option<String>,
         #[serde(default)]
         transaction: Option<String>,
     },
@@ -14343,10 +14349,10 @@ fn handle_command_with_cancellation(
         Command::MoveTabToColumn(params) => tab_column::move_tab_to_column(mux, params),
         Command::NewRow(params) => rows::new_row(mux, params),
         Command::SetRowHeights(params) => rows::set_row_heights(mux, client, params),
-        Command::MoveTabToNewWorkspace { surface, group, index, transaction } => {
+        Command::MoveTabToNewWorkspace { surface, group, index, name, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
             get_surface(mux, surface)?;
-            let workspace = mux.move_tab_to_new_workspace(surface, group.clone(), index)?;
+            let workspace = mux.move_tab_to_new_workspace(surface, group.clone(), index, name)?;
             mux.emit_tab_changed_for_transaction(surface, transaction.map(Arc::from));
             let (key, workspace_index) = mux
                 .with_state(|state| {
@@ -24506,9 +24512,13 @@ mod tests {
         assert_eq!(moved["moved"], true);
         let created = run_json_command(
             &mux,
-            json!({"cmd":"move-tab-to-new-workspace","surface":third,"transaction":"tx-new"}),
+            json!({"cmd":"move-tab-to-new-workspace","surface":third,"name":"vim","transaction":"tx-new"}),
         )
         .unwrap();
+        assert!(advertised_capabilities(false).contains(&TAB_WORKSPACE_NAME_CAPABILITY));
+        let named = created["workspace"].as_u64();
+        let name = mux.with_state(|state| state.workspace_by_id(named?).map(|w| w.name.clone()));
+        assert_eq!(name.as_deref(), Some("vim"));
         assert!(created["workspace"].as_u64().is_some());
         assert!(created["key"].as_str().is_some());
         assert!(

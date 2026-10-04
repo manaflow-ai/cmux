@@ -62,7 +62,19 @@
               "additionalProperties": false,
               "required": ["path"],
               "properties": {
-                "path": { "type": "string", "minLength": 1, "maxLength": 128 },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*( [a-z][a-z0-9]*(-[a-z0-9]+)*){0,2}$",
+                  "description": "The verb path relative to the app, one to three words (`capture`, `session start`): `cmux <cli.name> <path>` and `cmux apps run <app id> <path>`."
+                },
+                "positional": {
+                  "type": "array",
+                  "maxItems": 8,
+                  "description": "Input properties, in order, that the CLI also accepts as positional arguments.",
+                  "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$" }
+                },
                 "visible": { "type": "boolean" }
               }
             }

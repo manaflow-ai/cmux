@@ -38,6 +38,7 @@
     "main": "dist/main.js"
   },
   "catalog": "catalog/finder-catalog.json",
+  "cli": { "name": "finder" },
   "implements": {
     "cmux.section/1": {
       "export": "renderFiles",

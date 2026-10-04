@@ -196,6 +196,7 @@ final class ScreenContentView: NSView {
             let scrolls = geometry.scrolls(pane: pane)
             host.frame = frame.rect.offsetBy(dx: scrolls ? strip : 0, dy: 0)
             host.alphaValue = frame.alpha.value
+            host.isDocked = !scrolls
             clipToStrip(host, scrolls: scrolls, uncovered: uncovered)
         }
         for (kind, frame) in dividerFrames {

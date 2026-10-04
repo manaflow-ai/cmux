@@ -7,8 +7,7 @@ extension HomeService {
 
     /// The local user as a participant, named after the macOS account.
     static var localUser: ConversationParticipant {
-        let name = NSFullUserName().isEmpty ? NSUserName() : NSFullUserName()
-        return ConversationParticipant(id: ConversationParticipant.localUserID, kind: .human, displayName: name)
+        ConversationParticipant(id: ConversationParticipant.localUserID, kind: .human, displayName: HomeChiefName.localUserName)
     }
 
     /// A new local conversation with the mux (user origin; the owner assigns the id).

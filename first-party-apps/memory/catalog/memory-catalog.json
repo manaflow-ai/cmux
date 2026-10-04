@@ -4,7 +4,7 @@
     {
       "class": "mutation",
       "cli": {
-        "path": "apps run cmux/memory open",
+        "path": "open",
         "visible": true
       },
       "docs": "Open the Agent Memory pane.",

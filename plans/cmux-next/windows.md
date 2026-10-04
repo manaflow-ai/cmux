@@ -92,6 +92,13 @@ Known gap: a Chromium page (the blank New Tab page included) is an opaque
 child window painted with the theme color, so it cannot show a
 see-through backdrop (browser owner, CEF fork).
 
+Per-surface overrides (Lawrence R55, surface-backgrounds.md): with no
+`appearance.surfaces.*` key every surface follows the rule above. A set
+row is painted by that surface's owner from one resolver
+(`SurfaceBackgrounds.fill`, read through `Palette.surfaceOverride`), over
+the window's backdrop, live on change. The live check's override phase
+sets one surface color at a time and checks that only its region changes.
+
 ### Web theme (shared by every cmux web view)
 
 `WebTheme` (CmuxNextDesign) is the one web theme, from the same tokens.

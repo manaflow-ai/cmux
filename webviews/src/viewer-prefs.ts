@@ -1,9 +1,12 @@
+import { sanitizeCollapsedFiles } from "./collapsed-files";
 import { callDiffComments, diffCommentsBridgeAvailable } from "./comments/bridge";
 import type { DiffViewerOptions } from "./pierre-options";
 
 /**
  * Globally persisted diff viewer display preferences: the split/unified layout
- * plus the options-menu toggles. `collapsed` is intentionally session-local.
+ * plus the options-menu toggles, and the files collapsed from their header
+ * caret (`collapsedFiles`, see collapsed-files.ts). The collapse-all toggle
+ * (`collapsed`) is intentionally session-local.
  *
  * Persistence goes through the native `cmuxDiffComments` bridge
  * (`viewerPrefs.get` / `viewerPrefs.set`) so preferences survive page reloads,
@@ -11,7 +14,7 @@ import type { DiffViewerOptions } from "./pierre-options";
  * best-effort fallback for pages opened outside cmux, because generated viewer
  * origins do not reliably persist web storage.
  */
-export type ViewerPrefs = Partial<Omit<DiffViewerOptions, "collapsed">>;
+export type ViewerPrefs = Partial<Omit<DiffViewerOptions, "collapsed">> & { collapsedFiles?: string[] };
 
 const persistedOptionsKey = "cmux.diffViewer.options";
 // Layout-only key from before options were persisted as one object.
@@ -33,6 +36,10 @@ export function sanitizeViewerPrefs(raw: unknown): ViewerPrefs {
     if (typeof source[key] === "boolean") {
       prefs[key] = source[key];
     }
+  }
+  const collapsedFiles = sanitizeCollapsedFiles(source.collapsedFiles);
+  if (collapsedFiles != null) {
+    prefs.collapsedFiles = collapsedFiles;
   }
   return prefs;
 }

@@ -22,12 +22,19 @@ public nonisolated struct WebTheme: Equatable, Sendable {
 
     /// - Parameter tokens: The theme tokens of the view's scope.
     /// - Parameter reduceTransparency: The user's Reduce Transparency setting.
+    /// - Parameter surface: The surface the page is (agent chat, new tab
+    ///   page): its background override (`appearance.surfaces`, R55)
+    ///   replaces the page background. Nil: no override applies.
+    /// - Parameter backgrounds: The per-surface overrides (the app's).
     @MainActor
-    public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false) {
+    public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, surface surfaceKind: SurfaceKind? = nil,
+                backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) {
         let pageOpaque = WindowBackdrop(tokens, reduceTransparency: reduceTransparency).panesPaintBackground
         let surface = tokens.surfaceBackground
+        let page = surfaceKind.flatMap { backgrounds.fill(for: $0, tokens: tokens) }
+            ?? (pageOpaque ? surface.withAlpha(1) : surface.withAlpha(0))
         variables = [
-            "--cmux-surface-background": Self.css(pageOpaque ? surface.withAlpha(1) : surface.withAlpha(0)),
+            "--cmux-surface-background": Self.css(page),
             "--cmux-surface-token": Self.css(surface),
             "--cmux-elevated-background": Self.css(tokens.elevatedBackground),
             "--cmux-text": Self.css(tokens.textPrimary),

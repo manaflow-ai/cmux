@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextHistory
+import CmuxNextPages
 import Foundation
 import Observation
 
@@ -21,9 +22,12 @@ final class HistoryPageTab: BrowserTab {
     @ObservationIgnored weak var keyRouter: (any BrowserKeyRouting)?
     @ObservationIgnored let model: HistoryPageModel
     @ObservationIgnored let contentView: NSView
+    /// The React page (Debug Settings `history.surface = web`; react-pages.md H1b), else nil.
+    @ObservationIgnored let webPage: PageWebView?
     @ObservationIgnored var onNavigate: ((URL) -> Void)?
 
-    init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, source: any HistoryPageSource) {
+    init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, source: any HistoryPageSource,
+         webPage: PageWebView? = nil) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -31,28 +35,38 @@ final class HistoryPageTab: BrowserTab {
         state.phase = .finished
         self.state = state
         model = HistoryPageModel(source: source)
-        contentView = HistoryPageHostView(model: model)
-        model.reload()
+        self.webPage = webPage
+        if let webPage {
+            contentView = webPage
+        } else {
+            contentView = HistoryPageHostView(model: model)
+            model.reload()
+        }
     }
 
     func load(_ url: URL) {
-        if HistoryPageAddress.matches(url) { return model.reload() }
+        if HistoryPageAddress.matches(url) { return reload() }
         onNavigate?(url)
     }
 
-    func reload() { model.reload() }
+    func reload() {
+        if let webPage { return webPage.reload() }
+        model.reload()
+    }
     func goBack() {}
     func goForward() {}
     func stop() {}
 
     func setFocused(_ focused: Bool) {
         guard focused, let window = contentView.window else { return }
+        if let webPage { return webPage.focusPage() }
         window.makeFirstResponder(contentView)
     }
 
     func setContentVisible(_ visible: Bool) {
         contentView.isHidden = !visible
-        if visible { model.reload() }
+        // The React page stays current from the owner's change events; the native one re-reads.
+        if visible, webPage == nil { model.reload() }
     }
 
     func snapshot() async throws -> CGImage {
@@ -64,6 +78,10 @@ final class HistoryPageTab: BrowserTab {
 
     func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue { throw BrowserTabError.closed }
     func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult {
+        if let webPage {
+            await webPage.send(command: "find", arguments: ["text": .string(text)])
+            return .none
+        }
         model.text = text
         return .none
     }
@@ -71,7 +89,7 @@ final class HistoryPageTab: BrowserTab {
     func setZoom(_ zoom: Double) {}
     func exitContentFullscreen() {}
     func showDevTools() {}
-    func close() {}
+    func close() { webPage?.close() }
 }
 
 enum HistoryPageStrings {

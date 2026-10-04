@@ -91,8 +91,12 @@ export class HistoryStore {
       }
       this.unsubscribe = unsubscribe;
     } catch (error) {
-      this.set({ connection: "disconnected", loading: false, error: message(error) });
-      return;
+      // An owner without the change stream still answers reads: show the list without live
+      // updates. Any other failure is a lost host.
+      if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op")) {
+        this.set({ connection: "disconnected", loading: false, error: message(error) });
+        return;
+      }
     } finally {
       this.starting = false;
     }

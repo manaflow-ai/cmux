@@ -26,7 +26,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/codemirror open",
+        "path": "open",
         "visible": true
       },
       "mcp": {
@@ -57,7 +57,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/codemirror save",
+        "path": "save",
         "visible": true
       },
       "mcp": {
@@ -97,7 +97,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/codemirror revert",
+        "path": "revert",
         "visible": true
       },
       "mcp": {
@@ -127,7 +127,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/codemirror toggle-read-only",
+        "path": "toggle-read-only",
         "visible": true
       },
       "mcp": {
@@ -156,7 +156,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/codemirror cycle-variant",
+        "path": "cycle-variant",
         "visible": false
       },
       "mcp": {

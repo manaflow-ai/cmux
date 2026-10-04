@@ -17,7 +17,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/coderouter open",
+        "path": "open",
         "visible": true
       },
       "mcp": {
@@ -58,7 +58,7 @@
         }
       },
       "cli": {
-        "path": "apps run cmux/coderouter connect-account",
+        "path": "connect-account",
         "visible": true
       },
       "mcp": {
@@ -92,7 +92,7 @@
         }
       },
       "cli": {
-        "path": "apps run cmux/coderouter create-key",
+        "path": "create-key",
         "visible": true
       },
       "mcp": {
@@ -121,7 +121,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/coderouter test",
+        "path": "test",
         "visible": true
       },
       "mcp": {
@@ -150,7 +150,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/coderouter setup",
+        "path": "setup",
         "visible": true
       },
       "mcp": {
