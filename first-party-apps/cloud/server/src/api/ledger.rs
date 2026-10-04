@@ -21,6 +21,9 @@ struct Entry {
     /// the ledger keeps a digest, not the args.
     args: [u8; 32],
     result: Option<Value>,
+    /// The last failed attempt got a definite answer (a 4xx, or it was never
+    /// sent): it changed nothing. False while the outcome is unknown.
+    answered: bool,
 }
 
 fn digest(args: &Value) -> [u8; 32] {
@@ -71,6 +74,21 @@ impl Ledger {
             .is_some_and(|e| e.op == op && e.args == digest(args) && e.result.is_none())
     }
 
+    /// True when the same op with the same args was attempted with `key`,
+    /// has no result, and its last failure left the outcome unknown (lost
+    /// answer or 5xx): the Cloud API may have acted on it.
+    pub(crate) fn outcome_unknown(&self, key: &str, op: &str, args: &Value) -> bool {
+        self.unfinished(key, op, args) && self.entries.get(key).is_some_and(|e| !e.answered)
+    }
+
+    /// Records how the last failed attempt with `key` ended: `definite` when
+    /// it got an answer that changed nothing.
+    pub(crate) fn failed(&mut self, key: &str, definite: bool) {
+        if let Some(entry) = self.entries.get_mut(key) {
+            entry.answered = definite;
+        }
+    }
+
     /// Records an attempt before the call.
     pub(crate) fn attempt(&mut self, key: &str, op: &str, args: &Value) {
         if self.entries.contains_key(key) {
@@ -83,7 +101,7 @@ impl Ledger {
         }
         self.order.push_back(key.to_owned());
         self.entries
-            .insert(key.to_owned(), Entry { op: op.to_owned(), args: digest(args), result: None });
+            .insert(key.to_owned(), Entry { op: op.to_owned(), args: digest(args), result: None, answered: false });
     }
 
     /// Drops an attempt that changed nothing (refused arguments).
