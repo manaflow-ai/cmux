@@ -1412,6 +1412,26 @@ describe("direct client session state", () => {
     }
   });
 
+  test("rows keep the daemon's event order even when wall-clock times disagree", async () => {
+    ScriptedSocket.respond = ({ method }) =>
+      method === "_acpmux/attach"
+        ? {
+            session: { sessionId: "a", status: "idle" },
+            // The reply's time stamp is earlier than its prompt's (two clocks, or one millisecond).
+            events: [
+              { ...userEvent("a", 6, "prompt"), at: 2_000 },
+              { ...chunkEvent(7, "reply"), at: 1_000 },
+            ],
+          }
+        : method === "_acpmux/watch"
+          ? { sessions: [{ sessionId: "a" }] }
+          : {};
+    const client = await connect();
+    await settle();
+    expect(texts()).toEqual(["prompt", "reply"]);
+    client.close();
+  });
+
   test("without a display (no frame scheduler) each delta snapshots at once", async () => {
     const previous = AcpmuxDirectClient.scheduleFrame;
     AcpmuxDirectClient.scheduleFrame = undefined;
