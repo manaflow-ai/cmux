@@ -72,8 +72,18 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         .websocket
         .as_ref()
         .is_none_or(|w| w.token.as_deref().is_none_or(|t| t.trim().is_empty()));
-    if needs_token {
-        let listen = config.websocket.as_ref().map(|w| w.listen.clone());
+    // Only the shared home owns the fixed port; any other home never saves it.
+    let shared_home = dirs::home_dir().map(|h| h.join(".acpmux")) == Some(home());
+    let saved_listen = config.websocket.as_ref().map(|w| w.listen.clone());
+    let listen_ok =
+        saved_listen.as_deref() == Some(first_run_listen(shared_home, saved_listen.as_deref()));
+    if needs_token || !listen_ok {
+        let listen = Some(first_run_listen(shared_home, saved_listen.as_deref()).to_owned());
+        let kept_token = config
+            .websocket
+            .as_ref()
+            .and_then(|w| w.token.clone())
+            .filter(|t| !t.trim().is_empty());
         let (allowed_origins, allowed_hosts) = config
             .websocket
             .as_ref()
@@ -81,7 +91,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             .unwrap_or_default();
         config.websocket = Some(crate::config::WebSocketConfig {
             listen: listen.unwrap_or_else(|| "127.0.0.1:47811".into()),
-            token: Some(random_token()),
+            token: Some(kept_token.unwrap_or_else(random_token)),
             allowed_origins,
             allowed_hosts,
         });
@@ -477,6 +487,20 @@ async fn notify_loop(hub: Arc<Hub>) {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn();
+    }
+}
+
+/// The fixed dashboard port belongs to the shared daemon (`~/.acpmux`). Any other home (a
+/// tagged dev build's, `ACPMUX_HOME`) listens on a free port and never saves the fixed one,
+/// so it can never take the release daemon's port; a home that saved it before is moved off.
+/// Returns the address to save: the saved one when it is fine, else the default.
+fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
+    const SHARED: &str = "127.0.0.1:47811";
+    const ANY: &str = "127.0.0.1:0";
+    match saved {
+        Some(saved) if shared_home || !saved.ends_with(":47811") => saved,
+        _ if shared_home => SHARED,
+        _ => ANY,
     }
 }
 
