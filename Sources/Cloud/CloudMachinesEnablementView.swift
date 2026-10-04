@@ -26,8 +26,9 @@ enum CloudMachinesEnablementPhase: Equatable {
 /// every setup outcome a recoverable action where one exists.
 ///
 /// Before setup starts (Enable for Pro, Upgrade for Free) it introduces Cloud:
-/// a title for the plan, four reasons, one action and the plan note. Every other outcome is a centered status: symbol,
-/// title, one line, its action.
+/// the app icon with a Cloud badge (a lock for Free), a title for the plan,
+/// four reasons, one action and the plan note. Every other outcome is a
+/// centered status: symbol, title, one line, its action.
 ///
 /// The screen paints the panel's opaque chrome color. The right sidebar's
 /// backdrop is a behind-window material (or the translucent window fill when
@@ -107,6 +108,9 @@ struct CloudMachinesEnablementView: View {
 
     private var introduction: some View {
         VStack(spacing: 0) {
+            banner
+                .padding(.top, 8)
+                .padding(.bottom, 16)
             // A known Free plan is told what it needs; Pro and an unknown plan are invited.
             Text(isProGated
                 ? String(localized: "cloud.enable.intro.requiresPro", defaultValue: "Upgrade to use cmux cloud")
@@ -135,6 +139,24 @@ struct CloudMachinesEnablementView: View {
             }
             .padding(.top, 22)
         }
+    }
+
+    /// The app's icon with a badge: Cloud, or a lock while the plan needs Pro.
+    /// A computed view, not its own type, so changing it stays a body-only edit.
+    private var banner: some View {
+        ZStack(alignment: .bottomTrailing) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 60, height: 60)
+            Image(systemName: isProGated ? "lock.fill" : "cloud.fill")
+                .cmuxFont(size: isProGated ? 11 : 12, weight: .semibold)
+                .foregroundStyle(.white)
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(Color.accentColor))
+                .overlay(Circle().strokeBorder(Color(nsColor: chromeBackgroundColor), lineWidth: 2.5))
+                .offset(x: 5, y: 3)
+        }
+        .accessibilityHidden(true)
     }
 
     @ViewBuilder
