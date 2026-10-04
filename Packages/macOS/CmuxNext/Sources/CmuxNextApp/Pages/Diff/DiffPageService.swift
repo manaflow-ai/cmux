@@ -37,16 +37,23 @@ final class DiffPageService: InternalPageProvider {
     /// Made on the first tab (tests pass their own).
     private lazy var runtime = DiffPageRuntime(git: services.agentGit)
     private lazy var recentsStore = DiffRecents(url: DiffRecents.standardURL(launch: services.environment.launch))
+    /// Prefs (`diff.*` settings) and viewed marks (next to the recents), shared by every tab.
+    private lazy var stores = DiffPageStores(prefs: SettingsDiffPrefs { [unowned services] in services.settings },
+                                             viewed: DiffViewedFiles(url: DiffViewedFiles.standardURL(recents: recentsStore.url)))
+    /// The diff page draws at the display's full rate (120 Hz), as the agent pane does, not
+    /// WebKit's default nearest 60 fps.
+    static let engineOptions = PageEngineOptions(fullFrameRate: true)
     /// The folder picker of `cmux.diff.chooseFolder`.
     var chooser: any DiffFolderChoosing = OpenPanelFolderChooser()
     private var tabs: [String: Tab] = [:]
     /// Teardowns still closing sessions (tests wait on them).
     private(set) var closing: [Task<Void, Never>] = []
 
-    init(services: AppServices, runtime: DiffPageRuntime? = nil, recents: DiffRecents? = nil) {
+    init(services: AppServices, runtime: DiffPageRuntime? = nil, recents: DiffRecents? = nil, stores: DiffPageStores? = nil) {
         self.services = services
         if let runtime { self.runtime = runtime }
         if let recents { recentsStore = recents }
+        if let stores { self.stores = stores }
     }
 
     var page: InternalPageID { .diff }
@@ -149,10 +156,11 @@ final class DiffPageService: InternalPageProvider {
         guard var tab = tabs[key] else { return NSView() }
         let host = DiffTabHost(service: self, key: key)
         let ready = tab.repository.map { runtime.prepare(repository: $0, source: tab.source) }
-        let provider = DiffPageProvider(ready: ready, sidecar: runtime.sidecar, languages: runtime.languages, host: host)
+        let provider = DiffPageProvider(ready: ready, sidecar: runtime.sidecar, languages: runtime.languages, host: host,
+                                        stores: stores)
         let native = AppPageNativeProvider(services: services, page: .diff)
         let routes = [PageRoute(prefix: "cmux.diff.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = PageWebView(descriptor: .diff, routes: routes, surface: .diff,
+        guard let page = PageWebView(descriptor: .diff, routes: routes, options: Self.engineOptions, surface: .diff,
                                      dynamicResources: DiffPatchSource { [weak provider] in provider?.ready }) else {
             ready?.cancel()
             return NSView()
