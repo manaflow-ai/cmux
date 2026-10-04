@@ -1,12 +1,13 @@
 //! Replay records of mutations (OWNERSHIP-PRINCIPLES invariant 5: replaying
 //! an op with the same key has no further effect).
 //!
-//! An attempt is recorded before the Cloud API call, so the same key with
+//! An attempt is recorded before the backend call, so the same key with
 //! another op or other args is a conflict even after a failure. A success
-//! also records the result, which a retry gets back with no call. A failed or
-//! lost call may be retried with the same key: the Cloud API dedups create,
-//! restore and fork by the derived key [`upstream_key`]. The ledger lives as
-//! long as the server process (data class `ephemeral`).
+//! also records the result, which a retry gets back with no call. A failed,
+//! lost or indeterminate call may be retried with the same key: the
+//! backend's own ledger (keyed by the same key) resumes it or replays its
+//! stored result. The ledger lives as long as the server process (data
+//! class `ephemeral`).
 
 use crate::api::{CloudError, codes};
 use serde_json::{Value, json};
@@ -21,10 +22,6 @@ struct Entry {
     /// the ledger keeps a digest, not the args.
     args: [u8; 32],
     result: Option<Value>,
-    /// Some failed attempt with this key ended with an unknown outcome (lost
-    /// answer or 5xx): the Cloud API may have acted. Sticky: a later definite
-    /// answer (a 429, a sign-in error) says nothing about that attempt.
-    unknown: bool,
 }
 
 fn digest(args: &Value) -> [u8; 32] {
@@ -37,11 +34,10 @@ pub(crate) struct Ledger {
     order: VecDeque<String>,
 }
 
-/// The key sent to the Cloud API: SHA-256 of the op, the canonical args and
-/// the caller's key (64 hex characters). The Cloud API matches keys per team
-/// without comparing the op or the body, so the derived key keeps a create
-/// key from replaying as a fork, and other args from replaying a machine,
-/// also after this process restarts.
+/// A key derived from the op, the canonical args and the caller's key
+/// (SHA-256, 64 hex characters). The live-state ops (connect, ports,
+/// transfers) use it to name their own inner calls; catalog mutations send
+/// the caller's key unchanged.
 pub fn upstream_key(op: &str, args: &Value, key: &str) -> String {
     let canonical = json!([op, args, key]).to_string();
     Sha256::digest(canonical.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
@@ -67,29 +63,6 @@ impl Ledger {
         Ok(entry.result.clone())
     }
 
-    /// True when the same op with the same args was attempted with `key`
-    /// and has no recorded result (it failed or its answer was lost).
-    pub(crate) fn unfinished(&self, key: &str, op: &str, args: &Value) -> bool {
-        self.entries
-            .get(key)
-            .is_some_and(|e| e.op == op && e.args == digest(args) && e.result.is_none())
-    }
-
-    /// True when the same op with the same args was attempted with `key`,
-    /// has no result, and its last failure left the outcome unknown (lost
-    /// answer or 5xx): the Cloud API may have acted on it.
-    pub(crate) fn outcome_unknown(&self, key: &str, op: &str, args: &Value) -> bool {
-        self.unfinished(key, op, args) && self.entries.get(key).is_some_and(|e| e.unknown)
-    }
-
-    /// Records a failed attempt with `key` whose outcome is unknown. Never
-    /// cleared: only a success ends the entry's open state.
-    pub(crate) fn failed_unknown(&mut self, key: &str) {
-        if let Some(entry) = self.entries.get_mut(key) {
-            entry.unknown = true;
-        }
-    }
-
     /// Records an attempt before the call.
     pub(crate) fn attempt(&mut self, key: &str, op: &str, args: &Value) {
         if self.entries.contains_key(key) {
@@ -101,10 +74,8 @@ impl Ledger {
             self.entries.remove(&oldest);
         }
         self.order.push_back(key.to_owned());
-        self.entries.insert(
-            key.to_owned(),
-            Entry { op: op.to_owned(), args: digest(args), result: None, unknown: false },
-        );
+        self.entries
+            .insert(key.to_owned(), Entry { op: op.to_owned(), args: digest(args), result: None });
     }
 
     /// Drops an attempt that changed nothing (refused arguments).

@@ -13,7 +13,7 @@
     "responses": "One entry per attempt with the same (principal, op, params, idempotency_key): attempt i gets responses[i], later attempts the last entry.",
     "read_error": "A read error is the HTTP error body {_tag, code, message} at http.status.",
     "principal": "kind install or session; agent set = a chief token (claim agt).",
-    "revision": "Decimal string; an entity's revision only grows. A client drops an event or answer older than what it holds."
+    "revision": "Decimal string: the team owner's (CloudDO) event sequence at the entity's last change, so entity and list revisions compare. A client drops an event or answer older than what it holds."
   },
   "cases": [
     {
@@ -427,12 +427,12 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
-                "revision": "1"
+                "revision": "42"
               }
             },
             "transaction": "tx_0001",
             "idempotency_key": "key-create-1",
-            "revision": "1",
+            "revision": "42",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 101
@@ -470,12 +470,12 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
-                "revision": "1"
+                "revision": "42"
               }
             },
             "transaction": "tx_0001",
             "idempotency_key": "key-create-1",
-            "revision": "1",
+            "revision": "42",
             "replayed": true,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 101
@@ -592,12 +592,12 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
-                "revision": "1"
+                "revision": "43"
               }
             },
             "transaction": "tx_0002",
             "idempotency_key": "key-create-cut",
-            "revision": "1",
+            "revision": "43",
             "replayed": true,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 102
@@ -1611,12 +1611,12 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
-                "revision": "1"
+                "revision": "44"
               }
             },
             "transaction": "tx_0012",
             "idempotency_key": "key-restore-1",
-            "revision": "1",
+            "revision": "44",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 112
@@ -1654,12 +1654,12 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
-                "revision": "1"
+                "revision": "44"
               }
             },
             "transaction": "tx_0012",
             "idempotency_key": "key-restore-1",
-            "revision": "1",
+            "revision": "44",
             "replayed": true,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 112
@@ -2252,7 +2252,7 @@
             "idle_seconds": 1800
           },
           "error": null,
-          "revision": "2"
+          "revision": "46"
         }
       },
       "note": "Provisioning done: the host is bound."
@@ -2286,7 +2286,7 @@
             "idle_seconds": 1800
           },
           "error": null,
-          "revision": "1"
+          "revision": "45"
         }
       }
     },
