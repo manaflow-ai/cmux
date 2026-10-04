@@ -257,6 +257,10 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         }
         let requestID = UUID()
         billingPlanRequestID = requestID
+        // Do not project the previous team/account's entitlement while this
+        // request is in flight. Unknown keeps Cloud enabled until a verified
+        // response arrives and avoids a false Free/Upgrade state.
+        billingPlanState = .unknown
         let tokens = try? await coordinator.currentTokens()
 
         do {
