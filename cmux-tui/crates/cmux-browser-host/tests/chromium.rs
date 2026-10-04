@@ -64,7 +64,8 @@ fn serve() -> u16 {
                 let mut stream = stream;
                 let _ = write!(
                     stream,
-                    "HTTP/1.1 200 OK\r\nContent-Type: {}; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 {}\r\nContent-Type: {}; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    if path == "/missing" { "404 Not Found" } else { "200 OK" },
                     if path.ends_with(".js") { "text/javascript" } else { "text/html" },
                     body.len()
                 );
@@ -414,4 +415,31 @@ fn eval_without_a_session_is_one_shot() {
     let mut close = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
     let _ = close.args(["close", "--session", "kept", "--socket"]).arg(&socket).output();
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A document navigation answers the main document's HTTP status, as
+/// Playwright's goto() Response does (scenario 12); reload too.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn navigations_answer_the_document_status() {
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let chromium =
+        HeadlessChromium::launch(&HeadlessOptions::new(binary.into())).expect("launch Chromium");
+    let driver = CdpDriver::attach_browser(chromium.connection().clone(), AGENT, Arc::new(|_| {}))
+        .expect("attach to Chromium");
+    let call = |method: &str, params: Value| -> Value {
+        driver.call(method, &params).unwrap_or_else(|error| panic!("{method}: {error}"))
+    };
+    let target = call("tabs.open", json!({}))["targetId"].as_str().unwrap().to_owned();
+    let nav = |path: &str| {
+        call("tab.navigate", json!({"targetId": target, "url": format!("http://127.0.0.1:{port}{path}"), "waitUntil": "load"}))
+    };
+    assert_eq!(nav("/second")["status"], 200);
+    assert_eq!(nav("/missing")["status"], 404);
+    assert_eq!(call("tab.reload", json!({"targetId": target, "waitUntil": "load"}))["status"], 404);
+    let data = call("tab.navigate", json!({"targetId": target, "url": "data:text/html,x", "waitUntil": "load"}));
+    assert!(data.get("status").is_none(), "a data: URL has no HTTP status: {data}");
 }
