@@ -625,6 +625,13 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Runs `body`, an agent's call that gives the pages of its tab a user
+    /// gesture (trusted input, page-world script). Seam; not used yet.
+    @MainActor
+    public func withAgentGesture<T>(lingering: Duration, _ body: () async throws -> T) async throws -> T {
+        try await body()
+    }
+
     /// The quarantine's private pasteboard, once one began (tests).
     var quarantinePasteboard: NSPasteboard? {
         lock.lock()
