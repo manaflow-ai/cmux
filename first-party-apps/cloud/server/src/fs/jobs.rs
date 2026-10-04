@@ -103,6 +103,20 @@ impl FileJobs {
         done
     }
 
+    /// Cancels the running job of op line `op_id`: its work stops (a dial
+    /// child ends) and its late result is dropped. `false` when no job of
+    /// that op runs (unknown, finished, or already cancelled).
+    pub(crate) fn cancel_op(&mut self, op_id: &Value) -> bool {
+        let Some(job) = self.running.iter().find(|(_, r)| &r.op_id == op_id).map(|(j, _)| *j)
+        else {
+            return false;
+        };
+        if let Some(running) = self.running.remove(&job) {
+            running.cancel.cancel();
+        }
+        true
+    }
+
     /// Cancels every running job (the client went away).
     pub(crate) fn cancel_all(&mut self) {
         for running in self.running.values() {

@@ -33,6 +33,21 @@ Provider channel, modeled on `url_open` (daemon asks a connected frontend) and `
 - App servers (open, waits for build-time scopes in step 3d): a catalog op of an app with a manifest `server` runs in that server only through `apps-run`. Calls from another app's VM are refused earlier because server ops are not in `scopes.json`. On `apps-run` the supervisor checks the op's scope (fragment family + risk, the `gen-cmux-global` derivation), and a `gesture: required` op needs origin user (A2); the server checks again as a second layer.
 - The supervisor's checks stay first: scope, grant, sandbox, gesture (a gesture spent for `fs.pick` because it opens a panel). The provider trusts the supervisor's actor and origin and enforces its own owner rules.
 
+## Op cancel: `op.cancel` (decided, coordinator, 2026-10-04)
+
+When a caller drops a request it made (page navigation or tab close in the page bridge, Ctrl-C in the CLI, a client connection that closes), the request is cancelled end to end, so a slow op never runs on for nobody and a caller never hangs.
+
+- Supervisor to app server, on the server's op channel: `{"type":"op.cancel","id":<the op line id>}` (the same `id` the supervisor gave the `{"type":"op",...}` line).
+- Idempotent. A cancel of an unknown or finished id is a no-op and gets NO line. A second cancel of the same id is a no-op.
+- A running or waiting op that is cancelled answers its ORIGINAL id exactly once: `{"type":"result","id":<id>,"ok":false,"error":{"code":"cmux.op.cancelled","message":...,"retryable":false}}`, and no later result for that id follows. Its work stops (cmux-cloud: the file job's dial child ends; a parked link wait is dropped).
+- A cancelled mutation may or may not have taken effect: the caller retries it with the SAME idempotency key (the app server's ledger keeps the attempt open, so the retry runs again).
+- An app server that does not know the line answers nothing for it (the op then answers normally); the supervisor must not depend on a cancel answer beyond "at most one result per id".
+
+Senders (who emits `op.cancel`):
+- cmux-cloud (first-party Cloud app server): RECEIVER, done (`first-party-apps/cloud/server/src/api/serve.rs`, `fs/jobs.rs`, `link/park.rs`; tests `tests/op_cancel.rs`).
+- The app supervisor (`cmux-tui/crates/cmux-tui-core/src/apps/servers.rs`, `call_server_locked` keeps `server.pending` by id): sends `op.cancel` when the `apps-run` caller's connection closes or the caller sends its own cancel, and answers that caller `cmux.op.cancelled`. Owner: app platform / daemon lane.
+- The page bridge (webviews client `call`, with an AbortSignal on navigation and tab close) and the Rust CLI (Ctrl-C during `cmux ... ` app op verbs): send the caller-side cancel to the supervisor. Owners: app platform (bridge) and the CLI owner.
+
 ## D1: who calls the API Worker (decided, app platform lead, 2026-10-02)
 
 - Now (A): cloud ops go to the Mac app over the provider channel; the app holds the install JWT and its API client. No user credential enters the daemon. A daemon without a connected app answers cloud ops with `no_provider`.
