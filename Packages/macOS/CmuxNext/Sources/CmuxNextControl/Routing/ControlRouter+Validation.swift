@@ -32,13 +32,13 @@ extension ControlRouter {
     }
 
     /// Checks target and arguments against the schema.
-    static func validatedRequest(for action: ControlActionInfo, params: [String: JSONValue], knownKinds: [String]) throws -> ControlActionRequest {
+    /// `connection` decides whether the caller may name the user
+    /// (``ControlOrigin``): a socket caller never may.
+    static func validatedRequest(for action: ControlActionInfo, params: [String: JSONValue], knownKinds: [String],
+                                 connection: ControlConnectionID = .inProcess) throws -> ControlActionRequest {
         var request = ControlActionRequest(actionID: action.id)
-        if let origin = params["origin"], !origin.isNull {
-            guard let name = origin.stringValue, ["user", "cli", "mcp", "script", "remote"].contains(name) else {
-                throw ControlError.invalidParams(ControlStrings.text("control.error.origin", "origin must be user, cli, mcp, script or remote"))
-            }
-            request.origin = name
+        if let origin = try ControlOrigin.validated(params["origin"], connection: connection) {
+            request.origin = origin
         }
         if let focus = params["focus"], !focus.isNull {
             guard let value = focus.boolValue else {
