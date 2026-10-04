@@ -2,10 +2,11 @@
 // (a message, Staged or All, Include new files), and one status line for the latest write: busy,
 // done, or why it failed, with Retry when it may pass on a second try and Refresh when the view
 // is stale.
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useId, useRef, useState } from "react";
 import { t } from "../i18n";
 import { canPush, messageTooLong, sameNewFiles, type CommitScope, type NewFiles } from "./gitWrite";
 import type { GitWrite } from "./useGitWrite";
+import { useStartWhenDue } from "./useStartWhenDue";
 
 /// Commit opens or closes the form; Push pushes the branch and shows how far it is ahead.
 export function GitToolbarButtons({
@@ -159,9 +160,8 @@ function CommitForm({
       setListChanged(false);
     }
   }
-  useEffect(() => {
-    if (withNew && newFiles === undefined) list();
-  });
+  // With new files included, a list that a reload dropped (or that was never read) is read now.
+  useStartWhenDue(withNew && newFiles === undefined, () => list());
   const options = [
     { value: "staged" as const, label: t("git.commit.staged") },
     { value: "all" as const, label: t("git.commit.all") },
