@@ -1,3 +1,4 @@
+import CmuxNextDaemon
 import Foundation
 
 /// The idempotency key of one chief tab creation (`origin` + `mutation_id`
@@ -27,4 +28,24 @@ struct HomeChiefTabKey {
 
     /// The chief tab is present, or the store refused the key because its tab closed.
     mutating func settle() { pending = nil }
+
+    /// One connect: nothing while the chief tab is open; else one keyed
+    /// create through `send`. A `frontend_browser_key_closed` refusal (the
+    /// pending key's tab was created and closed) is not shown: it retries once
+    /// with a new key. Any other failure keeps the key pending. Returns
+    /// whether it sent a create.
+    mutating func ensure(chiefTabOpen: Bool, send: (String) async throws -> Void) async throws -> Bool {
+        if chiefTabOpen {
+            settle()
+            return false
+        }
+        do {
+            try await send(forCreate())
+        } catch let DaemonError.command(_, _, code, _, _) where code == Self.keyClosedCode {
+            settle()
+            try await send(forCreate())
+        }
+        settle()
+        return true
+    }
 }
