@@ -182,7 +182,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     private func applyPageBackground() {
         guard let browser = browserID, let shim = runtime.shim else { return }
         _ = shim.browserSetBackgroundColor(browser, PageBackground.chromiumARGB(pastFirstRealPage: pastFirstRealPage,
-                                                                                 theme: PageBackground.themeARGB(in: container)))
+                                                                                 theme: PageBackground.themeARGB(in: container,
+                                                                                                                 surface: pastFirstRealPage ? nil : .newTabPage)))
     }
 
     func creationFailed() {

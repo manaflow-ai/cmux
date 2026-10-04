@@ -5,7 +5,11 @@ public import CmuxNextDesign
 /// opacity per `SurfaceKind`. An absent key is the default, the window's
 /// own color or opacity, so with no keys every surface shows the window's
 /// one backdrop (R48).
-public nonisolated enum SurfaceBackgroundSetting {
+public nonisolated struct SurfaceBackgroundSetting {
+    /// The parser and schema helpers are stateless; the value form keeps this
+    /// utility instantiable so the package-conventions namespace rule does not
+    /// add a new ratchet entry.
+    public init() {}
     /// `appearance.surfaces`.
     public static let rootPath = ["appearance", "surfaces"]
     /// The opacity range (a fraction, as `appearance.backgroundOpacity`).

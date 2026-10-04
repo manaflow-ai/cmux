@@ -76,6 +76,10 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.surfaces.home.opacity` | real |  | 0 to 1 | Home Opacity |
 | `appearance.surfaces.browserChrome.color` | string |  |  | Browser Toolbar Color |
 | `appearance.surfaces.browserChrome.opacity` | real |  | 0 to 1 | Browser Toolbar Opacity |
+| `appearance.surfaces.internalPage.color` | string |  |  | Internal Pages Color |
+| `appearance.surfaces.internalPage.opacity` | real |  | 0 to 1 | Internal Pages Opacity |
+| `appearance.surfaces.splitDivider.color` | string |  |  | Split Divider Color |
+| `appearance.surfaces.splitDivider.opacity` | real |  | 0 to 1 | Split Divider Opacity |
 | `appearance.surfaces.docks.color` | string |  |  | Docked Columns Color |
 | `appearance.surfaces.docks.opacity` | real |  | 0 to 1 | Docked Columns Opacity |
 | `appearance.surfaces.diff.color` | string |  |  | Diff Viewer Color |

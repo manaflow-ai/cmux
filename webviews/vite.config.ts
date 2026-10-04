@@ -24,6 +24,8 @@ export default defineConfig({
       "src/agent-session/acpmux/icons/cmuxIcons.json",
       // scripts/agent-icons/generate.py --check owns these bytes.
       "src/agent-session/shared/agentBrands.generated.ts",
+      // The markdown round-trip corpus: real files whose exact bytes the editor must preserve.
+      "test/fixtures/markdown-roundtrip/**",
     ],
   }),
   define: {
@@ -42,14 +44,14 @@ export default defineConfig({
     }),
     tailwindcss(),
     {
-      // Vite writes root-absolute script URLs into `diff-page.html`; make them relative to the
-      // page so the entry and its chunks resolve under any base (cmux-page://cmux.diff/ serves
-      // the webviews-app directory as its root).
+      // Vite writes root-absolute script URLs into `diff-page.html` and `markdown-page.html`; make
+      // them relative to the page so the entry and its chunks resolve under any base
+      // (cmux-page://cmux.diff/ and cmux.markdown/ serve the webviews-app directory as their root).
       name: "cmux-diff-page-relative-entry",
       apply: "build",
       transformIndexHtml: {
         order: "post",
-        handler: (html: string) => html.replace(/(src|href)="\/chunks\//g, '$1="./chunks/'),
+        handler: (html: string) => html.replace(/(src|href)="\/(chunks|assets)\//g, '$1="./$2/'),
       },
     },
     {
@@ -82,7 +84,13 @@ export default defineConfig({
     rolldownOptions: {
       // `diff-page.html` is the shared page host's diff entry (cmux-page://cmux.diff/): an HTML input
       // whose module entry is chunks/diff-page.mjs, sharing every chunk, the worker and the WASM.
-      input: { main: "src/main.tsx", "diff-worker": "src/diff-worker.ts", "diff-page": "diff-page.html" },
+      // `markdown-page.html` is the markdown editor's entry (cmux-page://cmux.markdown/), the same way.
+      input: {
+        main: "src/main.tsx",
+        "diff-worker": "src/diff-worker.ts",
+        "diff-page": "diff-page.html",
+        "markdown-page": "markdown-page.html",
+      },
       output: {
         format: "es",
         // `main.mjs` is the page entry the host HTML loads; the worker entry
@@ -126,10 +134,15 @@ export default defineConfig({
             // shiki (which the worker needs without the renderer), and
             // `vendor` before `diff-vendor` so React stays in `vendor` and the
             // agent session does not load the diff renderer at startup.
-            ...["shiki-core", "vendor", "diff-vendor"].map((name, index) => ({
+            // `markdown-vendor` (Milkdown, ProseMirror, remark) is shared by the agent pane's
+            // composer and the markdown editor page.
+            ...["shiki-core", "vendor", "diff-vendor", "markdown-vendor"].map((name, index) => ({
               name,
               test: (id: string) => sharedChunkName(id) === name,
-              priority: 3 - index,
+              priority: 4 - index,
+              // Only what both use: the editor page's own Milkdown modules stay in its chunk, so
+              // the agent pane does not load them.
+              ...(name === "markdown-vendor" ? { minShareCount: 2 } : {}),
             })),
           ],
         },
@@ -186,6 +199,13 @@ function sharedChunkName(id: string): string | null {
   }
   if (id.includes("/@pierre/")) {
     return "diff-vendor";
+  }
+  if (
+    /\/node_modules\/(@milkdown|prosemirror-[a-z-]+|remark[a-z-]*|micromark[a-z-]*|mdast-util-[a-z-]+|unified|unist-util-[a-z-]+|orderedmap|rope-sequence|w3c-keyname)\//.test(
+      id,
+    )
+  ) {
+    return "markdown-vendor";
   }
   // Framework code both surfaces share. Pinning it to a stable `vendor`
   // chunk name keeps the shared chunk from being renamed (and rehashed)

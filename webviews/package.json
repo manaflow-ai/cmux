@@ -44,6 +44,7 @@
     "react-dom": "19.2.3",
     "shiki": "3.23.0",
     "solid-js": "^1.9.13",
+    "vega-interpreter": "1.0.5",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0"
   },
   "devDependencies": {
