@@ -156,7 +156,7 @@ def bundle_build(app):
 
 class App:
     def __init__(self, path, config):
-        self.path, self.config, self.proc = path, config, None
+        self.path, self.config = path, config
 
     @property
     def cli_path(self):
@@ -174,12 +174,20 @@ class App:
             return {"error": (r.stdout + r.stderr).strip()}
 
     def launch(self, log):
-        binary = os.path.join(self.path, "Contents/MacOS", next(iter(os.listdir(os.path.join(self.path, "Contents/MacOS")))))
-        env = {"HOME": HOME, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-               "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
-               "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": self.config}
-        self.proc = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+        # LaunchServices starts the app in the user's Aqua session even from
+        # SSH; a plain child of an SSH shell has no window server.
+        env = {"CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": self.config}
+        args = ["open", "-n", "-g", "--stdout", log.name, "--stderr", log.name]
+        for key, value in env.items():
+            args += ["--env", f"{key}={value}"]
+        opened = run(*args, self.path)
+        if opened.returncode != 0:
+            print(f"open failed: {opened.stderr}")
+            return None
         return self.wait_ready()
+
+    def pids(self):
+        return [int(p) for p in run("pgrep", "-f", os.path.join(self.path, "Contents/MacOS/")).stdout.split()]
 
     def wait_ready(self):
         return wait(lambda: os.path.exists(SOCKET) and self.rpc("updates.status").get("build"), 90)
@@ -188,13 +196,13 @@ class App:
         return self.rpc("updates.status")
 
     def quit(self):
+        pids = self.pids()
         self.rpc("action.run", {"id": "quit"})
-        if self.proc:
-            try:
-                self.proc.wait(60)
-            except subprocess.TimeoutExpired:
-                self.proc.terminate()
-                self.proc.wait(30)
+        if not wait(lambda: not any(run("kill", "-0", str(p)).returncode == 0 for p in pids), 90):
+            print(f"quit did not end {pids}; SIGTERM (a normal quit)")
+            for p in pids:
+                run("kill", "-TERM", str(p))
+            wait(lambda: not any(run("kill", "-0", str(p)).returncode == 0 for p in pids), 30)
 
 
 def staged(app):
@@ -270,11 +278,8 @@ def main():
             stage_update(app, "click path")
             app.rpc("action.run", {"id": "palette.applyUpdateIfAvailable"})
             # Sparkle relaunches the app by itself (no launch environment).
-            if app.proc:
-                app.proc.wait(120)
             relaunched = wait(lambda: bundle_build(path) == to_item["build"] and app.status().get("build") == to_item["build"], 300, 2)
             record("click path: one click installed and Sparkle relaunched", bool(relaunched), f"bundle {bundle_build(path)}")
-            app.proc = None
 
         record("rollback refused when the store schema is newer", "PENDING", "cmux update rollback is not built yet")
     finally:
