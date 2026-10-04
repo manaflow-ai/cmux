@@ -101,6 +101,10 @@ impl Overlay for FakeOverlay {
         *self.far_end.lock().unwrap() = Some(far);
         Ok(near)
     }
+
+    async fn sync_peers(&self, _pairings: &Pairings) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 async fn reply_line(caller: &mut DuplexStream) -> String {

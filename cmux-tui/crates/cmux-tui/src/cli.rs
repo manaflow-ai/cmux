@@ -75,6 +75,7 @@ const REMOTE_COMMANDS: &[&str] = &[
     "remote-stop",
     "install-self",
     "wg",
+    "link",
 ];
 
 /// Maps the actions accepted after the `remote` noun to their direct command

@@ -92,6 +92,20 @@ impl DialReply {
     }
 }
 
+/// `{"op":"link.reload"}`: re-read the pairing file (sent by `cmux link
+/// peer add|remove` to a running link). The reply is `{"ok":true|false}`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReloadRequest {
+    pub op: ReloadOp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReloadOp {
+    #[serde(rename = "link.reload")]
+    Reload,
+}
+
 /// `{"service":"daemon"}`, the first line on an overlay link stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

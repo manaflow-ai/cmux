@@ -103,6 +103,7 @@ fn run_inner(
         Some("remote-stop") => run_remote_stop(&args[1..]),
         Some("install-self") => run_install_self(&args[1..]),
         Some("wg") => run_wg(&args[1..]),
+        Some("link") => link::run_link(&args[1..]),
         Some("remote") => Err(anyhow!(catalog().remote_client.remote_lifecycle_help)),
         _ => Err(anyhow!("unknown remote command\n\n{usage}")),
     }
@@ -195,6 +196,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("remote-stop") => catalog().remote.remote_stop_help,
         Some("install-self") => client.install_self_help,
         Some("wg") => client.wg_hub_help,
+        Some("link") => client.link_help,
         Some("remote") => client.remote_lifecycle_help,
         _ => client.command_help,
     }
