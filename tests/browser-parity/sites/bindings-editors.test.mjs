@@ -69,3 +69,20 @@ test("googleDocs.insertAfter: the draft states the anchor's single match and pos
     doc.shared = false;
   }
 });
+
+test("googleSheets.append: rows added after the preview are never overwritten; the confirmation fails instead", async () => {
+  const SHEET = "https://docs.google.com/spreadsheets/d/1sheetSHARED00000000000000000000x/edit#gid=0";
+  const cells = files.get("1sheetSHARED00000000000000000000x").sheets[0].cells;
+  await s.run(`var apD = await sites.googleSheets.append(${JSON.stringify(SHEET)}, [["Tax", "50"]])`);
+  assert.equal((await s.value("apD.preview")).range, "A5:B5");
+  // A collaborator adds a row where the append would go.
+  cells.set("A5", "Insurance");
+  cells.set("B5", "80");
+  try {
+    assert.match(await s.error("sites.googleSheets.append(apD.id, { confirm: true })"), /sheet_changed|rows were added|last row/);
+    assert.deepEqual([cells.get("A5"), cells.get("B5")], ["Insurance", "80"], "the collaborator's row was overwritten");
+  } finally {
+    cells.delete("A5");
+    cells.delete("B5");
+  }
+});
