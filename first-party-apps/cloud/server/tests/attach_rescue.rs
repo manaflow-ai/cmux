@@ -186,7 +186,7 @@ fn held_input_is_bounded() {
     for seq in 1..=16 {
         terminal.write(Input { seq, bytes: chunk.clone() }).expect("held");
     }
-    let full = terminal.write(Input { seq: 17, bytes: chunk.clone() });
+    let full = terminal.write(Input { seq: 17, bytes: chunk });
     assert!(matches!(full, Err(BackendError::Unavailable { retryable: true, .. })), "{full:?}");
     terminal.write(input(0, "a")).expect("seq 0 releases the held input");
     assert_eq!(transport.written(1).len(), 1 + 16 * 64 * 1024);
