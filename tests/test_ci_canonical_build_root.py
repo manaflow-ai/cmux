@@ -124,7 +124,8 @@ class CanonicalFingerprintTests(unittest.TestCase):
         for name in ("aws-m4pro-9-glaeda", "aws-m4pro-9-glaeda-1"):
             result = subprocess.run(
                 [str(ROOT_SCRIPT), "--print-root"],
-                env={"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted", "RUNNER_NAME": name},
+                env={"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted", "RUNNER_NAME": name,
+                     "CMUX_CI_CANONICAL_ROOT_HELPER": "/nonexistent/glaeda-canonical-root"},
                 text=True,
                 capture_output=True,
                 check=True,
@@ -145,6 +146,31 @@ class CanonicalFingerprintTests(unittest.TestCase):
                 check=True,
             )
             self.assertEqual(result.stdout.strip(), exported)
+
+    def test_glaeda_managed_runner_keeps_the_hooks_canonical_root(self):
+        # glaeda's runner hook already isolates roots per job and exports one
+        # (/private/tmp/cmux-ci for root 1, /private/tmp/cmux-ci-N otherwise);
+        # `glaeda-canonical-root take` rejects anything else, so a per-runner
+        # root here fails the job before it builds (main compile probe run
+        # 37157423969).
+        with tempfile.TemporaryDirectory() as tmp:
+            helper = Path(tmp) / "glaeda-canonical-root"
+            helper.write_text("#!/bin/sh\nexit 0\n")
+            helper.chmod(0o755)
+            base_env = {"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted",
+                        "RUNNER_NAME": "cmux13s-mac-mini-glaeda", "CMUX_CI_CANONICAL_ROOT_HELPER": str(helper)}
+            for exported, expected in (
+                (None, "/private/tmp/cmux-ci"),
+                ("/private/tmp/cmux-ci", "/private/tmp/cmux-ci"),
+                ("/private/tmp/cmux-ci-2", "/private/tmp/cmux-ci-2"),
+            ):
+                env = dict(base_env)
+                if exported is not None:
+                    env["CMUX_CI_CANONICAL_ROOT"] = exported
+                with self.subTest(exported=exported):
+                    result = subprocess.run(
+                        [str(ROOT_SCRIPT), "--print-root"], env=env, text=True, capture_output=True, check=True)
+                    self.assertEqual(result.stdout.strip(), expected)
 
     def test_hosted_runner_keeps_the_shared_default_and_override_wins(self):
         hosted = subprocess.run(

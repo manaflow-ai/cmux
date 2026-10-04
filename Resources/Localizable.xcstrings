@@ -235781,7 +235781,7 @@
         }
       }
     },
-  "machines.new.plan.loading": {
+    "machines.new.plan.loading": {
     "extractionState": "manual",
     "localizations": {
       "en": {
@@ -235906,7 +235906,7 @@
       }
     }
   },
-  "machines.new.plan.retry": {
+    "machines.new.plan.retry": {
     "extractionState": "manual",
     "localizations": {
       "en": {
@@ -236031,7 +236031,7 @@
       }
     }
   },
-  "machines.new.plan.error": {
+    "machines.new.plan.error": {
     "extractionState": "manual",
     "localizations": {
       "en": {
@@ -619409,6 +619409,183 @@
           "stringUnit": {
             "state": "translated",
             "value": "已複製到剪貼簿"
+          }
+        }
+      }
+    },
+    "cli.hooks.setup.error.agentRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent requires a value. Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب --agent قيمة. الاستخدام: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent erfordert einen Wert. Verwendung: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent requiere un valor. Uso: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent nécessite une valeur. Utilisation : cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent には値が必要です。使い方: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent에는 값이 필요합니다. 사용법: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 需要一个值。用法：cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 需要一個值。用法：cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        }
+      }
+    },
+    "cli.hooks.setup.error.unknownOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown option %@. Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خيار غير معروف %@. الاستخدام: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannte Option %@. Verwendung: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opción desconocida %@. Uso: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option inconnue %@. Utilisation : cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なオプション %@。使い方: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 옵션 %@. 사용법: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知选项 %@。用法：cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的選項 %@。用法：cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        }
+      }
+    },
+    "cli.hooks.setup.error.conflictingAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent was given more than once with different values. Specify one agent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تمرير --agent أكثر من مرة بقيم مختلفة. حدد وكيلًا واحدًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent wurde mehrmals mit unterschiedlichen Werten angegeben. Gib einen Agenten an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent se indicó más de una vez con valores distintos. Indica un solo agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent a été indiqué plusieurs fois avec des valeurs différentes. Indiquez un seul agent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent が異なる値で複数回指定されました。エージェントを 1 つだけ指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent가 서로 다른 값으로 여러 번 지정되었습니다. 에이전트를 하나만 지정하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 被多次指定且值不同。请只指定一个代理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 被多次指定且值不同。請只指定一個代理程式。"
           }
         }
       }
