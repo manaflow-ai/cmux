@@ -276,7 +276,17 @@ class IrTests(unittest.TestCase):
             "set-viewport-pane-width": {
                 "since": 9,
                 "capability": "viewport-column-resize-v1",
-                "result": "EmptyResult",
+                "result": {
+                    "kind": "object",
+                    "fields": {
+                        "width": {
+                            "type": {"kind": "scalar", "name": "float32"},
+                            "presence": "required",
+                            "nullable": False,
+                        }
+                    },
+                    "additional_properties": False,
+                },
                 "fields": {
                     "pane": ("ref", "Id", "required", False, False, None, None, None),
                     "width": (
@@ -336,10 +346,10 @@ class IrTests(unittest.TestCase):
                 self.assertEqual(command["authority"], "control")
                 self.assertEqual(command["since"], contract["since"])
                 self.assertEqual(command["capability"], contract["capability"])
-                self.assertEqual(
-                    dict(command["result"]),
-                    {"kind": "ref", "name": contract["result"]},
-                )
+                expected_result = contract["result"]
+                if isinstance(expected_result, str):
+                    expected_result = {"kind": "ref", "name": expected_result}
+                self.assertEqual(json.loads(json.dumps(command["result"], default=dict)), expected_result)
                 self.assertEqual(
                     {
                         name: field_signature(field)

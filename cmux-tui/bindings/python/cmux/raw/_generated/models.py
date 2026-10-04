@@ -3091,6 +3091,12 @@ class SetViewportPaneWidthRequest:
 
 
 @dataclass(frozen=True)
+class SetViewportPaneWidthResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-viewport-pane-width/result'
+    width: float
+
+
+@dataclass(frozen=True)
 class SetWindowTitleRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-window-title/request'
     title: str
@@ -4381,6 +4387,7 @@ __all__ = [
     'SetTerminalIdlePolicyRequest',
     'SetTerminalKeepRequest',
     'SetViewportPaneWidthRequest',
+    'SetViewportPaneWidthResult',
     'SetWindowTitleRequest',
     'SetWorkspaceMetadataRequest',
     'ShutdownDaemonRequest',

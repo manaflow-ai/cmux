@@ -14210,7 +14210,7 @@ fn handle_command_with_cancellation(
                     )
                 },
             )?;
-            Ok(json!({}))
+            rows::viewport_width_result(mux, pane)
         }
         Command::SetColumnSticky { pane, sticky, edge, mode, transaction } => {
             let sticky = crate::mux::parse_column_sticky(sticky, edge.as_deref(), mode.as_deref())?;

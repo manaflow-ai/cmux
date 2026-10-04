@@ -89,6 +89,20 @@ pub(super) fn set_row_heights(
     Ok(data)
 }
 
+/// `set-viewport-pane-width` result: the width of the column of `pane` after
+/// the commit. A lone column of rows always reports 1.0
+/// (`project_layout_columns`), whatever width was asked for.
+pub(super) fn viewport_width_result(mux: &Arc<Mux>, pane: PaneId) -> anyhow::Result<Value> {
+    let width = mux.with_state(|state| {
+        let (workspace, screen) = state.screen_of(pane)?;
+        let screen = &state.workspaces[workspace].screens[screen];
+        let column = screen.layout_columns.iter().find(|column| column.root.contains(pane))?;
+        Some(column.width)
+    });
+    let width = width.with_context(|| format!("pane {pane} left its viewport column"))?;
+    Ok(json!({ "width": width }))
+}
+
 /// `error_code` of a rejected row command.
 pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
     error.downcast_ref::<crate::mux::RowsError>().and_then(|error| error.code()).map(str::to_string)

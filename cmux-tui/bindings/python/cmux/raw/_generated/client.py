@@ -546,7 +546,7 @@ class GeneratedClientMixin:
     def set_terminal_keep(self, keep: bool, *, surface: Union[Id, None, MissingType] = MISSING, terminal_id: Union[str, None, MissingType] = MISSING) -> SetTerminalKeepResult:
         return self._invoke_command('set-terminal-keep', SetTerminalKeepRequest(keep=keep, surface=surface, terminal_id=terminal_id))
 
-    def set_viewport_pane_width(self, pane: Id, width: float, *, transaction: Union[int, None, MissingType] = MISSING) -> EmptyResult:
+    def set_viewport_pane_width(self, pane: Id, width: float, *, transaction: Union[int, None, MissingType] = MISSING) -> SetViewportPaneWidthResult:
         return self._invoke_command('set-viewport-pane-width', SetViewportPaneWidthRequest(pane=pane, width=width, transaction=transaction))
 
     def set_window_title(self, title: str) -> EmptyResult:

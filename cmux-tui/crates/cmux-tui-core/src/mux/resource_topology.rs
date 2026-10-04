@@ -2521,7 +2521,7 @@ impl Mux {
                     "viewport width is outside the representable range"
                 );
                 layout.layout_columns[column_index].width = width;
-                sync_layout_column_widths(&mut layout);
+                sync_layout_column_projection(&mut layout);
                 let topology = registry.resource_topology_snapshot()?;
                 let durable = registry_screen_from_layout(
                     state,

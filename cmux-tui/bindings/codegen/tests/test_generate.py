@@ -156,7 +156,7 @@ class GenerateTests(unittest.TestCase):
             "java": (
                 "EmptyResult clearHistory(",
                 "SurfaceResult newPaneRight(",
-                "EmptyResult setViewportPaneWidth(",
+                "SetViewportPaneWidthResult setViewportPaneWidth(",
                 "LayoutUndoResult undoLayout(",
                 "public enum TerminalKey implements WireEnum {",
                 "public final class LayoutUndoResult implements WireValue {",

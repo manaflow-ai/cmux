@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2";
+inline constexpr std::string_view kProtocolIrSha256 = "af9325c25b60a84d5d24855a5904ef3370cb659554b4d151c738e49843cbd38b";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -354,6 +354,7 @@ struct SetTerminalCommandHistoryRequest;
 struct SetTerminalIdlePolicyRequest;
 struct SetTerminalKeepRequest;
 struct SetViewportPaneWidthRequest;
+struct SetViewportPaneWidthResult;
 struct SetWindowTitleRequest;
 struct SetWorkspaceMetadataRequest;
 struct ShutdownDaemonRequest;
@@ -3447,6 +3448,11 @@ struct SetViewportPaneWidthRequest {
     friend bool operator==(const SetViewportPaneWidthRequest&, const SetViewportPaneWidthRequest&) = default;
 };
 
+struct SetViewportPaneWidthResult {
+    float width{};
+    friend bool operator==(const SetViewportPaneWidthResult&, const SetViewportPaneWidthResult&) = default;
+};
+
 struct SetWindowTitleRequest {
     std::string title{};
     friend bool operator==(const SetWindowTitleRequest&, const SetWindowTitleRequest&) = default;
@@ -6114,6 +6120,12 @@ template <>
 struct Codec<SetViewportPaneWidthRequest> {
     static Result<Json> encode(const SetViewportPaneWidthRequest& value);
     static Result<SetViewportPaneWidthRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetViewportPaneWidthResult> {
+    static Result<Json> encode(const SetViewportPaneWidthResult& value);
+    static Result<SetViewportPaneWidthResult> decode(const Json& value);
 };
 
 template <>

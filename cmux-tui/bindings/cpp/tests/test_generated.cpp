@@ -66,7 +66,7 @@ static_assert(std::is_same_v<
                   std::declval<cmux::raw::Client&>().set_viewport_pane_width(
                       std::declval<
                           const cmux::raw::SetViewportPaneWidthRequest&>())),
-              cmux::raw::Result<cmux::raw::EmptyResult>>);
+              cmux::raw::Result<cmux::raw::SetViewportPaneWidthResult>>);
 static_assert(std::is_same_v<
               decltype(std::declval<cmux::raw::Client&>().undo_layout(
                   std::declval<const cmux::raw::UndoLayoutRequest&>())),

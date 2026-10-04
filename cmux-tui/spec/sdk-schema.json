@@ -9939,8 +9939,18 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "EmptyResult"
+    "kind": "object",
+    "fields": {
+     "width": {
+      "type": {
+       "kind": "scalar",
+       "name": "float32"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
    },
    "stream": null,
    "constraints": [

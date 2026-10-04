@@ -2009,7 +2009,7 @@ Params:
 | `width` | `float32` | required | Finite value from 0.1 through 1.0 |
 | `transaction` | `uint64` | default null | Samples with the same connection and transaction coalesce into one undo entry |
 
-Result: empty object.
+Result: `{"width": float32}`, the width of the column of `pane` after the commit. A lone column (one column with rows) always fills the screen, so it returns 1.0 whatever `width` was asked for, and its width stays 1.0. In every other layout it returns `width`. A client that shows a resize handle uses this value, not the requested one.
 
 Errors:
 
@@ -2035,7 +2035,7 @@ Example:
 
 ```json
 {"id":12,"cmd":"set-viewport-pane-width","pane":15,"width":0.5}
-{"id":12,"ok":true,"data":{}}
+{"id":12,"ok":true,"data":{"width":0.5}}
 ```
 
 ### set-column-sticky

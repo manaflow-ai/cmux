@@ -329,6 +329,7 @@ MODEL_BY_PATH = {
     'commands/set-terminal-idle-policy/request': models.SetTerminalIdlePolicyRequest,
     'commands/set-terminal-keep/request': models.SetTerminalKeepRequest,
     'commands/set-viewport-pane-width/request': models.SetViewportPaneWidthRequest,
+    'commands/set-viewport-pane-width/result': models.SetViewportPaneWidthResult,
     'commands/set-window-title/request': models.SetWindowTitleRequest,
     'commands/set-workspace-metadata/request': models.SetWorkspaceMetadataRequest,
     'commands/shutdown-daemon/request': models.ShutdownDaemonRequest,
