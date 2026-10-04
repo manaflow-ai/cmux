@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2. */
+/* cmux-tui mux protocol 12, IR e7cee22695ab7966861c8ab2ccfbf5fee50718b0db63bfbac22bd10e40c28379. */
 
 
 import type * as T from "./types.js";
@@ -306,6 +306,89 @@ export interface CloseWorkspaceRequest extends CmuxRequestBase {
   "workspace"?: (T.Id) | null;
 }
 export type CloseWorkspaceResult = T.WorkspaceMutationResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudConversationHistoryRequest extends CmuxRequestBase {
+  cmd: "cloud-conversation-history";
+  "before_seq": bigint;
+  "conversation": string;
+  "limit": number;
+}
+export type CloudConversationHistoryResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudConversationOpRequest extends CmuxRequestBase {
+  cmd: "cloud-conversation-op";
+  "conversation"?: (string) | null;
+  "idempotency_key": string;
+  "op": (T.JsonValue) | null;
+  "origin"?: (string) | null;
+}
+export type CloudConversationOpResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudConversationSnapshotRequest extends CmuxRequestBase {
+  cmd: "cloud-conversation-snapshot";
+  "conversation": string;
+  "tail": number;
+}
+export type CloudConversationSnapshotResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudConversationSubscribeRequest extends CmuxRequestBase {
+  cmd: "cloud-conversation-subscribe";
+  "conversation": string;
+}
+export type CloudConversationSubscribeResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudConversationUnsubscribeRequest extends CmuxRequestBase {
+  cmd: "cloud-conversation-unsubscribe";
+  "conversation": string;
+}
+export type CloudConversationUnsubscribeResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudInboxListRequest extends CmuxRequestBase {
+  cmd: "cloud-inbox-list";
+  "include_archived"?: boolean;
+  "limit"?: (number) | null;
+}
+export type CloudInboxListResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudInboxSubscribeRequest extends CmuxRequestBase {
+  cmd: "cloud-inbox-subscribe";
+}
+export type CloudInboxSubscribeResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudInboxUnsubscribeRequest extends CmuxRequestBase {
+  cmd: "cloud-inbox-unsubscribe";
+}
+export type CloudInboxUnsubscribeResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudSessionClearRequest extends CmuxRequestBase {
+  cmd: "cloud-session-clear";
+}
+export type CloudSessionClearResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudSessionSetRequest extends CmuxRequestBase {
+  cmd: "cloud-session-set";
+  "access_token": string;
+  "api_base_url": string;
+  "client_version"?: (string) | null;
+  "expires_at": bigint;
+}
+export type CloudSessionSetResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudSessionStatusRequest extends CmuxRequestBase {
+  cmd: "cloud-session-status";
+}
+export type CloudSessionStatusResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationAgentTokenRequest extends CmuxRequestBase {
@@ -2031,6 +2114,17 @@ export type CmuxRequest =
   | CloseTabsRequest
   | CloseTerminalRequest
   | CloseWorkspaceRequest
+  | CloudConversationHistoryRequest
+  | CloudConversationOpRequest
+  | CloudConversationSnapshotRequest
+  | CloudConversationSubscribeRequest
+  | CloudConversationUnsubscribeRequest
+  | CloudInboxListRequest
+  | CloudInboxSubscribeRequest
+  | CloudInboxUnsubscribeRequest
+  | CloudSessionClearRequest
+  | CloudSessionSetRequest
+  | CloudSessionStatusRequest
   | ConversationAgentTokenRequest
   | ConversationBindRequest
   | ConversationCreateRequest
@@ -2455,6 +2549,94 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "cloud-conversation-history": {
+    request: CloudConversationHistoryRequest;
+    result: CloudConversationHistoryResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-conversation-op": {
+    request: CloudConversationOpRequest;
+    result: CloudConversationOpResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-conversation-snapshot": {
+    request: CloudConversationSnapshotRequest;
+    result: CloudConversationSnapshotResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-conversation-subscribe": {
+    request: CloudConversationSubscribeRequest;
+    result: CloudConversationSubscribeResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-conversation-unsubscribe": {
+    request: CloudConversationUnsubscribeRequest;
+    result: CloudConversationUnsubscribeResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-inbox-list": {
+    request: CloudInboxListRequest;
+    result: CloudInboxListResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-inbox-subscribe": {
+    request: CloudInboxSubscribeRequest;
+    result: CloudInboxSubscribeResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-inbox-unsubscribe": {
+    request: CloudInboxUnsubscribeRequest;
+    result: CloudInboxUnsubscribeResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-session-clear": {
+    request: CloudSessionClearRequest;
+    result: CloudSessionClearResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-session-set": {
+    request: CloudSessionSetRequest;
+    result: CloudSessionSetResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-session-status": {
+    request: CloudSessionStatusRequest;
+    result: CloudSessionStatusResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
     stream: null;
   };
   "conversation-agent-token": {

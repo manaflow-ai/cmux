@@ -26,7 +26,9 @@ fn cloud_mux() -> (Arc<Mux>, u64, Arc<FakeBackend>) {
         poll: Duration::from_millis(5),
         ..ServiceOptions::default()
     };
-    assert!(mux.install_cloud_conversations(CloudConversations::with_options(backend.clone(), options)));
+    assert!(
+        mux.install_cloud_conversations(CloudConversations::with_options(backend.clone(), options))
+    );
     let client = mux.control_clients.register(ClientTransport::Unix, writer());
     (mux, client, backend)
 }
@@ -83,7 +85,13 @@ fn capability_is_advertised_only_with_a_cloud_transport() {
     let bare = Mux::new_for_test("no-cloud", crate::SurfaceOptions::default());
     let local = bare.control_clients.register(ClientTransport::Unix, writer());
     let identity = run(&bare, local, json!({"cmd":"identify"})).unwrap();
-    assert!(!identity["capabilities"].as_array().unwrap().iter().any(|value| value == "cloud-conversations-v1"));
+    assert!(
+        !identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "cloud-conversations-v1")
+    );
     let error = run(&bare, local, json!({"cmd":"cloud-session-status"})).unwrap_err();
     assert!(error.to_string().contains("not available"), "{error}");
 }
@@ -91,13 +99,19 @@ fn capability_is_advertised_only_with_a_cloud_transport() {
 #[test]
 fn session_lease_round_trips_without_echoing_the_token() {
     let (mux, client, _) = cloud_mux();
-    assert_eq!(run(&mux, client, json!({"cmd":"cloud-session-status"})).unwrap(), json!({"state":"signed_out"}));
+    assert_eq!(
+        run(&mux, client, json!({"cmd":"cloud-session-status"})).unwrap(),
+        json!({"state":"signed_out"})
+    );
     sign_in(&mux, client);
     let status = run(&mux, client, json!({"cmd":"cloud-session-status"})).unwrap();
     assert_eq!(status["state"], "active");
     assert_eq!(status["api_base_url"], "https://api.cmux.test");
     assert!(!status.to_string().contains("stack.jwt.token"));
-    assert_eq!(run(&mux, client, json!({"cmd":"cloud-session-clear"})).unwrap(), json!({"state":"signed_out"}));
+    assert_eq!(
+        run(&mux, client, json!({"cmd":"cloud-session-clear"})).unwrap(),
+        json!({"state":"signed_out"})
+    );
     let bad = run(
         &mux,
         client,
@@ -161,9 +175,13 @@ fn rejects_carry_error_code_reason_and_retryable() {
     assert_eq!(signed_out["retryable"], false);
 
     sign_in(&mux, client);
-    backend.reply("/v1/ops", 200, json!({"ok":false,"op":"participants.add",
+    backend.reply(
+        "/v1/ops",
+        200,
+        json!({"ok":false,"op":"participants.add",
         "error":{"code":"not_reachable","message":"not_reachable","retryable":false},
-        "transaction":"","idempotency_key":"p1","replayed":false,"stream":"","sequence":0}));
+        "transaction":"","idempotency_key":"p1","replayed":false,"stream":"","sequence":0}),
+    );
     let refused = reply(
         &mux,
         client,
@@ -181,7 +199,10 @@ fn rejects_carry_error_code_reason_and_retryable() {
         json!({"id":3,"cmd":"cloud-conversation-op","conversation":CONV,"idempotency_key":"t1",
                "op":{"kind":"title.set","title":"Launch"}}),
     );
-    assert_eq!((lost["error_code"].as_str(), lost["retryable"].as_bool()), (Some("cloud_unavailable"), Some(true)));
+    assert_eq!(
+        (lost["error_code"].as_str(), lost["retryable"].as_bool()),
+        (Some("cloud_unavailable"), Some(true))
+    );
 
     let unsupported = reply(
         &mux,
@@ -199,7 +220,10 @@ fn subscription_publishes_cloud_events_to_subscribers() {
     sign_in(&mux, client);
     let events = mux.subscribe();
     let wire = backend.wire();
-    wire.push_text(json!({"t":"welcome","principal":{"user":ME},"streams":[format!("conv:{CONV}")]}).to_string());
+    wire.push_text(
+        json!({"t":"welcome","principal":{"user":ME},"streams":[format!("conv:{CONV}")]})
+            .to_string(),
+    );
     wire.push_text(
         json!({"t":"snapshot","stream":format!("conv:{CONV}"),"seq":2,"decided":[],
                "state":{"id":CONV,"title":"Launch","kind":"group","participants":[],"last_seq":0,"rev":2,
@@ -208,19 +232,23 @@ fn subscription_publishes_cloud_events_to_subscribers() {
                "rows":{"table":"msg","rows":[]}})
         .to_string(),
     );
-    let subscribed = run(&mux, client, json!({"cmd":"cloud-conversation-subscribe","conversation":CONV})).unwrap();
+    let subscribed =
+        run(&mux, client, json!({"cmd":"cloud-conversation-subscribe","conversation":CONV}))
+            .unwrap();
     assert_eq!(subscribed, json!({"state":"connecting","conversation":CONV}));
     let mut seen = Vec::new();
     wait_until("the resync event", || {
         seen.extend(cloud_events(&events));
         seen.iter().any(|event| event["event"] == "cloud-conversation-resynced")
     });
-    let resynced = seen.iter().find(|event| event["event"] == "cloud-conversation-resynced").unwrap();
+    let resynced =
+        seen.iter().find(|event| event["event"] == "cloud-conversation-resynced").unwrap();
     assert_eq!(resynced["conversation"], CONV);
     assert_eq!(resynced["seq"], 2);
     assert_eq!(resynced["summary"]["owner"], "cloud");
     assert!(seen.iter().any(|event| event["event"] == "cloud-subscription-state"
-        && event["scope"] == "conversation" && event["state"] == "live"));
+        && event["scope"] == "conversation"
+        && event["state"] == "live"));
 
     run(&mux, client, json!({"cmd":"cloud-conversation-unsubscribe","conversation":CONV})).unwrap();
     let service = mux.cloud_conversations().unwrap();
@@ -235,5 +263,7 @@ fn a_closed_connection_releases_its_subscriptions() {
     let service = mux.cloud_conversations().unwrap();
     assert!(service.has_stream(&crate::cloud_conversations::Target::Inbox));
     disconnect_client(&mux, client, false);
-    wait_until("the inbox stream to close", || !service.has_stream(&crate::cloud_conversations::Target::Inbox));
+    wait_until("the inbox stream to close", || {
+        !service.has_stream(&crate::cloud_conversations::Target::Inbox)
+    });
 }

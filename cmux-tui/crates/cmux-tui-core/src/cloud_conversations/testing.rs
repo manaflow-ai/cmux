@@ -8,7 +8,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use super::{CloudBackend, CloudEvent, CloudWire, ConnectError, HttpReply, TransportError, WireRecv};
+use super::{
+    CloudBackend, CloudEvent, CloudWire, ConnectError, HttpReply, TransportError, WireRecv,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct Posted {

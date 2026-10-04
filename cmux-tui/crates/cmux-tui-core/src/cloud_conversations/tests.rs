@@ -36,10 +36,8 @@ pub(crate) fn head(rev: u64, last_seq: u64) -> Value {
 }
 
 pub(crate) fn snapshot_frame(seq: u64, rev: u64, messages: &[Value]) -> Value {
-    let rows: Vec<Value> = messages
-        .iter()
-        .map(|m| json!({"key": m["id"], "n": m["seq"], "row": m}))
-        .collect();
+    let rows: Vec<Value> =
+        messages.iter().map(|m| json!({"key": m["id"], "n": m["seq"], "row": m})).collect();
     json!({"t": "snapshot", "stream": format!("conv:{CONV}"), "seq": seq,
            "state": head(rev, messages.len() as u64), "decided": [],
            "rows": {"table": "msg", "rows": rows}})
@@ -81,7 +79,12 @@ fn frames(texts: Vec<String>) -> Vec<Value> {
 }
 
 fn op_request(conversation: Option<&str>, key: &str, op: Value) -> OpRequest {
-    OpRequest { conversation: conversation.map(str::to_string), idempotency_key: key.into(), origin: None, op }
+    OpRequest {
+        conversation: conversation.map(str::to_string),
+        idempotency_key: key.into(),
+        origin: None,
+        op,
+    }
 }
 
 struct Clock(Arc<AtomicU64>);
@@ -107,7 +110,13 @@ fn service(backend: &Arc<FakeBackend>) -> (CloudConversations, Events, Clock) {
 fn session_lease_validates_the_origin_and_never_shows_the_token() {
     let backend = Arc::new(FakeBackend::default());
     let (service, _, _) = service(&backend);
-    for bad in ["http://api.cmux.test", "https://api.cmux.test/v1", "https://u:p@api.cmux.test", "https://api.cmux.test/?q=1", "ftp://x"] {
+    for bad in [
+        "http://api.cmux.test",
+        "https://api.cmux.test/v1",
+        "https://u:p@api.cmux.test",
+        "https://api.cmux.test/?q=1",
+        "ftp://x",
+    ] {
         let mut params = session_params(2_000_000);
         params.api_base_url = bad.into();
         let error = service.set_session(params).expect_err(bad);
@@ -149,17 +158,29 @@ fn op_body_forwards_one_vocabulary_with_the_client_key_and_origin() {
     assert_eq!(error.reason().as_deref(), Some("unsupported_op"));
     assert_eq!(error.error_code(), Some("cloud_conversation_rejected"));
     for (request, why) in [
-        (op_request(None, "k", json!({"kind": "message.retract", "message_id": "m"})), "needs a conversation"),
-        (op_request(Some(CONV), "k", json!({"kind": "dm.open", "peer": "user_x"})), "does not name"),
-        (op_request(Some("conv_../x"), "k", json!({"kind": "title.set", "title": "t"})), "not a conversation id"),
+        (
+            op_request(None, "k", json!({"kind": "message.retract", "message_id": "m"})),
+            "needs a conversation",
+        ),
+        (
+            op_request(Some(CONV), "k", json!({"kind": "dm.open", "peer": "user_x"})),
+            "does not name",
+        ),
+        (
+            op_request(Some("conv_../x"), "k", json!({"kind": "title.set", "title": "t"})),
+            "not a conversation id",
+        ),
         (op_request(Some(CONV), "", json!({"kind": "title.set", "title": "t"})), "idempotency_key"),
-        (op_request(Some(CONV), "k", json!({"kind": "title.set", "conversation": CONV})), "top level"),
+        (
+            op_request(Some(CONV), "k", json!({"kind": "title.set", "conversation": CONV})),
+            "top level",
+        ),
     ] {
         let error = op_body(&request).unwrap_err();
         assert!(matches!(error, CloudError::BadRequest(_)), "{why}: {error:?}");
         assert!(error.to_string().contains(why), "{why}: {error}");
     }
-    let mut bad_origin = send.clone();
+    let mut bad_origin = send;
     bad_origin.origin = Some("robot".into());
     assert!(op_body(&bad_origin).is_err());
 }
@@ -170,7 +191,15 @@ fn snapshot_becomes_a_cloud_summary_without_token_hashes_or_loop_counters() {
     let data = snapshot_data(&snapshot_frame(9, 7, &messages)).unwrap();
     assert_eq!(data["rev"], 7);
     assert_eq!(data["seq"], 9);
-    assert_eq!(data["messages"].as_array().unwrap().iter().map(|m| m["seq"].as_u64().unwrap()).collect::<Vec<_>>(), [1, 2]);
+    assert_eq!(
+        data["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["seq"].as_u64().unwrap())
+            .collect::<Vec<_>>(),
+        [1, 2]
+    );
     let summary = &data["conversation"];
     assert_eq!(summary["owner"], "cloud");
     assert_eq!(summary["id"], CONV);
@@ -181,7 +210,10 @@ fn snapshot_becomes_a_cloud_summary_without_token_hashes_or_loop_counters() {
     assert_eq!(summary["invites"][0]["id"], "inv_1");
     let mut empty = snapshot_frame(1, 1, &[]);
     empty["state"] = Value::Null;
-    assert_eq!(snapshot_data(&empty).unwrap_err().reason().as_deref(), Some("unknown_conversation"));
+    assert_eq!(
+        snapshot_data(&empty).unwrap_err().reason().as_deref(),
+        Some("unknown_conversation")
+    );
 }
 
 #[test]
@@ -200,7 +232,10 @@ fn events_map_to_the_local_change_shapes() {
     cursor["op"] = json!("read_cursor.set");
     cursor["params"] = json!({"seq": 1});
     cursor["effects"]["writes"] = json!([]);
-    assert_eq!(conversation_change(&cursor).unwrap().1, json!({"kind": "read-cursor", "participant": ME, "seq": 1}));
+    assert_eq!(
+        conversation_change(&cursor).unwrap().1,
+        json!({"kind": "read-cursor", "participant": ME, "seq": 1})
+    );
 
     let mut title = cursor.clone();
     title["op"] = json!("title.set");
@@ -223,10 +258,19 @@ fn stream_resumes_drops_duplicates_and_resyncs_on_a_gap() {
     // Nothing is confirmed before the snapshot.
     assert!(stream.on_text(&send_event(4, 4, &message(1, ME, "early")).to_string()).is_empty());
     let resynced = stream.on_text(&snapshot_frame(4, 4, &[message(1, ME, "one")]).to_string());
-    assert!(matches!(&resynced[..], [StreamAction::Emit(CloudEvent::ConversationResynced { seq: 4, rev: 4, .. })]));
+    assert!(matches!(
+        &resynced[..],
+        [StreamAction::Emit(CloudEvent::ConversationResynced { seq: 4, rev: 4, .. })]
+    ));
     let next = stream.on_text(&send_event(5, 5, &message(2, ME, "two")).to_string());
-    assert!(matches!(&next[..], [StreamAction::Emit(CloudEvent::ConversationChanged { seq: 5, rev: 5, .. })]));
-    assert!(stream.on_text(&send_event(5, 5, &message(2, ME, "two")).to_string()).is_empty(), "duplicate");
+    assert!(matches!(
+        &next[..],
+        [StreamAction::Emit(CloudEvent::ConversationChanged { seq: 5, rev: 5, .. })]
+    ));
+    assert!(
+        stream.on_text(&send_event(5, 5, &message(2, ME, "two")).to_string()).is_empty(),
+        "duplicate"
+    );
     let gap = stream.on_text(&send_event(7, 7, &message(4, ME, "gap")).to_string());
     assert_eq!(gap.len(), 1);
     assert_eq!(sent(&gap[0]), json!({"t": "snapshot.request"}));
@@ -248,17 +292,25 @@ fn inbox_stream_subscribes_the_welcomed_users_inbox() {
     assert_eq!(sent(&actions[0]), json!({"t": "subscribe", "stream": format!("inbox:{ME}")}));
     let reset = stream.on_text(&json!({"t": "snapshot", "stream": format!("inbox:{ME}"), "seq": 3, "state": {"next_pin": 0}, "decided": []}).to_string());
     assert_eq!(reset, vec![StreamAction::Emit(CloudEvent::InboxReset { seq: 3 })]);
-    let entry = json!({"conversation": CONV, "rev": 2, "kind": "group", "title": "Launch", "unread": 1});
+    let entry =
+        json!({"conversation": CONV, "rev": 2, "kind": "group", "title": "Launch", "unread": 1});
     let bump = json!({"t": "event", "stream": format!("inbox:{ME}"), "seq": 4, "tx": "t4", "op": "inbox.bump",
                       "effects": {"state": {"next_pin": 0}, "writes": [
                           {"table": "entry", "op": "upsert", "key": CONV, "n": null, "row": entry},
                           {"table": "peer", "op": "upsert", "key": "user_x", "n": null, "row": {}}]}});
     assert_eq!(
         stream.on_text(&bump.to_string()),
-        vec![StreamAction::Emit(CloudEvent::InboxChanged { seq: 4, transaction: "t4".into(), entries: vec![entry] })]
+        vec![StreamAction::Emit(CloudEvent::InboxChanged {
+            seq: 4,
+            transaction: "t4".into(),
+            entries: vec![entry]
+        })]
     );
     let mut anonymous = StreamState::new(Target::Inbox);
-    assert_eq!(anonymous.on_text(r#"{"t":"welcome","principal":{}}"#), vec![StreamAction::Forbidden]);
+    assert_eq!(
+        anonymous.on_text(r#"{"t":"welcome","principal":{}}"#),
+        vec![StreamAction::Forbidden]
+    );
 }
 
 #[test]
@@ -269,13 +321,19 @@ fn commands_without_a_lease_send_nothing_and_ask_for_one() {
     assert_eq!(error, CloudError::SignedOut);
     assert_eq!(error.error_code(), Some("cloud_signed_out"));
     assert!(backend.posted().is_empty());
-    assert_eq!(events.take(), vec![CloudEvent::SessionNeeded { reason: "missing", expires_at: None }]);
+    assert_eq!(
+        events.take(),
+        vec![CloudEvent::SessionNeeded { reason: "missing", expires_at: None }]
+    );
 
     service.set_session(session_params(1_100_000)).unwrap();
     clock.0.store(1_100_000, Ordering::SeqCst);
     assert_eq!(service.snapshot(CONV, 10).unwrap_err(), CloudError::SessionExpired);
     assert!(backend.posted().is_empty());
-    assert_eq!(events.take(), vec![CloudEvent::SessionNeeded { reason: "expired", expires_at: Some(1_100_000) }]);
+    assert_eq!(
+        events.take(),
+        vec![CloudEvent::SessionNeeded { reason: "expired", expires_at: Some(1_100_000) }]
+    );
 }
 
 #[test]
@@ -287,7 +345,11 @@ fn op_posts_with_the_lease_and_returns_the_owner_result_or_reject() {
     backend.reply("/v1/ops", 200, json!({"ok": true, "op": "message.send",
         "value": {"rev": 2, "seq": 1, "message_id": "msg_1", "change": change}, "revision": "2",
         "transaction": "tx-1", "idempotency_key": "c1", "replayed": false, "stream": format!("conv:{CONV}"), "sequence": 2}));
-    let request = op_request(Some(CONV), "c1", json!({"kind": "message.send", "client_msg_id": "c1", "parts": [{"type": "text", "text": "hi"}]}));
+    let request = op_request(
+        Some(CONV),
+        "c1",
+        json!({"kind": "message.send", "client_msg_id": "c1", "parts": [{"type": "text", "text": "hi"}]}),
+    );
     let data = service.op(&request).unwrap();
     assert_eq!(data["rev"], 2);
     assert_eq!(data["seq"], 1);
@@ -305,16 +367,31 @@ fn op_posts_with_the_lease_and_returns_the_owner_result_or_reject() {
     backend.reply("/v1/ops", 200, json!({"ok": false, "op": "participants.add",
         "error": {"code": "not_reachable", "message": "not_reachable", "retryable": false},
         "transaction": "", "idempotency_key": "p1", "replayed": false, "stream": "", "sequence": 0}));
-    let add = op_request(Some(CONV), "p1", json!({"kind": "participants.add", "participant": {"id": "user_x", "kind": "human", "display_name": "X"}}));
+    let add = op_request(
+        Some(CONV),
+        "p1",
+        json!({"kind": "participants.add", "participant": {"id": "user_x", "kind": "human", "display_name": "X"}}),
+    );
     let error = service.op(&add).unwrap_err();
     assert_eq!(error.reason().as_deref(), Some("not_reachable"));
     assert_eq!(error.retryable(), Some(false));
 
-    backend.reply("/v1/ops", 401, json!({"code": "auth.unauthenticated", "message": "missing or invalid bearer token"}));
+    backend.reply(
+        "/v1/ops",
+        401,
+        json!({"code": "auth.unauthenticated", "message": "missing or invalid bearer token"}),
+    );
     assert_eq!(service.op(&add).unwrap_err(), CloudError::Unauthenticated);
-    assert_eq!(events.take(), vec![CloudEvent::SessionNeeded { reason: "unauthenticated", expires_at: Some(9_000_000) }]);
+    assert_eq!(
+        events.take(),
+        vec![CloudEvent::SessionNeeded { reason: "unauthenticated", expires_at: Some(9_000_000) }]
+    );
 
-    backend.reply("/v1/ops", 403, json!({"code": "client.too_old", "message": "this team requires cmux 1.0"}));
+    backend.reply(
+        "/v1/ops",
+        403,
+        json!({"code": "client.too_old", "message": "this team requires cmux 1.0"}),
+    );
     assert_eq!(service.op(&add).unwrap_err().reason().as_deref(), Some("client.too_old"));
     backend.reply("/v1/ops", 503, json!({"code": "owner.unreachable"}));
     assert!(matches!(service.op(&add).unwrap_err(), CloudError::Unavailable(_)));
@@ -329,15 +406,28 @@ fn reads_map_inbox_history_and_snapshot() {
     let (service, _, _) = service(&backend);
     service.set_session(session_params(9_000_000)).unwrap();
     backend.reply("/v1/read", 200, json!({"op": "inbox.list", "value": {"entries": [{"conversation": CONV}]}, "stream": format!("inbox:{ME}"), "revision": "12"}));
-    assert_eq!(service.inbox_list(Some(20), true).unwrap(), json!({"entries": [{"conversation": CONV}], "revision": "12"}));
-    assert_eq!(backend.posted()[0].body, json!({"op": "inbox.list", "params": {"limit": 20, "include_archived": true}}));
+    assert_eq!(
+        service.inbox_list(Some(20), true).unwrap(),
+        json!({"entries": [{"conversation": CONV}], "revision": "12"})
+    );
+    assert_eq!(
+        backend.posted()[0].body,
+        json!({"op": "inbox.list", "params": {"limit": 20, "include_archived": true}})
+    );
     backend.reply("/v1/read", 200, json!({"op": "conversation.history", "value": {"messages": [message(1, ME, "a")], "has_more": true}, "stream": "", "revision": ""}));
     let history = service.history(CONV, 2, 50).unwrap();
     assert_eq!(history["has_more"], true);
-    assert_eq!(backend.posted()[1].body["params"], json!({"conversation": CONV, "before_seq": 2, "limit": 50}));
+    assert_eq!(
+        backend.posted()[1].body["params"],
+        json!({"conversation": CONV, "before_seq": 2, "limit": 50})
+    );
     backend.reply("/v1/read", 200, json!({"op": "conversation.snapshot", "value": snapshot_frame(3, 3, &[message(1, ME, "a")]), "stream": "", "revision": "3"}));
     assert_eq!(service.snapshot(CONV, 50).unwrap()["seq"], 3);
-    backend.reply("/v1/read", 403, json!({"code": "auth.forbidden", "message": "not a participant"}));
+    backend.reply(
+        "/v1/read",
+        403,
+        json!({"code": "auth.forbidden", "message": "not a participant"}),
+    );
     assert_eq!(service.snapshot(CONV, 50).unwrap_err().reason().as_deref(), Some("auth.forbidden"));
     assert!(matches!(service.snapshot(CONV, 51).unwrap_err(), CloudError::BadRequest(_)));
     assert!(matches!(service.inbox_list(Some(0), false).unwrap_err(), CloudError::BadRequest(_)));
@@ -362,12 +452,18 @@ fn conversation_subscription_relays_events_and_resumes_after_a_drop() {
     second.push_text(send_event(6, 6, &message(3, ME, "three")).to_string());
 
     let target = Target::Conversation(CONV.into());
-    assert_eq!(service.subscribe(1, target.clone()).unwrap(), json!({"state": "connecting", "conversation": CONV}));
-    let seen = events.wait_for(|seen| seen.iter().any(|e| matches!(e, CloudEvent::ConversationChanged { seq: 6, .. })));
+    assert_eq!(
+        service.subscribe(1, target.clone()).unwrap(),
+        json!({"state": "connecting", "conversation": CONV})
+    );
+    let seen = events.wait_for(|seen| {
+        seen.iter().any(|e| matches!(e, CloudEvent::ConversationChanged { seq: 6, .. }))
+    });
     let relayed: Vec<u64> = seen
         .iter()
         .filter_map(|e| match e {
-            CloudEvent::ConversationResynced { seq, .. } | CloudEvent::ConversationChanged { seq, .. } => Some(*seq),
+            CloudEvent::ConversationResynced { seq, .. }
+            | CloudEvent::ConversationChanged { seq, .. } => Some(*seq),
             _ => None,
         })
         .collect();
@@ -395,12 +491,18 @@ fn subscription_waits_for_a_new_lease_after_401_and_stops_when_forbidden() {
     let (service, events, _) = service(&backend);
     let target = Target::Conversation(CONV.into());
     assert_eq!(service.subscribe(1, target.clone()).unwrap()["state"], "disconnected");
-    events.wait_for(|seen| seen.iter().any(|e| matches!(e, CloudEvent::SubscriptionState { reason: Some("signed_out"), .. })));
+    events.wait_for(|seen| {
+        seen.iter()
+            .any(|e| matches!(e, CloudEvent::SubscriptionState { reason: Some("signed_out"), .. }))
+    });
     assert!(backend.connected().is_empty());
 
     backend.refuse(ConnectError::Unauthenticated);
     service.set_session(session_params(9_000_000)).unwrap();
-    events.wait_for(|seen| seen.iter().any(|e| matches!(e, CloudEvent::SessionNeeded { reason: "unauthenticated", .. })));
+    events.wait_for(|seen| {
+        seen.iter()
+            .any(|e| matches!(e, CloudEvent::SessionNeeded { reason: "unauthenticated", .. }))
+    });
     std::thread::sleep(Duration::from_millis(30));
     assert_eq!(backend.connected().len(), 1, "no retry until a new lease arrives");
 
@@ -408,7 +510,14 @@ fn subscription_waits_for_a_new_lease_after_401_and_stops_when_forbidden() {
     let mut renewed = session_params(9_500_000);
     renewed.access_token = "stack.jwt.renewed".into();
     service.set_session(renewed).unwrap();
-    events.wait_for(|seen| seen.iter().any(|e| matches!(e, CloudEvent::SubscriptionState { state: "closed", reason: Some("forbidden"), .. })));
+    events.wait_for(|seen| {
+        seen.iter().any(|e| {
+            matches!(
+                e,
+                CloudEvent::SubscriptionState { state: "closed", reason: Some("forbidden"), .. }
+            )
+        })
+    });
     assert_eq!(backend.connected()[1].bearer, "stack.jwt.renewed");
     wait_until("the forbidden stream to end", || !service.has_stream(&target));
 }
@@ -418,10 +527,15 @@ fn conversation_subscriptions_are_bounded_and_ids_are_checked() {
     let backend = Arc::new(FakeBackend::default());
     let (service, _, _) = service(&backend);
     service.subscribe(1, Target::Conversation("conv_0000000000000000000000000A".into())).unwrap();
-    service.subscribe(1, Target::Conversation("conv_dm_0000000000000000000000000B".into())).unwrap();
+    service
+        .subscribe(1, Target::Conversation("conv_dm_0000000000000000000000000B".into()))
+        .unwrap();
     let error = service.subscribe(1, Target::Conversation(CONV.into())).unwrap_err();
     assert_eq!(error.reason().as_deref(), Some("too_many_subscriptions"));
     service.subscribe(1, Target::Inbox).unwrap();
-    assert!(matches!(service.subscribe(1, Target::Conversation("conv_x/../../v1".into())).unwrap_err(), CloudError::BadRequest(_)));
+    assert!(matches!(
+        service.subscribe(1, Target::Conversation("conv_x/../../v1".into())).unwrap_err(),
+        CloudError::BadRequest(_)
+    ));
     service.shutdown();
 }

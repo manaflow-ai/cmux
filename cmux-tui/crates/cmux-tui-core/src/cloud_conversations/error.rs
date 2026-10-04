@@ -8,7 +8,11 @@ use std::fmt;
 pub enum CloudError {
     /// The owner (or the Worker, or the daemon for its own reasons) decided
     /// and refused the request. `code` is the stable reason.
-    Rejected { code: String, message: String, retryable: bool },
+    Rejected {
+        code: String,
+        message: String,
+        retryable: bool,
+    },
     /// No session lease; nothing was sent.
     SignedOut,
     /// The lease expired; nothing was sent.

@@ -2079,13 +2079,13 @@ enum Command {
     ConversationAgentToken(conversations::AgentTokenParams),
     /// Cloud conversations proxy (`cloud-conversations-v1`,
     /// server/cloud_conversations.rs).
-    CloudSessionSet(cloud_conversations::SessionParams),
+    CloudSessionSet(cloud_conversations::SessionSetParams),
     CloudSessionClear,
     CloudSessionStatus,
     CloudInboxList(cloud_conversations::InboxListParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
-    CloudConversationOp(crate::cloud_conversations::OpRequest),
+    CloudConversationOp(cloud_conversations::OpParams),
     CloudInboxSubscribe,
     CloudInboxUnsubscribe,
     CloudConversationSubscribe(cloud_conversations::TargetParams),
@@ -14670,7 +14670,7 @@ fn handle_command_with_cancellation(
         Command::CloudConversationHistory(params) => {
             cloud_conversations::history(mux, client, params)
         }
-        Command::CloudConversationOp(request) => cloud_conversations::op(mux, client, request),
+        Command::CloudConversationOp(params) => cloud_conversations::op(mux, client, params),
         Command::CloudInboxSubscribe => cloud_conversations::subscribe(mux, client, None),
         Command::CloudInboxUnsubscribe => cloud_conversations::unsubscribe(mux, client, None),
         Command::CloudConversationSubscribe(params) => {

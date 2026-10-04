@@ -572,6 +572,10 @@ def event_names() -> set[str]:
     conversations = TUI / "crates/cmux-tui-core/src/conversation_store.rs"
     if conversations.exists():
         names.update(function_event_names(conversations.read_text(), "wire_json"))
+    # So does the cloud conversations proxy (cloud-conversations-v1).
+    cloud = TUI / "crates/cmux-tui-core/src/cloud_conversations/stream.rs"
+    if cloud.exists():
+        names.update(function_event_names(cloud.read_text(), "wire_json"))
 
     mux = strip_rust_comments((TUI / "crates/cmux-tui-core/src/mux.rs").read_text())
     delta_impl = mux.split("impl TreeDeltaKind", 1)

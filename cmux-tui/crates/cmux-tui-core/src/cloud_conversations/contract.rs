@@ -117,8 +117,11 @@ pub(crate) fn op_body(request: &OpRequest) -> Result<Value, CloudError> {
             format!("{kind} is not a cloud conversation op"),
         ));
     }
-    let mut params: Map<String, Value> =
-        fields.iter().filter(|(name, _)| name.as_str() != "kind").map(|(k, v)| (k.clone(), v.clone())).collect();
+    let mut params: Map<String, Value> = fields
+        .iter()
+        .filter(|(name, _)| name.as_str() != "kind")
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
     if params.contains_key("conversation") {
         return Err(CloudError::BadRequest(
             "name the conversation at the top level, not inside op".into(),
@@ -160,8 +163,12 @@ fn classify(reply: &HttpReply) -> Result<(), CloudError> {
         200..=299 => Ok(()),
         401 => Err(CloudError::Unauthenticated),
         400..=499 => match error_fields(&reply.body) {
-            Some((code, message, retryable)) => Err(CloudError::Rejected { code, message, retryable }),
-            None => Err(CloudError::Unavailable(format!("HTTP {} without an error body", reply.status))),
+            Some((code, message, retryable)) => {
+                Err(CloudError::Rejected { code, message, retryable })
+            }
+            None => {
+                Err(CloudError::Unavailable(format!("HTTP {} without an error body", reply.status)))
+            }
         },
         status => Err(CloudError::Unavailable(format!("HTTP {status}"))),
     }
@@ -176,7 +183,9 @@ pub(crate) fn mutation_data(reply: HttpReply) -> Result<Value, CloudError> {
         Some(true) => {}
         Some(false) => {
             return Err(match error_fields(&body) {
-                Some((code, message, retryable)) => CloudError::Rejected { code, message, retryable },
+                Some((code, message, retryable)) => {
+                    CloudError::Rejected { code, message, retryable }
+                }
                 None => CloudError::Unavailable("a refused op without an error".into()),
             });
         }
@@ -221,11 +230,10 @@ pub(crate) fn inbox_list_data(value: Value, revision: Value) -> Result<Value, Cl
 }
 
 pub(crate) fn history_data(value: Value) -> Result<Value, CloudError> {
-    let messages = value
-        .get("messages")
-        .filter(|messages| messages.is_array())
-        .cloned()
-        .ok_or_else(|| CloudError::Unavailable("conversation.history without messages".into()))?;
+    let messages =
+        value.get("messages").filter(|messages| messages.is_array()).cloned().ok_or_else(|| {
+            CloudError::Unavailable("conversation.history without messages".into())
+        })?;
     let has_more = value.get("has_more").and_then(Value::as_bool).unwrap_or(false);
     Ok(json!({"messages": messages, "has_more": has_more}))
 }

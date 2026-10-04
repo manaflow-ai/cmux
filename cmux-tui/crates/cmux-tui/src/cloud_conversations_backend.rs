@@ -75,7 +75,10 @@ impl CloudBackend for RemoteCloudBackend {
             let status = response.status().as_u16();
             let bytes = response.bytes().await.map_err(|error| transport(&error))?;
             if bytes.len() > MAX_BODY_BYTES {
-                return Err(TransportError(format!("reply of {} bytes exceeds the limit", bytes.len())));
+                return Err(TransportError(format!(
+                    "reply of {} bytes exceeds the limit",
+                    bytes.len()
+                )));
             }
             Ok(HttpReply { status, body: serde_json::from_slice(&bytes).unwrap_or(Value::Null) })
         })
@@ -90,10 +93,14 @@ impl CloudBackend for RemoteCloudBackend {
         let mut request = url
             .into_client_request()
             .map_err(|error| ConnectError::Unavailable(format!("bad stream URL: {error}")))?;
-        let protocols = HeaderValue::from_str(&format!("cmux.wire.v1, bearer.{bearer}"))
-            .map_err(|_| ConnectError::Unavailable("the token is not a valid header value".into()))?;
+        let protocols =
+            HeaderValue::from_str(&format!("cmux.wire.v1, bearer.{bearer}")).map_err(|_| {
+                ConnectError::Unavailable("the token is not a valid header value".into())
+            })?;
         request.headers_mut().insert("sec-websocket-protocol", protocols);
-        if let Some(version) = client_version.and_then(|version| HeaderValue::from_str(version).ok()) {
+        if let Some(version) =
+            client_version.and_then(|version| HeaderValue::from_str(version).ok())
+        {
             request.headers_mut().insert(CLIENT_VERSION_HEADER, version);
         }
         let handshake = self.runtime.block_on(async move {
@@ -221,7 +228,12 @@ mod tests {
             "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 11\r\nconnection: close\r\n\r\n{\"ok\":true}",
         );
         let reply = backend
-            .post(&format!("{origin}/v1/ops"), "tok.en", Some("0.70.0"), &json!({"op": "title.set"}))
+            .post(
+                &format!("{origin}/v1/ops"),
+                "tok.en",
+                Some("0.70.0"),
+                &json!({"op": "title.set"}),
+            )
             .unwrap();
         assert_eq!(reply, HttpReply { status: 200, body: json!({"ok": true}) });
         let (head, body) = seen.recv().unwrap();
@@ -242,10 +254,13 @@ mod tests {
         assert!(!detail.contains("secret-token"));
     }
 
+    // tungstenite's handshake callback type fixes its large error variant.
+    #[allow(clippy::result_large_err)]
     #[test]
     fn a_stream_carries_the_token_as_a_subprotocol_and_reports_close_codes() {
         let backend = RemoteCloudBackend::new().unwrap();
-        let listener = backend.runtime.block_on(tokio::net::TcpListener::bind("127.0.0.1:0")).unwrap();
+        let listener =
+            backend.runtime.block_on(tokio::net::TcpListener::bind("127.0.0.1:0")).unwrap();
         let address = listener.local_addr().unwrap();
         let (protocols_seen, protocols) = mpsc::channel();
         backend.runtime.spawn(async move {
@@ -257,7 +272,9 @@ mod tests {
                     .map(|value| value.to_str().unwrap().to_string())
                     .unwrap_or_default();
                 protocols_seen.send(offered).unwrap();
-                response.headers_mut().insert("sec-websocket-protocol", HeaderValue::from_static("cmux.wire.v1"));
+                response
+                    .headers_mut()
+                    .insert("sec-websocket-protocol", HeaderValue::from_static("cmux.wire.v1"));
                 Ok(response)
             };
             let mut server = tokio_tungstenite::accept_hdr_async(socket, callback).await.unwrap();
@@ -265,7 +282,10 @@ mod tests {
             let subscribe = server.next().await.unwrap().unwrap();
             assert_eq!(subscribe, Message::Text("{\"t\":\"subscribe\"}".into()));
             server
-                .send(Message::Close(Some(CloseFrame { code: CloseCode::from(4401), reason: "token expired".into() })))
+                .send(Message::Close(Some(CloseFrame {
+                    code: CloseCode::from(4401),
+                    reason: "token expired".into(),
+                })))
                 .await
                 .unwrap();
         });
@@ -273,7 +293,10 @@ mod tests {
             .connect(&format!("ws://{address}/v1/wire/conv/x"), "tok.en", Some("0.70.0"))
             .unwrap_or_else(|_| panic!("connect failed"));
         assert_eq!(protocols.recv().unwrap(), "cmux.wire.v1, bearer.tok.en");
-        assert_eq!(wire.recv(Duration::from_secs(10)), WireRecv::Text("{\"t\":\"welcome\"}".into()));
+        assert_eq!(
+            wire.recv(Duration::from_secs(10)),
+            WireRecv::Text("{\"t\":\"welcome\"}".into())
+        );
         wire.send("{\"t\":\"subscribe\"}").unwrap();
         assert_eq!(wire.recv(Duration::from_secs(10)), WireRecv::Closed { code: Some(4401) });
     }
@@ -282,7 +305,10 @@ mod tests {
     fn a_refused_handshake_maps_to_unauthenticated_or_forbidden() {
         let backend = RemoteCloudBackend::new().unwrap();
         for (reply, expected) in [
-            ("HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\n\r\n", ConnectError::Unauthenticated),
+            (
+                "HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\n\r\n",
+                ConnectError::Unauthenticated,
+            ),
             ("HTTP/1.1 403 Forbidden\r\ncontent-length: 0\r\n\r\n", ConnectError::Forbidden),
         ] {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();

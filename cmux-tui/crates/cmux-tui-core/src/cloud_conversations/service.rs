@@ -9,13 +9,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
+use super::CloudError;
 use super::contract::{
     self, MAX_PAGE, MAX_TAIL, OpRequest, Target, history_data, inbox_list_data, mutation_data,
     read_body, read_value, require_conversation, snapshot_data,
 };
 use super::session::{CloudSession, SessionParams};
 use super::stream::{CloudEvent, StreamAction, StreamState};
-use super::CloudError;
 
 /// One HTTP reply: the status and the JSON body (`Null` when not JSON).
 #[derive(Debug, Clone, PartialEq)]
@@ -44,7 +44,9 @@ pub enum WireRecv {
     Text(String),
     /// Nothing arrived within the timeout.
     Idle,
-    Closed { code: Option<u16> },
+    Closed {
+        code: Option<u16>,
+    },
 }
 
 /// One open upstream WebSocket (`cmux.wire.v1`).
@@ -216,7 +218,11 @@ impl CloudConversations {
     }
 
     /// `cloud-inbox-list`.
-    pub fn inbox_list(&self, limit: Option<u32>, include_archived: bool) -> Result<Value, CloudError> {
+    pub fn inbox_list(
+        &self,
+        limit: Option<u32>,
+        include_archived: bool,
+    ) -> Result<Value, CloudError> {
         let limit = limit.unwrap_or(MAX_PAGE);
         if !(1..=MAX_PAGE).contains(&limit) {
             return Err(CloudError::BadRequest(format!("limit must be 1-{MAX_PAGE}")));
@@ -236,13 +242,19 @@ impl CloudConversations {
         if !(1..=MAX_TAIL).contains(&tail) {
             return Err(CloudError::BadRequest(format!("tail must be 1-{MAX_TAIL}")));
         }
-        let body = read_body("conversation.snapshot", json!({"conversation": conversation, "tail": tail}));
+        let body =
+            read_body("conversation.snapshot", json!({"conversation": conversation, "tail": tail}));
         let (value, _) = read_value(self.post("/v1/read", &body)?)?;
         snapshot_data(&value)
     }
 
     /// `cloud-conversation-history`.
-    pub fn history(&self, conversation: &str, before_seq: u64, limit: u32) -> Result<Value, CloudError> {
+    pub fn history(
+        &self,
+        conversation: &str,
+        before_seq: u64,
+        limit: u32,
+    ) -> Result<Value, CloudError> {
         require_conversation(conversation)?;
         if !(1..=MAX_PAGE).contains(&limit) {
             return Err(CloudError::BadRequest(format!("limit must be 1-{MAX_PAGE}")));
@@ -272,7 +284,12 @@ impl CloudConversations {
         let reply = self
             .inner
             .backend
-            .post(&session.http_url(path), session.bearer(), session.client_version.as_deref(), body)
+            .post(
+                &session.http_url(path),
+                session.bearer(),
+                session.client_version.as_deref(),
+                body,
+            )
             .map_err(|TransportError(detail)| CloudError::Unavailable(detail))?;
         if reply.status == 401 {
             self.inner.emit(CloudEvent::SessionNeeded {
@@ -414,15 +431,24 @@ impl Inner {
         let (result, event) = {
             let mut lease = self.lease.lock().unwrap();
             match lease.session.clone() {
-                None => (Err(CloudError::SignedOut), Some(CloudEvent::SessionNeeded { reason: "missing", expires_at: None })),
+                None => (
+                    Err(CloudError::SignedOut),
+                    Some(CloudEvent::SessionNeeded { reason: "missing", expires_at: None }),
+                ),
                 Some(session) if session.is_expired(now) => (
                     Err(CloudError::SessionExpired),
-                    Some(CloudEvent::SessionNeeded { reason: "expired", expires_at: Some(session.expires_at) }),
+                    Some(CloudEvent::SessionNeeded {
+                        reason: "expired",
+                        expires_at: Some(session.expires_at),
+                    }),
                 ),
                 Some(session) => {
                     let event = (session.is_expiring(now) && !lease.expiring_sent).then(|| {
                         lease.expiring_sent = true;
-                        CloudEvent::SessionNeeded { reason: "expiring", expires_at: Some(session.expires_at) }
+                        CloudEvent::SessionNeeded {
+                            reason: "expiring",
+                            expires_at: Some(session.expires_at),
+                        }
                     });
                     (Ok(session), event)
                 }
@@ -446,14 +472,20 @@ impl Inner {
                 Some(session) if session.is_expired(now) => {
                     let event = (!lease.expired_sent).then(|| {
                         lease.expired_sent = true;
-                        CloudEvent::SessionNeeded { reason: "expired", expires_at: Some(session.expires_at) }
+                        CloudEvent::SessionNeeded {
+                            reason: "expired",
+                            expires_at: Some(session.expires_at),
+                        }
                     });
                     (Err("unauthenticated"), event)
                 }
                 Some(session) => {
                     let event = (session.is_expiring(now) && !lease.expiring_sent).then(|| {
                         lease.expiring_sent = true;
-                        CloudEvent::SessionNeeded { reason: "expiring", expires_at: Some(session.expires_at) }
+                        CloudEvent::SessionNeeded {
+                            reason: "expiring",
+                            expires_at: Some(session.expires_at),
+                        }
                     });
                     (Ok(session), event)
                 }
@@ -473,7 +505,8 @@ impl Inner {
         }
         let mut subscriptions = self.subscriptions.lock().unwrap();
         let Some(subscription) = subscriptions.get(target) else { return true };
-        let expired = subscription.idle_since.is_some_and(|since| since.elapsed() >= self.options.linger);
+        let expired =
+            subscription.idle_since.is_some_and(|since| since.elapsed() >= self.options.linger);
         if subscription.clients.is_empty() && expired {
             subscriptions.remove(target);
             return true;
@@ -508,7 +541,11 @@ impl StateReporter<'_> {
             return;
         }
         self.last = Some((state, reason));
-        self.inner.emit(CloudEvent::SubscriptionState { target: self.target.clone(), state, reason });
+        self.inner.emit(CloudEvent::SubscriptionState {
+            target: self.target.clone(),
+            state,
+            reason,
+        });
     }
 }
 
@@ -551,7 +588,15 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
             Err(ConnectError::Unavailable(_)) => Ended::Dropped,
             Ok(mut wire) => {
                 stream.on_connect();
-                pump(inner, &target, &mut stream, &mut reporter, wire.as_mut(), session.generation, &mut backoff)
+                pump(
+                    inner,
+                    &target,
+                    &mut stream,
+                    &mut reporter,
+                    wire.as_mut(),
+                    session.generation,
+                    &mut backoff,
+                )
             }
         };
         match ended {
@@ -577,9 +622,15 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
             Ended::Dropped => {
                 reporter.report("disconnected", Some("unavailable"));
                 let until = Instant::now() + backoff;
-                while Instant::now() < until && inner.generation() == session.generation && !inner.retire(&target) {
+                while Instant::now() < until
+                    && inner.generation() == session.generation
+                    && !inner.retire(&target)
+                {
                     let seen = inner.signal_now();
-                    inner.wait(seen, inner.idle_wait(&target, until.saturating_duration_since(Instant::now())));
+                    inner.wait(
+                        seen,
+                        inner.idle_wait(&target, until.saturating_duration_since(Instant::now())),
+                    );
                 }
                 backoff = (backoff * 2).min(inner.options.backoff_max);
             }

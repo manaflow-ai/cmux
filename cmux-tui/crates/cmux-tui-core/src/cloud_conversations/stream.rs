@@ -11,12 +11,37 @@ use super::contract::{Target, conversation_change, inbox_entries, snapshot_parts
 /// A daemon event of `cloud-conversations-v1`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CloudEvent {
-    ConversationChanged { conversation: String, rev: u64, seq: u64, transaction: String, change: Value },
-    ConversationResynced { conversation: String, rev: u64, seq: u64, summary: Value, messages: Vec<Value> },
-    InboxChanged { seq: u64, transaction: String, entries: Vec<Value> },
-    InboxReset { seq: u64 },
-    SubscriptionState { target: Target, state: &'static str, reason: Option<&'static str> },
-    SessionNeeded { reason: &'static str, expires_at: Option<u64> },
+    ConversationChanged {
+        conversation: String,
+        rev: u64,
+        seq: u64,
+        transaction: String,
+        change: Value,
+    },
+    ConversationResynced {
+        conversation: String,
+        rev: u64,
+        seq: u64,
+        summary: Value,
+        messages: Vec<Value>,
+    },
+    InboxChanged {
+        seq: u64,
+        transaction: String,
+        entries: Vec<Value>,
+    },
+    InboxReset {
+        seq: u64,
+    },
+    SubscriptionState {
+        target: Target,
+        state: &'static str,
+        reason: Option<&'static str>,
+    },
+    SessionNeeded {
+        reason: &'static str,
+        expires_at: Option<u64>,
+    },
 }
 
 impl CloudEvent {

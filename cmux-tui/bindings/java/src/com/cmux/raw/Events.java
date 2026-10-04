@@ -19,6 +19,12 @@ public final class Events {
     public static final EventMetadata CLIENT_CHANGED = new EventMetadata("client-changed", 6, null, List.of("subscribe"), true);
     public static final EventMetadata CLIENT_DETACHED = new EventMetadata("client-detached", 6, null, List.of("subscribe"), true);
     public static final EventMetadata CLIENT_LIST_INVALIDATED = new EventMetadata("client-list-invalidated", 9, null, List.of("subscribe"), false);
+    public static final EventMetadata CLOUD_CONVERSATION_CHANGED = new EventMetadata("cloud-conversation-changed", 12, "cloud-conversations-v1", List.of("subscribe"), true);
+    public static final EventMetadata CLOUD_CONVERSATION_RESYNCED = new EventMetadata("cloud-conversation-resynced", 12, "cloud-conversations-v1", List.of("subscribe"), true);
+    public static final EventMetadata CLOUD_INBOX_CHANGED = new EventMetadata("cloud-inbox-changed", 12, "cloud-conversations-v1", List.of("subscribe"), true);
+    public static final EventMetadata CLOUD_INBOX_RESET = new EventMetadata("cloud-inbox-reset", 12, "cloud-conversations-v1", List.of("subscribe"), true);
+    public static final EventMetadata CLOUD_SESSION_NEEDED = new EventMetadata("cloud-session-needed", 12, "cloud-conversations-v1", List.of("subscribe"), true);
+    public static final EventMetadata CLOUD_SUBSCRIPTION_STATE = new EventMetadata("cloud-subscription-state", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata COLORS_CHANGED = new EventMetadata("colors-changed", 6, null, List.of("attach-byte"), true);
     public static final EventMetadata CONFIG_RELOAD_REQUESTED = new EventMetadata("config-reload-requested", 6, null, List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_CHANGED = new EventMetadata("conversation-changed", 12, "local-conversations-v1", List.of("subscribe"), true);
@@ -81,6 +87,12 @@ public final class Events {
         values.put("client-changed", CLIENT_CHANGED);
         values.put("client-detached", CLIENT_DETACHED);
         values.put("client-list-invalidated", CLIENT_LIST_INVALIDATED);
+        values.put("cloud-conversation-changed", CLOUD_CONVERSATION_CHANGED);
+        values.put("cloud-conversation-resynced", CLOUD_CONVERSATION_RESYNCED);
+        values.put("cloud-inbox-changed", CLOUD_INBOX_CHANGED);
+        values.put("cloud-inbox-reset", CLOUD_INBOX_RESET);
+        values.put("cloud-session-needed", CLOUD_SESSION_NEEDED);
+        values.put("cloud-subscription-state", CLOUD_SUBSCRIPTION_STATE);
         values.put("colors-changed", COLORS_CHANGED);
         values.put("config-reload-requested", CONFIG_RELOAD_REQUESTED);
         values.put("conversation-changed", CONVERSATION_CHANGED);

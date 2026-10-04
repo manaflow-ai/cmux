@@ -11,11 +11,40 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{Command, MessageWriter, Mux, Response, handle_command_with_cancellation, responses};
-use crate::cloud_conversations::{CloudConversations, CloudError, OpRequest, Target};
-
-pub(super) use crate::cloud_conversations::{
-    CLOUD_CONVERSATIONS_CAPABILITY as CAPABILITY, SessionParams,
+use crate::cloud_conversations::{
+    CloudConversations, CloudError, OpRequest, SessionParams, Target,
 };
+
+pub(super) use crate::cloud_conversations::CLOUD_CONVERSATIONS_CAPABILITY as CAPABILITY;
+
+/// `cloud-session-set`: the app's cloud session lease. The token moves into
+/// the cloud link's zeroizing buffer and is never echoed or logged.
+#[derive(Deserialize)]
+pub(super) struct SessionSetParams {
+    api_base_url: String,
+    access_token: String,
+    expires_at: u64,
+    #[serde(default)]
+    client_version: Option<String>,
+}
+
+/// `cloud-conversation-op`: one cloud op tagged by `kind`.
+#[derive(Deserialize)]
+pub(super) struct OpParams {
+    #[serde(default)]
+    conversation: Option<String>,
+    idempotency_key: String,
+    #[serde(default)]
+    origin: Option<String>,
+    op: Value,
+}
+
+impl From<OpParams> for OpRequest {
+    fn from(params: OpParams) -> Self {
+        let OpParams { conversation, idempotency_key, origin, op } = params;
+        OpRequest { conversation, idempotency_key, origin, op }
+    }
+}
 
 /// `cloud-inbox-list`.
 #[derive(Deserialize)]
@@ -71,8 +100,14 @@ fn service(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
         .ok_or_else(|| anyhow::anyhow!("cloud conversations are not available in this daemon"))
 }
 
-pub(super) fn session_set(mux: &Mux, client: u64, params: SessionParams) -> anyhow::Result<Value> {
-    Ok(service(mux, client)?.set_session(params)?)
+pub(super) fn session_set(
+    mux: &Mux,
+    client: u64,
+    params: SessionSetParams,
+) -> anyhow::Result<Value> {
+    let SessionSetParams { api_base_url, access_token, expires_at, client_version } = params;
+    let lease = SessionParams { api_base_url, access_token, expires_at, client_version };
+    Ok(service(mux, client)?.set_session(lease)?)
 }
 
 pub(super) fn session_clear(mux: &Mux, client: u64) -> anyhow::Result<Value> {
@@ -96,11 +131,15 @@ pub(super) fn history(mux: &Mux, client: u64, params: HistoryParams) -> anyhow::
     Ok(service(mux, client)?.history(&conversation, before_seq, limit)?)
 }
 
-pub(super) fn op(mux: &Mux, client: u64, request: OpRequest) -> anyhow::Result<Value> {
-    Ok(service(mux, client)?.op(&request)?)
+pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Value> {
+    Ok(service(mux, client)?.op(&OpRequest::from(params))?)
 }
 
-pub(super) fn subscribe(mux: &Mux, client: u64, target: Option<TargetParams>) -> anyhow::Result<Value> {
+pub(super) fn subscribe(
+    mux: &Mux,
+    client: u64,
+    target: Option<TargetParams>,
+) -> anyhow::Result<Value> {
     let target = target.map_or(Target::Inbox, |params| Target::Conversation(params.conversation));
     Ok(service(mux, client)?.subscribe(client, target)?)
 }
@@ -137,7 +176,12 @@ pub(super) fn start(
     writer: &MessageWriter,
 ) -> bool {
     let precheck = service(mux, client).and_then(|service| match &cmd {
-        Command::CloudConversationOp(request) => Ok(service.check_op(request)?),
+        Command::CloudConversationOp(params) => Ok(service.check_op(&OpRequest {
+            conversation: params.conversation.clone(),
+            idempotency_key: params.idempotency_key.clone(),
+            origin: params.origin.clone(),
+            op: params.op.clone(),
+        })?),
         _ => Ok(()),
     });
     if let Err(error) = precheck {
@@ -165,7 +209,14 @@ fn send(writer: &MessageWriter, id: Option<Value>, result: anyhow::Result<Value>
     match result {
         Ok(data) => responses::send_response(
             writer,
-            Response { id, ok: true, data: Some(data), error: None, error_code: None, error_delivery: None },
+            Response {
+                id,
+                ok: true,
+                data: Some(data),
+                error: None,
+                error_code: None,
+                error_delivery: None,
+            },
         ),
         Err(error) => responses::send_response_with_details(
             writer,

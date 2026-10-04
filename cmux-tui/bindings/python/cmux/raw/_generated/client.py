@@ -102,6 +102,39 @@ class GeneratedClientMixin:
     def close_workspace(self, workspace: Union[Id, None, MissingType] = MISSING, *, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, end_terminals: Union[bool, MissingType] = MISSING) -> WorkspaceMutationResult:
         return self._invoke_command('close-workspace', CloseWorkspaceRequest(workspace=workspace, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id, end_terminals=end_terminals))
 
+    def cloud_conversation_history(self, before_seq: int, conversation: str, limit: int) -> JsonValue:
+        return self._invoke_command('cloud-conversation-history', CloudConversationHistoryRequest(before_seq=before_seq, conversation=conversation, limit=limit))
+
+    def cloud_conversation_op(self, idempotency_key: str, op: Union[JsonValue, None], *, conversation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-conversation-op', CloudConversationOpRequest(idempotency_key=idempotency_key, op=op, conversation=conversation, origin=origin))
+
+    def cloud_conversation_snapshot(self, conversation: str, tail: int) -> JsonValue:
+        return self._invoke_command('cloud-conversation-snapshot', CloudConversationSnapshotRequest(conversation=conversation, tail=tail))
+
+    def cloud_conversation_subscribe(self, conversation: str) -> JsonValue:
+        return self._invoke_command('cloud-conversation-subscribe', CloudConversationSubscribeRequest(conversation=conversation))
+
+    def cloud_conversation_unsubscribe(self, conversation: str) -> JsonValue:
+        return self._invoke_command('cloud-conversation-unsubscribe', CloudConversationUnsubscribeRequest(conversation=conversation))
+
+    def cloud_inbox_list(self, *, include_archived: Union[bool, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-inbox-list', CloudInboxListRequest(include_archived=include_archived, limit=limit))
+
+    def cloud_inbox_subscribe(self) -> JsonValue:
+        return self._invoke_command('cloud-inbox-subscribe', CloudInboxSubscribeRequest())
+
+    def cloud_inbox_unsubscribe(self) -> JsonValue:
+        return self._invoke_command('cloud-inbox-unsubscribe', CloudInboxUnsubscribeRequest())
+
+    def cloud_session_clear(self) -> JsonValue:
+        return self._invoke_command('cloud-session-clear', CloudSessionClearRequest())
+
+    def cloud_session_set(self, access_token: str, api_base_url: str, expires_at: int, *, client_version: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-session-set', CloudSessionSetRequest(access_token=access_token, api_base_url=api_base_url, expires_at=expires_at, client_version=client_version))
+
+    def cloud_session_status(self) -> JsonValue:
+        return self._invoke_command('cloud-session-status', CloudSessionStatusRequest())
+
     def conversation_agent_token(self, participant: str) -> JsonValue:
         return self._invoke_command('conversation-agent-token', ConversationAgentTokenRequest(participant=participant))
 
@@ -682,6 +715,17 @@ GeneratedClientMixin.close_tab_group.__cmux_command__ = COMMANDS['close-tab-grou
 GeneratedClientMixin.close_tabs.__cmux_command__ = COMMANDS['close-tabs']
 GeneratedClientMixin.close_terminal.__cmux_command__ = COMMANDS['close-terminal']
 GeneratedClientMixin.close_workspace.__cmux_command__ = COMMANDS['close-workspace']
+GeneratedClientMixin.cloud_conversation_history.__cmux_command__ = COMMANDS['cloud-conversation-history']
+GeneratedClientMixin.cloud_conversation_op.__cmux_command__ = COMMANDS['cloud-conversation-op']
+GeneratedClientMixin.cloud_conversation_snapshot.__cmux_command__ = COMMANDS['cloud-conversation-snapshot']
+GeneratedClientMixin.cloud_conversation_subscribe.__cmux_command__ = COMMANDS['cloud-conversation-subscribe']
+GeneratedClientMixin.cloud_conversation_unsubscribe.__cmux_command__ = COMMANDS['cloud-conversation-unsubscribe']
+GeneratedClientMixin.cloud_inbox_list.__cmux_command__ = COMMANDS['cloud-inbox-list']
+GeneratedClientMixin.cloud_inbox_subscribe.__cmux_command__ = COMMANDS['cloud-inbox-subscribe']
+GeneratedClientMixin.cloud_inbox_unsubscribe.__cmux_command__ = COMMANDS['cloud-inbox-unsubscribe']
+GeneratedClientMixin.cloud_session_clear.__cmux_command__ = COMMANDS['cloud-session-clear']
+GeneratedClientMixin.cloud_session_set.__cmux_command__ = COMMANDS['cloud-session-set']
+GeneratedClientMixin.cloud_session_status.__cmux_command__ = COMMANDS['cloud-session-status']
 GeneratedClientMixin.conversation_agent_token.__cmux_command__ = COMMANDS['conversation-agent-token']
 GeneratedClientMixin.conversation_bind.__cmux_command__ = COMMANDS['conversation-bind']
 GeneratedClientMixin.conversation_create.__cmux_command__ = COMMANDS['conversation-create']

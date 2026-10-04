@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2.
+// cmux-tui mux protocol 12, IR e7cee22695ab7966861c8ab2ccfbf5fee50718b0db63bfbac22bd10e40c28379.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -435,6 +435,116 @@ pub struct CloseWorkspaceRequest {
 
 #[rustfmt::skip]
 pub type CloseWorkspaceResult = T::WorkspaceMutationResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationHistoryRequest {
+    pub before_seq: u64,
+    pub conversation: String,
+    pub limit: u32,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationHistoryResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationOpRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub conversation: Optional<String>,
+    pub idempotency_key: String,
+    pub op: Nullable<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub origin: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationOpResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationSnapshotRequest {
+    pub conversation: String,
+    pub tail: u32,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationSnapshotResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationSubscribeRequest {
+    pub conversation: String,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationSubscribeResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationUnsubscribeRequest {
+    pub conversation: String,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationUnsubscribeResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudInboxListRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub include_archived: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u32>,
+}
+
+#[rustfmt::skip]
+pub type CloudInboxListResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudInboxSubscribeRequest {
+}
+
+#[rustfmt::skip]
+pub type CloudInboxSubscribeResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudInboxUnsubscribeRequest {
+}
+
+#[rustfmt::skip]
+pub type CloudInboxUnsubscribeResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudSessionClearRequest {
+}
+
+#[rustfmt::skip]
+pub type CloudSessionClearResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudSessionSetRequest {
+    pub access_token: String,
+    pub api_base_url: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub client_version: Optional<String>,
+    pub expires_at: u64,
+}
+
+#[rustfmt::skip]
+pub type CloudSessionSetResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudSessionStatusRequest {
+}
+
+#[rustfmt::skip]
+pub type CloudSessionStatusResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3027,6 +3137,50 @@ impl CmuxClient {
             self.require_protocol_field("close-workspace", 7)?;
         }
         self.execute(&CLOSE_WORKSPACE_METADATA, &request)
+    }
+
+    pub fn cloud_conversation_history(&mut self, request: CloudConversationHistoryRequest) -> Result<CloudConversationHistoryResult> {
+        self.execute(&CLOUD_CONVERSATION_HISTORY_METADATA, &request)
+    }
+
+    pub fn cloud_conversation_op(&mut self, request: CloudConversationOpRequest) -> Result<CloudConversationOpResult> {
+        self.execute(&CLOUD_CONVERSATION_OP_METADATA, &request)
+    }
+
+    pub fn cloud_conversation_snapshot(&mut self, request: CloudConversationSnapshotRequest) -> Result<CloudConversationSnapshotResult> {
+        self.execute(&CLOUD_CONVERSATION_SNAPSHOT_METADATA, &request)
+    }
+
+    pub fn cloud_conversation_subscribe(&mut self, request: CloudConversationSubscribeRequest) -> Result<CloudConversationSubscribeResult> {
+        self.execute(&CLOUD_CONVERSATION_SUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn cloud_conversation_unsubscribe(&mut self, request: CloudConversationUnsubscribeRequest) -> Result<CloudConversationUnsubscribeResult> {
+        self.execute(&CLOUD_CONVERSATION_UNSUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn cloud_inbox_list(&mut self, request: CloudInboxListRequest) -> Result<CloudInboxListResult> {
+        self.execute(&CLOUD_INBOX_LIST_METADATA, &request)
+    }
+
+    pub fn cloud_inbox_subscribe(&mut self, request: CloudInboxSubscribeRequest) -> Result<CloudInboxSubscribeResult> {
+        self.execute(&CLOUD_INBOX_SUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn cloud_inbox_unsubscribe(&mut self, request: CloudInboxUnsubscribeRequest) -> Result<CloudInboxUnsubscribeResult> {
+        self.execute(&CLOUD_INBOX_UNSUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn cloud_session_clear(&mut self, request: CloudSessionClearRequest) -> Result<CloudSessionClearResult> {
+        self.execute(&CLOUD_SESSION_CLEAR_METADATA, &request)
+    }
+
+    pub fn cloud_session_set(&mut self, request: CloudSessionSetRequest) -> Result<CloudSessionSetResult> {
+        self.execute(&CLOUD_SESSION_SET_METADATA, &request)
+    }
+
+    pub fn cloud_session_status(&mut self, request: CloudSessionStatusRequest) -> Result<CloudSessionStatusResult> {
+        self.execute(&CLOUD_SESSION_STATUS_METADATA, &request)
     }
 
     pub fn conversation_agent_token(&mut self, request: ConversationAgentTokenRequest) -> Result<ConversationAgentTokenResult> {

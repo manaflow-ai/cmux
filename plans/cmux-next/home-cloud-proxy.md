@@ -118,9 +118,10 @@ owner's `request-settled` barrier (sequence 0 when nothing changed). For `dm.ope
 invite of an address peer.
 
 Subscriptions: one upstream socket per target, shared by all local clients; a client's interests end
-with `…-unsubscribe` or when its connection closes. A conversation socket closes 60 s after its last
+with `…-unsubscribe` or when its connection closes. An upstream socket closes 60 s after its last
 local subscriber leaves (home-scale.md A7). At most 64 conversation subscriptions per daemon
-(`reason: "too_many_subscriptions"`). `state` is the current `cloud-subscription-state` value.
+(`reason: "too_many_subscriptions"`). The reply's `state` is `connecting` when a lease is active and
+`disconnected` otherwise; `cloud-subscription-state` events report every later change.
 
 ## 5. Events (after the normal `subscribe`, trusted local connections only)
 
@@ -164,7 +165,8 @@ local subscriber leaves (home-scale.md A7). At most 64 conversation subscription
 
 Parameter shape errors are plain `bad request: …` errors without `error_code`, as on the local owner.
 A connection that is not a trusted local connection gets `cloud conversations require a trusted local
-connection`.
+connection`; a daemon built without the cloud transport (no capability) answers every `cloud-*`
+command with `cloud conversations are not available in this daemon`.
 
 ## 7. Upstream mapping
 

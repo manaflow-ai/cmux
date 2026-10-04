@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2. */
+/* cmux-tui mux protocol 12, IR e7cee22695ab7966861c8ab2ccfbf5fee50718b0db63bfbac22bd10e40c28379. */
 
 
 import type * as T from "./types.js";
@@ -62,6 +62,50 @@ export type ClientDetachedEvent = { event: "client-detached" } & {
 
 /** Protocol v9; emission: serialized-never-emitted; streams: subscribe. */
 export type ClientListInvalidatedEvent = { event: "client-list-invalidated" } & {
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationChangedEvent = { event: "cloud-conversation-changed" } & {
+  "change": (T.JsonValue) | null;
+  "conversation": string;
+  "rev": bigint;
+  "seq": bigint;
+  "transaction": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationResyncedEvent = { event: "cloud-conversation-resynced" } & {
+  "conversation": string;
+  "messages": (T.JsonValue) | null;
+  "rev": bigint;
+  "seq": bigint;
+  "summary": (T.JsonValue) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudInboxChangedEvent = { event: "cloud-inbox-changed" } & {
+  "entries": (T.JsonValue) | null;
+  "seq": bigint;
+  "transaction": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudInboxResetEvent = { event: "cloud-inbox-reset" } & {
+  "seq": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudSessionNeededEvent = { event: "cloud-session-needed" } & {
+  "expires_at"?: (bigint) | null;
+  "reason": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudSubscriptionStateEvent = { event: "cloud-subscription-state" } & {
+  "conversation"?: (string) | null;
+  "reason"?: (string) | null;
+  "scope": string;
+  "state": string;
 };
 
 /** Protocol v6; emission: emitted; streams: attach-byte. */
@@ -495,6 +539,12 @@ export type KnownCmuxEvent =
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
+  | CloudConversationChangedEvent
+  | CloudConversationResyncedEvent
+  | CloudInboxChangedEvent
+  | CloudInboxResetEvent
+  | CloudSessionNeededEvent
+  | CloudSubscriptionStateEvent
   | ColorsChangedEvent
   | ConfigReloadRequestedEvent
   | ConversationChangedEvent
@@ -558,6 +608,12 @@ export type KnownSubscribeEvent =
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
+  | CloudConversationChangedEvent
+  | CloudConversationResyncedEvent
+  | CloudInboxChangedEvent
+  | CloudInboxResetEvent
+  | CloudSessionNeededEvent
+  | CloudSubscriptionStateEvent
   | ConfigReloadRequestedEvent
   | ConversationChangedEvent
   | ConversationTypingEvent
