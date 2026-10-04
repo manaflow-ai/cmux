@@ -213,6 +213,7 @@ class InstalledHelperRegression(unittest.TestCase):
             "if [ \"$1 $2\" = 'pr merge' ]; then printf '%s\\n' merge >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER\"; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/check-runs'; then "
             "printf '%s\\n' '[{\"check_runs\":[{\"id\":1,\"name\":\"" + check_name + "\",\"status\":\"completed\",\"conclusion\":\"" + check_conclusion + "\"}]}]'; exit 0; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/contents/'; then printf '%s\\n' 'HTTP/2.0 200'; exit 0; fi\n"
             "if [ \"$1\" = api ]; then printf '%s\\n' '[]'; exit 0; fi\n"
             "exit 2\n"
         )
@@ -300,6 +301,9 @@ class InstalledHelperRegression(unittest.TestCase):
                 if [ "$1 $2" = 'pr merge' ]; then
                   touch "$MERGE_MARKER"
                   exit 0
+                fi
+                if [ "$1" = api ] && printf '%s' "$*" | grep -q '/contents/'; then
+                  printf '%s\\n' 'HTTP/2.0 200'; exit 0
                 fi
                 if [ "$1" = api ] && printf '%s' "$*" | grep -q '/pulls/42/files'; then
                   case "$*" in
