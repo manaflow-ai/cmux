@@ -15,7 +15,8 @@ impl TempDir {
     fn new(label: &str) -> Self {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!("cmux-history-{label}-{}-{n}", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("cmux-history-{label}-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         Self(path)
     }
@@ -67,7 +68,9 @@ fn stores_round_trip_through_the_directory() {
     let query = HistoryQuery { kinds: vec![HistoryKind::Page], ..HistoryQuery::default() };
     let entries = reopened.entries(&query, T0, T0).unwrap();
     assert_eq!(entries.len(), 2);
-    assert!(entries.iter().any(|entry| entry.id == id && entry.profile.as_deref() == Some("work/2")));
+    assert!(
+        entries.iter().any(|entry| entry.id == id && entry.profile.as_deref() == Some("work/2"))
+    );
     assert_eq!(reopened.remove_ids(&[id.as_str(), "agent:a/b/c", "page:nope"]).unwrap(), 1);
     assert_eq!(reopened.entries(&query, T0, T0).unwrap().len(), 1);
 }

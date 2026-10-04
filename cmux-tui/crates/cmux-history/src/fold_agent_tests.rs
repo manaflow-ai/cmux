@@ -4,7 +4,15 @@ use super::{AgentSessionFold, agent_title, resume_command};
 use crate::hidden::HiddenHistory;
 use crate::journal::EntryContext;
 
-fn record(sequence: u64, kind: &str, session: Option<&str>, provider: &str, ms: i64, cwd: Option<&str>, subjects: Value) -> Value {
+fn record(
+    sequence: u64,
+    kind: &str,
+    session: Option<&str>,
+    provider: &str,
+    ms: i64,
+    cwd: Option<&str>,
+    subjects: Value,
+) -> Value {
     json!({
         "sequence": sequence, "kind": kind, "occurred_at_ms": ms, "subjects": subjects,
         "payload": {"adapter": {"id": provider}, "normalized": {"agent_session_id": session, "cwd": cwd}},
@@ -31,14 +39,20 @@ fn start_turns_and_end_make_one_session() {
     assert_eq!(session.terminal.as_deref(), Some("term_1"));
     assert_eq!(session.tab.as_deref(), Some("tab_1"));
     assert_eq!(session.workspace.as_deref(), Some("ws_1"));
-    assert_eq!((session.started_at_ms, session.last_activity_ms, session.ended_at_ms), (1_000, 9_000, Some(9_000)));
+    assert_eq!(
+        (session.started_at_ms, session.last_activity_ms, session.ended_at_ms),
+        (1_000, 9_000, Some(9_000))
+    );
     assert_eq!(fold.cursor(), 3);
 }
 
 #[test]
 fn re_reading_old_records_does_not_double_count() {
     let mut fold = AgentSessionFold::new("home");
-    let records = vec![simple(1, "agent.session.started", "s1", 1_000), simple(2, "agent.session.ended", "s1", 2_000)];
+    let records = vec![
+        simple(1, "agent.session.started", "s1", 1_000),
+        simple(2, "agent.session.ended", "s1", 2_000),
+    ];
     fold.apply(&records);
     let mut again = records.clone();
     again.push(simple(3, "agent.session.started", "s1", 3_000));
@@ -68,14 +82,19 @@ fn records_without_a_session_id_are_ignored() {
 #[test]
 fn records_the_decoder_rejects_do_not_move_the_cursor() {
     let mut fold = AgentSessionFold::new("home");
-    fold.apply(&[json!({"kind": "agent.session.started"}), json!({"sequence": "x", "kind": "agent.turn.started"})]);
+    fold.apply(&[
+        json!({"kind": "agent.session.started"}),
+        json!({"sequence": "x", "kind": "agent.turn.started"}),
+    ]);
     assert_eq!(fold.cursor(), 0);
 }
 
 #[test]
 fn capacity_keeps_the_most_recently_active() {
     let mut fold = AgentSessionFold::with_capacity("home", 2);
-    let records: Vec<Value> = (1..=4).map(|n| simple(n, "agent.session.started", &format!("s{n}"), n as i64 * 1000)).collect();
+    let records: Vec<Value> = (1..=4)
+        .map(|n| simple(n, "agent.session.started", &format!("s{n}"), n as i64 * 1000))
+        .collect();
     fold.apply(&records);
     let ids: Vec<&str> = fold.ordered().iter().map(|session| session.session_id.as_str()).collect();
     assert_eq!(ids, ["s4", "s3"]);
@@ -122,7 +141,8 @@ fn entries_name_remote_machines_and_skip_hidden_sessions() {
     assert_eq!(entry.title, "Claude Code in api");
     assert_eq!(entry.machine.as_deref(), Some("box"));
     assert_eq!((entry.available, entry.running), (false, Some(true)));
-    let local = fold.entries(&EntryContext { local_machine: "box", available: true }, &HiddenHistory::new());
+    let local = fold
+        .entries(&EntryContext { local_machine: "box", available: true }, &HiddenHistory::new());
     assert!(local.iter().all(|entry| entry.machine.is_none()));
 }
 

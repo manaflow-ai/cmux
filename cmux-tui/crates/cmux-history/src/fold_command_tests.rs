@@ -4,7 +4,13 @@ use super::TerminalCommandFold;
 use crate::hidden::HiddenHistory;
 use crate::journal::EntryContext;
 
-fn record(sequence: u64, command: Option<&str>, exit: Option<i64>, started: i64, kind: &str) -> Value {
+fn record(
+    sequence: u64,
+    command: Option<&str>,
+    exit: Option<i64>,
+    started: i64,
+    kind: &str,
+) -> Value {
     json!({
         "sequence": sequence.to_string(), "kind": kind,
         "subjects": [{"kind": "terminal", "id": "term_1"}, {"kind": "workspace", "id": "ws_1"}],
@@ -40,9 +46,11 @@ fn other_kinds_advance_the_cursor_only() {
     let mut fold = TerminalCommandFold::with_capacity("local", 2);
     fold.apply(&[record(1, Some("x"), Some(0), 1_000, "agent.turn.started")]);
     assert_eq!((fold.commands().len(), fold.cursor()), (0, 1));
-    let records: Vec<Value> = (2..=5).map(|n| finished(n, Some(&format!("c{n}")), Some(0), n as i64 * 1000)).collect();
+    let records: Vec<Value> =
+        (2..=5).map(|n| finished(n, Some(&format!("c{n}")), Some(0), n as i64 * 1000)).collect();
     fold.apply(&records);
-    let names: Vec<_> = fold.commands().map(|command| command.command.clone().unwrap_or_default()).collect();
+    let names: Vec<_> =
+        fold.commands().map(|command| command.command.clone().unwrap_or_default()).collect();
     assert_eq!(names, ["c4", "c5"]);
 }
 
@@ -67,6 +75,10 @@ fn entries_carry_command_fields_and_skip_hidden_ones() {
     assert_eq!(entries[0].id, "command:box/term_1/2000");
     assert_eq!(entries[0].title, "Command");
     assert_eq!(entries[0].machine.as_deref(), Some("box"));
-    let all = fold.entries(&EntryContext { local_machine: "box", available: true }, &HiddenHistory::new());
-    assert_eq!((all[0].exit_code, all[0].command.as_deref(), all[0].machine.as_deref()), (Some(2), Some("make"), None));
+    let all = fold
+        .entries(&EntryContext { local_machine: "box", available: true }, &HiddenHistory::new());
+    assert_eq!(
+        (all[0].exit_code, all[0].command.as_deref(), all[0].machine.as_deref()),
+        (Some(2), Some("make"), None)
+    );
 }

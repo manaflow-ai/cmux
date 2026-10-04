@@ -11,7 +11,8 @@ use crate::hidden::HiddenHistory;
 use crate::journal::{EntryContext, Envelope, string_at};
 
 /// Kinds a reader asks the journal for.
-pub const AGENT_JOURNAL_KINDS: [&str; 3] = ["agent.session.*", "agent.turn.*", "agent.state.changed"];
+pub const AGENT_JOURNAL_KINDS: [&str; 3] =
+    ["agent.session.*", "agent.turn.*", "agent.state.changed"];
 
 /// An agent session as the journal records it through agent hooks.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -86,7 +87,12 @@ impl AgentSessionFold {
     /// A fold that keeps at most `capacity` (at least 1) sessions; the least
     /// recently active go first.
     pub fn with_capacity(machine: impl Into<String>, capacity: usize) -> Self {
-        Self { machine: machine.into(), capacity: capacity.max(1), cursor: 0, sessions: BTreeMap::new() }
+        Self {
+            machine: machine.into(),
+            capacity: capacity.max(1),
+            cursor: 0,
+            sessions: BTreeMap::new(),
+        }
     }
 
     pub fn machine(&self) -> &str {
@@ -109,13 +115,21 @@ impl AgentSessionFold {
     /// Applies records in journal order. A record the Swift decoder would
     /// reject (no sequence or kind) is skipped without moving the cursor.
     pub fn apply(&mut self, records: &[Value]) {
-        let _ = records;
+        for envelope in records.iter().filter_map(Envelope::parse) {
+            if envelope.sequence > self.cursor {
+                self.apply_one(&envelope);
+                self.cursor = envelope.sequence;
+            }
+        }
+        self.trim();
     }
 
     /// Newest activity first; ties by session id, descending.
     pub fn ordered(&self) -> Vec<&AgentSession> {
         let mut sessions: Vec<&AgentSession> = self.sessions.values().collect();
-        sessions.sort_by(|a, b| (b.last_activity_ms, &b.session_id).cmp(&(a.last_activity_ms, &a.session_id)));
+        sessions.sort_by(|a, b| {
+            (b.last_activity_ms, &b.session_id).cmp(&(a.last_activity_ms, &a.session_id))
+        });
         sessions
     }
 
@@ -123,7 +137,9 @@ impl AgentSessionFold {
     pub fn entries(&self, context: &EntryContext<'_>, hidden: &HiddenHistory) -> Vec<HistoryEntry> {
         self.ordered()
             .into_iter()
-            .filter(|session| !hidden.hides(&session.qualified_id(), session.last_activity_ms, Some("agent")))
+            .filter(|session| {
+                !hidden.hides(&session.qualified_id(), session.last_activity_ms, Some("agent"))
+            })
             .map(|session| session.entry(context))
             .collect()
     }
@@ -214,8 +230,12 @@ fn time_of(record: &Envelope<'_>, normalized: &Value) -> i64 {
 /// `cwd`), or the provider name without a cwd. English: the crate has no
 /// string catalog; the Swift app localizes the `in` template.
 pub fn agent_title(provider: &str, cwd: Option<&str>) -> String {
-        let _ = cwd; provider.to_owned()
+    let name = provider_name(provider);
+    match cwd.filter(|cwd| !cwd.is_empty()) {
+        Some(cwd) => format!("{name} in {}", last_path_component(cwd)),
+        None => name.to_owned(),
     }
+}
 
 /// A provider's product name (not localized).
 pub fn provider_name(provider: &str) -> &str {
@@ -242,8 +262,16 @@ fn last_path_component(path: &str) -> &str {
 /// The shell command that resumes `session_id` of `provider`, or `None`
 /// when cmux does not know the provider's resume flag.
 pub fn resume_command(provider: &str, session_id: &str) -> Option<String> {
-    let _ = (provider, session_id);
-    None
+    let id = shell_quoted(session_id);
+    let command = match provider.to_lowercase().as_str() {
+        "claude" | "claude-code" | "claude_code" => format!("claude --resume {id}"),
+        "codex" => format!("codex resume {id}"),
+        "opencode" => format!("opencode --session {id}"),
+        "amp" => format!("amp threads continue {id}"),
+        "gemini" => format!("gemini --resume {id}"),
+        _ => return None,
+    };
+    Some(command)
 }
 
 /// A single shell word: plain when it has only safe characters, else

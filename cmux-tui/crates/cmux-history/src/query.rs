@@ -92,29 +92,86 @@ pub fn apply(
     local_day_start_ms: i64,
     is_directory: impl Fn(&str) -> bool,
 ) -> Vec<HistoryEntry> {
-    let _ = (query, entries, now_ms, local_day_start_ms, is_directory);
-    Vec::new()
+    let tokens = tokens(&query.text);
+    let bounds = query.range.bounds(now_ms, local_day_start_ms);
+    let mut matched: Vec<HistoryEntry> = entries
+        .iter()
+        .filter(|entry| {
+            is_displayable(entry, &is_directory)
+                && query.wants(entry.kind)
+                && bounds.is_none_or(|(start, end)| start <= entry.at_ms && entry.at_ms <= end)
+                && matches(&search_text(entry), &tokens)
+        })
+        .cloned()
+        .collect();
+    matched.sort_by(|a, b| (b.at_ms, &b.id).cmp(&(a.at_ms, &a.id)));
+    if let Some(limit) = query.limit {
+        matched.truncate(limit);
+    }
+    matched
 }
 
 /// True when every folded token is a substring of the folded `haystack`.
 /// No tokens match everything.
 pub fn matches(haystack: &str, tokens: &[String]) -> bool {
-        let _ = (haystack, tokens); true
+    if tokens.is_empty() {
+        return true;
     }
+    let folded = fold(haystack);
+    tokens.iter().all(|token| folded.contains(token.as_str()))
+}
 
 /// The text the search matches: title, detail and machine, then the kind's
 /// own fields (Swift `HistoryEntry.searchText`), joined by spaces.
 pub fn search_text(entry: &HistoryEntry) -> String {
-        entry.title.clone()
-    }
+    let mut parts: Vec<&str> = vec![entry.title.as_str()];
+    parts.extend(entry.detail.as_deref());
+    parts.extend(entry.machine.as_deref());
+    let own: [Option<&str>; 3] = match entry.kind {
+        HistoryKind::Page => [entry.url.as_deref(), None, None],
+        HistoryKind::Location => {
+            [entry.workspace.as_deref(), entry.url.as_deref(), entry.cwd.as_deref()]
+        }
+        HistoryKind::Closed => [entry.url.as_deref(), entry.cwd.as_deref(), None],
+        HistoryKind::Command => [entry.command.as_deref(), entry.cwd.as_deref(), None],
+        HistoryKind::Agent => {
+            [entry.provider.as_deref(), entry.session_id.as_deref(), entry.cwd.as_deref()]
+        }
+    };
+    parts.extend(own.into_iter().flatten());
+    parts.join(" ")
+}
 
 /// False for navigation machinery that is not a destination: a page that is
 /// not http, https or file, a directory `file:` URL, a location on a `cmux:`
 /// page or `about:blank` or a directory, and the home placeholder location
 /// titled `~` (Swift `HistoryQuery.isDisplayable`).
 pub fn is_displayable(entry: &HistoryEntry, is_directory: impl Fn(&str) -> bool) -> bool {
-        let _ = (entry, is_directory); true
+    match entry.kind {
+        HistoryKind::Page => {
+            let Some(url) = entry.url.as_deref().and_then(|text| Url::parse(text).ok()) else {
+                return false;
+            };
+            match url.scheme() {
+                "http" | "https" => true,
+                "file" => !is_directory_url(&url, &is_directory),
+                _ => false,
+            }
+        }
+        HistoryKind::Location => {
+            if let Some(url) = entry.url.as_deref().and_then(|text| Url::parse(text).ok()) {
+                if url.scheme() == "cmux" || url.as_str().eq_ignore_ascii_case("about:blank") {
+                    return false;
+                }
+                if url.scheme() == "file" && is_directory_url(&url, &is_directory) {
+                    return false;
+                }
+            }
+            entry.title != "~"
+        }
+        HistoryKind::Closed | HistoryKind::Command | HistoryKind::Agent => true,
     }
+}
 
 fn is_directory_url(url: &Url, is_directory: &impl Fn(&str) -> bool) -> bool {
     url.to_file_path().is_ok_and(|path| is_directory(&path.to_string_lossy()))

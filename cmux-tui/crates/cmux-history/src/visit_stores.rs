@@ -74,12 +74,21 @@ impl VisitStores {
     }
 
     /// Sets the title of `url`'s newest visit in `profile`.
-    pub fn update_title(&mut self, profile: &str, url: &str, title: &str) -> Result<usize, HistoryError> {
+    pub fn update_title(
+        &mut self,
+        profile: &str,
+        url: &str,
+        title: &str,
+    ) -> Result<usize, HistoryError> {
         self.store(profile)?.update_title(url, title)
     }
 
     /// `profile`'s summaries (the omnibox seed).
-    pub fn summaries(&mut self, profile: &str, limit: usize) -> Result<Vec<VisitSummary>, HistoryError> {
+    pub fn summaries(
+        &mut self,
+        profile: &str,
+        limit: usize,
+    ) -> Result<Vec<VisitSummary>, HistoryError> {
         self.store(profile)?.summaries(limit)
     }
 
@@ -87,7 +96,12 @@ impl VisitStores {
     /// pre-filter, the start of its range and its limit (default 500) per
     /// profile. Not yet sorted or filtered; pass the merge to
     /// [`crate::apply`].
-    pub fn entries(&mut self, query: &HistoryQuery, now_ms: i64, local_day_start_ms: i64) -> Result<Vec<HistoryEntry>, HistoryError> {
+    pub fn entries(
+        &mut self,
+        query: &HistoryQuery,
+        now_ms: i64,
+        local_day_start_ms: i64,
+    ) -> Result<Vec<HistoryEntry>, HistoryError> {
         if !query.wants(HistoryKind::Page) {
             return Ok(Vec::new());
         }
@@ -114,7 +128,11 @@ impl VisitStores {
 
     /// Removes every visit of `host` and its subdomains, in `profile` or
     /// (`None`) every profile.
-    pub fn remove_host(&mut self, host: &str, profile: Option<&str>) -> Result<usize, HistoryError> {
+    pub fn remove_host(
+        &mut self,
+        host: &str,
+        profile: Option<&str>,
+    ) -> Result<usize, HistoryError> {
         let mut removed = 0;
         for profile in self.targets(profile)? {
             removed += self.store(&profile)?.remove_host(host)?;
@@ -124,7 +142,11 @@ impl VisitStores {
 
     /// Removes visits at or after `since_ms` (`None`: all), in `profile` or
     /// every profile.
-    pub fn clear(&mut self, since_ms: Option<i64>, profile: Option<&str>) -> Result<usize, HistoryError> {
+    pub fn clear(
+        &mut self,
+        since_ms: Option<i64>,
+        profile: Option<&str>,
+    ) -> Result<usize, HistoryError> {
         let mut removed = 0;
         for profile in self.targets(profile)? {
             removed += self.store(&profile)?.remove_since(since_ms)?;
@@ -160,14 +182,38 @@ fn parse_page_id(id: &str) -> Option<(&str, i64)> {
 /// and two lowercase hex digits. `_` always starts an escape, so the
 /// encoding is injective and never yields `.`, `..` or a path separator.
 pub fn profile_file_name(profile: &str) -> String {
-        format!("{profile}{EXTENSION}")
+    let mut name = String::with_capacity(profile.len() + EXTENSION.len());
+    for (index, byte) in profile.bytes().enumerate() {
+        let keep = byte.is_ascii_alphanumeric() || byte == b'-' || (byte == b'.' && index > 0);
+        if keep {
+            name.push(char::from(byte));
+        } else {
+            name.push_str(&format!("_{byte:02x}"));
+        }
     }
+    name.push_str(EXTENSION);
+    name
+}
 
 /// The profile id of a log file name, or `None` for any other file
 /// (including SQLite's `-wal` and `-shm` side files).
 pub fn profile_from_file_name(name: &str) -> Option<String> {
-        let _ = name; None
+    let stem = name.strip_suffix(EXTENSION)?;
+    let mut bytes = Vec::with_capacity(stem.len());
+    let mut rest = stem.as_bytes();
+    while let Some((&byte, tail)) = rest.split_first() {
+        if byte == b'_' {
+            let hex = std::str::from_utf8(tail.get(..2)?).ok()?;
+            bytes.push(u8::from_str_radix(hex, 16).ok()?);
+            rest = &tail[2..];
+        } else {
+            bytes.push(byte);
+            rest = tail;
+        }
     }
+    let profile = String::from_utf8(bytes).ok()?;
+    (profile_file_name(&profile) == name).then_some(profile)
+}
 
 #[cfg(test)]
 #[path = "visit_stores_tests.rs"]

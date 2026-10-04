@@ -3,7 +3,12 @@ use super::{NewVisit, RETENTION_MS, VisitStore};
 const T0: i64 = 1_800_000_000_000;
 
 fn visit(url: &str, title: Option<&str>, tab: Option<&str>, at_ms: i64) -> NewVisit {
-    NewVisit { url: url.to_owned(), title: title.map(str::to_owned), tab: tab.map(str::to_owned), at_ms }
+    NewVisit {
+        url: url.to_owned(),
+        title: title.map(str::to_owned),
+        tab: tab.map(str::to_owned),
+        at_ms,
+    }
 }
 
 fn urls(store: &VisitStore) -> Vec<String> {
@@ -35,7 +40,9 @@ fn title_update_touches_only_the_newest_visit() {
 #[test]
 fn search_matches_url_and_title_tokens() {
     let store = VisitStore::open_in_memory().unwrap();
-    store.record(&visit("https://docs.swift.org/guide", Some("The Swift Guide"), None, T0)).unwrap();
+    store
+        .record(&visit("https://docs.swift.org/guide", Some("The Swift Guide"), None, T0))
+        .unwrap();
     store.record(&visit("https://example.com/100%", Some("Percent"), None, T0)).unwrap();
     assert_eq!(store.visits("guide swift", None, 500).unwrap().len(), 1);
     assert_eq!(store.visits("100%", None, 500).unwrap().len(), 1);

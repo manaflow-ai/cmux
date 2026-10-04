@@ -4,7 +4,8 @@ use crate::entry::{HistoryEntry, HistoryKind};
 const NOW: i64 = 1_800_000_000_000;
 
 fn page(id: &str, title: &str, url: &str, ago_s: i64) -> HistoryEntry {
-    let mut entry = HistoryEntry::new(format!("page:{id}"), HistoryKind::Page, NOW - ago_s * 1000, title);
+    let mut entry =
+        HistoryEntry::new(format!("page:{id}"), HistoryKind::Page, NOW - ago_s * 1000, title);
     entry.detail = Some(url.to_owned());
     entry.url = Some(url.to_owned());
     entry.profile = Some("default".to_owned());
@@ -12,7 +13,8 @@ fn page(id: &str, title: &str, url: &str, ago_s: i64) -> HistoryEntry {
 }
 
 fn agent(id: &str, provider: &str, cwd: &str, ago_s: i64) -> HistoryEntry {
-    let mut entry = HistoryEntry::new(format!("agent:{id}"), HistoryKind::Agent, NOW - ago_s * 1000, provider);
+    let mut entry =
+        HistoryEntry::new(format!("agent:{id}"), HistoryKind::Agent, NOW - ago_s * 1000, provider);
     entry.detail = Some(cwd.to_owned());
     entry.cwd = Some(cwd.to_owned());
     entry.provider = Some(provider.to_owned());
@@ -31,7 +33,10 @@ fn sample() -> Vec<HistoryEntry> {
 }
 
 fn ids(query: &HistoryQuery, entries: &[HistoryEntry]) -> Vec<String> {
-    apply(query, entries, NOW, NOW - 3_600_000, |_| false).into_iter().map(|entry| entry.id).collect()
+    apply(query, entries, NOW, NOW - 3_600_000, |_| false)
+        .into_iter()
+        .map(|entry| entry.id)
+        .collect()
 }
 
 fn text(text: &str) -> HistoryQuery {
@@ -40,7 +45,10 @@ fn text(text: &str) -> HistoryQuery {
 
 #[test]
 fn empty_query_is_everything_newest_first() {
-    assert_eq!(ids(&HistoryQuery::default(), &sample()), ["agent:s-1", "page:1", "page:2", "page:3"]);
+    assert_eq!(
+        ids(&HistoryQuery::default(), &sample()),
+        ["agent:s-1", "page:1", "page:2", "page:3"]
+    );
 }
 
 #[test]
@@ -57,9 +65,14 @@ fn diacritics_fold() {
 
 #[test]
 fn kinds_range_and_limit_filter() {
-    let pages_hour = HistoryQuery { kinds: vec![HistoryKind::Page], range: HistoryRange::Hour, ..HistoryQuery::default() };
+    let pages_hour = HistoryQuery {
+        kinds: vec![HistoryKind::Page],
+        range: HistoryRange::Hour,
+        ..HistoryQuery::default()
+    };
     assert_eq!(ids(&pages_hour, &sample()), ["page:1"]);
-    let pages_two = HistoryQuery { kinds: vec![HistoryKind::Page], limit: Some(2), ..HistoryQuery::default() };
+    let pages_two =
+        HistoryQuery { kinds: vec![HistoryKind::Page], limit: Some(2), ..HistoryQuery::default() };
     assert_eq!(ids(&pages_two, &sample()), ["page:1", "page:2"]);
     let month = HistoryQuery { range: HistoryRange::Month, ..HistoryQuery::default() };
     assert_eq!(ids(&month, &sample()).len(), 3);

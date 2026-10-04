@@ -41,6 +41,7 @@ def width_forms():
 
 def emit(name, doc, items):
     print(doc)
+    print("#[rustfmt::skip]")
     print(f"pub(crate) const {name}: &[(char, char)] = &[")
     for i in range(0, len(items), 6):
         print("    " + " ".join(f"('\\u{{{a:04X}}}', '\\u{{{b:04X}}}')," for a, b in items[i:i + 6]))

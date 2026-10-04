@@ -19,8 +19,18 @@ use crate::fold_table::{DIACRITIC_BASES, WIDTH_FORMS};
 
 /// The folded form of `text`, for substring matching.
 pub fn fold(text: &str) -> String {
-        text.to_owned()
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        let wide = lookup(WIDTH_FORMS, ch).unwrap_or(ch);
+        for lower in wide.to_lowercase() {
+            let base = lookup(DIACRITIC_BASES, lower).unwrap_or(lower);
+            if !is_combining_mark(base) {
+                out.push(base);
+            }
+        }
     }
+    out
+}
 
 /// The folded whitespace-separated tokens of a search text. Empty text has
 /// no tokens and matches everything.

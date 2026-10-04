@@ -38,8 +38,12 @@ impl TerminalCommand {
     /// The wire entry for this command.
     pub fn entry(&self, context: &EntryContext<'_>) -> HistoryEntry {
         let title = self.command.clone().unwrap_or_else(|| UNKNOWN_COMMAND.to_owned());
-        let mut entry =
-            HistoryEntry::new(format!("command:{}", self.qualified_id()), HistoryKind::Command, self.started_at_ms, title);
+        let mut entry = HistoryEntry::new(
+            format!("command:{}", self.qualified_id()),
+            HistoryKind::Command,
+            self.started_at_ms,
+            title,
+        );
         entry.detail.clone_from(&self.cwd);
         entry.machine = (self.machine != context.local_machine).then(|| self.machine.clone());
         entry.available = context.available;
@@ -70,7 +74,12 @@ impl TerminalCommandFold {
 
     /// A fold that keeps the newest `capacity` (at least 1) commands.
     pub fn with_capacity(machine: impl Into<String>, capacity: usize) -> Self {
-        Self { machine: machine.into(), capacity: capacity.max(1), cursor: 0, commands: VecDeque::new() }
+        Self {
+            machine: machine.into(),
+            capacity: capacity.max(1),
+            cursor: 0,
+            commands: VecDeque::new(),
+        }
     }
 
     pub fn machine(&self) -> &str {
@@ -91,7 +100,18 @@ impl TerminalCommandFold {
     /// it; only a `shell.command.finished` record with a start time and a
     /// terminal subject adds a command.
     pub fn apply(&mut self, records: &[Value]) {
-        let _ = records;
+        for envelope in records.iter().filter_map(Envelope::parse) {
+            if envelope.sequence <= self.cursor {
+                continue;
+            }
+            self.cursor = envelope.sequence;
+            if let Some(command) = self.command(&envelope) {
+                self.commands.push_back(command);
+            }
+        }
+        while self.commands.len() > self.capacity {
+            self.commands.pop_front();
+        }
     }
 
     /// Entries for every command that `hidden` does not hide, oldest first
@@ -99,7 +119,9 @@ impl TerminalCommandFold {
     pub fn entries(&self, context: &EntryContext<'_>, hidden: &HiddenHistory) -> Vec<HistoryEntry> {
         self.commands
             .iter()
-            .filter(|command| !hidden.hides(&command.qualified_id(), command.started_at_ms, Some("command")))
+            .filter(|command| {
+                !hidden.hides(&command.qualified_id(), command.started_at_ms, Some("command"))
+            })
             .map(|command| command.entry(context))
             .collect()
     }
@@ -118,7 +140,8 @@ impl TerminalCommandFold {
             cwd: string_at(Some(payload), &["cwd"]).map(str::to_owned),
             exit_code: payload.get("exit_code").filter(|value| value.is_number()).and_then(signed),
             started_at_ms,
-            duration_ms: string_at(Some(payload), &["duration_ms"]).and_then(|text| text.parse().ok()),
+            duration_ms: string_at(Some(payload), &["duration_ms"])
+                .and_then(|text| text.parse().ok()),
         })
     }
 }

@@ -4,6 +4,7 @@
 /// A precomposed letter and the base letter of its canonical decomposition, for
 /// Latin, Greek, Cyrillic and Kana letters whose decomposition is the base
 /// followed only by nonspacing marks. Sorted by the first field.
+#[rustfmt::skip]
 pub(crate) const DIACRITIC_BASES: &[(char, char)] = &[
     ('\u{00C0}', '\u{0041}'), ('\u{00C1}', '\u{0041}'), ('\u{00C2}', '\u{0041}'), ('\u{00C3}', '\u{0041}'), ('\u{00C4}', '\u{0041}'), ('\u{00C5}', '\u{0041}'),
     ('\u{00C7}', '\u{0043}'), ('\u{00C8}', '\u{0045}'), ('\u{00C9}', '\u{0045}'), ('\u{00CA}', '\u{0045}'), ('\u{00CB}', '\u{0045}'), ('\u{00CC}', '\u{0049}'),
@@ -152,6 +153,7 @@ pub(crate) const DIACRITIC_BASES: &[(char, char)] = &[
 
 /// A fullwidth or halfwidth form and its `<wide>`/`<narrow>` compatibility
 /// target, plus U+3000 IDEOGRAPHIC SPACE as a space. Sorted by the first field.
+#[rustfmt::skip]
 pub(crate) const WIDTH_FORMS: &[(char, char)] = &[
     ('\u{3000}', '\u{0020}'), ('\u{FF01}', '\u{0021}'), ('\u{FF02}', '\u{0022}'), ('\u{FF03}', '\u{0023}'), ('\u{FF04}', '\u{0024}'), ('\u{FF05}', '\u{0025}'),
     ('\u{FF06}', '\u{0026}'), ('\u{FF07}', '\u{0027}'), ('\u{FF08}', '\u{0028}'), ('\u{FF09}', '\u{0029}'), ('\u{FF0A}', '\u{002A}'), ('\u{FF0B}', '\u{002B}'),

@@ -61,7 +61,10 @@ impl<'a> Envelope<'a> {
 
 fn subject(value: &Value) -> Option<Subject> {
     let object = value.as_object()?;
-    Some(Subject { kind: object.get("kind")?.as_str()?.to_owned(), id: object.get("id")?.as_str()?.to_owned() })
+    Some(Subject {
+        kind: object.get("kind")?.as_str()?.to_owned(),
+        id: object.get("id")?.as_str()?.to_owned(),
+    })
 }
 
 /// A decimal string (the resource API sends sequences as strings) or a JSON

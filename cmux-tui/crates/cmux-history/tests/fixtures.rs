@@ -2,7 +2,8 @@
 //! CmuxNextHistory tests can adopt the same files.
 
 use cmux_history::{
-    AgentSessionFold, EntryContext, HiddenHistory, HistoryEntry, HistoryQuery, TerminalCommandFold, apply,
+    AgentSessionFold, EntryContext, HiddenHistory, HistoryEntry, HistoryQuery, TerminalCommandFold,
+    apply,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -61,7 +62,8 @@ fn agent_fold_fixtures() {
         for batch in &case.batches {
             fold.apply(batch);
         }
-        let context = EntryContext { local_machine: &case.local_machine, available: case.available };
+        let context =
+            EntryContext { local_machine: &case.local_machine, available: case.available };
         let entries = fold.entries(&context, &case.hidden.unwrap_or_default());
         assert_eq!(fold.cursor(), case.expected_cursor, "{}", case.name);
         assert_eq!(entries, case.expected_entries, "{}", case.name);
@@ -80,7 +82,8 @@ fn command_fold_fixtures() {
         for batch in &case.batches {
             fold.apply(batch);
         }
-        let context = EntryContext { local_machine: &case.local_machine, available: case.available };
+        let context =
+            EntryContext { local_machine: &case.local_machine, available: case.available };
         let entries = fold.entries(&context, &case.hidden.unwrap_or_default());
         assert_eq!(fold.cursor(), case.expected_cursor, "{}", case.name);
         assert_eq!(entries, case.expected_entries, "{}", case.name);
@@ -91,12 +94,14 @@ fn command_fold_fixtures() {
 fn query_fixtures() {
     let file: QueryFile = load("query.json");
     assert!(!file.cases.is_empty());
-    let is_directory = |path: &str| file.directories.iter().any(|dir| dir == path.trim_end_matches('/'));
+    let is_directory =
+        |path: &str| file.directories.iter().any(|dir| dir == path.trim_end_matches('/'));
     for case in &file.cases {
-        let ids: Vec<String> = apply(&case.query, &file.entries, file.now_ms, file.local_day_start_ms, is_directory)
-            .into_iter()
-            .map(|entry| entry.id)
-            .collect();
+        let ids: Vec<String> =
+            apply(&case.query, &file.entries, file.now_ms, file.local_day_start_ms, is_directory)
+                .into_iter()
+                .map(|entry| entry.id)
+                .collect();
         assert_eq!(ids, case.expected_ids, "{}", case.name);
     }
 }

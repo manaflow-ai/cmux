@@ -52,8 +52,17 @@ impl Visit {
     /// The wire entry: `page:<profile>:<id>`, titled by the page title or,
     /// without one, the URL.
     pub fn entry(&self, profile: &str) -> HistoryEntry {
-        let title = self.title.clone().filter(|title| !title.is_empty()).unwrap_or_else(|| self.url.clone());
-        let mut entry = HistoryEntry::new(format!("page:{profile}:{}", self.id), HistoryKind::Page, self.at_ms, title);
+        let title = self
+            .title
+            .clone()
+            .filter(|title| !title.is_empty())
+            .unwrap_or_else(|| self.url.clone());
+        let mut entry = HistoryEntry::new(
+            format!("page:{profile}:{}", self.id),
+            HistoryKind::Page,
+            self.at_ms,
+            title,
+        );
         entry.detail = Some(self.url.clone());
         entry.url = Some(self.url.clone());
         entry.profile = Some(profile.to_owned());
@@ -93,27 +102,43 @@ impl VisitStore {
 
     fn prepare(connection: Connection) -> Result<Self, HistoryError> {
         connection.busy_timeout(Duration::from_millis(250))?;
-        connection.pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get::<_, String>(0))?;
+        connection
+            .pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get::<_, String>(0))?;
         connection.execute_batch(SCHEMA)?;
         Ok(Self { connection })
     }
 
     /// Records a visit; returns its id.
     pub fn record(&self, visit: &NewVisit) -> Result<i64, HistoryError> {
-        let _ = visit; Ok(0)
+        self.connection.execute(
+            "INSERT INTO visits(url, title, visit_time_ms, tab) VALUES (?1, ?2, ?3, ?4)",
+            params![visit.url, visit.title, visit.at_ms, visit.tab],
+        )?;
+        Ok(self.connection.last_insert_rowid())
     }
 
     /// Sets the title of `url`'s newest visit (titles arrive after the load).
     /// Returns the number of visits changed (0 or 1).
     pub fn update_title(&self, url: &str, title: &str) -> Result<usize, HistoryError> {
-        let _ = (url, title); Ok(0)
+        Ok(self.connection.execute(
+            "UPDATE visits SET title = ?1 WHERE id = \
+             (SELECT id FROM visits WHERE url = ?2 ORDER BY visit_time_ms DESC, id DESC LIMIT 1)",
+            params![title, url],
+        )?)
     }
 
     /// Visits newest first. Every folded token of `text` must appear in the
     /// URL or the title (SQL `LIKE`, ASCII case insensitive, as in Swift),
     /// and the visit must be at or after `since_ms`.
-    pub fn visits(&self, text: &str, since_ms: Option<i64>, limit: usize) -> Result<Vec<Visit>, HistoryError> {
-        let mut sql = String::from("SELECT id, url, title, visit_time_ms, tab FROM visits WHERE visit_time_ms >= ?");
+    pub fn visits(
+        &self,
+        text: &str,
+        since_ms: Option<i64>,
+        limit: usize,
+    ) -> Result<Vec<Visit>, HistoryError> {
+        let mut sql = String::from(
+            "SELECT id, url, title, visit_time_ms, tab FROM visits WHERE visit_time_ms >= ?",
+        );
         let mut bindings = vec![Sql::Integer(since_ms.unwrap_or(0))];
         for token in tokens(text) {
             sql.push_str(" AND (url LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\')");
@@ -125,48 +150,110 @@ impl VisitStore {
         bindings.push(Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
         let mut statement = self.connection.prepare(&sql)?;
         let rows = statement.query_map(params_from_iter(bindings), |row| {
-            Ok(Visit { id: row.get(0)?, url: row.get(1)?, title: row.get(2)?, at_ms: row.get(3)?, tab: row.get(4)? })
+            Ok(Visit {
+                id: row.get(0)?,
+                url: row.get(1)?,
+                title: row.get(2)?,
+                at_ms: row.get(3)?,
+                tab: row.get(4)?,
+            })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
     /// [`VisitStore::visits`] as wire entries of `profile`.
-    pub fn entries(&self, profile: &str, text: &str, since_ms: Option<i64>, limit: usize) -> Result<Vec<HistoryEntry>, HistoryError> {
+    pub fn entries(
+        &self,
+        profile: &str,
+        text: &str,
+        since_ms: Option<i64>,
+        limit: usize,
+    ) -> Result<Vec<HistoryEntry>, HistoryError> {
         Ok(self.visits(text, since_ms, limit)?.iter().map(|visit| visit.entry(profile)).collect())
     }
 
     /// One row per URL, most recent first.
     pub fn summaries(&self, limit: usize) -> Result<Vec<VisitSummary>, HistoryError> {
-        let _ = limit; Ok(Vec::new())
+        let mut statement = self.connection.prepare(
+            "SELECT url, (SELECT title FROM visits v2 WHERE v2.url = v.url AND v2.title IS NOT NULL \
+             ORDER BY visit_time_ms DESC LIMIT 1), COUNT(*), MAX(visit_time_ms) \
+             FROM visits v GROUP BY url ORDER BY MAX(visit_time_ms) DESC LIMIT ?1",
+        )?;
+        let rows =
+            statement.query_map(params![i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
+                Ok(VisitSummary {
+                    url: row.get(0)?,
+                    title: row.get(1)?,
+                    visit_count: row.get::<_, i64>(2)?.unsigned_abs(),
+                    last_visit_ms: row.get(3)?,
+                })
+            })?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     /// The visit with `id`, if it exists.
     pub fn visit(&self, id: i64) -> Result<Option<Visit>, HistoryError> {
         Ok(self
             .connection
-            .query_row("SELECT id, url, title, visit_time_ms, tab FROM visits WHERE id = ?1", params![id], |row| {
-                Ok(Visit { id: row.get(0)?, url: row.get(1)?, title: row.get(2)?, at_ms: row.get(3)?, tab: row.get(4)? })
-            })
+            .query_row(
+                "SELECT id, url, title, visit_time_ms, tab FROM visits WHERE id = ?1",
+                params![id],
+                |row| {
+                    Ok(Visit {
+                        id: row.get(0)?,
+                        url: row.get(1)?,
+                        title: row.get(2)?,
+                        at_ms: row.get(3)?,
+                        tab: row.get(4)?,
+                    })
+                },
+            )
             .optional()?)
     }
 
     pub fn remove_visit(&self, id: i64) -> Result<usize, HistoryError> {
-        let _ = id; Ok(0)
+        Ok(self.connection.execute("DELETE FROM visits WHERE id = ?1", params![id])?)
     }
 
     /// Removes every visit of `url`.
     pub fn remove_url(&self, url: &str) -> Result<usize, HistoryError> {
-        let _ = url; Ok(0)
+        Ok(self.connection.execute("DELETE FROM visits WHERE url = ?1", params![url])?)
     }
 
     /// Removes every visit whose host is `host` or a subdomain of it.
     pub fn remove_host(&self, host: &str) -> Result<usize, HistoryError> {
-        let _ = host; Ok(0)
+        let host = host.to_lowercase();
+        let suffix = format!(".{host}");
+        let mut ids = Vec::new();
+        {
+            let mut statement = self.connection.prepare("SELECT id, url FROM visits")?;
+            let mut rows = statement.query([])?;
+            while let Some(row) = rows.next()? {
+                let url: String = row.get(1)?;
+                let candidate =
+                    Url::parse(&url).ok().and_then(|url| url.host_str().map(str::to_lowercase));
+                if candidate
+                    .is_some_and(|candidate| candidate == host || candidate.ends_with(&suffix))
+                {
+                    ids.push(row.get::<_, i64>(0)?);
+                }
+            }
+        }
+        let transaction = self.connection.unchecked_transaction()?;
+        let mut removed = 0;
+        for id in ids {
+            removed += transaction.execute("DELETE FROM visits WHERE id = ?1", params![id])?;
+        }
+        transaction.commit()?;
+        Ok(removed)
     }
 
     /// Removes visits at or after `since_ms` (`None`: every visit).
     pub fn remove_since(&self, since_ms: Option<i64>) -> Result<usize, HistoryError> {
-        let _ = since_ms; Ok(0)
+        let since = since_ms.unwrap_or(i64::MIN);
+        Ok(self
+            .connection
+            .execute("DELETE FROM visits WHERE visit_time_ms >= ?1", params![since])?)
     }
 
     /// Drops visits older than the retention before `now_ms` and the oldest
@@ -176,12 +263,27 @@ impl VisitStore {
     }
 
     /// [`VisitStore::prune`] with explicit limits (tests use small ones).
-    pub fn prune_to(&self, now_ms: i64, retention_ms: i64, max_visits: usize) -> Result<usize, HistoryError> {
-        let _ = (now_ms, retention_ms, max_visits); Ok(0)
+    pub fn prune_to(
+        &self,
+        now_ms: i64,
+        retention_ms: i64,
+        max_visits: usize,
+    ) -> Result<usize, HistoryError> {
+        let cutoff = now_ms.saturating_sub(retention_ms);
+        let mut removed = self
+            .connection
+            .execute("DELETE FROM visits WHERE visit_time_ms < ?1", params![cutoff])?;
+        removed += self.connection.execute(
+            "DELETE FROM visits WHERE id IN \
+             (SELECT id FROM visits ORDER BY visit_time_ms DESC, id DESC LIMIT -1 OFFSET ?1)",
+            params![i64::try_from(max_visits).unwrap_or(i64::MAX)],
+        )?;
+        Ok(removed)
     }
 
     pub fn count(&self) -> Result<u64, HistoryError> {
-        let count: i64 = self.connection.query_row("SELECT COUNT(*) FROM visits", [], |row| row.get(0))?;
+        let count: i64 =
+            self.connection.query_row("SELECT COUNT(*) FROM visits", [], |row| row.get(0))?;
         Ok(count.unsigned_abs())
     }
 }

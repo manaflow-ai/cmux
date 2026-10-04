@@ -5,8 +5,8 @@
 use std::collections::BTreeSet;
 
 use cmux_history::{
-    HiddenHistory, HistoryEntry, HistoryKind, HistoryQuery, HistoryRange, NewVisit, VisitStore, apply, fold,
-    search_text, tokens,
+    HiddenHistory, HistoryEntry, HistoryKind, HistoryQuery, HistoryRange, NewVisit, VisitStore,
+    apply, fold, search_text, tokens,
 };
 use proptest::prelude::*;
 
@@ -18,8 +18,10 @@ fn kind() -> impl Strategy<Value = HistoryKind> {
 }
 
 fn word() -> impl Strategy<Value = String> {
-    prop::sample::select(vec!["swift", "Résumé", "RESUME", "api", "Ｗork", "cargo", "~", "zsh", "docs"])
-        .prop_map(str::to_owned)
+    prop::sample::select(vec![
+        "swift", "Résumé", "RESUME", "api", "Ｗork", "cargo", "~", "zsh", "docs",
+    ])
+    .prop_map(str::to_owned)
 }
 
 fn url() -> impl Strategy<Value = Option<String>> {
@@ -122,7 +124,11 @@ enum Hide {
 
 fn hide() -> impl Strategy<Value = Hide> {
     prop_oneof![
-        (prop::option::of(0i64..1_000), 0i64..2_000, prop::option::of(prop::sample::select(vec!["agent", "command"])))
+        (
+            prop::option::of(0i64..1_000),
+            0i64..2_000,
+            prop::option::of(prop::sample::select(vec!["agent", "command"]))
+        )
             .prop_map(|(since, now, kind)| Hide::Range(since, now, kind)),
         (0u32..20).prop_map(|n| Hide::Entry(format!("m/p/{n}"))),
     ]

@@ -18,7 +18,8 @@ pub enum HistoryKind {
 
 impl HistoryKind {
     /// Every kind, in wire order.
-    pub const ALL: [Self; 5] = [Self::Page, Self::Location, Self::Closed, Self::Command, Self::Agent];
+    pub const ALL: [Self; 5] =
+        [Self::Page, Self::Location, Self::Closed, Self::Command, Self::Agent];
 
     /// The wire name (`page`, `location`, ...).
     pub fn as_str(self) -> &'static str {
@@ -99,7 +100,12 @@ pub struct HistoryEntry {
 
 impl HistoryEntry {
     /// An available entry with only the required fields set.
-    pub fn new(id: impl Into<String>, kind: HistoryKind, at_ms: i64, title: impl Into<String>) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        kind: HistoryKind,
+        at_ms: i64,
+        title: impl Into<String>,
+    ) -> Self {
         Self {
             id: id.into(),
             kind,

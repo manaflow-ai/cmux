@@ -34,7 +34,11 @@ struct RangeWire {
 
 impl From<HiddenRange> for RangeWire {
     fn from(range: HiddenRange) -> Self {
-        Self { from: swift_seconds(range.from_ms), until: swift_seconds(range.until_ms), kind: range.kind }
+        Self {
+            from: swift_seconds(range.from_ms),
+            until: swift_seconds(range.until_ms),
+            kind: range.kind,
+        }
     }
 }
 
@@ -88,18 +92,32 @@ impl HiddenHistory {
     /// Hides everything active from `since_ms` (`None`: all time) until
     /// `now_ms`. Later activity shows again. Keeps the newest 64 ranges.
     pub fn hide_range(&mut self, since_ms: Option<i64>, now_ms: i64, kind: Option<&str>) {
-        let _ = (since_ms, now_ms, kind);
+        self.ranges.push(HiddenRange {
+            from_ms: since_ms.unwrap_or(Self::DISTANT_PAST_MS),
+            until_ms: now_ms,
+            kind: kind.map(str::to_owned),
+        });
+        drop_oldest(&mut self.ranges, Self::RANGE_LIMIT);
     }
 
     /// Hides one entry id; keeps the newest 2,000 ids.
     pub fn hide_entry(&mut self, id: &str) {
-        let _ = id;
+        if self.entries.iter().any(|entry| entry == id) {
+            return;
+        }
+        self.entries.push(id.to_owned());
+        drop_oldest(&mut self.entries, Self::ENTRY_LIMIT);
     }
 
     /// True when `id` is hidden, or a range of `kind` (or of every kind)
     /// covers `active_at_ms`.
     pub fn hides(&self, id: &str, active_at_ms: i64, kind: Option<&str>) -> bool {
-        let _ = (id, active_at_ms, kind); false
+        self.entries.iter().any(|entry| entry == id)
+            || self.ranges.iter().any(|range| {
+                (range.kind.is_none() || range.kind.as_deref() == kind)
+                    && range.from_ms <= active_at_ms
+                    && active_at_ms <= range.until_ms
+            })
     }
 
     /// Both documents' hides; a revision conflict merges with this, so no
@@ -108,7 +126,22 @@ impl HiddenHistory {
     /// ids, then the other's new ids, without duplicates, the newest 2,000
     /// kept.
     pub fn merged(&self, other: &Self) -> Self {
-        let _ = other; self.clone()
+        let mut ranges: Vec<HiddenRange> =
+            self.ranges.iter().chain(&other.ranges).cloned().collect();
+        ranges.sort_by(|a, b| {
+            (a.until_ms, a.from_ms, &a.kind).cmp(&(b.until_ms, b.from_ms, &b.kind))
+        });
+        ranges.dedup();
+        drop_oldest(&mut ranges, Self::RANGE_LIMIT);
+        let mut seen: HashSet<&str> = HashSet::new();
+        let mut entries: Vec<String> = Vec::with_capacity(self.entries.len() + other.entries.len());
+        for id in self.entries.iter().chain(&other.entries) {
+            if seen.insert(id.as_str()) {
+                entries.push(id.clone());
+            }
+        }
+        drop_oldest(&mut entries, Self::ENTRY_LIMIT);
+        Self { ranges, entries }
     }
 }
 
