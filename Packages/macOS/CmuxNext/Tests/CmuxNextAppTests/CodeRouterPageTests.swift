@@ -65,7 +65,11 @@ struct CodeRouterPageTests {
 
     @Test func thePageRunsOnlyItsAccountActions() {
         let page = PageDescriptor.coderouter
-        #expect(PageID.isFirstParty(page.id))
+        // A reserved id served only from the bundle, with the strict policy; it needs no
+        // first-party entry (that table only widens a CSP and lists Chromium-tab pages).
+        #expect(PageID.isReserved(page.id))
+        #expect(!PageID.isFirstParty(page.id))
+        #expect(page.csp == .strict)
         #expect(page.admits("cmux.coderouter.status"))
         #expect(page.admits(PageNativeOp.actionRun))
         #expect(!page.admits("cmux.apps.install"))
@@ -104,5 +108,23 @@ struct CodeRouterPageTests {
         #expect(sheet?.name.contains("ChatGPT / Codex") == true)
         #expect(sheet?.detail?.isEmpty == false)
         #expect(CodeRouterPageConfirmations.confirmation(op: "cmux.coderouter.status", params: [:]) == nil)
+    }
+
+    /// A document that is not the bundled page never reaches the bridge: a foreign URL in the
+    /// tab is not trusted, and the page's navigation policy never loads one (no hook).
+    @Test func aForeignDocumentInTheTabGetsNoBridge() {
+        let page = PageDescriptor.coderouter
+        #expect(PageHostTrust.isTrusted(PageHostMessage(frameURL: URL(string: "cmux-page://cmux.coderouter/"), isMainFrame: true, body: [:]),
+                                        page: page))
+        for foreign in ["https://example.com/", "cmux-page://cmux.apps/", "cmux-page://evil.coderouter/", "file:///tmp/x.html"] {
+            #expect(!PageHostTrust.isTrusted(PageHostMessage(frameURL: URL(string: foreign), isMainFrame: true, body: [:]), page: page))
+            for clicked in [true, false] {
+                #expect(PageNavigation.policy(for: URL(string: foreign), page: page, userClicked: clicked, mainFrame: true,
+                                              hook: nil) != .allow)
+            }
+        }
+        // A frame inside the page is never trusted, even at the page's own origin.
+        #expect(!PageHostTrust.isTrusted(PageHostMessage(frameURL: URL(string: "cmux-page://cmux.coderouter/"), isMainFrame: false,
+                                                         body: [:]), page: page))
     }
 }
