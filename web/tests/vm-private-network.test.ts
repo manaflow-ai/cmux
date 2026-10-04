@@ -1203,6 +1203,10 @@ describe("firewall rule not found (404 vm_firewall_rule_not_found)", () => {
   const gatewayWith = (deleted: string[], deleteFailure?: unknown) => ({
     ...testGateway(),
     listFirewallRules: () => Effect.succeed([rule]),
+    getFirewallRule: (_provider: string, ruleId: string) =>
+      ruleId === rule.id
+        ? Effect.succeed(rule)
+        : Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "getFirewallRule", cause: Object.assign(new Error("rule not found"), { status: 404 }) })),
     deleteFirewallRule: (_provider: string, ruleId: string) =>
       deleteFailure === undefined
         ? Effect.sync(() => void deleted.push(ruleId))
@@ -1222,7 +1226,7 @@ describe("firewall rule not found (404 vm_firewall_rule_not_found)", () => {
     expect(deleted).toEqual([]);
   });
 
-  test("a rule deleted by someone else between the list and the delete (provider 404) is the same not-found", async () => {
+  test("a rule deleted by someone else between the read and the delete (provider 404) is the same not-found", async () => {
     const deleted: string[] = [];
     expect(await tagOf(deleteVmFirewallRule({ userId: "user-1", provider: "freestyle", ruleId: "rule-1" }), gatewayWith(deleted, Object.assign(new Error("rule not found"), { status: 404 })))).toBe("VmFirewallRuleNotFoundError");
   });
@@ -1260,10 +1264,10 @@ describe("firewall VM endpoints on team-owned VMs", () => {
 
   test("a rule from the caller's team-owned VM is created", async () => {
     const created: unknown[] = []; const scopes: Array<string | null | undefined> = [];
-    expect(await run(createVmFirewallRule({ ...input, source: { vmId: "fs-1" }, destination: { cidr: "10.250.0.0/24", port: 8080, protocol: "tcp" } }), repoWith("user-1", scopes), gateway(created))).toBeNull();
+    expect(await run(createVmFirewallRule({ ...input, source: { cidr: "10.250.0.0/24" }, destination: { vmId: "fs-1", port: 8080, protocol: "tcp" } }), repoWith("user-1", scopes), gateway(created))).toBeNull();
     expect(scopes).toEqual(["team-1"]);
     // Only the rule reaches the provider (the Freestyle driver spreads it into the request body).
-    expect(created).toEqual([{ source: { vmId: "fs-1" }, destination: { cidr: "10.250.0.0/24", port: 8080, protocol: "tcp" } }]);
+    expect(created).toEqual([{ source: { cidr: "10.250.0.0/24" }, destination: { vmId: "fs-1", port: 8080, protocol: "tcp" } }]);
   });
 
   test("rules of the caller's team-owned VM are listed", async () => {
@@ -1272,7 +1276,7 @@ describe("firewall VM endpoints on team-owned VMs", () => {
 
   test("a teammate's VM is not on the caller's network: vm_not_found and nothing is created", async () => {
     const created: unknown[] = [];
-    expect(await run(createVmFirewallRule({ ...input, source: { vmId: "fs-1" }, destination: { cidr: "10.250.0.0/24" } }), repoWith("user-2", []), gateway(created))).toBe("VmNotFoundError");
+    expect(await run(createVmFirewallRule({ ...input, source: { public: true }, destination: { vmId: "fs-1", port: 22, protocol: "tcp" } }), repoWith("user-2", []), gateway(created))).toBe("VmNotFoundError");
     expect(created).toEqual([]);
   });
 });
@@ -1286,7 +1290,8 @@ describe("firewall rule ownership on the shared provider account", () => {
   const intoMine = { id: "fw-into-mine", action: "allow", source: { public: true }, destination: { vmId: "fs-1", port: 443, protocol: "tcp" } };
   const foreign = { id: "fw-foreign", action: "allow", source: { public: true }, destination: { vmId: "fs-other", port: 22, protocol: "tcp" } };
   const base = { id: "fw-base", action: "allow", source: { vpcId: NETWORK.id }, destination: { vpcId: NETWORK.id } };
-  const all = [mine, intoMine, foreign, base];
+  type Rule = { id: string; action: string; source: Record<string, unknown>; destination: Record<string, unknown> };
+  const all: Rule[] = [mine, intoMine, foreign, base];
   const vm = (providerVmId: string, userId = "user-1") => ({ id: `row-${providerVmId}`, userId, ownerTeamId: "team-1", billingTeamId: "team-1", provider: "freestyle", providerVmId, status: "running" });
   const repo = () => ({
     ...testRepo({ network: networkRow() }),
