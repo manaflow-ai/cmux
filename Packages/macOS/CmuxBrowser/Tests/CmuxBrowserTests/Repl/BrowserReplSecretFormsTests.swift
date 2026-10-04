@@ -53,4 +53,36 @@ struct BrowserReplSecretFormsTests {
         #expect(lines.allSatisfy { $0.utf8.count < 9 << 20 }, "an output line grew past the limit")
         #expect(lines.contains { $0.contains("withheld") }, "\(lines.map { String($0.prefix(200)) })")
     }
+
+    /// Base64 a page or server hands back: of a value too short for an
+    /// eight-character run (a PIN), at each of the three offsets that put a
+    /// value's encoding out of step with the run it sits in (`"x" +
+    /// btoa(value)`), and base64url without padding.
+    @Test("Base64 of a short value, out of step inside a longer run, or base64url, is masked")
+    func base64FormsAreMasked() throws {
+        let store = BrowserReplSecretStore()
+        try store.set(name: "pin", value: "4821", domains: ["example.com"], totp: false, title: "t")
+        try store.set(name: "code", value: "a7Q", domains: ["example.com"], totp: false, title: "t")
+        try store.set(name: "pw", value: "v4lue-xyz-7731", domains: ["example.com"], totp: false, title: "t")
+        try store.set(name: "url", value: "k?~>~?k-secret", domains: ["example.com"], totp: false, title: "t")
+        let pw = Data("v4lue-xyz-7731".utf8).base64EncodedString()
+        let samples: [(text: String, hidden: String, mask: String)] = [
+            ("pin=NDgyMQ==", "NDgyMQ", "<secret:pin>"),
+            (#"{"pin":"NDgyMQ"}"#, "NDgyMQ", "<secret:pin>"),
+            ("c=YTdR;", "YTdR", "<secret:code>"),
+            ("t=Q\(pw)", String(pw.dropLast()), "<secret:pw>"),
+            ("t=QU\(pw)", String(pw.dropLast()), "<secret:pw>"),
+            ("t=QUJ\(pw)", String(pw.dropLast()), "<secret:pw>"),
+            ("t=YWI\(pw)", String(pw.dropLast()), "<secret:pw>"),
+            ("u=az9-Pn4_ay1zZWNyZXQ", "az9-Pn4_ay1zZWNyZXQ", "<secret:url>"),
+        ]
+        for sample in samples {
+            let redacted = store.redact(sample.text)
+            #expect(redacted.contains(sample.mask), "\(sample.text) -> \(redacted)")
+            #expect(!redacted.contains(sample.hidden), "\(sample.text) -> \(redacted)")
+        }
+        // Words and other Base64 stay.
+        let plain = "Mxyz NDgy abcdEFGH QYTd the quick brown fox " + Data((0..<3000).map { UInt8($0 % 256) }).base64EncodedString()
+        #expect(store.redact(plain) == plain)
+    }
 }
