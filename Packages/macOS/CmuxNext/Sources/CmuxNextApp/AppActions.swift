@@ -64,6 +64,8 @@ enum AppActions {
         RemoteHandlers.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
+        // Last: a later bind of one of its actions would drop its reasons.
+        AppScreenAvailability.bind(into: registry, context: context)
         context.observeRefusals()
         DestructiveConfirmation.install(services)
         ActionRouting.install(services)

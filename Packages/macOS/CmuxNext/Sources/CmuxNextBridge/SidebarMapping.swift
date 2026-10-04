@@ -78,6 +78,7 @@ public struct SidebarMapping {
         case .browser: .browser
         case .remoteTerminal: .remoteTerminal
         case .conversation: .conversation
+        case .app: .other("app")
         case let .other(value): .other(value)
         }
     }

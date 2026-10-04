@@ -14,7 +14,9 @@ public struct LayoutMapping {
         public var handles: LayoutHandleMap
     }
 
-    public func map(_ workspace: WorkspaceModel) -> Result {
+    /// - Parameter appScreens: The daemon serves `app-screens-v1`. Without
+    ///   it every screen maps as an ordinary screen, whatever it carries.
+    public func map(_ workspace: WorkspaceModel, appScreens: Bool = false) -> Result {
         var handles = LayoutHandleMap()
         var screens: [LayoutScreen] = []
         for screen in workspace.screens {
@@ -27,13 +29,39 @@ public struct LayoutMapping {
             let screenID = LayoutScreenID(screen.id)
             handles.screens[screenID] = screen.handle
             guard let layout = layout(of: screen, paneIDs: paneIDs, handles: &handles) else { continue }
-            screens.append(LayoutScreen(id: screenID, name: screen.name ?? "", layout: layout))
+            var mapped = LayoutScreen(id: screenID, name: screen.name ?? "", layout: layout)
+            if appScreens { Self.markApp(&mapped, kind: screen.kind, app: screen.app) }
+            screens.append(mapped)
         }
         return Result(screens: screens, handles: handles)
     }
 
+    /// An app screen's kind (app-screens.md 3). An `app` screen's content is
+    /// one app column, its only column (the screen's implicit column when
+    /// the daemon stores it as one split tree), so the layout draws it
+    /// without chrome over the whole screen.
+    static func markApp(_ screen: inout LayoutScreen, kind: ScreenKind, app: String?) {
+        guard let app else { return }
+        switch kind {
+        case .workspace:
+            return
+        case .app:
+            screen.kind = .app(app)
+            switch screen.layout {
+            case let .splits(root):
+                screen.layout = .columns([LayoutColumn(id: screen.implicitColumnID, width: 1, root: root, app: app)])
+            case let .columns(columns):
+                screen.layout = .columns(columns.map { column in
+                    var column = column
+                    column.app = app
+                    return column
+                })
+            }
+        }
+    }
+
     func layout(of screen: ScreenModel, paneIDs: [DaemonPaneID: LayoutPaneID],
-                       handles: inout LayoutHandleMap) -> ScreenLayout? {
+                handles: inout LayoutHandleMap) -> ScreenLayout? {
         if let zoomed = screen.zoomedPane, let id = paneIDs[zoomed] {
             return .splits(.leaf(id))
         }

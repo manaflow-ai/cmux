@@ -14,6 +14,14 @@ public enum ActionTargetReasons {
         registry.register(action)
     }
 
+    /// Adds a target-aware reason in front of the one already set: `reason`
+    /// answers first, the earlier reason when it returns nil. Two owners
+    /// (lone columns, app screens) can then disable the same action.
+    public static func add(_ id: ActionID, in registry: ActionRegistry, _ reason: @escaping @MainActor (ActionInvocation) -> String?) {
+        let earlier = registry.action(for: id)?.targetUnavailableReason
+        set(id, in: registry) { invocation in reason(invocation) ?? earlier?(invocation) }
+    }
+
     /// The general reason, else the reason for `invocation`'s target.
     public static func reason(for id: ActionID, invocation: ActionInvocation, in registry: ActionRegistry) -> String? {
         registry.unavailableReason(for: id) ?? registry.action(for: id)?.targetUnavailableReason?(invocation)

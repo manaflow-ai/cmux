@@ -143,6 +143,10 @@ public struct DaemonCapabilities: Sendable {
     public let conversationTabs = "conversation-tabs-v1"
     /// `conversation-search` on the local conversation owner.
     public let conversationSearch = "conversation-search-v1"
+    /// App screens (plans/cmux-next/app-screens.md): `screens[].kind` and
+    /// `app`, `columns[].app`, the `app` tab kind, `workspace.ensure_app`,
+    /// and the `app-screen-fixed`/`app-column-locked` refusals.
+    public let appScreens = "app-screens-v1"
     public var homeOnly: [String] { [profiles, personalTerminals, browserProfiles, bookmarks, localConversations] }
     /// Written to the local daemon's personal rows instead of each machine's
     /// daemon once the local daemon serves `profiles-v1`.
@@ -189,7 +193,7 @@ public struct DaemonCapabilities: Sendable {
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, conversationTabs, conversationSearch,
-                                            tabWorkspaceName, terminalSnapshotHistory] }
+                                            tabWorkspaceName, terminalSnapshotHistory, appScreens] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

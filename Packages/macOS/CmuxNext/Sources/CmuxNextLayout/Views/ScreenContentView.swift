@@ -110,8 +110,9 @@ final class ScreenContentView: NSView {
         let animate = animated && !context.reduceMotion && bounds.width > 0
         let animateFrames = animate && !structural
 
-        // Panes.
+        // Panes. An app screen's pane draws edge to edge without chrome.
         let style = context.style
+        let chromeless = layout.chromelessPanes
         for (pane, target) in baseGeometry.panes {
             if var existing = paneFrames[pane] {
                 existing.setTarget(target, alpha: 1)
@@ -124,7 +125,8 @@ final class ScreenContentView: NSView {
                 }
                 paneFrames[pane] = AnimatedFrame(target)
             }
-            context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius)
+            let bare = chromeless.contains(pane)
+            context.hosts[pane]?.applyShape(padding: bare ? 0 : style.panePadding, cornerRadius: bare ? 0 : style.paneCornerRadius)
         }
         for pane in paneFrames.keys where baseGeometry.panes[pane] == nil {
             paneFrames[pane] = nil
@@ -278,9 +280,18 @@ final class ScreenContentView: NSView {
         let multiple = paneFrames.count > 1
         let style = context.style
         let ringAllowed = (multiple || style.focusRing.showsForSinglePane) && style.focusIndicator.marksBorder
+        let chromeless = layout.chromelessPanes
         for pane in paneFrames.keys {
             guard let host = context.hosts[pane] else { continue }
             let isFocused = pane == focused
+            // An app screen's pane has no ring, dim, border or tab emphasis;
+            // only an unread attention mark still shows.
+            if chromeless.contains(pane) {
+                host.setChrome(showsRing: false, dim: 0, focusRing: style.focusRing, tabEmphasis: .full,
+                               border: PaneOverlayView.Border(shows: false, width: style.paneBorderWidth, color: style.paneBorderColor),
+                               attention: attention[pane], attentionSettings: style.attention, animated: animated)
+                continue
+            }
             host.setChrome(
                 showsRing: ringAllowed && isFocused,
                 // With appearance.borders none the ring is off; the dim stands in

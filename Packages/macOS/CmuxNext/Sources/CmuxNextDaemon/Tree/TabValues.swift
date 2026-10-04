@@ -12,6 +12,9 @@ public enum TabKind: Sendable, Hashable, Codable {
     /// A tab that shows one conversation of a conversation owner
     /// (`conversation-tabs-v1`, `TabSnapshot.conversation`). The app draws it.
     case conversation
+    /// A first-party or installed app's page (`app-screens-v1`,
+    /// `TabSnapshot.app` and `route`). The app draws it.
+    case app
     case other(String)
 
     public init(rawValue: String) {
@@ -20,6 +23,7 @@ public enum TabKind: Sendable, Hashable, Codable {
         case "browser": self = .browser
         case "remote-terminal": self = .remoteTerminal
         case "conversation": self = .conversation
+        case "app": self = .app
         default: self = .other(rawValue)
         }
     }
@@ -30,6 +34,7 @@ public enum TabKind: Sendable, Hashable, Codable {
         case .browser: "browser"
         case .remoteTerminal: "remote-terminal"
         case .conversation: "conversation"
+        case .app: "app"
         case .other(let value): value
         }
     }

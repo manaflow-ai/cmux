@@ -31,3 +31,25 @@ import Testing
         #expect(!registry.isBound("column.undock"))
     }
 }
+
+/// Two owners disable one action: the added reason answers first, the
+/// earlier one when the added one has nothing to say.
+@Suite struct ActionTargetReasonChainTests {
+    @Test func anAddedReasonComesFirstAndFallsBackToTheEarlierOne() {
+        let registry = ActionRegistry.standard()
+        registry.bind("column.moveLeft", invoke: { _ in })
+        ActionTargetReasons.set("column.moveLeft", in: registry) { invocation in
+            invocation.target?.id == "lone" || invocation.target?.id == "app" ? "Add a second column first" : nil
+        }
+        ActionTargetReasons.add("column.moveLeft", in: registry) { invocation in
+            invocation.target?.id == "app" ? "The app column cannot change" : nil
+        }
+        func reason(_ id: String) -> String? {
+            ActionTargetReasons.reason(for: "column.moveLeft", invocation: ActionInvocation(target: ActionTargetRef(kind: .column, id: id)),
+                                       in: registry)
+        }
+        #expect(reason("app") == "The app column cannot change")
+        #expect(reason("lone") == "Add a second column first")
+        #expect(reason("c2") == nil)
+    }
+}

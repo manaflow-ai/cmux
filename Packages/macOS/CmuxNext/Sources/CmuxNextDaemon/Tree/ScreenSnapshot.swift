@@ -65,6 +65,11 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
     public var pinned: Bool
     /// The screen group this screen belongs to (`screen-groups-v1`).
     public var group: ScreenGroupID?
+    /// `workspace` unless the daemon serves `app-screens-v1` and this is an
+    /// app screen.
+    public var kind: ScreenKind
+    /// The app of an `app` screen.
+    public var app: String?
 
     public init(
         id: ScreenID,
@@ -82,7 +87,9 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         color: String? = nil,
         icon: String? = nil,
         pinned: Bool = false,
-        group: ScreenGroupID? = nil
+        group: ScreenGroupID? = nil,
+        kind: ScreenKind = .workspace,
+        app: String? = nil
     ) {
         self.id = id
         self.resourceID = resourceID
@@ -100,10 +107,12 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         self.icon = icon
         self.pinned = pinned
         self.group = group
+        self.kind = kind
+        self.app = app
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, active, layout, columns, panes, color, icon, pinned, group
+        case id, name, active, layout, columns, panes, color, icon, pinned, group, kind, app
         case resourceID = "resource_id"
         case shortID = "short_id"
         case activePane = "active_pane"
@@ -130,5 +139,10 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
         pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
         group = try c.decodeIfPresent(ScreenGroupID.self, forKey: .group)
+        let app = (try? c.decodeIfPresent(String.self, forKey: .app)).flatMap { $0 }.flatMap { $0.isEmpty ? nil : $0 }
+        // An app kind without its app cannot be shown as one: an ordinary screen.
+        let kind = (try? c.decodeIfPresent(ScreenKind.self, forKey: .kind)).flatMap { $0 } ?? .workspace
+        self.kind = app == nil ? .workspace : kind
+        self.app = kind == .workspace ? nil : app
     }
 }

@@ -162,7 +162,7 @@ final class AppResourceSource: ResourceSampleSource {
                 case .none: break
                 }
                 resolved.tabs.append(sources)
-            case .remoteTerminal, .conversation, .other:
+            case .remoteTerminal, .conversation, .app, .other:
                 // A remote reference or a conversation's processes run on its own session.
                 resolved.tabs.append(TabResourceSources(tabID: tab.id, title: tab.displayTitle, kind: .other,
                                                         processes: [], available: false))

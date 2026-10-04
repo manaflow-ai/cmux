@@ -22,6 +22,10 @@ public final class ScreenModel: Identifiable {
     public internal(set) var pinned: Bool
     /// The screen group this screen belongs to (`screen-groups-v1`).
     public internal(set) var group: ScreenGroupID?
+    /// `app` for an app screen (`app-screens-v1`), else `workspace`.
+    public internal(set) var kind: ScreenKind
+    /// The app of an app screen.
+    public internal(set) var app: String?
     /// Color, icon, pin, and group come from the daemon's state resources
     /// (`DaemonStore.session`), which the raw tree does not carry.
     @ObservationIgnored var metadataFromState = false
@@ -41,6 +45,8 @@ public final class ScreenModel: Identifiable {
         icon = s.icon
         pinned = s.pinned
         group = s.group
+        kind = s.kind
+        app = s.app
     }
 
     static func identity(_ s: ScreenSnapshot) -> String {
@@ -56,6 +62,8 @@ public final class ScreenModel: Identifiable {
         if viewportBaseWidth != (s.viewportBaseWidth ?? 1) { viewportBaseWidth = s.viewportBaseWidth ?? 1 }
         if zoomedPane != s.zoomedPane { zoomedPane = s.zoomedPane }
         if defaultPane != s.activePane { defaultPane = s.activePane }
+        if kind != s.kind { kind = s.kind }
+        if app != s.app { app = s.app }
         if !metadataFromState {
             if color != s.color { color = s.color }
             if icon != s.icon { icon = s.icon }

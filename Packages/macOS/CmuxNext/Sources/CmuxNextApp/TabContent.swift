@@ -19,6 +19,9 @@ enum TabContent {
     /// A conversation tab (`conversation-tabs-v1`): the native Home view
     /// of one conversation (plans/cmux-next/home.md 7).
     case conversation(HomeHostView)
+    /// An app tab (`app-screens-v1`): the app's own page, the same view an
+    /// app screen shows (`AppsService.tabView(for:)`).
+    case app(AppTabView)
 
     var view: NSView {
         switch self {
@@ -28,6 +31,7 @@ enum TabContent {
         case .page(let view): view
         case .placeholder(let view): view
         case .conversation(let view): view
+        case .app(let view): view
         }
     }
 
@@ -55,6 +59,7 @@ enum TabContent {
         case .page(let view): view.focusTarget
         case .placeholder(let view): view
         case .conversation(let view): view.focusTarget
+        case .app(let view): view.focusTarget
         }
     }
 }

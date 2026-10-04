@@ -290,6 +290,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         case .remoteTerminal:
             return services.remoteTerminals.content(for: tab, home: daemon)
         case .conversation: return services.home.tabView(for: tab).map(TabContent.conversation)
+        case .app: return services.apps.tabView(for: tab).map(TabContent.app)
         default:
             return nil
         }
@@ -299,14 +300,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var currentContent: TabContent? { currentTabKey.flatMap(existingContent(for:)) }
 
     /// `key`'s live content, if its surface or page exists.
-    func existingContent(for key: String) -> TabContent? {
-        if let entry = services.cache.existingTerminal(key) { return .terminal(entry) }
-        if let view = services.agentTabs.existingView(key) { return .agent(view) }
-        if let view = services.pages.existingView(key) { return .page(view) }
-        if let placeholder = services.remoteTerminals.existingPlaceholder(key) { return .placeholder(placeholder) }
-        if let home = services.home.existingTabView(key) { return .conversation(home) }
-        return services.cache.existingBrowser(key).map(TabContent.browser)
-    }
+    func existingContent(for key: String) -> TabContent? { TabContent.existing(key, services: services) }
 
     /// True when showing the selection needs no new surface or page.
     var selectedContentIsAlive: Bool {

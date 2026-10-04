@@ -201,7 +201,10 @@ final class AppServices {
             await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base
         }
         cache.findTab = { [weak self] key in self?.remoteLocalhost.tab(id: key) }
-        cache.onRelease = { [weak self] key in self?.home.releaseTabView(key) }
+        cache.onRelease = { [weak self] key in
+            self?.home.releaseTabView(key)
+            self?.apps.releaseTabView(key)
+        }
         cache.machineBadge = { [weak self] key, url in
             guard let self, let tab = remoteLocalhost.tab(id: key) else { return nil }
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit

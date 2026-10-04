@@ -79,6 +79,11 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
                                   stripWidth: viewport.width, stripHeight: viewport.height, uncoveredMaxX: viewport.width,
                                   uncoveredMaxY: viewport.height, clipMaxX: viewport.width, clipMaxY: viewport.height)
         case let .columns(all):
+            // An app screen's only column fills the screen edge to edge
+            // (app-screens.md 1).
+            if all.count == 1, let only = all.first, only.app != nil {
+                return appFill(only, viewport: viewport, style: style, scale: scale)
+            }
             if style.prototype.model != .off,
                let prototype = LayoutModelPrototype.geometry(all, viewport: viewport, style: style, scale: scale) {
                 return prototype
@@ -135,6 +140,21 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
             }
             return geometry
         }
+    }
+
+    /// An app screen's only column: one column over the whole viewport,
+    /// with no edges or gap zones (nothing scrolls, nothing docks, and an
+    /// app screen never grows a column).
+    private static func appFill(_ column: LayoutColumn, viewport: CGSize, style: LayoutStyle, scale: CGFloat) -> ScreenGeometry {
+        let bounds = CGRect(origin: .zero, size: viewport)
+        let result = SplitGeometry.layout(column.root, in: bounds, style: style, scale: scale)
+        var geometry = ScreenGeometry(viewport: viewport, panes: result.panes, dividers: result.dividers, contentWidth: viewport.width,
+                                      isColumns: false, stripWidth: viewport.width, stripHeight: viewport.height,
+                                      uncoveredMaxX: viewport.width, uncoveredMaxY: viewport.height,
+                                      clipMaxX: viewport.width, clipMaxY: viewport.height)
+        geometry.columns[column.id] = bounds
+        geometry.columnOrder = [column.id]
+        return geometry
     }
 
     public var maxOffset: CGFloat {

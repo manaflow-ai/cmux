@@ -28,6 +28,16 @@ final class PaneContentView: NSView, PaneContentChrome {
     }
     private var placementObservation: Task<Void, Never>?
     private var reportedChrome: (header: CGFloat, footer: CGFloat) = (-1, -1)
+    /// False for an app screen's pane (app-screens.md 3): no tab strip, the
+    /// app's content fills the pane.
+    var showsStrip = true {
+        didSet {
+            guard showsStrip != oldValue else { return }
+            stripView.isHidden = !showsStrip
+            needsLayout = true
+            reportHeaderIfChanged()
+        }
+    }
 
     /// - Parameter reveal: Holds the strip until the first tabs arrive and
     ///   the content until the first terminal frame (launch load-in).
@@ -99,7 +109,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// pane cell's top, through the pane padding) and below (to the content
     /// border), on this window's pixel grid (`PaneChromeMetrics`).
     var stripHeight: CGFloat {
-        PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
+        guard showsStrip else { return 0 }
+        return PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
     }
 
     override func viewDidChangeBackingProperties() {

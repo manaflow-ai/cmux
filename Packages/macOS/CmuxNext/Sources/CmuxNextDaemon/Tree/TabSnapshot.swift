@@ -47,6 +47,10 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
     public var end: TerminalTabEnd?
     /// The record version of an unadoptable host (`terminalState == .unadoptable`).
     public var hostRecordVersion: Int?
+    /// The app an `.app` tab shows (`app-screens-v1`, wire `app`).
+    public var app: String?
+    /// The app's route inside its page, if any (wire `route`).
+    public var route: String?
 
     public init(
         surface: SurfaceID,
@@ -70,7 +74,9 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         browserRenderer: String? = nil,
         browserEngine: String? = nil,
         faviconURL: String? = nil,
-        browserProfileID: String? = nil
+        browserProfileID: String? = nil,
+        app: String? = nil,
+        route: String? = nil
     ) {
         self.surface = surface
         self.tabResourceID = tabResourceID
@@ -94,6 +100,8 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         self.browserEngine = browserEngine
         self.faviconURL = faviconURL
         self.browserProfileID = browserProfileID
+        self.app = app
+        self.route = route
     }
 
     /// Title a tab strip shows: the user name wins over the program title.
@@ -104,11 +112,11 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
 
     /// True when the app draws this tab itself; `attach-surface` refuses it.
     public var isFrontendOwned: Bool {
-        browserRenderer == "frontend" || kind == .remoteTerminal || kind == .conversation
+        browserRenderer == "frontend" || kind == .remoteTerminal || kind == .conversation || kind == .app
     }
 
     enum CodingKeys: String, CodingKey {
-        case surface, kind, name, title, size, dead, notification, url, pinned, cwd, remote, relaunch, conversation, end
+        case surface, kind, name, title, size, dead, notification, url, pinned, cwd, remote, relaunch, conversation, end, app, route
         case terminalState = "terminal_state"
         case hostRecordVersion = "host_record_version"
         case tabResourceID = "tab_resource_id"
@@ -166,5 +174,8 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         terminalState = try? c.decodeIfPresent(TerminalTabState.self, forKey: .terminalState)
         end = try? c.decodeIfPresent(TerminalTabEnd.self, forKey: .end)
         hostRecordVersion = try c.decodeIfPresent(Int.self, forKey: .hostRecordVersion)
+        // One flat shape: `{"kind":"app","app":"<id>","route":"<path>"}`, route omitted when absent.
+        app = kind == .app ? (try? c.decodeIfPresent(String.self, forKey: .app)).flatMap { $0 } : nil
+        route = app == nil ? nil : (try? c.decodeIfPresent(String.self, forKey: .route)).flatMap { $0 }
     }
 }

@@ -48,7 +48,7 @@ extension PaneController {
             })
         case .terminal(let entry):
             newBrowserTab(url: WorkingURL.devServer(in: entry.session.surfaceView.viewportText()), engine: engine, then: then)
-        case .browser, .page, .placeholder, .conversation, nil:
+        case .browser, .page, .placeholder, .conversation, .app, nil:
             newBrowserTab(url: nil, engine: engine, then: then)
         }
     }

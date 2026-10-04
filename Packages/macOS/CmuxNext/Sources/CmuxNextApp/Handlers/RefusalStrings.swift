@@ -101,6 +101,12 @@ nonisolated enum RefusalStrings {
     static var audioMuteUnported: String { text("handlers.refusal.audioMuteUnported", "needs audio mute support in the cmux-next browser") }
     static func noColumnShown(_ id: String) -> String { format("handlers.refusal.noColumnShown", "no column %@ is shown", id) }
     static var addSecondColumnFirst: String { text("handlers.refusal.addSecondColumnFirst", "Add a second column first") }
+    /// An `app` screen holds one app tab and nothing else (`app-screen-fixed`).
+    static var appScreenFixed: String { text("handlers.refusal.appScreenFixed", "An app screen shows only its app") }
+    /// The local daemon cannot make app screens (`app-screens-v1`).
+    static var appScreensUnsupported: String { text("handlers.refusal.appScreensUnsupported", "This session cannot open apps as screens") }
+    /// The app's workspace did not arrive in the tree within the wait.
+    static var appWorkspaceTimedOut: String { text("handlers.refusal.appWorkspaceTimedOut", "The app's workspace did not open in time") }
     static var columnAlreadyHasWidth: String { text("handlers.refusal.columnAlreadyHasWidth", "the column already has that width") }
     static var columnTooNarrowToSplit: String { text("handlers.refusal.columnTooNarrowToSplit", "Not enough room to split this column") }
     /// cmux.json `layout.rows` is false (plans/cmux-next/rows.md O2).
