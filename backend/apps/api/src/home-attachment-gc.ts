@@ -23,17 +23,29 @@ export const attachmentWakeAt = (sql: Pick<SqlStore, "exec">): number | null => 
 
 /** The attachment part of the ConversationDO wake: slot expiry, the due sweep, and a due prefix purge of `entity`. */
 export const runAttachmentWake = async (deps: AttachmentGcDeps, entity: string | undefined, now: number): Promise<void> => {
-  await expireSlots(deps, now)
-  await drainDrops(deps, now)
+  // Each step runs even when another throws (a failing drop never blocks the sweep or the purge); the first failure is rethrown.
+  let failure: unknown
+  const step = async (run: () => Promise<unknown>) => {
+    try {
+      await run()
+    } catch (e) {
+      failure ??= e
+    }
+  }
+  await step(() => expireSlots(deps, now))
+  await step(() => drainDrops(deps, now))
   // A reference released earlier in this wake marks the sweep dirty at Date.now(), which may be later than the wake's `now`.
   const at = Math.max(now, Date.now())
   const due = store.nextSweepAt(deps.sql)
-  if (due !== null && due <= at) await sweepAttachments(deps, at)
+  if (due !== null && due <= at) await step(() => sweepAttachments(deps, at))
   const purge = store.purgeAt(deps.sql)
   if (purge !== null && purge <= now && entity) {
-    await deletePrefix(deps.env, entity)
-    store.clearPurge(deps.sql, purge)
+    await step(async () => {
+      await deletePrefix(deps.env, entity)
+      store.clearPurge(deps.sql, purge)
+    })
   }
+  if (failure !== undefined) throw failure
 }
 
 /**
@@ -70,8 +82,8 @@ export const sweepAttachments = async (deps: AttachmentGcDeps, now: number): Pro
  */
 const drainDrops = async (deps: AttachmentGcDeps, now: number): Promise<void> => {
   const fail = (r: conversation.AttachmentRecord, e: unknown) => {
-    console.error(JSON.stringify({ msg: "attachment drop failed", object_key: r.object_key, error: String(e).slice(0, 200) }))
-    store.failDrop(deps.sql, r.object_key, now)
+    const dead = store.failDrop(deps.sql, r.object_key, now)
+    console.error(JSON.stringify({ msg: dead ? "attachment drop dead-lettered" : "attachment drop failed", object_key: r.object_key, quota_user: r.quota_user, error: String(e).slice(0, 200) }))
   }
   for (let drops = store.dueDrops(deps.sql, now); drops.length > 0; drops = store.dueDrops(deps.sql, now)) {
     try {

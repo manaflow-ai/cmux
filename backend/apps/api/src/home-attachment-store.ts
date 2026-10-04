@@ -394,34 +394,44 @@ export const clearPurge = (sql: Sql, at: number): void => void sql.exec(`UPDATE 
  * drop never makes the owner's wake time 0 and a commit can never cancel its retry.
  */
 const ensureDrops = (sql: Sql) =>
-  sql.exec(`CREATE TABLE IF NOT EXISTS ${DROPS} (object_key TEXT PRIMARY KEY, record TEXT NOT NULL, next_attempt_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)`)
+  sql.exec(`CREATE TABLE IF NOT EXISTS ${DROPS} (object_key TEXT PRIMARY KEY, record TEXT NOT NULL, next_attempt_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, dead INTEGER NOT NULL DEFAULT 0)`)
 
 const queueDrops = (sql: Sql, records: ReadonlyArray<Record>): void => {
   if (records.length === 0) return
   ensureDrops(sql)
   const now = Date.now()
-  for (const r of records) sql.exec(`INSERT OR REPLACE INTO ${DROPS} (object_key, record, next_attempt_at, attempts) VALUES (?, ?, ?, 0)`, r.object_key, JSON.stringify(r), now)
+  for (const r of records) sql.exec(`INSERT OR REPLACE INTO ${DROPS} (object_key, record, next_attempt_at, attempts, dead) VALUES (?, ?, ?, 0, 0)`, r.object_key, JSON.stringify(r), now)
 }
 
 /** Drops due at `now` (their next attempt reached), oldest attempt first. */
 export const dueDrops = (sql: Sql, now: number, limit = 100): Array<Record> =>
-  has(sql, DROPS) ? sql.exec<{ record: string }>(`SELECT record FROM ${DROPS} WHERE next_attempt_at <= ? ORDER BY next_attempt_at, object_key LIMIT ?`, now, limit).map((r) => JSON.parse(r.record) as Record) : []
+  has(sql, DROPS) ? sql.exec<{ record: string }>(`SELECT record FROM ${DROPS} WHERE dead = 0 AND next_attempt_at <= ? ORDER BY next_attempt_at, object_key LIMIT ?`, now, limit).map((r) => JSON.parse(r.record) as Record) : []
 
 /** The earliest next attempt of a queued drop (a real time, never 0), or null. */
 export const nextDropAt = (sql: Sql): number | null => {
   if (!has(sql, DROPS)) return null
-  const at = sql.exec<{ at: number | null }>(`SELECT MIN(next_attempt_at) AS at FROM ${DROPS}`)[0]?.at
+  const at = sql.exec<{ at: number | null }>(`SELECT MIN(next_attempt_at) AS at FROM ${DROPS} WHERE dead = 0`)[0]?.at
   return at === null || at === undefined ? null : Number(at)
 }
 
 /** Drop retry backoff: 30 s doubling, at most an hour. */
 export const dropBackoffMs = (attempts: number): number => Math.min(3_600_000, 30_000 * 2 ** Math.max(0, attempts - 1))
 
-/** A failed attempt for `objectKey`: one more attempt counted, the next one after the backoff. */
-export const failDrop = (sql: Sql, objectKey: string, now: number): void => {
+/**
+ * Attempts before a drop is dead-lettered. With the backoff (30 s doubling, at most 1 h) ten
+ * attempts span about three hours: longer than a typical R2 or Durable Object incident, short
+ * enough that a stuck drop is surfaced (logged, kept with dead = 1) the same day instead of
+ * retried forever. A dead drop takes no wake time; an operator retries it by resetting the row.
+ */
+export const DROP_MAX_ATTEMPTS = 10
+
+/** A failed attempt for `objectKey`: one more attempt counted, the next one after the backoff; true when it is now dead-lettered. */
+export const failDrop = (sql: Sql, objectKey: string, now: number): boolean => {
   const row = sql.exec<{ attempts: number }>(`SELECT attempts FROM ${DROPS} WHERE object_key = ?`, objectKey)[0]
   const attempts = Number(row?.attempts ?? 0) + 1
-  sql.exec(`UPDATE ${DROPS} SET attempts = ?, next_attempt_at = ? WHERE object_key = ?`, attempts, now + dropBackoffMs(attempts), objectKey)
+  const dead = attempts >= DROP_MAX_ATTEMPTS
+  sql.exec(`UPDATE ${DROPS} SET attempts = ?, next_attempt_at = ?, dead = ? WHERE object_key = ?`, attempts, now + dropBackoffMs(attempts), dead ? 1 : 0, objectKey)
+  return dead
 }
 
 export const clearDrop = (sql: Sql, objectKey: string): void => void sql.exec(`DELETE FROM ${DROPS} WHERE object_key = ?`, objectKey)
