@@ -1,6 +1,6 @@
 # cmux next: remote conversations on a paired server (relay analysis)
 
-Status: revision 3 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
+Status: revision 4 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
 5 P2), with the coordinator's decisions D-A and D-B of 2026-10-04. No code yet; the review agent
 re-checks this revision before any code. Decisions D1 and D2 of 2026-10-04: the MacBook opens the daemon
 conversations of a paired Mac mini over lane 12's `cmux link` overlay; the server is a
@@ -92,6 +92,8 @@ kinds for owned conversations leave it (section 8). Nothing reaches the remote w
   - **Which conversations:** every conversation whose participants include `user_local`, at
     pairing time and later: a conversation created afterwards with `user_local` gets the
     `remote_<install>` participant of every active paired install in the same commit.
+  - **Cap (P3-E):** `MAX_PARTICIPANTS` counts entries, so paired installs are capped: at most
+    8 paired installs per server (proposal); pairing a ninth is refused with a clear reason.
   - **Who adds and removes it:** new system-only ops `participants.add_system` and
     `participants.remove_system`, accepted only from the daemon's own pairing and revocation path
     (principal `System`), refused from local clients, agents and remote peers. A conversation at
@@ -106,48 +108,83 @@ kinds for owned conversations leave it (section 8). Nothing reaches the remote w
     the message. This changes the `cmux-conversation` wire types and the conformance corpus that
     the cloud `ConversationDO` replays, so the change lands with a coordination line and the corpus
     update in the same push, agreed first with the `ConversationDO` owner (the backend lead)
-    through a coordination line.
+    through a coordination line that names both new fields, `origin` and `person`.
 - Owned conversation: `remote_<install>` is a participant and the stamp's `user_id` is the server
   owner. The gate checks this for list, snapshot, history, typing and ops.
 
-## 6. Remote prompts to agents (D-A, decided: no waiver)
+## 6. Remote prompts to agents (D-A no waiver; D-E; rev 4 after the rev 3 review)
 
 A `message.send` from a remote principal into a conversation with an agent starts a
-**remote-origin prompt chain**.
+**remote-origin prompt chain**. The rules fail closed: when any part of the gate is missing,
+crashed, slow or unsure, the tool does not run.
 
-1. **Fixed minimum.** In a remote-origin chain every side-effect tool needs an approval: every MCP
-   write, Bash and other shell, file writes, child agent spawn, `automation.deploy`, settings,
-   `CLAUDE.md` and hooks edits, every memory-file change (`LOG.txt`, `TREE/`) and every scheduled
-   automation change. Reads outside the Chief's workspace need an approval too, because their
-   output returns to the remote as text. **Workspace** for the Chief is `$MUX_HOME` (its home
-   folder); for another agent it is the workspace root of its session. A tool the gate cannot
-   classify needs an approval. Nothing lowers the minimum: not the remote, the model, a setting,
-   `CLAUDE.md`, a hook config or a permission mode; there is no waiver.
-2. **Where it is enforced (D-E, decided; the acpmux and agent-host owner confirms):** in the daemon, not in the agent's permission
-   mode (Claude Code sets that per session, so a mixed session or a bypass-mode child would
-   escape it).
-   - Claude Code sessions (the Chief and every child it spawns): the agent host installs a
-     **PreToolUse hook** owned by the daemon for every session it starts, set in the managed
-     settings layer so the session cannot remove it. PreToolUse hooks run in every permission
-     mode, including bypass. The hook asks the daemon `turn.origin {session, tool, input}`; for a
-     remote chain the daemon decides: allow (classified read inside the workspace), or hold the
-     call until an approval arrives and then allow, or deny. A hook timeout or a daemon error
-     denies.
-   - ACP agents (acpmux): the same daemon decision at acpmux's permission step
-     (`session/request_permission`), per prompt, not per session.
-3. **Mixed prompts.** A prompt that contains any remote message is a remote prompt, also when
-   local messages are in it.
-4. **Lifetime of the mark (P2-A).** The mark belongs to the prompt chain for its whole life: the
-   prompt, its tool calls, its child sessions and its `[mux-event]` follow-ups. A later local
-   message starts a new chain; it never clears a chain that is still running.
-5. **Presence proof and channel.** Each approval needs a presence proof (lane 15: the presence key
-   with Touch ID, or an approval on a second device). Approvals go through the cloud (lane 15
-   approval ops on the owner's devices), never over the link: the link refuses approval ops.
-   **A LAN-only server (no cloud) therefore denies every remote side effect;** remote reads inside
-   the workspace still work.
-6. **Offline approver.** No answer in 10 minutes: deny, and the chain is cancelled.
-7. **Revocation** (section 10) cancels the chain, its child sessions, its open approvals and its
-   queued outbox.
+1. **Fixed minimum.** In a remote chain every side-effect tool needs an approval: every MCP write,
+   Bash and other shell, file writes, child agent spawn, `automation.deploy`, settings,
+   `CLAUDE.md` and hooks edits, every scheduled automation change. Reads outside the workspace
+   need an approval too, because their output returns to the remote as text. **Workspace** for the
+   Chief is `$MUX_HOME`; for another agent, its session's workspace root. A tool the gate cannot
+   classify needs an approval. Nothing lowers the minimum (the remote, the model, a setting,
+   `CLAUDE.md`, a hook config, a permission mode); there is no waiver. "Always allow" does not exist
+   in a remote chain: one approval allows one call.
+2. **Enforcement, fail closed (P1-C; DECISION: bypass disabled, proposal yes).**
+   - Sessions of a remote chain start with bypass mode disabled in the managed settings layer
+     (`disableBypassPermissionsMode`), so every tool that the allow rules do not cover goes through
+     the permission step, which the agent host forwards over ACP `session/request_permission` to
+     the daemon. The daemon's decision there is the gate: allow, hold for an approval, or deny.
+   - The daemon-owned **PreToolUse hook** (managed settings, cannot be removed by the session) is
+     only a fast path: it can return allow for a classified read inside the workspace, and
+     otherwise defers to the permission step. A hook that is missing, crashes, cannot start or
+     times out therefore changes nothing: the permission step still asks the daemon. The hook's
+     timeout is set above 10 minutes and the hook answers itself before that limit.
+   - Verify these semantics on the pinned Claude Code version before code (managed settings
+     precedence, `disableBypassPermissionsMode`, the permission step reaching ACP, hook failure
+     handling). Tests: a missing hook binary, a crashing hook, and a hook that sleeps past its
+     timeout each end in the daemon's decision (deny without an approval).
+3. **Which agents (P1-D; DECISION: Claude Code only in v1, proposal yes).** A remote chain can start
+   only harnesses whose permission step cannot be skipped: Claude Code in v1. Any other harness,
+   and any agent in an auto or yolo mode, is refused for a remote chain (also as a child). A later
+   harness is added only when its forced ask mode is verified at spawn. Test: a remote chain that
+   tries another harness or an auto-mode agent is refused.
+4. **Origin key and storage (P1-E, P2-F).** The origin is keyed by `(session, active prompt id)`
+   and stored durably with the prompt in acpmux's prompt metadata and in the daemon store, and it
+   is carried through a daemon handoff. `turn.origin` returns `remote` for an unknown session, an
+   unknown prompt or no active prompt. No method can set or clear an origin; only the owner's
+   `message.send` path writes it. The query socket is the daemon's local agent-host socket (not
+   the remote-relay entry). After a daemon restart, every pending approval of a remote chain is
+   denied and its chain is cancelled. Test: restart mid-turn; the mark survives and the pending
+   approval is denied.
+5. **Mixed prompts and lifetime (P2-A).** A prompt that contains any remote message is a remote
+   prompt. The mark belongs to the prompt chain for its whole life: the prompt, its tool calls, its
+   child sessions and its `[mux-event]` follow-ups. A later local message starts a new chain and
+   never clears a running one.
+6. **Hooks that run in a remote chain (P1-F; DECISION: origin-tagged memory, proposal yes).**
+   | Hook (installed by) | What it does | In a remote chain |
+   | --- | --- | --- |
+   | `SessionStart` (mux host `hooks.ts`) | shows the memory view | allowed (read) |
+   | `UserPromptSubmit` (mux host) | logs the message to `LOG.txt`, shows other sessions' additions | the message goes to a separate **origin-tagged remote log**, not `LOG.txt` |
+   | `Stop` (mux host) | logs the reply, may start compaction | reply goes to the remote log; compaction of `LOG.txt`/`TREE/` is not started by a remote chain |
+   | `SessionStart`, `UserPromptSubmit`, `Stop`, `Notification`, `SessionEnd`, `PreToolUse`, `PostToolUse` (cmux-tui `agent_hook_install.rs`, `claude_wrapper.rs`) | status events to the cmux-tui journal (`cmux-tui-hook`) | allowed: they report state and run no command built from the message text |
+   | any other configured hook (user or repo `.claude` settings) | arbitrary shell with the prompt as input | not loaded in a remote chain: remote sessions run with only the managed and cmux-owned hooks |
+   - The remote log is untrusted for later local turns: the memory view shows it marked as remote,
+     and moving any of it into `LOG.txt` or `TREE/` needs an approval with a presence proof.
+7. **Remote text is data (P2-E).** Remote text never starts a slash command or a shell line: the
+   agent host always passes it quoted, with a fixed prefix ("Message from <device>:"), so `/cmd`
+   or `!x` at the start is plain text. Test: a remote `/clear` and a remote `!rm` are delivered as
+   text.
+8. **Approvals (P2-F).** Each approval shows the exact command or call and its arguments; one
+   approval per call. An approved shell call runs with the owner's full trust: the approval text
+   says so. Each approval needs a presence proof (lane 15: the presence key with Touch ID, or a
+   second device). Approvals go through the cloud (lane 15), never over the link. **A LAN-only
+   server (no cloud) denies every remote side effect;** reads inside the workspace still work.
+   No answer in 10 minutes: deny, and the chain is cancelled.
+9. **Process group (P2-G).** Tools of a remote chain run in a process group that the daemon owns;
+   cancel and revocation kill the group, so a background process started by an approved tool does
+   not outlive them. Test: an approved tool starts a background `sleep`; revocation kills it.
+10. **Other repositories (P3-G).** A child spawned in another repository would load that repo's
+    `.claude` hooks and `.mcp.json`; in a remote chain they are not loaded (rule 6), and the spawn
+    approval names the repository.
+11. **Revocation** (section 10) cancels the chain, its child sessions, its open approvals, its
+    process group and its queued outbox.
 
 ## 7. Params and content
 
