@@ -87,6 +87,33 @@ struct BrowserHostProviderTests {
         #expect(await host.next() == .event(name: "dialog.opened", payload: .object(["targetId": .string("w1")])))
     }
 
+    @Test func tabLessCallsAreRefusedByTheAppItself() async throws {
+        let h = ProviderHarness(tabs: [tab("w1", .webkit)])
+        var called: [String] = []
+        h.driver.answer = { method, _ in
+            called.append(method)
+            return .success(.array([]))
+        }
+        let (host, _) = await h.connected()
+        host.ack()
+        host.send(.call(id: 1, method: "cookies.get", params: .object(["urls": .array([])])))
+        guard case .result(1, nil, .object(let error)?)? = await host.next() else {
+            Issue.record("expected an error result")
+            return
+        }
+        #expect(error["code"] == .string("unsupported"))
+        host.send(.call(id: 2, method: "tab.info", params: .object(["targetId": .number(3)])))
+        guard case .result(2, nil, .object(let second)?)? = await host.next() else {
+            Issue.record("expected an error result")
+            return
+        }
+        #expect(second["code"] == .string("unsupported"))
+        // tabs.list and tabs.open name no tab and still reach the driver.
+        host.send(.call(id: 3, method: "tabs.list", params: .object([:])))
+        #expect(await host.next() == .result(id: 3, result: .array([]), error: nil))
+        #expect(called == ["tabs.list"])
+    }
+
     @Test func leasesReachTheAppAndMarkTheTabAndUserInputIsReported() async throws {
         let h = ProviderHarness(tabs: [tab("c1", .cef)])
         var changes: [(String, ProviderLease?)] = []
