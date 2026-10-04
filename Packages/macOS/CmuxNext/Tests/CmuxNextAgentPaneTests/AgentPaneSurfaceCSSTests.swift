@@ -14,7 +14,7 @@ struct AgentPaneSurfaceCSSTests {
 
     /// The `background` values of every rule whose selector ends at `name`.
     private static func backgrounds(of name: String, in css: String) throws -> [String] {
-        let rule = try Regex("(?:^|[},])\\s*\\.\(name)\\s*\\{([^}]*)\\}")
+        let rule = try Regex("(?:^|[{},])\\s*\\.\(name)\\s*\\{([^}]*)\\}")
         var values: [String] = []
         for match in css.matches(of: rule) {
             let body = String(css[match.range]).split(separator: "{", maxSplits: 1).last.map(String.init) ?? ""

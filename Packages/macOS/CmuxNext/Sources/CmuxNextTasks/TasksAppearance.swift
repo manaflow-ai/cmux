@@ -9,6 +9,8 @@ struct TasksColors: Equatable {
     var background = Color(nsColor: .windowBackgroundColor)
     /// What the page paints behind its lists (`Palette.paneFill`).
     var surface = Color.clear
+    /// Whether `surface` hides what scrolls under it (an opaque window).
+    var surfaceIsOpaque = false
     var elevated = Color(nsColor: .controlBackgroundColor)
     var primary = Color(nsColor: .labelColor)
     var secondary = Color(nsColor: .secondaryLabelColor)

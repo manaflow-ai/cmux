@@ -36,7 +36,7 @@ public struct Palette {
     /// window's one backdrop is the background (`WindowBackdrop`). A page
     /// host's own layer paints nothing: the pane paints under it.
     public static var paneFill: NSColor {
-        guard let tokens = ThemeContext.active else { return surfaceBackground }
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
         return WindowBackdrop(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1).nsColor : .clear
     }
     /// Fields and toolbars that need a faint lift (omnibar, find bar).

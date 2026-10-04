@@ -66,7 +66,8 @@ public final class TasksHostView: NSView {
                 Self.color(ThemeTokens.readable(rgb, over: tokens.contentBackground, minimum: ThemeTokens.minimumMarkContrast).nsColor)
             }
             return TasksColors(
-                background: Self.color(background), surface: Self.color(Palette.paneFill), elevated: Self.color(Palette.elevatedBackground),
+                background: Self.color(background), surface: Self.color(Palette.paneFill),
+                surfaceIsOpaque: Palette.paneFill.alphaComponent >= 1, elevated: Self.color(Palette.elevatedBackground),
                 primary: Self.color(Palette.textPrimary), secondary: Self.color(Palette.textSecondary),
                 tertiary: Self.color(Palette.textTertiary), hover: Self.color(Palette.hoverFill),
                 selection: Self.color(Palette.selectionFill), separator: Self.color(Palette.separator),
