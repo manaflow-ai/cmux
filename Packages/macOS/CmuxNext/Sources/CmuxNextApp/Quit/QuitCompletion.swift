@@ -24,6 +24,9 @@ struct QuitSteps {
     var endLocalSessions: @MainActor (QuitSessionsChoice) async -> [EndSessionsFailure]
     /// Shows the failures and waits for Retry or Quit Anyway.
     var confirmFailures: @MainActor ([EndSessionsFailure]) async -> QuitFailureAnswer
+    /// Ends the local acpmux agents (`_acpmux/shutdown endAgents`), before
+    /// the terminals; returns its failure, if any.
+    var endLocalAgents: @MainActor () async -> [EndSessionsFailure] = { [] }
     var stopBrowserEngines: @MainActor () async -> Void
 }
 
