@@ -154,7 +154,7 @@ final class AppControl {
         service.router.register([
             .async("debug.shortcut_hints") { [weak services] call in
                 await DebugShortcutHintControl().handle(call.params, services: services)
-            },
+            }.withDeadline(.fixed(.seconds(4))),
             .mainActor("debug.showcase.seed") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugShowcase.seed(call.params, services: services))
