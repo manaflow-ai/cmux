@@ -124,4 +124,16 @@ describe("Home rate limits before reach", { timeout: 120_000 }, () => {
     expect(rejectOf(refused)).toMatchObject({ code: "home.rate_limited", retryable: true })
     expect(rec.calls).toEqual([])
   })
+
+  it("all of an owner's chiefs share one total budget: archived and new chiefs get no fresh budget past 3x the per-actor limit", async () => {
+    const gus = await signIn("rate-chiefs-gus", "Gus")
+    const stub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(gus.user)) as unknown as { homeRateTake(e: string, a: string, op: string): Promise<{ ok: boolean }> }
+    const chief = (n: number) => `agent_${String(n).padStart(26, "0")}`
+    // Three chiefs spend their whole conversation.create budget through the RPC (each attempt also counts toward the total).
+    for (const n of [1, 2, 3]) for (let i = 0; i < 60; i++) expect((await stub.homeRateTake(gus.user, chief(n), "conversation.create")).ok).toBe(true)
+    // A fourth chief (say, created after archiving one) has a fresh per-chief budget but the owner's chief total is spent.
+    expect(await stub.homeRateTake(gus.user, chief(4), "conversation.create")).toMatchObject({ ok: false })
+    // The owner's own budget is separate from the chiefs' total.
+    expect((await stub.homeRateTake(gus.user, gus.user, "conversation.create")).ok).toBe(true)
+  })
 })
