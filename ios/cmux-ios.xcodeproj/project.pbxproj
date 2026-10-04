@@ -15,6 +15,8 @@
 		D4E2A0090000000000000001 /* CmuxPhonePush in NotificationService Frameworks */ = {isa = PBXBuildFile; productRef = D4E2A00A0000000000000001 /* CmuxPhonePush */; };
 		C0105A010000000000000001 /* CmuxiOSApp in Frameworks */ = {isa = PBXBuildFile; productRef = C0105A020000000000000001 /* CmuxiOSApp */; };
 /* End PBXBuildFile section */
+		E7B0A0000000000000000020 /* KeyboardUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B0A0000000000000000010 /* KeyboardUITestSupport.swift */; };
+		E7B0A0000000000000000021 /* KeyboardAuditUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B0A0000000000000000011 /* KeyboardAuditUITests.swift */; };
 		D4E2A0010000000000000001 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E2A0020000000000000001 /* NotificationService.swift */; };
 		D4E2A0010000000000000002 /* NotificationService.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = D4E2A0030000000000000001 /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 
@@ -27,6 +29,7 @@
 			remoteInfo = NotificationService;
 		};
 /* End PBXContainerItemProxy section */
+		E7B0A0000000000000000006 /* PBXContainerItemProxy */ = {isa = PBXContainerItemProxy; containerPortal = 8B41F63D2DEDD0D5001A66F9 /* Project object */; proxyType = 1; remoteGlobalIDString = 8B41F6442DEDD0D5001A66F9; remoteInfo = cmux; };
 
 /* Begin PBXFileReference section */
 		8B41F6452DEDD0D5001A66F9 /* cmux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cmux.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -42,6 +45,9 @@
 		8B8A101B2DF5000000A66F90 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		8B8A10E12DF5000000A66F90 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+		E7B0A0000000000000000010 /* KeyboardUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardUITestSupport.swift; sourceTree = "<group>"; };
+		E7B0A0000000000000000011 /* KeyboardAuditUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardAuditUITests.swift; sourceTree = "<group>"; };
+		E7B0A0000000000000000001 /* cmuxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D4E2A0020000000000000001 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		D4E2A0030000000000000001 /* NotificationService.appex */ = {isa = PBXFileReference; explicitFileType = wrapper.app-extension; includeInIndex = 0; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 
@@ -55,6 +61,7 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
+		E7B0A0000000000000000004 /* cmuxUITests Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		D4E2A0040000000000000001 /* NotificationService Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (D4E2A0090000000000000001 /* CmuxPhonePush in NotificationService Frameworks */); runOnlyForDeploymentPostprocessing = 0; };
 
 /* Begin PBXGroup section */
@@ -75,6 +82,7 @@
 			children = (
 				8BD71C052DEE41D800CEDD92 /* Config */,
 				8B41F6472DEDD0D5001A66F9 /* cmux */,
+				E7B0A0000000000000000002 /* cmuxUITests */,
 				8B41F6812DEDD23B001A66F9 /* Frameworks */,
 				8B41F6462DEDD0D5001A66F9 /* Products */,
 			);
@@ -85,6 +93,7 @@
 			children = (
 				8B41F6452DEDD0D5001A66F9 /* cmux.app */,
 				D4E2A0030000000000000001 /* NotificationService.appex */,
+				E7B0A0000000000000000001 /* cmuxUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -119,6 +128,7 @@
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
+		E7B0A0000000000000000002 /* cmuxUITests */ = {isa = PBXGroup; children = (E7B0A0000000000000000010 /* KeyboardUITestSupport.swift */, E7B0A0000000000000000011 /* KeyboardAuditUITests.swift */); path = cmuxUITests; sourceTree = "<group>"; };
 		D4E2A0050000000000000001 /* NotificationService */ = {isa = PBXGroup; children = (D4E2A0020000000000000001 /* NotificationService.swift */); path = "../NotificationService"; sourceTree = "<group>"; };
 
 /* Begin PBXNativeTarget section */
@@ -158,6 +168,7 @@
 			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
+		E7B0A0000000000000000005 /* cmuxUITests */ = {isa = PBXNativeTarget; buildConfigurationList = E7B0A0000000000000000008 /* Build configuration list for cmuxUITests */; buildPhases = (E7B0A0000000000000000003 /* cmuxUITests Sources */, E7B0A0000000000000000004 /* cmuxUITests Frameworks */); buildRules = (); dependencies = (E7B0A0000000000000000007 /* PBXTargetDependency */); name = cmuxUITests; productName = cmuxUITests; productReference = E7B0A0000000000000000001 /* cmuxUITests.xctest */; productType = "com.apple.product-type.bundle.ui-testing"; };
 
 /* Begin PBXProject section */
 		8B41F63D2DEDD0D5001A66F9 /* Project object */ = {
@@ -171,6 +182,7 @@
 						CreatedOnToolsVersion = 16.3;
 					};
 					D4E2A0070000000000000001 = { CreatedOnToolsVersion = 16.3; };
+					E7B0A0000000000000000005 = { CreatedOnToolsVersion = 27.0; TestTargetID = 8B41F6442DEDD0D5001A66F9; };
 				};
 			};
 			buildConfigurationList = 8B41F6402DEDD0D5001A66F9 /* Build configuration list for PBXProject "cmux" */;
@@ -200,6 +212,7 @@
 			targets = (
 				8B41F6442DEDD0D5001A66F9 /* cmux */,
 				D4E2A0070000000000000001 /* NotificationService */,
+				E7B0A0000000000000000005 /* cmuxUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -232,6 +245,7 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+		E7B0A0000000000000000003 /* cmuxUITests Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (E7B0A0000000000000000020 /* KeyboardUITestSupport.swift in Sources */, E7B0A0000000000000000021 /* KeyboardAuditUITests.swift in Sources */); runOnlyForDeploymentPostprocessing = 0; };
 		D4E2A0080000000000000001 /* NotificationService Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (D4E2A0010000000000000001 /* NotificationService.swift in Sources */); runOnlyForDeploymentPostprocessing = 0; };
 
 /* Begin PBXTargetDependency section */
@@ -241,6 +255,7 @@
 			targetProxy = D4E2A00E0000000000000001 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
+		E7B0A0000000000000000007 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = 8B41F6442DEDD0D5001A66F9 /* cmux */; targetProxy = E7B0A0000000000000000006 /* PBXContainerItemProxy */; };
 
 /* Begin XCBuildConfiguration section */
 		8B41F6642DEDD0D6001A66F9 /* Debug */ = {
@@ -421,6 +436,8 @@
 		D4E2A00C0000000000000001 /* Debug */ = { isa = XCBuildConfiguration; baseConfigurationReference = 8B8A10112DF5000000A66F90 /* Debug.xcconfig */; buildSettings = { CODE_SIGN_STYLE = Automatic; CODE_SIGN_ENTITLEMENTS = "$(CMUX_NOTIFICATION_SERVICE_CODE_SIGN_ENTITLEMENTS)"; CMUX_HOST_BUNDLE_IDENTIFIER = "$(CMUX_APP_BUNDLE_IDENTIFIER)"; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = NotificationService/Info.plist; INFOPLIST_KEY_CFBundleIdentifier = "$(CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER)"; PRODUCT_BUNDLE_IDENTIFIER = "$(CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER)"; PRODUCT_NAME = NotificationService; SWIFT_VERSION = 5.0; WRAPPER_EXTENSION = appex; }; name = Debug; };
 		D4E2A00D0000000000000001 /* Release */ = { isa = XCBuildConfiguration; baseConfigurationReference = 8B8A10122DF5000000A66F90 /* Release.xcconfig */; buildSettings = { CODE_SIGN_STYLE = Automatic; CODE_SIGN_ENTITLEMENTS = "$(CMUX_NOTIFICATION_SERVICE_CODE_SIGN_ENTITLEMENTS)"; CMUX_HOST_BUNDLE_IDENTIFIER = "$(CMUX_APP_BUNDLE_IDENTIFIER)"; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = NotificationService/Info.plist; INFOPLIST_KEY_CFBundleIdentifier = "$(CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER)"; PRODUCT_BUNDLE_IDENTIFIER = "$(CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER)"; PRODUCT_NAME = NotificationService; SWIFT_VERSION = 5.0; WRAPPER_EXTENSION = appex; }; name = Release; };
 /* End XCBuildConfiguration section */
+		E7B0A0000000000000000009 /* Debug */ = { isa = XCBuildConfiguration; baseConfigurationReference = 8B8A10132DF5000000A66F90 /* Tests.xcconfig */; buildSettings = { CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; PRODUCT_NAME = cmuxUITests; PRODUCT_MODULE_NAME = cmuxUITests; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+		E7B0A0000000000000000030 /* Release */ = { isa = XCBuildConfiguration; baseConfigurationReference = 8B8A10132DF5000000A66F90 /* Tests.xcconfig */; buildSettings = { CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; PRODUCT_NAME = cmuxUITests; PRODUCT_MODULE_NAME = cmuxUITests; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
 
 /* Begin XCConfigurationList section */
 		8B41F6402DEDD0D5001A66F9 /* Build configuration list for PBXProject "cmux" */ = {
@@ -443,6 +460,7 @@
 		};
 		D4E2A00B0000000000000001 /* Build configuration list for NotificationService */ = { isa = XCConfigurationList; buildConfigurations = (D4E2A00C0000000000000001 /* Debug */, D4E2A00D0000000000000001 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
+		E7B0A0000000000000000008 /* Build configuration list for cmuxUITests */ = { isa = XCConfigurationList; buildConfigurations = (E7B0A0000000000000000009 /* Debug */, E7B0A0000000000000000030 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 
 /* Begin XCSwiftPackageProductDependency section */
 		C0105A020000000000000001 /* CmuxiOSApp */ = {
