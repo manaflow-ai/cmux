@@ -4290,10 +4290,12 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
 
         let recordClosedBrowserPanel = workspace.onClosedBrowserPanel
         var didDropHistoryEntry = false
-        var expectedFallbackSnapshot: CmuxBrowser.ClosedBrowserPanelRestoreSnapshot?
+        var expectedFallbackProfileID: UUID?
+        var expectedFallbackPaneID: UUID?
         workspace.onClosedBrowserPanel = { snapshot in
             didDropHistoryEntry = snapshot.historyEntry != nil
-            expectedFallbackSnapshot = snapshot.fallbackSnapshot
+            expectedFallbackProfileID = snapshot.fallbackSnapshot.profileID
+            expectedFallbackPaneID = snapshot.fallbackSnapshot.originalPaneId
             recordClosedBrowserPanel?(
                 LegacyClosedBrowserPanelRestoreSnapshot(
                     fallbackSnapshot: snapshot.fallbackSnapshot,
@@ -4314,18 +4316,16 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         drainMainQueue()
 
         guard let reopenedPanel = workspace.panels.values.compactMap({ $0 as? BrowserPanel }).first,
-              let expectedFallbackSnapshot else {
-            XCTFail("Expected reopened browser panel and a captured compatibility snapshot")
+              let expectedFallbackProfileID,
+              let expectedFallbackPaneID else {
+            XCTFail("Expected reopened browser panel and captured compatibility fields")
             return
         }
         // This compatibility snapshot retains URL, profile, and split placement.
         // Full interaction-state preservation is covered by the history-entry path.
         XCTAssertEqual(reopenedPanel.currentURL, expectedURL)
-        XCTAssertEqual(reopenedPanel.profileID, expectedFallbackSnapshot.profileID)
-        XCTAssertEqual(
-            workspace.paneId(forPanelId: reopenedPanel.id)?.id,
-            expectedFallbackSnapshot.originalPaneId
-        )
+        XCTAssertEqual(reopenedPanel.profileID, expectedFallbackProfileID)
+        XCTAssertEqual(workspace.paneId(forPanelId: reopenedPanel.id)?.id, expectedFallbackPaneID)
     }
 
     func testReopenClosedItemUsesNewerLegacyBrowserBeforeOlderClosedStore() throws {
