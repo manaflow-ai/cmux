@@ -68,6 +68,18 @@ impl ProviderEngine {
     /// The CEF tab's driver, attaching its relay on first use (or again
     /// after the relay closed).
     fn cef_tab(&self, target_id: &str) -> Result<Arc<CefTab>, DriverError> {
+        let cached = |provider: &ProviderDriver| {
+            provider
+                .cef_tabs
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(target_id)
+                .filter(|tab| tab.driver.is_open())
+                .cloned()
+        };
+        if let Some(tab) = cached(&self.provider) {
+            return Ok(tab);
+        }
         let _attaching = self.provider.attach_lock.lock().unwrap_or_else(PoisonError::into_inner);
         let known = self
             .provider
@@ -102,11 +114,15 @@ impl ProviderEngine {
             })?;
         let _ = cdp_id.set(id.clone());
         let tab = Arc::new(CefTab { driver, cdp_id: id });
-        self.provider
-            .cef_tabs
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(target_id.to_owned(), tab.clone());
+        let mut tabs = self.provider.cef_tabs.lock().unwrap_or_else(PoisonError::into_inner);
+        // The tab went away (tab.gone) or its relay closed while attaching:
+        // keep nothing, so no driver outlives its tab.
+        if self.provider.tab_engine(target_id).is_none() || !tab.driver.is_open() {
+            drop(tabs);
+            self.provider.close_relay(target_id);
+            return Err(DriverError::closed(format!("tab {target_id} went away while attaching")));
+        }
+        tabs.insert(target_id.to_owned(), tab.clone());
         Ok(tab)
     }
 
@@ -149,20 +165,44 @@ impl Driver for ProviderEngine {
         }
         match method {
             "tabs.list" => return Ok(self.tabs_list()),
-            // The app owns tabs: it opens them in the session's engine.
+            // The app owns tabs: it opens them in the session's engine. Only
+            // the URL and background pass; profile, workspace and focus are
+            // never the agent's to pick (D12).
             "tabs.open" => {
-                let mut params = params.clone();
-                params["engine"] = Value::String(self.engine.clone());
-                return self.provider.call(method, &params);
+                let mut open = serde_json::Map::new();
+                for key in ["url", "background", "timeoutMs"] {
+                    if let Some(value) = params.get(key) {
+                        open.insert(key.into(), value.clone());
+                    }
+                }
+                open.insert("engine".into(), Value::String(self.engine.clone()));
+                return self.provider.call(method, &Value::Object(open));
             }
             _ => {}
         }
-        let Some(target_id) = params.get("targetId").and_then(Value::as_str) else {
-            return self.provider.call(method, params);
+        // Every other call names a tab: nothing tab-less (cookies of the
+        // person's profile, for example) reaches the app.
+        let target_id = match params.get("targetId") {
+            Some(Value::String(id)) => id.as_str(),
+            Some(_) => {
+                return Err(DriverError::invalid(format!("{method}: targetId must be a string")));
+            }
+            None => {
+                return Err(DriverError::new(
+                    crate::protocol::ErrorCode::Unsupported,
+                    format!("{method}: not available on the person's tabs without a targetId"),
+                ));
+            }
         };
         let Some(engine) = self.provider.tab_engine(target_id) else {
             return Err(DriverError::not_found(format!("{method}: no tab {target_id}")));
         };
+        if engine != self.engine {
+            return Err(DriverError::not_found(format!(
+                "{method}: tab {target_id} is a {engine} tab; this session runs on {}",
+                self.engine
+            )));
+        }
         if let Some(error) = self.provider.refusal(method, target_id) {
             return Err(error);
         }
@@ -379,6 +419,126 @@ mod tests {
         provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
         let gone = cef.call("tab.info", &json!({"targetId": "C"})).unwrap_err();
         assert_eq!(gone.code, crate::protocol::ErrorCode::NotFound, "{gone}");
+    }
+
+    fn calls(app: &FakeApp, method: &str) -> usize {
+        app.frames
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|f| matches!(f, Frame::Call { method: m, .. } if m == method))
+            .count()
+    }
+
+    /// Review P0: tab-less calls (cookies of the person's profile) never
+    /// reach the app; a session drives only its own engine's tabs.
+    #[test]
+    fn tab_less_calls_and_other_engine_tabs_are_refused() {
+        let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
+        app.access(&provider, "C");
+        let webkit = engine(&provider, "webkit");
+        for method in ["cookies.get", "cookies.set", "cookies.clear", "cdp"] {
+            let error = webkit.call(method, &json!({})).unwrap_err();
+            assert_eq!(error.code, crate::protocol::ErrorCode::Unsupported, "{method}: {error}");
+            assert_eq!(calls(&app, method), 0, "{method} reached the app");
+        }
+        let bad = webkit.call("tab.info", &json!({"targetId": 7})).unwrap_err();
+        assert_eq!(bad.code, crate::protocol::ErrorCode::Invalid, "{bad}");
+        let other = webkit.call("tab.info", &json!({"targetId": "C"})).unwrap_err();
+        assert_eq!(other.code, crate::protocol::ErrorCode::NotFound, "{other}");
+        assert_eq!(app.attaches("C"), 0);
+    }
+
+    /// Review P1: raw CDP on a relayed tab cannot reach Target, Browser or
+    /// Storage (another tab, the browser target, the profile's cookies).
+    #[test]
+    fn raw_cdp_on_a_relayed_tab_cannot_leave_the_page() {
+        let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
+        app.access(&provider, "C");
+        let cef = engine(&provider, "cef");
+        for method in [
+            "Target.attachToTarget",
+            "Target.attachToBrowserTarget",
+            "Target.createTarget",
+            "Storage.getCookies",
+            "Browser.close",
+        ] {
+            let error = cef
+                .call(
+                    "cdp",
+                    &json!({"targetId": "C", "method": method, "params": {}, "timeoutMs": 5000}),
+                )
+                .unwrap_err();
+            assert_eq!(error.code, crate::protocol::ErrorCode::Forbidden, "{method}: {error}");
+            assert!(
+                app.cdp_messages("C").iter().all(|m| m["method"] != method),
+                "{method} went out"
+            );
+        }
+    }
+
+    /// A tab that navigates to a browser page after its relay opened is refused.
+    #[test]
+    fn a_relayed_tab_that_shows_a_browser_page_is_refused() {
+        let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
+        app.access(&provider, "C");
+        let cef = engine(&provider, "cef");
+        cef.call("tab.info", &json!({"targetId": "C", "timeoutMs": 5000})).unwrap();
+        app.send(Frame::Event {
+            name: "tab.navigated".into(),
+            payload: json!({"targetId": "C", "url": "chrome://settings/"}),
+        });
+        provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
+        let error = cef.call("tab.info", &json!({"targetId": "C"})).unwrap_err();
+        assert_eq!(
+            error.error_name.as_deref(),
+            Some(crate::provider_link::BROWSER_PAGE),
+            "{error}"
+        );
+    }
+
+    /// Review P1: a domain policy the provider cannot enforce on the page's
+    /// own requests makes every call fail closed.
+    #[test]
+    fn a_policy_on_a_provider_session_fails_closed() {
+        use crate::gate::{Gate, Grants};
+        use crate::policy::{DomainPattern, Layer};
+        use crate::vm::VmHost;
+        let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+        let gate = Gate::new(Arc::new(engine(&provider, "webkit")), Grants::default());
+        gate.driver_call("tab.info", json!({"targetId": "W"})).unwrap();
+        let layer = Layer {
+            allowed: Some(vec![DomainPattern::parse("a.test").unwrap()]),
+            prohibited: Vec::new(),
+            block_ips: false,
+        };
+        gate.set_owner_policy(layer, false).unwrap();
+        let before = calls(&app, "tab.info");
+        let error = gate.driver_call("tab.info", json!({"targetId": "W"})).unwrap_err();
+        assert_eq!(error.code, crate::protocol::ErrorCode::Forbidden, "{error}");
+        assert_eq!(calls(&app, "tab.info"), before);
+    }
+
+    /// Review P1: tabs.open passes only url and background; the app picks
+    /// the profile and workspace.
+    #[test]
+    fn tabs_open_drops_agent_chosen_profile_and_workspace() {
+        let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+        let cef = engine(&provider, "cef");
+        cef.call(
+            "tabs.open",
+            &json!({"url": "https://b.test/", "profile": "signed-in", "workspace": "w2", "focus": true}),
+        )
+        .unwrap();
+        let frames = app.frames.lock().unwrap();
+        let open = frames
+            .iter()
+            .find_map(|f| match f {
+                Frame::Call { method, params, .. } if method == "tabs.open" => Some(params.clone()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(open, json!({"url": "https://b.test/", "engine": "cef"}));
     }
 
     #[test]
