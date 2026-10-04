@@ -1,4 +1,5 @@
 public import CmuxUpdater
+import CmuxNextWakeups
 public import Foundation
 import Observation
 
@@ -58,7 +59,7 @@ public final class UpdaterService {
     @ObservationIgnored public var blockersObservation: Task<Void, Never>?
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
-    @ObservationIgnored var quietTimer: Task<Void, Never>?
+    @ObservationIgnored var quietTimer: DemandTimer?
     @ObservationIgnored let clock: any Clock<Duration>
     @ObservationIgnored let now: () -> Date
 

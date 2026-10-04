@@ -2,34 +2,45 @@ import CmuxNextSidebar
 import CmuxNextUpdater
 import Observation
 
-/// The R114 card stack: the update card (the updater's gate decides
-/// whether one shows) and, later, what's new and announcements.
 extension SidebarBridge {
+    func observeCards() {
+        cardsObservation?.cancel()
+        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater)
+    }
+}
+
+/// The R114 card stack's content: the update card (the updater's gate
+/// decides whether one shows), the test-feed notice, and later what's new
+/// and announcements. Card actions go back to their owners.
+@MainActor
+enum SidebarCardFeed {
     static let updateCardID = "update"
     static let testFeedCardID = "test-feed"
 
-    func observeCards() {
-        let updater = services.updater
-        let model = model
+    static func start(model: SidebarModel, updater: UpdaterService) -> Task<Void, Never> {
         model.onCardAction = { [weak updater] id, action in
             guard let updater else { return }
-            if id == Self.testFeedCardID {
-                if case .button = action { try? updater.useTestFeed(nil, pinned: false) }
-                return
-            }
-            guard id == Self.updateCardID else { return }
-            switch action {
-            case .open: updater.cardClicked()
-            case .button(UpdateCardPresentation.Button.installNow.rawValue): updater.installNow()
-            case .button(UpdateCardPresentation.Button.later.rawValue): updater.installLater()
-            case .button, .dismiss: break
-            }
+            handle(id, action, updater: updater)
         }
-        cardsObservation?.cancel()
-        cardsObservation = Task {
-            for await cards in Observations({ () -> [SidebarCard] in Self.cards(updater) }) {
+        return Task {
+            for await cards in Observations({ () -> [SidebarCard] in cards(updater) }) {
                 if model.cards != cards { model.cards = cards }
             }
+        }
+    }
+
+    static func handle(_ id: String, _ action: SidebarCardAction, updater: UpdaterService) {
+        switch (id, action) {
+        case (testFeedCardID, .button):
+            try? updater.useTestFeed(nil, pinned: false)
+        case (updateCardID, .open):
+            updater.cardClicked()
+        case (updateCardID, .button(UpdateCardPresentation.Button.installNow.rawValue)):
+            updater.installNow()
+        case (updateCardID, .button(UpdateCardPresentation.Button.later.rawValue)):
+            updater.installLater()
+        default:
+            break
         }
     }
 

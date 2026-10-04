@@ -58,27 +58,19 @@ final class SidebarCardView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func render() {
-        let accent = card.accent
-        layer?.backgroundColor = (accent ? Palette.highlight : Palette.elevatedBackground).cgColor
-        layer?.borderColor = (Borders.drawsLines ? Palette.separator : .clear).cgColor
-        layer?.shadowColor = Palette.shadow.withAlphaComponent(0.18).cgColor
         title.stringValue = card.title
         detail.stringValue = card.detail ?? ""
-        title.textColor = accent ? Palette.highlightText : Palette.textPrimary
-        detail.textColor = accent ? Palette.highlightText.withAlphaComponent(0.8) : Palette.textSecondary
-        track.backgroundColor = (accent ? Palette.highlightText.withAlphaComponent(0.25) : Palette.hoverFill).cgColor
-        bar.backgroundColor = (accent ? Palette.highlightText : Palette.textSecondary).cgColor
         for button in buttons { button.removeFromSuperview() }
         buttons = card.buttons.map { spec in
             let button = NSButton(title: spec.title, target: self, action: #selector(buttonPressed(_:)))
             button.isBordered = false
             button.font = Typography.caption
-            button.contentTintColor = accent ? Palette.highlightText : Palette.textPrimary
             button.identifier = NSUserInterfaceItemIdentifier(spec.id)
             button.refusesFirstResponder = true
             addSubview(button)
             return button
         }
+        performWithTheme { applyColors() }
         let content = !isPeek
         for view in [title, detail] as [NSView] + buttons { view.isHidden = !content }
         detail.isHidden = !content || card.detail == nil
@@ -87,6 +79,19 @@ final class SidebarCardView: NSView {
         close.isHidden = !(content && card.dismissible && hovered)
         setAccessibilityLabel([card.title, card.detail].compactMap { $0 }.joined(separator: ", "))
         needsLayout = true
+    }
+
+    // theme-scoped: called only inside performWithTheme
+    private func applyColors() {
+        let accent = card.accent
+        layer?.backgroundColor = (accent ? Palette.highlight : Palette.elevatedBackground).cgColor
+        layer?.borderColor = (Borders.drawsLines ? Palette.separator : .clear).cgColor
+        layer?.shadowColor = Palette.shadow.withAlphaComponent(0.18).cgColor
+        title.textColor = accent ? Palette.highlightText : Palette.textPrimary
+        detail.textColor = accent ? Palette.highlightText.withAlphaComponent(0.8) : Palette.textSecondary
+        track.backgroundColor = (accent ? Palette.highlightText.withAlphaComponent(0.25) : Palette.hoverFill).cgColor
+        bar.backgroundColor = (accent ? Palette.highlightText : Palette.textSecondary).cgColor
+        for button in buttons { button.contentTintColor = accent ? Palette.highlightText : Palette.textPrimary }
     }
 
     override func layout() {

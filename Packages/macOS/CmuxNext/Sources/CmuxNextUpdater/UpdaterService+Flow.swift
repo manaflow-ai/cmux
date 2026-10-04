@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 public import Foundation
 
 /// The R114 gate (``UpdateFlow``) wired to Sparkle and the App: the card
@@ -118,16 +119,15 @@ extension UpdaterService {
     /// timer on the injected clock; none without quiet hours).
     func scheduleQuietBoundary() {
         quietTimer?.cancel()
-        quietTimer = nil
         let date = now()
         minuteOfDay = Self.minuteOfDay(date)
         guard let quiet = preferences.quietHours else { return }
         let second = Calendar.current.component(.second, from: date)
         let wait = max(1, quiet.minutesToNextBoundary(from: minuteOfDay) * 60 - second)
-        let clock = clock
-        quietTimer = Task { [weak self] in
-            do { try await clock.sleep(for: .seconds(wait)) } catch { return }
-            self?.scheduleQuietBoundary()
+        let timer = quietTimer ?? DemandTimer(owner: "updates.quietHours", clock: clock)
+        quietTimer = timer
+        timer.schedule(after: .seconds(wait)) { [weak self] in
+            await self?.scheduleQuietBoundary()
         }
     }
 
