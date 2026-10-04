@@ -230,10 +230,15 @@ impl Started {
                 }
             });
         }
+        let leader_alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
         {
             let tx = events_tx.clone();
+            let alive = leader_alive.clone();
             tokio::spawn(async move {
                 let code = child.wait().await.ok().and_then(|s| s.code());
+                // Reaped: from here the group id may be freed; nobody may
+                // signal it on the strength of the leader being alive.
+                alive.store(false, std::sync::atomic::Ordering::SeqCst);
                 let _ = tx.send(Event::Exited(code)).await;
             });
         }
@@ -287,7 +292,7 @@ impl Started {
             stdin_tx,
             translator,
             pgid,
-            leader_alive: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            leader_alive,
             stderr_dropped: 0,
         };
         let mut next_conn = 0u64;
@@ -441,6 +446,14 @@ impl State {
         // A line no frame can carry would wedge every replay.
         if line.len() > MAX_FRAME - 4096 {
             self.push(Entry::Err { line: format!("[stdout line of {} bytes dropped: over the frame limit]", line.len()) });
+            // An answer that cannot be carried still ends its request.
+            if self.translator.is_none()
+                && let Ok(v) = serde_json::from_str::<Value>(&line)
+                && let Some(id) = v.get("id").filter(|_| v.get("method").is_none())
+            {
+                let err = crate::rpc::RpcError::internal("agent answer was over the size limit");
+                self.push(Entry::In { msg: Message::err(id.clone(), err).to_value() });
+            }
             return;
         }
         let Some(tr) = self.translator.clone() else {

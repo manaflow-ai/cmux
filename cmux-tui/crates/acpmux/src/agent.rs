@@ -78,6 +78,9 @@ struct Hosted {
     exit: tokio::sync::Notify,
     /// Last entry whose record reached the store.
     logged: tokio::sync::watch::Sender<u64>,
+    /// The reader stopped (an entry could not be logged): the agent is not
+    /// usable through this link; the next request adopts the host again.
+    broken: std::sync::atomic::AtomicBool,
 }
 
 /// How a hosted agent was reached.
@@ -497,7 +500,9 @@ impl ChildAgent {
 
     pub async fn is_alive(&self) -> bool {
         if let Some(h) = &self.hosted {
-            return !h.exited.load(Ordering::SeqCst) && !h.link.is_closed();
+            return !h.exited.load(Ordering::SeqCst)
+                && !h.broken.load(Ordering::SeqCst)
+                && !h.link.is_closed();
         }
         let mut guard = self.child.lock().await;
         match guard.as_mut() {
@@ -676,6 +681,7 @@ impl ChildAgent {
                 link: link.clone(),
                 detached: detached.clone(),
                 logged: tokio::sync::watch::channel(resume_after).0,
+                broken: std::sync::atomic::AtomicBool::new(false),
                 exited: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
             }),
@@ -688,6 +694,9 @@ impl ChildAgent {
                     // Not stored: never acknowledge it or anything after it;
                     // the next daemon resumes before it.
                     tracing::warn!(agent = %reader.name, "agent host entry {h} not logged; acks stop");
+                    if let Some(hosted) = &reader.hosted {
+                        hosted.broken.store(true, Ordering::SeqCst);
+                    }
                     break;
                 }
                 if let Some(hosted) = &reader.hosted {

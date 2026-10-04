@@ -828,10 +828,10 @@ impl Hub {
                 )
                 .await;
             }
-            let hosted = child.host_record().is_some();
+            let link_lost = child.host_record().is_some() && !child.is_alive().await;
             child.kill().await;
             // A host whose link was lost cannot take a Terminate frame.
-            if hosted {
+            if link_lost {
                 self.end_unadopted_host(session).await;
             }
         } else {

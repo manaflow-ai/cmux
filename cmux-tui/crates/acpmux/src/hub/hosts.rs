@@ -21,8 +21,9 @@ struct OpenWork {
     /// and its answer when it is already logged.
     prompt_request: Option<Value>,
     prompt_response: Option<Value>,
-    /// Agent requests to this host with no logged answer: (id, method, params).
-    requests: Vec<(Value, String, Option<Value>)>,
+    /// Agent requests to this host with no logged answer: (id, method,
+    /// params, hostSeq).
+    requests: Vec<(Value, String, Option<Value>, Option<u64>)>,
     /// `permission_request` records by agent request id: (permissionId,
     /// request, logged decision when there is one).
     permissions: HashMap<String, (String, Value, Option<Value>)>,
@@ -44,8 +45,29 @@ impl Hub {
             })
             .map(|(_, r)| r.session_id)
             .collect();
-        live.extend(bad.into_iter().map(|b| b.session_id));
+        for b in bad {
+            // A dead host's unreadable record must not block the session.
+            if let Some(nonce) = &b.start_nonce
+                && agent_host::liveness(&dir, &b.session_id, nonce) == Liveness::Dead
+            {
+                let _ = std::fs::remove_file(&b.path);
+                continue;
+            }
+            live.insert(b.session_id);
+        }
         live
+    }
+
+    /// Adopt this session's running host again (its link was lost, or a
+    /// first adoption failed). Returns the adopted child.
+    pub(super) async fn readopt(self: &Arc<Self>, session: &Arc<Session>) -> Option<Arc<ChildAgent>> {
+        let dir = agent_host::hosts_dir();
+        let (good, _) = agent_host::load_records(&dir).ok()?;
+        let (_, record) = good.into_iter().find(|(_, r)| r.session_id == session.id)?;
+        if let Err(e) = self.adopt_one(session, record).await {
+            tracing::warn!(session = %session.id, "agent host re-adoption failed: {e:#}");
+        }
+        session.child.lock().await.clone().filter(|c| c.host_record().is_some())
     }
 
     /// Whether a host for `session` may still run (a live or unproven record).
@@ -117,6 +139,8 @@ impl Hub {
         if end_host_blocking(dir.clone(), session.id.clone(), nonce, host_pid).await {
             if let Some(record) = record {
                 agent_host::remove_artifacts(&dir, &record);
+            } else if let Some(b) = bad.iter().find(|b| b.session_id == session.id) {
+                let _ = std::fs::remove_file(&b.path);
             }
             self.append(session, "mux", "host_ended", json!({}));
         } else {
@@ -179,7 +203,11 @@ impl Hub {
             json!({"incarnation": incarnation, "hostBuild": adopted.host_build, "resumedAfter": resume_after}),
         );
         self.set_status(session, SessionStatus::Ready);
-        let work = self.open_work(session, &incarnation);
+        let mut work = self.open_work(session, &incarnation);
+        // Requests after the resume point were replayed into the live
+        // inbound loop and are handled there; only earlier ones were the
+        // previous daemon's to answer.
+        work.requests.retain(|(_, _, _, h)| h.is_none_or(|h| h <= resume_after));
         self.recover_work(session, &child, work).await;
         self.save_meta(session);
         Ok(())
@@ -209,7 +237,7 @@ impl Hub {
     fn open_work(&self, session: &Session, incarnation: &str) -> OpenWork {
         let mut work = OpenWork::default();
         let mut current = false;
-        let mut requests: Vec<(Value, String, Option<Value>)> = Vec::new();
+        let mut requests: Vec<(Value, String, Option<Value>, Option<u64>)> = Vec::new();
         let mut answered: std::collections::HashSet<String> = Default::default();
         let mut asked: HashMap<String, (String, Value, Option<Value>)> = HashMap::new();
         let mut by_permission: HashMap<String, String> = HashMap::new();
@@ -285,7 +313,7 @@ impl Hub {
                 {
                     let id = e.msg["id"].clone();
                     let params = e.msg.get("params").cloned();
-                    requests.push((id, kind.to_owned(), params));
+                    requests.push((id, kind.to_owned(), params, e.host_seq));
                 }
                 _ => {}
             }
@@ -295,7 +323,7 @@ impl Hub {
             true
         });
         work.requests =
-            requests.into_iter().filter(|(id, _, _)| !answered.contains(&id.to_string())).collect();
+            requests.into_iter().filter(|(id, _, _, _)| !answered.contains(&id.to_string())).collect();
         work.permissions = asked;
         work
     }
@@ -348,7 +376,7 @@ impl Hub {
         }
         let epoch = session.permission_epoch.load(Ordering::SeqCst);
         let turn_id = session.turn().map(|t| t.turn_id);
-        for (id, m, params) in work.requests {
+        for (id, m, params, _) in work.requests {
             if m == method::SESSION_REQUEST_PERMISSION
                 && let Some((permission_id, request, decided)) =
                     work.permissions.get(&id.to_string()).cloned()

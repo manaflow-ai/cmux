@@ -955,7 +955,7 @@ impl Hub {
     }
 
     async fn spawn_hosted_child(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         profile: &HarnessProfile,
         meta: &SessionMeta,
@@ -985,11 +985,15 @@ impl Hub {
             hosts_dir: hosts,
             buffer_cap: crate::agent_host::DEFAULT_BUFFER_CAP,
         };
-        // Never start a second agent beside a host that may still run.
+        // Never start a second agent beside a host that may still run:
+        // adopt it again instead.
         if Self::host_record_live(&session.id) {
-            return Err(RpcError::internal(
-                "this session's agent host is still running; close the session to end it",
-            ));
+            return match self.readopt(session).await {
+                Some(child) if child.is_alive().await => Ok(child),
+                _ => Err(RpcError::internal(
+                    "this session's agent host is still running but cannot be reached; close the session to end it",
+                )),
+            };
         }
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
         let record = crate::agent_host::link::spawn(&launcher, &spec).await.map_err(internal)?;
