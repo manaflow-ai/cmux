@@ -41,8 +41,12 @@ rules neither reference enforces together:
    workspace and channel ids and the member's user id (`team` omitted means
    Slack's last-active workspace at draft time, a `#name` the channel it
    named then), Gmail and Calendar drafts the account's email for their
-   `/u/` index, a Gmail reply the ids of the thread's messages, LinkedIn
-   and X drafts the signed-in member or user id, and a Notion draft the
+   `/u/` index, a Gmail reply the ids of the thread's messages, a LinkedIn
+   draft the signed-in member, an X draft the screen name of the account
+   X's account settings endpoint (`/i/api/1.1/account/settings.json`, the
+   one X's web client calls) says its session cookie authenticates, never
+   the page-writable `twid` cookie, a Docs, Sheets, Slides or Drive trash
+   draft the email of the account the file's editor is signed in as, and a Notion draft the
    Notion user (`{ userId }`, or the one user the session holds; with
    several, the draft fails as `invalid` until `{ userId }` names one). When the account at that index, the
    signed-in account or the replied thread has changed, the confirmation
@@ -53,8 +57,12 @@ rules neither reference enforces together:
    runs `auth.test` with the same token first (a token names one member);
    Gmail and Calendar read the account the compose, thread or event page
    is signed in as (its title, its Google Account button) right before
-   Send or Save, and fail closed with `account_unknown`, sending nothing, when the page names no account; LinkedIn and
-   X read the member in the composer page right before Post; Notion checks
+   Send or Save, and fail closed with `account_unknown`, sending nothing, when the page names no account; LinkedIn
+   reads the member in the composer page right before Post; X asks its
+   account endpoint again from the composer page right before Post (and
+   makes no draft, `account_unknown`, when X names no account); the Google
+   editors read the account in the editor's header when they reload it
+   right before the first input (see "Editing Google files"); Notion checks
    the session's users and then reads and writes with
    `x-notion-active-user-header` set to the drafted user, so Notion runs
    the write as that user or refuses it. The remaining window is between
@@ -166,7 +174,7 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `linkedin.search(q, { type })`, `.feed()` | result and feed cards in a background tab | read |
 | `linkedin.post(text)` | draft naming the member id and public identifier; confirmed: share composer (`/feed/?shareActive=true&text=`), the whole text checked, the member checked in that page (Voyager `/me`), Post | write [9] |
 | `x.user`, `.userTweets`, `.timeline`, `.search`, `.tweet` | profile and `article[data-testid="tweet"]` cards in a background tab, scrolled for more | read |
-| `x.post(text \| { text, replyTo })` | draft; confirmed: Web Intent `/intent/post`, the whole text checked, Post | write [9] |
+| `x.post(text \| { text, replyTo })` | draft naming the account X authenticates (its account settings endpoint, with X's public web bearer token and the `ct0` CSRF value); confirmed: Web Intent `/intent/post`, the whole text checked, the account asked again from that page, Post | write [9] |
 | `github.issue`, `.pull`, `.issues` | pages in a background tab | read |
 | `github.assigned({ issues, pulls, state, limit })` | GitHub's own search (`/search?type=issues`, `assignee:@me`) answering JSON in the session, 10 per page | read |
 | `googleDrive.recent({ uid, limit })` | Drive's Recent view in a background tab, rows by `data-id` | read |
@@ -225,14 +233,23 @@ the editor right before its first input and fails with `sharing_changed`,
 changing nothing, unless the Share button still shows the label the
 decision was made on (the private label, or the previewed one): a file
 shared after that read is not edited without a draft, and a draft whose
-file's sharing changed since the preview does not run. A sharing change
-during the input itself is the remaining window. `googleDrive.trash` deletes
+file's sharing changed since the preview does not run. The editor's
+header names the Google account it is signed in as (its Google Account
+button): the decision and the draft read it (the draft shows it as
+`account`, and fails with `account_unknown` when the header names none or
+several), and the reload before the first input fails with
+`account_changed`, changing nothing, unless the editor is still signed in
+as it, since the editor's `/u/` index is positional and another session can
+sign an account in or out. A sharing or account change during the input
+itself is the remaining window. `googleDrive.trash` deletes
 data ([1]): it is a draft (with the file's title and sharing), except for a
 file `googleDrive.create` made in the same REPL session while its Share
 button still says "Private to only me"; a created file another session
 shared since gets a draft too. The editor is reloaded right before File >
 Move to trash, and the trash fails with `sharing_changed` unless the
-sharing is still the one the decision or the preview was made on.
+sharing is still the one the decision or the preview was made on, or with
+`account_changed` unless the editor is still signed in as the account the
+draft shows.
 
 ## Confirmation taxonomy
 
