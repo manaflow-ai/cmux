@@ -134,7 +134,9 @@ use responses::{
     send_response,
 };
 use screen_json::screen_json;
-use split_respawn::{SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab};
+use split_respawn::{
+    SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab,
+};
 mod terminal_create;
 mod terminal_history;
 mod terminal_resources;
@@ -13682,7 +13684,13 @@ fn handle_command_with_cancellation(
             Ok(json!({ "terminal_id": terminal_id, "keep": keep }))
         }
         Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args, frontend_shell(mux, client))?;
+            let spawn = placement_spawn_options(
+                cwd,
+                env.as_ref(),
+                terminal_id,
+                shell_args,
+                frontend_shell(mux, client),
+            )?;
             let surface =
                 mux.new_tab_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
@@ -14162,7 +14170,13 @@ fn handle_command_with_cancellation(
             Ok(screen_group_outcome_json(&mux.reopen_saved_screen_group(&saved, workspace)?))
         }
         Command::NewPane { pane, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args, frontend_shell(mux, client))?;
+            let spawn = placement_spawn_options(
+                cwd,
+                env.as_ref(),
+                terminal_id,
+                shell_args,
+                frontend_shell(mux, client),
+            )?;
             let surface =
                 mux.new_pane_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
@@ -14178,7 +14192,13 @@ fn handle_command_with_cancellation(
             terminal_id,
             shell_args,
         } => {
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args, frontend_shell(mux, client))?;
+            let spawn = placement_spawn_options(
+                cwd,
+                env.as_ref(),
+                terminal_id,
+                shell_args,
+                frontend_shell(mux, client),
+            )?;
             let surface = mux.new_pane_right_with_options(
                 pane,
                 width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH),
@@ -14189,7 +14209,13 @@ fn handle_command_with_cancellation(
         }
         Command::Split { pane, dir, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
             let dir = parse_split_dir(&dir)?;
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args, frontend_shell(mux, client))?;
+            let spawn = placement_spawn_options(
+                cwd,
+                env.as_ref(),
+                terminal_id,
+                shell_args,
+                frontend_shell(mux, client),
+            )?;
             let surface =
                 mux.split_with_options(pane, dir, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)

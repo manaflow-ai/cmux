@@ -43,7 +43,13 @@ pub(super) fn new_row(mux: &Arc<Mux>, client: u64, params: NewRowParams) -> anyh
         transaction,
     } = params;
     validate_client_transaction(transaction.as_deref())?;
-    let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args, frontend_shell(mux, client))?;
+    let spawn = placement_spawn_options(
+        cwd,
+        env.as_ref(),
+        terminal_id,
+        shell_args,
+        frontend_shell(mux, client),
+    )?;
     let size = optional_surface_size(cols, rows);
     let surface =
         mux.new_row_with_options(pane, height_permille, spawn, size, transaction.clone())?;
