@@ -371,6 +371,7 @@ impl Hub {
         let ids = json!({"promptId": prompt_id, "turnId": turn_id, "turnSeq": turn_seq});
         match &result {
             Ok(v) => {
+                self.note_reply_refusal(session);
                 let stop = v.get("stopReason").cloned().unwrap_or(Value::Null);
                 self.append(
                     session,
@@ -394,6 +395,7 @@ impl Hub {
                     "turn_error",
                     json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": turn_seq}),
                 );
+                self.note_model_refusal(session, &e.message);
                 let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
                 if let Some(o) = msg.as_object_mut() {
                     let agent_error =
