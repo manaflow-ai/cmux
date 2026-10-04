@@ -71,7 +71,15 @@ impl AsyncRead for WgStream {
         let this = &mut *self;
         if this.leftover.is_empty() {
             match this.inbound.poll_recv(cx) {
-                Poll::Ready(Some(bytes)) => this.leftover = bytes,
+                Poll::Ready(Some(bytes)) => {
+                    // The driver stops copying into a full channel and waits
+                    // for an event: this read making room must be one, or
+                    // the bytes wait in the socket for an unrelated timer.
+                    if this.inbound.len() + 1 >= this.inbound.max_capacity() {
+                        this.wake.notify_one();
+                    }
+                    this.leftover = bytes;
+                }
                 Poll::Ready(None) if this.reset.load(Ordering::Acquire) => {
                     return Poll::Ready(Err(io::Error::new(
                         io::ErrorKind::ConnectionReset,
