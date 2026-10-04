@@ -1352,24 +1352,40 @@
   const BLOCK_TAGS = new Set(["address", "article", "aside", "blockquote", "br", "dd", "div", "dl", "dt", "figcaption", "figure",
     "footer", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main", "nav", "ol", "p", "pre", "section", "table", "td",
     "th", "tr", "ul"]);
+  // The text is read within the page-read budget and never cut: a cut text
+  // could not be compared whole, so past the budget the read fails in the
+  // page and nothing crosses to the host.
   function composerText(el, exclude) {
+    const b = readBudget();
+    const tooLarge = () => {
+      if (b.truncated === "nodes") return agentError("invalid", "The composer holds too many nodes to compare");
+      if (b.truncated === "time") return agentError("invalid", "The composer took too long to read to compare");
+      return agentError("invalid", `The composer holds more than ${String(MAX_SIZE).replace(/\B(?=(\d{3})+(?!\d))/g, ",")} characters, more than cmux compares with a draft`);
+    };
+    const add = (s) => {
+      if (!chargeSize(b, s.length)) throw tooLarge();
+      out += s;
+    };
     const tag = tagOf(el);
-    if (tag === "textarea" || tag === "input") return el.value;
+    if (tag === "textarea" || tag === "input") {
+      const value = el.value;
+      if (!chargeSize(b, value.length)) throw tooLarge();
+      return value;
+    }
     let out = "";
-    let left = MAX_NODES;
     const walk = (node) => {
       for (let n = node.firstChild; n; n = n.nextSibling) {
-        if (--left < 0) throw agentError("invalid", "The composer holds too many nodes to compare");
-        if (n.nodeType === 3) out += n.nodeValue;
+        if (!spend(b, 1)) throw tooLarge();
+        if (n.nodeType === 3) add(n.nodeValue);
         else if (n.nodeType === 1) {
           if (exclude && n.matches(exclude)) {
-            out += " ";
+            add(" ");
             continue;
           }
           const block = BLOCK_TAGS.has(tagOf(n));
-          if (block) out += " ";
+          if (block) add(" ");
           walk(n);
-          if (block) out += " ";
+          if (block) add(" ");
         }
       }
     };
