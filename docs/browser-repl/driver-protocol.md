@@ -81,7 +81,15 @@ events keep the browser's own UI and are not sent, except an event named in
 the session's last `tab.handleEvents` for that tab, which is sent to the
 sessions instead. The runtime sends `tab.handleEvents` whenever a page's
 `dialog`, `filechooser` or `download` listeners change, and its next call on
-the tab waits for it. A download keeps the route it started with.
+the tab waits for it. A download keeps the route it started with. A
+download reaches a session only when the session's domain policy allows
+every address its request went through (the navigation's URL and its
+redirects, the download's own redirects, the response's URL; a `data:` or
+opaque `blob:` one is judged by the document that started the navigation)
+and each local file among them lies inside the session's working or
+temporary directory. Otherwise, in a tab the session created, the download
+is cancelled and `navigation.blocked` reports why; in a user's tab it keeps
+the user's download location.
 
 A dialog or file chooser the page opens while it handles a session's
 `input.*` call, the first second of its page-world `frame.evaluate` (the

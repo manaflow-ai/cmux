@@ -1,3 +1,5 @@
+import Foundation
+
 /// Where a download's bytes came from: every URL its request went through
 /// (the navigation it was, each redirect of it, the redirects of the
 /// download itself and the response's URL), and the document that started
@@ -27,14 +29,46 @@ public struct BrowserReplDownloadSource: Sendable, Equatable {
 
     /// The request went on to `url` (a redirect, or the response's URL).
     public mutating func went(to url: String) {
-        guard hops.last != url else { return }
+        guard hops.last != url, hops.count <= Self.maximumHops else { return }
         hops.append(url)
     }
 
     /// Why a session with `policy` (`nil`: none) and the working and
     /// temporary directories `fileRoots` may not receive this download, or
     /// `nil`.
+    ///
+    /// Each URL is judged: a local file by the rule the session's own
+    /// navigations follow (``BrowserReplFileSandbox/navigationRefusal(_:roots:)``),
+    /// any other by the policy as a navigation started by ``initiator``
+    /// (``BrowserReplDomainPolicy/navigationBlockReason(_:initiator:)``), so
+    /// a `data:` or opaque `blob:` download a blocked document wrote is
+    /// refused too. A request that went through more than ``maximumHops``
+    /// URLs is refused, since the record of it is cut short.
     public func refusal(policy: BrowserReplDomainPolicy?, fileRoots: [String]) -> String? {
-        nil
+        guard hops.count <= Self.maximumHops else {
+            return "the download went through more than \(Self.maximumHops) addresses"
+        }
+        for hop in hops {
+            let scheme = hop.prefix { $0 != ":" }.lowercased()
+            if scheme == "file" {
+                if let reason = BrowserReplFileSandbox.navigationRefusal(hop, roots: fileRoots) {
+                    return "the download came from \(hop): \(reason)"
+                }
+                continue
+            }
+            guard let policy, policy.isActive else { continue }
+            let reason: String?
+            if let url = URL(string: hop) {
+                reason = policy.navigationBlockReason(url, initiator: initiator)
+            } else {
+                // Not a URL Foundation reads (a `data:` URL with spaces):
+                // judged as text, and by the document that wrote it.
+                reason = policy.blockReason(hop) ?? initiator.flatMap(policy.blockReason(document:))
+            }
+            if let reason {
+                return "the download came from \(hop), which the domain policy blocks: \(reason)"
+            }
+        }
+        return nil
     }
 }
