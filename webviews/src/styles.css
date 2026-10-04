@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* The pane protocol is not UI: its tests and generated code must not mint utility classes. */
+@source not "./protocol";
 
 :root {
   color-scheme: light dark;
