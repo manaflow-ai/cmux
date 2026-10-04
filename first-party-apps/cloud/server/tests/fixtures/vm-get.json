@@ -1,0 +1,41 @@
+{
+  "$comment": "Shape recorded from web/app/api/vm/[id]/route.ts GET (no customer data).",
+  "request": {
+    "method": "GET",
+    "path": "/api/vm/vm-alpha01"
+  },
+  "status": 200,
+  "body": {
+    "id": "vm-alpha01",
+    "provider": "freestyle",
+    "status": "running",
+    "image": "cmux-base",
+    "imageVersion": "20260902e",
+    "kind": "terminal",
+    "capabilities": {
+      "snapshot": true,
+      "restore": true,
+      "fork": true,
+      "exec": true,
+      "stats": true,
+      "ports": true,
+      "desktop": false,
+      "sizing": true,
+      "persistentHome": false,
+      "attachTransports": [
+        "cmux-remote"
+      ]
+    },
+    "createdAt": 1790000000000,
+    "displayName": "build box",
+    "slug": "build-box",
+    "createdBy": {
+      "userId": "user-test-1",
+      "displayName": "Test User"
+    },
+    "address": {
+      "ipv4": "10.200.0.2",
+      "ipv6": null
+    }
+  }
+}
