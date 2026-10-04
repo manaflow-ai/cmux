@@ -42,6 +42,7 @@ mod pairing;
 pub mod provider_management;
 #[cfg(unix)]
 mod pty_write;
+mod remote_relay_state;
 pub mod resource;
 mod resource_api;
 mod resource_mutation;
@@ -114,6 +115,10 @@ pub use mux::{
     validate_terminal_reap_grace,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
+pub use remote_relay_state::{
+    CLOSE_STREAMS_AFTER, PairingRecords, RECHECK_INTERVAL, REFUSE_NEW_STREAMS_AFTER,
+    RevocationClock,
+};
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 pub use short_id::assign_short_ids;

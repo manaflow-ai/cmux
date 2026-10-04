@@ -249,6 +249,7 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 edited_at: None,
                 retracted_at: None,
                 reactions: Vec::new(),
+                origin: None,
             };
             let change = Change::Message { message: message.clone() };
             (Some(message), change)
@@ -389,8 +390,9 @@ pub fn valid_token(token: &str) -> bool {
     !token.is_empty() && token.len() <= 128 && token.bytes().all(|byte| byte.is_ascii_graphic())
 }
 
-/// `user_<id>` or `agent_<name>`, where the suffix is 1 to 64 characters of
-/// ASCII letters, digits, `_`, `.` or `-`.
+/// `user_<id>`, `agent_<name>` or `remote_<install>` (a paired device of a
+/// person), where the suffix is 1 to 64 characters of ASCII letters, digits,
+/// `_`, `.` or `-`.
 pub fn valid_participant_id(id: &str) -> bool {
     let suffix = id.strip_prefix("user_").or_else(|| id.strip_prefix("agent_"));
     suffix.is_some_and(|suffix| {

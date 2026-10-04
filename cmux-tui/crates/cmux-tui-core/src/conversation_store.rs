@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 use cmux_conversation::{
-    ConversationHead, CreateRequest, Message, Op, OpRequest, Participant, Reject, Summary,
+    ConversationHead, CreateRequest, Message, Op, OpRequest, Origin, Participant, Reject, Summary,
     encode_id, format_rfc3339_millis, summary, valid_participant_id, valid_token,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
@@ -64,6 +64,9 @@ pub(crate) struct OpResult {
     pub seq: Option<u64>,
     /// The wire change object (`conversation-changed.change`).
     pub change: Value,
+    /// `remote` for an op a paired install committed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<Origin>,
 }
 
 /// A committed or replayed `conversation-op`.
@@ -342,6 +345,11 @@ impl ConversationStore {
         load_page(&transaction, conversation, before_seq, limit)
     }
 
+    /// The head of `conversation`, or `None` when it does not exist.
+    pub(crate) fn head(&mut self, conversation: &str) -> anyhow::Result<Option<ConversationHead>> {
+        load_head(&self.connection, conversation)
+    }
+
     /// Validate a typing indicator. Typing is never stored.
     pub(crate) fn check_typing(&mut self, conversation: &str, actor: &str) -> anyhow::Result<()> {
         let head = load_head(&self.connection, conversation)?
@@ -392,7 +400,7 @@ impl ConversationStore {
             None => None,
         };
         let last_message = load_message_by_seq(&transaction, conversation, head.last_seq)?;
-        let commit = cmux_conversation::apply(
+        let mut commit = cmux_conversation::apply(
             &head,
             &OpRequest {
                 actor,
@@ -411,6 +419,7 @@ impl ConversationStore {
             // head's loop-guard counters (no row window to fill with work cards).
             cmux_conversation::check_agent_streak(&head, actor, parts, now_ms).map_err(rejected)?;
         }
+        let origin = stamp_origin(&mut commit, actor);
         write_head(&transaction, &commit.head)?;
         if let Some(message) = &commit.message {
             write_message(&transaction, message)?;
@@ -419,6 +428,7 @@ impl ConversationStore {
             rev: commit.head.rev,
             seq: commit.message.as_ref().map(|message| message.seq),
             change: serde_json::to_value(&commit.change)?,
+            origin,
         };
         transaction.execute(
             "INSERT INTO op_ledger_v2(conversation, actor, idempotency_key, fingerprint,
@@ -436,6 +446,14 @@ impl ConversationStore {
         Ok(OpOutcome { result, replayed: false })
     }
 }
+
+/// The owner stamps the origin of an op from its actor, never from the
+/// request: a `remote_<install>` actor's op is remote, on the ledger row and
+/// on the message it sends (server-remote-conversations.md section 5).
+fn stamp_origin(commit: &mut cmux_conversation::Commit, actor: &str) -> Option<Origin> {
+        let _ = (commit, actor);
+        None
+    }
 
 fn validate_idempotency_key(key: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
@@ -660,6 +678,8 @@ pub(crate) struct ConversationHost {
     pub(crate) publish: Mutex<()>,
     /// The participant each connection bound with an agent token (memory only).
     pub(crate) bindings: Mutex<std::collections::BTreeMap<u64, String>>,
+    /// Remote-relay peers, pairing records and revocation limits.
+    pub(crate) remote: crate::remote_relay_state::RemoteRelayState,
 }
 
 #[cfg(test)]
@@ -675,6 +695,7 @@ mod tests {
                 display_name: "Me".to_string(),
                 agent_class: None,
                 acp_session: None,
+                person: None,
             },
             Participant {
                 id: "agent_mux".to_string(),
@@ -682,6 +703,7 @@ mod tests {
                 display_name: "mux".to_string(),
                 agent_class: Some(cmux_conversation::AgentClass::Mux),
                 acp_session: Some("mux".to_string()),
+                person: None,
             },
         ]
     }

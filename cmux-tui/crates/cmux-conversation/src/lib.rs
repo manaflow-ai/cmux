@@ -28,7 +28,7 @@ pub use search::{
     snippet_of, sort_hits, validate_search,
 };
 pub use types::{
-    AgentClass, Change, ConversationHead, Message, Op, Part, PartRef, Participant, ParticipantKind,
+    AgentClass, Change, ConversationHead, Message, Op, Origin, Part, PartRef, Participant, ParticipantKind,
     Reaction, ReactionKind, Summary, Tapback, TextRun, WorkStatus,
 };
 

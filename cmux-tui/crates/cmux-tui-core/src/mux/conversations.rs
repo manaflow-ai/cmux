@@ -4,7 +4,7 @@
 //! its events after each commit.
 
 use super::*;
-use crate::conversation_store::{ConversationStore, LOCAL_USER};
+use crate::conversation_store::ConversationStore;
 
 impl Mux {
     /// Run `operation` on the conversation store, opening
@@ -39,11 +39,17 @@ impl Mux {
         Ok(value)
     }
 
-    /// The conversation principal of control client `client`: the agent it
-    /// bound with a token, else the Mac's user (`user_local`).
-    pub(crate) fn conversation_principal(&self, client: u64) -> String {
-        let bindings = self.conversations.bindings.lock().unwrap();
-        bindings.get(&client).cloned().unwrap_or_else(|| LOCAL_USER.to_string())
+    /// The remote-relay state (peers, pairing records, revocation limits).
+    pub(crate) fn remote_relay(&self) -> &crate::remote_relay_state::RemoteRelayState {
+        &self.conversations.remote
+    }
+
+    /// The agent participant `client` bound with a token, if any. The
+    /// principal itself (`conversation_principal`) lives with the relay
+    /// policy (server/remote_relay), which fails closed for remote
+    /// connections.
+    pub(crate) fn bound_conversation_participant(&self, client: u64) -> Option<String> {
+        self.conversations.bindings.lock().unwrap().get(&client).cloned()
     }
 
     /// Binds `client` to agent `participant` for the rest of the connection.
@@ -54,6 +60,7 @@ impl Mux {
     /// Ends `client`'s binding when its connection ends.
     pub(crate) fn unbind_conversation_principal(&self, client: u64) {
         self.conversations.bindings.lock().unwrap().remove(&client);
+        self.conversations.remote.peers.lock().unwrap().remove(&client);
     }
 
     /// Ends every binding of `participant` (its token was replaced).
