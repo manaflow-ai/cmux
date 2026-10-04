@@ -113,6 +113,13 @@ pub(super) fn verify_signature(fd: RawFd) -> Result<(), String> {
     let own = signing(&own_code()?)?;
     match own.team {
         Some(team) => {
+            // A Team ID is ten upper-case letters or digits; anything else
+            // never goes into the requirement text.
+            if team.len() != 10
+                || !team.bytes().all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
+            {
+                return Err(format!("unexpected Team ID {team:?}"));
+            }
             let requirement = requirement(&format!(
                 "anchor apple generic and certificate leaf[subject.OU] = \"{team}\""
             ))?;

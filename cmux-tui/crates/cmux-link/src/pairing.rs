@@ -86,9 +86,13 @@ impl Pairings {
     pub fn save(&self, path: &Path) -> io::Result<()> {
         let text = serde_json::to_string_pretty(self)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        let temporary = path.with_extension("tmp");
-        write_private(&temporary, text.as_bytes())?;
-        std::fs::rename(&temporary, path)
+        let temporary = unique_temporary(path);
+        let result = write_private(&temporary, text.as_bytes())
+            .and_then(|()| std::fs::rename(&temporary, path));
+        if result.is_err() {
+            let _ = std::fs::remove_file(&temporary);
+        }
+        result
     }
 
     /// Add `record`, replacing a record with the same install or key.
@@ -118,16 +122,22 @@ impl Pairings {
     }
 }
 
+/// A temp file next to `path` that no other writer uses (pid and a counter),
+/// so two writers never share one and its mode is always the one we set.
+fn unique_temporary(path: &Path) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+    let serial = NEXT.fetch_add(1, Ordering::Relaxed);
+    path.with_file_name(format!(".{name}.{}.{serial}.tmp", std::process::id()))
+}
+
 #[cfg(unix)]
 fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)?;
+    let mut file =
+        std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
     file.write_all(bytes)?;
     file.sync_all()
 }
