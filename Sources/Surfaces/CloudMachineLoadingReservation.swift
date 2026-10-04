@@ -53,16 +53,19 @@ struct CloudMachineLoadingReservation: Sendable {
 struct CloudDisplayPaneReservation: Sendable {
     @TaskLocal static var current: CloudDisplayPaneReservation?
 
-    let machine: SurfaceMachineID
+    /// The display the guest created; only that resource may adopt the pane.
+    let resource: SurfaceResourceID
     let workspaceID: UUID
     let panelID: UUID
 
-    /// The reserved pane when it still exists and `resource` is a display on
-    /// the reserving machine. Any other resource opens its own pane.
+    /// The reserved pane for the created display. Nil for any other resource,
+    /// which opens its own pane. Throws when the person closed the reserved
+    /// pane while the display started: the display stays in the pool rather
+    /// than reappearing somewhere else.
     @MainActor
-    func pane(for resource: SurfaceResource) -> (workspaceID: UUID, panelID: UUID)? {
-        guard resource.kind == .display, resource.machine == machine,
-              SurfacePaneFactory.browserPanel(panelID: panelID, in: workspaceID) != nil else { return nil }
+    func pane(for resource: SurfaceResource) throws -> (workspaceID: UUID, panelID: UUID)? {
+        guard resource.id == self.resource else { return nil }
+        guard SurfacePaneFactory.browserPanel(panelID: panelID, in: workspaceID) != nil else { throw CancellationError() }
         return (workspaceID, panelID)
     }
 }

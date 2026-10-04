@@ -59,20 +59,32 @@ extension SurfaceCatalog {
         guard let provider = provider(for: machine) as? CmuxTuiSurfaceProvider else {
             throw SurfaceCatalogError.noProvider(machine)
         }
-        let pane = try await SurfacePaneFactory.openPreferringSplit(at: destination) { target in
-            try SurfacePaneFactory.makeBrowserPane(url: nil, at: target, focus: true)
+        // A second click while this machine is already creating is dropped, as
+        // `createDisplay(on:)` does, before it can flash a pane of its own.
+        guard !activeDisplayCreations.contains(machine) else { throw CancellationError() }
+        let pane: (workspaceID: UUID, panelID: UUID)
+        do {
+            pane = try await SurfacePaneFactory.openPreferringSplit(at: destination) { target in
+                try SurfacePaneFactory.makeBrowserPane(url: nil, at: target, focus: true)
+            }
+        } catch {
+            // Opening is best effort for the sidebar: still create the display,
+            // which then waits in the machine's pool.
+            guard bestEffortOpen else { throw error }
+            _ = try await createDisplay(on: machine)
+            return
         }
         SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID)?.cloudAccess.showStarting(
             String(localized: "cloud.display.starting", defaultValue: "Starting display…")
         )
-        let reservation = CloudDisplayPaneReservation(machine: machine, workspaceID: pane.workspaceID, panelID: pane.panelID)
         let resource: SurfaceResource
         do {
             resource = try await createDisplay(on: machine)
         } catch {
-            SurfacePaneFactory.close(panelID: pane.panelID, in: pane.workspaceID)
+            discardReservedDisplayPane(pane, error: error)
             throw error
         }
+        let reservation = CloudDisplayPaneReservation(resource: resource.id, workspaceID: pane.workspaceID, panelID: pane.panelID)
         do {
             guard self.provider(for: machine) === provider else { throw CancellationError() }
             try await CloudDisplayPaneReservation.$current.withValue(reservation) {
@@ -80,11 +92,24 @@ extension SurfaceCatalog {
             }
         } catch {
             if projections.contains(where: { $0.panelID == pane.panelID }) == false {
-                SurfacePaneFactory.close(panelID: pane.panelID, in: pane.workspaceID)
+                discardReservedDisplayPane(pane, error: error)
             }
             if error is CancellationError || !bestEffortOpen { throw error }
             // Guest creation already succeeded. The workspace can lose the pane
             // or ownership while the display starts; it stays in the pool.
         }
+    }
+
+    /// Closes a reserved pane whose display never arrived. The socket close
+    /// refuses a workspace's last surface; that pane shows the failure instead
+    /// of spinning on "Starting display…" forever.
+    private func discardReservedDisplayPane(_ pane: (workspaceID: UUID, panelID: UUID), error: Error) {
+        SurfacePaneFactory.close(panelID: pane.panelID, in: pane.workspaceID)
+        guard let browser = SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID) else { return }
+        browser.cloudAccess.showUnavailable(
+            error is CancellationError
+                ? String(localized: "cloud.display.creationFailed", defaultValue: "The new display could not start. Refresh Displays, then retry. Existing displays are unchanged.")
+                : error.localizedDescription
+        )
     }
 }
