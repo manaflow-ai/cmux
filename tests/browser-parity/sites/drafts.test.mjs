@@ -32,7 +32,7 @@ test("gmail.send: changing the input or the draft's nested preview after the pre
   `);
   await s.value("sites.gmail.send(gD.id, { confirm: true })");
   assert.deepEqual(env.state.gmailSent.at(-1), { to: "bob@example.com", cc: null, bcc: null, subject: "Numbers", body: "Looks good." });
-  assert.deepEqual(await s.value("gD.preview"), { account: 0, to: ["bob@example.com"], cc: [], bcc: [], subject: "Numbers", body: "Looks good." });
+  assert.deepEqual(await s.value("gD.preview"), { account: 0, accountEmail: "ada@example.com", to: ["bob@example.com"], cc: [], bcc: [], subject: "Numbers", body: "Looks good." });
 });
 
 test("slack.post: changing the input object after the preview does not change the posted message", async () => {

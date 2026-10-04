@@ -110,5 +110,41 @@
     return { title, text };
   }
 
-  S.shared.google = { FORMATS, parse, exportURL, dispositionName, fetchFile, exportTo, exportText };
+  // The Google accounts signed in to the browser, [{ uid, name, email,
+  // signedOut }], from Google's ListAccounts endpoint (the one Chromium's
+  // account reconcilor uses; shape parsed as in Chromium's
+  // google_apis/gaia/gaia_auth_util.cc: [2] name, [3] email, [14] signed
+  // out). uid is the /u/{uid}/ and authuser index. Cookie-only, no tab.
+  async function listAccounts(t, name) {
+    const r = await t.fetch("https://accounts.google.com/ListAccounts?gpsia=1&source=ChromiumBrowser&json=standard", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "" });
+    if (!r.ok) throw new S.SiteError("http", `${name}: HTTP ${r.status}`);
+    let data;
+    try {
+      data = JSON.parse((await r.text()).replace(/^\)\]\}'\s*/, ""));
+    } catch {
+      throw new S.SiteError("unexpected", `${name}: Google's answer was not the ListAccounts JSON`);
+    }
+    const rows = Array.isArray(data) && Array.isArray(data[1]) ? data[1] : [];
+    return rows
+      .filter((a) => Array.isArray(a) && typeof a[3] === "string")
+      .map((a, i) => ({ uid: i, name: typeof a[2] === "string" ? a[2] : "", email: a[3], signedOut: a[14] === 1 || a[14] === true }));
+  }
+
+  // The email of the signed-in account at /u/{uid}/. A draft pins it: the
+  // index is positional, so signing an account in or out (another session
+  // can) moves another account to that index.
+  async function accountEmail(t, name, uid) {
+    const account = (await listAccounts(t, name)).find((a) => a.uid === uid);
+    if (!account || account.signedOut) throw new S.SiteError("not_signed_in", `${name}: no signed-in Google account at /u/${uid}/; see sites.googleAccounts.list()`);
+    return account.email;
+  }
+
+  // Fails (account_changed) unless /u/{uid}/ is still the account `email`.
+  async function checkAccount(t, name, uid, email) {
+    const account = (await listAccounts(t, name)).find((a) => a.uid === uid);
+    const now = account && !account.signedOut ? account.email : null;
+    if (now !== email) throw new S.SiteError("account_changed", `${name}: account u/${uid} is now ${now || "signed out"}, not ${email} as drafted; nothing was sent. Make a new draft and show it to the user again`);
+  }
+
+  S.shared.google = { FORMATS, parse, exportURL, dispositionName, fetchFile, exportTo, exportText, listAccounts, accountEmail, checkAccount };
 })(typeof globalThis !== "undefined" ? globalThis : this);

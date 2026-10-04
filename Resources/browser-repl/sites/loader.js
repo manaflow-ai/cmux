@@ -415,7 +415,11 @@
       // second call with the draft id and { confirm: true } performs it.
       // make() receives a private copy of input, so what it captures for
       // run() cannot be changed by the caller afterwards; run() receives the
-      // frozen preview.
+      // frozen preview. make() may be async: a site resolves the concrete
+      // destination and account (ids, emails) when it drafts, shows them in
+      // the preview, and its run() sends only there, after checking they
+      // still hold, so state another session changes between the preview
+      // and the confirmation cannot redirect the action.
       write(site, action, input, options, make) {
         const isDraftId = typeof input === "string" && /^draft-\d+-[0-9a-f]+$/.test(input);
         if (isDraftId) {
@@ -424,7 +428,8 @@
         }
         if (options && options.confirm) throw new SiteError("draft_required", `sites.${site}.${action}: { confirm: true } takes a draft id. Call sites.${site}.${action}(input) first, show the returned draft to the user, then confirm it.`);
         const spec = make(copyInput(input, `sites.${site}.${action}`));
-        return drafts.create({ site, action, category: spec.category, summary: spec.summary, preview: spec.preview, run: spec.run });
+        const create = (s) => drafts.create({ site, action, category: s.category, summary: s.summary, preview: s.preview, run: s.run });
+        return spec && typeof spec.then === "function" ? spec.then(create) : create(spec);
       },
     };
 

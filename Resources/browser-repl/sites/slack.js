@@ -125,15 +125,43 @@
           return withSlack((call) => call(team, method, params));
         },
         // Draft a message: { team, channel, text, threadTs }. post(draftId, { confirm: true }) posts it.
+        // The draft resolves the workspace (team omitted: Slack's last-active
+        // one) and the channel (a #name) to their ids now; the preview names
+        // both, and the confirmed draft posts only to those ids, so a
+        // workspace switch or a channel name reused after the preview cannot
+        // redirect it.
         post(input, options) {
-          return t.write("slack", "post", input, options, (m) => {
+          return t.write("slack", "post", input, options, async (m) => {
             if (!m || typeof m !== "object" || !m.channel || typeof m.text !== "string" || !m.text.trim()) throw new S.SiteError("invalid", "slack.post: expected { team, channel, text, threadTs? } with non-empty text");
+            const text = m.text;
+            const threadTs = m.threadTs ? String(m.threadTs) : null;
+            const { team, channel } = await withSlack(async (call) => {
+              const auth = await call(m.team, "auth.test", {});
+              const teamId = auth.team_id;
+              let id;
+              let name;
+              if (/^[CDG][A-Z0-9]{6,}$/.test(m.channel)) {
+                const info = await call(teamId, "conversations.info", { channel: m.channel });
+                id = info.channel.id;
+                name = info.channel.name || null;
+              } else {
+                id = await channelId(call, teamId, m.channel);
+                name = String(m.channel).replace(/^#/, "");
+              }
+              return { team: { id: teamId, name: auth.team || null }, channel: { id, name } };
+            });
+            const where = `${channel.name ? `#${channel.name} ` : ""}(${channel.id})`;
             return {
               category: "[9] representational communication",
-              summary: `Post to ${m.channel}${m.threadTs ? ` (thread ${m.threadTs})` : ""} in workspace ${m.team || "(last active)"}`,
-              preview: { team: m.team || null, channel: m.channel, threadTs: m.threadTs || null, text: m.text },
+              summary: `Post to ${where}${threadTs ? ` (thread ${threadTs})` : ""} in workspace ${team.name || team.id} (${team.id})`,
+              preview: { team, channel, threadTs, text },
               run: async () => {
-                const r = await withSlack(async (call) => call(m.team, "chat.postMessage", { channel: await channelId(call, m.team, m.channel), text: m.text, thread_ts: m.threadTs }));
+                const r = await withSlack(async (call) => {
+                  // The token of the drafted workspace only; never the last-active one.
+                  const auth = await call(team.id, "auth.test", {});
+                  if (auth.team_id !== team.id) throw new S.SiteError("account_changed", `slack.post: the workspace is now ${auth.team_id}, not ${team.id} as drafted; nothing was posted`);
+                  return call(team.id, "chat.postMessage", { channel: channel.id, text, thread_ts: threadTs || undefined });
+                });
                 return { status: "posted", channel: r.channel, ts: r.ts };
               },
             };

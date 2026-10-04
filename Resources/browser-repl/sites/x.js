@@ -73,6 +73,15 @@
     };
   }
 
+  // Runs in an x.com page: the signed-in user's id from X's twid cookie
+  // (u=<id>), which X's web client reads too; null when signed out.
+  function signedInUser() {
+    const m = /(?:^|;\s*)twid=([^;]*)/.exec(document.cookie);
+    if (!m) return null;
+    const id = /u=(\d+)/.exec(decodeURIComponent(m[1]));
+    return id ? id[1] : null;
+  }
+
   S.register(
     "x",
     (t) => {
@@ -125,19 +134,25 @@
         tweet: (id, options = {}) => tweets(`${ORIGIN}/i/status/${statusId(id)}`, options.limit || 20, "the X post"),
         // Draft a post, or a reply with { replyTo }. post(draftId, { confirm: true }) publishes it.
         post(input, options) {
-          return t.write("x", "post", input, options, (p) => {
+          return t.write("x", "post", input, options, async (p) => {
             const spec = typeof p === "string" ? { text: p } : p || {};
             if (typeof spec.text !== "string" || !spec.text.trim()) throw new S.SiteError("invalid", "x.post: expected the post text");
             const replyTo = spec.replyTo ? statusId(spec.replyTo) : null;
+            // The draft pins the signed-in account (its user id); X switches
+            // accounts in the shared profile, so another session can.
+            const account = await t.inOrigin(ORIGIN, signedInUser);
+            if (!account) throw new S.SiteError("not_signed_in", "x.post: the cmux browser is not signed in to X (no signed-in user id); open https://x.com with tabs.open() and ask the user to sign in");
             return {
               category: "[9] representational communication (public post)",
-              summary: replyTo ? `Reply on X to post ${replyTo}` : "Publish a post on X",
-              preview: { text: spec.text, replyTo },
+              summary: replyTo ? `Reply on X to post ${replyTo} as user ${account}` : `Publish a post on X as user ${account}`,
+              preview: { account, text: spec.text, replyTo },
               run: () =>
                 t.withTab(`${ORIGIN}/intent/post?text=${encodeURIComponent(spec.text)}${replyTo ? `&in_reply_to=${replyTo}` : ""}`, async (page) => {
                   t.assertSignedIn("x.post", page, SIGN_IN);
                   const button = page.locator('[data-testid="tweetButton"]');
                   await button.first().waitFor({ timeout: 30000 });
+                  const now = await page.evaluate(signedInUser);
+                  if (now !== account) throw new S.SiteError("account_changed", `x.post: the signed-in X user is now ${now || "nobody"}, not ${account} as drafted; nothing was posted`);
                   const box = page.locator('[data-testid="tweetTextarea_0"]').first();
                   const shown = ((await box.count()) ? await box.innerText() : "").replace(/\s+/g, " ");
                   if (!shown.includes(spec.text.trim().slice(0, 40).replace(/\s+/g, " "))) throw new S.SiteError("compose_mismatch", "x.post: the composer did not receive the drafted text; nothing was posted");

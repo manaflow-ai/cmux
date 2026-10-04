@@ -130,6 +130,10 @@
           const key = threadKey(msg.threadId);
           return t.withTab(`${base(msg.uid)}#all/${key}`, async (page) => {
             await openThread(page);
+            // The reply answers the thread as previewed: a message that came
+            // in since then could change who a reply (all) goes to.
+            const now = (await page.evaluate(threadFn, { format: "text" })).messages.map((m) => m.messageId);
+            if (JSON.stringify(now) !== JSON.stringify(msg.messageIds)) throw new S.SiteError("thread_changed", `gmail.send: thread ${msg.threadId} has a new message since the preview (messages ${now.join(", ")}); nothing was sent. Make a new draft and show it to the user again`);
             const button = page.locator(msg.replyAll ? '[data-tooltip="Reply all"], [aria-label="Reply all"]' : '[data-tooltip="Reply"], [aria-label="Reply"]');
             await button.last().click();
             const box = page.locator('div[role="textbox"][aria-label="Message Body"], div[role="textbox"][g_editable="true"]').last();
@@ -198,18 +202,26 @@
         // Draft: { to, cc, bcc, subject, body, uid } or a reply { threadId, body, replyAll, uid }.
         // Returns a draft; send(draftId, { confirm: true }) sends it through Gmail.
         send(input, options) {
-          return t.write("gmail", "send", input, options, (m) => {
+          return t.write("gmail", "send", input, options, async (m) => {
             if (!m || typeof m !== "object") throw new S.SiteError("invalid", "gmail.send: expected { to, subject, body } or { threadId, body }");
             const msg = { uid: m.uid === undefined ? 0 : m.uid, to: list(m.to, "to"), cc: list(m.cc, "cc"), bcc: list(m.bcc, "bcc"), subject: m.subject ? String(m.subject) : "", body: String(m.body || ""), threadId: m.threadId || null, replyAll: !!m.replyAll };
             base(msg.uid);
             if (msg.threadId) threadKey(msg.threadId);
             else if (!msg.to.length && !msg.cc.length && !msg.bcc.length) throw new S.SiteError("invalid", "gmail.send: a new message needs at least one recipient");
             if (!msg.body.trim() && !m.allowEmptyBody) throw new S.SiteError("invalid", "gmail.send: the body is empty; pass allowEmptyBody: true if that is intended");
+            // The draft pins the sending account by email (u/N is positional)
+            // and a reply the thread's messages as previewed.
+            const g = S.shared.google;
+            const accountEmail = await g.accountEmail(t, "gmail.send", msg.uid);
+            if (msg.threadId) msg.messageIds = (await thread(msg.threadId, { uid: msg.uid, format: "text" })).messages.map((x) => x.messageId);
             return {
               category: "[9] representational communication; [14] transmits data to the recipients",
-              summary: msg.threadId ? `Reply${msg.replyAll ? " all" : ""} in Gmail thread ${msg.threadId} as account u/${msg.uid}` : `Email to ${[...msg.to, ...msg.cc, ...msg.bcc].join(", ")} from account u/${msg.uid}: "${msg.subject}"`,
-              preview: msg.threadId ? { account: msg.uid, threadId: msg.threadId, replyAll: msg.replyAll, body: msg.body } : { account: msg.uid, to: msg.to, cc: msg.cc, bcc: msg.bcc, subject: msg.subject, body: msg.body },
-              run: () => sendNow(msg),
+              summary: msg.threadId ? `Reply${msg.replyAll ? " all" : ""} in Gmail thread ${msg.threadId} as ${accountEmail} (u/${msg.uid})` : `Email to ${[...msg.to, ...msg.cc, ...msg.bcc].join(", ")} from ${accountEmail} (u/${msg.uid}): "${msg.subject}"`,
+              preview: msg.threadId ? { account: msg.uid, accountEmail, threadId: msg.threadId, messageIds: msg.messageIds, replyAll: msg.replyAll, body: msg.body } : { account: msg.uid, accountEmail, to: msg.to, cc: msg.cc, bcc: msg.bcc, subject: msg.subject, body: msg.body },
+              run: async () => {
+                await g.checkAccount(t, "gmail.send", msg.uid, accountEmail);
+                return sendNow(msg);
+              },
             };
           });
         },
