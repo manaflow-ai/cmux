@@ -9667,60 +9667,6 @@
         "validation.invalid"
       ]
     },
-    "closed.list": {
-      "class": "read",
-      "idempotency": "forbidden",
-      "target": "closed",
-      "ancestors": [
-        "machine",
-        "session"
-      ],
-      "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
-        "fields": {
-          "window": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 257
-            },
-            "description": "The caller's window record id (`install_id/window_id`). Scopes the groups to that window and to groups no live window owns."
-          },
-          "limit": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "uint32",
-              "minimum": 1,
-              "maximum": 1000
-            },
-            "default": 100,
-            "description": "Newest groups to return."
-          }
-        },
-        "extra": false
-      },
-      "result": {
-        "kind": "array",
-        "items": {
-          "kind": "ref",
-          "name": "ClosedItemSnapshot"
-        }
-      },
-      "errors": [
-        "operation.failed",
-        "resource.not_found",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
-    },
     "closed.delete": {
       "class": "mutation",
       "idempotency": "required",
@@ -9801,6 +9747,60 @@
         "operation.failed",
         "resource.not_found",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "closed.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "closed",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "window": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 257
+            },
+            "description": "The caller's window record id (`install_id/window_id`). Scopes the groups to that window and to groups no live window owns."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "default": 100,
+            "description": "Newest groups to return."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "ClosedItemSnapshot"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",

@@ -62,6 +62,7 @@
         "client.metadata.update",
         "client.sizing.release",
         "client.sizing.set",
+        "closed.delete",
         "closed.list",
         "closed.reopen",
         "column.update",

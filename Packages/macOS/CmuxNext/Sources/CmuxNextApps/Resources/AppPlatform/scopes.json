@@ -193,6 +193,10 @@
       "scope": "clipboard:write",
       "class": "mutation"
     },
+    "closed.delete": {
+      "scope": "closed:write",
+      "class": "mutation"
+    },
     "closed.list": {
       "scope": "closed:read",
       "class": "read"
