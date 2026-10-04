@@ -9,10 +9,13 @@ use std::sync::{Arc, Mutex};
 use anyhow::Context;
 
 use super::remove_terminal_runtime_from_state;
-use super::{Mux, commit_terminal_lifecycle, insert_surface_checked};
+#[cfg(unix)]
+use super::insert_surface_checked;
+use super::{Mux, commit_terminal_lifecycle};
 use crate::model::State;
 use crate::resource::TerminalPublicId;
 use crate::surface::Surface;
+#[cfg(unix)]
 use crate::terminal_backend::pty::BackendSide;
 use crate::terminal_host::TerminalId;
 use crate::terminal_host_runtime::TerminalHostIdentity;
@@ -48,6 +51,7 @@ impl FirstView {
 }
 
 /// A backend terminal the session host created.
+#[cfg(unix)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BackendTerminal {
     pub surface: SurfaceId,
@@ -56,7 +60,9 @@ pub(crate) struct BackendTerminal {
 
 impl Mux {
     /// Creates the catalog-owned, zero-view terminal of an app's
-    /// byte-backend terminal at the daemon's default size.
+    /// byte-backend terminal at the daemon's default size. Unix only, like
+    /// the app supervisor that calls it (`terminal_backend`).
+    #[cfg(unix)]
     pub(crate) fn spawn_backend_terminal(
         self: &Arc<Self>,
         side: BackendSide,
@@ -156,6 +162,7 @@ impl Mux {
 
     /// True when `surface` ever had a view (its first projection wrote its
     /// durable record).
+    #[cfg_attr(not(unix), allow(dead_code))]
     pub(crate) fn backend_terminal_viewed(&self, surface: SurfaceId) -> bool {
         self.reserved_in_process_terminals.lock().unwrap().contains_key(&surface)
     }
@@ -163,6 +170,7 @@ impl Mux {
     /// Removes and stops a never-viewed backend terminal (its killer closes
     /// the app's terminal). A viewed or unknown surface is left alone: its
     /// views and the normal exit path own it.
+    #[cfg_attr(not(unix), allow(dead_code))]
     pub(crate) fn close_backend_terminal(&self, id: SurfaceId) {
         if !self.is_unregistered_app_terminal(id) {
             return;
@@ -184,6 +192,6 @@ impl Mux {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "app_terminals_tests.rs"]
 mod tests;
