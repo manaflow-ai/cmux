@@ -6,6 +6,19 @@ import Observation
 @MainActor
 @Observable
 final class WorkspaceSidebarAgentRuntimeObservationModel {
+    /// One native lifecycle event, bound at receipt to a registered agent's
+    /// process birth. Evidence time never changes while projecting snapshots.
+    struct LifecycleEvidence: Equatable, Sendable {
+        let agentPIDKey: String
+        let processIdentity: AgentPIDProcessIdentity
+        let lifecycle: AgentHibernationLifecycleState
+        let observedAt: Date
+        let isError: Bool
+    }
+
+    @ObservationIgnored
+    private(set) var lifecycleEvidenceByPanelID: [UUID: [String: LifecycleEvidence]] = [:]
+
     @ObservationIgnored
     private(set) var agentPIDs: [String: pid_t] = [:]
     @ObservationIgnored
@@ -36,31 +49,61 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     func setAgentPIDs(_ newValue: [String: pid_t]) {
         guard agentPIDs != newValue else { return }
         agentPIDs = newValue
+        pruneLifecycleEvidence()
         notifyChanged()
     }
 
     func setAgentPIDProcessIdentitiesByKey(_ newValue: [String: AgentPIDProcessIdentity]) {
         guard agentPIDProcessIdentitiesByKey != newValue else { return }
         agentPIDProcessIdentitiesByKey = newValue
+        pruneLifecycleEvidence()
         notifyChanged()
     }
 
     func setAgentPIDPanelIdsByKey(_ newValue: [String: UUID]) {
         guard agentPIDPanelIdsByKey != newValue else { return }
         agentPIDPanelIdsByKey = newValue
+        pruneLifecycleEvidence()
         notifyChanged()
     }
 
     func setAgentPIDKeysByPanelId(_ newValue: [UUID: Set<String>]) {
         guard agentPIDKeysByPanelId != newValue else { return }
         agentPIDKeysByPanelId = newValue
+        pruneLifecycleEvidence()
         notifyChanged()
     }
 
     func setAgentLifecycleStatesByPanelId(_ newValue: [UUID: [String: AgentHibernationLifecycleState]]) {
         guard agentLifecycleStatesByPanelId != newValue else { return }
         agentLifecycleStatesByPanelId = newValue
+        pruneLifecycleEvidence()
         notifyChanged()
+    }
+
+    func recordLifecycleEvidence(panelID: UUID, statusKey: String, evidence: LifecycleEvidence?) {
+        guard lifecycleEvidenceByPanelID[panelID]?[statusKey] != evidence else { return }
+        if let evidence {
+            lifecycleEvidenceByPanelID[panelID, default: [:]][statusKey] = evidence
+        } else {
+            lifecycleEvidenceByPanelID[panelID]?.removeValue(forKey: statusKey)
+            if lifecycleEvidenceByPanelID[panelID]?.isEmpty == true { lifecycleEvidenceByPanelID.removeValue(forKey: panelID) }
+        }
+        notifyChanged()
+    }
+
+    private func pruneLifecycleEvidence() {
+        var survivingByPanel: [UUID: [String: LifecycleEvidence]] = [:]
+        for (panelID, states) in lifecycleEvidenceByPanelID {
+            let surviving = states.filter { statusKey, evidence in
+                agentPIDPanelIdsByKey[evidence.agentPIDKey] == panelID
+                    && agentPIDs[evidence.agentPIDKey] == evidence.processIdentity.pid
+                    && agentPIDProcessIdentitiesByKey[evidence.agentPIDKey] == evidence.processIdentity
+                    && agentLifecycleStatesByPanelId[panelID]?[statusKey] == evidence.lifecycle
+            }
+            if !surviving.isEmpty { survivingByPanel[panelID] = surviving }
+        }
+        lifecycleEvidenceByPanelID = survivingByPanel
     }
 
     private func notifyChanged() {

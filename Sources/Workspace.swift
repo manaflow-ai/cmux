@@ -177,6 +177,7 @@ extension Workspace {
             customDescription: customDescription,
             customColor: customColor,
             isPinned: isPinned,
+            importance: importance.rawValue,
             isMuted: isMuted,
             groupId: groupId,
             isManuallyUnread: isWorkspaceManuallyUnread,
@@ -335,6 +336,7 @@ extension Workspace {
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
+        importance = snapshot.importance.flatMap(Importance.init(rawValue:)) ?? .none
         isMuted = snapshot.isMuted ?? false
         groupId = snapshot.groupId
         restoreTodoState(from: snapshot)
@@ -2682,6 +2684,22 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         customDescriptionRevision &+= 1
     }
 
+    /// User importance is independent from pinning and never changes workspace order.
+    enum Importance: String, Codable, Sendable, CaseIterable {
+        case none
+        case priority
+        case followUp
+
+        var menuTitle: String {
+            switch self {
+            case .none: return String(localized: "sidebar.importance.none", defaultValue: "Remove Star")
+            case .priority: return String(localized: "sidebar.importance.priority", defaultValue: "Priority")
+            case .followUp: return String(localized: "sidebar.importance.followUp", defaultValue: "Follow Up")
+            }
+        }
+    }
+
+    @Published var importance: Importance = .none
     @Published var isPinned: Bool = false
     /// Suppresses notification history/recording, unread badges, sound,
     /// desktop banners, pane flashes, phone forwarding, command hooks, and

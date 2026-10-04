@@ -497,11 +497,34 @@ extension Workspace {
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,
-        lifecycle: AgentHibernationLifecycleState
+        lifecycle: AgentHibernationLifecycleState,
+        observedAt: Date = Date()
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
+        let ownedKeys = agentPIDPanelIdsByKey.keys.filter {
+            agentPIDPanelIdsByKey[$0] == targetPanelId && agentStatusKey(forAgentPIDKey: $0) == key
+        }
+        let proven = ownedKeys.compactMap { agentKey -> (String, AgentPIDProcessIdentity)? in
+            guard let identity = agentPIDProcessIdentitiesByKey[agentKey], agentPIDs[agentKey] == identity.pid else { return nil }
+            return (agentKey, identity)
+        }
+        var evidence: WorkspaceSidebarAgentRuntimeObservationModel.LifecycleEvidence?
+        if !AgentHibernationLifecycleStatusKeys.isManualKey(key), proven.count == 1, let (agentKey, identity) = proven.first {
+            let statusPanels = Set(agentPIDPanelIdsByKey.compactMap { agentKey, panelID in
+                agentStatusKey(forAgentPIDKey: agentKey) == key ? panelID : nil
+            })
+            let entry = statusEntries[key]
+            let statusAge = entry.map { observedAt.timeIntervalSince($0.timestamp) }
+            let bornAt = Date(timeIntervalSince1970: Double(identity.startSeconds) + Double(identity.startMicroseconds) / 1_000_000)
+            let isError = lifecycle == .needsInput && statusPanels == [targetPanelId]
+                && statusAge.map { $0 >= 0 && $0 <= 2 } == true
+                && entry.map { $0.timestamp >= bornAt } == true
+                && ["exclamationmark.triangle", "exclamationmark.triangle.fill"].contains(entry?.icon ?? "")
+            evidence = .init(agentPIDKey: agentKey, processIdentity: identity, lifecycle: lifecycle, observedAt: observedAt, isError: isError)
+        }
+        sidebarAgentRuntimeObservation.recordLifecycleEvidence(panelID: targetPanelId, statusKey: key, evidence: evidence)
         if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
             recordAgentLifecycleChange(panelId: targetPanelId)
         }

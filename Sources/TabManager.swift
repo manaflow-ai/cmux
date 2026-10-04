@@ -2134,6 +2134,14 @@ class TabManager: ObservableObject {
         workspaceReordering.setPinned(workspaceIds: workspaceIds, pinned: pinned)
     }
 
+    /// Sets importance on the live workspace without pinning, selecting, or reordering it.
+    @discardableResult
+    func setWorkspaceImportance(workspaceId: UUID, importance: Workspace.Importance) -> Bool {
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return false }
+        workspace.importance = importance
+        return true
+    }
+
     // MARK: - Workspace Groups (WorkspaceGroupCoordinator, CmuxWorkspaces)
 
     @discardableResult
@@ -6185,6 +6193,7 @@ extension TabManager {
             // the menu item cannot be lost when no other workspace field
             // changes.
             hasher.combine(workspace.isMuted)
+            hasher.combine(workspace.importance)
             hasher.combine(workspace.panels.count)
             hasher.combine(workspace.statusEntries.count)
             hasher.combine(workspace.metadataBlocks.count)

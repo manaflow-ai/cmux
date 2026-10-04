@@ -3106,5 +3106,9 @@
       "es": "The standard pixel unit abbreviation px is invariant; the localized entry preserves the numeric placeholder.",
       "ja": "The standard pixel unit abbreviation px is invariant; the localized entry preserves the numeric placeholder."
     }
+  },
+  "sidebar.mode.cortex": {
+    "source": "Cortex",
+    "class": "brand"
   }
 }

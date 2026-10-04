@@ -193,6 +193,8 @@ private struct SidebarImmediateObservationState: Equatable {
     let customDescription: String?
     let isPinned: Bool
     let isMuted: Bool
+    let importance: Workspace.Importance
+    let panelCustomTitles: [UUID: String]
     let customColor: String?
     let latestConversationMessage: String?
     let latestSubmittedMessage: String?
@@ -246,7 +248,7 @@ extension Workspace {
             $isPinned,
             $customColor
         )
-        .combineLatest($isMuted)
+        .combineLatest($isMuted, $importance, $panelCustomTitles)
         let conversationFields = Publishers.CombineLatest3(
             $latestConversationMessage,
             $latestSubmittedMessage,
@@ -269,6 +271,8 @@ extension Workspace {
                     customDescription: workspaceFields.0.1,
                     isPinned: workspaceFields.0.2,
                     isMuted: workspaceFields.1,
+                    importance: workspaceFields.2,
+                    panelCustomTitles: workspaceFields.3,
                     customColor: workspaceFields.0.3,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,

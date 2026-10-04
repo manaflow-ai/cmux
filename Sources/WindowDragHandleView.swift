@@ -811,7 +811,6 @@ private func minimalModeTrafficLightFrameInContentCoordinates(for window: NSWind
 
 enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
     case toggleSidebar
-    case switchCortexSidebar
     case showNotifications
     case newTab
     case newWorkspaceMenu
@@ -822,8 +821,6 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
         switch self {
         case .toggleSidebar:
             return "titlebarControl.toggleSidebar"
-        case .switchCortexSidebar:
-            return "titlebarControl.switchCortexSidebar"
         case .showNotifications:
             return "titlebarControl.showNotifications"
         case .newTab:
@@ -841,8 +838,6 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
         switch self {
         case .toggleSidebar:
             return String(localized: "titlebar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar")
-        case .switchCortexSidebar:
-            return String(localized: "titlebar.cortex.switch", defaultValue: "Switch sidebar view")
         case .showNotifications:
             return String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications")
         case .newTab:
@@ -860,8 +855,6 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
         switch self {
         case .toggleSidebar:
             return "toggleSidebar"
-        case .switchCortexSidebar:
-            return "switchCortexSidebar"
         case .showNotifications:
             return "showNotifications"
         case .newTab:
@@ -879,7 +872,7 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
         switch self {
         case .toggleSidebar, .newTab, .newWorkspaceMenu, .focusHistoryBack, .focusHistoryForward:
             return true
-        case .showNotifications, .switchCortexSidebar:
+        case .showNotifications:
             return false
         }
     }

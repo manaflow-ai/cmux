@@ -2789,6 +2789,10 @@
 		9212A0049212A0049212A004 /* SidebarEmptyAreaWindowDragOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9212B0049212B0049212B004 /* SidebarEmptyAreaWindowDragOutcome.swift */; };
 		9212A0069212A0069212A006 /* SidebarEmptyAreaWindowDragTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9212B0069212B0069212B006 /* SidebarEmptyAreaWindowDragTests.swift */; };
 		9212A0059212A0059212A005 /* SidebarEmptyAreaWindowDragTrackingEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9212B0059212B0059212B005 /* SidebarEmptyAreaWindowDragTrackingEvent.swift */; };
+		6F4C07E634FB3B91A73B43FB /* SidebarExtensionImportanceMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01345AEE427B428F770C3DB1 /* SidebarExtensionImportanceMenu.swift */; };
+		C14BB250731A62C3CC38C034 /* SidebarExtensionManagementCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 499A3CA2EB3580820BEBDCBC /* SidebarExtensionManagementCoordinator.swift */; };
+		FCDD8A486170C2ED2F5DF8F2 /* SidebarExtensionModeHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD80145597B5563E5949E7CB /* SidebarExtensionModeHeader.swift */; };
+		EFBE1F9AF97433BBA50804F1 /* SidebarExtensionRuntimeProjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = B156974C94653C55BF48FE63 /* SidebarExtensionRuntimeProjector.swift */; };
 		A7FD1002 /* SidebarFileDropFindRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7FD1001 /* SidebarFileDropFindRoutingTests.swift */; };
 		B8624C060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8624D060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift */; };
 		A8624F0C0000000000000001 /* SidebarFocusBoundaryReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8624F0C0000000000000002 /* SidebarFocusBoundaryReference.swift */; };
@@ -6606,6 +6610,10 @@
 		9212B0049212B0049212B004 /* SidebarEmptyAreaWindowDragOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarEmptyAreaWindowDragOutcome.swift; sourceTree = "<group>"; };
 		9212B0069212B0069212B006 /* SidebarEmptyAreaWindowDragTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarEmptyAreaWindowDragTests.swift; sourceTree = "<group>"; };
 		9212B0059212B0059212B005 /* SidebarEmptyAreaWindowDragTrackingEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarEmptyAreaWindowDragTrackingEvent.swift; sourceTree = "<group>"; };
+		01345AEE427B428F770C3DB1 /* SidebarExtensionImportanceMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarExtensionImportanceMenu.swift; sourceTree = "<group>"; };
+		499A3CA2EB3580820BEBDCBC /* SidebarExtensionManagementCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarExtensionManagementCoordinator.swift; sourceTree = "<group>"; };
+		FD80145597B5563E5949E7CB /* SidebarExtensionModeHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarExtensionModeHeader.swift; sourceTree = "<group>"; };
+		B156974C94653C55BF48FE63 /* SidebarExtensionRuntimeProjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarExtensionRuntimeProjector.swift; sourceTree = "<group>"; };
 		A7FD1001 /* SidebarFileDropFindRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarFileDropFindRoutingTests.swift; sourceTree = "<group>"; };
 		B8624D060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarFocusBoundaryLifecycleTests.swift; sourceTree = "<group>"; };
 		A8624F0C0000000000000002 /* SidebarFocusBoundaryReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarFocusBoundaryReference.swift; sourceTree = "<group>"; };
@@ -8402,6 +8410,10 @@
 		A5001041 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
+				B156974C94653C55BF48FE63 /* SidebarExtensionRuntimeProjector.swift */,
+				499A3CA2EB3580820BEBDCBC /* SidebarExtensionManagementCoordinator.swift */,
+				01345AEE427B428F770C3DB1 /* SidebarExtensionImportanceMenu.swift */,
+				FD80145597B5563E5949E7CB /* SidebarExtensionModeHeader.swift */,
 				986900010000000000000002 /* AppDelegate+BrowserActionRouting.swift */,
 				986900080000000000000002 /* BrowserAction.swift */,
 				986900020000000000000002 /* BrowserActionDispatcher.swift */,
@@ -13923,6 +13935,10 @@
 				9212A0019212A0019212A001 /* SidebarEmptyAreaWindowDragController.swift in Sources */,
 				9212A0049212A0049212A004 /* SidebarEmptyAreaWindowDragOutcome.swift in Sources */,
 				9212A0059212A0059212A005 /* SidebarEmptyAreaWindowDragTrackingEvent.swift in Sources */,
+				6F4C07E634FB3B91A73B43FB /* SidebarExtensionImportanceMenu.swift in Sources */,
+				C14BB250731A62C3CC38C034 /* SidebarExtensionManagementCoordinator.swift in Sources */,
+				FCDD8A486170C2ED2F5DF8F2 /* SidebarExtensionModeHeader.swift in Sources */,
+				EFBE1F9AF97433BBA50804F1 /* SidebarExtensionRuntimeProjector.swift in Sources */,
 				A8624F0C0000000000000001 /* SidebarFocusBoundaryReference.swift in Sources */,
 				F10753000000000000000001 /* SidebarGroupHeaderRowActions+NotificationState.swift in Sources */,
 				B804A0200000000000000020 /* SidebarGroupHeaderRowModel.swift in Sources */,

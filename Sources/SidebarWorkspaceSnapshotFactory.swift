@@ -121,7 +121,8 @@ struct SidebarWorkspaceSnapshotFactory {
             checklistCompletedCount: checklistProgress.completedCount,
             checklistTotalCount: checklistProgress.totalCount,
             checklistFirstUncheckedText: checklistProgress.firstUncheckedText,
-            taskStatusInput: taskStatusInput
+            taskStatusInput: taskStatusInput,
+            importance: workspace.importance
         )
     }
 

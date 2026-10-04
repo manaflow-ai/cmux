@@ -2,6 +2,10 @@ import Foundation
 import AppKit
 import Testing
 import CmuxSidebarProviderKit
+@_spi(CmuxHostTransport) import CmuxExtensionKit
+import CmuxSidebar
+import CmuxWorkspaces
+import Combine
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -44,13 +48,238 @@ struct SidebarProviderMenuRegressionTests {
     }
 
     @Test
-    func cortexButtonHasIndependentHitRegion() throws {
-        let config = TitlebarControlsStyle.classic.config
-        let range = try #require(TitlebarControlsHitRegions.buttonXRange(for: .switchCortexSidebar, config: config))
-        let point = NSPoint(x: (range.lowerBound + range.upperBound) / 2, y: 5)
-        #expect(TitlebarControlsHitRegions.sidebarActionSlot(at: point, config: config) == .switchCortexSidebar)
-        let hideRange = try #require(TitlebarControlsHitRegions.buttonXRange(for: .toggleSidebar, config: config))
-        #expect(hideRange.upperBound < range.lowerBound)
+    func explicitCortexSelectionCanRecoverAfterReturningToClassic() throws {
+        let suite = "cortex-explicit-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let selection = CmuxExtensionSidebarSelection.self
+        let ids: Set<String> = ["fr.yoyaku.cortex.sessions"]
+        #expect(selection.selectCortexSidebar(enabledBundleIDs: ids, extensionsEnabled: true, defaults: defaults))
+        #expect(selection.selectCortexSidebar(enabledBundleIDs: ids, extensionsEnabled: true, defaults: defaults))
+        #expect(selection.isCortexActive(defaults: defaults))
+        selection.setProviderId(selection.defaultProviderId, defaults: defaults)
+        #expect(!selection.isCortexActive(defaults: defaults))
+        #expect(defaults.string(forKey: selection.selectedExtensionBundleIDDefaultsKey) == ids.first)
+        #expect(!selection.selectCortexSidebar(enabledBundleIDs: [], extensionsEnabled: true, defaults: defaults))
+        #expect(defaults.string(forKey: selection.defaultsKey) == selection.defaultProviderId)
+        #expect(selection.selectCortexSidebar(enabledBundleIDs: ids, extensionsEnabled: true, defaults: defaults))
+        #expect(selection.isCortexActive(defaults: defaults))
+    }
+
+    @Test
+    func dogfoodCortexSelectionIsConfinedToItsMatchingTaggedHost() {
+        let selection = CmuxExtensionSidebarSelection.self
+        let id = "fr.yoyaku.cortex.sessions.dogfood.cortex-management"
+        #expect(selection.isCortexBundle(id, hostBundleID: "com.cmuxterm.app.debug.cortex.management"))
+        #expect(!selection.isCortexBundle(id, hostBundleID: "com.cmuxterm.app.debug.other"))
+        #expect(!selection.isCortexBundle(id, hostBundleID: "com.cmuxterm.app"))
+        #expect(!selection.isCortexBundle(id, hostBundleID: nil))
+        #expect(!selection.isCortexBundle("fr.yoyaku.cortex.sessions.dogfood.Cortex-management", hostBundleID: "com.cmuxterm.app.debug.Cortex.management"))
+        #expect(!selection.isCortexBundle("fr.yoyaku.cortex.sessions.dogfood.cortex.management", hostBundleID: "com.cmuxterm.app.debug.cortex.management"))
+    }
+
+    @Test
+    func managementRenameAndImportanceUseNativeOwnershipWithoutChangingSelection() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        let first = Workspace()
+        let second = Workspace()
+        manager.tabs = [first, second]
+        manager.selectedTabId = first.id
+        let dispatcher = SidebarExtensionManagementCoordinator(tabManager: manager, notificationStore: .shared)
+        #expect(dispatcher.perform(.renameWorkspace(workspaceID: second.id, title: "  Renamed Project  "))?.accepted == true)
+        #expect(second.title == "Renamed Project")
+        #expect(second.customTitle == "Renamed Project")
+        #expect(manager.selectedTabId == first.id)
+        let panel = try #require(second.focusedPanelId)
+        #expect(dispatcher.perform(.renameSurface(workspaceID: second.id, surfaceID: panel, title: "Session Name"))?.accepted == true)
+        #expect(second.panelTitle(panelId: panel) == "Session Name")
+        #expect(manager.selectedTabId == first.id)
+        #expect(dispatcher.perform(.setWorkspaceImportance(workspaceID: second.id, importance: .priority))?.accepted == true)
+        #expect(second.importance == .priority)
+        #expect(!second.isPinned)
+        #expect(dispatcher.perform(.setWorkspaceImportance(workspaceID: second.id, importance: .followUp))?.accepted == true)
+        #expect(second.importance == .followUp)
+        #expect(dispatcher.perform(.setWorkspaceImportance(workspaceID: second.id, importance: .none))?.accepted == true)
+        #expect(second.importance == .none)
+        #expect(manager.tabs.map(\.id) == [first.id, second.id])
+        #expect(dispatcher.perform(.renameWorkspace(workspaceID: second.id, title: ""))?.accepted == true)
+        #expect(second.customTitle == nil)
+        #expect(dispatcher.perform(.renameWorkspace(workspaceID: UUID(), title: "Missing"))?.accepted == false)
+    }
+
+    @Test
+    func modalRenameCancellationAndRemovedTargetsAreRejected() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        let workspace = Workspace()
+        manager.tabs = [workspace]
+        let cancelled = SidebarExtensionManagementCoordinator(tabManager: manager, notificationStore: .shared, requestTitle: { _, _, _ in nil })
+        #expect(cancelled.perform(.renameWorkspace(workspaceID: workspace.id, title: nil))?.rejectionReason == .cancelled)
+        #expect(workspace.customTitle == nil)
+        let disappearing = SidebarExtensionManagementCoordinator(tabManager: manager, notificationStore: .shared, requestTitle: { _, _, _ in
+            manager.tabs = []
+            return "Too late"
+        })
+        #expect(disappearing.perform(.renameWorkspace(workspaceID: workspace.id, title: nil))?.accepted == false)
+        #expect(workspace.customTitle == nil)
+    }
+
+    @Test
+    func nativeGroupsRenameCollapseUngroupAndRequireDeletionConfirmation() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        let workspace = Workspace()
+        let groupID = UUID()
+        workspace.groupId = groupID
+        manager.tabs = [workspace]
+        manager.workspaceGroups = [WorkspaceGroup(id: groupID, name: "Original", isCollapsed: false, isPinned: false, anchorWorkspaceId: workspace.id, customColor: nil, iconSymbol: nil)]
+        let dispatcher = SidebarExtensionManagementCoordinator(tabManager: manager, notificationStore: .shared, confirmGroupDeletion: { _, _ in false })
+        #expect(dispatcher.perform(.renameWorkspaceGroup(groupID: groupID, title: "Renamed Folder"))?.accepted == true)
+        #expect(manager.workspaceGroups.first?.name == "Renamed Folder")
+        #expect(dispatcher.perform(.renameWorkspaceGroup(groupID: groupID, title: " "))?.accepted == false)
+        #expect(dispatcher.perform(.setWorkspaceGroupCollapsed(groupID: groupID, isCollapsed: true))?.accepted == true)
+        #expect(manager.workspaceGroups.first?.isCollapsed == true)
+        #expect(dispatcher.perform(.deleteWorkspaceGroup(groupID: groupID))?.rejectionReason == .cancelled)
+        #expect(manager.tabs.map(\.id) == [workspace.id])
+        #expect(manager.workspaceGroups.count == 1)
+        #expect(dispatcher.perform(.ungroupWorkspaceGroup(groupID: groupID))?.accepted == true)
+        #expect(workspace.groupId == nil)
+        #expect(manager.workspaceGroups.isEmpty)
+        #expect(manager.tabs.map(\.id) == [workspace.id])
+    }
+
+    @Test
+    func nativeRuntimeRequiresPanelOwnershipAndExactProcessBirthWithoutRestamping() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let pid: pid_t = 12345
+        let key = "codex.session-id"
+        let identity = AgentPIDProcessIdentity(pid: pid, startSeconds: 100, startMicroseconds: 7)
+        let model = workspace.sidebarAgentRuntimeObservation
+        model.setAgentPIDs([key: pid])
+        model.setAgentPIDProcessIdentitiesByKey([key: identity])
+        model.setAgentPIDPanelIdsByKey([key: panelID])
+        model.setAgentPIDKeysByPanelId([panelID: [key]])
+        let projector = SidebarExtensionRuntimeProjector(processIdentity: { _ in identity })
+        #expect(projector.observation(workspace: workspace, panelID: panelID)?.lifecycle == .unknown)
+        #expect(projector.observation(workspace: workspace, panelID: panelID)?.observedAt == nil)
+        #expect(projector.observation(workspace: workspace, panelID: UUID()) == nil)
+        let evidenceDate = Date(timeIntervalSince1970: 110)
+        workspace.setAgentLifecycle(key: "codex", panelId: panelID, lifecycle: .running, observedAt: evidenceDate)
+        workspace.statusEntries["codex"] = SidebarStatusEntry(key: "codex", value: "Arbitrary localized text", timestamp: evidenceDate)
+        let observation = try #require(projector.observation(workspace: workspace, panelID: panelID))
+        #expect(observation.lifecycle == .running)
+        #expect(observation.provenance == .nativeLifecycle)
+        #expect(observation.observedAt == evidenceDate)
+        #expect(observation.processGeneration == 100_000_007)
+        #expect(observation.sessionID == "session-id")
+        #expect(projector.observation(workspace: workspace, panelID: panelID) == observation)
+        // A second same-tool pane must not overwrite this panel's evidence.
+        model.setAgentPIDPanelIdsByKey([key: panelID, "codex.other-session": UUID()])
+        workspace.statusEntries["codex"] = SidebarStatusEntry(key: "codex", value: "Another pane", timestamp: Date(timeIntervalSince1970: 130))
+        #expect(projector.observation(workspace: workspace, panelID: panelID) == observation)
+        model.setAgentPIDPanelIdsByKey([key: panelID])
+        let replacement = AgentPIDProcessIdentity(pid: pid, startSeconds: 200, startMicroseconds: 0)
+        let replacedProjector = SidebarExtensionRuntimeProjector(processIdentity: { _ in replacement })
+        #expect(replacedProjector.observation(workspace: workspace, panelID: panelID) == nil)
+        model.setAgentPIDProcessIdentitiesByKey([key: replacement])
+        #expect(replacedProjector.observation(workspace: workspace, panelID: panelID)?.lifecycle == .unknown)
+        #expect(replacedProjector.observation(workspace: workspace, panelID: panelID)?.observedAt == nil)
+        #expect(replacedProjector.observation(workspace: workspace, panelID: panelID)?.processGeneration == 200_000_000)
+    }
+
+    @Test
+    func sameToolPanelsKeepIndependentLifecycleEvidenceAcrossProcessReplacement() throws {
+        let workspace = Workspace()
+        let firstPanel = try #require(workspace.focusedPanelId)
+        let secondPanel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: false, initialInput: nil)?.id)
+        let firstKey = "codex.first"
+        let secondKey = "codex.second"
+        let first = AgentPIDProcessIdentity(pid: 12345, startSeconds: 100, startMicroseconds: 0)
+        let second = AgentPIDProcessIdentity(pid: 12346, startSeconds: 100, startMicroseconds: 1)
+        let model = workspace.sidebarAgentRuntimeObservation
+        model.setAgentPIDs([firstKey: first.pid, secondKey: second.pid])
+        model.setAgentPIDProcessIdentitiesByKey([firstKey: first, secondKey: second])
+        model.setAgentPIDPanelIdsByKey([firstKey: firstPanel, secondKey: secondPanel])
+        model.setAgentPIDKeysByPanelId([firstPanel: [firstKey], secondPanel: [secondKey]])
+        workspace.setAgentLifecycle(key: "codex", panelId: firstPanel, lifecycle: .running, observedAt: Date(timeIntervalSince1970: 110))
+        workspace.setAgentLifecycle(key: "codex", panelId: secondPanel, lifecycle: .needsInput, observedAt: Date(timeIntervalSince1970: 120))
+        let projector = SidebarExtensionRuntimeProjector(processIdentity: { $0 == first.pid ? first : second })
+        #expect(projector.observation(workspace: workspace, panelID: firstPanel)?.lifecycle == .running)
+        #expect(projector.observation(workspace: workspace, panelID: firstPanel)?.observedAt == Date(timeIntervalSince1970: 110))
+        #expect(projector.observation(workspace: workspace, panelID: secondPanel)?.lifecycle == .needsInput)
+        #expect(projector.observation(workspace: workspace, panelID: secondPanel)?.observedAt == Date(timeIntervalSince1970: 120))
+        let replacement = AgentPIDProcessIdentity(pid: second.pid, startSeconds: 200, startMicroseconds: 0)
+        model.setAgentPIDProcessIdentitiesByKey([firstKey: first, secondKey: replacement])
+        let replaced = SidebarExtensionRuntimeProjector(processIdentity: { $0 == first.pid ? first : replacement })
+        #expect(replaced.observation(workspace: workspace, panelID: firstPanel)?.lifecycle == .running)
+        #expect(replaced.observation(workspace: workspace, panelID: secondPanel)?.lifecycle == .unknown)
+        #expect(replaced.observation(workspace: workspace, panelID: secondPanel)?.observedAt == nil)
+        workspace.setAgentLifecycle(key: "codex", panelId: secondPanel, lifecycle: .idle, observedAt: Date(timeIntervalSince1970: 210))
+        #expect(replaced.observation(workspace: workspace, panelID: secondPanel)?.lifecycle == .idle)
+        #expect(replaced.observation(workspace: workspace, panelID: secondPanel)?.observedAt == Date(timeIntervalSince1970: 210))
+        workspace.clearAgentLifecycle(key: "codex", panelId: secondPanel)
+        #expect(replaced.observation(workspace: workspace, panelID: secondPanel)?.lifecycle == .unknown)
+    }
+
+    @Test
+    func nativeErrorGlyphRequiresVerifiedNeedsInputLifecycle() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let identity = AgentPIDProcessIdentity(pid: 12345, startSeconds: 100, startMicroseconds: 0)
+        let model = workspace.sidebarAgentRuntimeObservation
+        model.setAgentPIDs(["codex": identity.pid])
+        model.setAgentPIDProcessIdentitiesByKey(["codex": identity])
+        model.setAgentPIDPanelIdsByKey(["codex": panelID])
+        workspace.statusEntries["codex"] = SidebarStatusEntry(key: "codex", value: "Not parsed", icon: "exclamationmark.triangle.fill", timestamp: Date(timeIntervalSince1970: 110))
+        let projector = SidebarExtensionRuntimeProjector(processIdentity: { _ in identity })
+        #expect(projector.observation(workspace: workspace, panelID: panelID)?.lifecycle == .unknown)
+        workspace.setAgentLifecycle(key: "codex", panelId: panelID, lifecycle: .needsInput, observedAt: Date(timeIntervalSince1970: 111))
+        #expect(projector.observation(workspace: workspace, panelID: panelID)?.lifecycle == .error)
+        workspace.statusEntries["codex"] = SidebarStatusEntry(key: "codex", value: "Error wording must not decide", icon: "bubble.left", timestamp: Date(timeIntervalSince1970: 110))
+        workspace.setAgentLifecycle(key: "codex", panelId: panelID, lifecycle: .needsInput, observedAt: Date(timeIntervalSince1970: 112))
+        #expect(projector.observation(workspace: workspace, panelID: panelID)?.lifecycle == .needsInput)
+        workspace.statusEntries["codex"] = SidebarStatusEntry(key: "codex", value: "Old error", icon: "exclamationmark.triangle.fill", timestamp: Date(timeIntervalSince1970: 90))
+        workspace.setAgentLifecycle(key: "codex", panelId: panelID, lifecycle: .needsInput, observedAt: Date(timeIntervalSince1970: 113))
+        #expect(projector.observation(workspace: workspace, panelID: panelID)?.lifecycle == .needsInput)
+    }
+
+    @Test
+    func newManagementSnapshotFieldsAdvanceAuthoritativeSequence() {
+        let cache = CMUXSidebarSnapshotCache()
+        let id = UUID()
+        let panelID = UUID()
+        let groupID = UUID()
+        var snapshot = CmuxSidebarSnapshot(sequence: 4, selectedWorkspaceID: nil, workspaces: [CmuxSidebarWorkspace(id: id, title: "Before", surfaces: [CmuxSidebarSurface(id: panelID, title: "Before tab", kind: .terminal)])])
+        #expect(cache.replace(with: snapshot).sequence == 4)
+        snapshot.workspaces[0].title = "After"
+        #expect(cache.replace(with: snapshot).sequence == 5)
+        snapshot.workspaces[0].surfaces[0].title = "After tab"
+        #expect(cache.replace(with: snapshot).sequence == 6)
+        snapshot.workspaces[0].importance = .priority
+        #expect(cache.replace(with: snapshot).sequence == 7)
+        snapshot.workspaceGroups = [CmuxSidebarWorkspaceGroup(id: groupID, name: "Empty retained group")]
+        #expect(cache.replace(with: snapshot).sequence == 8)
+        snapshot.workspaceGroups[0].isCollapsed = true
+        #expect(cache.replace(with: snapshot).sequence == 9)
+        #expect(cache.replace(with: snapshot).sequence == 9)
+        snapshot.workspaces[0].surfaces[0].runtime = CmuxSidebarRuntimeObservation(lifecycle: .needsInput, observedAt: Date(timeIntervalSince1970: 100), provenance: .nativeLifecycle, processGeneration: 1)
+        #expect(cache.replace(with: snapshot).sequence == 10)
+    }
+
+    @Test
+    func importanceAndPanelCustomTitlePublishImmediatelyThroughSharedObservation() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        var count = 0
+        let subscription = workspace.sidebarImmediateObservationPublisher.sink { count += 1 }
+        defer { subscription.cancel() }
+        count = 0
+        workspace.importance = .priority
+        #expect(count == 1)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        count = 0
+        workspace.setPanelCustomTitle(panelId: panelID, title: "External rename")
+        #expect(count == 1)
+        #expect(workspace.panelTitle(panelId: panelID) == "External rename")
     }
 
     /// Stable ids of the seven built-in sidebar views, in menu order.

@@ -1005,10 +1005,6 @@ private struct TitlebarNotificationBadge: View {
 }
 
 struct TitlebarControlsView: View {
-    @AppStorage(CmuxExtensionSidebarSelection.defaultsKey) private var sidebarProviderID = CmuxExtensionSidebarSelection.defaultProviderId
-    @AppStorage(CmuxExtensionSidebarSelection.selectedExtensionBundleIDDefaultsKey) private var sidebarExtensionID = ""
-    @LiveSetting(\.betaFeatures.extensions) private var extensionsEnabled
-    @ObservedObject private var cortexAvailability = CortexSidebarAvailability.shared
     let unreadModel: SidebarUnreadModel
     let layoutModel: TitlebarControlsLayoutModel
     @ObservedObject var viewModel: TitlebarControlsViewModel
@@ -1036,25 +1032,6 @@ struct TitlebarControlsView: View {
         let centerX: CGFloat
 
         var id: String { action.rawValue }
-    }
-
-    private var cortexSidebarActive: Bool {
-        extensionsEnabled && sidebarProviderID == CmuxExtensionSidebarSelection.hostedExtensionsProviderId
-            && CmuxExtensionSidebarSelection.isCortexBundle(sidebarExtensionID)
-    }
-
-    private var cortexSidebarAvailable: Bool {
-        extensionsEnabled && cortexAvailability.enabledBundleIDs.contains(where: CmuxExtensionSidebarSelection.isCortexBundle)
-    }
-
-    private var cortexSwitchHelp: String {
-        if cortexSidebarActive {
-            return String(localized: "titlebar.cortex.classic", defaultValue: "Show classic sidebar")
-        }
-        if cortexSidebarAvailable {
-            return String(localized: "titlebar.cortex.custom", defaultValue: "Show Cortex sidebar")
-        }
-        return String(localized: "titlebar.cortex.unavailable", defaultValue: "Enable Cortex Sessions in Extensions to switch views")
     }
 
     private var modifierHoldHintsEnabled: Bool {
@@ -1172,24 +1149,6 @@ struct TitlebarControlsView: View {
                 sidebarIconLabel(config: config, iconGeometryKeyPrefix: "titlebarControl_toggleSidebarIcon")
             }
             .safeHelp(KeyboardShortcutSettings.Action.toggleSidebar.tooltip(String(localized: "titlebar.sidebar.tooltip", defaultValue: "Show or hide the sidebar")))
-
-            TitlebarControlButton(
-                config: config,
-                foregroundColor: foregroundColor,
-                accessibilityIdentifier: "titlebarControl.switchCortexSidebar",
-                accessibilityLabel: cortexSwitchHelp,
-                action: { cortexAvailability.toggle() }
-            ) {
-                iconLabel(
-                    systemName: cortexSidebarActive ? "brain" : "eye",
-                    config: config,
-                    foregroundColor: foregroundColor,
-                    iconGeometryKeyPrefix: "titlebarControl_switchCortexSidebarIcon"
-                )
-            }
-            .disabled(!cortexSidebarActive && !cortexSidebarAvailable)
-            .safeHelp(cortexSwitchHelp)
-            .task { cortexAvailability.start() }
 
             TitlebarControlButton(
                 config: config,
@@ -1666,8 +1625,6 @@ struct HiddenTitlebarSidebarControlsView: View {
                 switch slot {
                 case .toggleSidebar:
                     onToggleSidebar()
-                case .switchCortexSidebar:
-                    CortexSidebarAvailability.shared.toggle()
                 case .showNotifications:
                     onToggleNotifications(anchorView)
                 case .newTab:

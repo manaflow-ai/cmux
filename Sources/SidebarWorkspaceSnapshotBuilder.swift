@@ -73,6 +73,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let checklistTotalCount: Int
         let checklistFirstUncheckedText: String?
         var taskStatusInput = SidebarWorkspaceTaskStatusSnapshot()
+        var importance: Workspace.Importance = .none
 
         func accessibilityLabel(index: Int, workspaceCount: Int) -> String {
             let position = String(
