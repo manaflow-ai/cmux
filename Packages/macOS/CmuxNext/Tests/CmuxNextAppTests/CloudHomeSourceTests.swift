@@ -75,11 +75,13 @@ import Testing
                                     replyTo: nil))
     }
 
-    @Test func editsAreRefusedWhileTheConversationSocketIsDisconnected() async throws {
+    /// A disconnected socket is a short outage: the edit stays pending (the
+    /// store resends it after recovery) instead of failing as Not Delivered.
+    @Test func editsWaitWhileTheConversationSocketIsDisconnected() async throws {
         let (source, daemon, _) = await configured(.init(heads: [dm: F.head(dm)], subscribeState: "disconnected"))
         _ = try await source.snapshot(of: ConversationID(dm), tail: 10)
         let send = HomeIntent(key: IdempotencyKey("cmk_x"), op: .sendMessage(conversation: ConversationID(dm), parts: [.text("x")]))
-        await #expect(throws: HomeRejection.invalid("cloud_not_live")) { try await source.submit(send) }
+        await #expect(throws: HomeRejection.ownerUnreachable) { try await source.submit(send) }
         #expect(daemon.opRequests.isEmpty)
         source.handle(.subscriptionState(CloudSubscriptionState(scope: "conversation", conversation: dm, state: "live")))
         _ = try await source.submit(send)
@@ -201,6 +203,83 @@ import Testing
     @Test func addressesAreMaskedLikeTheWorker() {
         #expect(CloudHomeSource.masked(.email("bob@x.co")) == "b***@x.co")
         #expect(CloudHomeSource.masked(.phone("+14155550100")) == "+1 *** *** 0100")
+        #expect(CloudHomeSource.masked(.phone("+447700900123")) == "+44 *** *** 0123")
+        // Too short, or not E.164: nothing of the number shows.
+        #expect(CloudHomeSource.masked(.phone("+1234567")) == "***")
+        #expect(CloudHomeSource.masked(.phone("+12345678")) == "***")
+        #expect(CloudHomeSource.masked(.phone("4155550100")) == "***")
+        #expect(CloudHomeSource.masked(.phone("+1415555010x")) == "***")
+    }
+
+    /// A page read for account A that finishes after sign-out or an account
+    /// switch must not reach the store: it would put A's conversation back.
+    @Test func aReadForThePreviousAccountNeverReturnsItsPage() async throws {
+        let snapshotGate = Gate()
+        let historyGate = Gate()
+        let messages = (1...3).map { F.message(dm, seq: $0) }
+        let (source, daemon, _) = await configured(.init(heads: [dm: F.head(dm, lastSeq: 3)], messages: [dm: messages],
+                                                         snapshotGate: snapshotGate, historyGate: historyGate))
+        let read = Task { try await source.snapshot(of: ConversationID(dm), tail: 10) }
+        await snapshotGate.arrived()
+        source.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: nil)
+        snapshotGate.open()
+        await #expect(throws: HomeRejection.notAuthorized) { try await read.value }
+        #expect(source.currentInbox().conversations.isEmpty)
+
+        source.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: F.identity)
+        let older = Task { try await source.history(of: ConversationID(dm), before: 3, limit: 10) }
+        await historyGate.arrived()
+        let other = CloudIdentity(stackUserID: "stack-other", displayName: "Other", localID: F.localMe)
+        source.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: other)
+        historyGate.open()
+        await #expect(throws: HomeRejection.notAuthorized) { try await older.value }
+    }
+
+    /// An archived conversation stays out of the inbox when its stream moves
+    /// later (UserDO owns membership of the inbox, not the conversation stream).
+    @Test func anArchivedConversationStaysOutWhenItsStreamMovesLater() async throws {
+        let other = "conv_dm_01J0000000000000000000000D"
+        let (source, daemon, tape) = await configured(.init(entries: [F.entry(dm)], heads: [dm: F.head(dm), other: F.head(other)]))
+        #expect(await tape.wait { events in
+            events.contains { if case .inbox(let inbox) = $0 { inbox.conversations.contains { $0.id.rawValue == dm } } else { false } }
+        })
+        _ = try await source.snapshot(of: ConversationID(dm), tail: 10)
+        source.handle(.inboxChanged(CloudInboxChanged(seq: 5, entries: [F.entry(dm, archived: true)])))
+        source.handle(.changed(CloudConversationChanged(conversation: dm, rev: 4, seq: 9, change: .readCursor(participant: "user_bob", seq: 1))))
+        source.handle(.changed(CloudConversationChanged(conversation: dm, rev: 5, seq: 10, change: .conversation(F.head(dm, rev: 5)))))
+        source.handle(.resynced(CloudConversationResynced(conversation: dm, rev: 6, seq: 11, summary: F.head(dm, rev: 6),
+                                                          messages: [F.message(dm, seq: 1)])))
+        source.handle(.inboxChanged(CloudInboxChanged(seq: 6, entries: [F.entry(other)])))
+        #expect(await tape.wait { !summaries($0, other).isEmpty })
+        var mirror = HomeMirror()
+        for event in tape.all { mirror.apply(event) }
+        #expect(mirror.conversations[ConversationID(dm)] == nil)
+        #expect(mirror.conversations[ConversationID(other)] != nil)
+        #expect(await daemon.wait { $0.contains(.unsubscribe(dm)) })
+    }
+
+    /// A conversation this source just created stays in the inbox until its
+    /// UserDO entry arrives, so a reload in between does not hide it.
+    @Test func aConversationJustOpenedStaysListedUntilItsInboxEntryArrives() async throws {
+        let opened = "conv_dm_01J0000000000000000000000B"
+        let (source, _, tape) = await configured(.init(op: { _ in
+            CloudConversationOpResult(conversation: F.head(opened, rev: 1, lastSeq: 0))
+        }))
+        func inboxes(_ events: [HomeEvent]) -> [InboxSnapshot] {
+            events.compactMap { if case .inbox(let inbox) = $0 { inbox } else { nil } }
+        }
+        // Signing in publishes the empty inbox, then the listed one.
+        #expect(await tape.wait { inboxes($0).count >= 2 })
+        _ = try await source.submit(HomeIntent(key: IdempotencyKey("cmk_o"), op: .invite(contact: .email("bob@x.co"))))
+        #expect(source.currentInbox().conversations.contains { $0.id.rawValue == opened })
+        let before = inboxes(tape.all).count
+        source.handle(.inboxReset(seq: 7))
+        #expect(await tape.wait { inboxes($0).count > before })
+        #expect(inboxes(tape.all).last?.conversations.contains { $0.id.rawValue == opened } == true)
+        // Its entry arrives, then UserDO archives it: it leaves.
+        source.handle(.inboxChanged(CloudInboxChanged(seq: 8, entries: [F.entry(opened, rev: 1, lastSeq: 0)])))
+        source.handle(.inboxChanged(CloudInboxChanged(seq: 9, entries: [F.entry(opened, rev: 2, lastSeq: 0, archived: true)])))
+        #expect(!source.currentInbox().conversations.contains { $0.id.rawValue == opened })
     }
 }
 
@@ -216,6 +295,20 @@ import Testing
         #expect(HomeCloudLease.expiry(ofJWT: jwt(#"{"sub":"u"}"#)) == nil)
         #expect(HomeCloudLease.expiry(ofJWT: "opaque") == nil)
         #expect(HomeCloudLease.fallbackExpiry(now: Date(timeIntervalSince1970: 1000)) == 1_300_000)
+    }
+
+    /// An `exp` out of range is not trusted (and never traps): the lease falls back.
+    @Test func anExpOutOfRangeIsIgnored() {
+        func jwt(_ payload: String) -> String {
+            let body = Data(payload.utf8).base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+            return "eyJhbGciOiJIUzI1NiJ9.\(body).sig"
+        }
+        #expect(HomeCloudLease.expiry(ofJWT: jwt(#"{"exp":1e300}"#)) == nil)
+        // Year 2096: far past any token lifetime.
+        #expect(HomeCloudLease.expiry(ofJWT: jwt(#"{"exp":4000000000}"#)) == nil)
+        let soon = Int(Date().timeIntervalSince1970) + 3600
+        #expect(HomeCloudLease.expiry(ofJWT: jwt(#"{"exp":\#(soon)}"#)) == UInt64(soon) * 1000)
     }
 
     @Test func theLeaseNamesOnlyTheAPIOrigin() {

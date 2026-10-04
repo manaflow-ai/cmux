@@ -25,11 +25,16 @@ nonisolated final class FakeCloudDaemon: CloudConversationCommands {
         /// Answers ops by kind; default: a committed op at rev 2.
         var op: @Sendable (CloudConversationOpRequest) throws -> CloudConversationOpResult = { _ in CloudConversationOpResult(rev: 2) }
         var inboxError: DaemonError?
+        /// Holds every snapshot reply until the test opens it.
+        var snapshotGate: Gate?
+        /// Holds every history reply until the test opens it.
+        var historyGate: Gate?
     }
 
     let script: Mutex<Script>
     private let log = Mutex<[Call]>([])
     private let requests = Mutex<[CloudConversationOpRequest]>([])
+    private let waiters = Mutex<[CheckedContinuation<Void, Never>]>([])
 
     init(_ script: Script = Script()) {
         self.script = Mutex(script)
@@ -37,16 +42,52 @@ nonisolated final class FakeCloudDaemon: CloudConversationCommands {
 
     var calls: [Call] { log.withLock { $0 } }
     var opRequests: [CloudConversationOpRequest] { requests.withLock { $0 } }
+    var ops: [Call] { calls.filter { if case .op = $0 { true } else { false } } }
+
+    private func record(_ call: Call) {
+        // The log lock is held while the waiters drain, so a waiter cannot miss a call.
+        let woken = log.withLock { log in
+            log.append(call)
+            return waiters.withLock { waiters in defer { waiters = [] }; return waiters }
+        }
+        for waiter in woken { waiter.resume() }
+    }
+
+    /// Waits until `condition` holds over the calls; each call wakes it.
+    /// The suite's time limit bounds a condition that never holds.
+    func wait(_ condition: @escaping ([Call]) -> Bool) async -> Bool {
+        for _ in 0..<10_000 {
+            if condition(calls) { return true }
+            if Task.isCancelled { break }
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    log.withLock { log in
+                        if condition(log) || Task.isCancelled {
+                            continuation.resume()
+                        } else {
+                            waiters.withLock { $0.append(continuation) }
+                        }
+                    }
+                }
+            } onCancel: {
+                // The time limit cancels the test: wake the waiter so it fails instead of hanging the run.
+                let woken = log.withLock { _ in waiters.withLock { waiters in defer { waiters = [] }; return waiters } }
+                for waiter in woken { waiter.resume() }
+            }
+        }
+        return condition(calls)
+    }
 
     func inboxList(limit: Int) async throws -> CloudInboxList {
-        log.withLock { $0.append(.inboxList) }
+        record(.inboxList)
         let (entries, error) = script.withLock { ($0.entries, $0.inboxError) }
         if let error { throw error }
         return CloudInboxList(entries: entries)
     }
 
     func snapshot(_ conversation: String, tail: Int) async throws -> CloudConversationSnapshot {
-        log.withLock { $0.append(.snapshot(conversation, tail: CloudConversationSnapshotRequest(conversation: conversation, tail: tail).tail)) }
+        record(.snapshot(conversation, tail: CloudConversationSnapshotRequest(conversation: conversation, tail: tail).tail))
+        if let gate = script.withLock({ $0.snapshotGate }) { await gate.pass() }
         let (head, messages) = script.withLock { ($0.heads[conversation], $0.messages[conversation] ?? []) }
         guard let head else {
             throw DaemonError.command(cmd: "cloud-conversation-snapshot", message: "unknown", code: "cloud_conversation_rejected",
@@ -56,30 +97,71 @@ nonisolated final class FakeCloudDaemon: CloudConversationCommands {
     }
 
     func history(_ conversation: String, before seq: UInt64, limit: Int) async throws -> CloudConversationHistory {
-        log.withLock { $0.append(.history(conversation, before: seq, limit: limit)) }
+        record(.history(conversation, before: seq, limit: limit))
+        if let gate = script.withLock({ $0.historyGate }) { await gate.pass() }
         let older = script.withLock { ($0.messages[conversation] ?? []).filter { $0.seq < seq } }
         return CloudConversationHistory(messages: Array(older.suffix(limit)), hasMore: older.count > limit)
     }
 
     func op(_ request: CloudConversationOpRequest) async throws -> CloudConversationOpResult {
-        log.withLock { $0.append(.op(conversation: request.conversation, key: request.idempotencyKey, kind: request.op.kindName)) }
         requests.withLock { $0.append(request) }
+        record(.op(conversation: request.conversation, key: request.idempotencyKey, kind: request.op.kindName))
         let answer = script.withLock { $0.op }
         return try answer(request)
     }
 
     func subscribeInbox() async throws -> CloudSubscription {
-        log.withLock { $0.append(.subscribeInbox) }
+        record(.subscribeInbox)
         return CloudSubscription(state: "connecting")
     }
 
     func subscribe(_ conversation: String) async throws -> CloudSubscription {
-        log.withLock { $0.append(.subscribe(conversation)) }
+        record(.subscribe(conversation))
         return CloudSubscription(conversation: conversation, state: script.withLock { $0.subscribeState })
     }
 
     func unsubscribe(_ conversation: String) async throws {
-        log.withLock { $0.append(.unsubscribe(conversation)) }
+        record(.unsubscribe(conversation))
+    }
+}
+
+/// A reply the test holds: the daemon waits in `pass()` until `open()`,
+/// and the test waits in `arrived()` until the daemon is there.
+nonisolated final class Gate: Sendable {
+    private struct State {
+        var arrived = false
+        var open = false
+        var arrivals: [CheckedContinuation<Void, Never>] = []
+        var passers: [CheckedContinuation<Void, Never>] = []
+    }
+
+    private let state = Mutex(State())
+
+    func pass() async {
+        await withCheckedContinuation { continuation in
+            state.withLock { state in
+                state.arrived = true
+                for arrival in state.arrivals { arrival.resume() }
+                state.arrivals = []
+                if state.open { continuation.resume() } else { state.passers.append(continuation) }
+            }
+        }
+    }
+
+    func arrived() async {
+        await withCheckedContinuation { continuation in
+            state.withLock { state in
+                if state.arrived { continuation.resume() } else { state.arrivals.append(continuation) }
+            }
+        }
+    }
+
+    func open() {
+        state.withLock { state in
+            state.open = true
+            for passer in state.passers { passer.resume() }
+            state.passers = []
+        }
     }
 }
 
@@ -105,6 +187,11 @@ nonisolated enum CloudFixtures {
         CmuxNextDaemon.ConversationSummary(id: id, owner: "cloud", title: "", participants: participants, lastSeq: lastSeq, rev: rev,
                                            createdAt: at, updatedAt: at, lastMessage: lastSeq > 0 ? message(id, seq: lastSeq) : nil,
                                            readCursors: cursors, kind: kind)
+    }
+
+    static func unavailable() -> DaemonError {
+        .command(cmd: "cloud-conversation-op", message: "unavailable", code: "cloud_unavailable",
+                 details: .object(["reason": .string("unavailable")]), retryable: true)
     }
 
     static func entry(_ id: String, rev: UInt64 = 3, lastSeq: UInt64 = 1, pinned: Bool = false, peer: String? = "user_bob",

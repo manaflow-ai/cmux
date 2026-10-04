@@ -30,11 +30,13 @@ nonisolated final class FakeLocalHomeSource: HomeSource {
 
     func inbox() async throws -> InboxSnapshot { snapshot }
     func snapshot(of conversation: ConversationID, tail: Int) async throws -> ConversationPage {
-        ConversationPage(conversation: snapshot.conversations[0], messages: [])
+        guard conversation == Self.conversation else { throw HomeRejection.invalid("unknown_conversation") }
+        return ConversationPage(conversation: snapshot.conversations[0], messages: [])
     }
     func history(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> [Message] { [] }
     func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
         submitted.withLock { $0.append(intent) }
+        if let id = intent.op.conversation, id != Self.conversation { throw HomeRejection.invalid("unknown_conversation") }
         if case .createChief = intent.op { throw HomeRejection.invalid("unsupported_on_local_owner") }
         return HomeOpResult(rev: 2, conversation: intent.op.conversation)
     }
@@ -119,5 +121,44 @@ nonisolated final class FakeLocalHomeSource: HomeSource {
         }
         let first = try #require(revisions.first)
         #expect(revisions == Array(first..<(first + Revision(revisions.count))))
+    }
+
+    /// A cloud send that failed for a short time (Worker 5xx, token expiry)
+    /// is resent with the same key once the cloud side recovers, although
+    /// the local daemon's connection never changed.
+    @MainActor @Test func aCloudSendThatFailedBrieflyIsResentWithItsKeyWhenTheCloudRecovers() async throws {
+        let (router, _, daemon, cloud) = await router()
+        daemon.script.withLock { $0.op = { _ in throw F.unavailable() } }
+        let store = HomeStore(source: router)
+        store.start()
+        for await shown in Observations({ store.rows.count == 2 }) where shown { break }
+        let send = HomeOp.sendMessage(conversation: ConversationID(dm), parts: [.text("x")])
+        await #expect(throws: HomeSendState.pendingResend) { try await store.perform(send, key: IdempotencyKey("cmk_r")) }
+        // The store resends once at once; that fails too.
+        #expect(await daemon.wait { $0.filter { if case .op = $0 { true } else { false } }.count >= 2 })
+        #expect(await daemon.wait { $0.contains(.subscribe(dm)) })
+        let failed = daemon.ops.count
+        daemon.script.withLock { $0.op = { _ in CloudConversationOpResult(rev: 4) } }
+        cloud.handle(.subscriptionState(CloudSubscriptionState(scope: "conversation", conversation: dm, state: "disconnected")))
+        cloud.handle(.subscriptionState(CloudSubscriptionState(scope: "conversation", conversation: dm, state: "live")))
+        #expect(await daemon.wait { $0.filter { if case .op = $0 { true } else { false } }.count > failed })
+        #expect(Set(daemon.opRequests.map(\.idempotencyKey)) == ["cmk_r"])
+    }
+
+    /// A cloud conversation opened before the merged inbox loads (a deep
+    /// link or a notification) reaches the cloud, not the local daemon.
+    @Test func aCloudConversationOpenedBeforeTheInboxLoadsReachesTheCloud() async throws {
+        let other = "conv_dm_01J0000000000000000000000E"
+        let local = FakeLocalHomeSource()
+        let daemon = FakeCloudDaemon(.init(entries: [F.entry(dm), F.entry(other)], heads: [dm: F.head(dm), other: F.head(other)]))
+        let cloud = CloudHomeSource(me: local.me)
+        let router = HomeSourceRouter(local: local, cloud: cloud)
+        cloud.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: F.identity)
+        let page = try await router.snapshot(of: ConversationID(dm), tail: 10)
+        #expect(page.conversation.owner == .cloud)
+        let send = HomeIntent(key: IdempotencyKey("cmk_u"), op: .sendMessage(conversation: ConversationID(other), parts: [.text("x")]))
+        _ = try await router.submit(send)
+        #expect(daemon.opRequests.map(\.idempotencyKey) == ["cmk_u"])
+        #expect(local.intents.isEmpty)
     }
 }
