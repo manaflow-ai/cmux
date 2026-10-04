@@ -243,7 +243,7 @@ impl World {
         let outcome = self.mux.conversation_create_as(
             DEFAULT_CONVERSATION_KEY,
             USER_LOCAL,
-            "mux",
+            cmux_chief::rules::CHIEF_CONVERSATION_TITLE,
             &participants,
         );
         outcome.unwrap().summary.id
@@ -417,5 +417,23 @@ fn a_rejected_prompt_is_sent_again_on_the_clock_without_a_reconnect() {
     });
     assert_eq!(w.hub.calls("session/prompt"), 2, "one refusal, one retry");
     assert_eq!(w.hub.connects.load(Ordering::Acquire), connects, "no reconnect");
+    chief.stop();
+}
+
+#[test]
+fn the_apps_home_chief_conversation_is_the_chiefs_default_with_no_second_conversation() {
+    let w = world("onechat");
+    // The app creates its Home Chief conversation first (HomeChiefName.createRequest).
+    let chief_conversation = w.default_conversation();
+    let chief = w.start();
+    wait_until("ready", || chief.is_ready());
+    let all = w.mux.with_conversations(|store| store.list()).unwrap();
+    assert_eq!(all.len(), 1, "one Chief conversation: {all:?}");
+    assert_eq!(all[0].id, chief_conversation);
+    assert_eq!(all[0].title, "Chief");
+    w.send(&chief_conversation, "m1", "hi");
+    wait_until("the reply", || {
+        w.messages(&chief_conversation).iter().any(|m| m.author == AGENT_MUX && text_of(m) == "echo: hi")
+    });
     chief.stop();
 }
