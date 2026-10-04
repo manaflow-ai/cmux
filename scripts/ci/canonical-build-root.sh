@@ -14,10 +14,11 @@
 #
 # This removes the disagreement at the source: the build runs from
 # $CMUX_CI_CANONICAL_ROOT/src, a stable path for the runner. Self-hosted
-# runners derive that root from RUNNER_NAME so concurrent runners on one Mac do
-# not delete each other's source tree, DerivedData, or compilation CAS. The
-# cache fingerprint includes a non-default root, so a seed from another
-# runner's absolute path is never adopted.
+# runners without glaeda derive that root from RUNNER_NAME so concurrent
+# runners on one Mac do not delete each other's source tree, DerivedData, or
+# compilation CAS; glaeda-managed Macs keep the per-job root their hook
+# exports. The cache fingerprint includes a non-default root, so a seed from
+# another runner's absolute path is never adopted.
 #
 # A symlink will not do. The compiler records the path it actually opens, and
 # a link back into the workspace resolves to the pool-specific path again, so
@@ -28,8 +29,14 @@
 set -euo pipefail
 
 default_root=/private/tmp/cmux-ci
+# A glaeda-managed Mac already isolates roots per job: its runner hook exports
+# CMUX_CI_CANONICAL_ROOT (the default for root 1, /private/tmp/cmux-ci-N
+# otherwise) and `glaeda-canonical-root take` rejects any other path, so keep
+# the hook's root there instead of deriving one from RUNNER_NAME.
+glaeda_helper="${CMUX_CI_CANONICAL_ROOT_HELPER:-/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root}"
 if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] \
   && [ -n "${RUNNER_NAME:-}" ] \
+  && [ ! -x "$glaeda_helper" ] \
   && [ "${CMUX_CI_CANONICAL_ROOT:-$default_root}" = "$default_root" ]; then
   runner_key="$(printf '%s' "$RUNNER_NAME" | tr -c 'A-Za-z0-9_.-' '_')"
   root="$default_root-$runner_key"
