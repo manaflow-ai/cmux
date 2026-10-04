@@ -20,7 +20,10 @@ describe("IncrementalMarkdown", () => {
       const incremental = new IncrementalMarkdown();
       for (let length = 0; length <= source.length; length += 1) {
         const prefix = source.slice(0, length);
-        expect({ length, blocks: plain(incremental.update(prefix)) }).toEqual({ length, blocks: parseMarkdown(prefix) });
+        expect({ length, blocks: plain(incremental.update(prefix)) }).toEqual({
+          length,
+          blocks: parseMarkdown(prefix),
+        });
       }
     }
   });
@@ -48,7 +51,8 @@ describe("IncrementalMarkdown", () => {
     const long = "Paragraph number one with words.\n\n".repeat(200);
     incremental.update(long + "tail");
     incremental.update(long + "tail and more");
-    expect(incremental.lastParsedLength).toBeLessThan(40);
+    // The tail and at most the one block before it, not the 7,000 characters above them.
+    expect(incremental.lastParsedLength).toBeLessThan(100);
   });
 
   test("a text that is not a continuation (a superseded message) parses from scratch", () => {
