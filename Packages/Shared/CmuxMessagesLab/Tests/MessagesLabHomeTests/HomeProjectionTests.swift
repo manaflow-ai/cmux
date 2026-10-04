@@ -134,4 +134,25 @@ import Testing
         #expect(paged.key == before.key)
         #expect(abs(paged.y - before.y) < 0.5)
     }
+
+    /// Lawrence (R76 port): no band, border or inset card around the Home
+    /// transcript. The header is the blurred transcript with the avatar and
+    /// the glass name pill only; the pane has no window border or corners.
+    @Test func thePaneHasNoBandBorderOrCorners() throws {
+        let (p, c) = Fixture2.projection()
+        p.apply(items: Fixture2.history(5), summary: Fixture2.summary(lastSeq: 5), typing: [], hasOlder: false)
+        c.host.layoutSubtreeIfNeeded()
+        let demo = try #require(c.demo)
+        #expect(demo.chrome.isHidden, "ChromeView strokes the window's rounded border")
+        #expect(demo.layer.cornerRadius == 0)
+        #expect(demo.header.isHidden, "the drawn capture header (hairline, pill) stays hidden")
+        #expect(c.host.layer?.backgroundColor == nil)
+        // Glass in the header area: only the name pill (no full-width band).
+        func glass(_ v: NSView) -> [NSView] { (v is NSGlassEffectView ? [v] : []) + v.subviews.flatMap(glass) }
+        let header = glass(c.host).filter { $0.convert($0.bounds, to: c.host).minY < Fixture.headerHeight }
+        #expect(header.isEmpty, "no glass band under the header: \(header)")
+        #expect(c.host.headerBackdrop.frame.height == Fixture.headerHeight)
+        #expect(c.host.headerBackdrop.layer?.borderWidth == 0)
+    }
 }
+
