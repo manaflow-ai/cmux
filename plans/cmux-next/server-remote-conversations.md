@@ -126,13 +126,14 @@ crashed, slow or unsure, the tool does not run.
    classify needs an approval. Nothing lowers the minimum (the remote, the model, a setting,
    `CLAUDE.md`, a hook config, a permission mode); there is no waiver. "Always allow" does not exist
    in a remote chain: one approval allows one call.
-2. **Enforcement, fail closed (P1-C; DECISION: bypass disabled, proposal yes).**
-   - Sessions of a remote chain start with bypass mode disabled in the managed settings layer
-     (`disableBypassPermissionsMode`), so every tool that the allow rules do not cover goes through
+2. **Enforcement, fail closed (P1-C; D-F decided).**
+   - Each session of a remote chain starts with bypass disabled **per session** through the
+     `--settings` that acpmux injects (`permissions.disableBypassPermissionsMode: "disable"` and
+     `permissions.defaultMode: "default"`), not machine-wide (the threat is a stolen paired device,
+     not the server owner). So every tool that the allow rules do not cover goes through
      the permission step, which the agent host forwards over ACP `session/request_permission` to
      the daemon. The daemon's decision there is the gate: allow, hold for an approval, or deny.
-   - The daemon-owned **PreToolUse hook** (managed settings, cannot be removed by the session) is
-     only a fast path: it can return allow for a classified read inside the workspace, and
+   - The daemon-owned **PreToolUse hook** (in the same injected settings) is only a fast path: it can return allow for a classified read inside the workspace, and
      otherwise defers to the permission step. A hook that is missing, crashes, cannot start or
      times out therefore changes nothing: the permission step still asks the daemon. The hook's
      timeout is set above 10 minutes and the hook answers itself before that limit.
@@ -140,7 +141,7 @@ crashed, slow or unsure, the tool does not run.
      precedence, `disableBypassPermissionsMode`, the permission step reaching ACP, hook failure
      handling). Tests: a missing hook binary, a crashing hook, and a hook that sleeps past its
      timeout each end in the daemon's decision (deny without an approval).
-3. **Which agents (P1-D; DECISION: Claude Code only in v1, proposal yes).** A remote chain can start
+3. **Which agents (P1-D; D-G decided: Claude Code only in v1).** A remote chain can start
    only harnesses whose permission step cannot be skipped: Claude Code in v1. Any other harness,
    and any agent in an auto or yolo mode, is refused for a remote chain (also as a child). A later
    harness is added only when its forced ask mode is verified at spawn. Test: a remote chain that
@@ -157,11 +158,14 @@ crashed, slow or unsure, the tool does not run.
    prompt. The mark belongs to the prompt chain for its whole life: the prompt, its tool calls, its
    child sessions and its `[mux-event]` follow-ups. A later local message starts a new chain and
    never clears a running one.
-6. **Hooks that run in a remote chain (P1-F; DECISION: origin-tagged memory, proposal yes).**
+6. **Hooks that run in a remote chain (P1-F; D-H decided: origin-tagged memory).** No hook ever
+   gets remote text as shell input: a hook that needs the text reads it from a 0600 file or an
+   environment variable, never through shell interpolation; a hook that cannot do that is skipped
+   for remote turns.
    | Hook (installed by) | What it does | In a remote chain |
    | --- | --- | --- |
    | `SessionStart` (mux host `hooks.ts`) | shows the memory view | allowed (read) |
-   | `UserPromptSubmit` (mux host) | logs the message to `LOG.txt`, shows other sessions' additions | the message goes to a separate **origin-tagged remote log**, not `LOG.txt` |
+   | `UserPromptSubmit` (mux host) | logs the message to `LOG.txt`, shows other sessions' additions | the message goes to a separate **origin-tagged remote log** (by file, no shell), not `LOG.txt` |
    | `Stop` (mux host) | logs the reply, may start compaction | reply goes to the remote log; compaction of `LOG.txt`/`TREE/` is not started by a remote chain |
    | `SessionStart`, `UserPromptSubmit`, `Stop`, `Notification`, `SessionEnd`, `PreToolUse`, `PostToolUse` (cmux-tui `agent_hook_install.rs`, `claude_wrapper.rs`) | status events to the cmux-tui journal (`cmux-tui-hook`) | allowed: they report state and run no command built from the message text |
    | any other configured hook (user or repo `.claude` settings) | arbitrary shell with the prompt as input | not loaded in a remote chain: remote sessions run with only the managed and cmux-owned hooks |
@@ -283,6 +287,9 @@ Turns and revocation:
   - last good check older than **72 hours**: existing streams are closed too;
   - a check that says "revoked": everything at once, as above.
   Tests use an injected clock.
+- Accepted risk (D-D): a server that stays offline from the cloud keeps serving an install that
+  was revoked during the outage for up to 24 hours (new streams) and 72 hours (existing streams).
+  The owner can stop it sooner on the server itself (`cmux server unpair`, or Stop Serving).
 
 ## 11. Open items
 
