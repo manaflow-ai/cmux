@@ -1,6 +1,6 @@
 //! Bounded waits for tests that block on an event the code under test sends.
 
-use std::sync::mpsc::Receiver;
+use crossbeam_channel::Receiver;
 use std::time::{Duration, Instant};
 
 /// How long a test waits for one awaited app event before it fails. The
