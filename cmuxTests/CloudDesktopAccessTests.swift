@@ -196,7 +196,10 @@ struct CloudDesktopAccessTests {
             wake: {}, startForward: { _ in 46_902 }, stopForward: {}, route: .loopback)
         let state = CloudBrowserAccessState()
         var navigations: [URL] = []
-        state.configure(model: model, url: URL(string: "http://10.0.0.7:6902/vnc.html?path=websockify")!)
+        // An additional display is a desktop through its resource identity,
+        // not through the primary desktop port.
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6902/vnc.html?path=websockify")!,
+            resourceID: SurfaceResourceID(machine: .cloud("display-test"), kind: .display, key: "display:2"))
         state.automaticallyNavigate { navigations.append($0) }
         model.connect()
         #expect(await wait { navigations.count == 1 })
@@ -204,7 +207,7 @@ struct CloudDesktopAccessTests {
         state.didCommit(url: url)
         state.desktopConnectionDidChange(url: url, isConnected: false)
         #expect(!state.showsFailureAlert)
-        #expect(await wait(timeout: 10) { navigations.count == 2 })
+        try #require(await wait(timeout: 10) { navigations.count == 2 })
         #expect(navigations[1] == url, "The retry reloads the same display")
         state.didCommit(url: url)
         state.desktopConnectionDidChange(url: url, isConnected: true)
