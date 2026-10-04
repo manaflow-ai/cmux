@@ -2,8 +2,10 @@ import AppKit
 import CmuxNextWakeups
 
 /// Building the spare: only while a shell page is likely, after a whole quiet period, one step per
-/// run-loop turn (configure, create, park, start the load), each step measured, so no frame holds
-/// more than one step.
+/// run-loop turn (configure, create, park, launch the WebContent process with an empty document,
+/// start the load), each step measured, so no frame holds more than one step. The first build in a
+/// process also pays WebKit's one-time cold start (36-48 ms in one step on cmux-lawrence-2): an
+/// exception the split cannot remove. Step p95 per build: see PageHostPool.
 extension PageHostPool {
     var shouldBuild: Bool {
         isLikely && spare == nil && !building && target != nil && claimedHosts.count < policy.maximumHosts
@@ -54,6 +56,10 @@ extension PageHostPool {
         }
         measure("pool.makeSpare.park") { park(host, in: content) }
         spare = host
+        await Self.nextTurn()
+        guard spare === host else { return }
+        // The WebContent process launch and the page load in separate turns.
+        measure("pool.makeSpare.launch") { host.warmUpProcess() }
         await Self.nextTurn()
         guard spare === host else { return }
         measure("pool.makeSpare.load") { host.startLoading() }

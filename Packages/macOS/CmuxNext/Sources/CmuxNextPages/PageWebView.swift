@@ -35,6 +35,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var webKitView: WKWebView { webView }
     let bridge: any PageHostBridge
     var loaded = false
+    /// The served page's load started (``startLoading()``); the warm-up document does not count.
+    var servedLoadStarted = false
     var loadWaiters: [CheckedContinuation<Void, Never>] = []
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
     private var appliedTheme: String?
@@ -164,14 +166,19 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             await self?.receive(message)
         }
         self.route = route.map { $0.hasPrefix("#") ? $0 : "#" + $0 }
-        if load { webView.load(URLRequest(url: descriptor.url(route: route))) }
+        if load {
+            servedLoadStarted = true
+            webView.load(URLRequest(url: descriptor.url(route: route)))
+        }
     }
 
     /// Starts loading the served page (a pooled host built without loading).
     public func startLoading() {
-        guard !loaded, webView.url == nil else { return }
+        guard !loaded, !servedLoadStarted else { return }
+        servedLoadStarted = true
         webView.load(URLRequest(url: servedDescriptor.url(route: nil)))
     }
+
 
     /// Marks the host used, while touches count (a pooled host's spare phase does not count).
     func noteTouch() {
@@ -326,6 +333,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        // The warm-up document (no served load yet) is not the page.
+        guard servedLoadStarted || !isPooled else { return }
         loaded = true
         applyTheme(force: true)
         resumeLoadWaiters()
