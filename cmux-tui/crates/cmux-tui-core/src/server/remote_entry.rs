@@ -18,15 +18,17 @@
 //! for a trusted local connection (`is_unix`) refuse it, and its
 //! conversation principal is `remote_<install>`, never `user_local`.
 
-use std::io::Read;
+use std::io::{Read, Write};
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::time::Instant;
 
 use super::admission::LineAdmission;
 use super::*;
 
 pub use cmux_link::stamp::LinkPeer as RemotePeer;
 
-/// How long the link has to send the stamp after it connects.
+/// How long the link has to send the whole stamp after it connects.
 const STAMP_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The error code of every refused remote frame. Refusals carry no detail,
@@ -54,6 +56,9 @@ pub type LinkVerifier = Arc<dyn Fn(&UnixStream) -> std::io::Result<()> + Send + 
 /// A running remote entry. Dropping it stops accepts and removes the socket.
 pub struct RemoteEntryServer {
     path: PathBuf,
+    /// The socket file's (device, inode), so drop never removes a socket
+    /// that another daemon bound at the same path later.
+    identity: (u64, u64),
     shutdown: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
@@ -76,8 +81,14 @@ impl Drop for RemoteEntryServer {
         {
             let _ = thread.join();
         }
-        let _ = std::fs::remove_file(&self.path);
+        if file_identity(&self.path).is_some_and(|identity| identity == self.identity) {
+            let _ = std::fs::remove_file(&self.path);
+        }
     }
+}
+
+fn file_identity(path: &Path) -> Option<(u64, u64)> {
+    std::fs::symlink_metadata(path).ok().map(|metadata| (metadata.dev(), metadata.ino()))
 }
 
 /// The conversation principal of a remote peer: one participant per paired
@@ -87,13 +98,19 @@ pub fn remote_principal(peer: &RemotePeer) -> String {
     format!("remote_{}", peer.install)
 }
 
-/// Listen on `path` (mode 0600) and serve link streams for `mux`.
+/// Listen on `path` (mode 0600, in a 0700 directory it creates) and serve
+/// link streams for `mux`.
 pub fn serve_remote_entry(
     mux: Arc<Mux>,
     path: &Path,
     verifier: LinkVerifier,
     gate: Arc<dyn RemoteGate>,
 ) -> anyhow::Result<RemoteEntryServer> {
+    if let Some(directory) = path.parent() {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        std::fs::DirBuilder::new().mode(0o700).recursive(true).create(directory)?;
+        std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))?;
+    }
     if path.exists() {
         match UnixStream::connect(path) {
             Ok(_) => anyhow::bail!("remote entry {} is already in use", path.display()),
@@ -105,12 +122,14 @@ pub fn serve_remote_entry(
         let _ = std::fs::remove_file(path);
         return Err(error.into());
     }
+    let identity = file_identity(path)
+        .ok_or_else(|| anyhow::anyhow!("remote entry {} vanished after bind", path.display()))?;
     let shutdown = Arc::new(AtomicBool::new(false));
     let thread_shutdown = shutdown.clone();
     let thread = std::thread::Builder::new()
         .name("mux-remote-entry".into())
         .spawn(move || accept_loop(&mux, &listener, &thread_shutdown, &verifier, &gate))?;
-    Ok(RemoteEntryServer { path: path.to_path_buf(), shutdown, thread: Some(thread) })
+    Ok(RemoteEntryServer { path: path.to_path_buf(), identity, shutdown, thread: Some(thread) })
 }
 
 fn accept_loop(
@@ -163,6 +182,10 @@ fn serve_remote_connection(
         let _ = stream.shutdown(Shutdown::Both);
         return;
     }
+    if greet(&stream).is_err() {
+        let _ = stream.shutdown(Shutdown::Both);
+        return;
+    }
     let Some(peer) = read_stamp(&stream) else {
         let _ = stream.shutdown(Shutdown::Both);
         return;
@@ -178,13 +201,24 @@ fn serve_remote_connection(
     );
 }
 
-/// Read the stamp one byte at a time, so no byte after it is consumed here.
+/// Tell the link it reached a remote entry (it splices only after this).
+fn greet(stream: &UnixStream) -> std::io::Result<()> {
+    let mut writer = stream;
+    writer.set_write_timeout(Some(STAMP_TIMEOUT))?;
+    writer.write_all(cmux_link::entry_path::ENTRY_BANNER.as_bytes())?;
+    writer.write_all(b"\n")
+}
+
+/// Read the stamp one byte at a time, so no byte after it is consumed
+/// here, under one deadline for the whole line.
 fn read_stamp(stream: &UnixStream) -> Option<RemotePeer> {
-    stream.set_read_timeout(Some(STAMP_TIMEOUT)).ok()?;
+    let deadline = Instant::now() + STAMP_TIMEOUT;
     let mut line = Vec::with_capacity(256);
     let mut reader = stream;
     let mut byte = [0u8; 1];
     loop {
+        let remaining = deadline.checked_duration_since(Instant::now())?;
+        stream.set_read_timeout(Some(remaining.max(Duration::from_millis(1)))).ok()?;
         match reader.read(&mut byte) {
             Ok(1) if byte[0] == b'\n' => break,
             Ok(1) if line.len() < cmux_link::stamp::MAX_STAMP_BYTES => line.push(byte[0]),

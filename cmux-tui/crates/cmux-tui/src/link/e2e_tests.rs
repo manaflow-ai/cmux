@@ -79,6 +79,7 @@ async fn a_dial_crosses_two_meshes_and_reaches_the_peer_daemon_entry_stamped() {
 
     let session = directory.path().join("s.sock");
     let entry_path = cmux_link::entry_path::remote_entry_socket_path(&session);
+    std::fs::create_dir_all(entry_path.parent().unwrap()).unwrap();
     let entry = tokio::net::UnixListener::bind(&entry_path).unwrap();
     let listener = overlay_a.listen(cmux_link::LINK_PORT).await.unwrap();
     let peers = Arc::new(Peers::load(peers_path).unwrap());
@@ -95,7 +96,8 @@ async fn a_dial_crosses_two_meshes_and_reaches_the_peer_daemon_entry_stamped() {
     within(caller.read_line(&mut reply)).await.unwrap();
     assert_eq!(reply, "{\"ok\":true,\"path_state\":\"direct\",\"relay_available\":false}\n");
 
-    let (daemon_side, _) = within(entry.accept()).await.unwrap();
+    let (mut daemon_side, _) = within(entry.accept()).await.unwrap();
+    daemon_side.write_all(b"{\"remote_entry\":1}\n").await.unwrap();
     let mut daemon = BufReader::new(daemon_side);
     let mut stamp = String::new();
     within(daemon.read_line(&mut stamp)).await.unwrap();

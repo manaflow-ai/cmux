@@ -43,6 +43,7 @@ async fn an_inbound_stream_reaches_only_the_remote_entry_never_the_local_socket(
     let admin = std::os::unix::net::UnixListener::bind(&session).unwrap();
     admin.set_nonblocking(true).unwrap();
     let entry_path = cmux_link::entry_path::remote_entry_socket_path(&session);
+    std::fs::create_dir_all(entry_path.parent().unwrap()).unwrap();
     let entry = tokio::net::UnixListener::bind(&entry_path).unwrap();
     let (mut peer, link_side) = tokio::io::duplex(64 * 1024);
     let pairings = pairings();
@@ -56,7 +57,8 @@ async fn an_inbound_stream_reaches_only_the_remote_entry_never_the_local_socket(
         matches!(admin.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
         "a link stream reached the local admin socket"
     );
-    let (daemon_side, _) = accepted.expect("the remote entry got the stream").unwrap();
+    let (mut daemon_side, _) = accepted.expect("the remote entry got the stream").unwrap();
+    daemon_side.write_all(b"{\"remote_entry\":1}\n").await.unwrap();
     let mut lines = BufReader::new(daemon_side).lines();
     assert_eq!(lines.next_line().await.unwrap().unwrap(), STAMP_B);
     assert_eq!(lines.next_line().await.unwrap().unwrap(), r#"{"id":1,"cmd":"ping"}"#);

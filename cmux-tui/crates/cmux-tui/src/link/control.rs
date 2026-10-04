@@ -33,10 +33,13 @@ impl Peers {
         self.current.read().unwrap().clone()
     }
 
-    fn reload(&self) -> io::Result<Arc<Pairings>> {
+    /// Re-read the file and apply it to the overlay; the new view takes
+    /// effect only after the overlay accepted it.
+    async fn reload<O: Overlay>(&self, overlay: &O) -> io::Result<()> {
         let fresh = Arc::new(Pairings::load(&self.path)?);
-        *self.current.write().unwrap() = fresh.clone();
-        Ok(fresh)
+        overlay.sync_peers(&fresh).await?;
+        *self.current.write().unwrap() = fresh;
+        Ok(())
     }
 }
 
@@ -48,33 +51,49 @@ pub(super) trait OverlayListener: Send + 'static {
     ) -> impl Future<Output = Option<(Self::Stream, [u8; 32], SocketAddr)>> + Send;
 }
 
-/// Serve the local socket until it fails. Each caller must be this user and
+/// Serve the local socket. Each caller must be this user and
 /// signed as cmux (`cmux_link::caller`); others are closed unanswered.
 pub(super) async fn serve_local<O: Overlay>(
     listener: UnixListener,
     overlay: Arc<O>,
     peers: Arc<Peers>,
 ) -> io::Result<()> {
+    let mut failures = 0u32;
     loop {
-        let (stream, _) = listener.accept().await?;
-        if cmux_link::caller::verify_fd(stream.as_raw_fd()).is_err() {
-            continue;
-        }
+        let stream = match listener.accept().await {
+            Ok((stream, _)) => {
+                failures = 0;
+                stream
+            }
+            // Descriptor exhaustion persists across accepts; space the
+            // retries instead of ending the link.
+            Err(_) => {
+                failures = failures.saturating_add(1);
+                tokio::time::sleep(ACCEPT_RETRY * failures.min(50)).await;
+                continue;
+            }
+        };
         tokio::spawn(serve_local_request(stream, overlay.clone(), peers.clone()));
     }
 }
+
+/// The first accept retry delay; later ones grow linearly up to 1 s.
+const ACCEPT_RETRY: std::time::Duration = std::time::Duration::from_millis(20);
 
 async fn serve_local_request<O: Overlay>(
     mut stream: UnixStream,
     overlay: Arc<O>,
     peers: Arc<Peers>,
 ) {
+    // The signature check calls into the OS; keep it off the async workers.
+    let fd = stream.as_raw_fd();
+    let verified = tokio::task::spawn_blocking(move || cmux_link::caller::verify_fd(fd)).await;
+    if !matches!(verified, Ok(Ok(()))) {
+        return;
+    }
     let Ok(first) = read_line(&mut stream, MAX_LINE_BYTES).await else { return };
     if parse_line::<ReloadRequest>(&first).is_some() {
-        let ok = match peers.reload() {
-            Ok(pairings) => overlay.sync_peers(&pairings).await.is_ok(),
-            Err(_) => false,
-        };
+        let ok = peers.reload(&*overlay).await.is_ok();
         let reply = if ok { "{\"ok\":true}\n" } else { "{\"ok\":false}\n" };
         let _ = stream.write_all(reply.as_bytes()).await;
         return;

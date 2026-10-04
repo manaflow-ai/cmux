@@ -58,6 +58,13 @@ pub async fn dial_link(
 ) -> Result<OverlayStream, OverlayDialError> {
     let mut stream =
         UnixStream::connect(link_socket).await.map_err(OverlayDialError::LinkUnavailable)?;
+    // The listener must be this user's cmux link, not a socket squatter.
+    let fd = std::os::fd::AsRawFd::as_raw_fd(&stream);
+    match tokio::task::spawn_blocking(move || cmux_link::caller::verify_fd(fd)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(refused)) => return Err(OverlayDialError::LinkUnavailable(refused.into())),
+        Err(_) => return Err(OverlayDialError::Protocol),
+    }
     let request = DialRequest { op: DialOp::Dial, host: host.to_string(), service };
     stream.write_all(line(&request).as_bytes()).await.map_err(|_| OverlayDialError::Protocol)?;
     let reply = read_reply(&mut stream).await?;

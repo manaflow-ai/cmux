@@ -3,10 +3,14 @@
 //! daemon's remote entry with the verified identity as the first line.
 //!
 //! The stream goes ONLY to the remote entry (`cmux_link::entry_path`),
-//! never to the session's local socket, which carries local-admin trust.
+//! never to the session's local socket, which carries local-admin trust:
+//! the entry lives in its own directory, its process must be this user and
+//! signed as cmux, and it must greet with the entry banner before the link
+//! writes a byte.
 
 use std::io;
 use std::net::{IpAddr, SocketAddr};
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 
 use cmux_link::dial::{MAX_LINE_BYTES, Service, ServiceHello, parse_line};
@@ -62,6 +66,15 @@ where
     let mut entry = tokio::net::UnixStream::connect(daemon_entry(session_socket))
         .await
         .map_err(|_| InboundRefused::EntryUnavailable)?;
+    let fd = entry.as_raw_fd();
+    tokio::task::spawn_blocking(move || cmux_link::caller::verify_fd(fd))
+        .await
+        .map_err(|_| InboundRefused::NotAnEntry)?
+        .map_err(|_| InboundRefused::NotAnEntry)?;
+    let banner = read_line(&mut entry, MAX_LINE_BYTES).await.map_err(|_| InboundRefused::NotAnEntry)?;
+    if banner != cmux_link::entry_path::ENTRY_BANNER {
+        return Err(InboundRefused::NotAnEntry);
+    }
     write_stamp(&mut entry, &stamp).await.map_err(|_| InboundRefused::EntryUnavailable)?;
     let _ = tokio::io::copy_bidirectional(&mut stream, &mut entry).await;
     Ok(())
