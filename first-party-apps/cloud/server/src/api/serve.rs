@@ -2,7 +2,8 @@
 //! state. It blocks on one inbox that carries the host's lines (from a
 //! reader thread) and wakes from link processes. Each op gets one result
 //! line, then the events it caused; a wake sends the link and forward
-//! events at once, with no op after the change. No timer, no polling.
+//! events at once, with no op after the change. No polling; the only timer
+//! is the link's ready deadline inside a connect (`READY_DEADLINE`).
 
 use super::relay::{HostRelay, Next, Waker};
 use super::wire::Request;
@@ -20,7 +21,8 @@ pub fn serve<R: BufRead + Send + 'static, W: Write>(relay: HostRelay<R, W>) -> i
 }
 
 /// [`serve`] with the attach state and the files and ports edge given
-/// (tests pass the fake link spawner and the fake tunnel).
+/// (tests pass the fake link spawner and the fake tunnel). The wake applies
+/// to links spawned from here on: pass an `attach` with no live link.
 pub fn serve_with<R: BufRead + Send + 'static, W: Write>(
     relay: HostRelay<R, W>,
     attach: Attach,
