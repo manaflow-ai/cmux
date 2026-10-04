@@ -1,5 +1,6 @@
 import type { Principal, SqlStore, StoredRow } from "@cmux/ownership"
-import { CloudMachineConnectInfo, cloudServicesProblem, overlayAddress } from "@cmux/protocol"
+import { CloudMachineConnectInfo, CloudMachineLinkToken, cloudServicesProblem, overlayAddress } from "@cmux/protocol"
+import { LINK_TOKEN_MAX_TTL_S, newJti, signLinkToken, type SigningKeys } from "./link-token.ts"
 import type { ReadResult } from "./owner-do.ts"
 import { decodeParams } from "./domains/common.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
@@ -79,4 +80,37 @@ export const connectInfo = async (entity: string, rows: Rows | undefined, p: Pri
     },
     revision: ""
   }
+}
+
+export type MintReply = { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly code: string; readonly message: string }
+
+/**
+ * cloud.machine.link_token (5.8 items 5-6): install principals only (never a session, never an
+ * agent token), a grant that covers execute, services a subset of what connect_info lists for this
+ * caller. Each call mints a fresh token (no key, no replay, no stream event); the mint is audited
+ * (kid, jti, services, exp, the request's internal key), never the token.
+ */
+export const mintLinkToken = async (
+  args: { entity: string; rows: Rows | undefined; p: Principal; params: unknown; request: string; environment: string; keys: SigningKeys | null },
+  policy: () => Promise<ReadonlyArray<string>>,
+  audit: AccessAudit
+): Promise<MintReply> => {
+  const { entity, p } = args
+  if (p.kind !== "install" || !p.install || p.agent !== undefined) return { ok: false, code: "auth.forbidden", message: "link tokens are minted only for an install's cmux link" }
+  if (!p.grant_classes?.includes("execute")) return { ok: false, code: "auth.forbidden", message: "grant does not cover execute" }
+  const d = decodeParams<{ host: string; services: ReadonlyArray<string> }>(CloudMachineLinkToken, args.params)
+  if (!d.ok) return d
+  const row = machineBySelector(args.rows, { host: d.value.host })
+  if (!row) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
+  if (!row.host || !row.wg_public_key) return { ok: false, code: "cloud.machine.not_bound", message: "the machine is still provisioning" }
+  const allowed = allowedServices(entity, row, p, await policy())
+  if (!allowed.ok) return allowed
+  if (!d.value.services.every((s) => allowed.services.includes(s))) return { ok: false, code: "auth.forbidden", message: "a service you asked for is not one you may dial on this machine" }
+  if (!args.keys) return { ok: false, code: "owner.unreachable", message: "link signing keys are not configured on this deployment" }
+  const iat = Math.floor(Date.now() / 1000)
+  const claims = { iss: `cmux:cloud:${args.environment}`, aud: row.host, sub: p.install, svc: [...d.value.services], epoch: row.epoch ?? 1, iat, exp: iat + LINK_TOKEN_MAX_TTL_S, jti: newJti(), team: entity }
+  const kid = args.keys.active
+  const token = await signLinkToken(claims, kid, args.keys.keys[kid]!)
+  audit.record({ op: "link_token", request: args.request, machine: row.id, host: row.host, ...who(p), kid, jti: claims.jti, svc: claims.svc, exp: claims.exp, at: Date.now() })
+  return { ok: true, value: { token, expires_at: claims.exp * 1000, host: row.host, epoch: claims.epoch, services: claims.svc } }
 }

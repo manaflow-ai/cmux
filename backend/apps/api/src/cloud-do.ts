@@ -7,7 +7,7 @@ import { cloudConfig, cloudDriver, cloudProviderReady, type GuardedCloudDriver }
 import { collectSuspects, OrphanSweep } from "./cloud-sweep.ts"
 import { newBindToken, parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
-import { AccessAudit, connectInfo } from "./cloud-connect.ts"
+import { AccessAudit, connectInfo, mintLinkToken, type MintReply } from "./cloud-connect.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { decodeParams } from "./domains/common.ts"
 import {
@@ -237,6 +237,14 @@ export class CloudDO extends OwnerDO<CloudState> {
     if (!reply || reply.t === "reject") return { ok: false, code: reply?.t === "reject" && reply.code === "validation.invalid" ? "validation.invalid" : "auth.forbidden", message: "bind refused" }
     if (reply.t !== "result") return forbidden
     return { ok: true, value: { ...(reply.value as Record<string, unknown>), keyset } }
+  }
+
+  /** RPC from the Worker for cloud.machine.link_token: outside the op stream (no event, no ledger replay). */
+  async mintLinkToken(entity: string, principal: Principal, params: unknown, request: string = crypto.randomUUID()): Promise<MintReply> {
+    if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
+    const rows = this.isBound(entity) ? this.bind(entity).rows : undefined
+    const keys = parseSigningKeys(this.env.CLOUD_LINK_SIGNING_KEYS)
+    return mintLinkToken({ entity, rows, p: principal, params, request, environment: this.env.ENVIRONMENT, keys }, () => this.teamConnectServices(entity), this.audit)
   }
 
   /** The team's cloud.connectServices from its TeamDO (fail closed: a failed RPC fails the read). */
