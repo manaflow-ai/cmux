@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = ROOT / "scripts/cmux-next/check-web-bundles.sh"
 WORKFLOW = ROOT / ".github/workflows/cmux-next-web-bundles.yml"
 CHECKS = (
+    "scripts/cmux-next/generate-coordination-index.py",
     "webviews/scripts/pages/gen-strings.mjs",
     "scripts/cmux-next/build-pages-web.sh",
     "scripts/build-webviews-app.sh",
@@ -41,7 +42,9 @@ def fixture(stale: str | None) -> tuple[Path, Path]:
         path = repo / check
         path.parent.mkdir(parents=True, exist_ok=True)
         status = 1 if check == stale else 0
-        if check.endswith(".mjs"):
+        if check.endswith(".py"):
+            path.write_text(f"import sys, os\nopen({str(log)!r}, 'a').write('{check} ' + ' '.join(sys.argv[1:]) + ' cwd=' + os.getcwd() + '\\n')\nsys.exit({status})\n")
+        elif check.endswith(".mjs"):
             path.write_text(f"import fs from 'node:fs';\nfs.appendFileSync({str(log)!r}, `{check} ${{process.argv.slice(2).join(' ')}} cwd=${{process.cwd()}}\\n`);\nprocess.exit({status});\n")
         else:
             path.write_text(f"#!/bin/sh\necho \"{check} $* cwd=$(pwd)\" >> {log}\nexit {status}\n")
@@ -93,6 +96,7 @@ def main() -> int:
     for event in ("push", "pull_request"):
         paths = set((events.get(event) or {}).get("paths") or [])
         for needed in ("schemas/settings/**", "webviews/**", "scripts/cmux-next/build-pages-web.sh",
+                       "plans/cmux-next/coordination/**", "scripts/cmux-next/generate-coordination-index.py",
                        "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/**",
                        "scripts/cmux-next/check-web-bundles.sh"):
             if needed not in paths:

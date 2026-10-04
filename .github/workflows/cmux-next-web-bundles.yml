@@ -1,6 +1,6 @@
 name: cmux-next web bundles
 
-# Committed generated web output (the page strings, the React pages bundle, the webviews app, the
+# Committed generated output (the coordination index, the page strings, the React pages bundle, the webviews app, the
 # agent pane, Agent Activity) must match its sources. Pull requests into feat-cmux-next run the
 # same checks as safe-push.sh before a direct push (#17241 merged stale Settings strings because
 # only pushes ran a subset); pushes keep the backstop.
@@ -19,6 +19,8 @@ on:
       - "scripts/cmux-next/build-agent-activity-web.sh"
       - "scripts/cmux-next/build-pages-web.sh"
       - "scripts/cmux-next/check-web-bundles.sh"
+      - "plans/cmux-next/coordination/**"
+      - "scripts/cmux-next/generate-coordination-index.py"
       - ".github/workflows/cmux-next-web-bundles.yml"
   push:
     branches: [feat-cmux-next]
@@ -34,6 +36,8 @@ on:
       - "scripts/cmux-next/build-agent-activity-web.sh"
       - "scripts/cmux-next/build-pages-web.sh"
       - "scripts/cmux-next/check-web-bundles.sh"
+      - "plans/cmux-next/coordination/**"
+      - "scripts/cmux-next/generate-coordination-index.py"
       - ".github/workflows/cmux-next-web-bundles.yml"
 
 permissions:
@@ -64,7 +68,7 @@ jobs:
         with:
           node-version: "24.11.1"
 
-      - name: Verify generated page strings and web bundles
+      - name: Verify the coordination index, page strings and web bundles
         run: ./scripts/cmux-next/check-web-bundles.sh
 
   # Signal only for now (the coordinator's call): `vp check` and the full
