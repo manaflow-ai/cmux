@@ -146,10 +146,10 @@ impl WorkspaceRegistry {
             .map(|source| validate_personal_json("source", source, true))
             .transpose()?;
         let tx = self.connection.transaction()?;
-        input.icon.as_deref().map_or(Ok(()), |icon| require_icon_asset(&tx, icon))?;
         if let Some(existing) = read_browser_profile(&tx, &id)? {
             return Ok((existing, false));
         }
+        input.icon.as_deref().map_or(Ok(()), |icon| require_icon_asset(&tx, icon))?;
         let mut ids = order(&tx)?;
         let index = input.index.unwrap_or(ids.len()).min(ids.len());
         tx.execute(

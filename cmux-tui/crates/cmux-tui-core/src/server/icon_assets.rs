@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use super::Mux;
 use crate::workspace_registry::personal_store::blobs::{
-    IconAssetError, MAX_BASE64_BYTES, invalid_asset,
+    IconAssetError, MAX_BASE64_BYTES, invalid_asset, prepare_blob,
 };
 
 /// The blob store, `put-blob`, `get-blob`, and asset icon values
@@ -42,7 +42,9 @@ pub(super) fn put(mux: &Mux, params: PutParams) -> anyhow::Result<Value> {
     let data = base64::engine::general_purpose::STANDARD
         .decode(params.data.as_bytes())
         .map_err(|_| invalid_asset("data must be standard base64"))?;
-    let blob = mux.workspace_registry.lock().unwrap().put_blob(&params.media_type, &data)?;
+    // Sanitize and hash before the registry lock: neither needs the store.
+    let blob = prepare_blob(&params.media_type, &data)?;
+    let blob = mux.workspace_registry.lock().unwrap().put_blob(blob)?;
     Ok(blob.to_json(false))
 }
 
