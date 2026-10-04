@@ -1,6 +1,7 @@
 public import Foundation
 
-/// An app package on disk: a directory holding `cmux-app.json`.
+/// An app package on disk: a directory holding `cmux-app.json` (or, for a
+/// first-party package, `cmux-app.v2.json`).
 public nonisolated struct AppBundle: Sendable, Hashable, Identifiable {
     public enum Source: String, Sendable, Hashable, Codable {
         /// A sample app shipped inside the app (opt-in).
@@ -40,13 +41,29 @@ public nonisolated enum AppBundleScanner {
         var problems: [Problem] = []
         for directory in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             let manifestURL = directory.appending(path: "cmux-app.json")
-            guard fm.fileExists(atPath: manifestURL.path) else { continue }
-            guard let data = try? Data(contentsOf: manifestURL) else {
-                problems.append(Problem(directory: directory, message: "cannot read cmux-app.json"))
-                continue
-            }
+            // First-party packages may ship manifest v2 (`cmux-app.v2.json`):
+            // alone (Home, App Store) or next to the v1 file the prototype
+            // engine runs, which then takes v2's presentation.
+            let v2URL = directory.appending(path: "cmux-app.v2.json")
+            let v2 = source == .firstParty && fm.fileExists(atPath: v2URL.path) ? v2URL : nil
+            guard fm.fileExists(atPath: manifestURL.path) || v2 != nil else { continue }
             do {
-                let manifest = try AppManifest.decode(data)
+                var manifest: AppManifest
+                if fm.fileExists(atPath: manifestURL.path) {
+                    guard let data = try? Data(contentsOf: manifestURL) else {
+                        problems.append(Problem(directory: directory, message: "cannot read cmux-app.json"))
+                        continue
+                    }
+                    manifest = try AppManifest.decode(data)
+                    if let v2, let data = try? Data(contentsOf: v2) {
+                        manifest.presentation = try AppManifest.decodeShippedV2(data).presentation
+                    }
+                } else if let v2, let data = try? Data(contentsOf: v2) {
+                    manifest = try AppManifest.decodeShippedV2(data)
+                } else {
+                    problems.append(Problem(directory: directory, message: "cannot read cmux-app.v2.json"))
+                    continue
+                }
                 if (source == .local) != manifest.isLocal {
                     problems.append(Problem(directory: directory, message: source == .local
                         ? "\(manifest.id): development apps use the local/ publisher"

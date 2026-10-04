@@ -17,7 +17,11 @@ import Testing
 
     @Test func homeResolvesWithTheAppColumnScreen() async throws {
         let home = try #require(try await registry().app("cmux/home"))
-        #expect(home.manifest.raw["presentation"]?["screen"]?.stringValue == "appColumn")
+        let presentation = try #require(home.manifest.presentation)
+        #expect(presentation.screen == .appColumn)
+        #expect(presentation.tab)
+        #expect(presentation.primaryInput == "home.composer")
+        #expect(presentation.sidebarItem?.section == "top" && presentation.sidebarItem?.order == 0)
         #expect(home.isInstalled)
     }
 
@@ -25,7 +29,24 @@ import Testing
         let registry = try await registry()
         for id in ["cmux/app-store", "cmux/coderouter"] {
             let app = try #require(registry.app(id), "\(id)")
-            #expect(app.manifest.raw["presentation"]?["screen"]?.stringValue == "app", "\(id)")
+            #expect(app.manifest.presentation?.screen == .app, "\(id)")
+            #expect(app.manifest.presentation?.tab == true, "\(id)")
         }
+    }
+
+    /// CodeRouter keeps its v1 manifest for the prototype engine (its
+    /// contributions still mount) and takes presentation from v2.
+    @Test func codeRouterKeepsItsV1ContributionsAndTakesV2Presentation() async throws {
+        let app = try #require(try await registry().app("cmux/coderouter"))
+        #expect(!app.manifest.contributes.entries.isEmpty)
+        #expect(app.manifest.presentation?.sidebarItem?.order == 20)
+    }
+
+    @Test func aWebAppPresentationReadsItsURLAndProfile() throws {
+        let json = try AppJSON.parse(Data(#"{"web":{"url":"https://mail.google.com/","origins":["https://accounts.google.com"]},"screen":"app"}"#.utf8))
+        let presentation = try #require(AppPresentation(json: json))
+        #expect(presentation.web?.url.host() == "mail.google.com")
+        #expect(presentation.web?.profile == "app" && presentation.web?.origins == ["https://accounts.google.com"])
+        #expect(presentation.screen == .app && !presentation.tab && presentation.sidebarItem == nil)
     }
 }
