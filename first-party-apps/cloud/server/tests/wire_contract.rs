@@ -120,3 +120,44 @@ fn connect_info_follows_section_1_7() {
     }
     assert_eq!(s.control_plane().calls.len(), calls, "refused before any call");
 }
+
+/// Read ops never mint credentials: the dial token comes only from the
+/// mutation `cloud.machine.link_token`, which only `cmux link` calls.
+#[test]
+fn no_read_vector_carries_a_link_token() {
+    let doc = wire_common::vectors();
+    for case in doc["cases"].as_array().expect("cases") {
+        if case["class"] != "read" {
+            continue;
+        }
+        for response in case["responses"].as_array().expect("responses") {
+            let text = response["body"]["value"].to_string();
+            assert!(!text.contains("link_token"), "{}: {text}", case["name"]);
+        }
+    }
+}
+
+#[test]
+fn a_connect_info_answer_with_a_link_token_is_a_bad_response() {
+    let mut s = Server::new(WireFake::load());
+    let doc = wire_common::vectors();
+    let mut value = doc["cases"]
+        .as_array()
+        .expect("cases")
+        .iter()
+        .find(|c| c["name"] == "machine.connect_info")
+        .expect("case")["responses"][0]["body"]["value"]
+        .clone();
+    value["link_token"] = json!({ "token": "lt_leak", "expires_at": 1 });
+    s.control_plane_mut().answer(
+        "cloud.machine.connect_info",
+        json!({ "machine": vm(1) }),
+        None,
+        value,
+    );
+    let out = err_json(
+        s.handle(&Request::new("cloud.machine.connect_info", json!({ "machine": vm(1) }))),
+    );
+    assert_eq!(out["code"], "cmux.cloud.bad_response", "{out}");
+    assert!(!out.to_string().contains("lt_leak"), "the token is never echoed: {out}");
+}
