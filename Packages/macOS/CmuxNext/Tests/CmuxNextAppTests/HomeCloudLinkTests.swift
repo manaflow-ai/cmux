@@ -260,6 +260,55 @@ import Testing
         #expect(daemon.leases == 3)
     }
 
+    /// A forced renewal waits while the cooldown after the last one runs.
+    /// A reply on the current lease proves the Worker takes its token: the
+    /// cooldown ends and the waiting renewal goes at once, instead of after
+    /// a wait that can reach `maxRetry`.
+    @Test func aProvenLeaseEndsTheCooldownAndSendsTheWaitingRenewal() async throws {
+        let clock = ManualClock()
+        let daemon = FakeCloudDaemon()
+        let (linker, source, tokens) = make(clock: clock)
+        tokens.user = "a"
+        await linker.apply(link(daemon, "a"))
+        linker.sessionNeeded(reason: "unauthenticated", expiresAt: daemon.leaseExpiry)
+        await linker.settle()
+        #expect(daemon.leases == 2)
+        // The cooldown runs: this one waits.
+        linker.sessionNeeded(reason: "expired", expiresAt: daemon.leaseExpiry)
+        await linker.settle()
+        #expect(daemon.leases == 2)
+        // A reply on the renewed lease proves it.
+        _ = try await source.inbox()
+        #expect(await daemon.wait { calls in calls.filter { if case .setSession = $0 { true } else { false } }.count >= 3 },
+                "the waiting renewal still waited for the cooldown")
+    }
+
+    /// The cooldown ends while other lease work runs: the renewal that
+    /// waited for it is kept and goes once that work ends.
+    @Test func aRenewalThatComesDueDuringLeaseWorkIsKept() async throws {
+        let clock = ManualClock()
+        let daemon = FakeCloudDaemon()
+        let (linker, _, tokens) = make(clock: clock)
+        tokens.user = "a"
+        await linker.apply(link(daemon, "a"))
+        linker.sessionNeeded(reason: "unauthenticated", expiresAt: daemon.leaseExpiry)
+        await linker.settle()
+        linker.sessionNeeded(reason: "expired", expiresAt: daemon.leaseExpiry)
+        // Other lease work starts and holds on the token read.
+        let gate = Gate()
+        tokens.gate = gate
+        linker.sessionNeeded(reason: "missing")
+        await gate.arrived()
+        await clock.sleepers(atLeast: 1)
+        clock.advance(by: HomeCloudLink.firstRetry)
+        for _ in 0..<2_000 { await Task.yield() }
+        gate.open()
+        await linker.settle()
+        for _ in 0..<2_000 { await Task.yield() }
+        await linker.settle()
+        #expect(daemon.leases == 4, "the renewal that came due during other lease work was dropped: \(daemon.leases)")
+    }
+
     /// A new link cancels the previous one's pending retry: no lease goes
     /// out for the account that left.
     @Test func aNewLinkCancelsThePendingRetry() async throws {
