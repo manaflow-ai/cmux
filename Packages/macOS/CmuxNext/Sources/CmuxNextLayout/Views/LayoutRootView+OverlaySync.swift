@@ -28,7 +28,8 @@ extension LayoutRootView {
     /// its returned observation.
     public func observeOverlaySync(_ block: @escaping () -> Void) -> LayoutOverlaySyncObservation {
         nextOverlaySyncObserver += 1
-        return LayoutOverlaySyncObservation(root: self, id: nextOverlaySyncObserver) // red: not registered
+        overlaySyncObservers[nextOverlaySyncObserver] = block
+        return LayoutOverlaySyncObservation(root: self, id: nextOverlaySyncObserver)
     }
 
     func notifyOverlaySync() {

@@ -22,12 +22,15 @@ final class AgentCursorVisibilitySource {
     private var tracked: [String: AgentCursorVisibility] = [:]
     private var observers: [any NSObjectProtocol] = []
     private var stateObservation: Task<Void, Never>?
-    /// Layout roots whose overlay sync this source subscribed to.
+    /// Overlay sync observations of the layout roots this source watches.
     private var hookedRoots: [ObjectIdentifier: LayoutRootHook] = [:]
     /// A tracked target's visibility changed; its overlay model re-renders.
     var onChange: ((String, AgentCursorVisibility) -> Void)?
 
-    private struct LayoutRootHook { weak var root: LayoutRootView? }
+    private struct LayoutRootHook {
+        weak var root: LayoutRootView?
+        let observation: LayoutOverlaySyncObservation
+    }
 
     init(services: AppServices) {
         self.services = services
@@ -116,7 +119,7 @@ final class AgentCursorVisibilitySource {
         observers.removeAll()
         stateObservation?.cancel()
         stateObservation = nil
-        for hook in hookedRoots.values { hook.root?.onOverlaySync = nil }
+        for hook in hookedRoots.values { hook.observation.cancel() }
         hookedRoots.removeAll()
     }
 
@@ -127,8 +130,8 @@ final class AgentCursorVisibilitySource {
         hookedRoots = hookedRoots.filter { $0.value.root != nil }
         for controller in services?.windows.controllers ?? [] {
             guard let root = controller.content?.layoutView, hookedRoots[ObjectIdentifier(root)] == nil else { continue }
-            root.onOverlaySync = { [weak self] in self?.reresolve() }
-            hookedRoots[ObjectIdentifier(root)] = LayoutRootHook(root: root)
+            let observation = root.observeOverlaySync { [weak self] in self?.reresolve() }
+            hookedRoots[ObjectIdentifier(root)] = LayoutRootHook(root: root, observation: observation)
         }
     }
 }

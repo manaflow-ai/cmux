@@ -39,7 +39,6 @@ extension LayoutRootView {
             view.removeFromSuperview()
         }
         reportInteractiveRects()
-        onOverlaySync?()
         notifyOverlaySync()
     }
 
