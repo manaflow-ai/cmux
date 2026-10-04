@@ -11,6 +11,7 @@ mod idle_close;
 mod kitty_reservation;
 pub(crate) mod layout_invariants;
 mod layout_ratio_error;
+mod layout_undo_commit;
 mod personal;
 mod presentation;
 mod public_projections;
@@ -1775,10 +1776,6 @@ pub struct ZoomState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// How many times a confirmed layout undo retries a resource revision conflict
-/// caused by unrelated commits before it reports the undo as stale.
-const LAYOUT_UNDO_COMMIT_ATTEMPTS: u32 = 3;
-
 pub enum LayoutUndoResult {
     Undone { screen: ScreenId, revision: u64 },
     ConfirmationRequired { screen: ScreenId, revision: u64, closes_panes: Vec<PaneId> },
@@ -17208,44 +17205,8 @@ impl Mux {
                 .context("layout undo confirmation omitted its token")?;
             fields.insert("confirmation_token".into(), Value::String(token.to_string()));
         }
-        let mut attempts = 0;
-        let commit = loop {
-            attempts += 1;
-            let expected_resource_revision = if created_panes.is_empty() {
-                None
-            } else {
-                Some(self.workspace_registry.lock().unwrap().resource_topology_snapshot()?.revision)
-            };
-            #[cfg(test)]
-            if let Some(hook) = self.layout_undo_before_commit.lock().unwrap().clone() {
-                hook();
-            }
-            let result = self.commit_resource_topology_operation(
-                ResourceOperation::ScreenLayoutUndo,
-                selectors.clone(),
-                fields.clone(),
-                expected_resource_revision,
-                &WorkspaceMutation::local("cmux-tui-layout-undo"),
-            );
-            let conflict = result.as_ref().err().is_some_and(|error| {
-                error
-                    .downcast_ref::<ResourceError>()
-                    .is_some_and(|error| error.code == "revision.conflict")
-            });
-            if conflict && attempts < LAYOUT_UNDO_COMMIT_ATTEMPTS {
-                continue;
-            }
-            break result.map_err(|error| {
-                if conflict {
-                    anyhow::Error::new(LayoutUndoError::Stale(
-                        "layout revision conflict: resource topology changed before confirmed undo could commit"
-                            .to_string(),
-                    ))
-                } else {
-                    error
-                }
-            })?;
-        };
+        let commit =
+            self.commit_confirmed_layout_undo(selectors, fields, !created_panes.is_empty())?;
         let screen = commit
             .result
             .get("screen")
