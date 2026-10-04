@@ -11,7 +11,8 @@ public final class HomeStoreBinding {
     public let controller: HomeController
     private var stopped = false
     /// A refused op other than a send (a tapback now), on the main actor, so
-    /// the host can say why. Not called yet (the red test of item 9).
+    /// the host can say why (iOS: an alert with `HomeText.explanation(for:)`).
+    /// A refused send restores its draft instead.
     public var onRefusal: (HomeIntent, HomeRejection) -> Void = { _, _ in }
 
     public init(store: HomeStore, controller: HomeController) {
@@ -62,13 +63,17 @@ public final class HomeStoreBinding {
     private func perform(_ intent: HomeIntent) {
         let store = self.store
         let controller = self.controller
-        Task {
+        Task { [weak self] in
             do {
                 _ = try await store.perform(intent.op, key: intent.key)
-            } catch is HomeRejection {
+            } catch let rejection as HomeRejection {
                 // Refused before it reached the log (offline, nothing queues):
                 // give the text back. A logged refusal stays as "Not Delivered".
-                if case .sendMessage(let id, _) = intent.op, !store.transcript(for: id).contains(where: { $0.key == intent.key }) {
+                guard case .sendMessage(let id, _) = intent.op else {
+                    if let self, !self.stopped { self.onRefusal(intent, rejection) }
+                    return
+                }
+                if !store.transcript(for: id).contains(where: { $0.key == intent.key }) {
                     controller.restoreDraft(for: intent.key)
                 }
             } catch {
