@@ -47,14 +47,21 @@ pub const INTEGRATION_OWNED_ENV_KEYS: [&str; 5] = [
     "GHOSTTY_SHELL_INTEGRATION_XDG_DIR",
 ];
 
+/// Whether two environment keys name the same variable. Windows env keys
+/// ignore case (the child gets one value for `Path` and `PATH`), so a caller
+/// key that differs only in case must still match a daemon-owned key.
+pub fn same_env_key(left: &str, right: &str) -> bool {
+    if cfg!(windows) { left.eq_ignore_ascii_case(right) } else { left == right }
+}
+
 /// Whether the daemon always owns `key`.
 pub fn is_daemon_owned(key: &str) -> bool {
-    DAEMON_OWNED_ENV_KEYS.contains(&key)
+    DAEMON_OWNED_ENV_KEYS.iter().any(|owned| same_env_key(owned, key))
 }
 
 /// Set `key` to `value` in `env`, replacing every earlier entry for `key`.
 pub fn set_env(env: &mut Vec<(String, String)>, key: &str, value: &str) {
-    env.retain(|(name, _)| name != key);
+    env.retain(|(name, _)| !same_env_key(name, key));
     env.push((key.to_string(), value.to_string()));
 }
 
@@ -84,7 +91,7 @@ pub(crate) fn merge_caller_env(
 pub(crate) fn strip_integration_owned(env: &mut Vec<(String, String)>) -> Vec<String> {
     let mut dropped = Vec::new();
     env.retain(|(key, _)| {
-        let owned = INTEGRATION_OWNED_ENV_KEYS.contains(&key.as_str());
+        let owned = INTEGRATION_OWNED_ENV_KEYS.iter().any(|owned| same_env_key(owned, key));
         if owned && !dropped.contains(key) {
             dropped.push(key.clone());
         }
@@ -99,7 +106,7 @@ pub(crate) fn strip_integration_owned(env: &mut Vec<(String, String)>) -> Vec<St
 pub(crate) fn keep_shim_first_on_path(env: &mut Vec<(String, String)>, shim_dir: Option<&str>) {
     let Some(shim_dir) = shim_dir.filter(|dir| !dir.is_empty()) else { return };
     let Some(path) =
-        env.iter().rev().find(|(key, _)| key == "PATH").map(|(_, value)| value.clone())
+        env.iter().rev().find(|(key, _)| same_env_key(key, "PATH")).map(|(_, value)| value.clone())
     else {
         return;
     };
@@ -178,6 +185,24 @@ mod tests {
         expected.sort();
         assert_eq!(removed, expected);
         assert_eq!(env, pairs(&[("HOME", "/home/me")]));
+    }
+
+    /// Windows env keys ignore case, so a lowercase caller key is the same
+    /// variable there and is dropped; elsewhere it is a different variable.
+    #[test]
+    fn a_daemon_owned_key_in_another_case_follows_the_platform_rule() {
+        let mut env = pairs(&[("CMUX_TUI_SOCKET", "/daemon.sock")]);
+        let dropped = merge_caller_env(&mut env, &pairs(&[("cmux_tui_socket", "/caller.sock")]));
+        if cfg!(windows) {
+            assert_eq!(dropped, vec!["cmux_tui_socket".to_string()]);
+            assert_eq!(env, pairs(&[("CMUX_TUI_SOCKET", "/daemon.sock")]));
+        } else {
+            assert!(dropped.is_empty());
+            assert_eq!(
+                env,
+                pairs(&[("CMUX_TUI_SOCKET", "/daemon.sock"), ("cmux_tui_socket", "/caller.sock")])
+            );
+        }
     }
 
     #[test]

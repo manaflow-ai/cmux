@@ -118,8 +118,11 @@ macro_rules! daemon_absence_wins {
     ($name:ident, $key:literal) => {
         #[test]
         fn $name() {
+            // The daemon does not set this key on a terminal, so the child
+            // sees only what the daemon process itself inherited (normally
+            // nothing; a test run inside a wrapper may have a value).
             let (value, _) = child_value_with_caller($key);
-            assert_eq!(value, None, "{}", $key);
+            assert_eq!(value, std::env::var($key).ok(), "{}", $key);
         }
     };
 }
