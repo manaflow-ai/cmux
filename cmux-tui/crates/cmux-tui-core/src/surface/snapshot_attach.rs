@@ -267,6 +267,13 @@ impl Surface {
         pty.term.lock().unwrap().encode_snapshot(phase)
     }
 
+    /// The host terminal's history check now (tests compare it with a
+    /// local-history READY's).
+    #[cfg(test)]
+    pub(crate) fn terminal_history_digest(&self) -> Option<ghostty_vt::HistoryDigest> {
+        self.as_pty()?.term.lock().unwrap_or_else(std::sync::PoisonError::into_inner).history_digest()
+    }
+
     /// `terminal.history`: GHOSTSNP HISTORY pages above `before`.
     pub(crate) fn history_pages(
         &self,

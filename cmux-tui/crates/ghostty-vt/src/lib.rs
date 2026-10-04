@@ -30,7 +30,7 @@ pub use render::{
     KittyGraphicsFrameDelta, RenderFrame, RenderState, StyledRun, UnderlineStyle, rows_to_runs,
 };
 pub use snapshot::{
-    SNAPSHOT_ENVELOPE_LEN, SNAPSHOT_RECORD_HEADER_LEN, SnapshotHistoryPage, SnapshotPhase,
+    HistoryDigest, SNAPSHOT_ENVELOPE_LEN, SNAPSHOT_RECORD_HEADER_LEN, SnapshotHistoryPage, SnapshotPhase,
     SnapshotRecord, primary_history_pages, reencode_ready, snapshot_digest_input,
     snapshot_envelope_version, snapshot_ready_len, snapshot_records, snapshot_version,
     tag as snapshot_tag,

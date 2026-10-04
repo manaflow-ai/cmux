@@ -313,6 +313,27 @@ impl Terminal {
     pub fn encode_snapshot(&self, phase: SnapshotPhase) -> Result<Vec<u8>> {
         encode_raw(self.raw(), phase)
     }
+
+    /// The divergence check of a local-history READY: the primary screen's
+    /// history row count and a digest of its last 64 history rows
+    /// (codepoints and wrap flags, no styles). A viewer that reflowed its
+    /// own copy of the history compares both after its reflow.
+    ///
+    /// `None` when libghostty-vt cannot compute it; the caller then sends a
+    /// READY with its full history instead.
+    pub fn history_digest(&self) -> Option<HistoryDigest> {
+        // TODO(S2c): call `ghostty_terminal_history_digest` (manaflow-ai/ghostty-next
+        // branch `restore-local-history`) once the ghostty-next gitlink
+        // includes it. Until then no local-history READY is sent.
+        None
+    }
+}
+
+/// [`Terminal::history_digest`]: the history row count and the digest bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryDigest {
+    pub rows: u64,
+    pub digest: Vec<u8>,
 }
 
 #[cfg(test)]
