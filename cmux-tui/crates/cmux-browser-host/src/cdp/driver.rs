@@ -192,6 +192,7 @@ impl Driver for CdpDriver {
             "tab.setViewport" => inner.set_viewport(params),
             "frames.list" => inner.frames_list(params),
             "frame.evaluate" => inner.evaluate(params),
+            "frame.observe" => inner.evaluate(&crate::observe::evaluate_params(params)?),
             "frame.contentFrame" => inner.content_frame(params),
             "frame.contentFrames" => inner.content_frames(params),
             "frame.ownerBox" => inner.owner_box(params),

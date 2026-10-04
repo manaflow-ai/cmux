@@ -135,6 +135,17 @@ import Testing
         #expect(picker == HomeAttachmentPolicy.acceptedInputTypes, "the picker offers exactly what the data side accepts")
     }
 
+    /// A send the owner refused after logging it ("Not Delivered") says
+    /// why in the composer, for example a conversation that stores no files.
+    @Test func aNotDeliveredSendSaysWhy() {
+        let (window, view, _) = host()
+        defer { window.close() }
+        view.showNotDelivered(.invalid("attachments unsupported"))
+        #expect(view.field.notice == "This conversation can’t receive attachments yet.")
+        view.showNotDelivered(.notAuthorized)
+        #expect(view.field.notice == "You can’t send messages in this conversation.")
+    }
+
     /// An op that ran out of resends (a tapback, a read cursor) may not have
     /// gone through: the composer says so.
     @Test func anUnansweredOpShowsANotice() {

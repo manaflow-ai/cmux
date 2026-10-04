@@ -90,28 +90,31 @@ const EXTENSION_REFUSAL_HINT: &str = "open the tab with openBrowser profile \"ag
 /// tabs the last `tab.access` report (interim extension rule).
 #[derive(Default)]
 struct TabTable {
-    engines: HashMap<String, String>,
-    /// The main-frame URL of each tab (hello, tab.announced, tab.navigated).
-    urls: HashMap<String, String>,
     /// targetId -> (extension_host_access, user_override, extension names).
     access: HashMap<String, (bool, bool, Vec<String>)>,
-    /// Every announced tab, in announce order (`tabs.list`).
+    /// Every announced tab, in announce order (`tabs.list`): the one record
+    /// of each tab's engine and main-frame URL (hello, tab.announced,
+    /// tab.navigated). The checks read it; nothing copies it.
     info: Vec<TabAnnounce>,
 }
 
 impl TabTable {
     fn announce(&mut self, tab: &TabAnnounce) {
-        self.engines.insert(tab.target_id.clone(), tab.engine.clone());
-        self.urls.insert(tab.target_id.clone(), tab.url.clone());
         match self.info.iter_mut().find(|known| known.target_id == tab.target_id) {
             Some(known) => *known = tab.clone(),
             None => self.info.push(tab.clone()),
         }
     }
 
+    fn tab(&self, target_id: &str) -> Option<&TabAnnounce> {
+        self.info.iter().find(|tab| tab.target_id == target_id)
+    }
+
+    fn engine(&self, target_id: &str) -> Option<String> {
+        self.tab(target_id).map(|tab| tab.engine.clone())
+    }
+
     fn forget(&mut self, target_id: &str) {
-        self.engines.remove(target_id);
-        self.urls.remove(target_id);
         self.access.remove(target_id);
         self.info.retain(|tab| tab.target_id != target_id);
     }
@@ -134,11 +137,9 @@ impl TabTable {
                         payload.get("targetId").and_then(Value::as_str),
                         payload.get("url").and_then(Value::as_str),
                     )
+                    && let Some(tab) = self.info.iter_mut().find(|t| t.target_id == target_id)
                 {
-                    self.urls.insert(target_id.to_owned(), url.to_owned());
-                    if let Some(tab) = self.info.iter_mut().find(|t| t.target_id == target_id) {
-                        tab.url = url.to_owned();
-                    }
+                    tab.url = url.to_owned();
                 }
             }
             "tab.gone" => {
@@ -156,7 +157,7 @@ impl TabTable {
     /// holds host access on its page, or the person's override: fail closed.
     fn refusal(&self, method: &str, target_id: &str) -> Option<DriverError> {
         // D1: a tab that shows a browser page is never driven, on any engine.
-        if let Some(url) = self.urls.get(target_id)
+        if let Some(url) = self.tab(target_id).map(|tab| &tab.url)
             && crate::policy::is_browser_page(url)
         {
             let mut error = DriverError::new(
@@ -166,7 +167,7 @@ impl TabTable {
             error.error_name = Some(BROWSER_PAGE.to_owned());
             return Some(error);
         }
-        if self.engines.get(target_id).map(String::as_str) == Some("webkit") {
+        if self.tab(target_id).is_some_and(|tab| tab.engine == "webkit") {
             return None;
         }
         let (message, names) = match self.access.get(target_id) {
@@ -204,6 +205,54 @@ pub struct ProviderDriver {
     /// Serializes relay attaches (the reader thread never takes it, so an
     /// attach waiting for its first reply cannot block the reader).
     pub(crate) attach_lock: Mutex<()>,
+    /// The automation leases of the provider's tabs (the host owns them).
+    leases: Leases,
+}
+
+type Leases = Arc<Mutex<crate::lease::LeaseTable>>;
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// Applies a lease operation and sends a `lease` frame for every target
+/// whose rendered lease changed.
+fn apply_lease(
+    leases: &Leases,
+    writer: &SharedWriter,
+    op: &crate::lease::LeaseOp,
+    caller: &crate::lease::LeaseCaller,
+) -> Result<(), crate::lease::LeaseError> {
+    // The table stays locked until the frames are written, so two changes
+    // reach the app in the order the table applied them.
+    let mut table = leases.lock().unwrap_or_else(PoisonError::into_inner);
+    let frames = table.apply(op, caller, now_ms())?;
+    let mut writer = writer.lock().unwrap_or_else(PoisonError::into_inner);
+    for frame in frames {
+        let _ = write_frame(
+            &mut *writer,
+            &Frame::Lease { target_id: frame.target, lease: frame.lease },
+        );
+    }
+    Ok(())
+}
+
+/// A person's lease action from the app (`lease.user`), origin `user`.
+fn user_lease_op(
+    op: &str,
+    target_id: Option<String>,
+    actor: Option<String>,
+) -> Option<crate::lease::LeaseOp> {
+    use crate::lease::LeaseOp;
+    Some(match (op, target_id, actor) {
+        ("take_over", Some(target), _) => LeaseOp::TakeOver { target },
+        ("hand_back", Some(target), _) => LeaseOp::HandBack { target },
+        ("stop", Some(target), _) => LeaseOp::Stop { target },
+        ("allow", _, Some(actor)) => LeaseOp::Allow { actor },
+        _ => return None,
+    })
 }
 
 pub(crate) type CefTabs = Arc<Mutex<HashMap<String, Arc<crate::provider_engine::CefTab>>>>;
@@ -247,6 +296,9 @@ impl ProviderDriver {
         let (thread_waiters, thread_closed, thread_tabs) =
             (waiters.clone(), closed.clone(), tabs.clone());
         let cef_tabs: CefTabs = Arc::new(Mutex::new(HashMap::new()));
+        let writer: SharedWriter = Arc::new(Mutex::new(Box::new(writer)));
+        let leases: Leases = Arc::default();
+        let (thread_writer, thread_leases) = (writer.clone(), leases.clone());
         let (thread_relays, thread_subscribers, thread_cef_tabs) =
             (relays.clone(), subscribers.clone(), cef_tabs.clone());
         std::thread::Builder::new().name("cmux-browser-host-provider".into()).spawn(move || {
@@ -275,6 +327,15 @@ impl ProviderDriver {
                                 .unwrap_or_else(PoisonError::into_inner)
                                 .remove(target_id);
                         }
+                        // A gone tab takes its automation lease with it.
+                        if name == "tab.gone"
+                            && let Some(target_id) = payload.get("targetId").and_then(Value::as_str)
+                        {
+                            let op =
+                                crate::lease::LeaseOp::TargetGone { target: target_id.to_owned() };
+                            let caller = crate::lease::LeaseCaller::default();
+                            let _ = apply_lease(&thread_leases, &thread_writer, &op, &caller);
+                        }
                         let event = DriverEvent { name, payload };
                         let sinks: Vec<EventSink> = thread_subscribers
                             .lock()
@@ -286,6 +347,21 @@ impl ProviderDriver {
                             sink(event.clone());
                         }
                         events(event);
+                    }
+                    // A person used a tab: its driving lease pauses.
+                    Ok(Some(Frame::UserInput { target_id })) => {
+                        let op = crate::lease::LeaseOp::UserInput { target: target_id };
+                        let caller = crate::lease::LeaseCaller::default();
+                        let _ = apply_lease(&thread_leases, &thread_writer, &op, &caller);
+                    }
+                    Ok(Some(Frame::LeaseUser { op, target_id, actor })) => {
+                        if let Some(op) = user_lease_op(&op, target_id, actor) {
+                            let caller = crate::lease::LeaseCaller {
+                                origin: "user".into(),
+                                ..crate::lease::LeaseCaller::default()
+                            };
+                            let _ = apply_lease(&thread_leases, &thread_writer, &op, &caller);
+                        }
                     }
                     Ok(Some(Frame::Cdp { target_id, message })) => {
                         let relay = thread_relays
@@ -337,7 +413,7 @@ impl ProviderDriver {
             }
         })?;
         Ok(Arc::new(ProviderDriver {
-            writer: Arc::new(Mutex::new(Box::new(writer))),
+            writer,
             waiters,
             next_id: AtomicU64::new(1),
             closed,
@@ -347,6 +423,7 @@ impl ProviderDriver {
             next_subscriber: AtomicU64::new(1),
             cef_tabs,
             attach_lock: Mutex::new(()),
+            leases,
         }))
     }
 
@@ -370,7 +447,7 @@ impl ProviderDriver {
 
     /// The engine the app announced for a tab.
     pub fn tab_engine(&self, target_id: &str) -> Option<String> {
-        self.table().engines.get(target_id).cloned()
+        self.table().engine(target_id)
     }
 
     /// Why an agent call on `target_id` is refused (browser page, the
@@ -418,6 +495,16 @@ impl ProviderDriver {
                 &frame,
             );
         }
+    }
+
+    /// Applies an agent's lease operation (act, observe, release, session
+    /// end) and sends the changed `lease` frames to the app.
+    pub fn lease(
+        &self,
+        op: &crate::lease::LeaseOp,
+        caller: &crate::lease::LeaseCaller,
+    ) -> Result<(), crate::lease::LeaseError> {
+        apply_lease(&self.leases, &self.writer, op, caller)
     }
 
     /// Adds an event receiver (one per session); returns its id.
@@ -865,3 +952,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "provider_link_table_tests.rs"]
+mod table_tests;
