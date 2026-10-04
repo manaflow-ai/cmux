@@ -1,5 +1,6 @@
 #if DEBUG
 public import CmuxNextSettings
+import CmuxNextDesign
 public import Foundation
 import AppKit
 import ObjectiveC
@@ -58,7 +59,8 @@ extension PageWebView {
     /// so a live check can prove the user path (a covered window that comes back redraws).
     nonisolated static func rendersWhenCovered(_ environment: [String: String]) -> Bool {
         guard environment["CMUX_NEXT_PAGES_WEBKIT_OCCLUSION"] != "1" else { return false }
-        return environment["CMUX_NEXT_NO_ACTIVATE"] == "1" || environment["CMUX_NEXT_SOCKET_MODE"] == "automation"
+        // The one automation rule for every window surface (terminals, pages).
+        return WindowDrawPolicy.isAutomationLaunch(environment)
     }
 
     /// `-[WKWebView _setWindowOcclusionDetectionEnabled:]`, when this WebKit has it, so a tagged
