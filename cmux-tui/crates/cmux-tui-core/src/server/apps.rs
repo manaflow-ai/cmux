@@ -10,6 +10,7 @@
 //! command; mount events go to the mounting connection only.
 
 use std::sync::Arc;
+use std::thread::JoinHandle;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -117,16 +118,42 @@ fn reply(
             error_code: None,
             error_delivery: None,
         },
-        Err(e) => Response {
-            id,
-            ok: false,
-            data: None,
-            error: Some(e.message),
-            error_code: Some(e.code),
-            error_delivery: None,
-        },
+        Err(e) => {
+            let response = Response {
+                id,
+                ok: false,
+                data: None,
+                error: Some(e.message),
+                error_code: Some(e.code),
+                error_delivery: None,
+            };
+            // The owner's details and retryable ride next to the error,
+            // unchanged (a page reads details.status, details.upstream_code).
+            let Ok(mut value) = serde_json::to_value(response) else { return false };
+            if let Some(details) = e.details {
+                value["error_details"] = details;
+            }
+            value["retryable"] = Value::Bool(e.retryable);
+            return writer.send_control(&value).is_ok();
+        }
     };
     send_response(writer, response)
+}
+
+/// After the daemon is ready, starts the app supervisor on its own thread
+/// when `apps-v1` is advertised, so apps with an `always` server run without
+/// waiting for the first `apps-*` command. Never on the startup path.
+pub fn start_apps_when_ready(mux: &Arc<Mux>) {
+    if crate::apps::advertised().is_some() {
+        let mux = mux.clone();
+        let _ = spawn_off_startup(move || {
+            mux.control_clients.apps.get_or_init(&mux);
+        });
+    }
+}
+
+fn spawn_off_startup(job: impl FnOnce() + Send + 'static) -> std::io::Result<JoinHandle<()>> {
+    std::thread::Builder::new().name("cmux-apps-start".into()).spawn(job)
 }
 
 /// What the daemon knows about `client` for the hosting-app check.
@@ -365,5 +392,61 @@ mod tests {
             json!({ "cmd": "apps-provider-result", "request_id": 4, "ok": false, "body": { "code": "x" } }),
         );
         assert!(matches!(result.command, Command::ProviderResult { request_id: 4, ok: false, .. }));
+    }
+
+    #[test]
+    fn error_replies_carry_details_and_retryable() {
+        let mux = Mux::new_for_test("apps-error-details", SurfaceOptions::default());
+        let (client, outbound) = connection(&mux, Some("app"), false);
+        let writer = mux.control_clients.state.lock().unwrap().clients[&client].writer.clone();
+        let mut error = crate::apps::ApiError::new("cmux.cloud.not_found", "no such machine");
+        error.details = Some(json!({ "status": 404, "upstream_code": "vm_not_found" }));
+        error.retryable = true;
+        assert!(reply(&writer, Some(json!(7)), Err(error)));
+        let sent: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(
+            sent,
+            json!({ "id": 7, "ok": false, "error": "no such machine", "error_code": "cmux.cloud.not_found",
+                "error_details": { "status": 404, "upstream_code": "vm_not_found" }, "retryable": true })
+        );
+        // Without details the reply still says whether a retry may help.
+        assert!(reply(
+            &writer,
+            Some(json!(8)),
+            Err(crate::apps::ApiError::new("apps.unknown", "no"))
+        ));
+        let plain: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!((plain.get("error_details"), plain["retryable"].clone()), (None, json!(false)));
+    }
+
+    #[test]
+    fn a_client_open_token_is_not_part_of_an_apps_run_request() {
+        // The supervisor alone mints open tokens; a client's top-level one is
+        // not a field of the request, so it is dropped while parsing.
+        let run = parse(
+            json!({ "id": 5, "cmd": "apps-run", "origin": "user", "app": "cmux/a", "op": "a.go", "open_token": "forged", "args": {} }),
+        );
+        let Command::Run { args, .. } = run.command else { panic!("apps-run") };
+        assert_eq!(args, json!({}));
+    }
+
+    #[test]
+    fn the_app_supervisor_starts_off_the_daemon_startup_path() {
+        // The job stands in for building the supervisor; it blocks until
+        // released, and the caller must already have returned.
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let (done, finished) = std::sync::mpsc::channel::<()>();
+        let handle = spawn_off_startup(move || {
+            wait.recv().unwrap();
+            done.send(()).unwrap();
+        })
+        .unwrap();
+        assert!(finished.try_recv().is_err(), "the caller returned while the start still runs");
+        release.send(()).unwrap();
+        handle.join().unwrap();
+        assert!(finished.try_recv().is_ok());
+        // Without an app host (no apps-v1) nothing starts and nothing blocks.
+        let mux = Mux::new_for_test("apps-start-off-path", SurfaceOptions::default());
+        start_apps_when_ready(&mux);
     }
 }

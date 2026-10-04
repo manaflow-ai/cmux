@@ -3,13 +3,26 @@ import { StreamReveal } from "./streamReveal";
 
 const FRAME = 1000 / 120;
 
-/// Runs frames at 120 Hz from `start` until `until` returns true or `limit` frames pass; returns
-/// the visible lengths per frame.
-function run(reveal: StreamReveal, target: () => string, done: () => boolean, frames: number, start = 0) {
-  const shown: number[] = [];
-  for (let frame = 0; frame < frames; frame += 1) shown.push(reveal.advance(target(), start + frame * FRAME, done()));
-  return shown;
+/// A recorded cadence: `chars` more characters arrive at each `at` (ms). Frames run at 120 Hz
+/// until `until`; returns the visible length per frame and the text.
+function play(arrivals: { at: number; chars: number }[], until: number, done = Number.POSITIVE_INFINITY) {
+  const reveal = new StreamReveal();
+  let text = "";
+  let next = 0;
+  const shown: { at: number; length: number; received: number }[] = [];
+  for (let now = 0; now <= until; now += FRAME) {
+    while (next < arrivals.length && arrivals[next]!.at <= now) text += "w".repeat(arrivals[next++]!.chars);
+    shown.push({ at: now, length: reveal.advance(text, now, now >= done), received: text.length });
+  }
+  return { shown, text };
 }
+
+/// Claude: ~16 characters every 50 ms.
+const drip = Array.from({ length: 100 }, (_, index) => ({ at: index * 50, chars: 16 }));
+/// Codex: bursts of 8 tokens 4 ms apart, then a 300 ms pause.
+const bursts = Array.from({ length: 30 }, (_, burst) =>
+  Array.from({ length: 8 }, (_, token) => ({ at: burst * 330 + token * 4, chars: 5 })),
+).flat();
 
 describe("StreamReveal", () => {
   test("text that is already there when the row mounts shows at once", () => {
@@ -17,73 +30,56 @@ describe("StreamReveal", () => {
     expect(reveal.advance("Hello there", 0, false)).toBe(11);
   });
 
-  test("new text appears over frames, never going back, and catches up within the catch-up time", () => {
-    const reveal = new StreamReveal();
-    const text = "The quick brown fox jumps over the lazy dog. ".repeat(4);
-    const shown = run(
-      reveal,
-      () => text,
-      () => false,
-      60,
-    );
-    expect(shown[0]).toBeLessThan(text.length);
-    for (let index = 1; index < shown.length; index += 1) expect(shown[index]).toBeGreaterThanOrEqual(shown[index - 1]);
-    const caughtUp = shown.findIndex((length) => length === text.length);
-    expect(caughtUp).toBeGreaterThan(2);
-    expect(caughtUp * FRAME).toBeLessThanOrEqual(StreamReveal.catchUpMs + 4 * FRAME);
+  test("a steady drip flows on most frames, a few characters at a time, never going back", () => {
+    const { shown } = play(drip, 5_000);
+    const steps = shown.slice(1).map((frame, index) => frame.length - shown[index]!.length);
+    expect(steps.every((step) => step >= 0)).toBe(true);
+    const moving = steps.filter((step) => step > 0);
+    expect(moving.length / steps.length).toBeGreaterThan(0.7);
+    expect([...moving].sort((a, b) => a - b)[Math.floor(moving.length / 2)]!).toBeLessThanOrEqual(5);
   });
 
-  test("a larger backlog reveals faster, so the delay stays about the same", () => {
-    const framesToCatchUp = (length: number) => {
-      const reveal = new StreamReveal();
-      const text = "word ".repeat(length / 5);
-      return run(
-        reveal,
-        () => text,
-        () => false,
-        200,
-      ).findIndex((shown) => shown === text.length);
-    };
-    const small = framesToCatchUp(100);
-    const large = framesToCatchUp(2000);
-    expect(large).toBeLessThanOrEqual(small + 6);
+  test("a steady drip trails by about its usual gap, not more", () => {
+    const { shown } = play(drip, 5_000);
+    // Mid-stream: the characters not yet shown are at most ~350 ms of arrivals (320 chars/s).
+    const late = shown.filter((frame) => frame.at > 2_000 && frame.at < 4_500);
+    for (const frame of late) expect(frame.received - frame.length).toBeLessThanOrEqual(120);
   });
 
-  test("a slow stream still reveals at the minimum rate, not one character a minute", () => {
-    const reveal = new StreamReveal();
-    const shown = run(
-      reveal,
-      () => "abcdefghij",
-      () => false,
-      30,
-    );
-    expect(shown.at(-1)).toBe(10);
+  test("bursts with pauses keep flowing through the pauses instead of stopping and jumping", () => {
+    const { shown } = play(bursts, 9_000);
+    const steps = shown.slice(1).map((frame, index) => frame.length - shown[index]!.length);
+    const mid = steps.slice(120, 960);
+    expect(mid.filter((step) => step > 0).length / mid.length).toBeGreaterThan(0.6);
+    expect(Math.max(...mid)).toBeLessThanOrEqual(6);
   });
 
-  test("a frame ends on a word boundary when one is near", () => {
-    const reveal = new StreamReveal();
-    const text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu";
-    for (const length of run(
-      reveal,
-      () => text,
-      () => false,
-      40,
-    ))
-      if (length > 0 && length < text.length) expect(text[length] === " " || text[length - 1] === " ").toBe(true);
+  test("an ended stream shows the rest within about 180 ms", () => {
+    const { shown, text } = play([{ at: 0, chars: 3_000 }], 400, 0);
+    const done = shown.findIndex((frame) => frame.length === text.length);
+    expect(done * FRAME).toBeLessThanOrEqual(StreamReveal.finishMs + 2 * FRAME);
   });
 
-  test("an ended stream shows the rest quickly", () => {
-    const reveal = new StreamReveal();
-    const text = "x".repeat(5000);
-    const shown = run(
-      reveal,
-      () => text,
-      () => true,
-      20,
+  test("a stream that stops arriving drains instead of waiting for the end", () => {
+    const { shown, text } = play(
+      [
+        { at: 0, chars: 40 },
+        { at: 50, chars: 40 },
+        { at: 100, chars: 40 },
+      ],
+      1_200,
     );
-    expect(shown.findIndex((length) => length === text.length) * FRAME).toBeLessThanOrEqual(
-      StreamReveal.finishMs + 2 * FRAME,
+    expect(shown.at(-1)!.length).toBe(text.length);
+  });
+
+  test("a huge backlog catches up quickly", () => {
+    const { shown } = play(
+      [{ at: 0, chars: 20 }, { at: 50, chars: 20 }, { at: 100, chars: 5_000 }, ...drip.slice(3)],
+      800,
     );
+    const at = shown.find((frame) => frame.at >= 100 + StreamReveal.catchUpMs + 3 * FRAME)!;
+    // Most of the 5,000-character burst shows within the catch-up time; the rest flows at the new rate.
+    expect(at.received - at.length).toBeLessThan(1_250);
   });
 
   test("with Reduce Motion everything shows at once", () => {
@@ -91,12 +87,21 @@ describe("StreamReveal", () => {
     expect(reveal.advance("all of it", 0, false)).toBe(9);
   });
 
+  test("flush shows everything (a hidden page, a session switch)", () => {
+    const reveal = new StreamReveal();
+    reveal.advance("x".repeat(500), 0, false);
+    reveal.flush();
+    expect(reveal.advance("x".repeat(500), FRAME, false)).toBe(500);
+  });
+
   test("a long pause between frames does not dump the whole backlog in one frame", () => {
     const reveal = new StreamReveal();
-    const text = "word ".repeat(400);
-    reveal.advance(text, 0, false);
-    const after = reveal.advance(text, 5_000, false);
-    expect(after).toBeLessThan(text.length);
+    reveal.advance("w", 0, false);
+    reveal.advance("w".repeat(30), 50, false);
+    reveal.advance("w".repeat(60), 100, false);
+    const text = "w".repeat(2_000);
+    reveal.advance(text, 110, false);
+    expect(reveal.advance(text, 5_000, false)).toBeLessThan(text.length);
   });
 
   test("a text that got shorter (a superseded message) clamps instead of overrunning", () => {
@@ -107,12 +112,8 @@ describe("StreamReveal", () => {
   test("never splits a surrogate pair", () => {
     const reveal = new StreamReveal();
     const text = "😀".repeat(200);
-    for (const length of run(
-      reveal,
-      () => text,
-      () => false,
-      30,
-    )) {
+    for (let frame = 0; frame < 60; frame += 1) {
+      const length = reveal.advance(text, frame * FRAME, false);
       const code = text.charCodeAt(length - 1);
       if (length > 0 && length < text.length) expect(code >= 0xd800 && code <= 0xdbff).toBe(false);
     }
@@ -120,15 +121,9 @@ describe("StreamReveal", () => {
 
   test("settled says when the reveal has caught up", () => {
     const reveal = new StreamReveal();
-    reveal.advance("ab", 0, false);
+    reveal.advance("ab", 0, true);
     expect(reveal.settled).toBe(false);
-    run(
-      reveal,
-      () => "ab",
-      () => false,
-      30,
-      FRAME,
-    );
+    for (let frame = 1; frame < 40; frame += 1) reveal.advance("ab", frame * FRAME, true);
     expect(reveal.settled).toBe(true);
   });
 });

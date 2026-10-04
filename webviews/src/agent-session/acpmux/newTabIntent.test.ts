@@ -1,23 +1,17 @@
 import { expect, test } from "bun:test";
 import fixture from "../../../test/fixtures/new-tab-intents.json";
-import { classifyNewTabInput, type NewTabIntent, type NewTabMode } from "./newTabIntent";
+import { classifyNewTabInput, type NewTabIntent } from "./newTabIntent";
 
-type Row = { input: string; mode?: NewTabMode; intent: NewTabIntent };
+type Row = { input: string; intent: NewTabIntent };
 
-// One table for both classifiers: the Swift NewTabIntentTests reads the same file.
+// One table for both classifiers: the Swift NewTabIntentTests reads the same file. One input
+// (R86): plain text is a prompt; a web search is only an explicit row, never a mode.
 for (const row of fixture.rows as Row[]) {
-  const mode = row.mode ?? "ask";
-  test(`${JSON.stringify(row.input)} in ${mode} mode is ${row.intent.kind}`, () => {
-    expect(classifyNewTabInput(row.input, mode, { home: fixture.home })).toEqual(row.intent);
+  test(`${JSON.stringify(row.input)} is ${row.intent.kind}`, () => {
+    expect(classifyNewTabInput(row.input, { home: fixture.home })).toEqual(row.intent);
   });
 }
 
 test("without a home folder, ~ is text rather than a guessed path", () => {
-  expect(classifyNewTabInput("~/code", "ask", {})).toEqual({ kind: "prompt", text: "~/code" });
-});
-
-test("the mode never changes a command or an address", () => {
-  for (const input of ["!make", "github.com", "localhost:3000"]) {
-    expect(classifyNewTabInput(input, "ask", {})).toEqual(classifyNewTabInput(input, "search", {}));
-  }
+  expect(classifyNewTabInput("~/code", {})).toEqual({ kind: "prompt", text: "~/code" });
 });

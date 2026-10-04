@@ -1,5 +1,7 @@
 // `branch`, `chevronRight`, `file`, `fileSearch`, `image`, `package` and `plusMinus` are
-// custom stroke icons drawn for the diff toolbar and its menus (20px grid).
+// custom stroke icons drawn for the diff toolbar and its menus (20px grid). The
+// `pill*` icons redraw the classic viewer's toolbar pill glyphs (wrap, collapse
+// or expand all, layout, files).
 // Filled icons use Primer Octicons 19.38.0 path data (MIT, 16px grid), the
 // icon set of GitHub's own diff view. `bars`, `split`, and `unified` stay
 // custom stroke icons because they preview the indicator style and layout.
@@ -33,6 +35,13 @@ export type IconName =
   | "none"
   | "numbers"
   | "package"
+  | "pillCollapse"
+  | "pillExpand"
+  | "pillFiles"
+  | "pillLayout"
+  | "pillRefresh"
+  | "viewedEye"
+  | "pillWrap"
   | "plusMinus"
   | "refresh"
   | "search"
@@ -185,6 +194,74 @@ function StrokeIconPaths({ name }: { name: IconName }) {
       );
     case "chevronRight":
       return <path d="M8 5l5 5-5 5" />;
+    case "pillWrap":
+      // A return arrow and the wrap margin.
+      return (
+        <>
+          <path d="M4 8h5.5a2.75 2.75 0 0 1 0 5.5H5" />
+          <path d="M7 11.5l-2 2 2 2" />
+          <path d="M15.5 4.5v11" />
+        </>
+      );
+    case "viewedEye":
+      // The file bar's eye: an outline with a ring pupil.
+      return (
+        <>
+          <path d="M2.6 10c1.7-3.2 4.3-4.9 7.4-4.9s5.7 1.7 7.4 4.9c-1.7 3.2-4.3 4.9-7.4 4.9S4.3 13.2 2.6 10Z" />
+          <circle cx="10" cy="10" r="2.3" />
+        </>
+      );
+    case "pillRefresh":
+      // Two thin arcs chasing each other.
+      return (
+        <>
+          <path d="M4.8 8.2a5.4 5.4 0 0 1 9.6-2.1" />
+          <path d="M14.8 3.6v2.9h-2.9" />
+          <path d="M15.2 11.8a5.4 5.4 0 0 1-9.6 2.1" />
+          <path d="M5.2 16.4v-2.9h2.9" />
+        </>
+      );
+    case "pillCollapse":
+      // Arrows closing on the line, beside two lines.
+      return (
+        <>
+          <path d="M6.5 3v5.2" />
+          <path d="M4.6 6.4l1.9 1.9 1.9-1.9" />
+          <path d="M6.5 17v-5.2" />
+          <path d="M4.6 13.6l1.9-1.9 1.9 1.9" />
+          <path d="M11 8.5h5" />
+          <path d="M11 11.5h5" />
+        </>
+      );
+    case "pillExpand":
+      // Arrows opening from the line, beside two lines.
+      return (
+        <>
+          <path d="M6.5 8.6V3.4" />
+          <path d="M4.6 5.3l1.9-1.9 1.9 1.9" />
+          <path d="M6.5 11.4v5.2" />
+          <path d="M4.6 14.7l1.9 1.9 1.9-1.9" />
+          <path d="M11 8.5h5" />
+          <path d="M11 11.5h5" />
+        </>
+      );
+    case "pillLayout":
+      // A square split on the diagonal: deletions above, additions below.
+      return (
+        <>
+          <path d="M5.6 5.6h8.1L5.6 13.7Z" data-diff-deletion="true" />
+          <path d="M14.4 6.3v8.1H6.3Z" data-diff-addition="true" />
+          <rect x="4" y="4" width="12" height="12" rx="2" />
+        </>
+      );
+    case "pillFiles":
+      // Two overlapping folders.
+      return (
+        <>
+          <path d="M7.5 5.2V4.6a1.2 1.2 0 0 1 1.2-1.2h1.6l1.2 1.1h3.8a1.2 1.2 0 0 1 1.2 1.2v6.5a1.2 1.2 0 0 1-1.2 1.2h-1.1" />
+          <path d="M3.5 7.4a1.2 1.2 0 0 1 1.2-1.2h1.9l1.2 1.1h3.8a1.2 1.2 0 0 1 1.2 1.2v6.6a1.2 1.2 0 0 1-1.2 1.2H4.7a1.2 1.2 0 0 1-1.2-1.2Z" />
+        </>
+      );
     case "file":
       return (
         <>

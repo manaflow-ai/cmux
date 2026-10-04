@@ -4,21 +4,21 @@
 > branch `feat-cmux-next-layoutmodel` (3d3ff9ba033), hosted --full run 37079769607 green except
 > `conversation_conformance_corpus_local_cases` (cmux-conversation, not touched: base failure);
 > it waits for the coordinator's cmux-tui landing window. Dock daemon work (edge-docks-v1:
-> four-edge StickyEdge, `resource_column_docks` side table, `columns[].dock`, `sticky` on
+> four-edge DockEdge, `resource_column_docks` side table, `columns[].dock`, `dock` on
 > move-tab-to-column, spec + SDK schema + bindings, app decode/mapping) is WIP on
 > `feat-cmux-next-docks`; focused daemon tests pass on nx-remote, the full cmux-tui-core run,
 > clippy and fmt were interrupted. Next: rerun `cargo test/clippy -p cmux-tui-core` on
 > nx-remote, build the app package, then the edge drop targets (DropTarget.newDock through
-> TabDropProposal to MoveTabToColumnRequest with `sticky`), review subagent, hosted --full.
+> TabDropProposal to MoveTabToColumnRequest with `dock`), review subagent, hosted --full.
 
 
 Status: decided 2026-10-02 (section "Decisions"); was a proposal by the layout model lead (rows work continues inside this lane).
 Not the spec: the coordinator writes the spec from this ("spec proposal: layout model").
-Builds on rows.md (columns of rows, approved), sticky-column.md (left and right sticky columns,
+Builds on rows.md (columns of rows, approved), dock-column.md (left and right docked columns,
 implemented), column-sizing.md and OWNERSHIP-PRINCIPLES.md (binding).
 
-Lawrence (verbatim): "make sure we have sticky/overlaid top/right/bottom in addition to left
-column. so i kinda mean sticky row? just ensure sticky left/right is amazing for now, and
+Lawrence (verbatim): "make sure we have docked/overlaid top/right/bottom in addition to left
+column. so i kinda mean docked row? just ensure docked left/right is amazing for now, and
 top/bottom can just be 'good' if we're confused on how to row/column should work... maybe it
 should just be grid instead? idk, i want you to figure out how to design it in a cohesive way".
 
@@ -26,7 +26,7 @@ should just be grid instead? idk, i want you to figure out how to design it in a
 
 Design A, the frame. A screen is a scrolling strip of columns (each column a vertical stack of
 rows that may scroll, rows.md) inside a frame of four edge docks. The left and right docks are
-today's sticky columns, unchanged. The top and bottom docks are sticky rows: screen-wide bands
+today's docked columns, unchanged. The top and bottom docks are docked rows: screen-wide bands
 that hold one split tree. Every dock is either pinned (it takes space: the strip ends at its
 inner edge) or overlay (it floats: the strip keeps its size, gets an inset at that edge so
 nothing is covered at rest, and its content scrolls under the dock). Each screen has a frame
@@ -52,10 +52,10 @@ columns, rows, all four edges and both orientations.
 ## Designs compared
 
 - A, the frame: column strip, per-column row stacks, four edge docks.
-- B, the grid: a 2D grid of cells that scrolls on both axes, with sticky first and last rows
+- B, the grid: a 2D grid of cells that scrolls on both axes, with docked first and last rows
   and columns (frozen panes).
 - C, stacked strips: workspace-level rows, each row its own horizontal strip of columns
-  inside one screen; a top or bottom sticky row is a pinned strip.
+  inside one screen; a top or bottom docked row is a pinned strip.
 - D, recursive containers (considered): a general container tree where any container may scroll on
   either axis and any container may be pinned.
 
@@ -64,13 +64,13 @@ columns, rows, all four edges and both orientations.
 | Every container non-empty (I3) | holds | breaks: a cell row needs a pane in every column, or holes become first-class empty cells | holds | holds |
 | New Column | after the focused column, scrolls horizontally | adds a cell to every row (N terminals or holes) | inside the focused strip only | anywhere; rules per container |
 | New Row | below the focused row in its column (rows.md) | adds a cell to every column (N terminals or holes) | a new screen-wide strip; every column scrolls away | anywhere |
-| Sticky left and right | today's sticky columns, unchanged | frozen first/last column, also frozen per row: a sticky cell per row | per strip (scrolls away with its strip) or global (breaks the model) | any container |
-| Sticky top and bottom | screen-wide docks | frozen first/last row aligned to columns | a pinned strip | any container |
+| Docked left and right | today's docked columns, unchanged | frozen first/last column, also frozen per row: a docked cell per row | per strip (scrolls away with its strip) or global (breaks the model) | any container |
+| Docked top and bottom | screen-wide docks | frozen first/last row aligned to columns | a pinned strip | any container |
 | Alignment | columns independent; rows independent per column | perfect | columns align inside a strip | none |
 | Resize | column width, row height per column, dock extent | a column resizes every row's cell; a row resizes every column's cell | per strip | per container |
 | Client scroll state | strip x, y per column with overflowing rows | one x and one y | y, plus x per strip | one offset per scrolling container |
 | Overlap with screens | none | some | high: full-height strips are screens stacked | some |
-| Change to today's code | add top/bottom to the sticky edge set; rows.md | new model; sticky columns and rows replaced | sticky columns move under strips | new model; every rule rewritten |
+| Change to today's code | add top/bottom to the dock edge set; rows.md | new model; docked columns and rows replaced | docked columns move under strips | new model; every rule rewritten |
 | Old clients | see a dock as an ordinary column | cannot render | lossy | cannot render |
 | Model checking | small state (bounded edges, flat lists) | holes multiply states | moderate | unbounded nesting |
 
@@ -78,20 +78,20 @@ Strongest objection to each:
 
 - A: a top or bottom dock does not scroll with the strip, so it cannot line up with columns. A
   terminal pinned above its own column ("a header per column") is not a top dock. Answer:
-  per-column sticky rows, reserved in rows.md, cover that later without a new model; the common
+  per-column docked rows, reserved in rows.md, cover that later without a new model; the common
   top/bottom case (logs, an agent, a monitor across the screen) is a screen-wide band.
 - B: alignment is the point of a grid, and alignment forces holes. A new row needs a pane in
   every column (one command spawning N terminals) or empty cells that are dead areas the user
   closes by hand, and either breaks "every container non-empty". Resizing one terminal's height
   resizes the whole row. The prototype shows the holes.
 - C: a full-height strip is a screen, which cmux already has. New Row moves every column off
-  screen. Left and right sticky columns become either per strip (they scroll away vertically) or
-  global (no longer part of any strip), so sticky left/right gets worse, the one thing that must
+  screen. Left and right docked columns become either per strip (they scroll away vertically) or
+  global (no longer part of any strip), so docked left/right gets worse, the one thing that must
   be excellent.
 - D: everything is possible, so focus, scroll, reveal and drop rules have no fixed shape. The
   model cannot be checked at useful bounds, and old clients cannot render it.
 
-Choice: A. It keeps sticky left/right exactly as implemented (excellent today), adds top/bottom
+Choice: A. It keeps docked left/right exactly as implemented (excellent today), adds top/bottom
 as the same concept on the other axis, and adds one field value instead of a new model.
 
 ## Model (A)
@@ -107,7 +107,7 @@ Invariants (on top of layout-invariants.md I1 to I4 and rows.md R1 to R6):
 
 | Id | Invariant |
 | --- | --- |
-| E1 | At most one dock per edge. Pinning a column to an edge that has a dock unpins the old one in the same commit (today's sticky rule, four edges). |
+| E1 | At most one dock per edge. Pinning a column to an edge that has a dock unpins the old one in the same commit (today's docked rule, four edges). |
 | E2 | At least one strip column. A removal that leaves only docks unpins them all in the same commit (today's normalize, four edges). |
 | E3 | A top or bottom dock holds exactly one row; its split tree fits the band and never scrolls (v1). |
 | E4 | Left and right docks may hold several rows and scroll them vertically (rows.md G5). |
@@ -145,12 +145,12 @@ v1), scroll offsets and focus are client view state.
   area, so a pinned or overlay bottom dock moves it up (today it uses the view's height). The
   row scrollbar (rows.md V5) sits inside its column's frame, never under a right dock.
 - F5. What a dock covers, from its inner edge (or its overlay rim's outer edge) out to the
-  window edge, takes no clicks or drops for the strip (sticky-column.md D2, four edges). In the
+  window edge, takes no clicks or drops for the strip (dock-column.md D2, four edges). In the
   clip mask the strip stays visible under an overlay's glass rim and is clipped beyond it, on
   both axes.
 - F6. Reveal needs the scroll reducer, not only geometry: `ColumnStrip` and the vertical row
   strip carry the uncovered range (leading and trailing insets), and the reveal (column scroll
-  rule F1) and the snap points use it. This closes sticky-column.md's known overlay gap for
+  rule F1) and the snap points use it. This closes dock-column.md's known overlay gap for
   left/right and gives top/bottom overlays their vertical reveal.
 
 ## Ops (variants of the one LayoutOp set)
@@ -158,7 +158,7 @@ v1), scroll offsets and focus are client view state.
 | Op | Effect | Rejects |
 | --- | --- | --- |
 | `SetPin { column, pin: Option<Pin> }` | pins or unpins a column in place (generalizes `set-column-sticky` to four edges); E1, E2 in the same commit | top/bottom on a column with more than one row (`dock-needs-one-row`); last strip column (`last-scrolling-column`) |
-| `PinRow { row, edge: top \| bottom, mode, new_column, extent_permille }` | "Make Row Sticky Top/Bottom": lifts one row out of its column into a new dock column; an emptied source column is removed (and normalized) in the same commit | left/right edge; the pin would not survive normalization (the row is the only row of the last strip column), which TLC found as an op that only churns ids |
+| `PinRow { row, edge: top \| bottom, mode, new_column, extent_permille }` | "Make Row Docked Top/Bottom": lifts one row out of its column into a new dock column; an emptied source column is removed (and normalized) in the same commit | left/right edge; the pin would not survive normalization (the row is the only row of the last strip column), which TLC found as an op that only churns ids |
 | `MoveTab { tab, to: Destination::Dock { edge, mode, new_column, new_row, new_pane, extent_permille } }` | a dropped or moved tab opens the dock on that edge (or joins its pane when the dock exists: `Destination::Pane`) | dock exists on that edge (the resolver names its pane instead) |
 | `UnpinDock { column, after_column }` | a dock becomes a strip column after `after_column` (the client resolves it; focus is client state) | last dock never rejects; unknown column |
 | `SetExtent { column, extent_permille }` | resize a strip column or a dock (generalizes `set-viewport-pane-width`) | out of range |
@@ -201,7 +201,7 @@ an emptied column or dock, unpinning on E2) is decided by the store in the same 
   goes to the most recently focused strip pane under it, else the one with the largest x
   overlap.
 - K2. Reveal uses the uncovered area: a focused strip pane scrolls out from under an overlay dock
-  on either axis (this also closes sticky-column.md's known gap for left/right overlays).
+  on either axis (this also closes dock-column.md's known gap for left/right overlays).
 - K3. After a user-initiated move or drop into or out of a dock, the moved tab gets focus and is
   revealed; Option files it away. Automation (CLI, MCP, scripts, remote) never moves focus or
   scroll unless the op asks (`origin`, central check).
@@ -215,9 +215,9 @@ an emptied column or dock, unpinning on E2) is decided by the store in the same 
 | Split Right / Down (Cmd-D, Cmd-Shift-D) | unchanged | splits inside the dock |
 | New Column (Ctrl-Cmd-D) | after the focused column | from a left/right dock: a strip column at that end of the strip; from top/bottom: refused with a HUD |
 | New Row (Ctrl-Cmd-Shift-D) | below the focused row | left/right dock: a row in the dock; top/bottom: refused (E3) |
-| Make Column Sticky Left/Right, Unstick, Toggle Floating Sticky Column | exist (no shortcut) | unchanged |
+| Make Column Docked Left/Right, Undock, Toggle Floating Docked Column | exist (no shortcut) | unchanged |
 | Toggle Frame Orientation | new (palette, CLI `screen toggle-frame-orientation`, screen menu; no shortcut) | `SetOrientation` |
-| Make Row Sticky Top / Bottom | new (no shortcut) | from a strip row: `PinRow` |
+| Make Row Docked Top / Bottom | new (no shortcut) | from a strip row: `PinRow` |
 | Move Tab to Top/Bottom/Left/Right Dock | new (palette, CLI, tab menu) | `Destination::Dock` or the dock's pane |
 | Focus Dock Top/Bottom/Left/Right | new (palette, CLI; no shortcut) | |
 
@@ -229,7 +229,7 @@ and MCP, or a reasoned exemption.
 - DD1. Each screen edge has a thin outer band (the drop edge band) that offers "Dock Top /
   Bottom / Left / Right" while that edge has no dock: `Destination::Dock`.
 - DD2. Dock panes take drops like any pane (center and edges). An edge drop on a dock pane with no
-  room joins the pane (sticky-column.md D1).
+  room joins the pane (dock-column.md D1).
 - DD3. What a dock covers takes no drop for the strip (F5).
 - DD4. Dragging the last tab out of a dock removes the dock in the same commit.
 
@@ -237,10 +237,10 @@ and MCP, or a reasoned exemption.
 
 | Today | Change |
 | --- | --- |
-| app `LayoutColumn.sticky: StickyColumn {edge: left/right, mode}` | `StickyEdge` gains `top`, `bottom`; decode reads `sticky` and `dock` |
-| app `StickyStripGeometry.partition/place` | partition by four edges; place side docks, then top/bottom bands (F1 to F3) |
+| app `LayoutColumn.dock: DockColumn {edge: left/right, mode}` | `DockEdge` gains `top`, `bottom`; decode reads `sticky` and `dock` (one `dock` field after R87 slice 2) |
+| app `DockStripGeometry.partition/place` | partition by four edges; place side docks, then top/bottom bands (F1 to F3) |
 | app `ScreenGeometry` (`stripMinX/stripWidth`, `clipMinX/MaxX`, `fixedPanes`) | adds the vertical strip range (`stripMinY/stripHeight`, `clipMinY/MaxY`) |
-| daemon `ColumnSticky`, `normalize_sticky_columns`, `set-column-sticky` | four-edge `Pin`; normalize unchanged in shape; E3 check |
+| daemon `ColumnDock`, `normalize_dock_columns`, `set-column-sticky` | four-edge `Pin`; normalize unchanged in shape; E3 check |
 | reducer `Column` (rows.md: `rows`) | adds `pin: Option<Pin>`; ops above |
 
 ## Prototypes (DEV Debug Settings, "Panes and Columns" section)
@@ -250,8 +250,8 @@ Tunables `layout.prototype.model`: `off` (default) | `frameDocks` (A) | `grid` (
 `rowMajor`. View-only:
 the geometry reinterprets the current screen, nothing is written to the store, and the switch
 applies live.
-- A, `frameDocks`: the right sticky column is drawn as a top or bottom dock
-  (`layout.prototype.dockEdge`), pinned or overlay from its sticky mode, between the side docks.
+- A, `frameDocks`: the right docked column is drawn as a top or bottom dock
+  (`layout.prototype.dockEdge`), pinned or overlay from its dock mode, between the side docks.
 - B, `grid`: each strip column's panes become grid cells by index; rows share one height across
   columns; a column with fewer panes shows holes.
 Screenshots and recordings are listed in "Evidence".
@@ -260,7 +260,7 @@ Screenshots and recordings are listed in "Evidence".
 
 The layout model lead owns all of it (decision 6): the reducer ops, the daemon (`edge-docks-v1`,
 side table, `column.update` integration), the TLA+ model, the prototypes and the app four-edge
-geometry (F1 to F6), coordinated with the sticky column lane and the close-focus rules.
+geometry (F1 to F6), coordinated with the docked column lane and the close-focus rules.
 
 ## Evidence (2026-10-02)
 
@@ -328,6 +328,6 @@ vertically until rows land in the app).
 4. UI names: "Docked" (takes space) and "Floating" (floats over the strip). "Pinned" stays
    reserved for pinned tabs in panes, so this note's "pinned" mode is shown as Docked; the wire
    keeps `docked` and `overlay`.
-5. Per-column sticky rows: later.
+5. Per-column docked rows: later.
 6. The layout model lead also owns the app four-edge geometry (F1 to F6), coordinated with the
-   sticky column lane and the close-focus rules; live rendering with recordings is the evidence.
+   docked column lane and the close-focus rules; live rendering with recordings is the evidence.

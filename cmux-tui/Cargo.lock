@@ -869,6 +869,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-link"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-unix-socket",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-local-auth"
 version = "0.1.0"
 dependencies = [
@@ -958,11 +970,13 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-link",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
  "cmux-tui-core",
  "cmux-tui-source-watch",
+ "cmux-unix-socket",
  "cmux-wg",
  "diffy",
  "flate2",
@@ -1102,6 +1116,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cmux-link",
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
@@ -1139,6 +1154,7 @@ dependencies = [
  "uuid",
  "wait-timeout",
  "windows-sys 0.61.2",
+ "x25519-dalek",
  "zeroize",
 ]
 
@@ -1162,6 +1178,7 @@ dependencies = [
  "cmux-app-manifest",
  "cmux-conversation",
  "cmux-layout-reducer",
+ "cmux-link",
  "cmux-local-auth",
  "cmux-pty",
  "cmux-remote-protocol",

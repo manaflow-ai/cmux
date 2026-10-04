@@ -78,7 +78,7 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "direction", title: String(localized: "argument.direction", defaultValue: "Direction", bundle: .module), kind: .enumeration([choice("right"), choice("down"), choice("left"), choice("up")]))
     }
 
-    /// A sticky column's viewport edge (plans/cmux-next/sticky-column.md).
+    /// A docked column's viewport edge (plans/cmux-next/dock-column.md).
     /// Top and bottom are edge docks (layout-model.md, edge-docks-v1).
     static var edgeChoice: ActionArgument {
         ActionArgument(name: "edge", title: String(localized: "argument.edge", defaultValue: "Edge", bundle: .module),
@@ -86,8 +86,8 @@ nonisolated enum CatalogArgument {
     }
 
     /// Docked (the strip makes room) or overlay (floats over the strip).
-    static var stickyModeChoice: ActionArgument {
-        ActionArgument(name: "mode", title: String(localized: "argument.stickyMode", defaultValue: "Mode", bundle: .module),
+    static var dockModeChoice: ActionArgument {
+        ActionArgument(name: "mode", title: String(localized: "argument.dockMode", defaultValue: "Mode", bundle: .module),
                        kind: .enumeration([choice("docked"), choice("overlay")]))
     }
 

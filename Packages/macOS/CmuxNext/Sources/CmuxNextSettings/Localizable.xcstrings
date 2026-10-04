@@ -16245,264 +16245,264 @@
         }
       }
     },
-    "settings.layout.stickyColumnEdge": {
+    "settings.layout.dockColumnEdge": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sticky Column Edge"
+            "value": "Dock Column Edge"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "حافة العمود المثبت"
+            "value": "حافة عمود الإرساء"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ivica ljepljive kolone"
+            "value": "Ivica usidrene kolone"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kant for fastgjort kolonne"
+            "value": "Kant for dokket kolonne"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rand der angehefteten Spalte"
+            "value": "Rand der angedockten Spalte"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Borde de columna fija"
+            "value": "Borde de columna acoplada"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bord de la colonne épinglée"
+            "value": "Bord de la colonne ancrée"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bordo colonna fissa"
+            "value": "Bordo colonna agganciata"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "固定列の端"
+            "state": "translated",
+            "value": "ドック列の端"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គែមជួរឈរខ្ទាស់"
+            "value": "គែមជួរឈរចត"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "고정 열 가장자리"
+            "value": "도킹 열 가장자리"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kant for fast kolonne"
+            "value": "Kant for dokket kolonne"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Krawędź przypiętej kolumny"
+            "value": "Krawędź zadokowanej kolumny"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Borda da coluna fixa"
+            "value": "Borda da coluna encaixada"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Край закреплённой колонки"
+            "value": "Край колонки у края окна"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ขอบคอลัมน์ที่ปักหมุด"
+            "value": "ขอบคอลัมน์ที่เชื่อมต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sabit sütun kenarı"
+            "value": "Yerleşik sütun kenarı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Край закріпленої колонки"
+            "value": "Край колонки біля краю вікна"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cạnh cột đã ghim"
+            "value": "Cạnh cột neo"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "固定分栏边缘"
+            "value": "停靠列边缘"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "固定分欄邊緣"
+            "value": "停靠欄邊緣"
           }
         }
       }
     },
-    "settings.layout.stickyColumnMode": {
+    "settings.layout.dockColumnMode": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sticky Column Mode"
+            "value": "Dock Column Mode"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "وضع العمود المثبت"
+            "value": "وضع عمود الإرساء"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Način ljepljive kolone"
+            "value": "Način usidrene kolone"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tilstand for fastgjort kolonne"
+            "value": "Tilstand for dokket kolonne"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Modus der angehefteten Spalte"
+            "value": "Modus der angedockten Spalte"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Modo de columna fija"
+            "value": "Modo de columna acoplada"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mode de la colonne épinglée"
+            "value": "Mode de la colonne ancrée"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Modalità colonna fissa"
+            "value": "Modalità colonna agganciata"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "固定列のモード"
+            "state": "translated",
+            "value": "ドック列のモード"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "របៀបជួរឈរខ្ទាស់"
+            "value": "របៀបជួរឈរចត"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "고정 열 모드"
+            "value": "도킹 열 모드"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Modus for fast kolonne"
+            "value": "Modus for dokket kolonne"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tryb przypiętej kolumny"
+            "value": "Tryb zadokowanej kolumny"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Modo da coluna fixa"
+            "value": "Modo da coluna encaixada"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Режим закреплённой колонки"
+            "value": "Режим колонки у края окна"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "โหมดคอลัมน์ที่ปักหมุด"
+            "value": "โหมดคอลัมน์ที่เชื่อมต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sabit sütun modu"
+            "value": "Yerleşik sütun modu"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Режим закріпленої колонки"
+            "value": "Режим колонки біля краю вікна"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chế độ cột đã ghim"
+            "value": "Chế độ cột neo"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "固定分栏模式"
+            "value": "停靠列模式"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "固定分欄模式"
+            "value": "停靠欄模式"
           }
         }
       }
@@ -25022,7 +25022,7 @@
         }
       }
     },
-    "settings.sidebar.stickyBandsScroll": {
+    "settings.sidebar.pinnedBandsScroll": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -25153,7 +25153,7 @@
         }
       }
     },
-    "settings.sidebar.stickyBandsScroll.help": {
+    "settings.sidebar.pinnedBandsScroll.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {

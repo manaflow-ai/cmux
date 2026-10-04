@@ -11,15 +11,9 @@ nonisolated enum NewTabIntent: Equatable, Sendable {
     case terminal(command: String)
     /// An address the browser loads.
     case url(String)
-    /// Plain text in Ask mode: a prompt for an agent.
+    /// Plain text: a prompt for an agent. A web search is an explicit
+    /// choice (a row, `newTab.submit --arg search=true`), never a mode (R86).
     case prompt(String)
-    /// Plain text in Search mode: a web search.
-    case search(String)
-
-    /// Search | Ask: what plain text does. A command or an address ignores it.
-    enum Mode: String, Codable, Sendable {
-        case search, ask
-    }
 
     static let terminalPrefix: Character = "!"
 
@@ -34,15 +28,14 @@ nonisolated enum NewTabIntent: Equatable, Sendable {
         "yaml", "yml", "zig", "zip", "zsh",
     ]
 
-    static func classify(_ input: String, mode: Mode,
-                         home: URL? = FileManager.default.homeDirectoryForCurrentUser) -> NewTabIntent {
+    static func classify(_ input: String, home: URL? = FileManager.default.homeDirectoryForCurrentUser) -> NewTabIntent {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return .none }
         if trimmed.first == terminalPrefix {
             return .terminal(command: trimmed.dropFirst().trimmingCharacters(in: .whitespacesAndNewlines))
         }
         if let url = url(for: trimmed, home: home) { return .url(url.absoluteString) }
-        return mode == .ask ? .prompt(trimmed) : .search(trimmed)
+        return .prompt(trimmed)
     }
 
     /// BrowserURLResolver's address (WebKit rules), minus a bare file name.
@@ -77,7 +70,6 @@ nonisolated extension NewTabIntent: Codable {
         case "terminal": self = .terminal(command: try container.decode(String.self, forKey: .command))
         case "url": self = .url(try container.decode(String.self, forKey: .url))
         case "prompt": self = .prompt(try container.decode(String.self, forKey: .text))
-        case "search": self = .search(try container.decode(String.self, forKey: .text))
         case let kind:
             throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "unknown kind \(kind)")
         }
@@ -95,9 +87,6 @@ nonisolated extension NewTabIntent: Codable {
             try container.encode(url, forKey: .url)
         case .prompt(let text):
             try container.encode("prompt", forKey: .kind)
-            try container.encode(text, forKey: .text)
-        case .search(let text):
-            try container.encode("search", forKey: .kind)
             try container.encode(text, forKey: .text)
         }
     }

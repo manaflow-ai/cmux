@@ -542,6 +542,29 @@
       "title" : "Fixed Column Width",
       "type" : "number"
     },
+    "layout.dockColumnEdge" : {
+      "default" : "nearest",
+      "description" : "layout.dockColumnEdge",
+      "enum" : [
+        "nearest",
+        "right",
+        "left",
+        "top",
+        "bottom"
+      ],
+      "title" : "Dock Column Edge",
+      "type" : "string"
+    },
+    "layout.dockColumnMode" : {
+      "default" : "docked",
+      "description" : "layout.dockColumnMode",
+      "enum" : [
+        "docked",
+        "overlay"
+      ],
+      "title" : "Dock Column Mode",
+      "type" : "string"
+    },
     "layout.frameOrientation" : {
       "default" : "columnMajor",
       "description" : "layout.frameOrientation",
@@ -629,29 +652,6 @@
         "halve"
       ],
       "title" : "Split Sizing",
-      "type" : "string"
-    },
-    "layout.stickyColumnEdge" : {
-      "default" : "nearest",
-      "description" : "layout.stickyColumnEdge",
-      "enum" : [
-        "nearest",
-        "right",
-        "left",
-        "top",
-        "bottom"
-      ],
-      "title" : "Sticky Column Edge",
-      "type" : "string"
-    },
-    "layout.stickyColumnMode" : {
-      "default" : "docked",
-      "description" : "layout.stickyColumnMode",
-      "enum" : [
-        "docked",
-        "overlay"
-      ],
-      "title" : "Sticky Column Mode",
       "type" : "string"
     },
     "layout.stripScrollbar" : {
@@ -1019,6 +1019,12 @@
       "title" : "Minimal Mode",
       "type" : "string"
     },
+    "sidebar.pinnedBandsScroll" : {
+      "default" : true,
+      "description" : "Off: the top and bottom sections never scroll and the workspace list gets smaller.",
+      "title" : "Scroll Tall Sections",
+      "type" : "boolean"
+    },
     "sidebar.sectionLook" : {
       "default" : "quiet",
       "description" : "How the sections above and below the workspace list draw.",
@@ -1036,12 +1042,6 @@
       "default" : false,
       "description" : "Lists tabs beneath each workspace in the sidebar.",
       "title" : "Show Workspace Tabs",
-      "type" : "boolean"
-    },
-    "sidebar.stickyBandsScroll" : {
-      "default" : true,
-      "description" : "Off: the top and bottom sections never scroll and the workspace list gets smaller.",
-      "title" : "Scroll Tall Sections",
       "type" : "boolean"
     },
     "sidebar.topBandMaxShare" : {

@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// One item of a sticky section: a row (built-in or list look) or a tray
+/// One item of a pinned section: a row (built-in or list look) or a tray
 /// tile. A pill shows on hover, while pressed and while the item is
 /// active, in the shared chrome fills (`ChromeHover.fillColor`), fading on
 /// pointer changes. The rail's icon-only items show unread items as a dot

@@ -9,9 +9,7 @@
 //! deadline smoltcp asks for.
 
 use std::collections::HashMap;
-use std::collections::hash_map::RandomState;
 use std::fmt;
-use std::hash::{BuildHasher, Hasher};
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -20,68 +18,29 @@ use std::task::Poll;
 use std::time::Duration;
 
 use boringtun::noise::{Tunn, TunnResult};
-use bytes::{Buf, Bytes};
 use cmux_transport::{DatagramClass, classify};
 use ip_network::IpNetwork;
-use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet};
-use smoltcp::socket::tcp;
-use smoltcp::time::Instant as SmolInstant;
-use smoltcp::wire::{HardwareAddress, IpCidr, IpEndpoint, IpListenEndpoint};
 use tokio::net::UdpSocket;
-use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::{Notify, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
-use tokio_util::sync::PollSender;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::config::{InterfaceAddress, WgConfig};
-use crate::device::VirtualDevice;
 pub use crate::error::WgError;
 use crate::pacing::{DropCounters, Pacer, Priority};
 use crate::probing;
-use crate::stream::{Outbound, WgStream};
+use crate::stream::WgStream;
+use crate::tcp_stack::{Accepted, TcpStack};
 use crate::timers::TimerSchedule;
 use crate::underlay::{Origin, SocketPath, Underlay, is_transient};
 use crate::watchdog::Watchdog;
-use crate::wire::{ip_address, packet_source, socket_addr};
+use crate::wire::packet_source;
 
-/// Per-socket receive and transmit buffers. Terminal traffic is small; the
-/// bulk lane (screen replay) benefits from a full window.
-const SOCKET_BUFFER_BYTES: usize = 256 * 1024;
-/// Largest chunk moved from a smoltcp socket into a stream at once.
-const INBOUND_CHUNK_BYTES: usize = 16 * 1024;
-/// Queued chunks per direction per connection before backpressure.
-const STREAM_CHANNEL_DEPTH: usize = 32;
-/// Pending accepted connections a listener holds before refusing more.
-const LISTENER_BACKLOG: usize = 16;
-/// Spare LISTEN sockets kept per port. smoltcp has no accept queue: each
-/// listening socket becomes exactly one connection. A small pool lets a burst
-/// of concurrent SYNs (one per lane) each land on its own socket instead of
-/// being reset, and each is refilled the moment it leaves LISTEN so a retransmit
-/// of an in-progress SYN matches the existing half-open rather than a spare.
-const LISTEN_SPARES: usize = 8;
 /// Commands in flight before `connect`/`listen` callers wait.
 const COMMAND_DEPTH: usize = 64;
-/// Connections with no ACK for this long are aborted; link connections use
-/// `net_sockets::LINK_TCP_TIMEOUT` instead.
-const TCP_TIMEOUT: Duration = Duration::from_secs(60);
-/// Probe each idle TCP connection before its receive timeout. WireGuard
-/// keepalives and application heartbeats on another lane do not elicit its ACKs.
-const TCP_KEEP_ALIVE: Duration = Duration::from_secs(15);
 /// Largest datagram or packet buffer: the UDP payload maximum.
 const BUFFER_BYTES: usize = 65_535;
-/// The ephemeral port range (IANA 49152-65535); allocation starts at a random
-/// port inside it and wraps, as a real stack does.
-const FIRST_EPHEMERAL_PORT: u16 = 49_152;
-const EPHEMERAL_PORT_COUNT: u16 = u16::MAX - FIRST_EPHEMERAL_PORT;
-
-fn random_ephemeral_port() -> u16 {
-    let mut seed = [0u8; 2];
-    // A failure here only weakens port randomization, never correctness.
-    let _ = getrandom::fill(&mut seed);
-    FIRST_EPHEMERAL_PORT + (u16::from_le_bytes(seed) % EPHEMERAL_PORT_COUNT)
-}
 
 /// A running tunnel. Dropping it stops the driver; every stream then reads
 /// EOF and fails writes.
@@ -179,7 +138,8 @@ impl WgNet {
 
     /// Open a TCP connection to `remote` through the tunnel. Resolves once the
     /// three-way handshake completes. Callers bound the wait with their own
-    /// timeout; the stack aborts an unanswered SYN after [`TCP_TIMEOUT`].
+    /// timeout; the stack aborts an unanswered SYN after
+    /// [`crate::tcp_stack::TCP_TIMEOUT`].
     pub async fn connect(&self, remote: SocketAddr) -> Result<WgStream, WgError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.commands
@@ -285,7 +245,7 @@ impl Drop for WgNet {
 /// Connections accepted by [`WgNet::listen`].
 pub struct WgListener {
     port: u16,
-    incoming: mpsc::Receiver<WgStream>,
+    incoming: mpsc::Receiver<Accepted>,
 }
 
 impl WgListener {
@@ -295,7 +255,7 @@ impl WgListener {
 
     /// The next established connection, or `None` once the tunnel is gone.
     pub async fn accept(&mut self) -> Option<WgStream> {
-        self.incoming.recv().await
+        self.incoming.recv().await.map(|(stream, _)| stream)
     }
 }
 
@@ -316,48 +276,13 @@ enum Rebind {
     Keep,
 }
 
-/// How a newly established socket reaches its owner.
-enum Handoff {
-    Connect(oneshot::Sender<Result<WgStream, WgError>>),
-    Accept(mpsc::Sender<WgStream>),
-}
-
-struct Conn {
-    handle: SocketHandle,
-    remote: SocketAddr,
-    /// The stream waiting to be handed to its owner once the socket is
-    /// established. Taken on delivery.
-    pending_stream: Option<(Handoff, WgStream)>,
-    /// `None` once the remote closed and the buffer drained (EOF delivered),
-    /// or once the owner dropped its reader.
-    inbound: Option<mpsc::Sender<Bytes>>,
-    outbound: mpsc::Receiver<Outbound>,
-    /// Head of the outbound queue not yet accepted by smoltcp.
-    pending_write: Option<Bytes>,
-    outbound_closed: bool,
-}
-
-struct Listener {
-    port: u16,
-    /// Sockets in LISTEN or SYN-RECEIVED for this port.
-    handles: Vec<SocketHandle>,
-    accept: mpsc::Sender<WgStream>,
-}
-
 struct Driver {
     config: WgConfig,
     tunn: Tunn,
     underlay: Box<dyn Underlay>,
-    iface: Interface,
-    device: VirtualDevice,
-    sockets: SocketSet<'static>,
-    conns: Vec<Conn>,
-    listeners: Vec<Listener>,
+    stack: TcpStack,
     commands: mpsc::Receiver<Command>,
     wake: Arc<Notify>,
-    /// The stack's clock. Tokio's, so the stack and the driver's timers
-    /// agree, including under a paused test clock.
-    epoch: Instant,
     schedule: TimerSchedule,
     /// Overlay addresses for path probes, and when the underlay next wants
     /// a probe sent or judged.
@@ -371,7 +296,6 @@ struct Driver {
     datagram_ports: HashMap<u16, mpsc::Sender<Datagram>>,
     watchdog: Watchdog,
     wakeups: Arc<AtomicU64>,
-    next_port: u16,
     scratch: Vec<u8>,
 }
 
@@ -404,47 +328,18 @@ impl Driver {
             None,
         );
 
-        let epoch = Instant::now();
         let keepalive = config.persistent_keepalive.is_some_and(|seconds| seconds > 0);
-        let schedule = TimerSchedule::new(epoch, keepalive);
+        let schedule = TimerSchedule::new(Instant::now(), keepalive);
         let probe_route = probing::probe_route(&config);
-        let mut device = VirtualDevice::new(config.mtu);
-        let mut iface_config = Config::new(HardwareAddress::Ip);
-        iface_config.random_seed = RandomState::new().build_hasher().finish();
-        let mut iface = Interface::new(iface_config, &mut device, SmolInstant::from_micros(0));
-        let mut overflow = false;
-        iface.update_ip_addrs(|addresses| {
-            for entry in &config.addresses {
-                let cidr = IpCidr::new(ip_address(entry.address), entry.prefix);
-                overflow |= addresses.push(cidr).is_err();
-            }
-        });
-        if overflow {
-            return Err(WgError::Stack("too many interface addresses".into()));
-        }
-        // Medium::Ip has no neighbor resolution, so the gateway address is
-        // only a routing-table formality: everything not on a local subnet
-        // goes into the tunnel.
-        for entry in &config.addresses {
-            let result = match entry.address {
-                IpAddr::V4(address) => iface.routes_mut().add_default_ipv4_route(address),
-                IpAddr::V6(address) => iface.routes_mut().add_default_ipv6_route(address),
-            };
-            result.map_err(|_| WgError::Stack("route table full".into()))?;
-        }
+        let stack = TcpStack::new(&config.addresses, config.mtu, Arc::clone(&wake), false)?;
 
         Ok(Self {
             config,
             tunn,
             underlay,
-            iface,
-            device,
-            sockets: SocketSet::new(Vec::new()),
-            conns: Vec::new(),
-            listeners: Vec::new(),
+            stack,
             commands,
             wake,
-            epoch,
             schedule,
             probe_route,
             probe_deadline: None,
@@ -453,15 +348,8 @@ impl Driver {
             datagram_ports: HashMap::new(),
             watchdog: Watchdog::default(),
             wakeups: Arc::new(AtomicU64::new(0)),
-            next_port: random_ephemeral_port(),
             scratch: vec![0u8; BUFFER_BYTES + 32],
         })
-    }
-
-    fn now(&self) -> SmolInstant {
-        SmolInstant::from_micros(
-            i64::try_from(self.epoch.elapsed().as_micros()).unwrap_or(i64::MAX),
-        )
     }
 
     async fn run(mut self) {
@@ -473,13 +361,10 @@ impl Driver {
         self.service();
 
         loop {
-            let now = self.now();
-            let deadline = self.iface.poll_delay(now, &self.sockets);
+            let deadline = self.stack.poll_delay();
             let stack_deadline = async {
                 match deadline {
-                    Some(delay) => {
-                        tokio::time::sleep(Duration::from_micros(delay.total_micros())).await;
-                    }
+                    Some(delay) => tokio::time::sleep(delay).await,
                     None => std::future::pending::<()>().await,
                 }
             };
@@ -597,7 +482,7 @@ impl Driver {
                         if self.pacer.received(packet, Instant::now()) {
                             self.schedule.on_activity(Instant::now());
                         }
-                        self.device.push_rx(packet.to_vec());
+                        self.stack.push_rx(packet.to_vec(), None);
                     }
                     break;
                 }
@@ -614,7 +499,7 @@ impl Driver {
         let now = Instant::now();
         let mut fresh = false;
         while self.pacer.has_room()
-            && let Some(packet) = self.device.pop_tx()
+            && let Some(packet) = self.stack.pop_tx()
         {
             fresh |= self.pacer.push(packet, now);
         }
@@ -654,13 +539,9 @@ impl Driver {
     /// streams produced leaves in the same pass.
     fn service(&mut self) {
         loop {
-            let now = self.now();
-            self.iface.poll(now, &mut self.device, &mut self.sockets);
-            self.process_listeners();
-            let progressed = self.process_conns();
-            self.iface.poll(now, &mut self.device, &mut self.sockets);
+            let progressed = self.stack.step();
             self.flush_tx();
-            if !progressed && !self.device.has_rx() {
+            if !progressed && !self.stack.has_rx() {
                 break;
             }
         }
@@ -669,18 +550,9 @@ impl Driver {
     /// Reset every connection and send what is left, unpaced. Returns the
     /// resets, which [`Driver::farewell`] repeats.
     fn shutdown(&mut self) -> Vec<Vec<u8>> {
-        for conn in &self.conns {
-            self.sockets.get_mut::<tcp::Socket>(conn.handle).abort();
-        }
-        for listener in &self.listeners {
-            for handle in &listener.handles {
-                self.sockets.get_mut::<tcp::Socket>(*handle).abort();
-            }
-        }
-        let now = self.now();
-        self.iface.poll(now, &mut self.device, &mut self.sockets);
+        self.stack.abort_all();
         // Last words leave unpaced: the resets must not wait behind data.
-        while let Some(packet) = self.device.pop_tx() {
+        while let Some(packet) = self.stack.pop_tx() {
             self.pacer.push(packet, Instant::now());
         }
         let mut resets = Vec::new();
@@ -695,8 +567,7 @@ impl Driver {
             }
         }
         self.underlay.flush();
-        self.conns.clear();
-        self.listeners.clear();
+        self.stack.clear();
         resets
     }
 
@@ -704,7 +575,9 @@ impl Driver {
         match command {
             Command::Connect { remote, reply } => self.begin_connect(remote, reply),
             Command::Listen { port, reply } => {
-                let _ = reply.send(self.begin_listen(port));
+                let listener =
+                    self.stack.begin_listen(port).map(|incoming| WgListener { port, incoming });
+                let _ = reply.send(listener);
             }
             Command::LastHandshake { reply } => {
                 let _ = reply.send(self.tunn.time_since_last_handshake());
@@ -741,203 +614,21 @@ impl Driver {
         }
     }
 
-    fn process_listeners(&mut self) {
-        let mut index = 0;
-        while index < self.listeners.len() {
-            if self.listeners[index].accept.is_closed() {
-                for handle in std::mem::take(&mut self.listeners[index].handles) {
-                    self.sockets.get_mut::<tcp::Socket>(handle).abort();
-                    self.sockets.remove(handle);
-                }
-                self.listeners.swap_remove(index);
-                continue;
-            }
-            let port = self.listeners[index].port;
-            let handles = std::mem::take(&mut self.listeners[index].handles);
-            let mut still_listening = Vec::with_capacity(handles.len());
-            let mut listen_count = 0;
-            let mut half_open = 0;
-            for handle in handles {
-                let (state, endpoints) = {
-                    let socket = self.sockets.get::<tcp::Socket>(handle);
-                    (socket.state(), (socket.local_endpoint(), socket.remote_endpoint()))
-                };
-                match state {
-                    tcp::State::Established => {
-                        let (Some(local), Some(remote)) = endpoints else {
-                            self.sockets.remove(handle);
-                            continue;
-                        };
-                        let accept = self.listeners[index].accept.clone();
-                        let (conn, stream) =
-                            self.bridge(handle, socket_addr(local), socket_addr(remote));
-                        self.conns.push(Conn {
-                            pending_stream: Some((Handoff::Accept(accept), stream)),
-                            ..conn
-                        });
-                    }
-                    tcp::State::Listen => {
-                        listen_count += 1;
-                        still_listening.push(handle);
-                    }
-                    tcp::State::SynReceived => {
-                        half_open += 1;
-                        still_listening.push(handle);
-                    }
-                    // The handshake fell apart (peer reset, timeout): drop it.
-                    _ => {
-                        self.sockets.remove(handle);
-                    }
-                }
-            }
-            // Refill only while no handshake is in flight. A new Listen socket
-            // added beside a live half-open can be assigned a lower socket slot
-            // (freed by a closed connection), and smoltcp would then route a
-            // retransmitted SYN to that Listen socket instead of the existing
-            // half-open, spawning a duplicate that never completes.
-            if half_open == 0 {
-                while listen_count < LISTEN_SPARES {
-                    match self.listening_socket(port) {
-                        Ok(handle) => {
-                            still_listening.push(handle);
-                            listen_count += 1;
-                        }
-                        Err(_) => break,
-                    }
-                }
-            }
-            self.listeners[index].handles = still_listening;
-            index += 1;
+    /// Start a connection from this side's address in `remote`'s family.
+    fn begin_connect(
+        &mut self,
+        remote: SocketAddr,
+        reply: oneshot::Sender<Result<WgStream, WgError>>,
+    ) {
+        if reply.is_closed() {
+            return;
         }
-    }
-
-    /// Returns whether any byte moved, so the caller can poll again.
-    fn process_conns(&mut self) -> bool {
-        let mut progressed = false;
-        let mut index = 0;
-        while index < self.conns.len() {
-            let conn = &mut self.conns[index];
-            let socket = self.sockets.get_mut::<tcp::Socket>(conn.handle);
-
-            if let Some((handoff, stream)) = conn.pending_stream.take() {
-                if matches!(&handoff, Handoff::Connect(reply) if reply.is_closed()) {
-                    // The connect future was cancelled before the handshake
-                    // completed. No stream owner remains to close this socket.
-                    socket.abort();
-                    let handle = conn.handle;
-                    self.sockets.remove(handle);
-                    self.conns.swap_remove(index);
-                    continue;
-                }
-                if socket.state() == tcp::State::Established {
-                    match handoff {
-                        Handoff::Connect(reply) => {
-                            let _ = reply.send(Ok(stream));
-                        }
-                        Handoff::Accept(accept) => {
-                            if accept.try_send(stream).is_err() {
-                                socket.abort();
-                            }
-                        }
-                    }
-                } else if !socket.is_open() {
-                    if let Handoff::Connect(reply) = handoff {
-                        let _ = reply.send(Err(WgError::ConnectionRefused(conn.remote)));
-                    }
-                    let handle = conn.handle;
-                    self.sockets.remove(handle);
-                    self.conns.swap_remove(index);
-                    continue;
-                } else {
-                    // Still in the handshake: no owner yet, so nothing to move
-                    // and no EOF to detect (`may_recv` is false before
-                    // Established).
-                    conn.pending_stream = Some((handoff, stream));
-                    index += 1;
-                    continue;
-                }
+        match self.config.local_address_for(remote.ip()) {
+            Some(local) => self.stack.begin_connect(local, remote, None, reply),
+            None => {
+                let _ = reply.send(Err(WgError::NoTunnelAddress(remote.ip())));
             }
-
-            // Owner -> socket.
-            if !conn.outbound_closed {
-                loop {
-                    if conn.pending_write.is_none() {
-                        match conn.outbound.try_recv() {
-                            Ok(Outbound::Data(bytes)) => conn.pending_write = Some(bytes),
-                            Ok(Outbound::Shutdown) | Err(TryRecvError::Disconnected) => {
-                                conn.outbound_closed = true;
-                                socket.close();
-                                break;
-                            }
-                            Err(TryRecvError::Empty) => break,
-                        }
-                    }
-                    let Some(pending) = conn.pending_write.as_mut() else { break };
-                    if !socket.can_send() {
-                        break;
-                    }
-                    match socket.send_slice(pending) {
-                        Ok(written) => {
-                            pending.advance(written);
-                            progressed |= written > 0;
-                            if pending.is_empty() {
-                                conn.pending_write = None;
-                            } else {
-                                break;
-                            }
-                        }
-                        Err(_) => {
-                            conn.outbound_closed = true;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // Socket -> owner.
-            if let Some(sender) = conn.inbound.as_ref() {
-                let mut reader_gone = false;
-                while socket.can_recv() {
-                    match sender.try_reserve() {
-                        Ok(permit) => {
-                            let mut chunk = vec![0u8; socket.recv_queue().min(INBOUND_CHUNK_BYTES)];
-                            match socket.recv_slice(&mut chunk) {
-                                Ok(count) => {
-                                    chunk.truncate(count);
-                                    progressed |= count > 0;
-                                    permit.send(Bytes::from(chunk));
-                                }
-                                Err(_) => break,
-                            }
-                        }
-                        Err(TrySendError::Full(())) => break,
-                        Err(TrySendError::Closed(())) => {
-                            reader_gone = true;
-                            break;
-                        }
-                    }
-                }
-                if reader_gone {
-                    conn.inbound = None;
-                } else if !socket.may_recv() && !socket.can_recv() {
-                    // Remote FIN and every byte delivered: EOF to the owner.
-                    conn.inbound = None;
-                }
-            } else if socket.can_recv() {
-                // Nobody will read it; keep the window moving so the peer can
-                // finish closing.
-                let _ = socket.recv(|buffer| (buffer.len(), ()));
-            }
-
-            if !socket.is_open() && conn.pending_stream.is_none() {
-                let handle = conn.handle;
-                self.sockets.remove(handle);
-                self.conns.swap_remove(index);
-                continue;
-            }
-            index += 1;
         }
-        progressed
     }
 }
 
@@ -947,9 +638,6 @@ mod timer_ops;
 #[path = "net_datagrams.rs"]
 mod datagram_ops;
 pub use datagram_ops::{Datagram, DatagramDrops, WgDatagramSocket};
-
-#[path = "net_sockets.rs"]
-mod socket_ops;
 
 #[cfg(test)]
 #[path = "net_tests.rs"]

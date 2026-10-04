@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "0edc0a3c7e51c1f0843d49e78b98ef01dea251fb14beeda82935fcf345a138a1";
+pub const ir_sha256 = "3d68350e643abae41960f97711e728cf3681b9fc60044ae1fc478ec89addd2a4";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -237,6 +237,154 @@ pub const ColorHex = []const u8;
 pub const ColumnPin = struct {
     edge: []const u8,
     mode: []const u8,
+};
+
+pub const ConversationChange = struct {
+    /// kind conversation.
+    conversation: ?ConversationSummary = null,
+    /// Known values: message and message-updated (message), read-cursor (participant, seq), conversation (conversation). A change of another kind keeps its fields in the additional properties.
+    kind: []const u8,
+    /// kind message or message-updated.
+    message: ?ConversationMessage = null,
+    /// kind read-cursor.
+    participant: ?[]const u8 = null,
+    /// kind read-cursor.
+    seq: ?u64 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "conversation",
+        "message",
+        "participant",
+        "seq",
+    };
+};
+
+pub const ConversationMessage = struct {
+    author: []const u8,
+    client_msg_id: []const u8,
+    conversation: []const u8,
+    created_at: []const u8,
+    edited_at: ?[]const u8 = null,
+    id: []const u8,
+    parts: []const ConversationPart,
+    reactions: []const ConversationReaction,
+    reply_to: ?ConversationPartRef = null,
+    retracted_at: ?[]const u8 = null,
+    seq: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "edited_at",
+        "reply_to",
+        "retracted_at",
+    };
+};
+
+pub const ConversationPart = struct {
+    /// type work.
+    host: ?[]const u8 = null,
+    /// type work.
+    preview: ?[]const u8 = null,
+    /// type text.
+    runs: ?[]const ConversationTextRun = null,
+    /// type work.
+    session: ?[]const u8 = null,
+    /// type work. Known values: running, done, failed, waiting.
+    status: ?[]const u8 = null,
+    /// type text.
+    text: ?[]const u8 = null,
+    /// Known values: text (text, runs) and work (session, host, status, preview). A part of another type keeps its fields in the additional properties.
+    type: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "host",
+        "preview",
+        "runs",
+        "session",
+        "status",
+        "text",
+    };
+};
+
+pub const ConversationPartRef = struct {
+    message_id: []const u8,
+    part_index: u32,
+};
+
+pub const ConversationParticipant = struct {
+    acp_session: ?[]const u8 = null,
+    /// Known values: mux, agent. Other values are future classes.
+    agent_class: ?[]const u8 = null,
+    display_name: []const u8,
+    id: []const u8,
+    /// Known values: human, agent. Other values are future kinds.
+    kind: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "acp_session",
+        "agent_class",
+    };
+};
+
+pub const ConversationReaction = struct {
+    at: []const u8,
+    author: []const u8,
+    kind: ConversationReactionKind,
+    part_index: u32,
+};
+
+pub const ConversationReactionKind = struct {
+    emoji: ?[]const u8 = null,
+    /// Known values: love, like, dislike, laugh, emphasize, question.
+    tapback: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "emoji",
+        "tapback",
+    };
+};
+
+pub const ConversationSearchHit = struct {
+    author: []const u8,
+    conversation: []const u8,
+    created_at: []const u8,
+    message_id: []const u8,
+    seq: u64,
+    snippet: []const u8,
+    title: []const u8,
+};
+
+pub const ConversationSummary = struct {
+    created_at: []const u8,
+    id: []const u8,
+    last_message: ?ConversationMessage = null,
+    last_seq: u64,
+    owner: []const u8,
+    participants: []const ConversationParticipant,
+    read_cursors: wire.Map(u64),
+    rev: u64,
+    title: []const u8,
+    updated_at: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "last_message",
+    };
+};
+
+pub const ConversationTabRecord = struct {
+    conversation: []const u8,
+    owner: []const u8,
+};
+
+pub const ConversationTextRun = struct {
+    length: u32,
+    link: ?[]const u8 = null,
+    mention: ?[]const u8 = null,
+    start: u32,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "link",
+        "mention",
+    };
 };
 
 pub const CopyResultMode = enum {
@@ -3039,7 +3187,10 @@ pub const ConversationAgentTokenRequest = struct {
     participant: []const u8,
 };
 
-pub const ConversationAgentTokenResult = JsonValue;
+pub const ConversationAgentTokenResult = struct {
+    participant: []const u8,
+    token: []const u8,
+};
 
 pub fn conversationAgentToken(client: anytype, request: ConversationAgentTokenRequest) !wire.Decoded(ConversationAgentTokenResult) {
     return client.callTyped(
@@ -3059,7 +3210,9 @@ pub const ConversationBindRequest = struct {
     token: []const u8,
 };
 
-pub const ConversationBindResult = JsonValue;
+pub const ConversationBindResult = struct {
+    participant: []const u8,
+};
 
 pub fn conversationBind(client: anytype, request: ConversationBindRequest) !wire.Decoded(ConversationBindResult) {
     return client.callTyped(
@@ -3081,7 +3234,10 @@ pub const ConversationCreateRequest = struct {
     title: []const u8,
 };
 
-pub const ConversationCreateResult = JsonValue;
+pub const ConversationCreateResult = struct {
+    conversation: ConversationSummary,
+    replayed: bool,
+};
 
 pub fn conversationCreate(client: anytype, request: ConversationCreateRequest) !wire.Decoded(ConversationCreateResult) {
     return client.callTyped(
@@ -3102,7 +3258,9 @@ pub const ConversationHistoryRequest = struct {
     limit: u32,
 };
 
-pub const ConversationHistoryResult = JsonValue;
+pub const ConversationHistoryResult = struct {
+    messages: []const ConversationMessage,
+};
 
 pub fn conversationHistory(client: anytype, request: ConversationHistoryRequest) !wire.Decoded(ConversationHistoryResult) {
     return client.callTyped(
@@ -3119,7 +3277,9 @@ pub fn conversationHistory(client: anytype, request: ConversationHistoryRequest)
 
 pub const ConversationListRequest = struct {};
 
-pub const ConversationListResult = JsonValue;
+pub const ConversationListResult = struct {
+    conversations: []const ConversationSummary,
+};
 
 pub fn conversationList(client: anytype, request: ConversationListRequest) !wire.Decoded(ConversationListResult) {
     return client.callTyped(
@@ -3142,7 +3302,18 @@ pub const ConversationOpRequest = struct {
     transaction: wire.Field([]const u8) = .absent,
 };
 
-pub const ConversationOpResult = JsonValue;
+pub const ConversationOpResult = struct {
+    change: ConversationChange,
+    replayed: bool,
+    rev: u64,
+    seq: ?u64 = null,
+    transaction: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "seq",
+        "transaction",
+    };
+};
 
 pub fn conversationOp(client: anytype, request: ConversationOpRequest) !wire.Decoded(ConversationOpResult) {
     return client.callTyped(
@@ -3162,7 +3333,9 @@ pub const ConversationSearchRequest = struct {
     query: []const u8,
 };
 
-pub const ConversationSearchResult = JsonValue;
+pub const ConversationSearchResult = struct {
+    hits: []const ConversationSearchHit,
+};
 
 pub fn conversationSearch(client: anytype, request: ConversationSearchRequest) !wire.Decoded(ConversationSearchResult) {
     return client.callTyped(
@@ -3182,7 +3355,10 @@ pub const ConversationSnapshotRequest = struct {
     tail: u32,
 };
 
-pub const ConversationSnapshotResult = JsonValue;
+pub const ConversationSnapshotResult = struct {
+    conversation: ConversationSummary,
+    messages: []const ConversationMessage,
+};
 
 pub fn conversationSnapshot(client: anytype, request: ConversationSnapshotRequest) !wire.Decoded(ConversationSnapshotResult) {
     return client.callTyped(
@@ -3203,7 +3379,7 @@ pub const ConversationTypingRequest = struct {
     on: bool,
 };
 
-pub const ConversationTypingResult = JsonValue;
+pub const ConversationTypingResult = EmptyResult;
 
 pub fn conversationTyping(client: anytype, request: ConversationTypingRequest) !wire.Decoded(ConversationTypingResult) {
     return client.callTyped(
@@ -4807,7 +4983,13 @@ pub const NewConversationTabRequest = struct {
     workspace: wire.Field(Id) = .absent,
 };
 
-pub const NewConversationTabResult = JsonValue;
+pub const NewConversationTabResult = struct {
+    content_resource_id: wire.Nullable([]const u8),
+    conversation: ConversationTabRecord,
+    replayed: bool,
+    surface: Id,
+    tab_resource_id: wire.Nullable([]const u8),
+};
 
 pub fn newConversationTab(client: anytype, request: NewConversationTabRequest) !wire.Decoded(NewConversationTabResult) {
     return client.callTyped(

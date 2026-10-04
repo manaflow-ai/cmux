@@ -12,7 +12,7 @@ public nonisolated enum LayoutPrototypeDockMode: String, Sendable, CaseIterable,
         }
     }
 
-    public var stickyMode: StickyMode { self == .pinned ? .docked : .overlay }
+    public var dockMode: DockMode { self == .pinned ? .docked : .overlay }
 }
 
 /// The prototype choice carried by `LayoutStyle`.
@@ -21,10 +21,10 @@ public nonisolated struct LayoutPrototypeSettings: Hashable, Sendable {
     public var dockEdge: LayoutPrototypeDockEdge = .bottom
     public var orientation: LayoutPrototypeOrientation = .columnMajor
     /// Mode of docks the prototype synthesizes from plain columns.
-    public var dockMode: StickyMode = .docked
+    public var dockMode: DockMode = .docked
 
     public init(model: LayoutPrototypeModel = .off, dockEdge: LayoutPrototypeDockEdge = .bottom,
-                orientation: LayoutPrototypeOrientation = .columnMajor, dockMode: StickyMode = .docked) {
+                orientation: LayoutPrototypeOrientation = .columnMajor, dockMode: DockMode = .docked) {
         self.model = model
         self.dockEdge = dockEdge
         self.orientation = orientation

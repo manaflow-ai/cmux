@@ -46,18 +46,21 @@ impl ErrorCode {
     }
 }
 
-/// A driver error as it crosses every boundary (`{ code, message, errorName? }`).
+/// A driver error as it crosses every boundary (`{ code, message, errorName?, data? }`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DriverError {
     pub code: ErrorCode,
     pub message: String,
     #[serde(rename = "errorName", default, skip_serializing_if = "Option::is_none")]
     pub error_name: Option<String>,
+    /// Structured detail for a refusal (for example `{reason, extensions}`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
 }
 
 impl DriverError {
     pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
-        DriverError { code, message: message.into(), error_name: None }
+        DriverError { code, message: message.into(), error_name: None, data: None }
     }
 
     pub fn unsupported_method(method: &str) -> Self {

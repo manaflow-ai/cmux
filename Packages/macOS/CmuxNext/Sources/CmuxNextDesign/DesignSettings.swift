@@ -34,7 +34,7 @@ public final class DesignSettings {
     public var centerFocusedColumn: CenterFocusedColumn = .never
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .auto
-    /// `sidebar.*`: section look and sticky band caps.
+    /// `sidebar.*`: section look and pinned band caps.
     public var sidebarSections = SidebarSectionsPreferences.defaults
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
     public var closeFocus: CloseFocusPolicy = .previousNeighbor
@@ -44,9 +44,9 @@ public final class DesignSettings {
     public var newColumnWidth: NewColumnWidthMode = .matchCurrent
     /// `layout.splitSizing`: what a split does to its column.
     public var splitSizing: SplitSizing = .even
-    /// `layout.stickyColumnEdge`, `layout.stickyColumnMode`.
-    public var stickyColumnEdge: StickyDefaultEdge = .nearest
-    public var stickyColumnMode: StickyDefaultMode = .docked
+    /// `layout.dockColumnEdge`, `layout.dockColumnMode`.
+    public var dockColumnEdge: DockDefaultEdge = .nearest
+    public var dockColumnMode: DockDefaultMode = .docked
     /// `layout.frameOrientation`: column-major (side docks full height) or
     /// row-major (top and bottom docks full width), plans/cmux-next/layout-model.md.
     public var frameOrientation: FrameOrientation = .columnMajor

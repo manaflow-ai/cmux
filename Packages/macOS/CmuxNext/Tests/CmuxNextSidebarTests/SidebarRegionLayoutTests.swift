@@ -3,7 +3,7 @@ import CmuxNextDesign
 import Testing
 @testable import CmuxNextSidebar
 
-/// Sticky section bands (plans/cmux-next/sidebar-sections.md 1, 7): the
+/// Pinned section bands (plans/cmux-next/sidebar-sections.md 1, 7): the
 /// band split around the workspace list, each look's frames, caps, the
 /// sidebar view's placement, and the model's section intents.
 @MainActor @Suite struct SidebarRegionLayoutTests {
@@ -122,17 +122,17 @@ import Testing
 
     // MARK: Caps
 
-    @Test func maxRowsCapsTheStickyHeight() {
+    @Test func maxRowsCapsThePinnedHeight() {
         let layout = SidebarRegionLayout.make(sections: [section("a", maxRows: 2, items: 10)], width: 240, look: .quiet, collapsed: [], metrics: m)
         #expect(layout.height == CGFloat(288))
         #expect(layout.cappedHeight == CGFloat(64))
-        #expect(layout.stickyHeight(available: 1_000, share: 0.5) == 64)
+        #expect(layout.pinnedHeight(available: 1_000, share: 0.5) == 64)
     }
 
-    @Test func theShareCapsTheStickyHeight() {
+    @Test func theShareCapsThePinnedHeight() {
         let layout = SidebarRegionLayout.make(sections: [section("a", items: 10)], width: 240, look: .quiet, collapsed: [], metrics: m)
-        #expect(layout.stickyHeight(available: 600, share: 1.0 / 3.0) == 200)
-        #expect(layout.stickyHeight(available: 6_000, share: 1.0 / 3.0) == layout.height)
+        #expect(layout.pinnedHeight(available: 600, share: 1.0 / 3.0) == 200)
+        #expect(layout.pinnedHeight(available: 6_000, share: 1.0 / 3.0) == layout.height)
     }
 
     // MARK: Model

@@ -151,11 +151,6 @@ final class KeyRouter: BrowserKeyRouting {
             cancelChord()
             return true
         }
-        // A shortcut recording in a Settings tab takes every key first.
-        if let window, services?.windows.owner(of: window) != nil, services?.settingsWindow.handlePaneRecorderKey(event) == true {
-            chords.cancel()
-            return true
-        }
         if closesPopup(event, in: window) {
             cancelChord()
             return true

@@ -8,7 +8,9 @@ import PackageDescription
 // this product, so the workspace resolves exactly one binary target of that
 // name. Flavor apple-v6: macOS arm64 + x86_64, iOS, iOS simulator. Since
 // 59a70ffc6 the iOS keycode in ghostty_input_key_s is the USB HID usage
-// (UIKey.keyCode); macOS keeps Mac virtual keycodes.
+// (UIKey.keyCode); macOS keeps Mac virtual keycodes. Since 68ac618db a
+// GHOSTSNP READY restore applies this surface's palette, default colors and
+// cursor defaults as local policy (ghostty-next PR 20).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -25,8 +27,8 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-59a70ffc6858d2a38ba431cebf435a9e73b0b768-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "502bea5df20ecca9f03304cb1689fd8e4cd1dd2d5301265907b46889d54013db"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-68ac618db09623a3582d7b1e7cd5c9c61416973a-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "019921efbe46fe2c627f62dbf88d138fdefd042c9f42de1dba2e26fa2efaa401"
         ),
     ]
 )

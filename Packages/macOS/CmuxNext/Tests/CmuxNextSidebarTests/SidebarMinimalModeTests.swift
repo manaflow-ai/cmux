@@ -3,7 +3,7 @@ import CmuxNextDesign
 import Testing
 @testable import CmuxNextSidebar
 
-/// R54 (Lawrence 2026-10-03): in minimal mode the chosen sticky bands fade
+/// R54 (Lawrence 2026-10-03): in minimal mode the chosen pinned bands fade
 /// out while the pointer is away from the sidebar and fade in when it
 /// hovers; VoiceOver still reaches their items.
 @MainActor @Suite(.serialized) struct SidebarMinimalModeTests {

@@ -5,6 +5,8 @@
 //! bound to their destination port, and datagrams to a port nobody bound
 //! are dropped.
 
+use tokio::sync::mpsc::error::TrySendError;
+
 use super::*;
 use crate::pacing::{DropCounters, Priority};
 use crate::udp;

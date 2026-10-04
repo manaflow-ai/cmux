@@ -9,8 +9,9 @@ import WebKit
 /// from the DOM, and the page as WebKit rendered it. Absorbed from the Settings lead's
 /// `debug.settings_web` (branch feat-cmux-next-settings-react).
 extension PageWebView {
-    /// URL fragment, visible text (first 400 characters), control count and the computed html and
-    /// body backgrounds (the one-backdrop check).
+    /// URL fragment, visible text (first 400 characters), control count, the computed html and
+    /// body backgrounds (the one-backdrop check), and the focused element with its value (typing
+    /// checks).
     public func debugState() async -> JSONValue {
         let script = """
         return JSON.stringify({
@@ -20,7 +21,10 @@ extension PageWebView {
           text: (document.body && document.body.innerText || '').slice(0, 400),
           controls: document.querySelectorAll('input,select,button,[role=switch],[role=radio],[role=option]').length,
           html: getComputedStyle(document.documentElement).backgroundColor,
-          body: document.body ? getComputedStyle(document.body).backgroundColor : null
+          body: document.body ? getComputedStyle(document.body).backgroundColor : null,
+          active: document.activeElement && document.activeElement !== document.body
+            ? { tag: document.activeElement.tagName.toLowerCase(), value: 'value' in document.activeElement ? String(document.activeElement.value) : null }
+            : null
         });
         """
         guard let text = try? await webView.callAsyncJavaScript(script, contentWorld: .page) as? String,

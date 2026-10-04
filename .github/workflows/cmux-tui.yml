@@ -647,6 +647,12 @@ jobs:
         # each selector.
         run: 'cargo test -p cmux-tui-core --lib platform::tests:: -- --test-threads=2'
 
+      - name: Mac link caller signature tests
+        working-directory: cmux-tui
+        # cmux-link checks a caller's code signature only on macOS
+        # (caller_macos.rs); the Linux suites cover only the uid check.
+        run: 'cargo test -p cmux-link --lib caller::tests:: -- --test-threads=2'
+
       - name: Mac process and PTY tests
         working-directory: cmux-tui
         run: |

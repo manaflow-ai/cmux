@@ -213,3 +213,113 @@ fn conversation_tab_fills_the_empty_home_workspace() {
     assert!(run(&mux, both).is_err());
     mux.shutdown();
 }
+
+/// The tab object with public id `tab_id` anywhere in `value` (a snapshot's
+/// `tabs` or a delta's upserted `value`).
+fn find_tab(value: &Value, tab_id: &str) -> Option<Value> {
+    match value {
+        Value::Object(object) => {
+            if object.get("id").and_then(Value::as_str) == Some(tab_id)
+                && object.contains_key("content_kind")
+            {
+                return Some(value.clone());
+            }
+            object.values().find_map(|child| find_tab(child, tab_id))
+        }
+        Value::Array(items) => items.iter().find_map(|item| find_tab(item, tab_id)),
+        _ => None,
+    }
+}
+
+/// The next outbound message that `wanted` accepts and that holds the tab,
+/// within 5 s.
+fn next_with_tab(
+    outbound: &BoundedOutbound,
+    tab_id: &str,
+    wanted: impl Fn(&Value) -> bool,
+) -> (Value, Value) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(text) = outbound.try_pop() {
+            let message: Value = serde_json::from_str(&text).unwrap();
+            if let Some(tab) = find_tab(&message, tab_id).filter(|_| wanted(&message)) {
+                return (message, tab);
+            }
+            continue;
+        }
+        assert!(Instant::now() < deadline, "no outbound message holds tab {tab_id}");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+/// A connection without `conversation-tabs-v1` reads a conversation tab as
+/// `browser` on `session.events` too (snapshot item and tab upsert delta),
+/// the same form as its `session.snapshot` response; a connection with the
+/// capability reads the canonical kind on the stream.
+#[test]
+fn conversation_tab_on_session_events_matches_session_snapshot() {
+    let mux = test_mux_for_conversation_tabs();
+    let pane = pane_with_terminal(&mux);
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let connect = |capable: bool| {
+        let (writer, outbound) = writer_with_outbound();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        if capable {
+            let capabilities = vec![CONVERSATION_TABS.to_string()];
+            mux.control_clients.set_info(client, None, None, Some(capabilities)).unwrap();
+        }
+        (client, writer, outbound)
+    };
+    let send = |client: u64, writer: &MessageWriter, id: &str, operation: &str, extra: Value| {
+        let mut params = json!({"machine":"current","session":"current"});
+        for (key, value) in extra.as_object().unwrap() {
+            params[key] = value.clone();
+        }
+        let message = json!({"protocol":"cmux.protocol/2","type":"request","id":id,
+                             "operation":operation,"params":params});
+        assert!(handle_connection_message(&mux, client, &message.to_string(), writer, &scheduler));
+    };
+    let (plain, plain_writer, plain_outbound) = connect(false);
+    let (capable, capable_writer, capable_outbound) = connect(true);
+    // Both streams open before the tab exists, so the tab arrives as a delta.
+    let delta_stream = "stream_44444444444444448444444444444444";
+    send(plain, &plain_writer, "events-plain", "session.events", json!({"stream_id":delta_stream}));
+    send(
+        capable,
+        &capable_writer,
+        "events-capable",
+        "session.events",
+        json!({"stream_id":"stream_55555555555555558555555555555555"}),
+    );
+
+    let created = create(&mux, pane, "tab-events", "conv_01EVENTS").unwrap();
+    let tab_id = created["tab_resource_id"].as_str().unwrap().to_string();
+
+    let item_of = |kind: &'static str| {
+        move |message: &Value| message["type"] == "stream_item" && message["item"]["kind"] == kind
+    };
+    let (delta, tab) = next_with_tab(&plain_outbound, &tab_id, item_of("delta"));
+    assert_eq!(tab["content_kind"], "browser", "session.events delta: {delta}");
+    let (delta, tab) = next_with_tab(&capable_outbound, &tab_id, item_of("delta"));
+    assert_eq!(tab["content_kind"], "conversation", "capable session.events delta: {delta}");
+
+    send(plain, &plain_writer, "snapshot-plain", "session.snapshot", json!({}));
+    let (response, snapshot_tab) =
+        next_with_tab(&plain_outbound, &tab_id, |message| message["id"] == "snapshot-plain");
+    assert_eq!(snapshot_tab["content_kind"], "browser", "session.snapshot: {response}");
+
+    // A stream opened after the tab exists starts with a snapshot item.
+    send(
+        plain,
+        &plain_writer,
+        "events-late",
+        "session.events",
+        json!({"stream_id":"stream_66666666666666668666666666666666"}),
+    );
+    let (item, tab) = next_with_tab(&plain_outbound, &tab_id, item_of("snapshot"));
+    assert_eq!(tab["content_kind"], snapshot_tab["content_kind"], "snapshot item: {item}");
+    mux.shutdown();
+}
+
+const CONVERSATION_TABS: &str = crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY;

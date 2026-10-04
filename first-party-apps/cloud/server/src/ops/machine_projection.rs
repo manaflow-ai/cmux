@@ -1,14 +1,21 @@
-//! The machine projection on this machine (cloud-app.md 1: cache only,
-//! rebuilt from the Cloud API list). The [`super::Server`] is its only
-//! writer, and this type is the only source of `cloud.machine.watch`
-//! events: every write that changes a record raises the revision once and
-//! queues one event per changed record from the same code path, so pages
+//! The machine projection on this machine (cache only; contract 2.1). It is
+//! filled from `cloud.machine.list` pages, op answers and the team wire
+//! events (`cloud.machine.upsert`, `cloud.machine.removed`). The
+//! [`super::Server`] is its only writer, and this type is the only source of
+//! `cloud.machine.watch` events: every write that changes a record raises
+//! the local revision once and queues one event per changed record, so pages
 //! and the sidebar update right after a change without a timer.
+//!
+//! Every record carries its backend `revision`. A record, answer or event
+//! older than what the projection holds (or than the removal it saw) is
+//! dropped, so a late event never undoes a newer answer.
 
-use crate::api::models::{Machine, MachineStatus};
+use crate::api::models::{Machine, Revision};
 use serde::Serialize;
-use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+
+/// Removals kept to refuse older upserts of a removed machine.
+const TOMBSTONES: usize = 1024;
 
 /// One `cloud.machine.watch` event. Events of one projection change share
 /// its revision; revisions only grow.
@@ -17,8 +24,8 @@ use std::collections::BTreeMap;
 pub enum WatchEvent {
     /// The record is new or changed: the full record after the change.
     Upsert { revision: u64, machine: Box<Machine> },
-    /// The record is gone (deleted, destroyed, missing from a refresh, or
-    /// signed out).
+    /// The record is gone (deleted, removed by an event, missing from a
+    /// full listing, or signed out).
     Removed { revision: u64, id: String },
 }
 
@@ -30,11 +37,26 @@ impl WatchEvent {
     }
 }
 
+/// A listing that started at the first page and follows its cursors: when
+/// it reaches the last page, machines it did not see are removed.
+#[derive(Debug)]
+struct Sweep {
+    next_cursor: String,
+    seen: BTreeSet<String>,
+    /// The team revision of the first page: a machine newer than it may
+    /// have been created after the listing began, so it is kept.
+    at: Option<Revision>,
+}
+
 #[derive(Debug, Default)]
 pub struct Projection {
     machines: BTreeMap<String, Machine>,
     revision: u64,
     events: Vec<WatchEvent>,
+    /// Removed ids and the backend revision of the removal.
+    tombstones: BTreeMap<String, Revision>,
+    tombstone_order: VecDeque<String>,
+    sweep: Option<Sweep>,
 }
 
 impl Projection {
@@ -63,76 +85,125 @@ impl Projection {
         std::mem::take(&mut self.events)
     }
 
+    /// True when `machine` is not older than the record the projection
+    /// holds for its id, and newer than any removal it saw (a record at the
+    /// removal's revision is the one that was removed).
+    fn current(&self, machine: &Machine) -> bool {
+        let known = self.machines.get(&machine.id).is_none_or(|m| machine.revision >= m.revision);
+        let removed = self.tombstones.get(&machine.id).is_none_or(|r| machine.revision > *r);
+        known && removed
+    }
+
+    /// Records a removal at `revision`; an older one never lowers it.
+    fn tombstone(&mut self, id: &str, revision: Revision) {
+        if let Some(known) = self.tombstones.get_mut(id) {
+            if revision > *known {
+                *known = revision;
+            }
+            return;
+        }
+        self.tombstones.insert(id.to_owned(), revision);
+        self.tombstone_order.push_back(id.to_owned());
+        if self.tombstone_order.len() > TOMBSTONES
+            && let Some(oldest) = self.tombstone_order.pop_front()
+        {
+            self.tombstones.remove(&oldest);
+        }
+    }
+
     /// Applies one change: `removed` ids and `upserts` records. Raises the
     /// revision once when anything differs and queues one event per changed
     /// record (removals first, then upserts, each in id order).
     fn apply(&mut self, removed: Vec<String>, upserts: Vec<Machine>) {
         let removed: Vec<String> =
             removed.into_iter().filter(|id| self.machines.contains_key(id)).collect();
-        let upserts: Vec<Machine> =
-            upserts.into_iter().filter(|m| self.machines.get(&m.id) != Some(m)).collect();
+        let upserts: Vec<Machine> = upserts
+            .into_iter()
+            .filter(|m| self.current(m) && self.machines.get(&m.id) != Some(m))
+            .collect();
         if removed.is_empty() && upserts.is_empty() {
             return;
         }
         self.revision += 1;
         let revision = self.revision;
         for id in removed {
-            self.machines.remove(&id);
+            if let Some(gone) = self.machines.remove(&id) {
+                self.tombstone(&id, gone.revision);
+            }
             self.events.push(WatchEvent::Removed { revision, id });
         }
         for machine in upserts {
+            self.tombstones.remove(&machine.id);
             self.machines.insert(machine.id.clone(), machine.clone());
             self.events.push(WatchEvent::Upsert { revision, machine: Box::new(machine) });
         }
     }
 
-    /// Replaces every record with a fresh list, as a diff: records missing
-    /// from the list are removed, new or changed ones upserted. Destroyed
-    /// machines are not kept.
-    pub(crate) fn replace_all(&mut self, list: Vec<Machine>) {
-        let next: BTreeMap<String, Machine> = list
-            .into_iter()
-            .filter(|m| m.status != MachineStatus::Destroyed)
-            .map(|m| (m.id.clone(), m))
-            .collect();
-        let removed = self.machines.keys().filter(|id| !next.contains_key(*id)).cloned().collect();
-        self.apply(removed, next.into_values().collect());
+    /// One `cloud.machine.list` page. Its records are upserted. A listing
+    /// that started at the first page (`cursor` none) and followed each
+    /// `next_cursor` to the last page then removes the machines it never
+    /// saw, unless they are newer than the first page.
+    pub(crate) fn apply_page(
+        &mut self,
+        cursor: Option<&str>,
+        machines: Vec<Machine>,
+        next_cursor: Option<&str>,
+        at: Option<Revision>,
+    ) {
+        let mut sweep = match (cursor, self.sweep.take()) {
+            (None, _) => Some(Sweep { next_cursor: String::new(), seen: BTreeSet::new(), at }),
+            (Some(c), Some(s)) if s.next_cursor == c => Some(s),
+            // A page out of order: no removal can be proven from it.
+            _ => None,
+        };
+        if let Some(s) = sweep.as_mut() {
+            s.seen.extend(machines.iter().map(|m| m.id.clone()));
+        }
+        let removed = match (next_cursor, sweep) {
+            (Some(next), Some(mut s)) => {
+                s.next_cursor = next.to_owned();
+                self.sweep = Some(s);
+                Vec::new()
+            }
+            (None, Some(s)) => self
+                .machines
+                .values()
+                .filter(|m| !s.seen.contains(&m.id))
+                .filter(|m| s.at.as_ref().is_none_or(|at| m.revision <= *at))
+                .map(|m| m.id.clone())
+                .collect(),
+            (_, None) => Vec::new(),
+        };
+        self.apply(removed, machines);
     }
 
     /// Empties the projection (signed out).
     pub(crate) fn clear(&mut self) {
         let removed = self.machines.keys().cloned().collect();
+        self.sweep = None;
         self.apply(removed, Vec::new());
+        self.tombstones.clear();
+        self.tombstone_order.clear();
     }
 
-    /// The record a Cloud API answer describes: the answer's fields overlaid
-    /// onto the known record (a rename answers only `id`, `displayName` and
-    /// `slug`; a pause only `id` and `status`), or onto `base` when the
-    /// projection does not know the machine. Writes nothing.
-    pub(crate) fn overlay(&self, base: Option<&Value>, answer: &Value) -> Option<Machine> {
-        let id = answer.get("id")?.as_str()?;
-        let mut record = match (self.machines.get(id), base) {
-            (Some(known), _) => serde_json::to_value(known).ok()?,
-            (None, Some(base)) => base.clone(),
-            (None, None) => Value::Object(Default::default()),
-        };
-        for (k, v) in answer.as_object()? {
-            record[k] = v.clone();
-        }
-        serde_json::from_value(record).ok()
-    }
-
-    /// Writes one record. A destroyed machine is removed instead, like a
-    /// refresh would.
+    /// Writes one record unless it is older than the projection's.
     pub(crate) fn upsert(&mut self, machine: Machine) {
-        if machine.status == MachineStatus::Destroyed {
-            self.apply(vec![machine.id], Vec::new());
-        } else {
-            self.apply(Vec::new(), vec![machine]);
-        }
+        self.apply(Vec::new(), vec![machine]);
     }
 
+    /// Removes a machine the backend says is gone (deleted, or
+    /// `cloud.machine.not_found`).
     pub(crate) fn remove(&mut self, id: &str) {
+        self.apply(vec![id.to_owned()], Vec::new());
+    }
+
+    /// `cloud.machine.removed {machine, revision}`: removes the machine
+    /// unless the projection holds a newer record.
+    pub(crate) fn remove_at(&mut self, id: &str, revision: Revision) {
+        if self.machines.get(id).is_some_and(|m| m.revision > revision) {
+            return;
+        }
+        self.tombstone(id, revision);
         self.apply(vec![id.to_owned()], Vec::new());
     }
 }

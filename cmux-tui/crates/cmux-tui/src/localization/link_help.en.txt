@@ -1,0 +1,17 @@
+USAGE: cmux link <init|show|peer|serve|dial|install-agent|uninstall-agent> [OPTIONS]
+
+The link owns this machine's overlay endpoint: one WireGuard key and one UDP
+port for every paired machine. Same network only: no relay yet.
+
+  init --install ID [--port PORT]   create the key and config (port 4101)
+  show                              print the public key, overlay address and state
+  peer add --install ID --user ID --team ID --public-key BASE64 [--endpoint IP:PORT]
+  peer remove --install ID
+  peer list
+  serve [--session-socket PATH]     run the link; with a session socket, paired
+                                    peers reach that daemon's remote entry only
+  dial --host ID                    bridge stdin and stdout to a paired host's daemon
+  install-agent [--session-socket PATH]   run `serve` as a launchd agent (macOS)
+  uninstall-agent
+
+Every action takes --state-dir DIR (default: <daemon state dir>/link).

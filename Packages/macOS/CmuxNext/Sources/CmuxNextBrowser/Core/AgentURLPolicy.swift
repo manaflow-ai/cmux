@@ -7,7 +7,8 @@ public import Foundation
 /// script; `chrome://extensions` and `chrome://settings` change the profile.
 /// One rule for every agent path: navigate, Back/Forward targets, reload and
 /// evaluate while one shows, and a commit that reaches one anyway.
-public nonisolated enum AgentURLPolicy {
+public nonisolated struct AgentURLPolicy {
+    public nonisolated init() {}
     /// What an agent-driven tab shows instead of a refused page.
     public static let replacementURL = URL(string: BrowserNewTabPage.blankURL)
 
@@ -51,9 +52,10 @@ public nonisolated enum AgentURLPolicy {
     }
 
     /// First-party pages (`cmux-page://cmux`, `cmux-page://cmux.<id>`: Settings,
-    /// History, Passwords, the agent pane) answer privileged page ops; an agent
-    /// never drives them. Third-party app pages (reverse-DNS ids) stay
-    /// allowed. Fail closed: an empty host or one with a percent escape.
+    /// History, Passwords, the agent pane; and single-label shared hosts such
+    /// as `cmux-page://shell`) answer privileged page ops; an agent never
+    /// drives them. Third-party app pages (reverse-DNS ids, always dotted)
+    /// stay allowed. Fail closed: an empty host or one with a percent escape.
     static func isReservedPageHost(_ rest: Substring) -> Bool {
         let afterSlashes = rest.drop { $0 == "/" || $0 == "\\" }
         var host = afterSlashes.prefix { !"/\\?#".contains($0) }
@@ -62,6 +64,7 @@ public nonisolated enum AgentURLPolicy {
         if let colon = host.firstIndex(of: ":") { host = host[..<colon] }
         var name = host.lowercased()
         while name.hasSuffix(".") { name.removeLast() }
-        return name.isEmpty || name == "cmux" || name.hasPrefix("cmux.")
+        // A third-party app id always has a dot; a single label ("shell") is a shared first-party host.
+        return name.isEmpty || name == "cmux" || name.hasPrefix("cmux.") || !name.contains(".")
     }
 }

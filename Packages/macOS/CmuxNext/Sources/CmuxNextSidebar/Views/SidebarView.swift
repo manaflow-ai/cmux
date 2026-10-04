@@ -45,7 +45,7 @@ public final class SidebarView: NSView {
     /// Fade the bands' rows out at an edge while more are hidden there.
     var aboveFade: ScrollEdgeFadeView!
     var belowFade: ScrollEdgeFadeView!
-    /// Hairlines between the sticky bands and the list (quiet look).
+    /// Hairlines between the pinned bands and the list (quiet look).
     let aboveLine = CALayer()
     let belowLine = CALayer()
     let newButton = SidebarIconButton(symbol: "plus", label: Strings.newWorkspace)

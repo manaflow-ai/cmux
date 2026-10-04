@@ -17,6 +17,7 @@ import {
   isMarkdownConfig,
   type MarkdownChange,
   type MarkdownConfig,
+  type MarkdownFile,
   type MarkdownConflict,
   type MarkdownLook,
   type MarkdownSaveResult,
@@ -39,6 +40,16 @@ export interface MarkdownState {
   revision: number;
   /** The page's look: `markdown` settings, theme.css and the terminal appearance. */
   look: { settings: unknown; themeCSS: string | undefined; appearance: DiffViewerAppearance | undefined };
+  /** Link history (files followed in this page): whether `back` and `forward` go anywhere. */
+  canBack: boolean;
+  canForward: boolean;
+}
+
+/** One file in the page's link history, with the anchor it opened at and its scroll offset. */
+export interface HistoryEntry {
+  path: string;
+  anchor: string;
+  scroll: number;
 }
 
 /** The editor surface the store drives (MarkdownEditor, or a fake in tests). */
@@ -69,7 +80,10 @@ export class MarkdownStore {
     source: "",
     revision: 0,
     look: { settings: undefined, themeCSS: undefined, appearance: undefined },
+    canBack: false,
+    canForward: false,
   };
+  private history: { entries: HistoryEntry[]; index: number } = { entries: [], index: -1 };
   private readonly listeners = new Set<() => void>();
   private editor: DocumentEditor | null = null;
   /** The text on disk as of the last load or save, and its hash. */
@@ -157,6 +171,8 @@ export class MarkdownStore {
       look,
       mode,
     });
+    this.history = { entries: [{ path: config.path, anchor: "", scroll: 0 }], index: 0 };
+    this.set({ canBack: false, canForward: false });
     this.editor?.setReadOnly(readOnly);
     this.editor?.load(config.text);
     if (!this.stopLook) {
@@ -298,9 +314,73 @@ export class MarkdownStore {
     }
   }
 
+  /**
+   * Follows a link to another markdown file (or an anchor in this one): saves pending edits, loads
+   * the file in place and pushes it on the link history. Resolves to the entry shown, or null when
+   * the page stays (unsaved edits that would not save, a conflict, a load failure).
+   */
+  async navigate(path: string, anchor: string, scroll: number): Promise<HistoryEntry | null> {
+    if (!(await this.show(path))) return null;
+    const { entries, index } = this.history;
+    if (entries[index]) entries[index].scroll = scroll;
+    const entry = { path: this.state.config!.path, anchor, scroll: 0 };
+    entries.splice(index + 1, entries.length, entry);
+    this.history.index = entries.length - 1;
+    this.set({ canBack: this.history.index > 0, canForward: false });
+    return entry;
+  }
+
+  /** `back` (-1) and `forward` (+1) page commands: the link history entry, shown in place. */
+  async go(delta: -1 | 1, scroll: number): Promise<HistoryEntry | null> {
+    const { entries, index } = this.history;
+    const target = entries[index + delta];
+    if (!target || !(await this.show(target.path))) return null;
+    if (entries[index]) entries[index].scroll = scroll;
+    this.history.index = index + delta;
+    this.set({ canBack: this.history.index > 0, canForward: this.history.index < entries.length - 1 });
+    return target;
+  }
+
+  /** Shows `path` in the page; true when it is shown (already, or loaded now). */
+  private async show(path: string): Promise<boolean> {
+    const config = this.state.config;
+    if (!config || !this.client) return false;
+    if (path === config.path) return true;
+    // Edits are saved before the page leaves the file; a file that would lose them stays.
+    if (!this.state.readOnly && this.currentText() !== this.savedText) await this.save();
+    if (this.state.conflict || (!this.state.readOnly && this.currentText() !== this.savedText)) return false;
+    let file: MarkdownFile;
+    try {
+      const value = await this.client.call<unknown>(MARKDOWN_OPEN_OP, { path });
+      if (!isMarkdownConfig(value)) throw new Error("markdown file is malformed");
+      file = value;
+    } catch (error) {
+      console.error("cmux markdown load failed", error);
+      return false;
+    }
+    this.cancelAutosave?.();
+    this.cancelAutosave = null;
+    this.savedText = file.text;
+    this.baseHash = file.hash;
+    const readOnly = file.readOnly === true;
+    this.set({
+      config: { ...config, path: file.path, text: file.text, hash: file.hash, readOnly, assetBase: file.assetBase },
+      readOnly,
+      source: file.text,
+      status: "saved",
+      conflict: null,
+      revision: this.state.revision + 1,
+    });
+    this.editor?.setReadOnly(readOnly);
+    this.editor?.load(file.text);
+    return true;
+  }
+
   /** The file changed on disk. */
   diskChanged(change: MarkdownChange): void {
     if (this.state.phase !== "ready") return;
+    // Changes of a file the page left (its watcher may still report) are not this file's.
+    if (change.path && this.state.config && change.path !== this.state.config.path) return;
     if (this.saving) {
       this.pendingChange = change;
       return;
