@@ -46,6 +46,7 @@ extension KeyRouter {
         if implied.browser { bits.insert(.browserFocused) }
         if implied.agent { bits.insert(.agentPaneFocused) }
         if facts.pageID == Self.markdownPageID { bits.insert(.markdownFocused) }
+        if case .addressBar = focus.resolved { bits.insert(.omnibarFocused) }
         var context = KeyContext(bits: bits)
         if let page = facts.pageID { context[KeyContext.pageID] = .string(page) }
         context[KeyContext.windowKind] = .string(KeyContext.WindowKindValue.main)

@@ -39,6 +39,9 @@ public nonisolated struct ActionContext: OptionSet, Sendable, Hashable {
     /// A shortcut recorder (Settings or the palette's Cmd-K editor) is open;
     /// system-wide hot keys stand down so it can record their chords.
     public static let recordingShortcut = ActionContext(rawValue: 1 << 16)
+    /// A browser tab's address bar has the keyboard (R88): its own actions
+    /// (open the typed address in a background tab) win only there.
+    public static let omnibarFocused = ActionContext(rawValue: 1 << 17)
 }
 
 extension ActionContext {
