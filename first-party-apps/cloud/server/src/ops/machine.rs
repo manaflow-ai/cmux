@@ -21,8 +21,13 @@ pub(super) fn run<C: ControlPlane>(
         }
         "cloud.machine.get" => {
             let id = args::id(args::object(raw, &["machine"])?, "machine")?;
-            let answer = ctx.call("GET", format!("/api/vm/{id}"), None)?;
-            merged(ctx, &answer)
+            let answer = ctx.call("GET", format!("/api/vm/{id}"), None);
+            if answer.as_ref().is_err_and(super::delete_retry::machine_gone) {
+                // The Cloud API's own code says the machine is gone; a bare
+                // 404 (a missing route) leaves the projection as it is.
+                ctx.projection.remove(id);
+            }
+            merged(ctx, &answer?)
         }
         "cloud.machine.create" => create(ctx, raw),
         "cloud.machine.rename" => rename(ctx, raw),
@@ -32,8 +37,9 @@ pub(super) fn run<C: ControlPlane>(
         "cloud.machine.delete" => {
             let id = args::id(args::object(raw, &["machine"])?, "machine")?;
             let result = ctx.call("DELETE", format!("/api/vm/{id}"), None);
-            if result.is_ok() || result.as_ref().is_err_and(|e| e.code == codes::NOT_FOUND) {
-                // A machine the Cloud API does not know is gone here too.
+            if result.is_ok() || result.as_ref().is_err_and(super::delete_retry::machine_gone) {
+                // A machine the Cloud API says is gone (`vm_not_found`) is
+                // gone here too; a bare 404 changes nothing here.
                 ctx.projection.remove(id);
             }
             result?;
