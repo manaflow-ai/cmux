@@ -1,5 +1,5 @@
 import { createHash, createHmac } from "node:crypto"
-import { claimedPrincipal, settled, stateFull } from "./state-guard.ts"
+import { claimedPrincipal, settled, stateFull, utf8Length } from "./state-guard.ts"
 import { addEventBytes, DEFAULT_EVENT_WINDOW, nextPruneAt, pruneBefore, pruneWindow, windowOver, type EventWindow } from "./event-window.ts"
 import { idFactory } from "./ids.ts"
 import { channelOf, Outbox, type OutboxRow } from "./outbox.ts"
@@ -294,7 +294,7 @@ export class OwnerEngine<S, P = unknown> {
         this.rows.apply(decision.writes)
         const ev = [JSON.stringify(event!.params ?? null), JSON.stringify(event!.actor), effects ? JSON.stringify(effects) : null] as const
         this.sql.exec(`INSERT INTO ${t.events} (seq, tx, op, params, actor, origin, at, effects) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, nextSeq, tx, frame.op, ev[0], ev[1], origin, at, ev[2])
-        addEventBytes(this.sql, t, ev[0].length + ev[1].length + (ev[2]?.length ?? 0))
+        addEventBytes(this.sql, t, utf8Length(ev[0]) + utf8Length(ev[1]) + (ev[2] === null ? 0 : utf8Length(ev[2])))
         for (const item of decision.outbox) {
           this.sql.exec(
             `INSERT INTO ${t.outbox} (seq, kind, entity, payload, created_at, target, channel) VALUES (?, ?, ?, ?, ?, ?, ?)`,

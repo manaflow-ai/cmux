@@ -102,7 +102,8 @@ export class SecondaryStream<S> {
   nextWakeAt(): number | null {
     if (!this.engine) return null
     const oldest = this.engine.oldestLedgerAt()
-    const times = [oldest === null ? null : oldest + LEDGER_RETENTION_MS + 3600_000, this.engine.nextEventPruneAt()].filter((t): t is number => t !== null)
+    const events = this.engine.eventWindowDue(Date.now()) ? Date.now() : this.engine.nextEventPruneAt()
+    const times = [oldest === null ? null : oldest + LEDGER_RETENTION_MS + 3600_000, events].filter((t): t is number => t !== null)
     return times.length ? Math.min(...times) : null
   }
 }

@@ -24,7 +24,7 @@ describe("feed daily post cap", { timeout: 60_000 }, () => {
     await post(agent, 1)
     await post(agent, 2)
     const over = await post(agent, 3)
-    expect(over.frames.find((f: { t: string }) => f.t === "reject")).toMatchObject({ code: "feed.rate_limited", retryable: true })
+    expect(over.frames.find((f: { t: string }) => f.t === "reject")).toMatchObject({ code: "feed.rate_limited", retryable: false })
     // A retry of an accepted key still answers from the ledger.
     expect((await post(agent, 1)).frames.find((f: { t: string }) => f.t === "result")).toMatchObject({ replayed: true })
     // Another install has its own count.

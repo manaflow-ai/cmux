@@ -34,12 +34,13 @@ export const drainOutboxChannels = async <S>(engine: OwnerEngine<S>, env: Env, t
       try {
         if (channel === "") {
           const res = await drainOutbox(env, engine.stream, rows)
-          outbox.markSent(res.sent, Date.now())
           // Only the bad row leaves the queue; the rest of the batch committed (home-scale review P1).
+          // Dead first: a later sent row for the same key then supersedes (deletes) the dead one.
           for (const d of res.dead) {
             outbox.deadLetter(d.id, Date.now())
             console.error(JSON.stringify({ msg: "outbox row dead-lettered", stream: engine.stream, channel: "planetscale", dead_letter: d.id, error: d.error }))
           }
+          outbox.markSent(res.sent, Date.now())
         } else {
           const batch = groupTargets(rows)[0]!
           outbox.markSent(batch.superseded, Date.now())
@@ -56,8 +57,8 @@ export const drainOutboxChannels = async <S>(engine: OwnerEngine<S>, env: Env, t
         console.error(JSON.stringify({ msg: "outbox delivery failed", stream: engine.stream, channel: channel || "planetscale", error: String(e), ...(dead === null ? {} : { dead_letter: dead }) }))
       }
     }
-    // Rows an older build marked sent instead of deleting go away a batch per alarm.
+  // Rows an older build marked sent instead of deleting go away a batch per alarm.
   outbox.pruneSent(1000)
   const replayed = outbox.replayDead(Date.now(), { deadBefore: Date.now() - DEAD_REPLAY_MS })
-    if (replayed > 0) console.warn(JSON.stringify({ msg: "outbox dead letters replayed", stream: engine.stream, count: replayed }))
+  if (replayed > 0) console.warn(JSON.stringify({ msg: "outbox dead letters replayed", stream: engine.stream, count: replayed }))
 }

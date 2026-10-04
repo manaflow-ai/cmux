@@ -46,20 +46,22 @@ export class FeedDO extends OwnerDO<FeedState> {
    * shared reducer and its vectors stay unchanged). A retry of a decided key always replays.
    */
   override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
-    const counted = (frame.op === "feed.post" || frame.op === "feed.adopt") && principal.install !== undefined
-    if (!counted) return super.submit(entity, principal, frame)
+    // Every poster counts (an install, or a session by its identity); system ops do not.
+    const poster = principal.kind === "system" ? undefined : (principal.install ?? principal.identity)
+    if ((frame.op !== "feed.post" && frame.op !== "feed.adopt") || poster === undefined) return super.submit(entity, principal, frame)
     const day = Math.floor(Date.now() / 86_400_000)
     const sql = this.ctx.storage.sql
     const used = () => {
       if (sql.exec(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'feed_daily'`).toArray().length === 0) return 0
-      return Number(sql.exec<{ count: number }>(`SELECT count FROM feed_daily WHERE install = ? AND day = ?`, principal.install!, day).toArray()[0]?.count ?? 0)
+      return Number(sql.exec<{ count: number }>(`SELECT count FROM feed_daily WHERE install = ? AND day = ?`, poster, day).toArray()[0]?.count ?? 0)
     }
-    const replay = this.isBound(entity) && this.boundEngine?.gate(principal, frame) === "replay"
+    // bind() (not the cached engine, which is unset after a cold start) so a decided key always replays.
+    const replay = this.isBound(entity) && this.bind(entity).gate(principal, frame) === "replay"
     if (!replay && used() >= this.maxPostsPerDay) {
       const key = String(frame.idempotency_key ?? "")
       return {
         frames: [
-          { t: "reject", tx: "", idempotency_key: key, code: "feed.rate_limited", message: `at most ${this.maxPostsPerDay} posts per day per install`, retryable: true, replayed: false },
+          { t: "reject", tx: "", idempotency_key: key, code: "feed.rate_limited", message: `at most ${this.maxPostsPerDay} posts per day per install; try again tomorrow (UTC)`, retryable: false, replayed: false },
           { t: "request-settled", tx: "", idempotency_key: key, stream: `feed:${entity}`, sequence: 0, ok: false }
         ]
       }
@@ -68,7 +70,7 @@ export class FeedDO extends OwnerDO<FeedState> {
     if (res.frames.some((f) => f.t === "result" && !f.replayed)) {
       sql.exec(`CREATE TABLE IF NOT EXISTS feed_daily (install TEXT NOT NULL, day INTEGER NOT NULL, count INTEGER NOT NULL, PRIMARY KEY (install, day))`)
       sql.exec(`DELETE FROM feed_daily WHERE day < ?`, day)
-      sql.exec(`INSERT INTO feed_daily (install, day, count) VALUES (?, ?, 1) ON CONFLICT (install, day) DO UPDATE SET count = count + 1`, principal.install!, day)
+      sql.exec(`INSERT INTO feed_daily (install, day, count) VALUES (?, ?, 1) ON CONFLICT (install, day) DO UPDATE SET count = count + 1`, poster, day)
     }
     return res
   }

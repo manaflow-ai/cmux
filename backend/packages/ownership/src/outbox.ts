@@ -110,9 +110,8 @@ export class Outbox {
   pruneSent(limit = 1000): number {
     const ids = this.sql.exec<{ id: number }>(`SELECT id FROM ${this.t.outbox} WHERE sent_at IS NOT NULL LIMIT ?`, limit).map((r) => Number(r.id))
     if (ids.length === 0) return 0
-    this.sql.transaction(() => {
-      for (const id of ids) this.sql.exec(`DELETE FROM ${this.t.outbox} WHERE id = ?`, id)
-    })
+    // markSent supersedes an older dead item for the same key, and deletes the sent row.
+    this.markSent(ids, 0)
     return ids.length
   }
 

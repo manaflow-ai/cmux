@@ -17,7 +17,8 @@ export interface EventWindow {
 /** The default: 30 days, no count cap, at most 256 MB, never fewer than the newest 1,000. */
 export const DEFAULT_EVENT_WINDOW: EventWindow = { retentionMs: 30 * 24 * 3600_000, maxEvents: Number.MAX_SAFE_INTEGER, maxBytes: 256 * 1024 * 1024, floor: 1_000 }
 
-const SIZE = `length(params) + length(actor) + coalesce(length(effects), 0)`
+// UTF-8 bytes, the same measure the engine adds at commit (utf8Length).
+const SIZE = `length(CAST(params AS BLOB)) + length(CAST(actor AS BLOB)) + coalesce(length(CAST(effects AS BLOB)), 0)`
 
 /** Stored bytes of the event log (computed once for a log written before the total existed). */
 export const eventBytes = (sql: SqlStore, t: Tables): number => {
@@ -100,4 +101,9 @@ export const pruneBefore = (sql: SqlStore, t: Tables, seq: number, before: numbe
     sql.exec(`UPDATE ${t.meta} SET value = ? WHERE key = 'event_bytes'`, String(Math.max(0, total - freed)))
     return upto - oldest + 1
   })
+}
+
+/** Forgets the running total (after a rewrite of stored params); the next read recomputes it. */
+export const resetEventBytes = (sql: SqlStore, t: Tables): void => {
+  sql.exec(`DELETE FROM ${t.meta} WHERE key = 'event_bytes'`)
 }
