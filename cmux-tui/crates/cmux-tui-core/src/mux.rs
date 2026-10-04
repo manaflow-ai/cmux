@@ -10,6 +10,7 @@ mod host_close;
 mod host_death_tests;
 mod idle_close;
 mod kitty_reservation;
+use kitty_reservation::{kitty_image_limits_exceed, kitty_image_limits_within};
 pub(crate) mod layout_invariants;
 mod layout_ratio_error;
 mod personal;
@@ -418,24 +419,6 @@ fn kitty_image_limits_for_capacity(capacity: usize) -> KittyGraphicsLimits {
         .unwrap_or(0)
         .min(ghostty_vt::MAX_KITTY_PLACEMENTS);
     KittyGraphicsLimits { image_bytes, inflight_bytes, images, placements }
-}
-
-fn kitty_image_limits_within(candidate: KittyGraphicsLimits, ceiling: KittyGraphicsLimits) -> bool {
-    candidate.image_bytes <= ceiling.image_bytes
-        && candidate.inflight_bytes <= ceiling.inflight_bytes
-        && candidate.images <= ceiling.images
-        && candidate.placements <= ceiling.placements
-}
-
-fn kitty_image_limits_exceed(candidate: KittyGraphicsLimits, ceiling: KittyGraphicsLimits) -> bool {
-    !kitty_image_limits_within(candidate, ceiling)
-}
-
-fn kitty_image_limits_enabled(limits: KittyGraphicsLimits) -> bool {
-    limits.image_bytes > 0
-        && limits.inflight_bytes > 0
-        && limits.images > 0
-        && limits.placements > 0
 }
 
 #[derive(Clone)]

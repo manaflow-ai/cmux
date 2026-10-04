@@ -106,3 +106,21 @@ impl Mux {
         })
     }
 }
+
+pub(super) fn kitty_image_limits_within(candidate: KittyGraphicsLimits, ceiling: KittyGraphicsLimits) -> bool {
+    candidate.image_bytes <= ceiling.image_bytes
+        && candidate.inflight_bytes <= ceiling.inflight_bytes
+        && candidate.images <= ceiling.images
+        && candidate.placements <= ceiling.placements
+}
+
+pub(super) fn kitty_image_limits_exceed(candidate: KittyGraphicsLimits, ceiling: KittyGraphicsLimits) -> bool {
+    !kitty_image_limits_within(candidate, ceiling)
+}
+
+fn kitty_image_limits_enabled(limits: KittyGraphicsLimits) -> bool {
+    limits.image_bytes > 0
+        && limits.inflight_bytes > 0
+        && limits.images > 0
+        && limits.placements > 0
+}
