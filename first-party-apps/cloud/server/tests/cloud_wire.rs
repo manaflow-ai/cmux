@@ -427,8 +427,8 @@ fn every_vector_op_the_server_serves_reaches_the_backend_by_its_wire_name() {
     let doc = wire_common::vectors();
     for case in doc["cases"].as_array().expect("cases") {
         let op = case["op"].as_str().expect("op");
-        if op == "cloud.shell.open" {
-            continue; // request and response only in this slice
+        if cmux_cloud::ops::canonical_name(op).is_none() {
+            continue; // not served here: shell.open (later slice), link_token (cmux link only)
         }
         let mut s = server();
         s.control_plane_mut().agent = case["principal"].get("agent").is_some();

@@ -96,7 +96,14 @@ pub(super) fn run<C: ControlPlane>(
                 Some(id) => gone_if_not_found(ctx, id, answer)?,
                 None => answer?,
             };
-            // Serialized without `link_token`: that stays with `cmux link`.
+            // A read never carries a credential: an answer with a token is a
+            // protocol break, refused without echoing it.
+            if answer.value.get("link_token").is_some() {
+                return Err(CloudError::new(
+                    codes::BAD_RESPONSE,
+                    "cloud.machine.connect_info answered a credential; a read never carries one",
+                ));
+            }
             let info: ConnectInfo = decode_answer(name, answer.value)?;
             Ok(json!(info))
         }
