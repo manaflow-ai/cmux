@@ -171,6 +171,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
       }
       if (!c || now - c.at > INSTALL_CHECK_MS) {
         this.heldForCheck.add(ws)
+        this.ctx.waitUntil(this.runInstallChecks())
         return false
       }
     }
@@ -193,13 +194,10 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
           byUser.set(p.user, m)
         }
         const now = Date.now()
-        for (const [user, installs] of byUser) {
-          const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(user)) as unknown as { installsActive(entity: string, list: ReadonlyArray<{ install: string; grant: string | undefined }>): Promise<Record<string, boolean>> }
-          // Unreachable UserDO: fail closed (the sockets stay held; the next frame asks again).
-          const status = await stub.installsActive(user, [...installs.values()]).catch(() => null)
-          if (!status) return
-          for (const [k, v] of installs) this.installChecks.set(k, { active: status[v.install] === true, at: now })
-        }
+        const results = await Promise.all([...byUser].map(async ([user, installs]) => ({ installs, status: await this.askUserDO(user, [...installs.values()]) })))
+        // Unreachable UserDO: fail closed (the sockets stay held; the next frame asks again).
+        if (results.some((r) => r.status === null)) return
+        for (const { installs, status } of results) [...installs.keys()].forEach((k, i) => this.installChecks.set(k, { active: status![i] === true, at: now }))
         for (const ws of held) {
           this.heldForCheck.delete(ws)
           const a = ws.deserializeAttachment() as Attachment | null
@@ -210,6 +208,41 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     } finally {
       this.checking = false
     }
+  }
+
+  private askUserDO(user: string, list: ReadonlyArray<{ install: string; grant: string | undefined }>): Promise<ReadonlyArray<boolean> | null> {
+    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(user)) as unknown as { installsActive(entity: string, list: ReadonlyArray<{ install: string; grant: string | undefined }>): Promise<ReadonlyArray<boolean>> }
+    return stub.installsActive(user, list).catch(() => null)
+  }
+
+  /**
+   * Gate for frames a socket sends: an expired token closes the socket; an install whose cached
+   * status is revoked closes it; a stale status is checked now (one UserDO RPC) before the frame is
+   * routed. An unreachable UserDO refuses the frame (fail closed) and keeps the socket.
+   */
+  private async frameAllowed(ws: WebSocket, a: Attachment): Promise<boolean> {
+    const p = a.principal
+    if (p.expires_at !== undefined && p.expires_at <= Date.now()) {
+      closeQuietly(ws, 4401, "token expired")
+      return false
+    }
+    if (!this.checksInstallRevocation || p.kind !== "install" || !p.install || !p.user) return true
+    const key = this.installKey(p)
+    let c = this.installChecks.get(key)
+    if (!c || Date.now() - c.at > INSTALL_CHECK_MS) {
+      const status = await this.askUserDO(p.user, [{ install: p.install, grant: p.grant }])
+      if (!status) {
+        safeSend(ws, JSON.stringify({ t: "error", code: "owner.unreachable", message: "could not check this install; retry" }))
+        return false
+      }
+      c = { active: status[0] === true, at: Date.now() }
+      this.installChecks.set(key, c)
+    }
+    if (!c.active) {
+      closeQuietly(ws, 4401, "install revoked")
+      return false
+    }
+    return true
   }
 
   /** Test hook: forget cached install status (as if INSTALL_CHECK_MS passed). */
@@ -230,7 +263,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     let at: number | null = null
     for (const ws of this.ctx.getWebSockets()) {
       const e = (ws.deserializeAttachment() as Attachment | null)?.principal.expires_at
-      if (typeof e === "number" && (at === null || e < at)) at = e
+      // A past expiry belongs to a socket the sweep already closed (it may still be listed while closing).
+      if (typeof e === "number" && e > Date.now() && (at === null || e < at)) at = e
     }
     return at
   }
@@ -253,7 +287,6 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
       if (this.resyncs.has(ws)) this.resyncs.flushOne(ws)
       safeSend(ws, text)
     }
-    if (this.heldForCheck.size > 0) this.ctx.waitUntil(this.runInstallChecks())
   }
 
   /**
@@ -524,8 +557,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
     const a = ws.deserializeAttachment() as Attachment
-    // A socket lives no longer than its token.
-    if (a.principal.expires_at !== undefined && a.principal.expires_at <= Date.now()) return ws.close(4401, "token expired")
+    // A socket lives no longer than its token, and a revoked install's frames are never routed.
+    if (!(await this.frameAllowed(ws, a))) return
     const row = this.boundEntity()
     if (row === null) return ws.close(1011, "unbound")
     const engine = this.open(row)
@@ -574,6 +607,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   }
 
   override async webSocketClose(ws: WebSocket, code: number) {
+    this.heldForCheck.delete(ws)
     // 1005/1006 are reserved: they report "no code" and "abnormal" and cannot be sent.
     try {
       ws.close(code === 1005 || code === 1006 ? 1000 : code, "closing")

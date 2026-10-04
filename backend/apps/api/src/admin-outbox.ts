@@ -19,6 +19,7 @@ export const handleOutboxReplay = async (request: Request, env: Env): Promise<Re
   if (request.method !== "POST") return json({ error: "method not allowed" }, 405)
   const presented = (request.headers.get("authorization") ?? "").replace(/^Bearer /, "")
   if (!timingSafeEqual(presented, key)) return json({ error: "unauthorized" }, 401)
+  if (Number(request.headers.get("content-length") ?? "0") > 64 * 1024) return json({ error: "body too large" }, 413)
   const raw = await request.text()
   if (raw.length > 64 * 1024) return json({ error: "body too large" }, 413)
   const body = (() => {

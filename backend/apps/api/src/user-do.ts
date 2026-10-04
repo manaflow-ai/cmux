@@ -283,10 +283,11 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /** RPC from other owners (OwnerDO.runInstallChecks): which of these installs (with the token's grant) are active. Never creates an object. */
-  async installsActive(entity: string, list: ReadonlyArray<{ install: string; grant: string | undefined }>): Promise<Record<string, boolean>> {
-    if (!this.isBound(entity)) return Object.fromEntries(list.map((x) => [x.install, false]))
+  async installsActive(entity: string, list: ReadonlyArray<{ install: string; grant: string | undefined }>): Promise<ReadonlyArray<boolean>> {
+    // One answer per entry, in order (two sockets of one install may hold different grants).
+    if (!this.isBound(entity)) return list.map(() => false)
     const state = this.bind(entity).currentState
-    return Object.fromEntries(list.slice(0, 1000).map((x) => [x.install, installActive(state, { identity: x.install, kind: "install", user: entity, install: x.install, ...(x.grant ? { grant: x.grant } : {}) })]))
+    return list.slice(0, 1000).map((x) => installActive(state, { identity: x.install, kind: "install", user: entity, install: x.install, ...(x.grant ? { grant: x.grant } : {}) }))
   }
 
   /** A revoked install loses its open sockets at once, not at token expiry. */

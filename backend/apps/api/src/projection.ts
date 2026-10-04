@@ -52,7 +52,7 @@ export const isTransientError = (e: unknown): boolean => {
   if (typeof code === "string" && /^E[A-Z]+$/.test(code)) return true
   // The pg client's own connection errors carry no code; nothing else is matched by text.
   const text = e instanceof Error ? e.message : String(e)
-  return /^(Connection terminated|Connection terminated unexpectedly|connection timeout|timeout expired|HYPERDRIVE binding missing)/i.test(text)
+  return /^(Connection terminated|Connection terminated unexpectedly|connection timeout|timeout expired|HYPERDRIVE binding missing|Network connection lost)/i.test(text)
 }
 
 const describeError = (e: unknown): string => {
