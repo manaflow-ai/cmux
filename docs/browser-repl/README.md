@@ -44,7 +44,7 @@ reference ([parity-report.md](parity-report.md)).
 | `snapshot(target?, options?)` | Accessibility snapshot of `page`, a locator, or a ref string. See [Snapshot](#snapshot). |
 | `screenshot(target?, options?)` | PNG of the viewport, full page, locator or ref. `{ annotate: true }` draws each ref's box and label. Returns an `Image` that displays when printed. |
 | `fetch` | Standard `fetch` that sends the current tab's cookies (`credentials`: `"include"` by default, `"same-origin"`, `"omit"`). The domain policy is checked on every redirect hop; a body over 64 MiB fails (download it in a tab instead), as does one past the 128 MiB a session's fetches may hold at once; a fetch fails after 10 minutes; past 256 queued fetches a new one fails at once. |
-| `fs`, `path`, `os`, `Buffer` | Node-compatible subsets. Files are limited to the session directory (the caller's cwd; `/` and the home directory are refused, and `repl mcp` started there uses a temporary directory) and the session's own temporary directory (`os.tmpdir()`, mode 0700, never shared with another session); a symbolic link is never followed out of them (also when another process changes the tree meanwhile), and `rm`, `rename` and `lstat` act on the link itself as in Node. A FIFO, socket or device fails with `EINVAL` instead of blocking, and `readFile` reads at most 64 MiB. `import("node:fs")` and friends return the same modules. |
+| `fs`, `path`, `os`, `Buffer` | Node-compatible subsets. Files are limited to the session directory (the caller's cwd; `/` and the home directory are refused, and `repl mcp` started there uses a temporary directory) and the session's own temporary directory (`os.tmpdir()`, mode 0700, never shared with another session); a symbolic link is never followed out of them (also when another process changes the tree meanwhile), and `rm`, `rename` and `lstat` act on the link itself as in Node. A FIFO, socket or device fails with `EINVAL` instead of blocking, and `readFile` reads at most 64 MiB. One `writeFile`, `appendFile` or `copyFile` writes at most 256 MiB, and a session at most 2 GiB in all (reset it to write more); a long write or copy stops when its cell times out. `import("node:fs")` and friends return the same modules. |
 | `sleep(ms)`, `display(value)` | Wait; show a value or image to the agent. |
 | `sites` | Site tools that run through the signed-in browser session: Google Docs/Sheets/Slides/Drive, Gmail, Calendar, Search, YouTube, Slack, Notion, LinkedIn, X, GitHub, Linear, Jira, page assets, WebMCP and a secure sign-in sheet. Writes to other people are drafts until confirmed. See [site-tools.md](site-tools.md). |
 | `session` | `name(label)` labels this session's tabs in the UI; `keep(page)` keeps a tab open after a one-shot run ends; `id`; `guide()` returns the agent guide (`Resources/browser-repl/guide.md`). `configure({ userAgent, extraHTTPHeaders, permissions, proxy })` sets Playwright browser-context options for the tabs the session created. The domain policy (`allowedDomains`, `prohibitedDomains`, `blockIPAddresses`, `blockedNavigations`, which also blocks subresources), `storageState` (the current tab's site by default, `{ all: true }` for the whole profile)/`setStorageState`, `downloads()` and `record()`: see [reference-c-parity.md](reference-c-parity.md). |
@@ -304,7 +304,9 @@ rest. Measurements: [performance.md](performance.md).
   `output-N.txt` in the session's own `os.tmpdir()`
   (`<tmp>/cmux-browser-repl/<session>-<random>-tmp`, mode 0700, where its
   images, exports and recordings go too; kept after the session ends,
-  removed only when empty): the first 80% prints,
+  removed only when empty; the session holds it open from when it made it,
+  so a link another process puts at its path redirects nothing, and the
+  printed path is where the directory is then): the first 80% prints,
   then `# output continues in <path>`, and at the end of the call its last
   lines and `# output truncated: X of Y characters shown; full output:
   <path>`. The file is written as output arrives, so a call that times out
@@ -325,6 +327,13 @@ rest. Measurements: [performance.md](performance.md).
   server process gets its own session (`mcp-<pid>-<random>`), reset when
   the server exits, so two MCP clients never share variables or tabs; give
   them the same `--session` to share one.
+- A session made without `--session` (a one-shot run, the interactive
+  REPL's `cli-<pid>-<random>`, `mcp`'s) is its client's alone: the client
+  sends a random owner token with every call, and without that token no
+  other client sees it in `cmux browser repl list`, attaches to it or
+  resets it, also when it knows the name or the client was killed before
+  its session ended (it then idles out after 30 minutes). Named sessions
+  are shared by name.
 - A session binds to the caller's cmux workspace (from `CMUX_WORKSPACE_ID`), or
   to the focused workspace when the caller is outside cmux or the id is unknown
   to this instance. A named session belongs to that workspace: the same
@@ -488,7 +497,10 @@ agent -> cmux browser repl -> control socket -> REPL session (JavaScriptCore)
   bounded, also a timer or event callback outside a cell (10 s per run,
   and 10% of the thread's time over a stream of them, so they cannot
   starve the next cell, whose output says when they were stopped or
-  waited), and `cmux browser repl reset` always ends a stuck one.
+  waited), and `cmux browser repl reset` always ends a stuck one. This
+  needs JavaScriptCore's execution time limit
+  (`JSContextGroupSetExecutionTimeLimit`); where it is missing, a session
+  runs no cell and says why.
 - Runtime: `Resources/browser-repl/` (`runtime-core.js` Playwright model,
   `api.js` globals, `snapshot.js` host-side stitching and diff, `page-agent.js`
   per-frame script in an isolated content world, `repl-host.js`). Locators use
