@@ -52,10 +52,20 @@ extension KeyRouter {
     /// for keys). Other key windows (panels, sheets, windows of their own)
     /// follow the tier rule of the key window's focus.
     func allowsMenuKeyEquivalent(_ id: ActionID) -> Bool {
-        if let event = NSApp.currentEvent, event.type == .keyDown, decided.contains(event) { return false }
+        if let event = NSApp.currentEvent, event.type == .keyDown, decided.contains(event),
+           !Self.menuKeyEquivalentAllowedAfterDispatch(registry.keyTier(for: id), eventWasDecided: true) { return false }
         let (controller, kind) = keyWindowFocus()
         guard let controller else { return true }
         return Self.allowsMenu(registry.keyTier(for: id), id: id, focus: controller.focus.state, keyWindow: kind)
+    }
+
+    /// Menu equivalents are a fallback for keys that reached a content view.
+    /// The dispatcher marks every key it examines so content actions cannot
+    /// run twice; system actions need an explicit policy here because the
+    /// terminal may still be the next responder for the same event.
+    nonisolated static func menuKeyEquivalentAllowedAfterDispatch(_ tier: ActionKeyTier,
+                                                                   eventWasDecided: Bool) -> Bool {
+        !eventWasDecided
     }
 
     nonisolated static func allowsMenu(_ tier: ActionKeyTier, id: ActionID? = nil, focus: FocusState, keyWindow: KeyWindowKind) -> Bool {
