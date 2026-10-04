@@ -13,9 +13,9 @@ pub mod adopt;
 pub mod agent;
 #[cfg(test)]
 mod agent_exit_tests;
+pub mod agent_host;
 #[cfg(test)]
 mod agent_replay_tests;
-pub mod agent_host;
 pub mod claude_stdio;
 pub mod cli;
 pub mod client;

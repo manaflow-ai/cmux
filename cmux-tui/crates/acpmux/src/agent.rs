@@ -616,20 +616,22 @@ impl ChildAgent {
         rx
     }
 
-    /// Wait (bounded) until the entries this host had when it was adopted
-    /// are in the session log, so a scan of the log sees all of them.
-    pub async fn wait_logged(&self, h: u64, budget: std::time::Duration) -> bool {
+    /// Wait until the entries through `h` are in the session log, as long as
+    /// they keep coming: it gives up only when no entry is logged for `stall`
+    /// (a stalled or closed link), however long a large replay takes.
+    pub async fn wait_replayed(&self, h: u64, stall: std::time::Duration) -> bool {
         let Some(hosted) = &self.hosted else { return true };
         let mut rx = hosted.logged.subscribe();
-        tokio::time::timeout(budget, rx.wait_for(|logged| *logged >= h))
-            .await
-            .is_ok_and(|r| r.is_ok())
-    }
-
-    /// Wait until the entries through `h` are in the session log, giving up
-    /// when no entry is logged for `stall`.
-    pub async fn wait_replayed(&self, h: u64, stall: std::time::Duration) -> bool {
-        self.wait_logged(h, stall).await
+        loop {
+            if *rx.borrow_and_update() >= h {
+                return true;
+            }
+            match tokio::time::timeout(stall, rx.changed()).await {
+                Ok(Ok(())) => continue,
+                // No progress for `stall`, or the reader is gone.
+                Ok(Err(_)) | Err(_) => return *rx.borrow() >= h,
+            }
+        }
     }
 
     /// The Claude translator's state, wherever the translator runs.

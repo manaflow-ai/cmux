@@ -41,7 +41,8 @@ async fn a_replay_that_keeps_progressing_is_waited_for_past_one_stall_period() {
     let (inbound, mut drain) = tokio::sync::mpsc::channel(16);
     tokio::spawn(async move { while drain.recv().await.is_some() {} });
     let tap: Tap = Arc::new(|_, _, _| true);
-    let (child, _) = ChildAgent::from_link("t", Arc::new(link), &adopted, 0, Vec::new(), inbound, tap);
+    let (child, _) =
+        ChildAgent::from_link("t", Arc::new(link), &adopted, 0, Vec::new(), inbound, tap);
     // Five entries, 300 ms apart: 1.5 s in all, each well inside a 1 s stall.
     let feeder = tokio::spawn(async move {
         for h in 1..=5u64 {
