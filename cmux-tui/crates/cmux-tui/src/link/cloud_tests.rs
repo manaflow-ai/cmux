@@ -66,7 +66,7 @@ impl ConnectInfoSource for FakeSource {
     async fn mint_token(
         &self,
         _host: &str,
-        _services: &[cmux_link::dial::Service],
+        _services: &[Service],
     ) -> Result<LinkTokenGrant, ConnectInfoError> {
         *self.mints.lock().unwrap() += 1;
         self.tokens.lock().unwrap().pop_front().expect("no more link tokens")
@@ -255,11 +255,12 @@ async fn backend_errors_and_unknown_ids_map_to_dial_errors() {
         assert!(reply.contains("\"error_code\":\"not_authorized\""), "{reply}");
     }
     // Neither paired nor a Cloud host id: connect_info is never asked.
+    let untouched = CloudOverlay::default();
     let resolver = CloudResolver::new(FakeSource::default());
-    let (reply, _) = dial(&overlay, &resolver, "inst_unpaired", "daemon").await;
+    let (reply, _) = dial(&untouched, &resolver, "inst_unpaired", "daemon").await;
     assert!(reply.contains("\"error_code\":\"unknown_host\""), "{reply}");
     assert_eq!(*resolver.source.calls.lock().unwrap(), 0);
-    assert!(overlay.connects.lock().unwrap().is_empty());
+    assert!(untouched.connects.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
