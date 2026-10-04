@@ -1789,7 +1789,13 @@ export const NOTES = [
 
 /** The Chief conversation rule: the oldest local conversation with agent_mux (created_at, then id). */
 function selectionCases(): SelectionCase[] {
-  const at = (iso: string, id: string, participants: Participant[] = [ME, MUX], owner = "local"): Summary => ({ ...summary(id, participants), owner, created_at: iso, updated_at: iso });
+  // `owner` is typed "local" today; a non-local owner (a cloud copy) must never be the local Chief's.
+  const at = (iso: string, id: string, participants: Participant[] = [ME, MUX], owner = "local"): Summary => ({
+    ...summary(id, participants),
+    owner: owner as Summary["owner"],
+    created_at: iso,
+    updated_at: iso,
+  });
   return [
     { name: "none: create home-chief", conversations: [], selected: null },
     { name: "no conversation with the Chief: create home-chief", conversations: [at("2026-10-01T00:00:00.000Z", "conv_b", [ME, ANA])], selected: null },
