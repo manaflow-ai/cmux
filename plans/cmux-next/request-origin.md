@@ -40,19 +40,29 @@ One handshake for origin and P8 (coordinator decision 2026-10-04):
   must stay read-only and return only static daemon facts. `role` is required; a missing or unknown
   role fails closed (`client_hello.bad_request`). Any other line first (including a second
   `identify`) closes the hello window: a later client-hello is refused.
-- Result data: `connection_id` (the daemon client id, as a string); `nonce` when an install key
-  exists (P8 step 2).
-- Step 1 (origin window, this lane): role + connection_id. Errors `client_hello.local_only`,
-  `client_hello.unavailable`, `client_hello.refused`, `client_hello.bad_request`.
-- Step 2 (P8 lead, later, same command): install_id + proof =
-  HMAC-SHA256(key, "cmux-frontend-hello-v1" || 0x00 || install_id || 0x00 || nonce).
+- Final fields (P8 accepted, 2026-10-04). Params: `{cmd: "client-hello", role: "main"|"page_relay",
+  install_id?: 1-128 chars of [A-Za-z0-9_-]}`. Result: `{connection_id, nonce?: 64 lowercase hex}`.
+- Step 1 errors (named by this lane); none changes state, and each closes the hello window:
+  - `client_hello.local_only`: not a local Unix connection.
+  - `client_hello.bad_request`, details `{field: "role"}`: role missing or unknown.
+  - `client_hello.bad_request`, details `{field: "install_id"}`: install_id malformed.
+  - `client_hello.window_closed`: client-hello after any other line, two identify lines, or a
+    second client-hello.
+- Nonce rule: a nonce is returned whenever role == main AND install_id is present, uniformly; the
+  daemon never reveals whether it holds a launcher key for that id. A wrong or unknown id fails only
+  at step 2 with `client_hello.refused`. Nonce + install_id are kept per connection until line 2
+  in P8's HelloGate, zeroized after.
+- Split: this lane's step 1 validates `install_id` (so the shape is fixed) but returns no nonce;
+  P8's window adds HelloGate, the nonce and step 2 (install_id + proof, role not repeated; proof =
+  HMAC-SHA256(key, "cmux-frontend-hello-v1" || 0x00 || install_id || 0x00 || nonce)). P8
+  needs its own window after the origin window (hmac + sha2 edges in cmux-local-auth).
+- peer_key = `install:<id>` (proven) or `token:<pid>.<pidversion>` (audit token), never pid alone.
 - `set-client-info` stays a label only and never sets the role.
 - A connection with no client-hello is the legacy client role: never user, never page_relay.
 - verified_app (P8) = role main declared on that connection AND (install-key proof OR prover A).
 - A page_relay connection sends client-hello, then page calls; no subscribe (valid without it;
   subscribe on page_relay is refused).
-- Same-peer key for origin.confirmation.issue: the proven install_id when present, else the
-  audit-token pid + pidversion. Never pid alone.
+- Same-peer key for origin.confirmation.issue: peer_key above.
 - Capability `origin-claim-v1` = client-hello step 1 + the `origin` envelope field + the issue
   operation. Clients use them only when it is advertised; otherwise the relay behaves as today
   and logs that page calls are not narrowed.
@@ -67,7 +77,9 @@ One handshake for origin and P8 (coordinator decision 2026-10-04):
 - request with no origin on a client connection behaves as today.
 - origin-claim-v1 advertised.
 - client-hello: role required (missing/unknown -> bad_request); accepted after one identify;
-  refused after any other line or after two identify lines;
+  refused (window_closed) after any other line or after two identify lines;
+- client-hello errors: non-Unix connection -> local_only; malformed install_id -> bad_request
+  {field: install_id}; no state change after any error;
 - identify reveals no per-user or per-connection secret (no token, nonce, connection_id, path);
   returns connection_id; second client-hello refused.
 - no client-hello: never page_relay, never user (legacy client role).
