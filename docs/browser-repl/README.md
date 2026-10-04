@@ -222,6 +222,9 @@ Rules, and how they improve on the references:
   that declares no header cell, caption, `thead`, `tfoot`, `colgroup`,
   `summary`, `border` or table role, and that holds or sits in another table,
   has one row or one column, or has rows of different lengths (Hacker News).
+  The shape is judged from the table's first 50 rows (and 50 cells of each)
+  and its first 1,000 descendant elements, so a huge table costs no more
+  than a small one to classify.
   Reference A drops all table structure.
 - **Structure with nothing in it** is not printed: an unnamed, ref-less
   container with no children (an empty `list`). An unnamed list item or cell
@@ -240,7 +243,9 @@ Rules, and how they improve on the references:
   "Submitted me@x.com", with the lines that locate it),
   `viewport` (only elements that intersect the viewport, with their
   ancestors, and a closing note `# N interactive elements outside the
-  viewport are not shown`; refs are the same as in a full snapshot),
+  viewport are not shown`; the count reads at most as many elements as the
+  snapshot's node budget and then reads `# at least N …`; refs are the same
+  as in a full snapshot),
   `showHidden`, `maxChars` (the print budget, see [Large output](#large-output)),
   `options`, `urls`.
 - **Size**: on the real-site corpus (tests/browser-parity) the snapshot holds

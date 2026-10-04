@@ -962,7 +962,10 @@
     }
     page._noteRefMax(frame, r.max);
     const issued = [];
-    if (options.viewport) options._offscreen = (options._offscreen || 0) + (r.offscreen || 0);
+    if (options.viewport) {
+      options._offscreen = (options._offscreen || 0) + (r.offscreen || 0);
+      if (r.offscreenMore) options._offscreenMore = true;
+    }
     const iframes = [];
     const collect = (list) => {
       for (const n of list) {
@@ -1090,7 +1093,7 @@
     if (options.interactive) nodes = interactiveOnly(nodes);
     const full = options.interactive ? render(shaped, options) : null;
     const body = render(nodes, options);
-    const trailer = options.viewport ? [`# ${options._offscreen || 0} interactive elements outside the viewport are not shown; snapshot() shows the whole page`] : [];
+    const trailer = options.viewport ? [`# ${options._offscreenMore ? "at least " : ""}${commas(options._offscreen || 0)} interactive elements outside the viewport are not shown; snapshot() shows the whole page`] : [];
     const budget = nodeBudget(options);
     if (budget.truncated) {
       const why = budget.truncated === "time" ? "after 8 s of reading" : budget.truncated === "size" ? `after ${commas(budget.sizeTotal)} characters` : `after ${commas(budget.total)} nodes`;

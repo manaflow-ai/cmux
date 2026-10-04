@@ -331,20 +331,41 @@
   // caption or table structure; otherwise a table that holds or sits in
   // another table, a single row or column, or rows of differing lengths mark
   // it as layout.
+  //
+  // This runs before the walk visits the table's content, outside its node
+  // budget, so it reads lazily and at most a bounded sample: the table's
+  // first TABLE_SAMPLE children, rows and cells per row, and TABLE_SCAN of
+  // its descendant elements when it looks for a nested table. A huge table
+  // is judged by its start.
+  const TABLE_SAMPLE = 50;
+  const TABLE_SCAN = 1000;
   const layoutTables = new WeakMap();
   const TABLE_PART_TAGS = new Set(["table", "thead", "tbody", "tfoot", "tr", "td", "th"]);
+  function hasColgroup(table) {
+    let n = 0;
+    for (let c = table.firstElementChild; c && n < TABLE_SAMPLE; c = c.nextElementSibling, n++) if (tagOf(c) === "colgroup") return true;
+    return false;
+  }
+  function holdsTable(table) {
+    const walker = table.ownerDocument.createTreeWalker(table, 1 /* NodeFilter.SHOW_ELEMENT */);
+    for (let n = 0, el = walker.nextNode(); el && n < TABLE_SCAN; el = walker.nextNode(), n++) if (tagOf(el) === "table") return true;
+    return false;
+  }
   function isLayoutTable(table) {
     let layout = layoutTables.get(table);
     if (layout !== undefined) return layout;
     layout = false;
     if (!table.getAttribute("role") && !table.hasAttribute("summary") && !(Number(table.getAttribute("border")) > 0) &&
-        !(table.caption || table.tHead || table.tFoot || table.querySelector(":scope > colgroup"))) {
-      const rows = [...table.rows];
+        !(table.caption || table.tHead || table.tFoot || hasColgroup(table))) {
+      // Indexed reads walk only as far as the index (no `length`, no spread).
+      const rows = table.rows;
+      let rowCount = 0;
       let dataCell = false;
       const lengths = new Set();
-      for (const row of rows) {
+      for (let row; rowCount < TABLE_SAMPLE && (row = rows[rowCount]); rowCount++) {
         let length = 0;
-        for (const cell of row.cells) {
+        const cells = row.cells;
+        for (let i = 0, cell; i < TABLE_SAMPLE && (cell = cells[i]); i++) {
           length += cell.colSpan || 1;
           if (tagOf(cell) === "th" || cell.hasAttribute("scope") || cell.hasAttribute("headers") || cell.getAttribute("role")) dataCell = true;
         }
@@ -352,8 +373,8 @@
       }
       if (!dataCell) {
         const columns = Math.max(0, ...lengths);
-        const nested = !!table.querySelector("table") || !!(table.parentElement && table.parentElement.closest("td, th"));
-        layout = nested || rows.length <= 1 || columns <= 1 || lengths.size > 1;
+        const nested = holdsTable(table) || !!(table.parentElement && table.parentElement.closest("td, th"));
+        layout = nested || rowCount <= 1 || columns <= 1 || lengths.size > 1;
       }
     }
     layoutTables.set(table, layout);
@@ -735,6 +756,23 @@
       bottom: y || paint ? top + (el.clientHeight || r.height) : Infinity,
     };
   }
+  // Counts the interactive elements in an offscreen subtree (viewport
+  // snapshots say how many they leave out). The walk does not visit these,
+  // so the count reads lazily and at most as many elements as the walk's
+  // node budget, over the whole snapshot, and stops at its deadline; past
+  // either the count is a lower bound (`offscreenMore`).
+  function countOffscreen(el, ctx) {
+    if (ctx.offscreenMore) return;
+    const walker = el.ownerDocument.createTreeWalker(el, 1 /* NodeFilter.SHOW_ELEMENT */);
+    for (let n = el; n; n = walker.nextNode()) {
+      if (ctx.countLeft <= 0 || (++ctx.ticks % 256 === 0 && now() > ctx.deadline)) {
+        ctx.offscreenMore = true;
+        return;
+      }
+      ctx.countLeft--;
+      if (n.matches(INTERACTIVE_SELECTOR)) ctx.offscreen++;
+    }
+  }
   const overlaps = (r, c) => r.right > c.left + 0.5 && r.left < c.right - 0.5 && r.bottom > c.top + 0.5 && r.top < c.bottom - 0.5;
 
   function visitElement(el, out, ctx, parentAriaHidden, skipText) {
@@ -758,7 +796,7 @@
             }
           }
           if (ctx.viewport && !overlaps(r, ctx.viewport)) {
-            ctx.offscreen += el.querySelectorAll(INTERACTIVE_SELECTOR).length + (el.matches(INTERACTIVE_SELECTOR) ? 1 : 0);
+            countOffscreen(el, ctx);
             return;
           }
         }
@@ -937,17 +975,20 @@
       offscreen: 0,
       left: Math.min(MAX_NODES, opts.maxNodes > 0 ? Math.floor(opts.maxNodes) : MAX_NODES),
       sizeLeft: Math.min(MAX_SIZE, opts.maxSize > 0 ? Math.floor(opts.maxSize) : MAX_SIZE),
+      countLeft: 0,
+      offscreenMore: false,
       deadline: started + MAX_WALK_MS,
       ticks: 0,
       truncated: undefined,
     };
     const budget = ctx.left;
+    ctx.countLeft = budget;
     const sizeBudget = ctx.sizeLeft;
     const out = [];
     if (spend(ctx, 1)) visitElement(root, out, ctx, false, false);
     const nodes = normalizeChildren(out);
     // `ms` is the traversal time in this frame, for perf measurements.
-    return { nodes, max: refCounter, doc: docToken, offscreen: ctx.offscreen, ms: now() - started, visited: budget - ctx.left, size: sizeBudget - ctx.sizeLeft, truncated: ctx.truncated };
+    return { nodes, max: refCounter, doc: docToken, offscreen: ctx.offscreen, offscreenMore: ctx.offscreenMore || undefined, ms: now() - started, visited: budget - ctx.left, size: sizeBudget - ctx.sizeLeft, truncated: ctx.truncated };
   }
 
   // Table sizes, for leak checks (tests/browser-parity/perf).
