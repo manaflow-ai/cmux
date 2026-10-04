@@ -465,6 +465,24 @@
     };
   }
 
+  // tabs.content reads in the page agent's world, within the page-read
+  // budget (A.budget, page-agent.js), so a page's text or HTML crosses to
+  // the session cut at the URL's share instead of whole.
+  const CONTENT_READ_SIZE = 2000000;
+  function readContent(opts) {
+    const B = globalThis[Symbol.for("cmux.browserRepl.agent")].budget({ maxSize: opts.maxSize });
+    let text;
+    if (opts.html) {
+      const doctype = document.doctype ? new XMLSerializer().serializeToString(document.doctype) : "";
+      text = doctype + (document.documentElement ? document.documentElement.outerHTML : "");
+    } else text = document.body ? document.body.innerText : "";
+    const content = B.fit(text);
+    return { content, truncated: B.truncated || null };
+  }
+  function readTitle(opts) {
+    return globalThis[Symbol.for("cmux.browserRepl.agent")].budget({ maxSize: opts.maxSize }).fit(document.title);
+  }
+
   function createGlobals(session, host) {
     const workDir = () => host.workDir || "/";
     const path = createPath(workDir);
@@ -660,7 +678,11 @@
       },
       // Loads each URL in a background tab, extracts it and closes the tab;
       // the current tab does not change. format: "text" (default),
-      // "markdown", "html" or "snapshot".
+      // "markdown", "html" or "snapshot". The whole call reads at most the
+      // page-read budget's characters (2,000,000), each batch of URLs
+      // splitting what is left; a row cut there carries `truncated`, the
+      // note saying so, and a URL read after the budget is used up is not
+      // read.
       async content(input, options = {}) {
         const opts = Array.isArray(input) || typeof input === "string" ? { ...options, urls: [].concat(input) } : { ...(input || {}) };
         const urls = opts.urls;
@@ -668,16 +690,31 @@
         const format = opts.format || "text";
         if (!["text", "markdown", "html", "snapshot"].includes(format)) throw new Error(`tabs.content: format: expected one of text, markdown, html, snapshot, got ${JSON.stringify(format)}`);
         const timeout = opts.timeout !== undefined ? opts.timeout : 30000;
-        const one = async (url) => {
+        let left = CONTENT_READ_SIZE;
+        const cutNote = (maxSize) => core.readCutNote("tabs.content", { truncated: "size", maxSize });
+        const one = async (url, share) => {
+          if (share < 1) return { url, title: null, status: null, content: null, truncated: `${cutNote(CONTENT_READ_SIZE)} for this call; this URL was not read` };
           const page = await session.newPage(undefined, { background: true });
           try {
             const response = await page.goto(url, { timeout, waitUntil: opts.waitUntil || "load" });
             let content;
-            if (format === "html") content = await page.content();
-            else if (format === "snapshot") content = String((await ns.snapshot.takeSnapshot(page, undefined, { maxChars: Infinity })).tree);
-            else if (format === "markdown") content = await page.evaluate(ns.api.pageMarkdown);
-            else content = await page.evaluate(() => (document.body ? document.body.innerText : ""));
-            return { url: page.url(), title: await page.title(), status: response ? response.status() : null, content };
+            let cut = false;
+            if (format === "snapshot") {
+              const snap = await ns.snapshot.takeSnapshot(page, undefined, { maxChars: Infinity, _maxSize: share });
+              content = String(snap.tree);
+              cut = /^# the page is too large to read whole/m.test(content);
+            } else if (format === "markdown") {
+              content = await page.markdown({ _maxSize: share });
+              cut = /<!-- the page is too large to read whole/.test(content);
+            } else {
+              const r = await page._mainFrame._call("agent", core.functionSource(readContent), [{ html: format === "html", maxSize: share }]);
+              content = r.content;
+              cut = !!r.truncated;
+            }
+            const title = await page._mainFrame._call("agent", core.functionSource(readTitle), [{ maxSize: 1000 }]);
+            const row = { url: page.url(), title, status: response ? response.status() : null, content };
+            if (cut) row.truncated = cutNote(share);
+            return row;
           } catch (e) {
             return { url, title: null, status: null, content: null, error: String((e && e.message) || e) };
           } finally {
@@ -686,7 +723,13 @@
         };
         const out = [];
         // A few at a time, in the order given.
-        for (let i = 0; i < urls.length; i += 4) out.push(...(await Promise.all(urls.slice(i, i + 4).map(one))));
+        for (let i = 0; i < urls.length; i += 4) {
+          const batch = urls.slice(i, i + 4);
+          const share = Math.floor(left / batch.length);
+          const rows = await Promise.all(batch.map((u) => one(u, share)));
+          for (const row of rows) left -= row.content ? Math.min(share, row.content.length) : 0;
+          out.push(...rows);
+        }
         return out;
       },
       // cmux's browser history, most recent first: [{ url, title, dateVisited }].

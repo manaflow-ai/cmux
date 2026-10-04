@@ -1445,8 +1445,10 @@
   const MARKDOWN_FRAMES = 100;
   const READ_NODES = 250000;
   const READ_SIZE = 2000000;
-  function markdownBudget() {
-    return { left: READ_NODES, sizeLeft: READ_SIZE, frames: MARKDOWN_FRAMES, cut: null };
+  // `maxSize` lowers the characters (tabs.content splits its budget).
+  function markdownBudget(maxSize) {
+    const size = maxSize > 0 ? Math.min(READ_SIZE, Math.floor(maxSize)) : READ_SIZE;
+    return { left: READ_NODES, sizeLeft: size, size, frames: MARKDOWN_FRAMES, cut: null };
   }
   function noteCut(budget, cut) {
     if (!budget.cut) budget.cut = cut;
@@ -1458,7 +1460,7 @@
     budget.left -= Math.max(0, Number(report.visited) || 0);
     budget.sizeLeft -= Math.max(0, Number(report.size) || 0);
     budget.frames -= r.frames.length;
-    if (report.truncated) noteCut(budget, { truncated: report.truncated, maxNodes: READ_NODES, maxSize: READ_SIZE });
+    if (report.truncated) noteCut(budget, { truncated: report.truncated, maxNodes: READ_NODES, maxSize: budget.size });
     if (r.framesCut) noteCut(budget, { truncated: "frames", frames: MARKDOWN_FRAMES });
     const text = r.blocks.join("\n\n");
     // Page text keeps no NUL, so only the agent's placeholders have one.
@@ -1477,7 +1479,7 @@
     for (const child of children) {
       // Frames nested deeper than six are left out, as before the budget.
       if (!child || depth >= 6 || budget.left < 1 || budget.sizeLeft < 1) {
-        if (child && depth < 6) noteCut(budget, { truncated: budget.left < 1 ? "nodes" : "size", maxNodes: READ_NODES, maxSize: READ_SIZE });
+        if (child && depth < 6) noteCut(budget, { truncated: budget.left < 1 ? "nodes" : "size", maxNodes: READ_NODES, maxSize: budget.size });
         parts.push("");
         continue;
       }
@@ -1504,7 +1506,7 @@
     if (options === null || typeof options !== "object") throw new Error(`page.markdown: options: expected an object, got ${JSON.stringify(options)}`);
     const opts = { main: !!options.main, links: options.links !== false, images: !!options.images };
     await this._syncInfo().catch(() => {});
-    const budget = markdownBudget();
+    const budget = markdownBudget(options._maxSize);
     let full = (await frameMarkdown(this, this._mainFrame, opts, 0, budget)) + "\n";
     // A page past the page-read budget ends with a note where it stopped.
     if (budget.cut) full += `\n<!-- ${core.readCutNote("Markdown", budget.cut)}; the rest of the page is not shown -->\n`;

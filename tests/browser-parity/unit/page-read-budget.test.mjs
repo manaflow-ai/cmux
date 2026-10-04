@@ -174,7 +174,7 @@ test("tabs.content: each URL and the whole call stop at the page-read budget, an
   const url = `http://127.0.0.1:${server.address().port}`;
   try {
     await withLoggedRepl(async (run) => {
-      for (const format of ["text", "html", "markdown"]) {
+      for (const format of ["text", "html", "markdown", "snapshot"]) {
         const r = await run(`const rows = await tabs.content([${JSON.stringify(url + "/a")}, ${JSON.stringify(url + "/b")}, ${JSON.stringify(url + "/c")}], { format: ${JSON.stringify(format)} });
           console.log("@@" + JSON.stringify(rows.map((x) => ({ length: x.content ? x.content.length : 0, truncated: x.truncated || null, error: x.error || null }))));`);
         const rows = JSON.parse(r.value);
