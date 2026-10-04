@@ -135,7 +135,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             configuration.userContentController.addUserScript(
                 WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         }
-        webView = WKWebView(frame: .zero, configuration: configuration)
+        webView = PageWKWebView(frame: .zero, configuration: configuration)
         bridge = WebKitPageHostBridge(webView: webView)
         super.init(frame: .zero)
         wantsLayer = true
@@ -157,6 +157,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         PageRegistry.add(self)
         let bridge = bridge
         router.send = { envelope in bridge.evaluate(PageRouter.receiveScript(envelope)) }
+        router.titleBarDoubleClick = { [weak self] in self?.performTitleBarDoubleClick() }
         bridge.install { [weak self] message in
             await self?.receive(message)
         }
@@ -166,6 +167,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The window's title bar double-click action (System Settings > Desktop & Dock: zoom by
+    /// default, minimize, or nothing), for a title bar the page draws (DESKTOP-FEEL).
+    func performTitleBarDoubleClick() {
+        guard let window else { return }
+        switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
+        case "Minimize": window.miniaturize(nil)
+        case "None": break
+        default: window.zoom(nil)
+        }
+    }
 
     public override var isFlipped: Bool { true }
 

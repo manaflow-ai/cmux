@@ -2,6 +2,8 @@
 // bridge (pageClient.ts); in the browser dev loop (`/cloud/?mock`) the in-memory mock provider
 // stands in for the Cloud app server. The machine list layout comes from the page's init
 // (README.md: Debug setting `cloud.machines.layout`).
+// DESKTOP-FEEL (R139): the shared desktop layer loads first.
+import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
