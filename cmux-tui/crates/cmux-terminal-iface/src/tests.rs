@@ -225,7 +225,7 @@ fn no_end_follows_a_terminal_close() {
 }
 
 #[test]
-fn a_closed_terminal_refuses_every_later_frame() {
+fn check_closed_reports_a_terminal_that_still_takes_frames() {
     let mut open = RuleTerminal::new(false);
     open.frames.clear();
     let broken = check_closed(&mut open).unwrap_err();
