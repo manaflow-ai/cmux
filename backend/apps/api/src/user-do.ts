@@ -1,19 +1,18 @@
 import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
-import { inbox as homeInbox } from "@cmux/home-core"
+import { conversation as homeConversation, inbox as homeInbox, user as homeUser } from "@cmux/home-core"
 import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
 import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./auth.ts"
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
 import { admit } from "./domains/common.ts"
 import { chiefActive, grantFor, installActive, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmView } from "./domains/user-confirm.ts"
-import { chiefList } from "./domains/user-chief.ts"
+import { CHIEF_AGENT_CLASS, chiefList } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
 import { CLOSE_RETRY_MS, flushInstallCloses, markAgentClosing, markInstallClosing, nextCloseAt, registerSocketOwner } from "./socket-registry.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
-
-/** Inbox entries a list scans at most (p99 2,000 conversations per user, design section 6). */
-const INBOX_SCAN_LIMIT = 10_000
+import { reindexInbox } from "./inbox-reindex.ts"
+import { HOME_RATE_WINDOW_MS, homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
 
@@ -49,7 +48,8 @@ export class UserDO extends OwnerDO<UserState> {
       // Params arrive as untrusted JSON; the inbox reducer validates them (validBump, userOp).
       domain: homeInbox.inboxDomain as Domain<homeInbox.InboxHead>,
       // Entries are unordered rows (n = null): snapshots carry the head; clients page with inbox.list.
-      engine: { rowMode: { snapshotTable: homeInbox.TABLE_ENTRY, snapshotTail: 0 } },
+      // The list order index is derived owner data: its writes never reach subscribers.
+      engine: { rowMode: { snapshotTable: homeInbox.TABLE_ENTRY, snapshotTail: 0 }, redact: { privateTables: homeInbox.INBOX_PRIVATE_TABLES } },
       owns: (op) => op.startsWith("inbox."),
       maySubscribe: (_head, principal, entity) => principal.user === entity
     }, (ws, a) => this.socketLive(ws, a))
@@ -208,12 +208,52 @@ export class UserDO extends OwnerDO<UserState> {
       return { ok: true, value: { conversation: homeInbox.dmPeer(engine.rows, peer) }, revision: String(engine.currentSeq) }
     }
     if (op === "inbox.list") {
-      const entries = engine.rows.scan<homeInbox.InboxEntry>(homeInbox.TABLE_ENTRY, INBOX_SCAN_LIMIT).map((r) => r.row)
-      const limit = typeof params.limit === "number" && params.limit > 0 ? Math.min(params.limit, 200) : 200
-      const query: homeInbox.InboxListQuery = { limit, include_archived: params.include_archived === true }
-      return { ok: true, value: { entries: homeInbox.listInbox(entries, query) }, revision: String(engine.currentSeq) }
+      if (params.cursor !== undefined && (typeof params.cursor !== "string" || params.cursor.length > 256)) return { ok: false, code: "validation.invalid", message: "cursor must be a next_cursor string" }
+      if (engine.currentState.ordered !== true) {
+        reindexInbox(this.inbox, entity)
+        this.scheduleAlarm()
+      }
+      const limit = typeof params.limit === "number" && params.limit > 0 ? Math.min(params.limit, homeInbox.INBOX_PAGE_LIMIT) : homeInbox.INBOX_PAGE_LIMIT
+      const page = homeInbox.pageInbox(engine.rows, { limit, include_archived: params.include_archived === true, ...(params.cursor === undefined ? {} : { cursor: params.cursor as string }) })
+      return { ok: true, value: page, revision: String(engine.currentSeq) }
     }
     return { ok: false, code: "validation.invalid", message: `unknown inbox read ${op}` }
+  }
+
+  /**
+   * RPC for the Worker's reach check (home-reach.ts, home-messaging.md section 16): only the
+   * user's `allow_requests_from`, never the discovery flags. An object that never served this
+   * user answers the default without binding.
+   */
+  async homeAllowRequestsFrom(entity: string): Promise<homeConversation.AllowRequestsFrom> {
+    if (this.boundEntity() !== entity) return homeUser.DEFAULT_HOME_SETTINGS.allow_requests_from
+    return homeUser.homeSettingsOf(this.bind(entity).currentState.home_settings).allow_requests_from
+  }
+
+  /**
+   * RPC from the Worker before an op that resolves human reach: one attempt from `actor`'s
+   * hourly budget for `op` (home-rate.ts homeRateTakeSql).
+   */
+  async homeRateTake(entity: string, actor: string, op: HomeRateOp): Promise<HomeRateGate> {
+    const bound = this.boundEntity()
+    if (bound !== null && bound !== entity) return { ok: false, retry_after_ms: HOME_RATE_WINDOW_MS }
+    return homeRateTakeSql(this.sqlStore, actor, op, Date.now())
+  }
+
+  /**
+   * RPC for the Worker's reach check of a chief caller (CHIEF-DONE autonomy rule): when the
+   * caller's agent class is `mux` and `agent` is one of this user's active chiefs, the user's DM
+   * with each target from the inbox `peer` index (the chief acts under its owner's reach); null
+   * for any other class (an automation run that carries a chief's id), an unknown or archived
+   * chief, or an object that never served the user. Never creates storage.
+   */
+  async homeChiefDms(entity: string, agent: string, agentClass: string, targets: ReadonlyArray<string>): Promise<Array<string | null> | null> {
+    if (agentClass !== CHIEF_AGENT_CLASS) return null
+    if (this.boundEntity() !== entity) return null
+    const record = this.bind(entity).currentState.chiefs?.[agent]
+    if (!record || record.archived_at !== null || record.owner_user !== entity) return null
+    const engine = this.inbox.open(entity)
+    return targets.map((target) => homeInbox.dmPeer(engine.rows, target))
   }
 
   /**

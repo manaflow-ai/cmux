@@ -74,6 +74,7 @@ import {
   VmDatabaseError,
   VmFreeAccessExpiredError,
   VmFileNotFoundError,
+  VmFirewallRuleNotFoundError,
   VmModelPlaneError,
   VmNotFoundError,
   VmResizeInvalidError,
@@ -3640,7 +3641,7 @@ export function getVmFirewallRule(input: VmFirewallInput & { readonly ruleId: st
     if (!providers.listFirewallRules) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "listFirewallRules" }));
     const rules = yield* providers.listFirewallRules(provider, { vpcId: network.providerNetworkId });
     const rule = rules.find((candidate) => candidate.id === input.ruleId);
-    if (!rule) return yield* Effect.fail(new VmNotFoundError({ vmId: input.ruleId }));
+    if (!rule) return yield* Effect.fail(new VmFirewallRuleNotFoundError({ ruleId: input.ruleId }));
     return rule;
   });
 }
@@ -3662,9 +3663,14 @@ export function deleteVmFirewallRule(input: VmFirewallInput & { readonly ruleId:
     const { provider, providers, network } = yield* firewallProvider(input);
     if (!providers.listFirewallRules) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "listFirewallRules" }));
     const rules = yield* providers.listFirewallRules(provider, { vpcId: network.providerNetworkId });
-    if (!rules.some((candidate) => candidate.id === input.ruleId)) return yield* Effect.fail(new VmNotFoundError({ vmId: input.ruleId }));
+    if (!rules.some((candidate) => candidate.id === input.ruleId)) return yield* Effect.fail(new VmFirewallRuleNotFoundError({ ruleId: input.ruleId }));
     if (!providers.deleteFirewallRule) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "deleteFirewallRule" }));
-    yield* providers.deleteFirewallRule(provider, input.ruleId);
+    // Deleted by someone else between the list and the delete: the same not-found, so a retry is correct.
+    yield* providers.deleteFirewallRule(provider, input.ruleId).pipe(
+      Effect.catchAll((err): Effect.Effect<never, VmProviderOperationError | VmFirewallRuleNotFoundError> =>
+        isProviderNotFoundError(err.cause) ? Effect.fail(new VmFirewallRuleNotFoundError({ ruleId: input.ruleId })) : Effect.fail(err),
+      ),
+    );
   });
 }
 

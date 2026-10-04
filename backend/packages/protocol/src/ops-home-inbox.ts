@@ -55,9 +55,11 @@ export const InboxList = def({
   principals: ["session", "install"],
   params: Schema.Struct({
     limit: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(200))),
-    include_archived: Schema.optionalKey(Schema.Boolean)
+    include_archived: Schema.optionalKey(Schema.Boolean),
+    /** `next_cursor` of the previous page (keyset paging; opaque to clients). */
+    cursor: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(256)))
   }),
-  result: Schema.Struct({ entries: Schema.Array(InboxEntry), revision: Schema.String }),
+  result: Schema.Struct({ entries: Schema.Array(InboxEntry), next_cursor: Schema.NullOr(Schema.String), revision: Schema.String }),
   errors: ["auth.unauthenticated", "auth.forbidden"],
   docs: "List your Home conversations: pinned first by position, then newest activity first.",
   cli: { path: "inbox list", visible: true },
@@ -173,15 +175,17 @@ export const HomeSettingsSet = def({
   params: Schema.Struct({
     discoverable_by_email: Schema.optionalKey(Schema.Boolean),
     discoverable_by_phone: Schema.optionalKey(Schema.Boolean),
-    allow_dm_from: Schema.optionalKey(Schema.Literals(["anyone", "teams", "contacts"]))
+    allow_requests_from: Schema.optionalKey(Schema.Literals(["anyone", "teams", "nobody"])),
+    email_requests: Schema.optionalKey(Schema.Boolean)
   }),
   result: Schema.Struct({
     discoverable_by_email: Schema.Boolean,
     discoverable_by_phone: Schema.Boolean,
-    allow_dm_from: Schema.Literals(["anyone", "teams", "contacts"])
+    allow_requests_from: Schema.Literals(["anyone", "teams", "nobody"]),
+    email_requests: Schema.Boolean
   }),
   errors: mutationErrors,
-  docs: "Choose who can find you by email or phone and who may start a DM with you.",
+  docs: "Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email.",
   cli: { path: "home settings", visible: true },
   mcp: { expose: "never", group: "home" }
 })
@@ -293,6 +297,7 @@ const internal = (name: string, owner: CloudOpDef["owner"], target: string, docs
  */
 export const homeInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("inbox.bump", "cloud:UserDO", "inbox", "Internal: a ConversationDO projects one conversation into a participant's inbox (max-merge by rev)."),
+  internal("inbox.reindex", "cloud:UserDO", "inbox", "Internal: the UserDO indexes the list order of entries written before the order index existed."),
   internal("invite.quota.take", "cloud:UserDO", "invite", "Internal: the Worker takes one invite from the inviter's windows before invite.create."),
   internal("mux.bind", "cloud:MuxDO", "chief", "Internal: binds a MuxDO to its chief and owner when the chief is created."),
   internal("mux.wake", "cloud:MuxDO", "chief", "Internal: a ConversationDO queues a wake for a chief."),

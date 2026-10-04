@@ -101,6 +101,11 @@ export class VmSnapshotNotFoundError extends Data.TaggedError("VmSnapshotNotFoun
   readonly snapshotId: string;
 }> {}
 
+/** A firewall rule that is not in the caller's network (route: 404 vm_firewall_rule_not_found; a missing VM stays vm_not_found). */
+export class VmFirewallRuleNotFoundError extends Data.TaggedError("VmFirewallRuleNotFoundError")<{
+  readonly ruleId: string;
+}> {}
+
 /** A Cloud VM file path that does not exist (route: 404 vm_file_not_found, so a retried delete is correct). */
 export class VmFileNotFoundError extends Data.TaggedError("VmFileNotFoundError")<{
   readonly path: string;
@@ -235,6 +240,7 @@ export type VmWorkflowError =
   | VmResizeInProgressError
   | VmSnapshotNotFoundError
   | VmFileNotFoundError
+  | VmFirewallRuleNotFoundError
   | VmFreeAccessExpiredError
   | VmCreateInProgressError
   | VmCreateFailedError
@@ -385,6 +391,7 @@ const vmWorkflowErrorTagRecord = {
   VmResizeInProgressError: true,
   VmSnapshotNotFoundError: true,
   VmFileNotFoundError: true,
+  VmFirewallRuleNotFoundError: true,
   VmFreeAccessExpiredError: true,
   VmCreateInProgressError: true,
   VmCreateFailedError: true,

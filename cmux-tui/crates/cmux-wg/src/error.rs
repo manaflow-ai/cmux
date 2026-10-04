@@ -5,6 +5,8 @@ use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
+use ip_network::IpNetwork;
+
 #[derive(Debug)]
 pub enum WgError {
     Io(io::Error),
@@ -30,6 +32,14 @@ pub enum WgError {
         len: usize,
         max: usize,
     },
+    /// No peer's `allowed_ips` contain the address (mesh).
+    NoRoute(IpAddr),
+    /// The network overlaps the `allowed_ips` of another peer (mesh). Two
+    /// peers may never claim the same address: crypto-key routing must map
+    /// every address to exactly one key.
+    AllowedIpsOverlap(IpNetwork),
+    /// The peer cannot be added (mesh): for example it is this side's own key.
+    InvalidPeer(&'static str),
 }
 
 impl fmt::Display for WgError {
@@ -53,6 +63,11 @@ impl fmt::Display for WgError {
             Self::DatagramTooLarge { len, max } => {
                 write!(formatter, "a {len}-byte datagram exceeds the {max}-byte maximum")
             }
+            Self::NoRoute(address) => write!(formatter, "no peer routes {address}"),
+            Self::AllowedIpsOverlap(network) => {
+                write!(formatter, "allowed IPs {network} overlap another peer's")
+            }
+            Self::InvalidPeer(reason) => write!(formatter, "invalid peer: {reason}"),
         }
     }
 }

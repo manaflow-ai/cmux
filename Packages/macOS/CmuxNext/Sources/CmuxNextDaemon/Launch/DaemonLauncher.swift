@@ -76,6 +76,8 @@ public struct DaemonLauncher: Sendable {
     /// and every reconnect then ask the owner (`ensure`), so a hung daemon
     /// behind a live socket cannot keep a retry loop away from `ensure`.
     private let rememberedSocket: RememberedSocket
+    /// Version handoff state (`handOffIfStale`).
+    let handoff = DaemonHandoffState()
     private let clock: any Clock<Duration>
     private let ensureTimeout: Duration
     private let environmentProvider: @Sendable () async -> [String: String]
@@ -279,7 +281,14 @@ public struct DaemonLauncher: Sendable {
     /// `ensure`, which restarts a crashed daemon.
     public var endpointProvider: DaemonConnection.EndpointProvider {
         let remembered = rememberedSocket
+        let handoff = handoff
+        let clock = clock
         return {
+            // A daemon exiting for a version handoff still answers `server
+            // status` for a moment: start its successor only once it is gone.
+            if let exiting = handoff.takeExiting() {
+                _ = await ProcessExit.exitEvent(pid: exiting, within: .seconds(60), clock: clock)
+            }
             if let path = remembered.take() {
                 if DaemonSocketMemory.acceptsConnections(path) {
                     DaemonLaunchTimings.shared.mark("daemon.remembered_socket")
