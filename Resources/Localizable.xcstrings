@@ -618853,55 +618853,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Introducing cmux Cloud"
+            "value": "Introducing cmux cloud"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "نقدّم لكم cmux Cloud"
+            "value": "نقدّم لكم cmux cloud"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wir stellen vor: cmux Cloud"
+            "value": "Wir stellen vor: cmux cloud"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Presentamos cmux Cloud"
+            "value": "Presentamos cmux cloud"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Découvrez cmux Cloud"
+            "value": "Découvrez cmux cloud"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud のご紹介"
+            "value": "cmux cloud のご紹介"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud를 소개합니다"
+            "value": "cmux cloud를 소개합니다"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "隆重推出 cmux Cloud"
+            "value": "隆重推出 cmux cloud"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "隆重推出 cmux Cloud"
+            "value": "隆重推出 cmux cloud"
           }
         }
       }
@@ -618965,65 +618965,6 @@
         }
       }
     },
-    "debug.menu.showCloudWelcomeStacked": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Cloud Welcome (Stacked Title)…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار ترحيب Cloud (عنوان مكدّس)…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-Willkommen anzeigen (gestapelter Titel)…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar bienvenida de Cloud (título apilado)…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher l’accueil Cloud (titre empilé)…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud のようこそ画面を表示（2 行タイトル）…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 환영 화면 보기(두 줄 제목)…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示 Cloud 欢迎界面（堆叠标题）…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示 Cloud 歡迎畫面（堆疊標題）…"
-          }
-        }
-      }
-    },
     "cloud.welcome.title.eyebrow": {
       "extractionState": "manual",
       "localizations": {
@@ -619079,419 +619020,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "隆重推出"
-          }
-        }
-      }
-    },
-    "debug.menu.showCloudWelcomeMachineFocusNoPorts": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Cloud Welcome (Machine Focus, No Ports)…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار ترحيب Cloud (التركيز على الجهاز، بدون منافذ)…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-Willkommen anzeigen (Maschinenfokus, ohne Ports)…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar bienvenida de Cloud (enfoque en la máquina, sin puertos)…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher l’accueil Cloud (focus machine, sans ports)…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud のようこそ画面を表示（マシン中心、ポートなし）…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 환영 화면 보기(머신 중심, 포트 없음)…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示 Cloud 欢迎界面（聚焦机器，无端口）…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示 Cloud 歡迎畫面（聚焦機器，無連接埠）…"
-          }
-        }
-      }
-    },
-    "debug.menu.showCloudWelcomeStackedNoBadge": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Cloud Welcome (Stacked, No Badge)…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار ترحيب Cloud (مكدّس، بدون شارة)…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-Willkommen anzeigen (gestapelt, ohne Badge)…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar bienvenida de Cloud (apilado, sin insignia)…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher l’accueil Cloud (empilé, sans badge)…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud のようこそ画面を表示（2 行、バッジなし）…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 환영 화면 보기(두 줄, 배지 없음)…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示 Cloud 欢迎界面（堆叠，无标签）…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示 Cloud 歡迎畫面（堆疊，無標籤）…"
-          }
-        }
-      }
-    },
-    "debug.menu.showCloudWelcomeMachineFocusNoBadge": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Cloud Welcome (Machine Focus, No Badge)…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار ترحيب Cloud (التركيز على الجهاز، بدون شارة)…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-Willkommen anzeigen (Maschinenfokus, ohne Badge)…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar bienvenida de Cloud (enfoque en la máquina, sin insignia)…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher l’accueil Cloud (focus machine, sans badge)…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud のようこそ画面を表示（マシン中心、バッジなし）…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 환영 화면 보기(머신 중심, 배지 없음)…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示 Cloud 欢迎界面（聚焦机器，无标签）…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示 Cloud 歡迎畫面（聚焦機器，無標籤）…"
-          }
-        }
-      }
-    },
-    "debug.menu.showCloudWelcomeMachineFocusPrompt": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Cloud Welcome (Machine Focus + Prompt)…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار ترحيب Cloud (التركيز على الجهاز + الموجّه)…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-Willkommen anzeigen (Maschinenfokus + Prompt)…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar bienvenida de Cloud (enfoque en la máquina + prompt)…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher l’accueil Cloud (focus machine + invite)…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud のようこそ画面を表示（マシン中心 + プロンプト）…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 환영 화면 보기(머신 중심 + 프롬프트)…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示 Cloud 欢迎界面（聚焦机器 + 提示符）…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示 Cloud 歡迎畫面（聚焦機器 + 提示字元）…"
-          }
-        }
-      }
-    },
-    "debug.menu.showCloudWelcomeMachineFocusPromptLowercase": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Cloud Welcome (Machine Focus + Prompt, Lowercase)…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار ترحيب Cloud (التركيز على الجهاز + الموجّه، أحرف صغيرة)…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-Willkommen anzeigen (Maschinenfokus + Prompt, Kleinschreibung)…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar bienvenida de Cloud (enfoque en la máquina + prompt, minúsculas)…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher l’accueil Cloud (focus machine + invite, minuscules)…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud のようこそ画面を表示（マシン中心 + プロンプト、小文字）…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 환영 화면 보기(머신 중심 + 프롬프트, 소문자)…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示 Cloud 欢迎界面（聚焦机器 + 提示符，小写）…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示 Cloud 歡迎畫面（聚焦機器 + 提示字元，小寫）…"
-          }
-        }
-      }
-    },
-    "debug.menu.showCloudWelcomeMachineFocusPromptAllLowercase": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Cloud Welcome (Machine Focus + Prompt, All Lowercase)…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار ترحيب Cloud (التركيز على الجهاز + الموجّه، كل الأحرف صغيرة)…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-Willkommen anzeigen (Maschinenfokus + Prompt, alles klein)…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar bienvenida de Cloud (enfoque en la máquina + prompt, todo en minúsculas)…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher l’accueil Cloud (focus machine + invite, tout en minuscules)…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud のようこそ画面を表示（マシン中心 + プロンプト、すべて小文字）…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 환영 화면 보기(머신 중심 + 프롬프트, 모두 소문자)…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示 Cloud 欢迎界面（聚焦机器 + 提示符，全小写）…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示 Cloud 歡迎畫面（聚焦機器 + 提示字元，全小寫）…"
-          }
-        }
-      }
-    },
-    "debug.menu.showCloudWelcomeMachineFocusAllLowercase": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Cloud Welcome (Machine Focus, No Ports, All Lowercase)…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار ترحيب Cloud (التركيز على الجهاز، بدون منافذ، كل الأحرف صغيرة)…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-Willkommen anzeigen (Maschinenfokus, ohne Ports, alles klein)…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar bienvenida de Cloud (enfoque en la máquina, sin puertos, todo en minúsculas)…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher l’accueil Cloud (focus machine, sans ports, tout en minuscules)…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud のようこそ画面を表示（マシン中心、ポートなし、すべて小文字）…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 환영 화면 보기(머신 중심, 포트 없음, 모두 소문자)…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示 Cloud 欢迎界面（聚焦机器，无端口，全小写）…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示 Cloud 歡迎畫面（聚焦機器，無連接埠，全小寫）…"
           }
         }
       }
@@ -619787,6 +619315,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "邀請團隊成員，並透過私人連結分享任何連接埠。"
+          }
+        }
+      }
+    },
+    "cloud.enable.intro.requiresPro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to use cmux cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قم بالترقية لاستخدام cmux cloud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade, um cmux cloud zu nutzen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mejora tu plan para usar cmux cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passez à Pro pour utiliser cmux cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップグレードして cmux cloud を使う"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업그레이드하여 cmux cloud 사용하기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升级以使用 cmux cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升級以使用 cmux cloud"
+          }
+        }
+      }
+    },
+    "cloud.enable.intro.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use cmux cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم cmux cloud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux cloud verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar cmux cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser cmux cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux cloud を使う"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux cloud 사용하기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 cmux cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 cmux cloud"
           }
         }
       }

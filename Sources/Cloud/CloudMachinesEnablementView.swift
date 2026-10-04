@@ -111,7 +111,10 @@ struct CloudMachinesEnablementView: View {
 
     private var introduction: some View {
         VStack(spacing: 0) {
-            Text(String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"))
+            // A known Free plan is told what it needs; Pro and an unknown plan are invited.
+            Text(isProGated
+                ? String(localized: "cloud.enable.intro.requiresPro", defaultValue: "Upgrade to use cmux cloud")
+                : String(localized: "cloud.enable.intro.title", defaultValue: "Use cmux cloud"))
                 .cmuxFont(size: 20, weight: .bold)
                 .multilineTextAlignment(.center)
                 .accessibilityAddTraits(.isHeader)
@@ -393,7 +396,8 @@ struct CloudMachinesEnablementView: View {
                 .padding(.horizontal, fullWidth ? 0 : 6)
                 .frame(maxWidth: fullWidth ? .infinity : nil)
         }
-        .buttonBorderShape(.capsule)
+        // No shape here: the right sidebar gives every button its 6pt radius
+        // (rightSidebarButtonBorderShape on the panel).
         .controlSize(.large)
         .accessibilityIdentifier(identifier)
         if prominent {
@@ -416,8 +420,8 @@ extension View {
     }
 }
 
-/// The top of the introduction: the app's icon with a Cloud badge on a quieter
-/// band, the same mark as the welcome window's banner.
+/// The top of the introduction: the app's icon with a Cloud badge, straight on
+/// the sidebar background.
 private struct CloudMachinesEnablementBanner: View {
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -433,14 +437,8 @@ private struct CloudMachinesEnablementBanner: View {
                 .offset(x: 6, y: 4)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 26)
-        .background(Color.primary.opacity(0.04))
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(height: 0.5)
-        }
-        .padding(.bottom, 22)
+        .padding(.top, 30)
+        .padding(.bottom, 18)
         .accessibilityHidden(true)
     }
 }

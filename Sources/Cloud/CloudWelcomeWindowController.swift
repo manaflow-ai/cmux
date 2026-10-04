@@ -32,19 +32,18 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         present(over: parent)
     }
 
-    func present(over parent: NSWindow?, layout: CloudWelcomeLayout = .titleInPanel) {
+    func present(over parent: NSWindow?) {
         window?.close()
-        let window = makeWindow(layout: layout)
+        let window = makeWindow()
         self.window = window
         position(window, over: parent)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
 
-    private func makeWindow(layout: CloudWelcomeLayout) -> NSWindow {
+    private func makeWindow() -> NSWindow {
         let rootView = CloudWelcomeAccountView(
             accountFlow: AppDelegate.shared?.auth?.accountFlow,
-            layout: layout,
             onNotNow: { [weak self] in self?.dismiss() },
             onNext: { [weak self] step in self?.perform(step) }
         )
@@ -57,7 +56,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
             defer: false
         )
         window.identifier = NSUserInterfaceItemIdentifier("cmux.cloud.welcome")
-        window.title = String(localized: "cloud.welcome.title", defaultValue: "Introducing cmux Cloud")
+        window.title = String(localized: "cloud.welcome.title", defaultValue: "Introducing cmux cloud")
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
@@ -128,7 +127,6 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
 /// the plan once on show, so the view itself stays free of app objects.
 private struct CloudWelcomeAccountView: View {
     let accountFlow: HostAccountFlow?
-    let layout: CloudWelcomeLayout
     let onNotNow: () -> Void
     let onNext: (CloudWelcomeNextStep) -> Void
 
@@ -139,7 +137,6 @@ private struct CloudWelcomeAccountView: View {
                 isPlanKnown: accountFlow?.hasLoadedBillingPlan == true,
                 isPro: accountFlow?.isProActive == true
             ),
-            layout: layout,
             onNotNow: onNotNow,
             onNext: onNext
         )

@@ -44,30 +44,6 @@ extension cmuxApp {
             Button(String(localized: "debug.menu.showCloudWelcome", defaultValue: "Show Cloud Welcome…")) {
                 AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow)
             }
-            Button(String(localized: "debug.menu.showCloudWelcomeStacked", defaultValue: "Show Cloud Welcome (Stacked Title)…")) {
-                AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow, layout: .stacked)
-            }
-            Button(String(localized: "debug.menu.showCloudWelcomeStackedNoBadge", defaultValue: "Show Cloud Welcome (Stacked, No Badge)…")) {
-                AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow, layout: .stackedNoBadge)
-            }
-            Button(String(localized: "debug.menu.showCloudWelcomeMachineFocusNoPorts", defaultValue: "Show Cloud Welcome (Machine Focus, No Ports)…")) {
-                AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow, layout: .machineFocus)
-            }
-            Button(String(localized: "debug.menu.showCloudWelcomeMachineFocusNoBadge", defaultValue: "Show Cloud Welcome (Machine Focus, No Badge)…")) {
-                AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow, layout: .machineFocusNoBadge)
-            }
-            Button(String(localized: "debug.menu.showCloudWelcomeMachineFocusPrompt", defaultValue: "Show Cloud Welcome (Machine Focus + Prompt)…")) {
-                AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow, layout: .machineFocusWithPrompt)
-            }
-            Button(String(localized: "debug.menu.showCloudWelcomeMachineFocusPromptLowercase", defaultValue: "Show Cloud Welcome (Machine Focus + Prompt, Lowercase)…")) {
-                AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow, layout: .machineFocusWithPromptLowercase)
-            }
-            Button(String(localized: "debug.menu.showCloudWelcomeMachineFocusPromptAllLowercase", defaultValue: "Show Cloud Welcome (Machine Focus + Prompt, All Lowercase)…")) {
-                AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow, layout: .machineFocusWithPromptAllLowercase)
-            }
-            Button(String(localized: "debug.menu.showCloudWelcomeMachineFocusAllLowercase", defaultValue: "Show Cloud Welcome (Machine Focus, No Ports, All Lowercase)…")) {
-                AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow, layout: .machineFocusAllLowercase)
-            }
             Button(String(localized: "menu.help.showProWelcomeChecklist", defaultValue: "Show Pro Welcome Checklist…")) {
                 ProWelcomeChecklistPresenter.present()
             }
