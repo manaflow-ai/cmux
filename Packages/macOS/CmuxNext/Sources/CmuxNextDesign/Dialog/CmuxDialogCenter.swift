@@ -25,9 +25,14 @@ public final class CmuxDialogCenter {
 
     private struct Entry {
         var spec: CmuxDialogSpec
-        var scope: CmuxDialogScope
+        /// Weak: the dialog never keeps its tab or window alive.
+        var scope: CmuxDialogWeakScope
         var completion: (CmuxDialogAnswer) -> Void
         var view: CmuxDialogView?
+        /// The tab view's deallocation marker (`CmuxDialogScopeLifetime`).
+        var lifetime: UUID?
+        /// The window's close observer.
+        var closeObserver: (any NSObjectProtocol)?
     }
 
     private nonisolated enum ScopeKey: Hashable, Sendable {
@@ -55,8 +60,24 @@ public final class CmuxDialogCenter {
                         completion: @escaping (CmuxDialogAnswer) -> Void) -> Int {
         let id = nextID
         nextID += 1
-        entries[id] = Entry(spec: spec, scope: scope, completion: completion)
-        if queue.enqueue(id, in: Self.key(scope)) { show(id) }
+        let key = Self.key(scope)
+        var entry = Entry(spec: spec, scope: CmuxDialogWeakScope(scope), completion: completion)
+        // No dialog outlives its scope: a closed tab (or its pane or
+        // workspace) or a closed window ends it with its cancel answer.
+        if case .tab(let view) = scope {
+            entry.lifetime = CmuxDialogScopeLifetime.attach(to: view) { [weak self] token in
+                Task { @MainActor in self?.scopeEnded(token) }
+            }
+        }
+        if let window = scope.window {
+            entry.closeObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { _ = self?.dismiss(id) }
+            }
+        }
+        entries[id] = entry
+        if queue.enqueue(id, in: key) { show(id) }
         if let record = record(id) { emit(.opened(record)) }
         return id
     }
@@ -111,6 +132,11 @@ public final class CmuxDialogCenter {
         for id in queue.ids(in: Self.key(scope)).reversed() { dismiss(id) }
     }
 
+    /// A tab view deallocated: end the dialogs scoped to it.
+    private func scopeEnded(_ token: UUID) {
+        for (id, entry) in entries where entry.lifetime == token { dismiss(id) }
+    }
+
     // MARK: Reading
 
     /// Every open dialog, oldest first.
@@ -118,7 +144,8 @@ public final class CmuxDialogCenter {
 
     public func record(_ id: Int) -> Record? {
         guard let entry = entries[id] else { return nil }
-        return Record(id: id, spec: entry.spec, scope: entry.scope.kind, visible: queue.isVisible(id), values: values(of: entry))
+        return Record(id: id, spec: entry.spec, scope: Self.kindName(entry.scope.kind), visible: queue.isVisible(id),
+                      values: values(of: entry))
     }
 
     /// The view of visible dialog `id` (screenshots, tests).
@@ -137,14 +164,19 @@ public final class CmuxDialogCenter {
 
     private func show(_ id: Int) {
         guard let entry = entries[id] else { return }
+        guard let scope = entry.scope.live else {
+            dismiss(id)
+            return
+        }
         let view = CmuxDialogView(spec: entry.spec)
         view.onPress = { [weak self] button in self?.press(id, button: button) }
         entries[id]?.view = view
-        host.show(view, in: entry.scope) { [weak self] in self?.dismiss(id) }
+        host.show(view, in: scope) { [weak self] in self?.dismiss(id) }
     }
 
     private func finish(_ id: Int, _ answer: CmuxDialogAnswer) {
         guard let entry = entries.removeValue(forKey: id) else { return }
+        if let observer = entry.closeObserver { NotificationCenter.default.removeObserver(observer) }
         if let view = entry.view { host.hide(view) }
         let next = queue.remove(id)
         entry.completion(answer)
@@ -169,6 +201,14 @@ public final class CmuxDialogCenter {
 
     private func emit(_ event: Event) {
         for observer in observers.values { observer(event) }
+    }
+
+    private static func kindName(_ kind: CmuxDialogWeakScope.Kind) -> String {
+        switch kind {
+        case .tab: "tab"
+        case .window: "window"
+        case .app: "app"
+        }
     }
 
     private static func key(_ scope: CmuxDialogScope) -> ScopeKey {

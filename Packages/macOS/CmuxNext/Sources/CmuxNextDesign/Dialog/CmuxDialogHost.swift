@@ -23,14 +23,15 @@ public protocol CmuxDialogHosting: AnyObject {
 public final class CmuxDialogOverlayHost: CmuxDialogHosting {
     private final class Shown {
         let dialog: CmuxDialogView
-        let scope: CmuxDialogScope
+        /// Weak: the overlay never keeps a closed tab alive.
+        let scope: CmuxDialogWeakScope
         let scopeGone: () -> Void
         var handle: OverlayHandle?
         var watcher: CmuxDialogScopeWatcher?
 
         init(dialog: CmuxDialogView, scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {
             self.dialog = dialog
-            self.scope = scope
+            self.scope = CmuxDialogWeakScope(scope)
             self.scopeGone = scopeGone
         }
     }
@@ -89,8 +90,9 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
 
     /// Presents or withdraws the overlay to match the scope's visibility.
     private func sync(_ entry: Shown) {
+        guard let scope = entry.scope.live else { return detach(entry) }
         let host: WindowOverlayHost?
-        switch entry.scope {
+        switch scope {
         case .tab(let view): host = entry.watcher?.isShowing == true ? view.window.map(WindowOverlayHost.host(for:)) : nil
         case .window(let window): host = WindowOverlayHost.host(for: window)
         case .app:
@@ -100,7 +102,7 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         guard let host else { return detach(entry) }
         if let handle = entry.handle, !handle.isDismissed, handle.host === host { return }
         detach(entry)
-        let handle = host.present(entry.dialog, options: Self.options(for: entry.scope))
+        let handle = host.present(entry.dialog, options: Self.options(for: scope))
         // The window closed (its host dismissed every overlay): the dialog ends.
         handle.onDismiss = entry.scopeGone
         entry.handle = handle
