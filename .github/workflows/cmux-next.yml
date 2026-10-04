@@ -310,6 +310,7 @@ jobs:
           bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
           bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
           bash scripts/cmux-next/tests/embed-cef.test.sh
+          bash scripts/cmux-next/tests/check-action-surfaces-fleet-only.test.sh
           bash scripts/cmux-next/tests/cef-credits.test.sh
           bash scripts/cmux-next/tests/cef-license.test.sh
           bash scripts/cmux-next/tests/ensure-cef-store.test.sh
