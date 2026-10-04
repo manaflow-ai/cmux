@@ -80,6 +80,20 @@ class MergeGateDecisionTests(unittest.TestCase):
         }
         self.assertIsNone(merge_gate._event_pull_request_number({"workflow_run": source}))
 
+    def test_workflow_event_matches_the_fork_repository(self) -> None:
+        event = {
+            "check_suite": {
+                "head_sha": HEAD,
+                "head_branch": "feature",
+                "head_repository": {"full_name": "outside/cmux"},
+                "pull_requests": [
+                    {"number": 7, "head": {"sha": HEAD, "ref": "feature", "repo": {"full_name": "manaflow-ai/cmux"}}},
+                    {"number": 8, "head": {"sha": HEAD, "ref": "feature", "repo": {"full_name": "outside/cmux"}}},
+                ],
+            }
+        }
+        self.assertEqual(merge_gate._event_pull_request_number(event), 8)
+
     def test_diagnostic_comment_403_is_reported_without_raising(self) -> None:
         class FailingGitHub:
             def request(self, path, method="GET", body=None):
