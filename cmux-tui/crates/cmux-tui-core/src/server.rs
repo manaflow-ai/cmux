@@ -6475,6 +6475,7 @@ impl PendingServer {
     /// Publish lifecycle readiness and transfer socket cleanup to the caller.
     pub fn mark_ready(mut self) -> anyhow::Result<PathBuf> {
         self.mux.mark_server_lifecycle_ready();
+        start_apps_when_ready(&self.mux);
         Ok(self.path.take().expect("pending server path is available"))
     }
 
@@ -6811,6 +6812,26 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
 }
 
 /// Bind the socket and serve connections on background threads.
+/// After the daemon is ready, starts the app supervisor on its own thread
+/// when `apps-v1` is advertised, so apps with an `always` server run without
+/// waiting for the first `apps-*` command. Never on the startup path.
+pub fn start_apps_when_ready(mux: &Arc<Mux>) {
+    #[cfg(unix)]
+    if crate::apps::advertised().is_some() {
+        let mux = mux.clone();
+        let _ = spawn_off_startup(move || {
+            mux.control_clients.apps.get_or_init(&mux);
+        });
+    }
+    #[cfg(not(unix))]
+    let _ = mux;
+}
+
+#[cfg(unix)]
+fn spawn_off_startup(job: impl FnOnce() + Send + 'static) -> std::io::Result<JoinHandle<()>> {
+    std::thread::Builder::new().name("cmux-apps-start".into()).spawn(job)
+}
+
 pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     serve_paused(mux, path)?.mark_ready()
 }

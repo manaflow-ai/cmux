@@ -17,14 +17,37 @@
 //! supervisor's idle stop; 0: never). An `always` server that crashes
 //! restarts after a backoff, at most [`MAX_CRASHES`] times in a row.
 //!
-//! Wire (JSON lines on the server's stdin and stdout, the `cmux-cloud`
-//! shape): supervisor -> server `{type: op, id, op, args, origin,
-//! idempotency_key}`; server -> supervisor `{type: result, id, ok,
-//! result | error}`, `{type: event, event, data}` (broadcast as
-//! `apps-server-event`) and `relay.request` / `relay.session`, answered
-//! `relay.error` `unavailable` until the credential relay op exists. The
-//! server's stderr goes to the app's log. The process gets an empty
-//! environment.
+//! Wire: JSON lines on the server's stdin and stdout.
+//!
+//! - Catalog ops, supervisor -> server: `{"type":"op","id":"s1","op",
+//!   "args":{},"origin":"user|cli|mcp|script|remote","idempotency_key"}`;
+//!   server -> supervisor `{"type":"result","id":"s1","ok":true,"result":{}}`
+//!   or `{"type":"result","id":"s1","ok":false,"error":{"code","message"}}`.
+//!   Server events `{"type":"event","event","data"}` are broadcast to apps
+//!   clients as `apps-server-event {app, name, data}`.
+//! - Host-only ops (one shape for every op the host answers), server ->
+//!   supervisor `{"t":"host.request","id":1,"op":"cmux.host.…","params":{}}`;
+//!   supervisor -> server `{"t":"host.result","id":1,"value":{}}` or
+//!   `{"t":"host.error","id":1,"code","message","retryable"}`. Host events,
+//!   supervisor -> server: `{"t":"host.event","op":"cmux.host.…","data":{}}`.
+//!   The id is the server's own (any JSON value), echoed back.
+//!   - `cmux.host.link.get {}` -> `{binary, hub_socket, state_dir,
+//!     socket_dir, device_name}` from the daemon's own values (see
+//!     [`Supervisor::host_link`]); event `cmux.host.link.changed` with the
+//!     same value. Needs server scope `op:cmux.host.link.get` and a
+//!     first-party app, else `host.error` `apps.scope_missing`.
+//!   - `cmux.credential.relay` answers `host.error` `unavailable` until the
+//!     Mac provider side exists (APP-R1): the supervisor will forward the
+//!     request params over the provider channel and the Mac app answers
+//!     through its host capabilities; no user credential enters the daemon.
+//!   - Any other `cmux.host.*` op answers `host.error` `apps.op.unknown`.
+//!
+//! Environment: an allowlist only. `CMUX_APP_ID`, `CMUX_APP_DATA_DIR` (the
+//! app's data directory; one subdirectory per `server.data` entry, the
+//! ephemeral ones emptied at each start; removed at uninstall), `TMPDIR`
+//! (a per-app directory emptied at each start) and the daemon's `LANG`.
+//! Anything else, link details included, goes over ops. The server's stderr
+//! goes to the app's log.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -160,12 +183,13 @@ pub(super) struct ServerProcess {
 }
 
 impl ServerProcess {
-    /// Spawns `binary` with an empty environment. `on_line` runs on the
+    /// Spawns `binary` with only `env` set. `on_line` runs on the
     /// reader thread for each stdout line, `on_log` for each stderr line,
     /// and `on_exit` once after stdout closed and the child was reaped.
     pub fn spawn(
         binary: &Path,
         args: &[String],
+        env: &[(String, String)],
         name: &str,
         on_line: impl Fn(Value) + Send + 'static,
         on_log: impl Fn(String) + Send + 'static,
@@ -174,6 +198,7 @@ impl ServerProcess {
         let mut child = Command::new(binary)
             .args(args)
             .env_clear()
+            .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -276,6 +301,26 @@ fn write_loop(mut stdin: ChildStdin, outgoing: Receiver<Outgoing>) {
     }
 }
 
+/// The scope a server op needs, from the fragment family and the op's risk:
+/// the derivation `gen-cmux-global` uses for scopes.json (`<family>:read`,
+/// `:write` for mutate-own and mutate-shared, `:execute`, `:external`).
+/// `None` (destructive) means no app scope covers it: only the user runs it.
+pub(super) fn op_scope(family: &str, entry: &Value) -> Option<String> {
+    let verb = match entry["risk"].as_str() {
+        Some("read") => "read",
+        Some("mutate-own" | "mutate-shared") => "write",
+        Some("execute") => "execute",
+        Some("send-external") => "external",
+        Some(_) => return None,
+        None => match entry["class"].as_str() {
+            Some("read") => "read",
+            Some("mutation") => "write",
+            _ => return None,
+        },
+    };
+    Some(format!("{family}:{verb}"))
+}
+
 fn line(value: &Value) -> Vec<u8> {
     let mut line = serde_json::to_vec(value).unwrap_or_default();
     line.push(b'\n');
@@ -286,6 +331,40 @@ impl Supervisor {
     fn server_spec_locked(&self, inner: &Inner, app: &str) -> Option<Result<ServerSpec, ApiError>> {
         let package = inner.catalog.packages.get(app)?;
         spec(package, self.config.server_dir.as_deref(), self.config.idle_stop)
+    }
+
+    /// The supervisor's own check of a server op, before the server's (a
+    /// second layer): a `gesture: required` op needs origin user (admitted
+    /// on the wire only from the hosting app connection, A2), and the app
+    /// must hold the op's scope. A destructive op has no scope and needs
+    /// origin user.
+    pub(super) fn admit_server_op(
+        inner: &Inner,
+        app: &str,
+        op: &str,
+        origin: Origin,
+    ) -> Result<(), ApiError> {
+        let Some((family, entry)) = inner.catalog.packages.get(app).and_then(|p| p.catalog_op(op))
+        else {
+            return Err(ApiError::new("apps.op.unknown", format!("{app} has no op {op}")));
+        };
+        let user = origin == Origin::User;
+        if entry["gesture"] == "required" && !user {
+            return Err(ApiError::new(
+                "apps.gesture_required",
+                format!("{op} runs only from a user action (a tap, palette pick or shortcut)"),
+            ));
+        }
+        let key = super::supervisor::HostKey { app: app.to_string(), preview: false };
+        match op_scope(&family, &entry) {
+            Some(scope) if !Self::grant_for(inner, &key).scopes.contains(&scope) => {
+                Err(ApiError::new("apps.scope_missing", format!("{app} is not granted {scope}")))
+            }
+            None if !user => {
+                Err(ApiError::new("apps.scope_missing", format!("only you can run {op}")))
+            }
+            _ => Ok(()),
+        }
     }
 
     /// True when `app` declares a server and `op` is one of its catalog ops.
@@ -349,6 +428,7 @@ impl Supervisor {
         if let Some(timer) = inner.server_crashes.get_mut(app).and_then(|c| c.restart.take()) {
             self.timers.cancel(timer);
         }
+        let env = self.prepare_server_env(inner, app)?;
         let generation = inner.next_generation;
         inner.next_generation += 1;
         let (me_line, me_log, me_exit) = (self.me.clone(), self.me.clone(), self.me.clone());
@@ -356,6 +436,7 @@ impl Supervisor {
         let process = ServerProcess::spawn(
             &spec.binary,
             &spec.args,
+            &env,
             app,
             move |value| {
                 if let Some(me) = me_line.upgrade() {
@@ -479,10 +560,15 @@ impl Supervisor {
     fn server_line(&self, app: &str, generation: u64, value: Value) {
         let outs = {
             let mut inner = self.inner.lock().unwrap();
-            let Some(server) = inner.servers.get_mut(app).filter(|s| s.generation == generation)
-            else {
+            if inner.servers.get(app).is_none_or(|s| s.generation != generation) {
                 return;
-            };
+            }
+            if value["t"] == "host.request" {
+                let reply = self.host_request_locked(&inner, app, &value);
+                inner.servers[app].process.send(line(&reply));
+                return;
+            }
+            let server = inner.servers.get_mut(app).expect("current server");
             match value["type"].as_str() {
                 Some("result") => {
                     let id = value["id"].as_str().unwrap_or_default();
@@ -503,14 +589,6 @@ impl Supervisor {
                     let mut outs = vec![Out::Respond(respond, result)];
                     outs.extend(self.server_idle_check_locked(&mut inner, app));
                     outs
-                }
-                Some(kind) if kind.starts_with("relay.") => {
-                    // TODO(APP-R1): the credential relay op (`op:cmux.credential.relay`).
-                    server.process.send(line(&json!({
-                        "type": "relay.error", "id": value["id"], "code": "unavailable",
-                        "message": "the cmux credential relay is not available yet",
-                    })));
-                    vec![]
                 }
                 Some("event") => vec![Out::Broadcast(json!({
                     "event": "apps-server-event", "app": app,
@@ -667,4 +745,155 @@ impl Supervisor {
         }));
         vec![]
     }
+}
+
+impl Supervisor {
+    /// The data and temporary directories of `app`'s server:
+    /// `<state>/apps-data/<namespace>` and `<state>/apps-tmp/<namespace>`.
+    fn server_dirs(&self, app: &str) -> (PathBuf, PathBuf) {
+        let base =
+            self.config.state_dir.clone().unwrap_or_else(|| std::env::temp_dir().join("cmux-apps"));
+        let namespace = cmux_app_manifest::app_namespace(app);
+        (base.join("apps-data").join(&namespace), base.join("apps-tmp").join(&namespace))
+    }
+
+    /// Creates the server's directories and returns its environment (the
+    /// allowlist in the module docs).
+    fn prepare_server_env(
+        &self,
+        inner: &Inner,
+        app: &str,
+    ) -> Result<Vec<(String, String)>, ApiError> {
+        use std::os::unix::fs::DirBuilderExt;
+        let failed = |e: std::io::Error| {
+            ApiError::new("apps.server_failed", format!("server directories: {e}"))
+        };
+        let fresh = |dir: &Path| -> std::io::Result<()> {
+            match std::fs::remove_dir_all(dir) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e),
+            }
+            std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)
+        };
+        let (data, tmp) = self.server_dirs(app);
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&data).map_err(failed)?;
+        let entries = inner
+            .catalog
+            .packages
+            .get(app)
+            .and_then(|p| p.manifest.pointer("/server/data").and_then(Value::as_array).cloned())
+            .unwrap_or_default();
+        for entry in entries {
+            // The schema limits names to a local id, so a name stays inside.
+            let Some(name) = entry["name"].as_str() else { continue };
+            let dir = data.join(name);
+            if entry["class"] == "ephemeral" {
+                fresh(&dir).map_err(failed)?;
+            } else {
+                std::fs::DirBuilder::new()
+                    .recursive(true)
+                    .mode(0o700)
+                    .create(&dir)
+                    .map_err(failed)?;
+            }
+        }
+        fresh(&tmp).map_err(failed)?;
+        let mut env = vec![
+            ("CMUX_APP_ID".to_string(), app.to_string()),
+            ("CMUX_APP_DATA_DIR".to_string(), data.to_string_lossy().into_owned()),
+            ("TMPDIR".to_string(), tmp.to_string_lossy().into_owned()),
+        ];
+        if let Ok(lang) = std::env::var("LANG") {
+            env.push(("LANG".to_string(), lang));
+        }
+        Ok(env)
+    }
+
+    /// Uninstall: the server's data and temporary directories go with the
+    /// app's storage.
+    pub(super) fn remove_server_dirs(&self, app: &str) {
+        let (data, tmp) = self.server_dirs(app);
+        let _ = std::fs::remove_dir_all(data);
+        let _ = std::fs::remove_dir_all(tmp);
+    }
+
+    /// `cmux.host.link.get` for `app`: the daemon executable, the WireGuard
+    /// hub socket the daemon was given (`null` without one), a link state
+    /// directory in the app's data directory, the app's temporary directory
+    /// for link sockets, and this machine's name.
+    pub(super) fn host_link(&self, app: &str) -> Value {
+        let (data, tmp) = self.server_dirs(app);
+        let state_dir = data.join("link");
+        let _ = std::fs::create_dir_all(&state_dir);
+        json!({
+            "binary": std::env::current_exe().ok(),
+            "hub_socket": self.config.hub_socket,
+            "state_dir": state_dir,
+            "socket_dir": tmp,
+            "device_name": device_name(),
+        })
+    }
+
+    /// Whether `app` may call the host op `op`: a first-party app whose
+    /// manifest declares the server scope `op:<op>`.
+    fn host_op_allowed(inner: &Inner, app: &str, op: &str) -> bool {
+        inner.catalog.packages.get(app).is_some_and(|package| {
+            package.tier == Tier::FirstParty
+                && package
+                    .manifest
+                    .pointer("/server/scopes")
+                    .and_then(Value::as_object)
+                    .is_some_and(|scopes| scopes.contains_key(&format!("op:{op}")))
+        })
+    }
+
+    /// Answers one `host.request` frame of `app`'s server.
+    fn host_request_locked(&self, inner: &Inner, app: &str, request: &Value) -> Value {
+        let id = request.get("id").cloned().unwrap_or(Value::Null);
+        let error = |code: &str, message: &str, retryable: bool| json!({ "t": "host.error", "id": id, "code": code, "message": message, "retryable": retryable });
+        match request["op"].as_str().unwrap_or_default() {
+            op @ "cmux.host.link.get" => {
+                if Self::host_op_allowed(inner, app, op) {
+                    json!({ "t": "host.result", "id": id, "value": self.host_link(app) })
+                } else {
+                    error(
+                        "apps.scope_missing",
+                        "the server does not declare op:cmux.host.link.get",
+                        false,
+                    )
+                }
+            }
+            "cmux.credential.relay" => {
+                error("unavailable", "the cmux credential relay is not available yet", true)
+            }
+            op => error("apps.op.unknown", &format!("the host has no op {op}"), false),
+        }
+    }
+
+    /// Sends `cmux.host.link.changed` to every running server that may read
+    /// the link. Nothing changes the daemon's link values during its life
+    /// yet (the hub socket comes from its launch environment); the daemon
+    /// calls this once it owns the hub socket.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(super) fn host_link_changed(&self) {
+        let inner = self.inner.lock().unwrap();
+        for (app, server) in &inner.servers {
+            if !server.stopping && Self::host_op_allowed(&inner, app, "cmux.host.link.get") {
+                server.process.send(line(&json!({
+                    "t": "host.event", "op": "cmux.host.link.changed", "data": self.host_link(app),
+                })));
+            }
+        }
+    }
+}
+
+/// This machine's name, or `cmux`.
+fn device_name() -> String {
+    let mut buf = [0u8; 256];
+    // SAFETY: gethostname writes at most buf.len() bytes into our buffer.
+    let ok = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0;
+    let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
+    let name = if ok { String::from_utf8_lossy(&buf[..end]).into_owned() } else { String::new() };
+    if name.is_empty() || name.chars().any(char::is_control) { "cmux".into() } else { name }
 }

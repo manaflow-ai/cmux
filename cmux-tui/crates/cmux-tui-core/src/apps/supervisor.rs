@@ -73,6 +73,8 @@ pub struct Config {
     pub host_args: Vec<String>,
     /// Where first-party app server binaries ship (`servers.rs`).
     pub server_dir: Option<PathBuf>,
+    /// The WireGuard hub socket for `cmux.host.link.get`, if the daemon has one.
+    pub hub_socket: Option<PathBuf>,
     pub sources: Sources,
     /// `apps.idleStopSeconds` (default 60).
     pub idle_stop: Duration,
@@ -358,6 +360,7 @@ impl Supervisor {
                 if let Some(storage) = self.storage().as_ref() {
                     let _ = storage.clear(app);
                 }
+                self.remove_server_dirs(app);
                 vec![]
             }
             Effect::StopHost(app) => {
