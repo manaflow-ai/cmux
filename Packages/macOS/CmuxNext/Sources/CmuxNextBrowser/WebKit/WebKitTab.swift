@@ -76,6 +76,7 @@ public final class WebKitTab: NSObject, BrowserTab {
             forMainFrameOnly: false
         ))
         controller.add(WeakScriptMessageHandler(self), name: PaneFullscreenScript.messageHandlerName)
+        installPasskeyAuthorization(into: controller)
 
         observeWebView()
         if configuration.zoom != 1 {
