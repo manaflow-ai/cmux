@@ -19,6 +19,10 @@ final class SettingsPageProvider: PageProvider {
     /// Live lists Settings shows beside the schema rows (spaces, machines, browser profiles); nil
     /// in tests without an app.
     private let hostLists: (@MainActor () -> JSONValue)?
+    /// The Accounts part of the page (R82 commit 3): its state, and one gesture; nil in tests
+    /// without an app.
+    var accountsState: (@MainActor () -> JSONValue)?
+    var accountsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
@@ -51,6 +55,12 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.host.lists":
             guard let hostLists else { throw PageError(code: "cmux.page.unavailable", message: "no host lists") }
             return hostLists()
+        case "cmux.settings.accounts.state":
+            guard let accountsState else { throw PageError(code: "cmux.page.unavailable", message: "no accounts") }
+            return accountsState()
+        case "cmux.settings.accounts.run":
+            guard let accountsRun else { throw PageError(code: "cmux.page.unavailable", message: "no accounts") }
+            return try await accountsRun(params)
         case "cmux.settings.preview", "cmux.settings.preview.end":
             // No live preview yet: a change applies when it is written (flagged in react-pages.md S1).
             return .object([:])
@@ -67,16 +77,11 @@ final class SettingsPageProvider: PageProvider {
     /// page, the palette, the CLI or a hand edit of the file).
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
+        if stream == "cmux.settings.accounts.changed", let accountsState {
+            return Self.watch(accountsState, onEvent: onEvent)
+        }
         if stream == "cmux.settings.host.changed", let hostLists {
-            // One event per change of the lists (the stores are observable); the page re-reads.
-            let task = Task { @MainActor in
-                var last = hostLists()
-                for await lists in Observations({ hostLists() }) where lists != last {
-                    last = lists
-                    onEvent(lists)
-                }
-            }
-            return PageSubscription { task.cancel() }
+            return Self.watch(hostLists, onEvent: onEvent)
         }
         guard stream == "cmux.settings.changed" else { throw PageError.unknownOp(stream) }
         let settings = settings
@@ -86,6 +91,20 @@ final class SettingsPageProvider: PageProvider {
                 let keys = SettingsSchema.all.filter { $0.storedValue(in: root) != $0.storedValue(in: last) }.map(\.id)
                 last = root
                 if !keys.isEmpty { onEvent(["revision": .number(Double(count)), "keys": .array(keys.map(JSONValue.string))]) }
+            }
+        }
+        return PageSubscription { task.cancel() }
+    }
+
+    /// One event per change of `read`'s value (the stores it reads are observable); the event
+    /// carries the new value.
+    private static func watch(_ read: @escaping @MainActor () -> JSONValue,
+                              onEvent: @escaping @MainActor (JSONValue) -> Void) -> PageSubscription {
+        let task = Task { @MainActor in
+            var last = read()
+            for await value in Observations({ read() }) where value != last {
+                last = value
+                onEvent(value)
             }
         }
         return PageSubscription { task.cancel() }

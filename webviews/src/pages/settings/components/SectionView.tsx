@@ -1,11 +1,12 @@
 import { rowsInSection, sections } from "../schema";
 import { text } from "../strings";
 import { GroupList } from "./GroupList";
+import { AccountsSection } from "./AccountsSection";
 import { MachinesSection, RoomsSection } from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
 
 /** Sections the page draws from the host lists instead of schema rows. */
-const hostSections = new Set(["rooms", "machines"]);
+const hostSections = new Set(["rooms", "machines", "accounts"]);
 
 export function SectionView({ section, focus }: { section: string; focus: string | null }) {
   const info = sections.find((item) => item.id === section)!;
@@ -16,6 +17,7 @@ export function SectionView({ section, focus }: { section: string; focus: string
       {rows.length > 0 && <GroupList rows={rows} focus={focus} />}
       {section === "rooms" && <RoomsSection />}
       {section === "machines" && <MachinesSection />}
+      {section === "accounts" && <AccountsSection />}
       {((rows.length === 0 && !hostSections.has(section)) || section === "advanced") && (
         <PlaceholderSection section={section} openInWindow={rows.length === 0} />
       )}

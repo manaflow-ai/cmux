@@ -57,6 +57,46 @@ export type HostLists = {
   profile_colors: Array<{ name: string; swatch: string; fill: string }>;
 };
 
+/** One button of the Accounts part; the host localizes every text. */
+export type AccountsButton = {
+  id: string;
+  title: string;
+  disabled: boolean;
+  help: string | null;
+  destructive: boolean;
+};
+
+/** One provider row of the Accounts part (`cmux.settings.accounts.state`). */
+export type AccountsRow = {
+  provider: string;
+  name: string;
+  detail: string | null;
+  status: string;
+  statusKind: "success" | "attention" | "neutral" | "quiet";
+  busy: boolean;
+  buttons: AccountsButton[];
+  unsupported: string | null;
+  linked: Array<{ id: string; label: string; state: string; healthy: boolean; busy: boolean }>;
+  note: string | null;
+  outcome: { kind: "success" | "neutral" | "danger" | "attention"; text: string } | null;
+  confirm: { text: string; confirm: string; cancel: string } | null;
+  paste: { title: string; body: string; placeholder: string; buttons: AccountsButton[] } | null;
+};
+
+/** The Accounts part as the host draws it (texts already localized by the app). */
+export type AccountsState = {
+  intro: string;
+  refresh: string;
+  refreshing: boolean;
+  signIn: { text: string; confirm: string } | null;
+  problem: string | null;
+  removeTitle: string;
+  groups: Array<{ id: string; title: string; rows: AccountsRow[] }>;
+};
+
+/** One Accounts gesture; `secret` only for the paste form's save and send. */
+export type AccountsRun = { action: string; provider?: string; account?: string; secret?: string };
+
 /** The v2 mutation result: `revision` is a decimal string. */
 export type MutationResult = { value: { keys: string[] }; revision: string; replayed: boolean };
 
@@ -71,6 +111,10 @@ export type SettingsOps = {
   "cmux.settings.reset_all": [Mutation<object>, MutationResult];
   /** Native: spaces, machines and browser profiles from the app's live stores. */
   "cmux.settings.host.lists": [Record<string, never>, HostLists];
+  /** Native: the Accounts part (providers, linked accounts, forms). */
+  "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
+  /** Native: one Accounts gesture; a failed Keychain save answers its message. */
+  "cmux.settings.accounts.run": [AccountsRun, { error?: string }];
   /** Native: show `value` live while a gesture runs; never written. */
   "cmux.settings.preview": [{ key: string; value: unknown }, unknown];
   /** Native: drop the live preview of `key`. */
@@ -86,6 +130,8 @@ export type SettingsOpName = keyof SettingsOps;
 /** Streams the page subscribes to. */
 export type SettingsStreams = {
   "cmux.settings.changed": { revision: number; keys: string[]; origin?: string };
+  /** The Accounts part changed (the event carries the new state). */
+  "cmux.settings.accounts.changed": AccountsState;
   /** The host lists changed (the event carries the new lists). */
   "cmux.settings.host.changed": HostLists;
   /** The page bridge's link to the daemon (one stream for every page). */

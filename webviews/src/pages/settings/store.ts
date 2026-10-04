@@ -14,6 +14,8 @@ import {
   type Diagnostic,
   type Domains,
   type HostLists,
+  type AccountsRun,
+  type AccountsState,
   type SettingsPageAction,
   type ListRow,
   type ManagedInfo,
@@ -43,6 +45,8 @@ export type SettingsState = {
   domains: Domains;
   /** Spaces, machines and browser profiles; null until read, or when the host has none. */
   host: HostLists | null;
+  /** The Accounts part; null until read, or when the host has none. */
+  accounts: AccountsState | null;
 };
 
 export type WriteResult = { ok: true } | { ok: false; error: WireError };
@@ -66,6 +70,7 @@ export class SettingsStore {
     errors: new Map(),
     domains: emptyDomains,
     host: null,
+    accounts: null,
   };
   private readonly listeners = new Set<() => void>();
   private refreshSequence = 0;
@@ -94,6 +99,7 @@ export class SettingsStore {
         if (event.connected) void this.refresh();
       }),
       this.listen("cmux.settings.host.changed", (host) => this.update({ host })),
+      this.listen("cmux.settings.accounts.changed", (accounts) => this.update({ accounts })),
       this.listen("cmux.page.command", (event) => {
         for (const listener of this.commandListeners) listener(event.command);
       }),
@@ -105,6 +111,20 @@ export class SettingsStore {
   async refreshHost(): Promise<void> {
     const reply = await this.request("cmux.settings.host.lists", {});
     if (reply.ok && !this.disposed) this.update({ host: reply.value });
+  }
+
+  /** Reads the Accounts part. */
+  async refreshAccounts(): Promise<void> {
+    const reply = await this.request("cmux.settings.accounts.state", {});
+    if (reply.ok && !this.disposed) this.update({ accounts: reply.value });
+  }
+
+  /** One Accounts gesture; answers the failure text of a Keychain save, else null. */
+  async runAccounts(run: AccountsRun): Promise<string | null> {
+    const reply = await this.request("cmux.settings.accounts.run", run);
+    await this.refreshAccounts();
+    if (!reply.ok) return reply.error.message;
+    return reply.value.error ?? null;
   }
 
   /** Runs one of the page's catalog actions (`target` is `kind:id`), then re-reads the lists. */
