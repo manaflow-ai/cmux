@@ -142,15 +142,25 @@ pub(crate) async fn setup(
     // Config: keep an existing one, but make sure the websocket listener and token exist.
     let existing = ssh(host, "cat ~/.acpmux/config.json 2>/dev/null || echo '{}'")?;
     let mut cfg: Value = serde_json::from_str(&existing).unwrap_or_else(|_| json!({}));
-    let token = match cfg.pointer("/websocket/token").and_then(Value::as_str) {
-        Some(t) => t.to_owned(),
+    let kept = cfg.pointer("/websocket/token").and_then(Value::as_str).map(str::to_owned);
+    let token = match kept.clone() {
+        Some(t) => t,
         None => {
             let mut b = [0u8; 24];
             getrandom_fill(&mut b)?;
             b.iter().map(|x| format!("{x:02x}")).collect()
         }
     };
-    cfg["websocket"] = json!({"listen": format!("127.0.0.1:{port}"), "token": token});
+    // Keep the rest of the listener's settings (allowed origins and hosts,
+    // `tokenRotated`); a token made here is new, so it never rotates.
+    let mut websocket =
+        cfg.get("websocket").cloned().filter(Value::is_object).unwrap_or_else(|| json!({}));
+    websocket["listen"] = json!(format!("127.0.0.1:{port}"));
+    websocket["token"] = json!(token);
+    if kept.is_none() {
+        websocket["tokenRotated"] = json!(1);
+    }
+    cfg["websocket"] = websocket;
     if cfg.get("store").is_none() {
         cfg["store"] = json!({"mode": "local"});
     }

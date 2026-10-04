@@ -113,12 +113,13 @@ export class FreestyleDriver implements TeamVmDriver {
 
 /**
  * Test driver (ENVIRONMENT=test only): VMs live in the DO's own SQLite, so tests see exactly what
- * the object did. `fake_ctl.fail_next` makes the next calls fail (retryable) to test backoff; deleting a `fake_vm` row stands for a VM deleted outside cmux.
+ * the object did. `fake_ctl.fail_next` makes the next calls fail (retryable) to test backoff; `lose_next_create`
+ * makes the next create happen but answer with a retryable failure (a lost answer); deleting a `fake_vm` row stands for a VM deleted outside cmux.
  */
 export class FakeDriver implements TeamVmDriver {
   constructor(private readonly sql: SqlStore) {
     sql.exec(`CREATE TABLE IF NOT EXISTS fake_vm (slug TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, state TEXT NOT NULL)`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0, slug_prefix TEXT, lose_next_create INTEGER NOT NULL DEFAULT 0)`)
     sql.exec(`INSERT OR IGNORE INTO fake_ctl (id) VALUES (1)`)
   }
 
@@ -130,6 +131,11 @@ export class FakeDriver implements TeamVmDriver {
     }
   }
 
+  /** Test only: the slug prefix a test set to stand for a configuration change (null = the env's). */
+  slugPrefix(): string | null {
+    return this.sql.exec<{ slug_prefix: string | null }>(`SELECT slug_prefix FROM fake_ctl WHERE id = 1`)[0]?.slug_prefix ?? null
+  }
+
   async ensureVm(slug: string, _team: string, _epoch: number) {
     this.maybeFail()
     const row = this.sql.exec<{ id: string; state: string }>(`SELECT id, state FROM fake_vm WHERE slug = ?`, slug)[0]
@@ -137,6 +143,10 @@ export class FakeDriver implements TeamVmDriver {
     const id = `fakevm-${slug}`
     this.sql.exec(`INSERT INTO fake_vm (slug, id, state) VALUES (?, ?, 'running')`, slug, id)
     this.sql.exec(`UPDATE fake_ctl SET creates = creates + 1 WHERE id = 1`)
+    if (this.sql.exec<{ n: number }>(`SELECT lose_next_create AS n FROM fake_ctl WHERE id = 1`)[0]!.n > 0) {
+      this.sql.exec(`UPDATE fake_ctl SET lose_next_create = lose_next_create - 1 WHERE id = 1`)
+      throw new DriverError("team_vm.provider_failed", "create VM: no answer TIMEOUT", false)
+    }
     return { id, state: "running" as const }
   }
 
@@ -163,12 +173,20 @@ export const PRODUCTION_PLAN_GATE_LANDED = false
 export const providerRefusal = (env: Pick<Env, "ENVIRONMENT">, gateLanded = PRODUCTION_PLAN_GATE_LANDED): string | null =>
   env.ENVIRONMENT === "production" && !gateLanded ? "team_vm.plan_gate_missing" : null
 
-/** The configured driver, or null: without a key, a snapshot and a slug prefix (cmuxnp-dev- outside production) nothing is created. */
+/**
+ * The prefix a non-production environment's new team VM names must start with (decision
+ * FREESTYLE-NAMES: `cmuxnp-<env>-<lane>-<rest>`): staging `cmuxnp-stg-`, everything else `cmuxnp-dev-`.
+ * The prefix only names NEW VMs. Nothing lists provider VMs or matches them by prefix: a team's VM
+ * is reached by the id in its TeamVmDO record, so a VM created under an older prefix keeps working.
+ */
+export const requiredSlugPrefix = (environment: string | undefined) => (environment === "staging" ? "cmuxnp-stg-" : "cmuxnp-dev-")
+
+/** The configured driver, or null: without a key, a snapshot and a slug prefix (requiredSlugPrefix outside production) nothing is created. */
 export const teamVmDriver = (env: Env, sql: SqlStore): TeamVmDriver | null => {
   if (env.ENVIRONMENT === "test" && env.TEAM_VM_DRIVER === "fake") return new FakeDriver(sql)
   if (!env.FREESTYLE_API_KEY || !env.TEAM_VM_SNAPSHOT || !env.TEAM_VM_SLUG_PREFIX) return null
   // Development and staging share the production provider account: their VMs must carry the
-  // prefix that marks agent-created resources, so nothing can mistake them for customer VMs.
-  if (env.ENVIRONMENT !== "production" && !env.TEAM_VM_SLUG_PREFIX.startsWith("cmuxnp-dev-")) return null
+  // prefix that marks agent-created resources of that environment, so nothing can mistake them for customer VMs.
+  if (env.ENVIRONMENT !== "production" && !env.TEAM_VM_SLUG_PREFIX.startsWith(requiredSlugPrefix(env.ENVIRONMENT))) return null
   return new FreestyleDriver(env.FREESTYLE_API_KEY, env.FREESTYLE_API_URL || "https://api.freestyle.sh", env.TEAM_VM_SNAPSHOT)
 }

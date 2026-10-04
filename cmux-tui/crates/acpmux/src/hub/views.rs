@@ -118,7 +118,7 @@ impl Hub {
             "permissionPolicy": cfg.permission_policy.to_string(),
             "peers": self.peers(),
             "remoteSessions": self.remote_sessions.lock().unwrap().len(),
-            "webUrl": cfg.web_listener().map(web_url),
+            "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),
             "loginEnv": crate::login_env::state(self.login_env_requested.load(Ordering::SeqCst)),

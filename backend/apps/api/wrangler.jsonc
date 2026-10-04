@@ -69,7 +69,7 @@
       // 23 * * * *: feed text sweep; */15: the Postgres/MySQL projection compare during the dual write.
       "triggers": { "crons": ["23 * * * *", "*/15 * * * *"] },
       "workers_dev": true,
-      "vars": { "ENVIRONMENT": "staging", "WORKER_NAME": "cmux-api-staging", "PROJECTION_SHADOW": "mysql", "TEAM_VM_SLUG_PREFIX": "cmuxnp-dev-tvm-", "AUTOMATION_CAP_CEILING_USD": "25", "DASHBOARD_ORIGIN": "https://console-staging.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.ios", "IOS_APP_ATTEST_DEVELOPMENT": "true", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
+      "vars": { "ENVIRONMENT": "staging", "WORKER_NAME": "cmux-api-staging", "PROJECTION_SHADOW": "mysql", "TEAM_VM_SLUG_PREFIX": "cmuxnp-stg-tvm-", "AUTOMATION_CAP_CEILING_USD": "25", "DASHBOARD_ORIGIN": "https://console-staging.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.ios", "IOS_APP_ATTEST_DEVELOPMENT": "true", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
       "durable_objects": {
         "bindings": [
           { "name": "USER_DO", "class_name": "UserDO" },

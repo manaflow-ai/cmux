@@ -47,7 +47,12 @@ The daemon starts on demand, like the tmux server. `acpmux daemon` runs it in th
 
 The daemon serves a dashboard on the same port as its WebSocket, by default
 `http://127.0.0.1:47811/?token=…`. The token is generated on first run and saved in
-`config.json`; `acpmux web` prints the full link and opens it. The page follows the Codex
+`config.json`; `acpmux web` prints the full link and opens it. Only the local socket ever
+reads it back: a remote-origin (WebSocket) connection gets no `webUrl` and no peer URL query.
+Release note: earlier builds did send `webUrl` to WebSocket clients, so the first start of
+this build replaces a saved token once (`websocket.tokenRotated` records it). Open the new
+link from `acpmux web`, and give a `ws://` peer that pins the old token the new one; the app,
+the TUI and `ssh://` peers read it again by themselves. The page follows the Codex
 desktop app like the TUI does: a rail with `New session` (a draft: `What should we build in
 <project>?`, the harness and permission chips pick its settings, the project name opens the
 directory picker, with separate harness, model, and permission buttons, and the session is created when you send the first message), sessions
