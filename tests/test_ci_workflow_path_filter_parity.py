@@ -22,13 +22,23 @@ WORKFLOWS = ROOT / ".github/workflows"
 # error, so a synced workflow cannot keep a stale exemption.
 EXEMPTIONS: dict[str, str] = {
     "web-complexity.yml": "pull requests must not self-queue the contributor-side candidate job",
+}
+
+# name -> (filter, push-only patterns, why). A narrower exemption: only these
+# patterns may appear on push without pull_request. Any other difference in the
+# workflow, including any path guarded only on pull requests, still fails.
+PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
     # #17114 (21710d9ef90): pull requests route packages outside CmuxNext to
-    # the generic workflow's focused package tests, while base pushes keep the
-    # full side suite for every package (test_cmux_next_does_not_run_full_suite_
-    # for_unrelated_packages pins the pull-request side). The push list is the
-    # wider one, so nothing that merges goes unguarded on the base.
-    "cmux-next.yml": "base pushes keep full side coverage for Packages/{macOS,Shared,iOS}/**; "
-    "pull requests send packages outside CmuxNext to the focused package lane",
+    # the generic workflow's focused package tests; base pushes keep the full
+    # side suite for every package. test_ci_change_areas.py's
+    # test_cmux_next_does_not_run_full_suite_for_unrelated_packages pins the
+    # pull-request side.
+    "cmux-next.yml": (
+        "paths",
+        frozenset({"Packages/macOS/**", "Packages/Shared/**", "Packages/iOS/**"}),
+        "base pushes keep full side coverage for every package; pull requests send "
+        "packages outside CmuxNext to the focused package lane",
+    ),
 }
 
 FILTERS = ("paths", "paths-ignore")
@@ -86,6 +96,35 @@ def divergence(path):
     return differences
 
 
+def unapproved(path, name=None):
+    """Return divergence(path) minus the push-only patterns allowed for `name`."""
+    name = name or path.name
+    differences = divergence(path)
+    if name not in PUSH_ONLY_PATTERNS:
+        return differences
+    allowed_filter, allowed, _ = PUSH_ONLY_PATTERNS[name]
+    remaining = {}
+    for filter_name, (push_only, pull_request_only) in differences.items():
+        if filter_name == allowed_filter and (push_only or pull_request_only):
+            # A pure order difference ([], []) is never allowed; only
+            # membership of the named push-only patterns is.
+            narrowed = sorted(set(push_only) - allowed)
+            if not narrowed and not pull_request_only:
+                events = triggers(path)
+                push_patterns = events["push"].get(filter_name) or []
+                pull_request_patterns = events["pull_request"].get(filter_name) or []
+                # With a negated pattern the order matters, so the push list
+                # without the allowed patterns must equal the pull_request list.
+                if not any(pattern.startswith("!") for pattern in (*push_patterns, *pull_request_patterns)):
+                    continue
+                if [pattern for pattern in push_patterns if pattern not in allowed] == pull_request_patterns:
+                    continue
+                narrowed = []
+            push_only = narrowed
+        remaining[filter_name] = (push_only, pull_request_only)
+    return remaining
+
+
 def describe(name, differences):
     """Explain membership or ordering differences for a workflow."""
     lines = [f"{name}: push and pull_request filter different files"]
@@ -111,12 +150,12 @@ def test_push_and_pull_request_filter_the_same_files():
     for path in workflow_files():
         if path.name in EXEMPTIONS:
             continue
-        differences = divergence(path)
+        differences = unapproved(path)
         if differences:
             drifted.append(describe(path.name, differences))
     assert not drifted, (
         "Every workflow that filters both events must filter them identically, "
-        "or declare the difference in EXEMPTIONS with a reason.\n"
+        "or declare the difference in EXEMPTIONS or PUSH_ONLY_PATTERNS with a reason.\n"
         + "\n".join(drifted)
     )
 
@@ -131,6 +170,53 @@ def test_every_exemption_is_still_needed():
             f"{name}: exempted from filter parity but its filters now agree. "
             "Remove the EXEMPTIONS entry."
         )
+
+
+def test_every_push_only_pattern_is_still_needed():
+    """Reject obsolete or unexplained push-only pattern allowances."""
+    for name, (filter_name, allowed, reason) in sorted(PUSH_ONLY_PATTERNS.items()):
+        assert name not in EXEMPTIONS, f"{name}: use EXEMPTIONS or PUSH_ONLY_PATTERNS, not both"
+        assert (WORKFLOWS / name).exists(), f"PUSH_ONLY_PATTERNS names {name}, which no longer exists"
+        assert reason.strip(), f"{name}: push-only allowance needs a reason"
+        push_only, _ = divergence(WORKFLOWS / name).get(filter_name, ([], []))
+        stale = sorted(allowed - set(push_only))
+        assert not stale, (
+            f"{name}: {', '.join(stale)} is no longer push-only. "
+            "Remove it from PUSH_ONLY_PATTERNS."
+        )
+
+
+def test_push_only_allowance_still_catches_pull_request_only_paths():
+    """An allowed push-only pattern hides nothing else in the same workflow."""
+    _, allowed, _ = PUSH_ONLY_PATTERNS["cmux-next.yml"]
+    shared = ["App/**", "Packages/macOS/CmuxNext/**"]
+    with TemporaryDirectory() as directory:
+        path = Path(directory) / "workflow.yml"
+
+        def write(push, pull_request):
+            path.write_text(yaml.safe_dump({"on": {
+                "push": {"paths": push},
+                "pull_request": {"paths": pull_request},
+            }}), encoding="utf-8")
+
+        write([*shared, *sorted(allowed)], shared)
+        assert unapproved(path, "cmux-next.yml") == {}
+        # A path guarded only on pull requests still fails.
+        write([*shared, *sorted(allowed)], [*shared, "scripts/new-input.sh"])
+        assert unapproved(path, "cmux-next.yml") == {
+            "paths": ([], ["scripts/new-input.sh"])
+        }
+        # A push-only path outside the allowance still fails.
+        write([*shared, *sorted(allowed), "web/**"], shared)
+        assert unapproved(path, "cmux-next.yml") == {"paths": (["web/**"], [])}
+        # With a negated pattern, the allowance does not hide a reorder.
+        write([*shared, *sorted(allowed), "!docs/**"], [*shared, "!docs/**"])
+        assert unapproved(path, "cmux-next.yml") == {}
+        write([*sorted(allowed), "!docs/**", *shared], [*shared, "!docs/**"])
+        assert unapproved(path, "cmux-next.yml") == {"paths": ([], [])}
+        # The allowance belongs to its workflow only.
+        write([*shared, *sorted(allowed)], shared)
+        assert unapproved(path, "other.yml") == {"paths": (sorted(allowed), [])}
 
 
 def test_filter_pattern_order():
@@ -158,4 +244,6 @@ if __name__ == "__main__":
     test_filter_pattern_order()
     test_push_and_pull_request_filter_the_same_files()
     test_every_exemption_is_still_needed()
+    test_every_push_only_pattern_is_still_needed()
+    test_push_only_allowance_still_catches_pull_request_only_paths()
     print("ok")
