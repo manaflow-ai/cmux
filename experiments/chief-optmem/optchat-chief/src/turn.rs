@@ -265,7 +265,11 @@ pub fn run(
         }
     }
     interrupt.wake_with(None);
-    log(&usage_line(&start.key, fold.first_usage(), totals));
+    log(&usage_line(
+        &start.key,
+        fold.first_usage(),
+        totals.map(|u| (u, "turn total")),
+    ));
     if orphan.is_none()
         && let Err(e) = agents.end_session(&session)
     {
@@ -283,7 +287,8 @@ pub fn run(
 /// One host.log line per turn with its cache use (section 8: verify with the
 /// usage fields). The first request shows what this turn read of the view
 /// another turn cached; the totals cover the whole tool loop.
-pub fn usage_line(key: &str, first: Option<Usage>, totals: Option<Usage>) -> String {
+pub fn usage_line(key: &str, first: Option<Usage>, totals: Option<(Usage, &'static str)>) -> String {
+    let totals = totals.map(|(u, _)| u);
     let show = |u: Option<Usage>| match u {
         Some(u) => format!(
             "read {} written {} uncached {} output {}",
