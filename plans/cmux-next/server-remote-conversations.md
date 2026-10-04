@@ -1,6 +1,6 @@
 # cmux next: remote conversations on a paired server (relay analysis)
 
-Status: revision 12 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
+Status: revision 13 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
 5 P2), with the coordinator's decisions D-A and D-B of 2026-10-04. No code yet; the review agent
 re-checks this revision before any code. Decisions D1 and D2 of 2026-10-04: the MacBook opens the daemon
 conversations of a paired Mac mini over lane 12's `cmux link` overlay; the server is a
@@ -113,7 +113,7 @@ kinds for owned conversations leave it (section 8). Nothing reaches the remote w
 - Owned conversation: `remote_<install>` is a participant and the stamp's `user_id` is the server
   owner. The gate checks this for list, snapshot, history, typing and ops.
 
-## 6. Remote prompts to agents (D-A no waiver; D-E to D-J; rev 12)
+## 6. Remote prompts to agents (D-A no waiver; D-E to D-J; rev 13)
 
 A `message.send` from a remote principal into a conversation with an agent starts a
 **remote-origin prompt chain**. Every rule fails closed: when any part of the gate is missing,
@@ -276,7 +276,7 @@ crashed, slow or unsure, the tool does not run.
     "install"}}, "text": ...}`, accepted only on the daemon socket; a new `outbound.rs` case emits
     the Claude block `{"type": "document", "source": {"type": "text", "media_type": "text/plain",
     "data": ...}, "title": "<conversation>/<message>"}` (ids only). An unknown block type in a
-    tainted session refuses the prompt. The fixed prefix stays (a
+    tainted session refuses the prompt, also on the steer path (`steer_now`). The fixed prefix stays (a
     bare `/clear` as text runs as a command). The document title is built from ids only
     (conversation, message, install), never names. A probe on the pinned version shows that `/cmd`,
     `!x`, `@path`, a fake `[mux-event]` line and a fake "Message from user_local:" line inside a
@@ -310,6 +310,40 @@ crashed, slow or unsure, the tool does not run.
     - `allow_always` is refused;
     - `updatedInput` is stripped, except the schema-checked answer field of interactive tools
       (`AskUserQuestion`); an `updatedInput` that differs from the shown input is refused.
+12b. **Remote taint (P1-b, decided: permanent).** A session started for a remote chain is
+    **remote-tainted for its whole life**. The taint is stored durably in acpmux session metadata,
+    in the daemon store, and on the Claude `agentSessionId` too, and it stays after
+    `SESSION_DELETE`, so an adopt or resume of the transcript after a delete is still tainted.
+    Every prompt into a tainted session is remote, whatever its origin field says. The taint is set
+    at `session/new` on the daemon socket; a remote prompt into an untainted session is refused.
+    The taint is **never derived from a tag** (`_acpmux/tag`, `mux.parent`) or from an environment
+    variable (`ACPMUX_SESSION_ID` can be forged).
+    - **Forks:** every fork of a tainted session is refused (simpler than copying the taint and the
+      spec in one step).
+    - **Export and import (P2-b):** the taint is part of `SessionMeta`, so `MUX_EXPORT`/`MUX_IMPORT`
+      (`hub/transfer.rs`, `native::restore`) keep it; until that ships, `MUX_EXPORT` of a tainted
+      session is refused.
+    - **Children by process group (rev 13 P2).** No request field names a parent, so acpmux finds
+      the caller from its peer credentials (`LOCAL_PEERPID`, then `getpgid`) and compares it with
+      the process group of every tainted session (`agent.rs` spawns each with `process_group(0)`).
+      For a request from inside a tainted group: a new session is tainted and gets the clean spec
+      (rule 4); a peer-forwarded `session/new` (`_meta.acpmux.peer`, today forwarded before any
+      check in `server/requests.rs`) is refused; its prompts are remote; `permission_respond`, a
+      `_acpmux/tag` of `mux.parent`, and policy, mode or default changes are refused. The Agent
+      tool's in-process subagents share the parent's taint.
+    - **Child events never prompt the Chief (rev 13 P1).** Code fact: `mux/host/src/agents.ts`
+      `spawnAgent` tags every child `mux.parent = "mux"` (the Chief) whatever session spawned it,
+      and `host.ts` `childFinished` and `onPermission` send `childFinishedPrompt` and
+      `childPermissionPrompt` as plain text prompts into the local Chief. For a tainted child: the
+      mux host records the real spawning session; the child's events go only to its tainted
+      parent, through the daemon socket, as rule 10 `document` blocks (or are dropped and written
+      only to the remote log). They never prompt the local Chief.
+    - **Global settings through an approved call:** an approved Bash call could try to change
+      global acpmux defaults over RPC; the process-group check refuses that from inside a tainted
+      group.
+    - **Notifications:** `notifyCommand` receives the model-controlled title in `ACPMUX_TEXT`; it
+      is passed as data (environment), never through a shell string, and the notify command must
+      not interpret it.
 12c. **No grouped or chat answers (P1, rev 11).** Code facts: `server/requests.rs` sends
     `MUX_PERMISSION_GROUP_RESPOND` to `hub/permission_groups.rs`, which answers every pending item
     with `allow_once` from any client, and its `allow_chat` choice sets `state.chat_allowed`, after
@@ -319,17 +353,6 @@ crashed, slow or unsure, the tool does not run.
     skips `rules::decide`, `policy_for` and `chat_option` and sends each request to the daemon.
     `allow_always` is not offered (`inbound.rs`). `ExitPlanMode`'s `updatedPermissions` (`setMode`)
     is never forwarded.
-12b. **Remote taint (P1-b, decided: permanent).** A session started for a remote chain is
-    **remote-tainted for its whole life**, and the taint is stored durably (acpmux session metadata
-    and the daemon store) and survives restarts; an agent-host adopt keeps it: every prompt into it, or into any fork, handoff, transfer or adopt of it, is
-    remote, whatever its origin field says. Derivatives include **child sessions** that a remote
-    chain spawns (P2-2): the Agent tool's subagents in-process, and sessions that the remote chain
-    creates through acpmux `session/new` (the child-spawn path); acpmux refuses an untainted
-    `session/new` that names a tainted parent. The taint is set at `session/new` on the daemon
-    socket; a remote prompt into an untainted session is refused. **Export and import (P2-b):** the
-    taint is part of `SessionMeta`, so `MUX_EXPORT`/`MUX_IMPORT` (`hub/transfer.rs`,
-    `native::restore`) keep it in the new session; until that ships, `MUX_EXPORT` of a tainted
-    session is refused.
 12d. **Respawn, failover, warm and rehydrate (P1, P2-a; rev 12).** Code facts: `hub/lifecycle.rs`
     `child_for` builds each respawn from the current global harness profile and the
     `MUX_DEFAULTS`/`MUX_PRESETS` environment (any client can change these) and `replay_config`
@@ -338,7 +361,9 @@ crashed, slow or unsure, the tool does not run.
     (`hub/warm.rs`) calls `child_for` for recent sessions; a failed exact resume sets `rehydrate`,
     and `turns.rs` puts the log transcript in front of the next prompt as plain text. For a tainted
     session:
-    - the **clean spawn spec** (rule 4) is stored durably with the taint; `child_for` uses only that
+    - the **clean spawn spec** (rule 4) is stored durably with the taint and fixes the
+      permission mode (`default`), the effort and the model at spawn (`spawn_plan` would read them
+      from `meta.modes` and the config); `child_for` uses only that
       spec and re-runs the spawn checks (pinned version, `system/init` tool table, managed
       settings); `MUX_DEFAULTS`, `MUX_PRESETS` and `MUX_RELOAD_CONFIG` do not apply;
       `replay_config` forces mode `default`;
@@ -397,6 +422,16 @@ Tests for this section (the acpmux owner adds fake-model probes on a Testbox):
 - a failed resume of a tainted session cancels the chain and never rehydrates the transcript.
 - `MUX_EXPORT` of a tainted session is refused, or the imported session keeps the taint.
 - an untainted `session/new` with a tainted parent is refused.
+- a remote chain's child finishes and asks a permission: no prompt arrives in the local Chief
+  session; the event reaches the tainted parent as a `document` block or only the remote log.
+- a request from a process inside a tainted session's process group: `session/new` is tainted with
+  the clean spec, a peer-forwarded `session/new` is refused, `permission_respond`, `mux.parent` tag
+  and mode or default changes are refused; a forged `ACPMUX_SESSION_ID` or tag does not taint or
+  untaint anything.
+- a fork of a tainted session is refused; after `SESSION_DELETE`, adopting its Claude
+  `agentSessionId` is still tainted.
+- an unknown block type sent through `steer_now` into a tainted session is refused.
+- the clean spec fixes mode, effort and model; `meta.modes` values do not reach the spawn.
 - the remote projection arrives as the first stdin prompt (not on argv), and an earlier remote
   message with a fake delimiter in it stays inside its block.
 - remote text in a `document` block with `</resource>`, a fake `[mux-event]` line, `@/etc/hosts`
