@@ -256,7 +256,7 @@ fn events_update_the_projection_by_revision() {
     let (event, data) = WireFake::event("machine.upsert.newer");
     assert!(s.team_event(&event, &data).is_ok());
     assert_eq!(record(&s, &vm(1))["status"], "pausing");
-    assert_eq!(record(&s, &vm(1))["revision"], "9");
+    assert_eq!(record(&s, &vm(1))["revision"], "55");
     let events = s.take_events();
     assert_eq!(events.len(), 1, "{events:?}");
 
@@ -292,14 +292,14 @@ fn a_mutation_answer_older_than_the_projection_is_dropped() {
     let (event, data) = WireFake::event("machine.upsert.newer");
     assert!(s.team_event(&event, &data).is_ok());
     s.take_events();
-    // The rename answer carries revision 8; the event already brought 9.
+    // The rename answer carries revision 47; the event already brought 55.
     let out = s.handle(&mutation(
         "cloud.machine.rename",
         json!({ "machine": vm(1), "name": "renamed box" }),
         "key-rename-1",
     ));
     assert!(out.is_ok(), "rename: {out:?}");
-    assert_eq!(record(&s, &vm(1))["revision"], "9");
+    assert_eq!(record(&s, &vm(1))["revision"], "55");
     assert_eq!(record(&s, &vm(1))["status"], "pausing");
     assert!(s.take_events().is_empty());
 }

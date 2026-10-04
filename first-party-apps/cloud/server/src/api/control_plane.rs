@@ -18,6 +18,10 @@ pub struct WireCall {
     pub params: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub idempotency_key: Option<String>,
+    /// A mutation's origin (`OpRequest.origin`: user, cli, mcp, script,
+    /// remote) as the app supervisor stamped it; the host forwards it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin: Option<&'static str>,
 }
 
 /// A successful wire answer: the op's `value`, its owner revision, and

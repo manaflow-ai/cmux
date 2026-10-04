@@ -414,7 +414,8 @@ impl<C: ControlPlane> Server<C> {
         if crate::ports::serves(name) {
             return crate::ports::run(self, name, args, origin, key);
         }
-        let mut ctx = Ctx::new(&mut self.control_plane, &mut self.projection, name, key);
+        let mut ctx = Ctx::new(&mut self.control_plane, &mut self.projection, name, key)
+            .with_origin(request.origin);
         let group = name.split('.').nth(1).unwrap_or_default();
         match group {
             "auth" => auth::run(&mut ctx, name, args),

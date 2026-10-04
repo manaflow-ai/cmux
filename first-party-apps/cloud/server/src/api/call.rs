@@ -15,6 +15,8 @@ pub(crate) struct Ctx<'a, C> {
     /// wire call of the op carries it unchanged, so a retry with the same
     /// key reaches the backend's ledger row (contract 1.1).
     key: Option<&'a str>,
+    /// The request's origin, sent with each mutation.
+    origin: Option<&'static str>,
 }
 
 impl<'a, C: ControlPlane> Ctx<'a, C> {
@@ -24,7 +26,13 @@ impl<'a, C: ControlPlane> Ctx<'a, C> {
         op: &'a str,
         key: Option<&'a str>,
     ) -> Self {
-        Self { control_plane, projection, op, key }
+        Self { control_plane, projection, op, key, origin: None }
+    }
+
+    /// Sends `origin` with this op's mutations (`OpRequest.origin`).
+    pub(crate) fn with_origin(mut self, origin: super::wire::Origin) -> Self {
+        self.origin = origin.wire_name();
+        self
     }
 
     pub(crate) fn control_plane(&mut self) -> &mut C {
@@ -36,8 +44,12 @@ impl<'a, C: ControlPlane> Ctx<'a, C> {
     /// the host) also clears the projection: a signed-out Mac shows no
     /// machines.
     pub(crate) fn wire(&mut self, op: &str, params: Value) -> Result<WireResult, CloudError> {
-        let call =
-            WireCall { op: op.to_owned(), params, idempotency_key: self.key.map(str::to_owned) };
+        let call = WireCall {
+            op: op.to_owned(),
+            params,
+            idempotency_key: self.key.map(str::to_owned),
+            origin: self.key.and(self.origin),
+        };
         match self.control_plane.call(&call) {
             Ok(WireReply::Result(result)) => Ok(result),
             Ok(WireReply::Error(error)) => {

@@ -139,6 +139,7 @@ impl Host {
                     op: line["op"].as_str().expect("op").to_owned(),
                     params: line["params"].clone(),
                     idempotency_key: line["idempotency_key"].as_str().map(str::to_owned),
+                    origin: None,
                 };
                 let answer = match self.cloud.call(&call).expect("fake reply") {
                     WireReply::Result(r) => json!({ "type": "relay.result", "id": line["id"],

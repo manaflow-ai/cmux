@@ -19,6 +19,21 @@ pub enum Origin {
     Agent,
 }
 
+impl Origin {
+    /// The `cmux.wire/1` origin. `Agent` has none: the backend knows an
+    /// agent by its token (`agt`), and the field stays out.
+    pub fn wire_name(self) -> Option<&'static str> {
+        Some(match self {
+            Self::User => "user",
+            Self::Cli => "cli",
+            Self::Mcp => "mcp",
+            Self::Script => "script",
+            Self::Remote => "remote",
+            Self::Agent => return None,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Request {
     pub op: String,

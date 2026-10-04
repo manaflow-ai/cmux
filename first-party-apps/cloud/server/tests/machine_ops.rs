@@ -228,3 +228,13 @@ fn a_name_is_trimmed_before_it_is_sent() {
     assert!(s.handle(&req).is_ok());
     assert_eq!(s.control_plane().wire.calls[0].params["name"], "renamed box");
 }
+
+#[test]
+fn a_mutation_sends_its_origin_and_a_read_sends_none() {
+    let mut s = server();
+    s.handle(&create("new box", "key-create-1")).expect("create");
+    s.handle(&Request::new("cloud.machine.get", json!({ "machine": vm(1) }))).expect("get");
+    let calls = &s.control_plane().wire.calls;
+    assert_eq!(calls[0].origin, Some("user"));
+    assert_eq!(calls[1].origin, None);
+}

@@ -120,6 +120,9 @@ pub(crate) fn size(map: &Map<String, Value>, field: &str) -> Result<Value, Cloud
     if fields.is_empty() {
         return Err(CloudError::invalid(format!("{field} needs cpu, memory_mb or disk_mb")));
     }
+    if let Some((key, _)) = fields.iter().find(|(_, v)| v.is_null()) {
+        return Err(CloudError::invalid(format!("{field}.{key} must be an integer")));
+    }
     for (key, min, max) in
         [("cpu", 1, 64), ("memory_mb", 512, 262_144), ("disk_mb", 1024, 1_048_576)]
     {

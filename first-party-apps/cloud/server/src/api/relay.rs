@@ -15,8 +15,8 @@
 //!   closed a forward or a browser route. Link and port lines go out as soon as the
 //!   loop is free (with no op after the change); while an op runs (a relay call, or a
 //!   connect waiting for the link's ready line) they wait for the end of that op.
-//! - server -> host: `{"type":"relay.op","id","op","params","idempotency_key"?}`: one
-//!   `cmux.wire/1` op. The host sends `{op, params, idempotency_key}` to
+//! - server -> host: `{"type":"relay.op","id","op","params","idempotency_key"?,"origin"?}`: one
+//!   `cmux.wire/1` op. The host sends `{op, params, idempotency_key, origin}` to
 //!   `POST /v1/read` (no key) or `POST /v1/ops` with the install token and folds the
 //!   answer into `{"type":"relay.result","id","ok":true,"value","revision"?,"replayed"?}`
 //!   or `{"type":"relay.result","id","ok":false,"error":{"code","message","retryable","details"?}}`
@@ -150,7 +150,14 @@ pub struct HostRelay<R, W> {
     host_answers: usize,
     /// `host.event` frames in `queued` (one per op).
     host_events: usize,
+    /// `team.event` lines in `queued` (they get no result line).
+    team_events: usize,
 }
+
+/// Team wire events a relay call keeps waiting. They are kept in order and
+/// never answered; one more is dropped (the projection compares revisions,
+/// and the next listing repairs a dropped change).
+const TEAM_EVENT_LINES: usize = 256;
 
 impl<R: BufRead, W: Write> HostRelay<R, W> {
     pub fn new(reader: R, writer: W) -> Self {
@@ -162,6 +169,7 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
             waiting_ops: 0,
             host_answers: 0,
             host_events: 0,
+            team_events: 0,
         }
     }
 
@@ -198,6 +206,7 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
             Some("host.result" | "host.error") => self.host_answers -= 1,
             Some("host.event") => self.host_events -= 1,
             _ if super::host::is_host_frame(&m) => {}
+            _ if m["type"] == "team.event" => self.team_events -= 1,
             _ => self.waiting_ops -= 1,
         }
         Some(m)
@@ -301,6 +310,15 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
                 // frame type the server does not know: the loop would drop
                 // it anyway.
                 _ => eprintln!("cmux-cloud: dropped a host frame that came during a relay call"),
+            }
+            return Ok(());
+        }
+        if message["type"] == "team.event" {
+            if self.team_events < TEAM_EVENT_LINES {
+                self.team_events += 1;
+                self.queued.push_back(message);
+            } else {
+                eprintln!("cmux-cloud: dropped a team event that came during a relay call");
             }
             return Ok(());
         }
