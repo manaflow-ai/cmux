@@ -48,4 +48,9 @@ extension TabContentCache {
             self.pageThumbnails.insert(fitted, for: key)
         }
     }
+
+    /// The window holding `presenters` stopped being key (another window or
+    /// app took the keyboard): each page they show on screen is captured
+    /// once, so a hover from another window shows it (R131).
+    func windowDidResignKey(presenters: [any SurfacePresenter]) {}
 }
