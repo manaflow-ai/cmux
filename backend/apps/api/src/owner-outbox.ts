@@ -23,7 +23,13 @@ export const outboxFailure = (channel: string, e: unknown): OutboxFailure => {
  * One alarm's outbox work for an owner: each due channel (PlanetScale projections, or one target
  * object) is drained, fails and backs off on its own; dead items older than DEAD_REPLAY_MS replay.
  */
-export const drainOutboxChannels = async <S>(engine: OwnerEngine<S>, env: Env, targetNamespace: (className: string) => DurableObjectNamespace | undefined): Promise<void> => {
+export const drainOutboxChannels = async <S>(
+  engine: OwnerEngine<S>,
+  env: Env,
+  targetNamespace: (className: string) => DurableObjectNamespace | undefined,
+  /** The PlanetScale projector (a fake in tests). */
+  project: typeof drainOutbox = drainOutbox
+): Promise<void> => {
     const outbox = engine.outbox
     // Each channel (PlanetScale projections, or one target object) reads, fails and backs off on
     // its own, so a dead target cannot stop projections or healthy targets.
@@ -33,7 +39,7 @@ export const drainOutboxChannels = async <S>(engine: OwnerEngine<S>, env: Env, t
       if (rows.length === 0) continue
       try {
         if (channel === "") {
-          const res = await drainOutbox(env, engine.stream, rows)
+          const res = await project(env, engine.stream, rows)
           // Only the bad row leaves the queue; the rest of the batch committed (home-scale review P1).
           // Dead first: a later sent row for the same key then supersedes (deletes) the dead one.
           for (const d of res.dead) {
