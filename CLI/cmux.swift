@@ -16656,7 +16656,7 @@ struct CMUXCLI {
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
-        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles", "react-grab", "reactgrab", "devtools", "dev-tools", "focus-mode", "design-mode", "zoom", "history"]
+        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles", "react-grab", "reactgrab", "devtools", "dev-tools", "focus-mode", "design-mode", "zoom", "history", "repl"]
         if surfaceRaw == nil, let first = args.first {
             if !first.hasPrefix("-") && !verbsWithoutSurface.contains(first.lowercased()) {
                 surfaceRaw = first
@@ -18251,6 +18251,11 @@ struct CMUXCLI {
             }
             let payload = try sendBrowserAutomationRequest(method: "browser.\(subcommand)", params: ["surface_id": sid, field: content])
             output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "repl" {
+            try runBrowserRepl(subArgs, client: client, jsonOutput: effectiveJSONOutput)
             return
         }
 
@@ -21190,6 +21195,7 @@ struct CMUXCLI {
               addinitscript|addscript [--script <js> | <js>]
               addstyle [--css <css> | <css>]
               \(Self.browserViewportHelp)
+              \(Self.browserReplHelp)
               geolocation|geo <latitude> <longitude>
               offline <true|false>
               trace <start|stop> [path]
@@ -42655,7 +42661,7 @@ export default {
         print()
     }
 
-    private func resolvedVersionInfo() -> [String: String] {
+    func resolvedVersionInfo() -> [String: String] {
         var info: [String: String] = [:]
         if let main = versionInfo(from: Bundle.main.infoDictionary) {
             info.merge(main, uniquingKeysWith: { current, _ in current })
