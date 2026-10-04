@@ -118,7 +118,7 @@ export class FreestyleDriver implements TeamVmDriver {
 export class FakeDriver implements TeamVmDriver {
   constructor(private readonly sql: SqlStore) {
     sql.exec(`CREATE TABLE IF NOT EXISTS fake_vm (slug TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, state TEXT NOT NULL)`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0, slug_prefix TEXT)`)
     sql.exec(`INSERT OR IGNORE INTO fake_ctl (id) VALUES (1)`)
   }
 
@@ -128,6 +128,11 @@ export class FakeDriver implements TeamVmDriver {
       this.sql.exec(`UPDATE fake_ctl SET fail_next = fail_next - 1 WHERE id = 1`)
       throw new DriverError("team_vm.provider_failed", "fake provider failure", false)
     }
+  }
+
+  /** Test only: the slug prefix a test set to stand for a configuration change (null = the env's). */
+  slugPrefix(): string | null {
+    return this.sql.exec<{ slug_prefix: string | null }>(`SELECT slug_prefix FROM fake_ctl WHERE id = 1`)[0]?.slug_prefix ?? null
   }
 
   async ensureVm(slug: string, _team: string, _epoch: number) {

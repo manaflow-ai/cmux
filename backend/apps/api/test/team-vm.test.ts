@@ -1,15 +1,16 @@
 import { env } from "cloudflare:workers"
-import type { OwnerFrame, Principal, ReduceContext } from "@cmux/ownership"
+import type { OwnerFrame, Principal, ReduceContext, SqlStore } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
 import { MAX_ATTEMPTS, teamVmDomain, teamVmSlug, teamVmWakeAt, type TeamVmState } from "../src/domains/team-vm.ts"
 import type { SubmitResult } from "../src/owner-do.ts"
-import { PRODUCTION_PLAN_GATE_LANDED, providerRefusal } from "../src/team-vm-driver.ts"
+import type { Env } from "../src/env.ts"
+import { FreestyleDriver, PRODUCTION_PLAN_GATE_LANDED, providerRefusal, teamVmDriver } from "../src/team-vm-driver.ts"
 
 /** The RPC surface the tests use (the generated stub type does not carry these signatures). */
 interface TeamVmStub {
   ensureAwake(entity: string, principal: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "cli" }): Promise<SubmitResult>
   readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<unknown>
-  fakeControl(cmd: { fail_next?: number; pause_all?: boolean; delete_all?: boolean }): Promise<{ creates: number; starts: number }>
+  fakeControl(cmd: { fail_next?: number; pause_all?: boolean; delete_all?: boolean; slug_prefix?: string }): Promise<{ creates: number; starts: number }>
   fakeAlarm(aheadMs: number): Promise<void>
   bindInstall(entity: string, install: string, epoch: number): Promise<SubmitResult>
   journalAppend(entity: string, principal: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "cli" }): Promise<SubmitResult>
@@ -143,6 +144,19 @@ describe("team VM reducer", () => {
     const slug = teamVmSlug("cmuxnp-dev-tvm-", TEAM, 1)
     expect(slug).toBe("cmuxnp-dev-tvm-team-00000000000000000071-e1")
     expect(slug.length).toBeLessThanOrEqual(63)
+    expect(teamVmSlug("cmuxnp-stg-tvm-", TEAM, 1)).toBe("cmuxnp-stg-tvm-team-00000000000000000071-e1")
+  })
+
+  it("each environment creates new VMs only under its own cmuxnp-<env>- prefix (FREESTYLE-NAMES)", () => {
+    // Constructing a driver makes no provider call; the SQL store is used only by the fake.
+    const sql = {} as SqlStore
+    const cfg = (ENVIRONMENT: string, TEAM_VM_SLUG_PREFIX: string) => ({ ENVIRONMENT, TEAM_VM_SLUG_PREFIX, FREESTYLE_API_KEY: "k", TEAM_VM_SNAPSHOT: "snap" }) as unknown as Env
+    expect(teamVmDriver(cfg("development", "cmuxnp-dev-tvm-"), sql)).toBeInstanceOf(FreestyleDriver)
+    expect(teamVmDriver(cfg("staging", "cmuxnp-stg-tvm-"), sql)).toBeInstanceOf(FreestyleDriver)
+    expect(teamVmDriver(cfg("staging", "cmuxnp-dev-tvm-"), sql)).toBeNull()
+    expect(teamVmDriver(cfg("development", "cmuxnp-stg-tvm-"), sql)).toBeNull()
+    expect(teamVmDriver(cfg("staging", "cmux-tvm-"), sql)).toBeNull()
+    expect(teamVmDriver(cfg("local", "cmuxnp-stg-tvm-"), sql)).toBeNull()
   })
 })
 
@@ -201,6 +215,26 @@ describe("TeamVmDO with the fake provider", { timeout: 30_000 }, () => {
     const r = result((await stub.ensureAwake(T, p, op("team_vm.ensure_awake", { reason: "ssh" }))).frames)
     expect(r.value).toMatchObject({ status: "running", epoch: 2, vm: `fakevm-${teamVmSlug("", T, 2)}` })
     expect(await stub.fakeControl({})).toMatchObject({ creates: 2 })
+  })
+
+  it("a team whose VM has the old cmuxnp-dev-tvm- name keeps it after the prefix moves to cmuxnp-stg-tvm-", async () => {
+    const T = "team_00000000000000000079"
+    const stub = ns.get(ns.idFromName(T))
+    const p = { ...alice, team: T }
+    // Staging before the FREESTYLE-NAMES change: the VM is created under the old prefix.
+    await stub.fakeControl({ slug_prefix: "cmuxnp-dev-tvm-" })
+    const old = `fakevm-${teamVmSlug("cmuxnp-dev-tvm-", T, 1)}`
+    expect(result((await stub.ensureAwake(T, p, op("team_vm.ensure_awake", { reason: "ssh" }))).frames).value).toMatchObject({ status: "running", epoch: 1, vm: old })
+    // The prefix changes and the provider pauses the VM: the wake resumes the same VM by its stored id.
+    await stub.fakeControl({ slug_prefix: "cmuxnp-stg-tvm-", pause_all: true })
+    expect(result((await stub.ensureAwake(T, p, op("team_vm.ensure_awake", { reason: "ssh" }))).frames).value).toMatchObject({ status: "running", epoch: 1, vm: old })
+    expect(await stub.fakeControl({})).toEqual({ creates: 1, starts: 1 })
+    const status = (await stub.readOp(T, p, "team_vm.status", {})) as { value: { vm: string; epoch: number } }
+    expect(status.value).toMatchObject({ vm: old, epoch: 1 })
+    // Only a NEW VM (here a replacement after an outside delete) gets the new name.
+    await stub.fakeControl({ delete_all: true })
+    const fresh = result((await stub.ensureAwake(T, p, op("team_vm.ensure_awake", { reason: "ssh" }))).frames)
+    expect(fresh.value).toMatchObject({ status: "running", epoch: 2, vm: `fakevm-${teamVmSlug("cmuxnp-stg-tvm-", T, 2)}` })
   })
 
   it("refuses a principal of another team", async () => {

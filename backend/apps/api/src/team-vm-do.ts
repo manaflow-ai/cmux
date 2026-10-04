@@ -1,7 +1,7 @@
 import type { Domain, OpFrame, Principal } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
-import { DriverError, providerRefusal, teamVmDriver } from "./team-vm-driver.ts"
+import { DriverError, FakeDriver, providerRefusal, teamVmDriver } from "./team-vm-driver.ts"
 import { MAX_ATTEMPTS, teamVmDomain, teamVmSlug, teamVmWakeAt, type TeamVmState } from "./domains/team-vm.ts"
 import { fromBase64, isStream, MAX_ENTRY_BYTES, sha256Hex, TeamJournal } from "./team-vm-journal.ts"
 
@@ -177,7 +177,10 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
       }
       try {
         if (pending.action === "create") {
-          const slug = teamVmSlug(this.env.TEAM_VM_SLUG_PREFIX ?? "", state.team, state.epoch + 1)
+          // The prefix names NEW VMs only: an existing VM is always reached by its stored id (state.vm), so a
+          // prefix change (FREESTYLE-NAMES) never renames, adopts or loses the VM a team already has.
+          const prefix = (driver instanceof FakeDriver ? driver.slugPrefix() : null) ?? this.env.TEAM_VM_SLUG_PREFIX ?? ""
+          const slug = teamVmSlug(prefix, state.team, state.epoch + 1)
           const vm = await driver.ensureVm(slug, state.team, state.epoch + 1)
           this.submitSystem("team_vm.driver_result", { action: "create", epoch: state.epoch, ok: true, vm: vm.id, slug, observed: vm.state }, key)
         } else {
@@ -197,9 +200,10 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   }
 
   /** Test only (ENVIRONMENT=test): drive the fake provider. */
-  async fakeControl(cmd: { fail_next?: number; pause_all?: boolean; delete_all?: boolean }): Promise<{ creates: number; starts: number }> {
+  async fakeControl(cmd: { fail_next?: number; pause_all?: boolean; delete_all?: boolean; slug_prefix?: string }): Promise<{ creates: number; starts: number }> {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     teamVmDriver(this.env, this.sqlStore)
+    if (cmd.slug_prefix !== undefined) this.sqlStore.exec(`UPDATE fake_ctl SET slug_prefix = ? WHERE id = 1`, cmd.slug_prefix)
     if (cmd.fail_next !== undefined) this.sqlStore.exec(`UPDATE fake_ctl SET fail_next = ? WHERE id = 1`, cmd.fail_next)
     if (cmd.pause_all) this.sqlStore.exec(`UPDATE fake_vm SET state = 'paused'`)
     if (cmd.delete_all) this.sqlStore.exec(`DELETE FROM fake_vm`)
