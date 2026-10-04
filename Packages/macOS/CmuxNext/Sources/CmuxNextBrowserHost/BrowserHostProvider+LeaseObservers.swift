@@ -20,12 +20,15 @@ extension BrowserHostProvider {
     /// a lease ends (release, session end, stop, tab gone, link drop). Every
     /// consumer hears every change, in registration order.
     public func observeLeases(_ consumer: @escaping (String, ProviderLease?) -> Void) -> ProviderLeaseObservation {
-        _ = consumer
         nextLeaseObserverID += 1
+        leaseObservers.append((id: nextLeaseObserverID, consumer: consumer))
         return ProviderLeaseObservation(provider: self, id: nextLeaseObserverID)
     }
 
     func notifyLease(_ targetID: String, _ lease: ProviderLease?) {
-        _ = (targetID, lease)
+        // A consumer may cancel itself or another while being told.
+        for observer in leaseObservers {
+            observer.consumer(targetID, lease)
+        }
     }
 }

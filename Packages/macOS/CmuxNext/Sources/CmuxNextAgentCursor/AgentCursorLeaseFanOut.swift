@@ -12,6 +12,13 @@ public final class AgentCursorLeaseFanOut {
 
     /// One lease frame: `session` nil is a clear.
     public func leaseChanged(target: String, session: String?, wireState: String?) {
-        _ = (target, session, wireState, router, models)
+        let updates = router.leaseChanged(target: target, session: session, wireState: wireState)
+        guard !updates.isEmpty else { return }
+        let all = models()
+        for update in updates {
+            for model in all {
+                model.leaseDidChange(session: update.session, state: update.state)
+            }
+        }
     }
 }
