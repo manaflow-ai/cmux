@@ -182,6 +182,10 @@ pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
 pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
 pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
+/// `error_code` of a request refused while the daemon's shutdown handoff is
+/// reserved and not yet announced. The [`DAEMON_SHUTDOWN_EVENT`] follows
+/// unless the shutdown is cancelled.
+pub const DAEMON_SHUTDOWN_PENDING_CODE: &str = "daemon_shutdown_pending";
 /// The daemon answers `machine-usage` and emits `machine-usage-changed`.
 pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
 /// The daemon reads the host's listening TCP sockets for an authenticated
@@ -10674,11 +10678,19 @@ fn reject_message_during_pending_handoff(message: &str, writer: &MessageWriter) 
     match serde_json::from_str::<Request>(message) {
         Ok(request) => {
             let is_clear_history = request.cmd.is_clear_history();
-            send_request_error_with_delivery(
+            // The stable code lets a client wait for the shutdown notice
+            // that follows instead of treating the refusal as a failure.
+            send_response(
                 writer,
-                request.id,
-                PENDING_HANDOFF_ERROR,
-                is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
+                Response {
+                    id: request.id,
+                    ok: false,
+                    data: None,
+                    error: Some(PENDING_HANDOFF_ERROR.to_string()),
+                    error_code: Some(DAEMON_SHUTDOWN_PENDING_CODE.to_string()),
+                    error_delivery: is_clear_history
+                        .then_some(ResponseErrorDelivery::KnownNotDelivered),
+                },
             )
         }
         Err(error) => send_bad_request(writer, message, &error),
