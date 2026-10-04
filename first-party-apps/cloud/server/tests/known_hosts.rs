@@ -12,9 +12,12 @@ use cmux_cloud::{Origin, Request};
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 
-const KEY_A: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBERERERERERERERERERERERERERERERERERERERERER";
-const KEY_B: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIi";
-const KEY_OLD: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMz";
+const KEY_A: &str =
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBERERERERERERERERERERERERERERERERERERERERER";
+const KEY_B: &str =
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIi";
+const KEY_OLD: &str =
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMz";
 
 fn data_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("cmux-c12-kh-{name}-{}", std::process::id()));
