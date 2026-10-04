@@ -22,9 +22,9 @@ pub use spawner::{LinkEvents, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTa
 pub use supervisor::{CONNECTOR_KIND, LinkFailure, LinkState, LinkSupervisor, READY_DEADLINE};
 
 use crate::app_env::AppEnv;
-use crate::connector::{ConnectorEvent, LinkHandle};
+use crate::connector::LinkHandle;
 use crate::rescue::{MissingRescueRoute, RescueBackend, RescueTransport};
-use cmux_terminal_iface::{BackendId, ByteTerminal, LocalId, check_kinds};
+use cmux_terminal_iface::{BackendId, ByteTerminal, ConnectorEvent, LocalId, check_kinds};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// Link events each side holds until it takes them. A side that never

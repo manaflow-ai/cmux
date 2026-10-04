@@ -122,6 +122,12 @@ pub trait ByteTerminal: Send {
     fn take_frames(&mut self) -> Vec<FrameBody>;
     fn resize(&mut self, grid: Grid) -> Result<(), BackendError>;
     fn signal(&mut self, signal: Signal) -> Result<(), BackendError>;
+    /// The session host closed the terminal; it has already ended there.
+    /// End after close: once `close` answers `Ok`, no frame follows, not
+    /// even an `end` (output and an `end` not taken yet are dropped), and
+    /// every later push, resize, signal or close is refused as `invalid` (a
+    /// resize or signal may be `unsupported`). Unlike [`crate::HostLink::close`], nothing answers a
+    /// terminal close. [`crate::check_closed`] checks this rule.
     fn close(&mut self, how: Close) -> Result<(), BackendError>;
     fn resume_token(&self) -> Option<ResumeToken>;
 }

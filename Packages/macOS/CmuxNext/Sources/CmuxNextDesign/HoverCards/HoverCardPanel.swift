@@ -4,6 +4,8 @@ public import AppKit
 public enum HoverCardPlacement: Sendable {
     /// Under the target, left-aligned (tab strips).
     case below
+    /// Over the target, left-aligned (a tab strip at the bottom, R109).
+    case above
     /// Right of the target, top-aligned (sidebar rows).
     case beside
 }
@@ -128,6 +130,7 @@ final class HoverCardPanel: NSPanel {
         let size = glass.fittingSize
         var origin: CGPoint = switch placement {
         case .below: CGPoint(x: anchor.minX, y: anchor.minY - Metrics.space2 - size.height)
+        case .above: CGPoint(x: anchor.minX, y: anchor.maxY + Metrics.space2)
         case .beside: CGPoint(x: anchor.maxX + Metrics.space2, y: anchor.maxY - size.height)
         }
         if let screen = parentWindowRef?.screen ?? NSScreen.main {

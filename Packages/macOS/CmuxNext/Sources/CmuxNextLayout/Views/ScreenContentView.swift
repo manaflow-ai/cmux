@@ -340,16 +340,16 @@ final class ScreenContentView: NSView {
     /// `removing`: the pane the drag empties (frees room; the commit obeys).
     func dropTarget(at localPoint: NSPoint, removing: PaneID? = nil) -> (target: DropTarget, highlight: CGRect, region: CGRect)? {
         // The top band starts below the tab bar of the pane under the pointer.
-        let topInset = pane(at: localPoint).flatMap { context.hosts[$0]?.headerHeight } ?? 0
+        let (topInset, bottomInset) = dockInsets(at: localPoint)
         if context.model.acceptsEdgeDockDrops,
            let dock = DropZoneGeometry.dockTarget(atView: localPoint, screen: screenID, geometry: geometry, style: context.style,
-                                                  topInset: topInset),
+                                                  topInset: topInset, bottomInset: bottomInset),
            let rect = DropZoneGeometry.highlightRectInView(for: dock, offset: scroll.value, geometry: geometry, style: context.style) {
             return (dock, rect, rect)
         }
-        let headers = geometry.panes.keys.reduce(into: [PaneID: CGFloat]()) { $0[$1] = context.hosts[$1]?.headerHeight }
+        let (headers, footers) = paneChromeBands()
         guard let hit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
-                                                headers: headers, style: context.style) else { return nil }
+                                                headers: headers, footers: footers, style: context.style) else { return nil }
         let target = roomAdjusted(hit, removing: removing)
         guard var rect = DropZoneGeometry.highlightRectInView(for: target, offset: scroll.value, geometry: geometry,
                                                               style: context.style) else { return nil }

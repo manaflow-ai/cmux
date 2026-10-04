@@ -680,7 +680,8 @@
               "details": {
                 "limit": 5,
                 "used": 5,
-                "resource": "active"
+                "resource": "active",
+                "plan": "max"
               }
             },
             "transaction": "",
@@ -722,7 +723,8 @@
               "message": "this size needs another plan",
               "retryable": false,
               "details": {
-                "memory_mb": 65536
+                "memory_mb": 65536,
+                "plan": "max"
               }
             },
             "transaction": "",
@@ -997,7 +999,8 @@
               "details": {
                 "limit": 2,
                 "used": 2,
-                "resource": "active"
+                "resource": "active",
+                "plan": "pro"
               }
             },
             "transaction": "",
@@ -1158,7 +1161,8 @@
               "message": "this size needs another plan",
               "retryable": false,
               "details": {
-                "memory_mb": 65536
+                "memory_mb": 65536,
+                "plan": "max"
               }
             },
             "transaction": "",
@@ -1868,7 +1872,8 @@
               "details": {
                 "limit": 10,
                 "used": 10,
-                "resource": "saved"
+                "resource": "saved",
+                "plan": "max"
               }
             },
             "transaction": "",
@@ -2087,6 +2092,7 @@
             "op": "cloud.plan.get",
             "value": {
               "plan_id": "pro",
+              "upgrade_plan": "max",
               "limits": {
                 "max_active": 5,
                 "max_saved": 10,
@@ -2696,6 +2702,7 @@
       "data": {
         "plan": {
           "plan_id": "pro",
+          "upgrade_plan": "max",
           "limits": {
             "max_active": 5,
             "max_saved": 10,

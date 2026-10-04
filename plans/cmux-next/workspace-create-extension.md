@@ -5,6 +5,9 @@ protocol lead (ad349) reviews it through the coordinator and a cmux-tui window i
 Revision 2 (2026-10-04): ad349 verdict REVISE, required points R1-R5 and two result fields added
 below (marked R1-R5). Coordinator decisions: R1 uses the new-tab creation rule; R5 lets a page
 create a default workspace with a fresh user gesture.
+Revision 3 (2026-10-04): ad349 APPROVED revision 2 (762a1a96b12). Added: the `kind` field of
+`origin.confirmation.issue` (G1), one gesture per create in the host (G2), and mode repair of
+existing state files (F1). Coordinator decisions (c), (d), (e) of revision 2 stay as written.
 
 ## Why
 
@@ -106,6 +109,12 @@ R3, the env hash key:
   local state directory (`cmux-tui/crates/cmux-tui-core/src/mux.rs:1642-1646`).
 - The registry file and every file that holds a launch spec are owner-only (mode 0600) in a 0700
   directory. A test asserts the mode on a fresh state directory.
+- F1, an existing file with wider permissions (coordinator decision): at start the daemon TIGHTENS
+  every registry and launch-spec file to 0600 and its directory to 0700. For each change it writes
+  one warn line with the path and the old mode, never the contents. The daemon does NOT refuse to
+  start: a refusal would lock the user out of their sessions for a mode problem that the daemon
+  can repair itself. If the repair fails (for example the file has a different owner), the daemon
+  logs the path, the mode and the error, and continues.
 - Every export or snapshot path redacts env values and keeps only the key names: journal export,
   the launch snapshot, the diagnostics bundle, and every public read (`terminal.get`, resource
   lists, `CreatedTerminalPath`).
@@ -187,11 +196,35 @@ as `PageCallContext.userGesture` (`CmuxNextPages/PageRouter.swift:90,103`;
 `SettingsPageProvider.writer` (`CmuxNextApp/Pages/SettingsPageProvider.swift:207-213`); the file
 pages require it as "+ gesture" (`plans/cmux-next/finder.md`, refusal `gesture.required`).
 To carry it to the daemon, `DaemonPageRelay` asks `origin.confirmation.issue` (request-origin.md)
-for this exact operation and params hash, with a new field `kind: "gesture"`, only when
-`userGesture` is true. The token is single-use, bound to the params hash and the relay connection,
-and the page never sees it. The daemon accepts a `gesture` token only for `workspace.create` with
-defaults; the request origin stays `page` (the token does not make the call `user`). One gesture
-backs one create.
+for this exact operation and params hash, with `kind: "gesture"` (G1), only when `userGesture` is
+true. The token is bound to the params hash and the relay connection, and the page never sees it.
+
+G1, the `kind` field of `origin.confirmation.issue` (protocol change):
+
+- `kind` is `"confirmation"` (the default, the existing meaning: a native sheet approved the call)
+  or `"gesture"`. Any other value is `validation.invalid`.
+- A gesture token NEVER changes the derived origin: the request stays `page`. Only a
+  `confirmation` token makes a page_relay call `user`, as today.
+- The daemon accepts a gesture token only for an allow-list of (operation, defaults-only params).
+  Today the list has one entry: `workspace.create` with defaults (Origin table above). A gesture
+  token on any other operation, or on `workspace.create` with `argv`, `env`, `cwd` or `keep`, is
+  `origin.forbidden`.
+- Issuing either kind needs a verified_app caller (request-origin.md). Before P8 no connection is
+  verified_app, so before P8 no page can create a workspace.
+- The field lands in the workspace-create window, on top of the origin landing (not in ad349's
+  origin window), with its own red tests (Red tests 9-11).
+
+G2, one gesture backs one create:
+
+- Daemon: a gesture token is single-use. One token gives at most one create; a reuse is
+  `origin.forbidden`.
+- Host (Swift, `DaemonPageRelay` with `PageWKWebView`): the host mints at most one gesture token
+  per recorded gesture. When it issues a token, it consumes the recorded gesture time
+  (`lastUserEventUptime` is cleared), so a second request after the same click has no gesture.
+  A new real key or mouse event records a new gesture.
+- Swift test (React UIs lead): after one click, a page asks for two gesture tokens inside 1 s. The
+  first request gets a token; the second request is refused (no token is issued, and the call goes
+  to the daemon with no gesture, where it is `origin.forbidden`).
 
 Secrets in argv: `argv` IS visible in public reads (`terminal.get`, resource lists, the journal),
 like `ps` output on the machine. Callers must pass secrets through `env`, never `argv`.
@@ -225,3 +258,9 @@ key, the terminal id and the env key count.
    create without a gesture token is `origin.forbidden`; with one it succeeds once and a reuse of
    the token is refused; an app without `workspace:execute` cannot send `argv`.
 8. The result echoes `key` and `terminal_id` when the request named them.
+9. G1: a gesture token on any operation other than `workspace.create` with defaults is
+   `origin.forbidden`.
+10. G1: a gesture token never gives origin `user` (the derived origin of the call stays `page`).
+11. G1: a `confirmation` token (explicit kind and the default with no `kind`) works as before.
+12. F1: a registry file at mode 0644 is 0600 after the daemon starts, its directory is 0700, and
+    exactly one warn line names the file path and the old mode (no contents).
