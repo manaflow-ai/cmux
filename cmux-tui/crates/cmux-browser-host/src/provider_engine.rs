@@ -518,6 +518,45 @@ mod tests {
     }
 
     #[test]
+    fn request_filters_apply_per_app_tab_on_cef_relays() {
+        let (app, provider) = FakeApp::start(vec![tab("C", "cef"), tab("D", "cef"), tab("W", "webkit")]);
+        app.access(&provider, "C");
+        app.access(&provider, "D");
+        let a = session(&provider, "cef", "a");
+        let b = session(&provider, "cef", "b");
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let record = seen.clone();
+        let filter: crate::driver::RequestFilter = Arc::new(move |target: &str, url: &str| {
+            record.lock().unwrap().push(target.to_owned());
+            url.contains("evil.test").then(|| "prohibited by evil.test".to_owned())
+        });
+        assert!(a.set_request_filter(Some(filter)), "CEF relays enforce a session's filter");
+        a.call("tab.info", &json!({"targetId": "C", "timeoutMs": 5000})).unwrap();
+        b.call("tab.info", &json!({"targetId": "D", "timeoutMs": 5000})).unwrap();
+        // Session a's policy applies to the tab it drives, not to b's.
+        assert!(app.cdp_messages("C").iter().any(|m| m["method"] == "Fetch.enable"));
+        assert!(!app.cdp_messages("D").iter().any(|m| m["method"] == "Fetch.enable"));
+        app.send(Frame::Cdp {
+            target_id: "C".into(),
+            message: json!({"method": "Fetch.requestPaused", "params": {"requestId": "r1", "request": {"url": "https://evil.test/x"}}}).to_string(),
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !app.cdp_messages("C").iter().any(|m| m["method"] == "Fetch.failRequest" && m["params"]["requestId"] == "r1") {
+            assert!(std::time::Instant::now() < deadline, "the request was not blocked: {:?}", app.cdp_messages("C"));
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        // The filter is keyed by the app's tab id, never the page's CDP id.
+        assert_eq!(*seen.lock().unwrap(), vec!["C".to_owned()]);
+        // The session's end removes its filter from the tab.
+        drop(a);
+        let _ = b.call("tab.info", &json!({"targetId": "D", "timeoutMs": 5000}));
+        assert!(app.cdp_messages("C").iter().any(|m| m["method"] == "Fetch.disable"));
+        // WebKit tabs cannot take a filter yet: the gate fails closed.
+        let w = session(&provider, "webkit", "w");
+        assert!(!w.set_request_filter(Some(Arc::new(|_: &str, _: &str| None))));
+    }
+
+    #[test]
     fn a_cef_tab_is_driven_through_its_relay_under_the_app_tab_id() {
         let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
         app.access(&provider, "C");
