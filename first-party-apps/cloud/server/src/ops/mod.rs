@@ -272,9 +272,7 @@ impl<C: ControlPlane> Server<C> {
     /// Link events for the host lines (`cloud.link.changed`) since the
     /// last call, in order.
     pub fn take_link_events(&mut self) -> Vec<crate::connector::iface::CarrierEvent> {
-        let supervisor = self.attach.supervisor_mut();
-        supervisor.pump();
-        supervisor.take_events()
+        self.attach.take_host_link_events()
     }
 
     /// Runs one request.

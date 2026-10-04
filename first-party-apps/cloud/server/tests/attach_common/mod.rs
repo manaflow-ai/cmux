@@ -190,10 +190,10 @@ impl RescueTransport for FakeTransport {
 
 /// Link events of the server's supervisor since the last call (what the
 /// serve loop sends as `cloud.link.changed`).
-pub fn link_events<C>(server: &mut cmux_cloud::Server<C>) -> Vec<CarrierEvent> {
-    let supervisor = server.attach_mut().supervisor_mut();
-    supervisor.pump();
-    supervisor.take_events()
+pub fn link_events<C: cmux_cloud::ControlPlane>(
+    server: &mut cmux_cloud::Server<C>,
+) -> Vec<CarrierEvent> {
+    server.take_link_events()
 }
 
 /// Attach with the fake spawner, test paths and the fake transport.
