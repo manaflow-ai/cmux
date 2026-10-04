@@ -194,6 +194,18 @@ final class HostView: NSView {
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { controller?.performDrop(sender) ?? false }
 }
 
+extension FieldChrome {
+    /// cmux: the field's Liquid Glass, "+" and emoji follow the theme: light
+    /// glass on a light theme (the glass renders for its view's appearance),
+    /// MessagesLab's dark glass and white symbols otherwise.
+    func applyTheme(light: Bool, symbol: NSColor) {
+        let appearance = NSAppearance(named: light ? .aqua : .darkAqua)
+        if self.appearance?.name != appearance?.name { self.appearance = appearance }
+        let tint: NSColor = light ? symbol : .white
+        for b in [plus, emoji] where b.contentTintColor != tint { b.contentTintColor = tint }
+    }
+}
+
 extension TranscriptDocumentView {
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { controller?.dragEntered(sender) ?? [] }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { controller?.performDrop(sender) ?? false }

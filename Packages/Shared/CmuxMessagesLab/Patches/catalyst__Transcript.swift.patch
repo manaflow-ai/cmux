@@ -12,11 +12,29 @@
          fillContainer.addSublayer(fillGradient)
          fillContainer.mask = fillMask
          connectorLine.backgroundColor = connector.strokeColor
-@@ -448,7 +449,8 @@
+@@ -380,11 +381,11 @@
+         for i in 0..<3 {
+             let d = CALayer()
+             d.actions = noActions
+-            d.backgroundColor = UIColor(white: 82 / 255, alpha: 1).cgColor
++            d.backgroundColor = Fixture.typingDot.cgColor  // cmux: themed
+             d.cornerRadius = 3.25
+             let hi = CALayer()
+             hi.actions = noActions
+-            hi.backgroundColor = UIColor(white: 123 / 255, alpha: 1).cgColor
++            hi.backgroundColor = Fixture.typingDotHighlight.cgColor  // cmux: themed
+             hi.cornerRadius = 3.25
+             hi.opacity = 0
+             hi.name = "hi"
+@@ -448,7 +449,12 @@
              }
              connector.strokeColor = Fixture.connector.cgColor
              connectorLine.backgroundColor = Fixture.connector.cgColor
 -            fillGradient.colors = Fixture.gradientStops.map { UIColor(red: $0.1 / 255, green: $0.2 / 255, blue: Fixture.gradientBlue / 255, alpha: 1).cgColor }
++            for d in dots {  // cmux: themed typing dots
++                d.backgroundColor = Fixture.typingDot.cgColor
++                d.sublayers?.first?.backgroundColor = Fixture.typingDotHighlight.cgColor
++            }
 +            fillGradient.colors = Fixture.themedGradient?.map { $0.1.cgColor }  // cmux: themed accent
 +            ?? Fixture.gradientStops.map { UIColor(red: $0.1 / 255, green: $0.2 / 255, blue: Fixture.gradientBlue / 255, alpha: 1).cgColor }
              CATransaction.commit()

@@ -103,5 +103,15 @@ enum Fixture {
     static var incomingText: UIColor { themed(\.incomingText) ?? UIColor(white: 220 / 255, alpha: 1) }
     static var outgoingText: UIColor { themed(\.outgoingText) ?? UIColor.white }
     static var secondaryText: UIColor { themed(\.secondaryText) ?? UIColor(white: 148 / 255, alpha: 1) }
+    // cmux: the field and typing colours MessagesLab draws as fixed dark
+    // values, from the theme on a light one; nil keeps the measured values.
+    static var typingDot: UIColor { themed(\.typingDot) ?? UIColor(white: 82 / 255, alpha: 1) }
+    static var typingDotHighlight: UIColor { themed(\.typingDotHighlight) ?? UIColor(white: 123 / 255, alpha: 1) }
+    static var placeholder: UIColor { themed(\.placeholder) ?? UIColor(white: 0.43, alpha: 1) }
+    static var waveform: UIColor { themed(\.waveform) ?? UIColor(white: 0.45, alpha: 1) }
+    static var caret: UIColor { themed(\.caret) ?? UIColor(red: 0.04, green: 0.52, blue: 1, alpha: 1) }
+    static var chipFill: UIColor { themed(\.chipFill) ?? UIColor(white: 1, alpha: 0.12) }
+    /// The field glass and its buttons render light glass on a light theme.
+    static var isLight: Bool { theme.map { (inactive ? $0.inactive : $0.active).isLight } ?? false }
 }
 

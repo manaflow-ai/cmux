@@ -42,6 +42,7 @@ and render-server field animation, blurred header and native scrolling.
 | Model, Layout | live dates in the user's zone and locale (fixtures keep -07:00 and en_US) |
 | WindowView, Compose | rows and field lines follow the view's own width (several Home tabs), not the process-wide `Metrics.current` |
 | Fixture, Transcript, Morph | optional cmux theme; nil keeps MessagesLab's measured palette |
+| Fixture, Transcript, Compose | typing dots, placeholder, waveform, caret and chip fill from the theme on a light theme; a dark theme keeps MessagesLab's measured values (the field glass and its buttons follow with the view appearance, `FieldChrome.applyTheme`) |
 | HeaderBackdrop | the tint uses the theme background (MessagesLab's grey read as a band on a cmux pane) |
 | Layout, Localizable.xcstrings | the placeholder says Message, not iMessage |
 | Layout | a failed send that reached the owner unanswered says May Not Have Been Delivered (`CmuxStrings`, Resources/CmuxHome.xcstrings in every app language) |

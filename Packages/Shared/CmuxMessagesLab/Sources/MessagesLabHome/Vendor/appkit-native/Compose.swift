@@ -334,11 +334,11 @@ final class ComposeView: UIView {
         fmt.opaque = false
         let ph = placeholder
         placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
-            TextDraw.line(ph, font: ComposeView.font, color: NSColor(white: 0.43, alpha: 1), x: 12, baseline: ComposeView.firstBaseline, in: ctx.cgContext)
+            TextDraw.line(ph, font: ComposeView.font, color: Fixture.placeholder, x: 12, baseline: ComposeView.firstBaseline, in: ctx.cgContext)
         }.cgImage
         placeholderLayer.contentsScale = fmt.scale
         waveLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 30), format: fmt).image { _ in
-            NSColor(white: 0.45, alpha: 1).setFill()
+            Fixture.waveform.setFill()  // cmux: themed (with the placeholder above)
             let c = CGPoint(x: 30 - 19.3 - 6, y: 30 - 15.25)
             for (i, hh) in ([4.7, 10.8, 15, 10.8, 4.7] as [CGFloat]).enumerated() {
                 let x = c.x + CGFloat(i - 2) * 3.65
@@ -360,7 +360,7 @@ final class ComposeView: UIView {
                 let font = NSFont.systemFont(ofSize: 11, weight: .medium)
                 let w = min(200, TextDraw.width(a.fileName, font: font) + 34)
                 let r = CGRect(x: x, y: 5, width: w, height: 22)
-                NSColor(white: 1, alpha: 0.12).setFill()
+                Fixture.chipFill.setFill()  // cmux: themed
                 UIBezierPath(roundedRect: r, cornerRadius: 11).fill()
                 TextDraw.line(a.fileName, font: font, color: Fixture.incomingText, x: r.minX + 10, baseline: r.minY + 15, in: ctx.cgContext)
                 TextDraw.line("\u{2715}", font: .systemFont(ofSize: 9, weight: .bold), color: Fixture.secondaryText, x: r.maxX - 16,
@@ -485,7 +485,7 @@ final class ComposeView: UIView {
         let base = f.minY + (chips.isEmpty ? 0 : 30) + ComposeView.firstBaseline
         CATransaction.begin(); CATransaction.setDisableActions(true)
         caret.frame = CGRect(x: cx.px, y: base - 12.5 + row * 16, width: 1, height: 16.5)
-        caret.backgroundColor = (gray ? NSColor(white: 0.5, alpha: 1) : NSColor(red: 0.04, green: 0.52, blue: 1, alpha: 1)).cgColor
+        caret.backgroundColor = (gray ? NSColor(white: 0.5, alpha: 1) : Fixture.caret).cgColor  // cmux: themed caret
         caret.opacity = Float(alpha)
         CATransaction.commit()
     }

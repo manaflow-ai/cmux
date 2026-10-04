@@ -77,6 +77,7 @@ public final class MessagesLabHomeView: NSView {
         defer {
             // Per view: a second Home tab finds the process-wide theme set.
             controller.host.headerBackdrop.setTint(Fixture.background)
+            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.incomingText)
         }
         guard Fixture.theme != theme else { return }
         Fixture.theme = theme
@@ -86,6 +87,8 @@ public final class MessagesLabHomeView: NSView {
             demo.setInactive(!inactiveNow)
             demo.setInactive(inactiveNow)
             demo.backgroundColor = Fixture.background
+            // The placeholder, waveform and chips are drawn once with the palette.
+            demo.compose.rescale()
         }
     }
 

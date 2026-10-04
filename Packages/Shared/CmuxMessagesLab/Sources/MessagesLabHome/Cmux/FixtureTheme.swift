@@ -20,6 +20,17 @@ struct FixtureTheme: Equatable {
         /// (2x px window y, colour), over the gradient's 1041 pt.
         let gradientStops: [(CGFloat, NSColor)]
         let outgoingGradient: CGGradient
+        /// A light theme (background luminance above one half). MessagesLab
+        /// measured a dark window only: on a dark theme the field and typing
+        /// colours below keep its measured values; a light theme takes the
+        /// palette's.
+        let isLight: Bool
+        let typingDot: NSColor
+        let typingDotHighlight: NSColor
+        let placeholder: NSColor
+        let waveform: NSColor
+        let caret: NSColor
+        let chipFill: NSColor
 
         init(_ p: HomePalette) {
             palette = p
@@ -38,6 +49,16 @@ struct FixtureTheme: Equatable {
             outgoingGradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
                                           colors: stops.map { $0.color.cgColor } as CFArray,
                                           locations: stops.map(\.location))!
+            let bg = p.background
+            let light = 0.2126 * bg.red + 0.7152 * bg.green + 0.0722 * bg.blue > 0.5
+            isLight = light
+            // MessagesLab's measured dark values (Transcript, Compose).
+            typingDot = light ? c(p.typingDot) : NSColor(white: 82 / 255, alpha: 1)
+            typingDotHighlight = light ? c(p.typingDotHighlight) : NSColor(white: 123 / 255, alpha: 1)
+            placeholder = light ? c(p.placeholder) : NSColor(white: 0.43, alpha: 1)
+            waveform = light ? c(p.placeholder) : NSColor(white: 0.45, alpha: 1)
+            caret = light ? c(p.caret) : NSColor(red: 0.04, green: 0.52, blue: 1, alpha: 1)
+            chipFill = light ? NSColor(white: 0, alpha: 0.08) : NSColor(white: 1, alpha: 0.12)
         }
 
         static func == (a: Colors, b: Colors) -> Bool { a.palette == b.palette }
