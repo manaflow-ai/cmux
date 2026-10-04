@@ -354,6 +354,11 @@ native (`BrowserReplBoundary` in the session, and the driver):
   separate values), and masks it as typed, `<secret:name>`, in every result,
   event and error it returns to any other session, and in their captures;
   once the typing session ends, also for a later session of the same name.
+  The open tabs hold at most 4,096 such values (one per tab, typing
+  session and name; a value typed again after the session that typed it
+  ended replaces that record): past that the driver refuses to type
+  another (`invalid`) until tabs close, since a value it typed is never
+  dropped while its tab is open.
   A capture takes those masks before it waits for the page, so one during
   which another session recorded a value to type (in any tab) fails with
   `stale` instead of returning pixels that may show it. The session's own

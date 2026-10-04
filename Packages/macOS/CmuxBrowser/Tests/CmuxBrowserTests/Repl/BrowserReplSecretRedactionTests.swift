@@ -172,7 +172,7 @@ struct BrowserReplSecretRedactionTests {
         defer { try? FileManager.default.removeItem(at: work) }
         try Data("download: \(value)\n".utf8).write(to: work.appendingPathComponent("download.txt"))
         let typed = BrowserReplSecretStore()
-        typed.setLiteral(key: "typed-1", maskName: "password", value: value, domains: [])
+        try typed.setLiteral(key: "typed-1", maskName: "password", value: value, domains: [])
         let session = try #require(makeSession(TypedSecretsPageDriver(typed: typed), cwd: work.path))
         defer { session.close() }
         let result = await run(session, """

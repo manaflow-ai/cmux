@@ -160,12 +160,57 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// (``BrowserReplTypedSecrets``): the value is the text the field holds
     /// (a TOTP secret's code, not its seed), so no TOTP rule applies, and
     /// `key` keeps values that share a name apart.
-    func setLiteral(key: String, maskName: String, value: String, domains: [BrowserReplDomainPattern]) {
+    ///
+    /// Bounded like ``set(name:value:domains:totp:title:)``: a value past
+    /// ``maximumValueBytes``, more than ``maximumDomainsPerValue`` domains,
+    /// or a new key past ``maximumTypedValues`` is refused (`invalid`), so a
+    /// reader's store cannot grow without bound. The registry refuses to
+    /// type such a value first (``BrowserReplTypedSecrets/record(tab:name:value:domains:typist:)``).
+    func setLiteral(key: String, maskName: String, value: String, domains: [BrowserReplDomainPattern]) throws {
         guard !value.isEmpty else { return }
-        lock.withLock {
-            if entries[key] == nil { order.append(key) }
-            entries[key] = Entry(name: key, value: value, domains: domains, totp: false, maskName: maskName)
-            rebuildLocked()
+        try Self.checkTypedValue(value, domains: domains)
+        try lock.withLock {
+            let entry = Entry(name: key, value: value, domains: domains, totp: false, maskName: maskName)
+            guard entries[key] == nil else {
+                entries[key] = entry
+                rebuildLocked()
+                return
+            }
+            guard entries.count - registered.count < Self.maximumTypedValues else {
+                throw Self.tooManyTypedValues
+            }
+            order.append(key)
+            entries[key] = entry
+            // A new literal only adds a value: insert it where the longest-
+            // first order puts it instead of rebuilding, so filling a store
+            // is not quadratic.
+            codeCache = nil
+            let length = entry.compiled.utf8.count
+            let index = values.firstIndex { $0.utf8.count < length } ?? values.endIndex
+            values.insert(entry.compiled, at: index)
+            if let number = Self.numericValue(value), numericMasks[Self.numericKey(number)] == nil {
+                numericMasks[Self.numericKey(number)] = "<secret:\(maskName)>"
+            }
+        }
+    }
+
+    /// The most values other sessions typed that a reader masks at once
+    /// (``setLiteral(key:maskName:value:domains:)``,
+    /// ``BrowserReplTypedSecrets``).
+    public static let maximumTypedValues = 4096
+
+    static let tooManyTypedValues = BrowserReplDriverError(
+        code: "invalid",
+        message: "the open tabs hold \(maximumTypedValues) values typed from secrets, the most cmux keeps masked; close tabs that sessions typed secrets into, then type it again"
+    )
+
+    /// Refuses a typed value past the bounds a registered one has.
+    static func checkTypedValue(_ value: String, domains: [BrowserReplDomainPattern]) throws {
+        guard value.utf8.count <= maximumValueBytes else {
+            throw BrowserReplDriverError(code: "invalid", message: "a typed secret value is at most \(maximumValueBytes) bytes (UTF-8), got \(value.utf8.count)")
+        }
+        guard domains.count <= maximumDomainsPerValue else {
+            throw BrowserReplDriverError(code: "invalid", message: "a typed secret value has at most \(maximumDomainsPerValue) domains, got \(domains.count)")
         }
     }
 
