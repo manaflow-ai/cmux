@@ -112,8 +112,14 @@ with open(path, "w") as f:
 os.chmod(path, 0o600)
 PY
     echo "acpmux: $("$bin" --version) ($bin)"
+    # Current daemons trust a dev origin only through --allow-dev-origin (never saved); older ones
+    # read websocket.allowed_origins above.
+    origin_args=()
+    if "$bin" daemon run --help 2>/dev/null | grep -q -- --allow-dev-origin; then
+      origin_args=(--allow-dev-origin "$vite_origin")
+    fi
     (cd "$cwd" && ACPMUX_HOME="$home" nohup "$bin" daemon run --listen "127.0.0.1:$daemon_port" --token "$token" \
-      >"$home/daemon.log" 2>&1 & echo $! >"$home/daemon.pid")
+      "${origin_args[@]}" >"$home/daemon.log" 2>&1 & echo $! >"$home/daemon.pid")
     wait_port "$daemon_port" "$home/daemon.log"
     [[ -d "$WEBVIEWS/node_modules" ]] || (cd "$WEBVIEWS" && bun install --frozen-lockfile >/dev/null)
     (cd "$WEBVIEWS" && CMUX_AGENT_PANE_DEV_PORT="$vite_port" nohup bun run dev:agent-pane \
