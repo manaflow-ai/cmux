@@ -96,6 +96,8 @@ struct TerminalSnapshotRestoreTests {
         #expect(viewport.contains("line 199"))
         #expect(!viewport.contains("STALE"))
         #expect(viewer.diagnostics.grid == TerminalGridSize(columns: 40, rows: 10))
+        #expect(viewer.diagnostics.restoredSnapshots == 1)
+        #expect(viewer.diagnostics.swappedSurfaces == 0)
 
         // History restores the scrollback above the restored screen.
         io.send(.snapshot(snapshot.history, phase: .history))

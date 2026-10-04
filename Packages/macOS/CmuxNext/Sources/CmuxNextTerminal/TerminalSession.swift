@@ -81,6 +81,10 @@ public final class TerminalSession {
     /// True once the current surface received a replay or output; a later
     /// replay then needs a fresh surface.
     private(set) var surfaceHasContent = false
+    /// READY snapshots restored in place, and surfaces swapped in for a
+    /// later VT replay (diagnostics: a snapshot attach never swaps).
+    private(set) var restoredSnapshots = 0
+    private(set) var swappedSurfaces = 0
 
     public init(io: any TerminalIO, ownsGeometry: Bool = true) {
         self.io = io
@@ -196,6 +200,7 @@ public final class TerminalSession {
             // The same surface takes the owner's state: no swap.
             await restoreSnapshot(data, phase: phase)
             guard phase == .ready else { return }
+            restoredSnapshots += 1
             surfaceHasContent = true
             TerminalTimings.contentApplied()
         case .output(let data):
@@ -240,6 +245,7 @@ public final class TerminalSession {
         let old = surfaceView
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self)
+        swappedSurfaces += 1
         fresh.ownsGeometry = ownsGeometry
         fresh.isRenderingSuspended = isRenderingSuspended
         fresh.mirrorDemand = mirrorDemand
