@@ -52,7 +52,7 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// JavaScript thread. Driver call results pass through it on their way
     /// to `thread` too, so an event the driver sent before a call returned
     /// still reaches the runtime before that call's result.
-    private let eventQueue: DispatchQueue
+    let eventQueue: DispatchQueue
     private let fetcher: BrowserReplFetcher
     /// Secrets, the domain policy and redaction (see BrowserReplBoundary).
     private let boundary: BrowserReplBoundary
