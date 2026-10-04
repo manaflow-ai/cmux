@@ -219,8 +219,8 @@ fn many_status_lines_never_close_the_notify_pipe() {
 }
 
 /// Least privilege under a root supervisor (server.md 5.1 "Root"): a role
-/// runs as the work user with no supplementary groups; `runAsRoot` keeps
-/// root. Needs root, so it is ignored by default; run it with
+/// runs as the work user with no supplementary groups, and a `runAsRoot`
+/// entry is refused. Needs root, so it is ignored by default; run it with
 /// `sudo <cmux-host test binary> --ignored roles_under_root_run_as_the_work_user`.
 #[cfg(target_os = "linux")]
 #[test]
@@ -234,7 +234,6 @@ fn roles_under_root_run_as_the_work_user() {
     let body = "id -u > \"$CMUX_ROLE_STATE_DIR/uid\"\nid -G > \"$CMUX_ROLE_STATE_DIR/groups\"\n\
                 echo \"$HOME\" > \"$CMUX_ROLE_STATE_DIR/home\"\nexec sleep 600";
     fx.script("who", body);
-    fx.script("rootwho", body);
     fx.paths.work_user = Some(super::super::privilege::WorkUser {
         name: nobody.name.clone(),
         uid: nobody.uid,
@@ -244,7 +243,7 @@ fn roles_under_root_run_as_the_work_user() {
     let sup = Supervisor::start(fx.paths.clone()).unwrap();
     sup.apply(set(serde_json::json!({
         "who": {"program": "who"},
-        "rootwho": {"program": "rootwho", "runAsRoot": true}
+        "rootwho": {"program": "who", "runAsRoot": true}
     })));
     let read = |role: &str, file: &str| {
         let path = fx.paths.role_dir(role).join(file);
@@ -262,7 +261,9 @@ fn roles_under_root_run_as_the_work_user() {
     assert_eq!(read("who", "uid"), nobody.uid.to_string());
     assert_eq!(read("who", "groups"), nobody.gid.to_string());
     assert_eq!(read("who", "home"), nobody.home.display().to_string());
-    assert_eq!(read("rootwho", "uid"), "0");
+    let health = sup.health();
+    assert_eq!(state_of(&health, "rootwho"), Some(RoleState::Invalid));
+    assert!(!fx.paths.role_dir("rootwho").exists());
     use std::os::unix::fs::MetadataExt;
     assert_eq!(std::fs::metadata(fx.paths.role_dir("who")).unwrap().uid(), nobody.uid);
     assert!(sup.stop_all(Instant::now() + Duration::from_secs(5)).is_empty());

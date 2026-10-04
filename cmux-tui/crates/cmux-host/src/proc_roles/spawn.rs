@@ -110,7 +110,7 @@ pub fn start(spec: &RoleSpec, paths: &RolePaths, tx: &Sender<Msg>) -> Result<Chi
 
     // SAFETY: geteuid has no preconditions.
     let euid = unsafe { libc::geteuid() };
-    let identity = privilege::identity_for(euid, paths.work_user.as_ref(), spec.run_as_root)?;
+    let identity = privilege::identity_for(euid, paths.work_user.as_ref())?;
     let program = resolve(spec, paths)?;
     let dir = paths.role_dir(&spec.name);
     // `<state>/roles` lets a dropped role reach only its own folder.
@@ -319,7 +319,6 @@ mod tests {
             restart: RestartPolicy::Always,
             ready: Readiness::Notify,
             stop_grace: Duration::from_secs(10),
-            run_as_root: false,
         }
     }
 

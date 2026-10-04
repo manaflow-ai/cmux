@@ -55,9 +55,6 @@ pub struct RoleSpec {
     pub restart: RestartPolicy,
     pub ready: Readiness,
     pub stop_grace: Duration,
-    /// Under a root supervisor, run as root instead of the work user
-    /// (`runAsRoot`; server.md 5.1 "Root").
-    pub run_as_root: bool,
 }
 
 /// An entry that was refused, with the reason (shown in status).
@@ -127,7 +124,7 @@ pub fn parse_roles(value: Option<&Value>) -> RoleSet {
 }
 
 const KNOWN_KEYS: &[&str] =
-    &["program", "args", "env", "restart", "ready", "stopGraceSeconds", "enabled", "runAsRoot"];
+    &["program", "args", "env", "restart", "ready", "stopGraceSeconds", "enabled"];
 
 /// `Ok(None)`: a valid entry with `enabled: false`.
 fn parse_entry(name: &str, entry: &Value) -> Result<Option<RoleSpec>, String> {
@@ -139,6 +136,11 @@ fn parse_entry(name: &str, entry: &Value) -> Result<Option<RoleSpec>, String> {
     let Some(entry) = entry.as_object() else {
         return Err("a role entry must be an object".to_owned());
     };
+    if entry.contains_key("runAsRoot") {
+        return Err("`runAsRoot` is not supported: roles never run as root (a program that \
+                    needs root is a system service, not a role)"
+            .to_owned());
+    }
     if let Some(key) = entry.keys().find(|key| !KNOWN_KEYS.contains(&key.as_str())) {
         return Err(format!("unknown key {key:?}"));
     }
@@ -164,11 +166,6 @@ fn parse_entry(name: &str, entry: &Value) -> Result<Option<RoleSpec>, String> {
             other => return Err(format!("`ready` {other:?}: use started or notify")),
         },
         stop_grace: stop_grace(entry)?,
-        run_as_root: match entry.get("runAsRoot") {
-            None => false,
-            Some(Value::Bool(b)) => *b,
-            Some(_) => return Err("`runAsRoot` must be true or false".to_owned()),
-        },
     };
     Ok(enabled.then_some(spec))
 }
