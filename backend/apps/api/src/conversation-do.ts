@@ -217,8 +217,12 @@ export class ConversationDO extends OwnerDO<Head> {
    * Worker only (home-reach.ts): the reach facts this DM gives `adder` about `target`. `peer` is
    * the target's name while both are current human participants; `consented` holds when the
    * pair gave consent (16.8): both have sent a message here, or the DM came from an invite one of
-   * them sent and the other accepted (16.4). Authorship comes from the `msgkey` rows, keyed
-   * `<author>:<client_msg_id>`, so the check is an index range read, not a history scan.
+   * them sent and the other accepted (16.4). Authorship comes from the private `consent`
+   * markers (home-core consent.ts), which retention never deletes, so an old DM stays connected
+   * after its messages expire. A DM from before the markers falls back to its `msgkey` rows
+   * (keyed `<author>:<client_msg_id>`, an index range read): any commit that deletes such a row
+   * writes the author's marker in the same commit, so the fallback is only read while the rows
+   * it reads still exist.
    */
   async homeDmLink(entity: string, adder: string, target: string): Promise<{ peer: string | null; consented: boolean } | null> {
     const state = this.existingState(entity)
@@ -229,6 +233,7 @@ export class ConversationDO extends OwnerDO<Head> {
     if (!peer) return { peer: null, consented: false }
     const rows = tablesFor().rows
     const authored = (who: string) =>
+      conversation.hasConsentMarker(this.boundEngine!.rows, who) ||
       this.sqlStore.exec<{ one: number }>(`SELECT 1 AS one FROM ${rows} WHERE tbl = ? AND k >= ? AND k < ? LIMIT 1`, conversation.TABLE_MSGKEY, `${who}:`, `${who};`).length > 0
     const pair = new Set([adder, target])
     const invited = () =>

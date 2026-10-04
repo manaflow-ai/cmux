@@ -1,6 +1,7 @@
 import { hashInviteSecret } from "../invites/token.ts"
 import { apply, targetMessageId } from "./apply.ts"
 import { isOpen } from "./cloud.ts"
+import { withConsentMarkers } from "./consent.ts"
 import { create, summary } from "./create.ts"
 import type { Domain, Principal, ReduceContext, ReduceResult, RowReader, RowWrite } from "./engine-types.ts"
 import { rowsOf } from "./engine-types.ts"
@@ -25,6 +26,8 @@ export { actorOf } from "./policy.ts"
  * - `msgkey`: key = `<author>:<client_msg_id>`, row = { message_id } (one message per author and client id).
  * - `inv`: key = invite id, row = Invite (every invite, also closed ones).
  * - `invhash`: key = token hash, row = { invite_id }.
+ * - `consent`: key = author id, row = { at }; a DM author's private consent marker (consent.ts),
+ *   never deleted by retention.
  *
  * The head (engine state) keeps only open invites, so it stays small.
  *
@@ -215,65 +218,74 @@ const unreadBefore = (before: ConversationHead, after: ConversationHead, op: Op,
   return counts
 }
 
-export const makeConversationDomain = (options: ConversationDomainOptions = {}): Domain<ConversationState, ConversationParams> => ({
-  initial: () => null,
-  reduce: (state, op, params, ctx) => {
-    const actor = actorOf(ctx.principal)
-    if (!actor) return refuse("forbidden")
-    if (IMPORT_OPS.has(op)) return reduceImport(state, op, params, ctx, actor, options.participantPolicy ?? defaultParticipantPolicy)
-    if (CREATE_OPS.has(op)) return reduceCreate(state, op, params, ctx, actor, options.participantPolicy ?? defaultParticipantPolicy)
-    if (!state) return refuse("unknown_conversation")
-    const prepared = prepare(state, op, params, ctx, actor, options)
-    if (typeof prepared === "string") return refuse(prepared)
-    const coreOp = prepared.op
-    const loaded = loadInvite(state, ctx, coreOp)
-    const head: ConversationHead = loaded ? { ...state, invites: [...(state.invites ?? []), loaded] } : state
-    const messageId = targetMessageId(coreOp)
-    const replyId = coreOp.kind === "message.send" ? coreOp.reply_to?.message_id : undefined
-    const verified = op === "invite.accept" && ctx.principal.email_verified === true && options.addressIdsFor
-    const request: OpRequest = {
-      actor,
-      // The engine's ledger owns idempotency; `msgkey` keeps (author, client_msg_id) unique.
-      idempotency_key: coreOp.kind === "message.send" ? coreOp.client_msg_id : "",
-      op: coreOp,
-      now: formatRfc3339Millis(ctx.now),
-      new_message_id: coreOp.kind === "message.send" ? ctx.newId("msg") : "",
-      target: messageId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, messageId)?.row ?? null),
-      reply_target: replyId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, replyId)?.row ?? null),
-      // The loop guard lives in the head (O(1)); only the newest message is read, for summaries.
-      last_message: rowsOf(ctx).range<Message>(TABLE_MSG, { limit: 1, desc: true })[0]?.row ?? null,
-      actor_addresses: verified ? options.addressIdsFor!(ctx.principal) : null,
-      trusted_participant: prepared.trusted ?? null
-    }
-    const result = apply(head, request)
-    if (!result.ok) return refuse(result.code)
-    const { commit } = result
-    const writes: Array<RowWrite> = []
-    if (commit.message) {
-      writes.push({ table: TABLE_MSG, op: "upsert", key: commit.message.id, n: commit.message.seq, row: commit.message })
-      if (coreOp.kind === "message.send") {
-        writes.push({ table: TABLE_MSGKEY, op: "upsert", key: msgKey(actor, commit.message.client_msg_id), n: null, row: { message_id: commit.message.id } })
-      }
-    }
-    writes.push(...inviteWrites(head.invites ?? [], commit.head.invites ?? []))
-    const next: ConversationHead = commit.head.invites ? { ...commit.head, invites: commit.head.invites.filter(isOpen) } : commit.head
-    const counts = unreadBefore(head, commit.head, coreOp, rowsOf(ctx))
-    const outbox = commitOutbox(head, request, commit, counts)
-    // The counts each bump carries become the stored counts (the next commit starts from them).
-    for (const item of outbox) {
-      const p = item.payload as { user?: string; unread?: number; mentions?: number }
-      if (item.kind === "inbox.bump" && p.user !== undefined && p.unread !== undefined && p.mentions !== undefined) {
-        writes.push({ table: TABLE_UNREAD, op: "upsert", key: p.user, n: null, row: { unread: p.unread, mentions: p.mentions } })
-      }
-    }
-    return {
-      ok: true,
-      state: next,
-      value: { rev: commit.head.rev, ...(commit.message ? { seq: commit.message.seq, message_id: commit.message.id } : {}), change: commit.change },
-      writes,
-      outbox
+const reduceConversation = (
+  options: ConversationDomainOptions,
+  state: ConversationState,
+  op: string,
+  params: ConversationParams,
+  ctx: ReduceContext
+): ReduceResult<ConversationState> => {
+  const actor = actorOf(ctx.principal)
+  if (!actor) return refuse("forbidden")
+  if (IMPORT_OPS.has(op)) return reduceImport(state, op, params, ctx, actor, options.participantPolicy ?? defaultParticipantPolicy)
+  if (CREATE_OPS.has(op)) return reduceCreate(state, op, params, ctx, actor, options.participantPolicy ?? defaultParticipantPolicy)
+  if (!state) return refuse("unknown_conversation")
+  const prepared = prepare(state, op, params, ctx, actor, options)
+  if (typeof prepared === "string") return refuse(prepared)
+  const coreOp = prepared.op
+  const loaded = loadInvite(state, ctx, coreOp)
+  const head: ConversationHead = loaded ? { ...state, invites: [...(state.invites ?? []), loaded] } : state
+  const messageId = targetMessageId(coreOp)
+  const replyId = coreOp.kind === "message.send" ? coreOp.reply_to?.message_id : undefined
+  const verified = op === "invite.accept" && ctx.principal.email_verified === true && options.addressIdsFor
+  const request: OpRequest = {
+    actor,
+    // The engine's ledger owns idempotency; `msgkey` keeps (author, client_msg_id) unique.
+    idempotency_key: coreOp.kind === "message.send" ? coreOp.client_msg_id : "",
+    op: coreOp,
+    now: formatRfc3339Millis(ctx.now),
+    new_message_id: coreOp.kind === "message.send" ? ctx.newId("msg") : "",
+    target: messageId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, messageId)?.row ?? null),
+    reply_target: replyId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, replyId)?.row ?? null),
+    // The loop guard lives in the head (O(1)); only the newest message is read, for summaries.
+    last_message: rowsOf(ctx).range<Message>(TABLE_MSG, { limit: 1, desc: true })[0]?.row ?? null,
+    actor_addresses: verified ? options.addressIdsFor!(ctx.principal) : null,
+    trusted_participant: prepared.trusted ?? null
+  }
+  const result = apply(head, request)
+  if (!result.ok) return refuse(result.code)
+  const { commit } = result
+  const writes: Array<RowWrite> = []
+  if (commit.message) {
+    writes.push({ table: TABLE_MSG, op: "upsert", key: commit.message.id, n: commit.message.seq, row: commit.message })
+    if (coreOp.kind === "message.send") {
+      writes.push({ table: TABLE_MSGKEY, op: "upsert", key: msgKey(actor, commit.message.client_msg_id), n: null, row: { message_id: commit.message.id } })
     }
   }
+  writes.push(...inviteWrites(head.invites ?? [], commit.head.invites ?? []))
+  const next: ConversationHead = commit.head.invites ? { ...commit.head, invites: commit.head.invites.filter(isOpen) } : commit.head
+  const counts = unreadBefore(head, commit.head, coreOp, rowsOf(ctx))
+  const outbox = commitOutbox(head, request, commit, counts)
+  // The counts each bump carries become the stored counts (the next commit starts from them).
+  for (const item of outbox) {
+    const p = item.payload as { user?: string; unread?: number; mentions?: number }
+    if (item.kind === "inbox.bump" && p.user !== undefined && p.unread !== undefined && p.mentions !== undefined) {
+      writes.push({ table: TABLE_UNREAD, op: "upsert", key: p.user, n: null, row: { unread: p.unread, mentions: p.mentions } })
+    }
+  }
+  return {
+    ok: true,
+    state: next,
+    value: { rev: commit.head.rev, ...(commit.message ? { seq: commit.message.seq, message_id: commit.message.id } : {}), change: commit.change },
+    writes,
+    outbox
+  }
+}
+
+export const makeConversationDomain = (options: ConversationDomainOptions = {}): Domain<ConversationState, ConversationParams> => ({
+  initial: () => null,
+  // Every commit, whatever the op, gets the DM consent markers its msgkey writes need (consent.ts).
+  reduce: (state, op, params, ctx) => withConsentMarkers(reduceConversation(options, state, op, params, ctx), state, ctx)
 })
 
 /** The domain with the default (pure) participant policy and no verified-address binding (tests, self-hosted without the address key). */
