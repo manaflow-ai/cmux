@@ -70,3 +70,42 @@ pub(crate) fn int(
         },
     }
 }
+
+/// A machine display name as the Cloud API accepts it
+/// (`web/services/vms/displayName.ts`): 1 to 64 characters after trimming,
+/// no control characters. `None` when absent or null.
+pub(crate) fn display_name<'a>(
+    map: &'a Map<String, Value>,
+    field: &str,
+) -> Result<Option<&'a str>, CloudError> {
+    match map.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) => {
+            let t = s.trim();
+            if t.is_empty() || t.chars().count() > 64 || t.chars().any(char::is_control) {
+                Err(CloudError::invalid(format!(
+                    "{field} must be 1 to 64 characters without control characters"
+                )))
+            } else {
+                Ok(Some(t))
+            }
+        }
+        Some(_) => Err(CloudError::invalid(format!("{field} must be text or null"))),
+    }
+}
+
+/// An optional machine kind: `[a-z][a-z0-9-]{0,31}`.
+pub(crate) fn kind<'a>(
+    map: &'a Map<String, Value>,
+    field: &str,
+) -> Result<Option<&'a str>, CloudError> {
+    let Some(value) = text(map, field, 32)? else { return Ok(None) };
+    let mut chars = value.chars();
+    let ok = chars.next().is_some_and(|c| c.is_ascii_lowercase())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if ok {
+        Ok(Some(value))
+    } else {
+        Err(CloudError::invalid(format!("{field} is not a machine kind")))
+    }
+}

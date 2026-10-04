@@ -42,7 +42,7 @@ impl<'a, C: ControlPlane> Ctx<'a, C> {
             method,
             path,
             body,
-            idempotency_key: self.key.map(str::to_owned),
+            idempotency_key: if method == "GET" { None } else { self.key.map(str::to_owned) },
         };
         let reply = match self.control_plane.call(&call) {
             Ok(reply) => reply,

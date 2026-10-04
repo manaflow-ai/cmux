@@ -25,8 +25,12 @@ pub(super) fn run<C: ControlPlane>(
         "cloud.machine.resize" => resize(ctx, raw),
         "cloud.machine.delete" => {
             let id = args::id(args::object(raw, &["machine"])?, "machine")?;
-            ctx.call("DELETE", format!("/api/vm/{id}"), None)?;
-            ctx.projection.remove(id);
+            let result = ctx.call("DELETE", format!("/api/vm/{id}"), None);
+            if result.is_ok() || result.as_ref().is_err_and(|e| e.code == codes::NOT_FOUND) {
+                // A machine the Cloud API does not know is gone here too.
+                ctx.projection.remove(id);
+            }
+            result?;
             Ok(json!({ "ok": true }))
         }
         "cloud.machine.stats" => {
@@ -80,13 +84,13 @@ pub(super) fn merged<C: ControlPlane>(
 fn create<C: ControlPlane>(ctx: &mut Ctx<'_, C>, raw: &Value) -> Result<Value, CloudError> {
     let map = args::object(raw, &["displayName", "memoryMb", "kind"])?;
     let mut body = serde_json::Map::new();
-    if let Some(name) = args::text(map, "displayName", 128)? {
+    if let Some(name) = args::display_name(map, "displayName")? {
         body.insert("displayName".into(), json!(name));
     }
     if let Some(mb) = args::int(map, "memoryMb", 1024, 65_536, 1)? {
         body.insert("memoryMb".into(), json!(mb));
     }
-    if let Some(kind) = args::text(map, "kind", 32)? {
+    if let Some(kind) = args::kind(map, "kind")? {
         body.insert("kind".into(), json!(kind));
     }
     let answer = ctx.call("POST", "/api/vm".into(), Some(Value::Object(body)))?;
@@ -96,20 +100,13 @@ fn create<C: ControlPlane>(ctx: &mut Ctx<'_, C>, raw: &Value) -> Result<Value, C
 fn rename<C: ControlPlane>(ctx: &mut Ctx<'_, C>, raw: &Value) -> Result<Value, CloudError> {
     let map = args::object(raw, &["machine", "displayName"])?;
     let id = args::id(map, "machine")?;
-    let name = match map.get("displayName") {
-        Some(Value::Null) => None,
-        Some(Value::String(s)) if s.chars().count() <= 128 => {
-            Some(s.trim()).filter(|s| !s.is_empty())
-        }
-        _ => {
-            return Err(CloudError::invalid(
-                "displayName must be text of at most 128 characters or null",
-            ));
-        }
-    };
+    if !map.contains_key("displayName") {
+        return Err(CloudError::invalid("displayName is required (null clears it)"));
+    }
+    let name = args::display_name(map, "displayName")?;
     let answer =
         ctx.call("PATCH", format!("/api/vm/{id}"), Some(json!({ "displayName": name })))?;
-    merged(ctx, &answer)
+    merged_partial(ctx, id, &answer)
 }
 
 fn lifecycle<C: ControlPlane>(
@@ -119,7 +116,22 @@ fn lifecycle<C: ControlPlane>(
 ) -> Result<Value, CloudError> {
     let id = args::id(args::object(raw, &["machine"])?, "machine")?;
     let answer = ctx.call("POST", format!("/api/vm/{id}/{verb}"), None)?;
-    merged(ctx, &answer)
+    merged_partial(ctx, id, &answer)
+}
+
+/// Rename, pause and resume answer only a few fields. For a machine the
+/// projection does not know yet, read the full record first, so the
+/// projection never holds a partial machine.
+fn merged_partial<C: ControlPlane>(
+    ctx: &mut Ctx<'_, C>,
+    id: &str,
+    answer: &Value,
+) -> Result<Value, CloudError> {
+    if ctx.projection.get(id).is_none() {
+        let full = ctx.call("GET", format!("/api/vm/{id}"), None)?;
+        merged(ctx, &full)?;
+    }
+    merged(ctx, answer)
 }
 
 fn resize<C: ControlPlane>(ctx: &mut Ctx<'_, C>, raw: &Value) -> Result<Value, CloudError> {

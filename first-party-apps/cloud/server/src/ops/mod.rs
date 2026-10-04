@@ -9,7 +9,7 @@ mod snapshot;
 
 pub use machine_projection::{Change, Projection, ProjectionEvent};
 
-use crate::api::{CloudError, ControlPlane, Ctx, Ledger, Origin, Request, codes};
+use crate::api::{CloudError, ControlPlane, Ctx, Ledger, Origin, Request, codes, upstream_key};
 use serde_json::Value;
 
 /// How an op is guarded before it runs.
@@ -78,6 +78,33 @@ pub fn op_names() -> impl Iterator<Item = &'static str> {
     OPS.iter().map(|(name, _)| *name)
 }
 
+/// How the catalog guards an op: `(mutation, user_only)`; `None` for an
+/// unknown op. Tests compare it with the fragment's `class` and `gesture`.
+pub fn op_policy(name: &str) -> Option<(bool, bool)> {
+    OPS.iter().find(|(n, _)| *n == name).map(|(_, k)| (*k != Kind::Read, *k == Kind::UserOnly))
+}
+
+/// The relay names take `vm_id` and `snapshot_id`; the fragment ops take
+/// `machine` and `snapshot` (a restore needs only the snapshot).
+fn relay_args(called: &str, name: &str, args: &Value) -> Value {
+    let (true, Value::Object(map)) = (called.starts_with("vm."), args) else {
+        return args.clone();
+    };
+    let mut out = serde_json::Map::new();
+    for (k, v) in map {
+        let k = match k.as_str() {
+            "vm_id" => "machine",
+            "snapshot_id" => "snapshot",
+            other => other,
+        };
+        if name == "cloud.snapshot.restore" && k == "machine" {
+            continue;
+        }
+        out.insert(k.to_owned(), v.clone());
+    }
+    Value::Object(out)
+}
+
 fn kind_of(name: &str) -> Kind {
     OPS.iter().find(|(n, _)| *n == name).map_or(Kind::Read, |(_, k)| *k)
 }
@@ -118,6 +145,7 @@ impl<C: ControlPlane> Server<C> {
             CloudError::new(codes::UNKNOWN_OP, format!("{} is not a Cloud op", request.op))
         })?;
         let kind = kind_of(name);
+        let args = relay_args(&request.op, name, &request.args);
         let key = request.idempotency_key.as_deref().map(str::trim).filter(|k| !k.is_empty());
         if kind == Kind::UserOnly && request.origin != Origin::User {
             return Err(CloudError::new(
@@ -132,7 +160,7 @@ impl<C: ControlPlane> Server<C> {
                     format!("{name} is a read and takes no idempotency key"),
                 ));
             }
-            return self.run(name, &request.args, None);
+            return self.run(name, &args, None);
         }
         let key = key.ok_or_else(|| {
             CloudError::new(
@@ -143,12 +171,24 @@ impl<C: ControlPlane> Server<C> {
         if key.len() > 128 {
             return Err(CloudError::invalid("an idempotency key has at most 128 characters"));
         }
-        if let Some(done) = self.ledger.replay(key, name, &request.args)? {
+        if let Some(done) = self.ledger.replay(key, name, &args)? {
             return Ok(done);
         }
-        let result = self.run(name, &request.args, Some(key))?;
-        self.ledger.record(key, name, &request.args, result.clone());
-        Ok(result)
+        self.ledger.attempt(key, name, &args);
+        let upstream = upstream_key(name, &args, key);
+        match self.run(name, &args, Some(&upstream)) {
+            Ok(result) => {
+                self.ledger.succeed(key, result.clone());
+                Ok(result)
+            }
+            Err(error) => {
+                // Bad args never changed anything: the key stays free for the fix.
+                if error.code == codes::INVALID_ARGS {
+                    self.ledger.forget(key);
+                }
+                Err(error)
+            }
+        }
     }
 
     fn run(&mut self, name: &str, args: &Value, key: Option<&str>) -> Result<Value, CloudError> {

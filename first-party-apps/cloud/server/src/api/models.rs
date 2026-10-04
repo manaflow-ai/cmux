@@ -51,7 +51,9 @@ pub struct Machine {
     pub image: Option<String>,
     #[serde(default)]
     pub image_version: Option<String>,
-    #[serde(default, deserialize_with = "number_or_none")]
+    /// Epoch milliseconds. The list answers an ISO 8601 string, create and
+    /// fork answers may carry a number; both become milliseconds.
+    #[serde(default, deserialize_with = "timestamp_ms")]
     pub created_at: Option<f64>,
     #[serde(default)]
     pub address: Option<Address>,
@@ -161,4 +163,62 @@ fn number_or_none<'de, D: Deserializer<'de>>(d: D) -> Result<Option<f64>, D::Err
 
 fn status_or_default<'de, D: Deserializer<'de>>(d: D) -> Result<MachineStatus, D::Error> {
     Ok(Option::<MachineStatus>::deserialize(d)?.unwrap_or_default())
+}
+
+fn timestamp_ms<'de, D: Deserializer<'de>>(d: D) -> Result<Option<f64>, D::Error> {
+    Ok(match Value::deserialize(d)? {
+        Value::Number(n) => n.as_f64(),
+        Value::String(s) => iso8601_ms(&s),
+        _ => None,
+    })
+}
+
+/// `YYYY-MM-DDTHH:MM:SS[.fff]Z` (what `Date.toISOString()` writes) to epoch
+/// milliseconds; `None` for any other shape.
+pub fn iso8601_ms(s: &str) -> Option<f64> {
+    let b = s.as_bytes();
+    let num = |r: std::ops::Range<usize>| -> Option<i64> {
+        let part = s.get(r)?;
+        part.bytes().all(|c| c.is_ascii_digit()).then(|| part.parse().ok())?
+    };
+    if b.len() < 20
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || b[10] != b'T'
+        || b[13] != b':'
+        || b[16] != b':'
+    {
+        return None;
+    }
+    let (year, month, day) = (num(0..4)?, num(5..7)?, num(8..10)?);
+    let (hour, minute, second) = (num(11..13)?, num(14..16)?, num(17..19)?);
+    let rest = &s[19..];
+    let millis = match rest.strip_suffix('Z')? {
+        "" => 0.0,
+        frac => {
+            let digits = frac.strip_prefix('.')?;
+            if digits.is_empty() || !digits.bytes().all(|c| c.is_ascii_digit()) {
+                return None;
+            }
+            format!("0.{digits}").parse::<f64>().ok()? * 1000.0
+        }
+    };
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || second > 60
+    {
+        return None;
+    }
+    // Days from 1970-01-01 (civil calendar, proleptic Gregorian).
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let secs = days * 86_400 + hour * 3600 + minute * 60 + second;
+    Some(secs as f64 * 1000.0 + millis)
 }
