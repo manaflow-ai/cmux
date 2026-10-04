@@ -1,0 +1,108 @@
+import AppKit
+
+extension WindowOverlayHost {
+    // MARK: Modal
+
+    /// The panel takes the keyboard; Tab cycles inside the overlay (the
+    /// panel's key view loop holds only overlay views); the previous key
+    /// window and first responder are kept for `endModal`.
+    func beginModal(_ handle: OverlayHandle) {
+        if !handles.dropLast().contains(where: { $0.options.isModal }) {
+            restoreWindow = NSApp.keyWindow ?? window
+            restoreResponder = (NSApp.keyWindow ?? window)?.firstResponder
+        }
+        panel.acceptsKey = true
+        // Tab and Shift-Tab cycle through this overlay's controls only.
+        panel.autorecalculatesKeyViewLoop = false
+        let keyViews = Self.keyViews(in: handle.content)
+        for (index, view) in keyViews.enumerated() { view.nextKeyView = keyViews[(index + 1) % keyViews.count] }
+        if panel.isVisible { panel.makeKey() }
+        let first = keyViews.first ?? handle.content
+        panel.initialFirstResponder = first
+        panel.makeFirstResponder(first)
+    }
+
+    func endModal() {
+        guard !handles.contains(where: { $0.options.isModal }) else {
+            if let top = handles.last(where: { $0.options.isModal }) {
+                panel.makeFirstResponder(Self.firstKeyView(in: top.content) ?? top.content)
+            }
+            return
+        }
+        let panelWasKey = panel.isKeyWindow
+        panel.acceptsKey = false
+        // Give the keyboard back only when the overlay still had it: after
+        // the person clicked into the window and moved on, focus stays there.
+        guard !isTearingDown, panelWasKey else {
+            restoreWindow = nil
+            restoreResponder = nil
+            return
+        }
+        let window = restoreWindow ?? self.window
+        if let window, window.isVisible { window.makeKey() }
+        if let responder = restoreResponder, let window {
+            // A field editor stands in for its text field; give the field back.
+            if let editor = responder as? NSTextView, editor.isFieldEditor, let field = editor.delegate as? NSResponder {
+                window.makeFirstResponder(field)
+            } else {
+                window.makeFirstResponder(responder)
+            }
+        }
+        restoreWindow = nil
+        restoreResponder = nil
+    }
+
+    /// Escape reaches the panel only while it is key (a modal overlay). For
+    /// a non-modal overlay that dismisses on Escape, a local key monitor
+    /// lives while such an overlay shows and catches an Escape for any of the
+    /// app's windows; it goes with the last such overlay.
+    func updateEscapeMonitor() {
+        let wanted = handles.contains { $0.options.dismissOnEscape && !$0.options.isModal }
+        if wanted, escapeMonitor == nil {
+            escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, event.keyCode == 53, event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
+                      !self.panel.isKeyWindow, let target = event.window,
+                      self.isAppHost || target === self.window || target.parent === self.window,
+                      let handle = self.handles.last(where: { $0.options.dismissOnEscape && !$0.options.isModal }) else { return event }
+                handle.dismiss()
+                return nil
+            }
+        } else if !wanted, let monitor = escapeMonitor {
+            NSEvent.removeMonitor(monitor)
+            escapeMonitor = nil
+        }
+    }
+
+    /// Tab inside the newest modal overlay: the next (or previous) control, wrapping.
+    func cycleKeyView(forward: Bool) -> Bool {
+        guard let top = handles.last(where: { $0.options.isModal }) else { return false }
+        let views = Self.keyViews(in: top.content)
+        guard !views.isEmpty else { return true }
+        var current = panel.firstResponder as? NSView
+        if let editor = current as? NSTextView, editor.isFieldEditor { current = editor.delegate as? NSView }
+        let index = current.flatMap { view in views.firstIndex { $0 === view } } ?? (forward ? views.count - 1 : 0)
+        let next = views[(index + (forward ? 1 : views.count - 1)) % views.count]
+        panel.makeFirstResponder(next)
+        return true
+    }
+
+    /// Escape: the newest overlay that dismisses on Escape goes.
+    func escape() {
+        handles.last(where: { $0.options.dismissOnEscape })?.dismiss()
+    }
+
+    /// Controls that take the keyboard, in view order.
+    static func keyViews(in view: NSView) -> [NSView] {
+        var found: [NSView] = view.acceptsFirstResponder && view is NSControl ? [view] : []
+        for child in view.subviews where !child.isHidden { found += keyViews(in: child) }
+        return found
+    }
+
+    static func firstKeyView(in view: NSView) -> NSView? {
+        if view.canBecomeKeyView { return view }
+        for child in view.subviews {
+            if let found = firstKeyView(in: child) { return found }
+        }
+        return nil
+    }
+}
