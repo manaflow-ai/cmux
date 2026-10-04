@@ -32,6 +32,14 @@ nonisolated enum UpdaterStrings {
     static var installing: String { text("updater.title.installing", "Installing…") }
     static var readyToInstall: String { text("updater.title.readyToInstall", "Update Ready") }
 
+    // R114 card (red-test stubs)
+    static var restartToUpdate: String { "" }
+    static func cardReadyDetail(_ version: String) -> String { "" }
+    static func cardAvailableDetail(_ version: String) -> String { "" }
+    static var cardWaitingTitle: String { "" }
+    static func cardWaitingDetail(_ count: Int) -> String { "" }
+    static var installNow: String { "" }
+
     // Details
     static func currentVersion(_ version: String, _ build: String) -> String {
         format("updater.detail.currentVersion", "You have cmux %@ (%@).", version, build)
