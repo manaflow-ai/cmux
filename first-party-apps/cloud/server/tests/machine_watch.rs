@@ -170,9 +170,9 @@ fn delete_emits_removed() {
     let mut stale =
         common::wire_common::vectors()["cases"][0]["responses"][0]["body"]["value"]["machines"][1]
             .clone();
-    stale["revision"] = json!("6");
+    stale["revision"] = json!("52");
     s.team_event("cloud.machine.upsert", &json!({ "machine": stale })).expect("event");
-    assert!(s.projection().get(&vm(2)).is_none(), "the removal was at revision 6");
+    assert!(s.projection().get(&vm(2)).is_none(), "the removal was at revision 52");
 }
 
 #[test]

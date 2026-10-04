@@ -11,6 +11,7 @@ fn call() -> WireCall {
         op: "cloud.machine.create".into(),
         params: json!({ "size": { "cpu": 2 } }),
         idempotency_key: Some("k-1".into()),
+        origin: Some("user"),
     }
 }
 
@@ -56,9 +57,13 @@ fn a_wire_call_goes_out_without_credentials_and_queues_op_lines() {
     assert_eq!(sent["type"], "relay.op");
     assert_eq!(sent["op"], "cloud.machine.create");
     assert_eq!(sent["idempotency_key"], "k-1");
+    assert_eq!(sent["origin"], "user");
     let keys: Vec<&str> = sent.as_object().expect("object").keys().map(String::as_str).collect();
     for key in keys {
-        assert!(["type", "id", "op", "params", "idempotency_key"].contains(&key), "{key}");
+        assert!(
+            ["type", "id", "op", "params", "idempotency_key", "origin"].contains(&key),
+            "{key}"
+        );
     }
 }
 
@@ -192,4 +197,24 @@ fn unknown_host_frames_during_a_call_are_dropped_and_host_answers_are_bounded() 
         kept += 1;
     }
     assert_eq!(kept, cmux_cloud::api::RELAY_QUEUE_LINES);
+}
+
+#[test]
+fn team_events_during_a_call_are_kept_in_order_and_never_answered() {
+    let mut input = String::new();
+    for i in 0..(cmux_cloud::api::RELAY_QUEUE_LINES + 3) {
+        input.push_str(&format!("{{\"type\":\"team.event\",\"event\":\"cloud.machine.removed\",\"data\":{{\"n\":{i}}}}}\n"));
+    }
+    input.push_str("{\"type\":\"relay.result\",\"id\":\"r1\",\"ok\":true,\"value\":{}}\n");
+    let mut out = Vec::new();
+    let mut relay = HostRelay::new(Cursor::new(input), &mut out);
+    assert!(relay.call(&call()).is_ok());
+    let mut n = 0;
+    while let Some(message) = relay.next_message().expect("io") {
+        assert_eq!(message["data"]["n"], n, "kept in order");
+        n += 1;
+    }
+    assert_eq!(n, cmux_cloud::api::RELAY_QUEUE_LINES + 3, "more than the op bound, none dropped");
+    drop(relay);
+    assert_eq!(written(&out).len(), 1, "only the relay.op line: no result line for an event");
 }

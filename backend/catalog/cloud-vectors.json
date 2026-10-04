@@ -819,12 +819,12 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
-                "revision": "8"
+                "revision": "47"
               }
             },
             "transaction": "tx_0003",
             "idempotency_key": "key-rename-1",
-            "revision": "8",
+            "revision": "47",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 103
@@ -876,12 +876,12 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
-                "revision": "5"
+                "revision": "48"
               }
             },
             "transaction": "tx_0004",
             "idempotency_key": "key-start-1",
-            "revision": "5",
+            "revision": "48",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 104
@@ -972,12 +972,12 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
-                "revision": "8"
+                "revision": "49"
               }
             },
             "transaction": "tx_0005",
             "idempotency_key": "key-pause-1",
-            "revision": "8",
+            "revision": "49",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 105
@@ -1034,12 +1034,12 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
-                "revision": "8"
+                "revision": "50"
               }
             },
             "transaction": "tx_0006",
             "idempotency_key": "key-resize-1",
-            "revision": "8",
+            "revision": "50",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 106
@@ -1134,12 +1134,12 @@
                   "idle_seconds": 3600
                 },
                 "error": null,
-                "revision": "8"
+                "revision": "51"
               }
             },
             "transaction": "tx_0007",
             "idempotency_key": "key-idle-1",
-            "revision": "8",
+            "revision": "51",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 107
@@ -1172,7 +1172,7 @@
             },
             "transaction": "tx_0008",
             "idempotency_key": "key-delete-1",
-            "revision": "6",
+            "revision": "52",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 108
@@ -1191,7 +1191,7 @@
             },
             "transaction": "tx_0008",
             "idempotency_key": "key-delete-1",
-            "revision": "6",
+            "revision": "52",
             "replayed": true,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 108
@@ -1225,7 +1225,7 @@
             },
             "transaction": "tx_0009",
             "idempotency_key": "key-delete-2",
-            "revision": "6",
+            "revision": "52",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 109
@@ -1279,7 +1279,7 @@
             },
             "transaction": "tx_0010",
             "idempotency_key": "key-delete-cut",
-            "revision": "6",
+            "revision": "53",
             "replayed": true,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 110
@@ -2002,12 +2002,12 @@
                   "idle_seconds": 1800
                 },
                 "error": null,
-                "revision": "3"
+                "revision": "54"
               }
             },
             "transaction": "tx_0016",
             "idempotency_key": "key-upgrade-1",
-            "revision": "3",
+            "revision": "54",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 116
@@ -2185,7 +2185,7 @@
             "idle_seconds": 1800
           },
           "error": null,
-          "revision": "9"
+          "revision": "55"
         }
       }
     },
@@ -2221,7 +2221,7 @@
           "revision": "6"
         }
       },
-      "note": "Older than the projection's revision 7 (or 9): dropped."
+      "note": "Older than the projection's revision 7 (or 55): dropped."
     },
     {
       "name": "machine.upsert.bound",
@@ -2297,7 +2297,7 @@
       "seq": 122,
       "data": {
         "machine": "vm_m0000000000000000003",
-        "revision": "6"
+        "revision": "56"
       }
     },
     {
