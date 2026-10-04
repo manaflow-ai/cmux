@@ -16,7 +16,9 @@ export const DENIED_EGRESS_DOMAINS: ReadonlyArray<string> = [
   "pages.dev",
   "r2.dev",
   "r2.cloudflarestorage.com",
-  "cloudflarestorage.com"
+  "cloudflarestorage.com",
+  // Our auth provider (sessions, project keys): automation code has no reason to call it.
+  "stack-auth.com"
 ]
 const denied = (host: string) => DENIED_EGRESS_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`))
 
