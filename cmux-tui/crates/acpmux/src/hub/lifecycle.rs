@@ -459,6 +459,7 @@ impl Hub {
             .map_err(|e| RpcError::internal(e.to_string()))?
         };
         *session.child.lock().await = Some(child.clone());
+        self.wake_idle_reaper();
 
         // Start the inbound loop for this session once.
         if let Some(rx) = session.inbound_rx.lock().await.take() {

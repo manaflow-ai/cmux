@@ -9,6 +9,7 @@
 
 mod adoption;
 mod handoff;
+mod idle;
 mod launchers;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 mod hosts;
@@ -190,6 +191,9 @@ pub struct Session {
     /// Bumped when a record failed to reach the store; an agent host entry
     /// is acknowledged only when its record was stored.
     pub(super) append_errors: AtomicU64,
+    /// The hub clock's time (`Hub::clock_now`) of the last record or
+    /// attach change; the idle harness exit counts from it (`idle.rs`).
+    pub(super) last_active: AtomicU64,
 }
 
 impl Session {
@@ -267,6 +271,8 @@ pub struct Hub {
     pub(super) clock: StdMutex<Arc<dyn crate::clock::Clock>>,
     /// A session harness unused for this long exits (`idle.rs`); None: never.
     pub(super) idle_child: StdMutex<Option<std::time::Duration>>,
+    pub(super) idle_wake: Arc<Notify>,
+    pub(super) idle_reaper: AtomicBool,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -332,6 +338,8 @@ impl Hub {
             probe_errors: StdMutex::new(HashMap::new()),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
             idle_child: StdMutex::new(Some(IDLE_CHILD)),
+            idle_wake: Arc::new(Notify::new()),
+            idle_reaper: AtomicBool::new(false),
         });
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {
@@ -347,11 +355,13 @@ impl Hub {
     /// Drive lifecycle timers from `clock` (tests pass a `ManualClock`).
     pub fn set_clock(&self, clock: Arc<dyn crate::clock::Clock>) {
         *self.clock.lock().unwrap() = clock;
+        self.idle_wake.notify_one();
     }
 
     /// How long an unused session harness lives; None keeps it forever.
     pub fn set_idle_child(&self, idle: Option<std::time::Duration>) {
         *self.idle_child.lock().unwrap() = idle;
+        self.idle_wake.notify_one();
     }
 
     /// Points adopt at other harness stores (tests use fixture stores).
@@ -498,6 +508,7 @@ impl Hub {
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
+            last_active: AtomicU64::new(self.clock_now()),
         })
     }
 
@@ -560,6 +571,7 @@ impl Hub {
         if session.purged.load(Ordering::SeqCst) {
             return record;
         }
+        self.touch(session);
         if let Err(e) = self.store.append(&session.id, &record) {
             session.append_errors.fetch_add(1, Ordering::SeqCst);
             tracing::warn!(session = %session.id, "append failed: {e}");
@@ -600,6 +612,8 @@ impl Hub {
 
     /// A client attached or detached. Attaching clears the unread bit.
     pub fn attach_count(&self, session: &Session, delta: i32) {
+        // A client letting go starts the idle period; one arriving resets it.
+        self.touch(session);
         use std::sync::atomic::AtomicUsize;
         let _ = AtomicUsize::new(0);
         if delta > 0 {
