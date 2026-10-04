@@ -149,11 +149,16 @@
       // button still says `expected`: sharing can change after the label
       // that decided between an immediate edit and a draft, or after a
       // draft's preview. Each write calls it right before its first input.
-      async recheckSharing(name, page, expected, when) {
+      // `account`: the Google account the decision or the preview was made
+      // as; the reloaded editor must be signed in as it (account_changed),
+      // since its /u/ index is positional and another session can sign an
+      // account in or out.
+      async recheckSharing(name, page, expected, when, account) {
         await page.reload({ waitUntil: "load", timeout: 45000 });
         await editors.waitEditor(name, page);
         const now = await editors.sharing(page);
         if (now !== expected) throw new S.SiteError("sharing_changed", `${name}: the file's sharing is now "${now || "unknown"}", not "${expected || "unknown"}" as ${when}; nothing was changed. Make a new ${when === "previewed" ? "draft and show it to the user again" : "call"}`);
+        if (account) await g.checkPageAccount(t, name, page, account, "nothing was changed");
       },
       // The Share button's description: "Share. Private to only me" and the
       // like, or "" when it is unknown. It decides whether an edit runs at
@@ -204,19 +209,21 @@
       // spec(label, page) (may be async) -> { summary, preview, run(page,
       // gate) }. run calls gate() right before its first input to the
       // file: it reloads the editor and requires the sharing label this
-      // decision (or the preview) was made on.
+      // decision (or the preview) was made on, as the Google account the
+      // editor was signed in as then (the draft shows it).
       edit(site, action, name, ref, input, options, spec) {
         if (typeof input === "string" && /^draft-\d+-[0-9a-f]+$/.test(input)) return t.write(site, action, input, options);
         return editors.inEditor(name, ref, async (page) => {
           const label = await editors.sharing(page);
+          const account = await g.pageAccount(t, name, page);
           const title = await page.evaluate(() => { const i = document.querySelector(".docs-title-input"); return i ? i.value : null; });
           const s = await spec(label, page);
-          if (editors.isPrivate(label)) return s.run(page, () => editors.recheckSharing(name, page, label, "when the edit started"));
+          if (editors.isPrivate(label)) return s.run(page, () => editors.recheckSharing(name, page, label, "when the edit started", account));
           return t.write(site, action, { draft: true }, undefined, () => ({
             category: "[9] edit content others can see",
-            summary: s.summary,
-            preview: { ...s.preview, title, sharing: label || "unknown" },
-            run: () => editors.inEditor(name, ref, (p) => s.run(p, () => editors.recheckSharing(name, p, label, "previewed"))),
+            summary: `${s.summary} as ${account}`,
+            preview: { ...s.preview, title, sharing: label || "unknown", account },
+            run: () => editors.inEditor(name, ref, (p) => s.run(p, () => editors.recheckSharing(name, p, label, "previewed", account))),
           }));
         });
       },

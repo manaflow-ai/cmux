@@ -164,12 +164,21 @@
   // account, account_unknown when it names none. The /u/ index is
   // positional, so a sign-in by another session while the page loads can
   // put another account behind the drafted index after checkAccount.
-  async function checkPageAccount(t, name, page, email) {
+  async function checkPageAccount(t, name, page, email, nothing = "nothing was sent") {
     const found = await t.waitIn(page, pageAccountEmails, undefined, { timeout: 10000, what: "the page to name its Google account" }).catch(() => null);
-    if (!found) throw new S.SiteError("account_unknown", `${name}: could not tell which Google account ${page.url().split("?")[0]} is signed in as; nothing was sent`);
+    if (!found) throw new S.SiteError("account_unknown", `${name}: could not tell which Google account ${page.url().split("?")[0]} is signed in as; ${nothing}`);
     const other = found.find((e) => e !== String(email).toLowerCase());
-    if (other) throw new S.SiteError("account_changed", `${name}: the page is signed in as ${other}, not ${email} as drafted; nothing was sent. Make a new draft and show it to the user again`);
+    if (other) throw new S.SiteError("account_changed", `${name}: the page is signed in as ${other}, not ${email} as drafted; ${nothing}. Make a new draft and show it to the user again`);
   }
 
-  S.shared.google = { FORMATS, parse, exportURL, dispositionName, fetchFile, exportTo, exportText, listAccounts, accountEmail, checkAccount, checkPageAccount };
+  // The one Google account the loaded page is signed in as (an editor's
+  // header names it), which a draft shows and its confirmation requires
+  // again: account_unknown when the page names none, or more than one.
+  async function pageAccount(t, name, page) {
+    const found = await t.waitIn(page, pageAccountEmails, undefined, { timeout: 10000, what: "the page to name its Google account" }).catch(() => null);
+    if (!found || found.length !== 1) throw new S.SiteError("account_unknown", `${name}: could not tell which Google account ${page.url().split("?")[0]} is signed in as${found ? ` (it names ${found.join(", ")})` : ""}; nothing was changed`);
+    return found[0];
+  }
+
+  S.shared.google = { FORMATS, parse, exportURL, dispositionName, fetchFile, exportTo, exportText, listAccounts, accountEmail, checkAccount, checkPageAccount, pageAccount };
 })(typeof globalThis !== "undefined" ? globalThis : this);
