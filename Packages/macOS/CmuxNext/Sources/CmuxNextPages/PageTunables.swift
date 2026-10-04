@@ -37,10 +37,23 @@ public nonisolated struct PageTunables {
         "history.surface", section, "History page", help: "Shows cmux://history as the React page. New tabs use it.",
         default: .native, code: "PageTunables.history")
 
+    /// The App Store tab as the React page (react-pages.md A1-A3). Its data comes from the app
+    /// supervisor's `cmux.apps.*` ops; until the daemon serves them the page shows its
+    /// disconnected state.
+    public static let appStore = Tunable<PageImplementation>.choice(
+        "apps.store.surface", section, "App Store page", help: "Shows the App Store tab as the React page. New tabs use it.",
+        default: .native, code: "PageTunables.appStore")
+
+    /// The CodeRouter app opens as the React CodeRouter page (cmux.coderouter) instead of its
+    /// scene pane.
+    public static let coderouter = Tunable<PageImplementation>.choice(
+        "coderouter.surface", section, "CodeRouter page", help: "Opens the CodeRouter app as the React page. New tabs use it.",
+        default: .native, code: "PageTunables.coderouter")
+
     /// The Cloud page's machine list layout (the Cloud lead's prototype variants; rows default).
     public static let cloudMachinesLayout = Tunable<CloudMachinesLayout>.choice(
         "cloud.machines.layout", section, "Cloud machines layout", help: "Machine list of the Cloud page: dense rows or cards. New pages use it.",
         default: .rows, code: "PageTunables.cloudMachinesLayout")
 
-    public static var all: [TunableDescriptor] { [history.descriptor, cloudMachinesLayout.descriptor] }
+    public static var all: [TunableDescriptor] { [history.descriptor, appStore.descriptor, coderouter.descriptor, cloudMachinesLayout.descriptor] }
 }

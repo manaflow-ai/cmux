@@ -11,7 +11,7 @@
 ## Open items (agent hosts review P2s, owner: durable-sessions lead, in this order)
 1. LANDED 562d9d18a41 (after hq-48's idle reaper): unbounded waits: link::spawn (BOOTSTRAP_BUDGET 10 s, ends the silent host), Link::query (QUERY_BUDGET 5 s), one shared death-watch thread per host incarnation (wait_dead_within) instead of one blocked flock thread per wait. Typed HostTimeout. Follow-up: move `within` onto crate::clock::Clock after the reaper lands.
 2. LANDED 562d9d18a41; the reattach restarts the idle period (test a_reattached_host_restarts_the_idle_period, LANDED 568b1f92459): a live host with a closed link locks its session: readopt reconnects (mux host_reattached); a host that stays unreachable is ended with nonce proof and a fresh agent starts (mux host_unreachable_ended).
-3. The Exit ack can be lost: `terminate` returns on the exit notify inside on_host_entry before link.ack is queued, so the daemon can exit before the ack is written; the host then idles until the next daemon adopts it. Fix: await the ack write before the notify.
+3. LANDED e97b6890e41 (Exit reported only after its ack is written; exit_seen ends is_alive at once; ack wait bounded; review: no P0/P1). Was: The Exit ack can be lost: `terminate` returns on the exit notify inside on_host_entry before link.ack is queued, so the daemon can exit before the ack is written; the host then idles until the next daemon adopts it. Fix: await the ack write before the notify.
 4. A harness grandchild that calls setsid keeps stdout open, so the host never sees stdout_done and never sends Exit. Fix: end on the harness leader's exit plus a bounded drain, not on stdout EOF alone.
 5. killpg after the leader is reaped (host.rs) can signal a reused group id. Fix: keep a group-member proof or signal before reaping.
 6. Recovery from a partial log: wait_logged times out after REPLAY_BUDGET with the `out session/prompt` entry not yet logged, and recovery marks a running turn outcome_unknown. Fix: recovery waits for the entry by hseq, not by a fixed budget.
@@ -27,3 +27,4 @@
 - Step 2 Swift (quit census, endAgents step, fleet checks prompt-counts-agents and quit-ends-agents): branch nx-durable-sessions 9c7a1ddc; exact-head cmux-ci step 0049f58a367823a97dccd2c9 queued; then push and the full fleet-quit-persistence.sh run on cmux-lawrence-2 after the updates lead lands debug.updater relaunch.
 - Follow-up: move agent_host::within onto crate::clock::Clock.
 - 2026-10-04 QuitSheetTests GUI-lane-only (WindowSession trait) LANDED 4c7842e4511. P2-7 LANDED cd6f5cb3d45; hosted run 37219613949. Next slice: P2-3 (lost Exit ack).
+- P2-3 LANDED e97b6890e41; hosted run 37220449099. Next slice: P2-4 (setsid grandchild keeps the host alive).

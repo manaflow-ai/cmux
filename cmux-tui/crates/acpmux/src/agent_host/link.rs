@@ -113,7 +113,7 @@ pub struct QueryReply {
 type Queries = Arc<std::sync::Mutex<std::collections::HashMap<u64, oneshot::Sender<QueryReply>>>>;
 
 pub struct Link {
-    tx: mpsc::Sender<ControllerFrame>,
+    tx: mpsc::Sender<(ControllerFrame, Option<oneshot::Sender<()>>)>,
     queries: Queries,
     next_query: std::sync::atomic::AtomicU64,
     pub record: HostRecord,
@@ -177,15 +177,20 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
     if adopted.incarnation != record.incarnation {
         bail!("agent host incarnation does not match its record");
     }
-    let (tx, mut rx) = mpsc::channel::<ControllerFrame>(1024);
+    let (tx, mut rx) = mpsc::channel::<(ControllerFrame, Option<oneshot::Sender<()>>)>(1024);
     let (entries_tx, entries_rx) = mpsc::channel::<(u64, Entry)>(4096);
     let (detach_tx, detach_rx) = oneshot::channel();
     let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let queries: Queries = Arc::default();
     tokio::spawn(async move {
-        while let Some(frame) = rx.recv().await {
+        while let Some((frame, written)) = rx.recv().await {
             if write_frame(&mut wr, &frame).await.is_err() {
                 break;
+            }
+            // The frame is in the socket: a caller that must not outlive an
+            // unsent frame (the Exit ack before the daemon exits) waits here.
+            if let Some(written) = written {
+                let _ = written.send(());
             }
         }
     });
@@ -226,7 +231,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
             queries.lock().unwrap().clear();
         });
     }
-    tx.send(ControllerFrame::Resume { after: resume_after })
+    tx.send((ControllerFrame::Resume { after: resume_after }, None))
         .await
         .map_err(|_| anyhow!("agent host connection closed"))?;
     Ok(Connect::Ready(
@@ -245,7 +250,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
 
 impl Link {
     async fn send(&self, frame: ControllerFrame) -> Result<()> {
-        self.tx.send(frame).await.map_err(|_| anyhow!("agent host connection closed"))
+        self.tx.send((frame, None)).await.map_err(|_| anyhow!("agent host connection closed"))
     }
 
     /// Hand one ACP message to the harness.
@@ -256,6 +261,23 @@ impl Link {
     /// Entries through `h` are in the session log.
     pub async fn ack(&self, h: u64) -> Result<()> {
         self.send(ControllerFrame::Ack { h }).await
+    }
+
+    /// [`Link::ack`], returning once the frame is written to the host's
+    /// socket (or the connection closed), at most `budget`.
+    pub async fn ack_written(&self, h: u64, budget: std::time::Duration) -> Result<()> {
+        let (written, done) = oneshot::channel();
+        // The whole wait is bounded: a writer stuck on a full socket also
+        // fills the queue, so the send itself can wait.
+        within("ack", budget, async {
+            self.tx
+                .send((ControllerFrame::Ack { h }, Some(written)))
+                .await
+                .map_err(|_| anyhow!("agent host connection closed"))?;
+            done.await
+                .map_err(|_| anyhow!("agent host connection closed before the ack was written"))
+        })
+        .await?
     }
 
     pub async fn terminate(&self, grace: std::time::Duration) -> Result<()> {
@@ -296,5 +318,44 @@ impl Link {
 
     pub fn is_closed(&self) -> bool {
         self.closed.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+/// A link with no host behind it, for tests: the test reads the frames the
+/// link writes and feeds it host entries.
+#[cfg(test)]
+pub(crate) struct TestWire {
+    frames: mpsc::Receiver<(ControllerFrame, Option<oneshot::Sender<()>>)>,
+    pub entries: mpsc::Sender<(u64, Entry)>,
+}
+
+#[cfg(test)]
+impl TestWire {
+    /// The link and its wire. Nothing is written until `write_all`.
+    pub(crate) fn link(record: HostRecord) -> (Link, TestWire) {
+        let (tx, frames) = mpsc::channel(1024);
+        let (entries, entries_rx) = mpsc::channel(4096);
+        let link = Link {
+            tx,
+            queries: Arc::default(),
+            next_query: std::sync::atomic::AtomicU64::new(1),
+            record,
+            entries: Mutex::new(entries_rx),
+            detach_ack: Mutex::new(None),
+            closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        (link, TestWire { frames, entries })
+    }
+
+    /// Write every frame queued so far; returns them.
+    pub(crate) fn write_all(&mut self) -> Vec<ControllerFrame> {
+        let mut out = Vec::new();
+        while let Ok((frame, written)) = self.frames.try_recv() {
+            if let Some(written) = written {
+                let _ = written.send(());
+            }
+            out.push(frame);
+        }
+        out
     }
 }
