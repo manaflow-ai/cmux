@@ -65,12 +65,15 @@ fn op() -> impl Strategy<Value = Op> {
                 grant: grant.map(|(s, g)| (s.to_string(), g)),
             })
         });
-    prop_oneof![4 => set, 1 => (0..APPS.len()).prop_map(|i| Op::Seed { app: APPS[i].to_string() })]
+    let seed = (0..APPS.len(), any::<bool>())
+        .prop_map(|(i, hidden)| Op::Seed { app: APPS[i].to_string(), hidden });
+    let restore = (0..APPS.len()).prop_map(|i| Op::Restore { app: APPS[i].to_string() });
+    prop_oneof![4 => set, 1 => seed, 1 => restore]
 }
 
 fn app_of(op: &Op) -> &str {
     match op {
-        Op::Seed { app } => app,
+        Op::Seed { app, .. } | Op::Restore { app } => app,
         Op::Set(set) => &set.app,
     }
 }
@@ -180,12 +183,55 @@ fn unverified_apps_never_hold_restricted_scopes() {
 
 #[test]
 fn default_apps_are_seeded_once_with_required_scopes() {
-    let m = apply(&Mirror::default(), Op::Seed { app: "cmux/a".into() }).unwrap().mirror;
+    let m =
+        apply(&Mirror::default(), Op::Seed { app: "cmux/a".into(), hidden: false }).unwrap().mirror;
     assert_eq!(m.apps["cmux/a"].source, Source::Default);
-    assert!(m.apps["cmux/a"].installed);
-    let removed = apply(&m, set("1", "cmux/a", |o| o.installed = Some(false))).unwrap().mirror;
-    let seeded_again = apply(&removed, Op::Seed { app: "cmux/a".into() }).unwrap();
-    assert!(!seeded_again.changed, "a removed default app stays removed");
+    assert!(m.apps["cmux/a"].installed && !m.apps["cmux/a"].hidden);
+    let hidden = apply(&m, set("1", "cmux/a", |o| o.hidden = Some(true))).unwrap().mirror;
+    let seeded_again = apply(&hidden, Op::Seed { app: "cmux/a".into(), hidden: false }).unwrap();
+    assert!(!seeded_again.changed, "a hidden default app stays hidden");
+    // A deployment default may start hidden: still installed.
+    let quiet =
+        apply(&Mirror::default(), Op::Seed { app: "cmux/a".into(), hidden: true }).unwrap().mirror;
+    assert!(quiet.apps["cmux/a"].installed && quiet.apps["cmux/a"].hidden);
+}
+
+#[test]
+fn first_party_apps_can_be_hidden_but_never_removed() {
+    let m =
+        apply(&Mirror::default(), Op::Seed { app: "cmux/a".into(), hidden: false }).unwrap().mirror;
+    assert_eq!(
+        apply(&m, set("1", "cmux/a", |o| o.installed = Some(false))),
+        Err(Reject::FirstPartyHideOnly)
+    );
+    assert_eq!(Reject::FirstPartyHideOnly.code(), "apps.first_party_hide_only");
+    let hidden = apply(&m, set("2", "cmux/a", |o| o.hidden = Some(true))).unwrap().mirror;
+    assert!(hidden.apps["cmux/a"].installed && hidden.apps["cmux/a"].hidden);
+    // A third-party app is still removable.
+    let b = apply(&m, set("3", "octo/b", |o| o.installed = Some(true))).unwrap().mirror;
+    let removed = apply(&b, set("4", "octo/b", |o| o.installed = Some(false))).unwrap().mirror;
+    assert!(!removed.apps["octo/b"].installed);
+}
+
+#[test]
+fn a_removed_first_party_app_is_restored_installed_and_hidden() {
+    // A mirror from before the hide-only rule: a removed default app's
+    // tombstone (installed false) and a removed third-party app.
+    let mut m = Mirror::default();
+    m.apps.insert("cmux/a".into(), absent(Source::Default, None));
+    m.apps.insert("octo/b".into(), absent(Source::User, None));
+    let restored = apply(&m, Op::Restore { app: "cmux/a".into() }).unwrap();
+    assert!(restored.changed);
+    let a = &restored.mirror.apps["cmux/a"];
+    assert!(a.installed && a.hidden && a.enabled, "{a:?}");
+    assert_eq!(
+        a.grants.iter().cloned().collect::<Vec<_>>(),
+        ["net:api.github.com", "workspace:read", "workspace:write"]
+    );
+    assert_eq!(restored.mirror.revision, m.revision + 1);
+    // Idempotent, and a third-party app is not touched.
+    assert!(!apply(&restored.mirror, Op::Restore { app: "cmux/a".into() }).unwrap().changed);
+    assert!(!apply(&m, Op::Restore { app: "octo/b".into() }).unwrap().changed);
 }
 
 #[test]
@@ -249,9 +295,13 @@ fn elevated_scopes_are_never_granted_at_install_and_need_a_user_grant() {
         let install = |key: &str| set(key, "local/c", |o| o.installed = Some(true));
         let m = reduce(&Mirror::default(), &install("1"), Some(&fx)).unwrap().mirror;
         assert!(!m.apps["local/c"].grants.contains("terminal:backend"), "{tier:?} install");
-        let seeded = reduce(&Mirror::default(), &Op::Seed { app: "local/c".into() }, Some(&fx))
-            .unwrap()
-            .mirror;
+        let seeded = reduce(
+            &Mirror::default(),
+            &Op::Seed { app: "local/c".into(), hidden: false },
+            Some(&fx),
+        )
+        .unwrap()
+        .mirror;
         assert!(!seeded.apps["local/c"].grants.contains("terminal:backend"), "{tier:?} seed");
         // A user grant adds it; any other origin is refused.
         let grant = |key: &str, origin: Origin| {

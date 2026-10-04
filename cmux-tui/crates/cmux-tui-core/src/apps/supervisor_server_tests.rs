@@ -265,9 +265,14 @@ fn servers_get_only_the_allowlisted_environment() {
         ]
     );
     assert!(data.join("keep").is_dir() && data.join("scratch").is_dir() && tmp.is_dir());
-    f.set("rm", "cmux/envy", Origin::User, |o| o.installed = Some(false)).unwrap();
+    // First-party apps are hide-only: a server app is disabled, not removed,
+    // and its data stays.
+    let refused =
+        f.set("rm", "cmux/envy", Origin::User, |o| o.installed = Some(false)).unwrap_err();
+    assert_eq!(refused.code, "apps.first_party_hide_only");
+    f.set("off", "cmux/envy", Origin::User, |o| o.enabled = Some(false)).unwrap();
     wait_marker(&marker, &["start", "stop"]);
-    assert!(!data.exists() && !tmp.exists(), "uninstall removes the server's directories");
+    assert!(data.join("keep").is_dir(), "disabling keeps the server's data");
 }
 
 fn probe_server(out: &Path, op: &str, scoped: bool) -> Value {

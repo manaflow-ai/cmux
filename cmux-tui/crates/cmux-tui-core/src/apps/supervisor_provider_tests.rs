@@ -192,7 +192,7 @@ fn routed_params_are_bounded_and_integration_methods_are_explicit() {
 }
 
 #[test]
-fn uninstall_cancels_provider_calls_and_errors_reach_the_app_in_abi_shape() {
+fn disabling_cancels_provider_calls_and_errors_reach_the_app_in_abi_shape() {
     let f = fixture();
     f.install("cmux/demo");
     f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
@@ -210,7 +210,8 @@ fn uninstall_cancels_provider_calls_and_errors_reach_the_app_in_abi_shape() {
     );
     f.supervisor.dispatch(CLIENT, "m1", "n1", "tap", tap, true).unwrap();
     let id = next_request(&rx)["request_id"].clone();
-    f.set("rm", "cmux/demo", Origin::User, |o| o.installed = Some(false)).unwrap();
+    // First-party apps are hide-only; disabling stops the app the same way.
+    f.set("off", "cmux/demo", Origin::User, |o| o.enabled = Some(false)).unwrap();
     let cancel = loop {
         let event = rx.recv_timeout(Duration::from_secs(5)).unwrap();
         if event["event"] == "apps-provider-cancel" {
