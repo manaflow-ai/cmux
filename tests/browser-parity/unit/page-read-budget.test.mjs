@@ -188,3 +188,43 @@ test("tabs.content: each URL and the whole call stop at the page-read budget, an
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("locator reads, allTextContents and page.content: an oversized element stops at the page-read budget with a note", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<div id="big"><p class="p"></p><p class="p"></p></div><textarea id="field"></textarea><div id="wide"></div><p id="small">Small <b>text</b></p>';
+          for (const p of document.querySelectorAll(".p")) p.textContent = "A".repeat(3000000);
+          document.getElementById("field").value = "B".repeat(5000000);
+          document.getElementById("big").setAttribute("data-x", "C".repeat(5000000));
+          const wide = document.getElementById("wide");
+          for (let i = 0; i < 300000; i++) wide.appendChild(document.createElement("i"));
+        });`);
+      const reads = {
+        textContent: 'page.locator("#big").textContent()',
+        innerText: 'page.locator("#big").innerText()',
+        innerHTML: 'page.locator("#big").innerHTML()',
+        getAttribute: 'page.locator("#big").getAttribute("data-x")',
+        inputValue: 'page.locator("#field").inputValue()',
+        allTextContents: 'page.locator(".p").allTextContents().then((a) => a.join(""))',
+        allInnerTexts: 'page.locator(".p").allInnerTexts().then((a) => a.join(""))',
+        content: "page.content()",
+        wideHTML: 'page.locator("#wide").innerHTML()',
+      };
+      for (const [name, expr] of Object.entries(reads)) {
+        const r = await run(`const v = await ${expr}; console.log("@@" + JSON.stringify(v.length));`);
+        assert.ok(Number(r.value) <= READ_SIZE + 10, `${name}: returned ${r.value} characters`);
+        assert.ok(largestRead(r.log) < READ_SIZE + 100000, `${name}: the page agent returned ${largestRead(r.log)} characters at once`);
+        assert.match(r.output, /# (locator|page)\.\w+: the page is too large to read whole: it stopped after (2,000,000 characters|250,000 nodes)/, `${name}: no note`);
+      }
+      // A read within the budget is the getter's own string, with no note.
+      const small = await run(`console.log("@@" + JSON.stringify([await page.locator("#small").textContent(), await page.locator("#small").innerText(), await page.locator("#small").innerHTML()]));`);
+      assert.deepEqual(JSON.parse(small.value), ["Small text", "Small text", "Small <b>text</b>"]);
+      assert.doesNotMatch(small.output, /too large/);
+    });
+  } finally {
+    await servers.close();
+  }
+});
