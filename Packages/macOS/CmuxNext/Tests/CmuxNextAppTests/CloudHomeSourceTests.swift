@@ -569,6 +569,28 @@ import Testing
         #expect(await tape.wait { recoveries($0) == before + 1 })
     }
 
+    /// "Open" means on screen now: closing a transcript ends its
+    /// subscription, and a conversation the inbox does not list (opened from
+    /// the archive or a deep link) leaves the inbox. A listed one stays.
+    @Test func closingATranscriptEndsItsSubscriptionAndAnUnlistedConversationLeaves() async throws {
+        let listedID = "conv_dm_01J0000000000000000000000K"
+        let (source, daemon, tape) = await configured(.init(entries: [F.entry(listedID)],
+                                                            heads: [dm: F.head(dm), listedID: F.head(listedID)]))
+        #expect(await signedIn(tape))
+        _ = try await source.snapshot(of: ConversationID(dm), tail: 10)
+        _ = try await source.snapshot(of: ConversationID(listedID), tail: 10)
+        #expect(listed(source, dm), "an open conversation is not shown")
+
+        source.close(ConversationID(dm))
+        #expect(await daemon.wait { $0.contains(.unsubscribe(dm)) })
+        #expect(!listed(source, dm), "a closed unlisted conversation stayed in the inbox")
+        #expect(await tape.wait { $0.contains { if case .conversationRemoved(let id, _) = $0 { id.rawValue == dm } else { false } } })
+
+        source.close(ConversationID(listedID))
+        #expect(await daemon.wait { $0.contains(.unsubscribe(listedID)) })
+        #expect(listed(source, listedID), "a listed conversation left the inbox when its transcript closed")
+    }
+
     func listed(_ source: CloudHomeSource, _ id: String) -> Bool {
         source.currentInbox().conversations.contains { $0.id.rawValue == id }
     }

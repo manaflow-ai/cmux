@@ -94,6 +94,9 @@ public final class HomeStore {
         await refetch(.conversation(id))
     }
 
+    /// The conversation's transcript left the screen. Pairs with `open`.
+    public func close(_ id: ConversationID) {}
+
     public func loadOlder(_ id: ConversationID) async {
         guard let window = mirror.windows[id], !window.reachedStart, let first = window.firstSeq,
               !olderLoading.contains(id) else { return }

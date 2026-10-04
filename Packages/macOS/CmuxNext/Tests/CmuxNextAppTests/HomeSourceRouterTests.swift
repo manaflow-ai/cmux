@@ -234,6 +234,28 @@ nonisolated final class FakeLocalHomeSource: HomeSource {
         #expect(await daemon.wait { $0.contains(.subscribe(dm)) })
     }
 
+    /// The store tells the source when a transcript leaves the screen: the
+    /// last of its views closing ends the cloud subscription.
+    @MainActor @Test func theLastClosedViewOfACloudConversationEndsItsSubscription() async throws {
+        let (router, _, daemon, _) = await router()
+        let store = HomeStore(source: router)
+        store.start()
+        #expect(await until { store.summary(ConversationID(dm)) != nil })
+        let id = ConversationID(dm)
+        await store.open(id)
+        await store.open(id)
+        #expect(daemon.calls.contains(.subscribe(dm)))
+        store.close(id)
+        for _ in 0..<1_000 { await Task.yield() }
+        #expect(!daemon.calls.contains(.unsubscribe(dm)), "a view still on screen lost its subscription")
+        store.close(id)
+        #expect(await daemon.wait { $0.contains(.unsubscribe(dm)) })
+        // Opened again: it loads and subscribes again.
+        await store.open(id)
+        #expect(await daemon.wait { $0.filter { $0 == .subscribe(dm) }.count == 2 })
+        store.stop()
+    }
+
     /// Yields until `condition` holds; the suite's time limit bounds it.
     @MainActor func until(_ condition: () -> Bool) async -> Bool {
         for _ in 0..<100_000 {

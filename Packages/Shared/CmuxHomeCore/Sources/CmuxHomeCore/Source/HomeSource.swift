@@ -98,4 +98,14 @@ public protocol HomeSource: Sendable {
 
     /// Looks up whether an address already belongs to a cmux user.
     func resolve(_ contact: ContactAddress) async throws -> ContactResolution
+
+    /// The conversation's transcript left the screen: the store shows it
+    /// nowhere now. A source that subscribed it for the transcript may end
+    /// that subscription; the inbox entry stays as its owner lists it.
+    func close(_ conversation: ConversationID)
+}
+
+extension HomeSource {
+    /// Sources that keep no per-transcript state ignore it.
+    public func close(_ conversation: ConversationID) {}
 }
