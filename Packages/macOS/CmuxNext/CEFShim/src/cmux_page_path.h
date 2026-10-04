@@ -40,6 +40,13 @@ inline bool NormalizePageId(const std::string& id, std::string* out) {
   return true;
 }
 
+// Whether a normalized (lowercase) page id is reserved for first-party
+// pages: "cmux" and every "cmux." id, the same namespace as PageID.isReserved
+// in CmuxNextPages. Only cmux_shim_page_scheme_add_first_party serves them.
+inline bool IsReservedPageId(const std::string& lower_id) {
+  return lower_id == "cmux" || lower_id.rfind("cmux.", 0) == 0;
+}
+
 // The MIME type for the file name's extension, or nullptr: only this
 // table is served (lowercase extensions only).
 inline const char* PageMimeType(const std::string& path) {
