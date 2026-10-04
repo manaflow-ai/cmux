@@ -22,8 +22,12 @@ import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ASK_ALL = ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch", "Task",
-           "Read", "Glob", "Grep", "TodoWrite", "LS", "NotebookRead", "BashOutput", "KillShell"]
+# The built-in tools Claude Code 2.1.289 offers in -p mode (from the fake model's request log).
+TOOLS_2_1_289 = ["Agent", "AskUserQuestion", "Bash", "CronCreate", "CronDelete", "CronList", "Edit", "EnterPlanMode",
+                 "EnterWorktree", "ExitPlanMode", "ExitWorktree", "ListAgents", "NotebookEdit", "Read",
+                 "ReportFindings", "ScheduleWakeup", "SendMessage", "Skill", "TaskCreate", "TaskGet", "TaskList",
+                 "TaskStop", "TaskUpdate", "WebFetch", "WebSearch", "Workflow", "Write"]
+ASK_ALL = [t for t in TOOLS_2_1_289 if t != "Skill"]
 
 
 SECRET_DENY = ["Read(./.env*)", "Read(**/.env*)", "Read(**/*.token)", "Read(**/.claude/**)", "Read(**/state/**)"]
@@ -121,13 +125,20 @@ def scenarios(root):
         ("project-allow-bare-without-floor", "INFO", "Bash", {"project": {"permissions": {"allow": ["Bash"]}}}),
         ("read-in-cwd-with-ask", "FLOOR-ASK", "Read", {"inject": remote_settings(), "secret": "notes/plain.txt",
                                                    "args": ["--setting-sources", ""]}),
-        ("glob-with-ask", "FLOOR-ASK", "Glob", {"inject": remote_settings(), "args": ["--setting-sources", ""]}),
-        ("grep-with-ask", "FLOOR-ASK", "Grep", {"inject": remote_settings(), "args": ["--setting-sources", ""]}),
-        ("todowrite-with-ask", "FLOOR-ASK", "TodoWrite", {"inject": remote_settings(), "args": ["--setting-sources", ""]}),
-        ("subagent-inherits-ask", "FLOOR-ASK", "Task", {"inject": remote_settings(), "args": ["--setting-sources", ""],
-                                                    "allow_tools": ["Task"], "sub": "Bash"}),
-        ("subagent-inherits-deny", "FLOOR", "Task", {"inject": remote_settings(), "args": ["--setting-sources", ""],
-                                                     "allow_tools": ["Task"], "sub": "Read", "secret": ".env"}),
+        ("read-in-cwd-ask-wildcard", "FLOOR-ASK", "Read", {"inject": remote_settings(ask=["*"]),
+                                                            "secret": "notes/plain.txt", "args": ["--setting-sources", ""]}),
+        ("read-in-cwd-no-ask", "INFO", "Read", {"inject": remote_settings(ask=[]), "secret": "notes/plain.txt",
+                                                "args": ["--setting-sources", ""]}),
+        ("tools-closed-list", "INFO", "Bash", {"inject": remote_settings(), "args": ["--setting-sources", "",
+                                               "--tools", "Bash,Read,Write,Edit,Agent"]}),
+        ("agent-ask", "FLOOR-ASK", "Agent", {"inject": remote_settings(), "args": ["--setting-sources", ""]}),
+        ("subagent-inherits-ask", "FLOOR-ASK", "Agent", {"inject": remote_settings(), "args": ["--setting-sources", ""],
+                                                         "allow_tools": ["Agent"], "sub": "Bash", "expect_ask": "Bash"}),
+        ("subagent-inherits-deny", "FLOOR", "Agent", {"inject": remote_settings(), "args": ["--setting-sources", ""],
+                                                      "allow_tools": ["Agent"], "sub": "Read", "secret": ".env"}),
+        ("subagent-read-in-cwd-ask", "FLOOR-ASK", "Agent", {"inject": remote_settings(), "args": ["--setting-sources", ""],
+                                                            "allow_tools": ["Agent"], "sub": "Read",
+                                                            "secret": "notes/plain.txt", "expect_ask": "Read"}),
         ("memory-default-sources", "INFO", "Bash", {"inject": remote_settings(), "memory": True}),
         ("memory-empty-sources", "FLOOR", "Bash", {"inject": remote_settings(), "memory": True,
                                                    "args": ["--setting-sources", ""]}),
@@ -192,7 +203,7 @@ def tool_input_for(tool, marker, secret_path, project):
         "Glob": {"pattern": "**/*", "path": project},
         "Grep": {"pattern": "probe", "path": project},
         "TodoWrite": {"todos": [{"content": "probe", "status": "pending", "activeForm": "probing"}]},
-        "Task": {"description": "probe", "prompt": "run the tool", "subagent_type": "general-purpose"},
+        "Agent": {"description": "probe", "prompt": "run the tool", "subagent_type": "general-purpose"},
     }[tool]
 
 
@@ -221,6 +232,9 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90):
     # Inside the project: a path outside the working directory makes Claude ask
     # whatever the rules say, which would hide what the rules do.
     marker = os.path.join(project, "marker")
+    # A real server checkout is trusted; without this Claude ignores project settings.
+    write_json(os.path.join(home, ".claude.json"), {"projects": {project: {"hasTrustDialogAccepted": True}},
+                                                    "hasCompletedOnboarding": True})
     if "user" in opts:
         write_json(os.path.join(home, ".claude", "settings.json"), opts["user"])
     if "project" in opts:
@@ -316,9 +330,11 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90):
     result["model_calls"] = len(calls)
     result["secret_seen"] = any(c.get("secret_seen") for c in calls)
     result["sentinels"] = sorted({x for c in calls for x in c.get("sentinels", [])})
+    result["offered"] = calls[0].get("tools", []) if calls else []
     result["holds"] = not result["ran"] and not result["secret_seen"] and not result["sentinels"]
     if kind == "FLOOR-ASK":
-        result["holds"] = result["holds"] and result["asked"] >= 1
+        expected = opts.get("expect_ask", tool)
+        result["holds"] = result["holds"] and expected in result.get("asked_tools", [])
     return result
 
 
@@ -343,6 +359,7 @@ def main():
         failed |= floor and not r["holds"]
         print(f"{kind:9} {name:36} {verdict:11} asked={r['asked']} secret_seen={r['secret_seen']} model_calls={r['model_calls']} result={r['result']} exit={r['exit']} tools={','.join(r.get('asked_tools', []))}"
               + (f" loaded={','.join(r['sentinels'])}" if r["sentinels"] else "")
+              + (f" offered={','.join(r['offered'])}" if name == "tools-closed-list" else "")
               + (f" set_mode={r['set_mode_reply']}" if r["set_mode_reply"] else ""))
         if r["result"] is None and r["stderr"]:
             print("      stderr: " + r["stderr"].strip().replace("\n", " | ")[:400])
