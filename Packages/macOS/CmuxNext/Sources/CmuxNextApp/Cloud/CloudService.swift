@@ -196,7 +196,9 @@ final class CloudService {
         switch configuration.linkSource {
         case .appServer:
             let resolver = CloudConnectOpResolver(run: CloudAppLinks.runner(local: machines.local))
-            session = CloudMachineSession(machine: machine, appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver))
+            let local = machines.local
+            session = CloudMachineSession(machine: machine, appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver),
+                                          localIdentity: { [weak local] in local?.identity })
         case .legacy:
             guard let hub, let binary else { return nil }
             let link = CloudMachineLink(machineID: machine.id, api: api, hub: hub, paths: paths, binary: binary, deviceName: Self.deviceName)

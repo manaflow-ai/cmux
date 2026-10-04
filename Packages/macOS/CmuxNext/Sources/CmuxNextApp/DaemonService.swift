@@ -181,7 +181,11 @@ final class DaemonService {
     /// An incompatible daemon (`compatibility` says so) is retried only on
     /// such an event: the machine's daemon can be updated in place behind
     /// the same link, and the next event then connects to the new build.
-    func start(remote endpoint: @escaping @Sendable () async throws -> String) {
+    /// `admit` checks each handshake's identity before the connection is
+    /// used; when it throws, the connection closes and the service stops
+    /// connecting (the caller shows why and starts it again).
+    func start(remote endpoint: @escaping @Sendable () async throws -> String,
+               admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil) {
         guard runTask == nil, !policyBlock.isBlocked else { return }
         let store = store
         let machineID = machineID
@@ -219,6 +223,13 @@ final class DaemonService {
                     continue
                 }
                 guard let self, !Task.isCancelled else { return }
+                do {
+                    try admit?(identity)
+                } catch {
+                    logger.error("\(machineID, privacy: .public): refused the daemon after the handshake: \(String(describing: error), privacy: .public)")
+                    await connection.close()
+                    return
+                }
                 self.didConnect(connection, identity: identity)
                 logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
                 await store.run(connection: connection, scheduler: scheduler)
