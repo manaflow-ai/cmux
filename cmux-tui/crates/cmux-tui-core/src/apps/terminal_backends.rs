@@ -166,15 +166,26 @@ impl Supervisor {
     /// The client that made the gesture placed `terminal` (tab adopt).
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn place_backend_terminal(&self, terminal: &str) -> Option<crate::SurfaceId> {
-        let _ = terminal;
-        None
+        let mut placements = self.terminals.backend.placements.lock().unwrap();
+        let placement = placements.get_mut(terminal).filter(|p| !p.placed)?;
+        placement.placed = true;
+        Some(placement.surface)
     }
 
     /// Closes every tab-less terminal whose placement deadline passed at
     /// `now`; answers their ids.
     pub(crate) fn close_unplaced_terminals_at(&self, now: Instant) -> Vec<String> {
-        let _ = now;
-        Vec::new()
+        let expired: Vec<(String, crate::SurfaceId)> = {
+            let placements = self.terminals.backend.placements.lock().unwrap();
+            let late = placements.iter().filter(|(_, p)| !p.placed && p.deadline <= now);
+            late.map(|(t, p)| (t.clone(), p.surface)).collect()
+        };
+        for (terminal, surface) in &expired {
+            self.terminals.backend.placements.lock().unwrap().remove(terminal);
+            // The surface's killer closes the channel and tells the app.
+            self.router.close_backend_terminal(*surface);
+        }
+        expired.into_iter().map(|(terminal, _)| terminal).collect()
     }
 
     /// A backend terminal ended: an unplaced one leaves the session host.
