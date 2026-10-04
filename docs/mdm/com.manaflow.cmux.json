@@ -964,17 +964,6 @@
       "title" : "UpdateChannel",
       "type" : "string"
     },
-    "window.rail" : {
-      "default" : "leading",
-      "description" : "Shows the sidebar's pinned sections as a column of icons beside it.",
-      "enum" : [
-        "off",
-        "leading",
-        "afterSidebar"
-      ],
-      "title" : "Action Rail",
-      "type" : "string"
-    },
     "window.titlebar" : {
       "default" : "minimal",
       "description" : "Minimal has no titlebar strip; the top row moves the window.",

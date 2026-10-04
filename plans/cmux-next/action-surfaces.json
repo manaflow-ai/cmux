@@ -14784,7 +14784,7 @@
         "title_key" : "category.settings",
         "title_table" : "Localizable"
       },
-      "title" : "Open cmux.json",
+      "title" : "Open cmux-next.json",
       "title_key" : "action.palette.openCmuxSettingsFile",
       "title_table" : "ActionCatalog"
     },

@@ -101,73 +101,6 @@
     },
     {
       "accepts" : [
-        "off",
-        "leading",
-        "afterSidebar"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.off",
-            "text" : "Off"
-          },
-          "value" : "off"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.railLeading",
-            "text" : "Window Edge"
-          },
-          "value" : "leading"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.railAfterSidebar",
-            "text" : "After Sidebar"
-          },
-          "value" : "afterSidebar"
-        }
-      ],
-      "default" : "leading",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.window",
-        "text" : "Window"
-      },
-      "help" : {
-        "key" : "settings.window.rail.help",
-        "text" : "Shows the sidebar's pinned sections as a column of icons beside it."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "window.rail",
-      "keywords" : [
-        "rail",
-        "toolbar",
-        "buttons",
-        "inbox",
-        "accounts"
-      ],
-      "kind" : "choice",
-      "path" : [
-        "window",
-        "rail"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "title" : {
-        "key" : "settings.window.rail",
-        "text" : "Action Rail"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "same-kind",
         "terminal",
         "browser",
@@ -5878,7 +5811,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "a4361c12286577c0810a7120ca322a7271cbeaa63345dd39ab2a55c4057e7e9b",
+  "schema_hash" : "2998e26932a6f9333e55f08addd479d222c29b60929a559bcb1e3b2dfa5e19db",
   "sections" : [
     {
       "id" : "general",
