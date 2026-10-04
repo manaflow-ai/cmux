@@ -3,7 +3,7 @@
 import React from "react";
 import type { DiffEdit, TurnFile } from "../diff";
 import { ChevronDown, Code, Eye, FileTypeIcon, OpenTab } from "../changeIcons";
-import { t } from "../i18n";
+import { useT } from "../i18n";
 import { Counts } from "./Counts";
 import { FileMenu } from "./FileMenu";
 
@@ -29,6 +29,7 @@ export function FileHeader({
   view: FileView;
   on: FileActions;
 }) {
+  const t = useT();
   const slash = file.displayPath.lastIndexOf("/");
   const additions = edit.hunks.reduce((sum, hunk) => sum + hunk.lines.filter((line) => line.type === "add").length, 0);
   const deletions = edit.hunks.reduce((sum, hunk) => sum + hunk.lines.filter((line) => line.type === "del").length, 0);

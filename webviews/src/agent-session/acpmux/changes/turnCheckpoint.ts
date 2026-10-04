@@ -4,7 +4,7 @@
 // formatter). Those are shown read-only; hunks that still match a tool edit carry its review key
 // so Keep and Undo stay connected to the tool call that produced them.
 import { hunkKey, type DiffHunk, type TurnFile } from "../diff";
-import { t } from "../i18n";
+import { currentLanguage, translatorFor, type Translate } from "../i18n";
 import { changeSetFiles, readChangeSet, type ChangeSet } from "./model";
 
 /// The host's answer for one turn: a checkpoint pair's diff in `git.diff`'s shape, or null when
@@ -133,7 +133,12 @@ export function changedByTools(file: TurnFile, toolFiles: readonly TurnFile[]) {
 /// What the Last turn view shows. A checkpoint that loads replaces the tool calls' edits, unless
 /// Keep or Undo choices on those edits are still unsent: the view switches once they are sent
 /// or cleared, so no choice moves under the reader's hand.
-export function turnDisplay(toolFiles: TurnFile[], load: TurnCheckpointLoad, pending: boolean): TurnDisplay {
+export function turnDisplay(
+  t: Translate,
+  toolFiles: TurnFile[],
+  load: TurnCheckpointLoad,
+  pending: boolean,
+): TurnDisplay {
   const tools = (note?: string): TurnDisplay => ({ files: toolFiles, source: "tools", note });
   switch (load.state) {
     case "unsupported":
@@ -162,7 +167,8 @@ export function turnDisplay(toolFiles: TurnFile[], load: TurnCheckpointLoad, pen
 
 /// The edited-files card's totals: the checkpoint's once it has loaded, else the tool calls'.
 export function turnCounts(toolFiles: readonly TurnFile[], load: TurnCheckpointLoad | undefined) {
-  const display = load?.state === "loaded" ? turnDisplay([...toolFiles], load, false) : undefined;
+  const display =
+    load?.state === "loaded" ? turnDisplay(translatorFor(currentLanguage()), [...toolFiles], load, false) : undefined;
   const files = display?.files ?? toolFiles;
   return {
     files,

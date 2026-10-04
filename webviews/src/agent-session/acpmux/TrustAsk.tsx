@@ -1,6 +1,6 @@
 import React from "react";
 import { projectName } from "./EmptyState";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 import type { FolderTrustAsk } from "./useFolderTrustAsk";
 
 /// One quiet line among the chat's permission asks, above the composer: what the agent may do in
@@ -18,6 +18,7 @@ export function TrustAsk({
   onDistrust(): void;
   onUndo(): void;
 }) {
+  const t = useT();
   const folder = projectName(ask.cwd) ?? ask.cwd;
   return (
     <div className="acpmux-trust-ask" aria-live="polite" title={ask.cwd}>

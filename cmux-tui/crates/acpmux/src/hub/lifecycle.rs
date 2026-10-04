@@ -3,6 +3,7 @@
 use super::*;
 
 use super::adoption::{Adoption, adopted_in, session_cwd};
+use crate::config::check_preset_args;
 
 impl Hub {
     // --------------------------------------------------------- lifecycle
@@ -73,7 +74,7 @@ impl Hub {
     pub async fn new_session(self: &Arc<Self>, req: NewRequest) -> Result<Arc<Session>, RpcError> {
         // Harness discovery and launcher checks finish in the background.
         self.wait_startup().await;
-        let NewRequest { harness, preset, name, cwd, policy, model, effort, adopt } = req;
+        let NewRequest { harness, preset, name, cwd, policy, model, effort, adopt, remote } = req;
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
@@ -111,6 +112,13 @@ impl Hub {
             let profile = cfg.harnesses[&resolved].clone();
             let mut d = cfg.defaults_for(&resolved);
             if let Some(p) = &preset_cfg {
+                if remote && p.shapes_command() {
+                    return Err(RpcError::invalid_params(format!(
+                        "preset {:?} carries harness args or a system prompt, which a remote-origin session never starts with (remote chains build their settings from scratch)",
+                        preset.as_deref().unwrap_or_default()
+                    )));
+                }
+                check_preset_args(profile.kind, &p.args).map_err(RpcError::invalid_params)?;
                 d.overlay(&crate::config::SessionDefaults {
                     model: p.model.clone(),
                     effort: p.effort.clone(),
@@ -173,6 +181,7 @@ impl Hub {
             tags: Default::default(),
             unread: false,
             last_turn: None,
+            remote_origin: remote,
         };
         // Pick or check the name and insert under one lock, so concurrent
         // creations can never publish the same name twice.
@@ -208,8 +217,11 @@ impl Hub {
         if let Some(a) = &adopt {
             self.append(&session, "mux", "adopted", json!({"agentSessionId": a.agent_session_id}));
         }
-        let spawn = self.spawn_profile(&session, &profile, &defaults.env).await;
-        if let Err(e) = self.ensure_child(&session, &spawn).await {
+        let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
+            Ok(spawn) => self.ensure_child(&session, &spawn).await,
+            Err(e) => Err(e),
+        };
+        if let Err(e) = spawned {
             // A session whose agent never started is not left behind, and
             // neither is a child that spawned but failed to initialize.
             let _ = self.kill(&session, true).await;
@@ -885,41 +897,8 @@ impl Hub {
                 .ok_or_else(|| RpcError::invalid_params(format!("unknown harness {agent:?}")))?;
             (profile, cfg.defaults_for(&agent))
         };
-        let spawn = self.spawn_profile(session, &profile, &defaults.env).await;
+        let spawn = self.spawn_profile(session, &profile, &defaults.env).await?;
         self.ensure_child(session, &spawn).await
-    }
-
-    /// The profile as it is spawned for this session: family and profile
-    /// default env underneath the profile's own, the preset's env on top,
-    /// then `${cwd}`, `${home}`, `${model}` and a leading `~/` expanded in
-    /// every env value and argv word.
-    pub(super) async fn spawn_profile(
-        &self,
-        session: &Session,
-        profile: &HarnessProfile,
-        defaults_env: &std::collections::BTreeMap<String, String>,
-    ) -> HarnessProfile {
-        let meta = session.meta();
-        let mut p = profile.clone();
-        for (k, v) in defaults_env {
-            p.env.entry(k.clone()).or_insert_with(|| v.clone());
-        }
-        if let Some(name) = &meta.preset
-            && let Some(preset) = self.config.read().await.presets.get(name)
-        {
-            for (k, v) in &preset.env {
-                p.env.insert(k.clone(), v.clone());
-            }
-        }
-        let home = dirs::home_dir().unwrap_or_default();
-        let model = meta.model_request.clone().unwrap_or_default();
-        for v in p.env.values_mut() {
-            *v = expand_env_value(v, &meta.cwd, &home, &model);
-        }
-        for a in p.argv.iter_mut() {
-            *a = expand_env_value(a, &meta.cwd, &home, &model);
-        }
-        p
     }
 }
 
@@ -954,43 +933,8 @@ pub struct NewRequest {
     pub policy: Option<PermissionPolicy>,
     pub model: Option<String>,
     pub effort: Option<String>,
+    /// Requested over a remote-origin connection (the WebSocket listener).
+    pub remote: bool,
     /// A harness session to resume instead of starting a new one.
     pub adopt: Option<crate::adopt::AdoptRequest>,
-}
-
-/// `${cwd}`, `${home}`, `${model}` and a leading `~/` in a profile env value or argv word.
-pub fn expand_env_value(
-    value: &str,
-    cwd: &std::path::Path,
-    home: &std::path::Path,
-    model: &str,
-) -> String {
-    let mut out = value
-        .replace("${cwd}", &cwd.to_string_lossy())
-        .replace("${home}", &home.to_string_lossy())
-        .replace("${model}", model);
-    if let Some(rest) = out.strip_prefix("~/") {
-        out = format!("{}/{rest}", home.to_string_lossy());
-    }
-    out
-}
-
-#[cfg(test)]
-mod env_tests {
-    #[test]
-    fn expands_cwd_and_home() {
-        let cwd = std::path::Path::new("/work/proj");
-        let home = std::path::Path::new("/Users/me");
-        assert_eq!(super::expand_env_value("${cwd}/.codex", cwd, home, ""), "/work/proj/.codex");
-        assert_eq!(super::expand_env_value("~/.omp", cwd, home, ""), "/Users/me/.omp");
-        assert_eq!(
-            super::expand_env_value("${home}/x:${cwd}", cwd, home, ""),
-            "/Users/me/x:/work/proj"
-        );
-        assert_eq!(
-            super::expand_env_value("--model=${model}", cwd, home, "gpt-5.5"),
-            "--model=gpt-5.5"
-        );
-        assert_eq!(super::expand_env_value("plain", cwd, home, ""), "plain");
-    }
 }

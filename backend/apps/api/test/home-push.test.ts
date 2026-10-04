@@ -5,6 +5,7 @@ import type { PushTarget } from "@cmux/protocol"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import type { ApnsMessage, SendResult } from "../src/push/apns.ts"
+import { quiesce } from "./setup/alarm.ts"
 
 /**
  * Home push (home-messaging.md section 5 step 3, home-scale.md B10): the user's UserDO decides
@@ -343,13 +344,15 @@ describe("Home push: UserDO decides from each inbox.bump", () => {
 
   it("a throwing Home push drain does not skip the socket-close flush or the KRL notices, and the next wake is still scheduled", async () => {
     const { user, stub } = await pushUser("home-push-wake-isolation")
-    // A queued push (delivered, not drained) keeps the object's next wake due.
-    expect((await stub.systemDeliver(user, "conv:test", [bump(user, convId())])).done).toHaveLength(1)
-    type WakeSteps = { flushCloses(now: number): Promise<void>; deliverKrlNotices(now: number): Promise<void>; drainHomePush(now: number): Promise<void>; alarm(): Promise<void> }
+    type WakeSteps = { flushCloses(now: number): Promise<void>; deliverKrlNotices(now: number): Promise<void>; drainHomePush(now: number): Promise<void>; alarm(): Promise<void>; alarmIdle: Promise<void>; systemDeliver: UserStub["systemDeliver"] }
     const ran: Array<string> = []
     let alarm: number | null = 0
     await runInDurableObject(stub, async (instance: unknown, state: DurableObjectState) => {
       const o = instance as WakeSteps
+      await quiesce(o, state)
+      // A queued push (delivered, not drained) keeps the object's next wake due; quiesce again after that commit.
+      expect((await o.systemDeliver(user, "conv:test", [bump(user, convId())])).done).toHaveLength(1)
+      await quiesce(o, state)
       const flush = o.flushCloses.bind(o)
       const krl = o.deliverKrlNotices.bind(o)
       o.flushCloses = async (now) => (ran.push("flushCloses"), flush(now))
@@ -358,11 +361,15 @@ describe("Home push: UserDO decides from each inbox.bump", () => {
         ran.push("drainHomePush")
         throw new Error("drain failed")
       }
-      await state.storage.deleteAlarm()
+      await quiesce(o, state)
       await o.alarm()
       alarm = await state.storage.getAlarm()
     })
-    expect(ran).toEqual(["flushCloses", "drainHomePush", "deliverKrlNotices"])
+    // The runtime may also fire the alarm on its own, so passes can repeat or interleave: every pass runs all three steps.
+    const count = (step: string) => ran.filter((s) => s === step).length
+    expect(count("drainHomePush")).toBeGreaterThan(0)
+    expect([count("flushCloses"), count("deliverKrlNotices")]).toEqual([count("drainHomePush"), count("drainHomePush")])
+    expect(ran.indexOf("deliverKrlNotices")).toBeGreaterThan(ran.indexOf("drainHomePush"))
     expect(alarm).not.toBeNull()
   })
 })

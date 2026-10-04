@@ -1,6 +1,6 @@
 // A hunk's Reject and Accept, or its decision with Undo, under its last changed line.
 import React from "react";
-import { t } from "../i18n";
+import { useT } from "../i18n";
 import type { FocusAfter, HunkAnchor, HunkDecision } from "./hunkReview";
 
 export function HunkActions({
@@ -14,6 +14,7 @@ export function HunkActions({
   onDecide: (decision: HunkDecision | undefined) => void;
   focusAfter: FocusAfter;
 }) {
+  const t = useT();
   const decide = (next: HunkDecision | undefined) => {
     focusAfter.current = anchor.key;
     onDecide(next);

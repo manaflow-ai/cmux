@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { translatorFor } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { DATE, formatDuration, turnView as shape, workedLabel } from "./turns";
 import { timestampText, timestampTurns } from "./timestamps";
+
+const english = translatorFor("en");
 
 /// The turn shape without its date lines, which "date lines" covers.
 const turnView = (...args: Parameters<typeof shape>) => shape(...args).filter((entry) => entry.kind !== DATE);
@@ -37,7 +40,7 @@ describe("turn view", () => {
   test("a finished turn folds its work under Worked for, timed to the answer", () => {
     const view = turnView(turn, new Set());
     expect(ids(view)).toEqual(["u", "worked-u", "a", "e", "s"]);
-    expect(workedLabel(view[1]!)).toBe("Worked for 15s");
+    expect(workedLabel(english, view[1]!)).toBe("Worked for 15s");
     // The footer copies the answer and does not repeat the fold's time.
     expect(view.at(-1)).toMatchObject({ text: "Done.", folded: true });
   });
@@ -93,7 +96,7 @@ describe("turn view", () => {
     const answering = turnView(turn.slice(0, 5), new Set(), { working: true });
     expect(ids(answering)).toEqual(["u", "working-u", "c", "t", "e", "a"]);
     expect(answering[1]).toMatchObject({ durationMs: 15_000, version: 2 });
-    expect(workedLabel(turnView(turn, new Set())[1]!)).toStartWith("Worked for 15s");
+    expect(workedLabel(english, turnView(turn, new Set())[1]!)).toStartWith("Worked for 15s");
     // While a tool runs, the line ticks on its own clock.
     expect(turnView(turn.slice(0, 4), new Set(), { working: true })[1]?.durationMs).toBeUndefined();
   });
@@ -112,7 +115,7 @@ describe("turn view", () => {
   test("a turn that ended without an answer folds all of its work", () => {
     const view = turnView([turn[0]!, turn[2]!, turn[5]!], new Set());
     expect(ids(view)).toEqual(["u", "worked-u", "s"]);
-    expect(workedLabel(view[1]!)).toBe("Worked for 54s");
+    expect(workedLabel(english, view[1]!)).toBe("Worked for 54s");
   });
 
   test("rows before the first prompt draw as they are", () => {
@@ -124,7 +127,7 @@ describe("turn view", () => {
 
   test("a stopped turn says so", () => {
     const view = turnView([...turn.slice(0, 5), { ...turn[5]!, status: "cancelled" }], new Set());
-    expect(workedLabel(view[1]!)).toBe("You stopped after 15s");
+    expect(workedLabel(english, view[1]!)).toBe("You stopped after 15s");
   });
 
   test("rows after a turn's summary still draw", () => {
@@ -137,7 +140,7 @@ describe("turn view", () => {
     const queued = row("local-1", "user", 1_500, { text: "also this", pending: true });
     const view = turnView([...turn.slice(0, 2), queued, ...turn.slice(2)], new Set());
     expect(ids(view)).toEqual(["u", "worked-u", "a", "e", "s", "local-1"]);
-    expect(workedLabel(view[1]!)).toBe("Worked for 15s");
+    expect(workedLabel(english, view[1]!)).toBe("Worked for 15s");
   });
 
   test("the fold line and footer change version when what they draw changes", () => {

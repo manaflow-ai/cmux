@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { t } from "../i18n";
+import { useT } from "../i18n";
 
 /// Rows a section shows before "View all".
 const FOLDED = 5;
@@ -15,6 +15,7 @@ export function SummarySection<T>({
   items: readonly T[];
   row: (item: T) => React.ReactNode;
 }) {
+  const t = useT();
   const [all, setAll] = useState(false);
   if (items.length === 0) return null;
   const shown = all ? items : items.slice(0, FOLDED);
