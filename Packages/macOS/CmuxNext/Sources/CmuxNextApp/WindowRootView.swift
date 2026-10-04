@@ -145,9 +145,12 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// A click on the toggle (tests).
     func pressSidebarToggle() { toolbarBand.toggle() }
     /// A history button's frame in window coordinates (R69).
-    func historyButtonFrame(_ direction: LocationTrailDirection) -> CGRect? { nil }
+    func historyButtonFrame(_ direction: LocationTrailDirection) -> CGRect? {
+        let button = toolbarBand.historyButton(direction)
+        return button.convert(button.bounds, to: nil)
+    }
     /// A click on a history button (tests).
-    func pressHistoryButton(_ direction: LocationTrailDirection) {}
+    func pressHistoryButton(_ direction: LocationTrailDirection) { toolbarBand.onHistory?(direction) }
 
     /// The badge's frame in window coordinates while it shows.
     var titlebarBadgeFrame: CGRect? {
