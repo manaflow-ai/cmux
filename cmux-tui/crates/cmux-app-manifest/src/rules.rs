@@ -76,6 +76,13 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
                     ));
                 }
             }
+            if imp.get("server").is_some() && m.get("server").is_none() {
+                out.push(Issue::error(
+                    format!("{at}/server"),
+                    "implements.serverMissing",
+                    "a server implementation needs the top-level server block",
+                ));
+            }
             if imp.get("web").is_some() && m.pointer("/runtime/web").is_none() {
                 out.push(Issue::error(
                     format!("{at}/web"),

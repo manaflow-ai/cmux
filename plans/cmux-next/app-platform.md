@@ -213,6 +213,8 @@ The first-party apps found seven things v2 could not hold (`first-party-apps/*/R
 | `notices` | `[{path, title?}]` | the file exists in the package and is in `files` |
 | `drag` / `drop` | `{provides: [kind]}` / `{accepts: [kind]}`; kinds `file`, `directory`, `text`, `url`, `image`, `document`, `diff`, `terminal`, `task`, `connection` | |
 | `consumes` | `{interfaces, ops, events, handles}` (the array form is removed) | interfaces must be known |
+| `implements.<interface>.server: true` | the app's top-level server block (native or js) implements the interface's methods over the provider channel, for example `{"cmux.fs.provider/1": {"server": true, "schemes": ["cloud-vm"]}}` (Cloud app lead, approved 2026-10-04) | exactly one of export, web, native, server; `implements.serverMissing` without a top-level server |
+| Terminal backends | `cmux.terminal.backend/1` (bytes mode: open, resume, write, resize, signal, close; events output, exit, lost) and `cmux.terminal.connector/1` (host mode: the far end runs a session host, the local host relays the viewer protocol); both take `options.kinds` (1-16 unique ids, default deny; registry ids `app:<app>/<kind>`); scope `terminal:backend` is restricted | shapes chosen by the ghostty-next lead (cloud-app.md); interface files are drafts until the Cloud and sample backends prove them |
 | Interface options | each interface file has an `options` JSON Schema (section: `defaultRegion`, `maxRows`; status: `placement`; editor: `capabilities`, `paneCommands`; diff renderer: `inputs`) | options on an interface without an options schema are errors |
 | Servers | unchanged | `cmux-notes` and `cmux-usage` declarations wait for the binaries; their scopes fit the grammar above |
 
