@@ -22,6 +22,8 @@ parser.add_argument("--text", default="hello")
 parser.add_argument("--bench", action="store_true",
                     help="R81: Cmd-W and ! latency (main-thread ms, missed frames, span breakdown) instead of the open test")
 parser.add_argument("--budget-close-ms", type=float, default=10)
+parser.add_argument("--trace", action="store_true",
+                    help="with --bench: record a Time Profiler trace during the runs and print the main thread's heaviest frames")
 opts = parser.parse_args()
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 APP = next(iter(sorted(glob.glob(os.path.expanduser(
@@ -142,8 +144,65 @@ def ready_spare():
     return wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
 
 
+def main_thread_profile(trace):
+    """Heaviest main-thread frames (inclusive and leaf sample counts) in a Time Profiler trace."""
+    import xml.etree.ElementTree as ET
+    toc = subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--toc"], capture_output=True, text=True).stdout
+    schema = "time-profile" if 'schema="time-profile"' in toc else "time-sample"
+    xml = subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
+                          f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]'], capture_output=True, text=True).stdout
+    root = ET.fromstring(xml)
+    ids = {}
+
+    def resolve(element):
+        ref = element.get("ref")
+        if ref is not None:
+            return ids.get(ref, element)
+        if element.get("id") is not None:
+            ids[element.get("id")] = element
+        for child in element:
+            resolve(child)
+        return element
+
+    inclusive, leaf, samples = {}, {}, 0
+    for row in root.iter("row"):
+        thread = backtrace = None
+        for child in row:
+            node = resolve(child)
+            if child.tag == "thread":
+                thread = node
+            elif child.tag in ("backtrace", "tagged-backtrace"):
+                backtrace = node
+        if thread is None or backtrace is None:
+            continue
+        if "Main Thread" not in (thread.get("fmt") or ""):
+            continue
+        samples += 1
+        bt = backtrace if backtrace.tag == "backtrace" else next(iter(backtrace.iter("backtrace")), None)
+        if bt is None:
+            continue
+        frames = [resolve(f).get("name") or "?" for f in bt.iter("frame")]
+        if frames:
+            leaf[frames[0]] = leaf.get(frames[0], 0) + 1
+        for name in set(frames):
+            inclusive[name] = inclusive.get(name, 0) + 1
+    print(f"main-thread samples: {samples}", flush=True)
+    skip = ("main", "start", "NSApplicationMain", "-[NSApplication run]", "_DPSNextEvent", "CFRunLoopRun")
+    for name, count in sorted(inclusive.items(), key=lambda kv: -kv[1])[:60]:
+        if not name.startswith(skip):
+            print(f"  incl {count:5d} {name[:160]}", flush=True)
+    for name, count in sorted(leaf.items(), key=lambda kv: -kv[1])[:25]:
+        print(f"  leaf {count:5d} {name[:160]}", flush=True)
+
+
 def run_bench():
     closes, bangs = [], []
+    recorder = None
+    trace = os.path.join(os.environ.get("NX_ARTIFACTS", SCRATCH), "new-tab-bench.trace")
+    if opts.trace:
+        recorder = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", str(app.pid),
+                                     "--time-limit", "40s", "--output", trace], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        time.sleep(3)  # test harness: the recorder attaches
     for _ in range(opts.runs):
         ready_spare()
         rpc("debug.new_tab", {"action": "open_and_type", "text": ""})
@@ -161,6 +220,9 @@ def run_bench():
         sys.exit(f"FAIL bench errors: {bad[:3]}")
     summarize("Cmd-W on the new tab page", closes)
     summarize("! on the new tab page", bangs)
+    if recorder:
+        recorder.wait(timeout=120)
+        main_thread_profile(trace)
 
 
 app = None
