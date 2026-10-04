@@ -362,18 +362,25 @@ public struct BrowserReplFileSystem: Sendable {
 
     /// The root's directory: the one held open since the fs first opened
     /// it, so renaming the root's path away, or putting a link or another
-    /// directory in its place, changes nothing for this fs.
+    /// directory in its place, changes nothing for this fs. It is opened,
+    /// and with `creating` (only `mkdir -p` creates a working directory that
+    /// does not exist yet) made, by a walk from `/` that follows no link,
+    /// so a parent another session swapped for a link since the root was
+    /// resolved is never followed.
     private func openRoot(_ index: Int, creating: Bool) throws -> BrowserReplDescriptor {
         let root = roots[index]
         if let held = rootDirectories.descriptor(at: index, for: root) { return held }
-        var descriptor = BrowserReplRootDirectories.open(root)
-        if descriptor < 0, errno == ENOENT, creating {
-            // The root itself is outside the sandbox's reach; only `mkdir -p`
-            // creates a working directory that does not exist yet.
-            try? FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true)
-            descriptor = BrowserReplRootDirectories.open(root)
+        let descriptor = BrowserReplRootDirectories.open(root, creating: creating)
+        guard descriptor >= 0 else {
+            let number = errno
+            if number == ELOOP {
+                throw BrowserReplFileSystemError(
+                    code: "EACCES",
+                    message: "EACCES: permission denied, the REPL working directory '\(root)' is now reached through a symbolic link, which fs never follows out of it; run the command again from the directory itself"
+                )
+            }
+            throw Self.posixError(number, syscall: "open", display: root)
         }
-        guard descriptor >= 0 else { throw Self.posixError(errno, syscall: "open", display: root) }
         return rootDirectories.hold(BrowserReplDescriptor(descriptor), at: index, for: root)
     }
 
@@ -902,10 +909,42 @@ final class BrowserReplRootDirectories: @unchecked Sendable {
         }
     }
 
-    /// Opens the directory at `path` (canonical: no link on the way), not
-    /// following a link in its place.
-    static func open(_ path: String) -> Int32 {
-        Darwin.open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+    /// Opens the directory at `path` (absolute and canonical: no link on
+    /// the way when it was resolved) by a walk from `/`, one component at a
+    /// time with `openat` and `O_NOFOLLOW`, so a link put in place of any
+    /// component since then is never followed. With `creating`, missing
+    /// directories are made on the way (`mkdirat`).
+    /// - Returns: The descriptor, or -1 with `errno` set: `ELOOP` when a
+    ///   component is a link.
+    static func open(_ path: String, creating: Bool = false) -> Int32 {
+        let flags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        var current = Darwin.open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard current >= 0 else { return -1 }
+        for component in path.split(separator: "/").map(String.init) {
+            var next = openat(current, component, flags)
+            if next < 0, errno == ENOENT, creating {
+                if mkdirat(current, component, 0o777) != 0, errno != EEXIST {
+                    let number = errno
+                    close(current)
+                    errno = number
+                    return -1
+                }
+                next = openat(current, component, flags)
+            }
+            guard next >= 0 else {
+                var number = errno
+                var info = stat()
+                if fstatat(current, component, &info, AT_SYMLINK_NOFOLLOW) == 0, (info.st_mode & S_IFMT) == S_IFLNK {
+                    number = ELOOP
+                }
+                close(current)
+                errno = number
+                return -1
+            }
+            close(current)
+            current = next
+        }
+        return current
     }
 
     /// Root `index`'s held directory, when one is held for `path`.
