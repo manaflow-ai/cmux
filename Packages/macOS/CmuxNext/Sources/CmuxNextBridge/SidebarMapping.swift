@@ -14,13 +14,15 @@ public struct SidebarMapping {
     /// detail (tooltip, accessibility).
     public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
+                                hidesHomeWorkspace: Bool = true,
                                 showsUnread: Bool = true,
                                 statusLine: (String) -> String? = { _ in nil }) -> [SidebarRowSection] {
         var nodes: [SidebarNode] = []
         for section in daemonSections {
             // The home workspace (`kind` "home") is what the Home item in the
-            // top section shows; it is not also a workspace row (nxdog28).
-            let rows = section.workspaces.filter { $0.kind != Self.homeKind }
+            // top section shows; it is not also a workspace row (nxdog28)
+            // while that item is in the layout (`hidesHomeWorkspace`).
+            let rows = section.workspaces.filter { !hidesHomeWorkspace || $0.kind != Self.homeKind }
                 .map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread) }
             if let group = section.group {
                 nodes.append(.group(SidebarGroup(

@@ -76,11 +76,13 @@ final class SidebarBridge {
     private func observe() {
         let machines = services.machines
         let registry = services.windows.registry
+        let layout = services.sidebarLayout
         guard let windowState = state else { return }
         observation = Task { [weak self] in
             // `state.id` is read inside: the launch window adopts a saved id.
+            // The layout too: removing the Home item lists the home workspace.
             for await (sections, launching, failed) in Observations({
-                Self.liveSections(machines, registry: registry, window: windowState)
+                Self.liveSections(machines, registry: registry, window: windowState, hidesHome: Self.hidesHome(layout.document))
             }) {
                 self?.show(sections, launching: launching, failed: failed)
             }
@@ -132,7 +134,8 @@ final class SidebarBridge {
             model.profiles = saved.sidebarProfiles
             model.activeProfileID = saved.sidebarActiveProfileID
         }
-        let (sections, launching, failed) = Self.liveSections(services.machines, registry: windows.registry, window: state)
+        let (sections, launching, failed) = Self.liveSections(services.machines, registry: windows.registry, window: state,
+                                                              hidesHome: Self.hidesHome(services.sidebarLayout.document))
         show(sections, launching: launching, failed: failed)
     }
 
@@ -185,8 +188,8 @@ final class SidebarBridge {
     /// connection gave up (their launch placeholders end). Rows from the
     /// daemon's launch snapshot are `.stale` until the live tree replaces them.
     static func liveSections(_ machines: MachineRegistry, registry: WindowRegistryStore,
-                             window: WindowState) -> ([SidebarRowSection], Bool, Set<MachineID>) {
-        var sections = Self.sections(machines, members: registry.members(of: window.id), profile: window.profileID)
+                             window: WindowState, hidesHome: Bool = true) -> ([SidebarRowSection], Bool, Set<MachineID>) {
+        var sections = Self.sections(machines, members: registry.members(of: window.id), profile: window.profileID, hidesHome: hidesHome)
         if machines.local.store.isProvisional { sections = SidebarSeed.stale(sections) }
         let failed = Set(machines.cloud.filter { $0.daemon.startup.isUnavailable }.map { MachineID($0.daemon.machineID) })
         return (sections, isLaunching(machines.local, registry: registry), failed)
@@ -202,11 +205,17 @@ final class SidebarBridge {
     /// workspaces the window owns (`WindowRegistry`) in the profile it shows
     /// (`WindowProfiles`).
     static func sections(_ machines: MachineRegistry, members: [String],
-                         profile: ProfileID) -> [SidebarRowSection] {
+                         profile: ProfileID, hidesHome: Bool = true) -> [SidebarRowSection] {
         let visible = WindowProfiles.visible(members, profile: profile, machines: machines)
         let pinned = Set(machines.daemons.flatMap { $0.store.workspaces.filter(\.pinned).map(\.id) })
-        let filtered = SidebarMembership.filter(sections(machines, profile: profile), members: Set(visible))
+        let filtered = SidebarMembership.filter(sections(machines, profile: profile, hidesHome: hidesHome), members: Set(visible))
         return SidebarMembership.pinnedFirst(filtered, pinned: pinned)
+    }
+
+    /// Whether the workspace list leaves the home workspace out: only while
+    /// a Home item shows it, so it is never unreachable from the sidebar.
+    static func hidesHome(_ layout: SidebarLayoutDocument) -> Bool {
+        layout.firstItem(with: .builtIn(.home)) != nil
     }
 
     /// The profile bar of the local daemon's profiles (empty when it has
@@ -221,11 +230,11 @@ final class SidebarBridge {
     /// One section per machine: the local daemon, then each Cloud machine
     /// (empty while it connects), with the workspaces and groups of
     /// `profile` (all of them on a machine without that profile).
-    static func sections(_ machines: MachineRegistry, profile: ProfileID) -> [SidebarRowSection] {
+    static func sections(_ machines: MachineRegistry, profile: ProfileID, hidesHome: Bool = true) -> [SidebarRowSection] {
         let showsUnread = DesignSettings.shared.attention.showsOnSidebar
         var sections = SidebarMapping.shared.sections(PersonalSidebar.sections(of: machines.local, room: profile, machines: machines),
                                                machine: machine(for: machines.local, name: Strings.localMachine, kind: .local),
-                                               showsUnread: showsUnread)
+                                               hidesHomeWorkspace: hidesHome, showsUnread: showsUnread)
         for session in machines.cloud {
             let header = machine(for: session.daemon, name: session.machine.title, kind: .cloud, live: session.machine.status.isLive,
                                  compatibility: machines.compatibility(of: session.daemon))
