@@ -194,6 +194,8 @@ def test_raw_binary_manifests_use_canonical_runtime_schema() -> None:
 
 def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -> None:
     artifacts = workflow("cmux-tui-artifacts.yml")
+    triggers = workflow_triggers(artifacts)
+    assert "pull_request_target" in triggers
     daemon = workflow_job(artifacts, "cmux-next-daemon-tests")
     assert 'CARGO_NET_RETRY: "10"' in daemon
     assert 'CARGO_HTTP_TIMEOUT: "120"' in daemon
@@ -207,6 +209,14 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "actions: write" in requeue
     assert "/actions/runs/$RUN_ID/rerun" in requeue
     assert "needs.cmux-next-daemon-tests.result == 'failure'" in requeue
+    assert "needs.build.result == 'failure'" in requeue
+    assert "needs.publish-pr-tree.result == 'failure'" in requeue
+    pr_publisher = workflow_job(artifacts, "publish-pr-tree")
+    assert "github.event_name == 'pull_request_target'" in pr_publisher
+    assert "git show \"$BASE_COMMIT:scripts/ci/upload-r2-object.py\"" in pr_publisher
+    assert "CF_R2_SECRET_ACCESS_KEY" in pr_publisher
+    assert "git mktree --missing" in pr_publisher
+    assert "cmux-tui/tree/$KEY" in pr_publisher
 
 
 def test_cmux_next_pull_request_fetch_waits_for_base_or_own_tree() -> None:
@@ -218,6 +228,8 @@ def test_cmux_next_pull_request_fetch_waits_for_base_or_own_tree() -> None:
     assert "HEAD^1" in pin
     assert "matches base tree" in pin
     assert "differs from base tree" in pin
+
+    assert next_workflow.count("fetch-depth: 2") >= 2
 
 
 def test_typescript_sdk_publisher_cannot_publish_the_cli_package() -> None:

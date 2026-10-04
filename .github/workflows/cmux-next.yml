@@ -377,6 +377,7 @@ jobs:
           # The package graph reads no submodule; GhosttyNextKit comes from
           # SwiftPM (Packages/Shared/CmuxGhosttyKit).
           submodules: false
+          fetch-depth: 2
 
       # A mini reuses its workspace: drop the submodule checkouts a previous
       # job left (scripts/ci/reset-stale-submodules.sh), as on a fresh checkout.
@@ -518,6 +519,7 @@ jobs:
         with:
           persist-credentials: false
           submodules: false
+          fetch-depth: 2
 
       # A mini reuses its workspace: drop the submodule checkouts a previous
       # job left (scripts/ci/reset-stale-submodules.sh), as on a fresh checkout.
