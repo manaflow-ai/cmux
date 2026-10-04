@@ -49,7 +49,7 @@ public final class BrowserReplSession: @unchecked Sendable {
     let thread: BrowserReplJSThread
     private let fetcher: BrowserReplFetcher
     /// Secrets, the domain policy and redaction (see BrowserReplBoundary).
-    private let boundary = BrowserReplBoundary()
+    private let boundary: BrowserReplBoundary
     private let sleeper: any BrowserReplSleeping
     private let gate = BrowserReplEvalGate()
     private var scheduler: BrowserReplTimerScheduler<ContinuousClock>!
@@ -277,6 +277,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         self.homeDirectory = homeDirectory ?? NSHomeDirectory()
         self.bundle = bundle
         self.driver = driver
+        self.boundary = BrowserReplBoundary(typedSecrets: { driver.typedSecretRedaction() })
         self.sleeper = sleeper
         self.thread = BrowserReplJSThread(name: "com.cmux.browser-repl.\(id)")
         self.watchdog = BrowserReplWatchdog(callbackTimeLimit: callbackTimeLimit)
@@ -446,7 +447,7 @@ public final class BrowserReplSession: @unchecked Sendable {
                 watchdog.setCurrentEval(nil)
             }
         }
-        state.finish(error: error.map(boundary.secrets.redact))
+        state.finish(error: error.map(boundary.redact))
     }
 
     /// The evaluation timeout: the caller gets the timeout error now, from
@@ -760,7 +761,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             guard let self, let state = self.stateLock.withLock({ self.currentEval }) else { return }
             state.append(BrowserReplOutputLine(
                 level: level?.toString() ?? "log",
-                text: self.boundary.secrets.redact(text?.toString() ?? "")
+                text: self.boundary.redact(text?.toString() ?? "")
             ))
         }
         let setTimer: @convention(block) (JSValue?, JSValue?, JSValue?) -> Bool = { [weak self] id, delay, repeating in
@@ -925,7 +926,7 @@ public final class BrowserReplSession: @unchecked Sendable {
                 self.fileSystem.sandbox.allowReading(path)
             }
             guard let context = self.context, !self.isClosedNow, let handler = self.entryPoints?.onEvent else { return }
-            let payload = self.boundary.secrets.redactJSON(payloadJSON)
+            let payload = self.boundary.redactJSON(payloadJSON)
             self.enter(context) { _ = handler.call(withArguments: [name, payload]) }
         }
     }

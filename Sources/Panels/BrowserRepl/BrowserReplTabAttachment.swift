@@ -25,7 +25,9 @@ final class BrowserReplTabAttachments {
     private var sessionContexts: [String: BrowserReplContextOptions] = [:]
     /// Secrets sessions typed into tabs, by tab, masked for every other
     /// session's reads until the tab closes (``BrowserReplTypedSecrets``).
-    var typedSecrets = BrowserReplTypedSecrets()
+    /// Sessions read it off the main thread (their fetch responses, files
+    /// and output), so it is not main-actor state.
+    nonisolated static let typedSecrets = BrowserReplTypedSecrets()
 
     /// The live attachment for `panelID`, if any session is attached.
     func attachment(for panelID: UUID) -> BrowserReplTabAttachment? {
@@ -61,7 +63,7 @@ final class BrowserReplTabAttachments {
     /// Detaches `sessionID` from every tab.
     func detach(sessionID: String) {
         sessionContexts.removeValue(forKey: sessionID)
-        typedSecrets.sessionLeft(sessionID)
+        Self.typedSecrets.sessionLeft(sessionID)
         for (panelID, attachment) in attachments {
             attachment.removeSink(sessionID: sessionID)
             if !attachment.isAttached {
@@ -72,7 +74,7 @@ final class BrowserReplTabAttachments {
 
     /// Detaches everything from a panel that is closing.
     func panelDidClose(_ panelID: UUID) {
-        typedSecrets.tabClosed(panelID.uuidString)
+        Self.typedSecrets.tabClosed(panelID.uuidString)
         guard let attachment = attachments.removeValue(forKey: panelID) else { return }
         attachment.emit("tab.closed", [:])
         attachment.detachAll()

@@ -247,6 +247,11 @@ native (`BrowserReplBoundary` in the session, and the driver):
   separate values), and masks it as typed, `<secret:name>`, in every result,
   event and error it returns to any other session, and in their captures;
   once the typing session ends, also for a later session of the same name.
+  The driver hands those sessions the same values as a store
+  (`typedSecretRedaction()`, Swift only), and each session masks them
+  wherever it masks its own secrets: fetch responses (read with the tab's
+  cookies), files written and read back (a page's download), output lines
+  and errors.
   A TOTP secret's typed value is its code, masked as that literal.
   This masks the value as typed and in the encodings the session's
   redaction knows; page script that copies it elsewhere or transforms it
