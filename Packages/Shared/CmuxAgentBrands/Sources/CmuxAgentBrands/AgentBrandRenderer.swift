@@ -82,6 +82,9 @@ public struct AgentBrandRenderer {
         context.saveGState()
         defer { context.restoreGState() }
         context.concatenate(transform)
+        // Art may run past its view box (Hermes Agent's portrait is cropped by its owner's framing).
+        let box = tile?.viewBox ?? spec.viewBox
+        context.clip(to: CGRect(x: box.x, y: box.y, width: box.width, height: box.height))
         if let tile {
             let tileRect = CGRect(x: tile.viewBox.x, y: tile.viewBox.y, width: tile.viewBox.width, height: tile.viewBox.height)
             context.addPath(CGPath(roundedRect: tileRect, cornerWidth: tile.radius, cornerHeight: tile.radius, transform: nil))

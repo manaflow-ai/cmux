@@ -78,7 +78,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
         !shell &&
         (files.length
           ? files.map((file) => <EditDiff key={file.path} file={file} />)
-          : body && <pre className="cv-tool-output">{body}</pre>)}
+          : body && <pre className="cv-tool-output selectable">{body}</pre>)}
     </>
   );
 }

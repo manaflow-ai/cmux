@@ -441,6 +441,9 @@ pub(super) async fn handle_request(
                     if let Some(r) = cfg.unavailable.get(name) {
                         o.insert("unavailable".into(), json!(r));
                     }
+                    if let Some(r) = hub.probe_errors.lock().unwrap().get(name) {
+                        o.insert("probeError".into(), json!(r));
+                    }
                     let d = cfg.defaults_for(name);
                     if !d.is_empty() {
                         o.insert("defaults".into(), json!(d));
@@ -911,6 +914,7 @@ pub(super) async fn handle_request(
             if end_agents {
                 hub.end_agents_at_shutdown(keep.clone());
             }
+            hub.stop_idle_reaper();
             hub.shutdown.notify_waiters();
             hub.shutdown.notify_one();
             let kept = if end_agents {

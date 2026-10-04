@@ -17,10 +17,16 @@ struct Daemon {
     child: Option<Child>,
     home: PathBuf,
     socket: PathBuf,
+    /// Extra daemon environment (the idle harness period).
+    env: Vec<(String, String)>,
 }
 
 impl Daemon {
     fn new(tag: &str, policy: &str) -> Self {
+        Self::with_env(tag, policy, &[])
+    }
+
+    fn with_env(tag: &str, policy: &str, env: &[(&str, &str)]) -> Self {
         // Short: socket paths must stay under the macOS limit.
         let home = std::env::temp_dir().join(format!("amd-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
@@ -31,7 +37,8 @@ impl Daemon {
         )
         .unwrap();
         let socket = home.join("s.sock");
-        let mut daemon = Self { child: None, home, socket };
+        let env = env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let mut daemon = Self { child: None, home, socket, env };
         daemon.start();
         daemon
     }
@@ -45,6 +52,8 @@ impl Daemon {
             .env_remove("ACPMUX_AGENT_HOSTS")
             .env_remove("ACPMUX_LOGIN_ENV")
             .env_remove("XPC_SERVICE_NAME")
+            .env_remove("ACPMUX_IDLE_CHILD_SECS")
+            .envs(self.env.iter().map(|(k, v)| (k, v)))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -426,5 +435,176 @@ async fn shutdown_with_end_agents_keeps_the_named_sessions_running() {
             .events(&other)
             .iter()
             .any(|e| e["kind"] == "turn_result" && e["msg"]["detail"] == "quit")
+    );
+}
+
+/// The idle harness exit (one second here) terminates an unused hosted
+/// session's agent and its host, and the session resumes on its next
+/// prompt; a turn or a permission prompt that an adopted host's recovery
+/// rebuilt after a daemon restart is in use, never idle.
+const IDLE_1S: &[(&str, &str)] = &[("ACPMUX_IDLE_CHILD_SECS", "1")];
+
+#[tokio::test]
+async fn an_idle_hosted_agent_is_terminated_and_the_session_resumes() {
+    let daemon = Daemon::with_env("idle", "approve-all", IDLE_1S);
+    let session = new_session(&daemon).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    assert!(gone_within(harness_pid, Duration::from_secs(20)), "the idle agent kept running");
+    let mut rpc = daemon.rpc().await;
+    let reply = rpc
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "after idle"}]}),
+        )
+        .await;
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+    let events = daemon.events(&session);
+    assert!(events.iter().any(|e| e["kind"] == "resumed"), "the session did not resume");
+}
+
+#[tokio::test]
+async fn an_adopted_open_turn_is_not_idle() {
+    let mut daemon = Daemon::with_env("idleturn", "approve-all", IDLE_1S);
+    let (session, host, client) = gated_turn(&daemon).await;
+    let harness_pid = host["harness_pid"].as_i64().unwrap();
+    daemon.sigkill();
+    drop(client);
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    // No client attached, and three idle periods pass with the turn open.
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(alive(harness_pid), "the reaper ended an agent with an adopted open turn");
+    std::fs::write(daemon.home.join(format!("gate-{session}")), b"go").unwrap();
+    let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    assert_eq!(result["msg"]["status"], "completed", "{result}");
+}
+
+#[tokio::test]
+async fn a_recovered_permission_prompt_is_not_idle() {
+    let mut daemon = Daemon::with_env("idleperm", "ask", IDLE_1S);
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "ask: deploy"}]}),
+        )
+        .await;
+    let asked =
+        daemon.wait_event(&session, "permission_request", |e| e["kind"] == "permission_request");
+    let permission_id = asked["msg"]["permissionId"].as_str().unwrap().to_owned();
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    daemon.sigterm();
+    drop(client);
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(alive(harness_pid), "the reaper ended an agent with a recovered permission prompt");
+    let mut rpc = daemon.rpc().await;
+    rpc.call(
+        "_acpmux/permission_respond",
+        json!({"sessionId": session, "permissionId": permission_id, "optionId": "yes"}),
+    )
+    .await;
+    let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    assert_eq!(result["msg"]["status"], "completed", "{result}");
+}
+
+/// A live host whose link this daemon lost (another owner took the host over
+/// and left) must not lock its session: the next prompt reattaches to the
+/// same agent instead of failing with "cannot be reached".
+#[tokio::test]
+async fn a_live_host_with_a_lost_link_is_reattached_not_locked() {
+    let daemon = Daemon::new("lost", "approve-all");
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hello"}]});
+    assert_eq!(rpc.call("session/prompt", prompt.clone()).await["stopReason"], "end_turn");
+    let record: acpmux::agent_host::HostRecord =
+        serde_json::from_value(daemon.host_record(&session)).unwrap();
+    let harness_pid = record.harness_pid.expect("harness pid") as i64;
+
+    // Another owner takes the host over, which closes the daemon's link.
+    match acpmux::agent_host::link::connect(record, 0).await.expect("take over") {
+        acpmux::agent_host::link::Connect::Ready(link, _) => drop(link),
+        _ => panic!("the host refused a same-build owner"),
+    }
+    // Let the daemon's reader see the closed link (a test-only fixed wait).
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(alive(harness_pid), "the takeover ended the agent");
+
+    let mut rpc = daemon.rpc().await;
+    let id = rpc.send("session/prompt", prompt).await;
+    let reply = loop {
+        let line = tokio::time::timeout(Duration::from_secs(30), rpc.lines.next_line())
+            .await
+            .expect("daemon answered in time")
+            .unwrap()
+            .expect("daemon closed the socket");
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v.get("id") == Some(&json!(id)) {
+            break v;
+        }
+    };
+    assert_eq!(reply["result"]["stopReason"], "end_turn", "the session is locked: {reply}");
+    assert!(alive(harness_pid), "a second agent replaced the live one");
+}
+
+/// An idle hosted session whose link this daemon lost (another owner took
+/// the host over and left) still ends at the idle exit: the reaper ends the
+/// unadopted host with its nonce proof instead of sending Terminate over
+/// the dead link and leaving the harness running.
+#[tokio::test]
+async fn an_idle_hosted_agent_with_a_lost_link_is_ended() {
+    let daemon = Daemon::with_env("idlelost", "approve-all", &[("ACPMUX_IDLE_CHILD_SECS", "2")]);
+    let session = new_session(&daemon).await;
+    let record: acpmux::agent_host::HostRecord =
+        serde_json::from_value(daemon.host_record(&session)).unwrap();
+    let harness_pid = record.harness_pid.expect("harness pid") as i64;
+    // Another owner takes the host over, which closes the daemon's link.
+    match acpmux::agent_host::link::connect(record, 0).await.expect("take over") {
+        acpmux::agent_host::link::Connect::Ready(link, _) => drop(link),
+        _ => panic!("the host refused a same-build owner"),
+    }
+    assert!(gone_within(harness_pid, Duration::from_secs(20)), "the idle agent kept running");
+}
+
+/// A reattach after a lost link is activity: its `host_reattached` record
+/// and the prompt restart the idle period, so the reaper does not end the
+/// reattached agent at the deadline the session had before the link was lost.
+#[tokio::test]
+async fn a_reattached_host_restarts_the_idle_period() {
+    const IDLE_2S: &[(&str, &str)] = &[("ACPMUX_IDLE_CHILD_SECS", "2")];
+    let daemon = Daemon::with_env("reidle", "approve-all", IDLE_2S);
+    let session = new_session(&daemon).await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hello"}]});
+    let mut rpc = daemon.rpc().await;
+    assert_eq!(rpc.call("session/prompt", prompt.clone()).await["stopReason"], "end_turn");
+    drop(rpc);
+    let first_activity = std::time::Instant::now();
+    let record: acpmux::agent_host::HostRecord =
+        serde_json::from_value(daemon.host_record(&session)).unwrap();
+    let harness_pid = record.harness_pid.expect("harness pid") as i64;
+    match acpmux::agent_host::link::connect(record, 0).await.expect("take over") {
+        acpmux::agent_host::link::Connect::Ready(link, _) => drop(link),
+        _ => panic!("the host refused a same-build owner"),
+    }
+    // Test-only fixed waits: well inside the first idle period.
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    let mut rpc = daemon.rpc().await;
+    assert_eq!(rpc.call("session/prompt", prompt).await["stopReason"], "end_turn");
+    drop(rpc);
+    assert!(
+        daemon.events(&session).iter().any(|e| e["kind"] == "host_reattached"),
+        "the lost link was not reattached"
+    );
+    // Past the deadline the session had before the reattach.
+    let past_first_deadline = Duration::from_millis(2600).saturating_sub(first_activity.elapsed());
+    tokio::time::sleep(past_first_deadline).await;
+    assert!(alive(harness_pid), "the reaper ended the agent at its pre-reattach deadline");
+    // The reaper still ends it once the new idle period passes.
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(20)),
+        "the reattached agent was never reaped"
     );
 }

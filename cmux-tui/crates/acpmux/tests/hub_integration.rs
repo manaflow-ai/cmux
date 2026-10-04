@@ -58,6 +58,14 @@ impl TestClient {
 }
 
 async fn setup(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
+    setup_env(policy, BTreeMap::new()).await
+}
+
+/// `setup` with the fake agent's env (FAKE_* switches).
+async fn setup_env(
+    policy: PermissionPolicy,
+    env: BTreeMap<String, String>,
+) -> (Arc<Hub>, TestClient) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
     agents.insert(
@@ -65,7 +73,7 @@ async fn setup(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
         HarnessProfile {
             kind: Default::default(),
             argv: vec!["python3".into(), fake.into()],
-            env: BTreeMap::new(),
+            env,
             description: None,
             fallback: None,
             family: None,
@@ -1444,3 +1452,6 @@ mod adopt;
 
 #[path = "hub_integration/preset_args.rs"]
 mod preset_args;
+
+#[path = "hub_integration/lifecycle_fixes.rs"]
+mod lifecycle_fixes;

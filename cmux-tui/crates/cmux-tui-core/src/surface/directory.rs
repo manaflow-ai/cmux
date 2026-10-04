@@ -4,6 +4,9 @@ use super::*;
 pub(super) enum PublishedDirectory {
     Unreported,
     Reported(Option<String>),
+    /// A committed report was followed by a committed absent report: the
+    /// shell cleared its directory, so the launch directory is not shown.
+    Cleared,
 }
 
 impl Surface {
@@ -29,7 +32,7 @@ impl Surface {
     /// Raw VT state is only a candidate. Public state changes after its ordered commit.
     pub(crate) fn published_directory(&self) -> Option<String> {
         self.as_pty().and_then(|pty| match &*pty.published_directory.lock().unwrap() {
-            PublishedDirectory::Unreported => None,
+            PublishedDirectory::Unreported | PublishedDirectory::Cleared => None,
             PublishedDirectory::Reported(value) => value.clone(),
         })
     }
@@ -38,15 +41,13 @@ impl Surface {
     /// it has made one, nothing after it explicitly cleared that report, and
     /// otherwise the directory the daemon launched the terminal in
     /// (https://github.com/manaflow-ai/cmux/issues/10756).
+    /// Only committed state decides: a report the reader recorded but has not
+    /// committed yet must not turn the initial absent state into a clear.
     pub(crate) fn presented_directory(&self) -> Option<String> {
         let pty = self.as_pty()?;
         match &*pty.published_directory.lock().unwrap() {
             PublishedDirectory::Reported(Some(directory)) => Some(directory.clone()),
-            PublishedDirectory::Reported(None)
-                if pty.directory_reported.load(Ordering::Acquire) =>
-            {
-                None
-            }
+            PublishedDirectory::Cleared => None,
             PublishedDirectory::Reported(None) | PublishedDirectory::Unreported => pty.cwd.clone(),
         }
     }
@@ -60,13 +61,24 @@ impl Surface {
     pub(crate) fn directory_publication_matches(&self, directory: &Option<String>) -> bool {
         self.as_pty().is_some_and(|pty| match &*pty.published_directory.lock().unwrap() {
             PublishedDirectory::Unreported => false,
+            PublishedDirectory::Cleared => directory.is_none(),
             PublishedDirectory::Reported(value) => value == directory,
         })
     }
 
     pub(crate) fn commit_published_directory(&self, directory: Option<String>) {
         if let Some(pty) = self.as_pty() {
-            *pty.published_directory.lock().unwrap() = PublishedDirectory::Reported(directory);
+            let mut published = pty.published_directory.lock().unwrap();
+            let cleared = directory.is_none()
+                && matches!(
+                    *published,
+                    PublishedDirectory::Reported(Some(_)) | PublishedDirectory::Cleared
+                );
+            *published = if cleared {
+                PublishedDirectory::Cleared
+            } else {
+                PublishedDirectory::Reported(directory)
+            };
         }
     }
 

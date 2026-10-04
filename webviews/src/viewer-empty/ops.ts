@@ -13,8 +13,8 @@
 //     `cmux.editor.chooseFile {start?}` (any file), then `cmux.editor.open {path}`.
 // A host signals the empty state with `{pick: true}` from `cmux.diff.config` (or a payload without
 // `repoRoot` and `sessionSource`) and from `cmux.markdown.config` (or a config without `path`).
-// `cmux.picker.list` is the data source of the in-page fallback picker (PathPicker.tsx); the dev
-// server serves it, the app does not need to.
+// `cmux.picker.list` and `cmux.picker.locations` are the data sources of the in-page fallback
+// picker (PathPicker.tsx); the dev server serves them, the app does not need to.
 import type { DiffSource } from "../diff/generated/protocol";
 
 export const DIFF_RECENTS_OP = "cmux.diff.recents";
@@ -28,6 +28,7 @@ export const MARKDOWN_NOT_MARKDOWN = "cmux.markdown.not_markdown";
 export const EDITOR_RECENTS_OP = "cmux.editor.recents";
 export const EDITOR_CHOOSE_FILE_OP = "cmux.editor.chooseFile";
 export const PICKER_LIST_OP = "cmux.picker.list";
+export const PICKER_LOCATIONS_OP = "cmux.picker.locations";
 
 /** The source kinds the diff empty state offers; `uncommitted` is a branch session against HEAD. */
 export type EmptySourceKind = "branch" | "uncommitted" | "staged" | "unstaged";

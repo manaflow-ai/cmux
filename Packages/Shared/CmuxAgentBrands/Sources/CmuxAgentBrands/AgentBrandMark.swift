@@ -21,7 +21,7 @@ public struct AgentBrandMark: View {
 
     public var body: some View {
         Group {
-            if let spec = AgentBrandCatalog.spec(forAgent: agent) {
+            if let spec = AgentBrandCatalog.spec(forAgent: agent, pointSize: Double(size)) {
                 AgentBrandCanvas(spec: spec, style: style, dark: colorScheme == .dark)
             } else {
                 Image(systemName: "terminal")

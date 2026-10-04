@@ -960,7 +960,10 @@ pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
 }
 
 mod codex_adapter;
-pub use codex_adapter::{CODEX_ACP_PACKAGE, codex_through_adapter_package};
+pub use codex_adapter::{
+    CODEX_ACP_PACKAGE, adapter_package_launch, codex_through_adapter_package,
+    resolve_adapter_package_bin,
+};
 mod preset_args;
 pub use preset_args::{
     Preset, SYSTEM_PROMPT_FILE, check_preset_args, check_preset_dir_name, checked_system_prompt,

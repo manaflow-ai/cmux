@@ -17,6 +17,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { startFixtureServers } from "./lib/fixture-server.mjs";
 import { normalize, diffValues } from "./lib/normalize.mjs";
+import { makeTestDir, removeTestDir } from "./lib/test-dirs.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const MARK = "@@PARITY@@";
@@ -80,9 +81,9 @@ function wrapCell(origins, cell) {
   return `${prelude(origins)};\n${cell.body}`;
 }
 
-function exec(cmd, argv, { input, timeoutMs = 180_000, env } = {}) {
+function exec(cmd, argv, { input, timeoutMs = 180_000, env, cwd } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(cmd, argv, { stdio: ["pipe", "pipe", "pipe"], env: env ?? process.env });
+    const child = spawn(cmd, argv, { stdio: ["pipe", "pipe", "pipe"], env: env ?? process.env, cwd });
     let out = "";
     let err = "";
     const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
@@ -155,6 +156,9 @@ async function runCliCells(cells, scenario, { evalArgv, resetArgv, exec: run }) 
   const suffix = Math.random().toString(36).slice(2, 8);
   const sessions = new Set();
   const outputs = [];
+  // A new working directory for the scenario: the session's fs root, where
+  // scenarios write and remove their files, never the checkout.
+  const workDir = makeTestDir("parity-cmux-");
   try {
     for (const cell of cells) {
       let name = null;
@@ -162,13 +166,14 @@ async function runCliCells(cells, scenario, { evalArgv, resetArgv, exec: run }) 
         name = `parity-${scenario}-${cell.session}-${suffix}`;
         sessions.add(name);
       }
-      const r = await run(evalArgv(name), { input: cell.code });
+      const r = await run(evalArgv(name), { input: cell.code, cwd: workDir });
       const lines = r.out.split("\n").filter((l) => !/^\[(ok|error) \| \d+ms\]$/.test(l.trim()));
       while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
       outputs.push({ output: lines.join("\n"), error: r.code === 0 ? null : r.err.trim() || `exit ${r.code}` });
     }
   } finally {
     for (const name of sessions) await run(resetArgv(name), {});
+    removeTestDir(workDir);
   }
   return outputs;
 }

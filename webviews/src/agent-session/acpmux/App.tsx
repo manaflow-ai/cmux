@@ -214,7 +214,7 @@ const MessageRow = memo(
     if (row.kind === "user")
       return (
         <div className="cv-user">
-          <div className="cv-user__bubble">{row.text ?? ""}</div>
+          <div className="cv-user__bubble selectable">{row.text ?? ""}</div>
         </div>
       );
     return <RevealedMarkdown text={row.text ?? ""} streaming={row.streaming === true} />;

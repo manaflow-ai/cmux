@@ -13,11 +13,18 @@
 #                      (ChildSignalDefaults: caught by a no-op handler, so a
 #                      write fails with EPIPE and children still get the
 #                      default; ChildSignalDefaultsTests proves both).
+#   ratchet:           crash_ratchet.py (plans/cmux-next/crash-elimination.md):
+#                      no module or crate gains a force unwrap, as!, fatalError,
+#                      precondition, assumeIsolated, unowned, implicitly
+#                      unwrapped declaration or unchecked concurrency hit
+#                      (Swift), or an unwrap/expect/panic!/exit (cmux-tui
+#                      Rust), beyond crash-safety-baseline.json.
 #
 # Usage: scripts/cmux-next/check-crash-safety.sh [package-root]
 set -euo pipefail
 root="${1:-$(git rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
-exec python3 - "$root" <<'PY'
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+python3 - "$root" <<'PY'
 import os, re, sys
 
 root = sys.argv[1]
@@ -68,3 +75,4 @@ if failures:
     sys.exit(1)
 print("check-crash-safety: ok")
 PY
+python3 "$here/crash_ratchet.py" --repo "$(cd "$root/../../.." && pwd)"

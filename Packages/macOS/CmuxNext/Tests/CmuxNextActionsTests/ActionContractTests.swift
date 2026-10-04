@@ -31,7 +31,8 @@ import Testing
             #expect((reason == .paletteInternal) == descriptor.requires.contains(.paletteOpen), "\(descriptor.id)")
         }
         #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id.rawValue).sorted()
-            == ["commandPaletteNext", "commandPalettePrevious", "history.goTo", "openBrowser.chromium"])
+            == ["browser.findPrevious", "commandPaletteNext", "commandPalettePrevious", "history.goTo",
+                "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium"])
     }
 
     @Test func shortcutIDsAreUniqueAndDefaultsDoNotCollide() {

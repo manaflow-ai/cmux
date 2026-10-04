@@ -230,6 +230,30 @@
         ],
         "viewBox": "441 2477 4640 4640",
         "precision": 0
+      },
+      "small": {
+        "about": "Drawn at 16 pt and below, where the traced portrait is an unreadable dark shape.",
+        "import": {
+          "fetch": {
+            "url": "https://web-assets.nousresearch.com/portal/11b70838b186f6f05680ecc2d86b29ccd3baabf6/assets/hermes-landing/teams/hermes-wing.svg"
+          },
+          "paths": [
+            {
+              "from": [
+                0
+              ],
+              "fillRule": "evenodd"
+            }
+          ],
+          "viewBox": "-19.7 0 78.5 78.5",
+          "precision": 1,
+          "simplify": 0.35
+        },
+        "source": {
+          "url": "https://nousresearch.com",
+          "file": "Nous Research site, Hermes landing page asset hermes-landing/teams/hermes-wing.svg (the Hermes wing); its light silhouette path only (the blue shading path is detail that cannot show at 16 pt); the traced staircase outline simplified (steps under 0.35 of 78.5 units dropped); view box squared",
+          "license": "Nous Research site artwork; trademark of Nous Research. The wing is Nous Research's Hermes motif, not the agent's app icon; Lawrence/coordinator to confirm this identity at small sizes."
+        }
       }
     },
     {

@@ -10,7 +10,7 @@ final class TabAgentMarkCache {
     private static let fill: CGFloat = 0.82
 
     func image(brand: String, tint: NSColor, size: CGFloat, scale: CGFloat) -> CGImage? {
-        guard let spec = AgentBrandCatalog.spec(for: AgentBrandID(rawValue: brand)) else { return nil }
+        guard let spec = AgentBrandCatalog.spec(for: AgentBrandID(rawValue: brand))?.variant(forPointSize: Double(size)) else { return nil }
         let resolved = tint.usingColorSpace(.sRGB) ?? tint
         let key = "\(brand)|\(resolved.redComponent)|\(resolved.greenComponent)|\(resolved.blueComponent)|\(resolved.alphaComponent)|\(size)|\(scale)"
         if let cached = cache[key] { return cached }

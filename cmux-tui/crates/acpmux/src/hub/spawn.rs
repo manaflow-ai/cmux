@@ -66,6 +66,7 @@ impl Hub {
         for a in p.argv.iter_mut() {
             *a = expand_env_value(a, &meta.cwd, &home, &model);
         }
+        p.argv = self.resolved_launcher_argv(p.argv);
         // After expansion: the path is acpmux's own, never expanded.
         if let Some(file) = prompt_file {
             p.argv.push("--system-prompt-file".into());

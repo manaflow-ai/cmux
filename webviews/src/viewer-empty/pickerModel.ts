@@ -78,79 +78,111 @@ export function breadcrumb(path: string, home: string | null): Crumb[] {
   return crumbs;
 }
 
-export type PickerAction =
-  | { kind: "move"; delta: number }
-  | { kind: "edge"; to: "first" | "last" }
-  | { kind: "enter" }
-  | { kind: "up" }
-  | { kind: "choose" }
-  | { kind: "clear" }
-  | { kind: "cancel" }
-  | null;
+// The key table lives with the drill-down widget (ui/drillKeys.ts); the palette picker reads it here.
+export {
+  drillKeyAction as pickerKeyAction,
+  type DrillAction as PickerAction,
+  type DrillKey as PickerKey,
+} from "../ui/drillKeys";
 
-export interface PickerKey {
-  key: string;
-  shiftKey?: boolean;
-  ctrlKey?: boolean;
-  metaKey?: boolean;
-  altKey?: boolean;
+/** Whether a query is a path: it starts with `/` or `~/` (path mode). `~` alone is text. */
+export function isPathQuery(query: string): boolean {
+  return query.startsWith("/") || query.startsWith("~/");
+}
+
+export interface PathQuery {
+  /** The folder part as typed, up to and with its last `/` (`~/fun/`). */
+  typed: string;
+  /** The folder to list (`~/` is home). */
+  dir: string;
+  /** The segment after the last `/`, being typed (`cm`). */
+  rest: string;
 }
 
 /**
- * What a key in the picker's field does. `caret` is the field's selection (start and end); Right
- * enters and Left goes up only from the end and the start of the text, so they still move the
- * caret inside a query.
+ * A path query split into the folder to list and the segment being typed: `~/fun/cm` lists
+ * `<home>/fun` and completes `cm`; `/` lists the root. `~/` before any listing named home is
+ * `"~"`, which the host resolves (`cmux.picker.list {path: "~"}`). Null when not a path.
  */
-export function pickerKeyAction(
-  event: PickerKey,
-  state: { query: string; caretStart: number; caretEnd: number },
-): PickerAction {
-  const plain = !event.metaKey && !event.altKey;
-  switch (event.key) {
-    case "ArrowDown":
-      return plain ? { kind: "move", delta: 1 } : null;
-    case "ArrowUp":
-      return plain ? { kind: "move", delta: -1 } : null;
-    case "n":
-      return event.ctrlKey && plain ? { kind: "move", delta: 1 } : null;
-    case "p":
-      return event.ctrlKey && plain ? { kind: "move", delta: -1 } : null;
-    case "PageDown":
-      return { kind: "move", delta: 10 };
-    case "PageUp":
-      return { kind: "move", delta: -10 };
-    case "Home":
-      return state.query === "" ? { kind: "edge", to: "first" } : null;
-    case "End":
-      return state.query === "" ? { kind: "edge", to: "last" } : null;
-    case "Tab":
-      return event.shiftKey || !plain || event.ctrlKey ? null : { kind: "enter" };
-    case "ArrowRight":
-      return plain && !event.shiftKey && state.caretStart === state.query.length && state.caretEnd === state.caretStart
-        ? { kind: "enter" }
-        : null;
-    case "ArrowLeft":
-      return plain && !event.shiftKey && state.caretStart === 0 && state.caretEnd === 0 ? { kind: "up" } : null;
-    case "Backspace":
-      return state.query === "" && plain ? { kind: "up" } : null;
-    case "Enter":
-      return plain ? { kind: "choose" } : null;
-    case "Escape":
-      return state.query === "" ? { kind: "cancel" } : { kind: "clear" };
-    default:
-      return null;
-  }
+export function pathQuery(query: string, home: string | null): PathQuery | null {
+  if (!isPathQuery(query)) return null;
+  const cut = query.lastIndexOf("/");
+  const typed = query.slice(0, cut + 1);
+  const rest = query.slice(cut + 1);
+  const base = home?.replace(/\/+$/, "") ?? "~";
+  const head = typed.slice(0, -1);
+  const dir = head.startsWith("~") ? `${base}${head.slice(1)}` : head;
+  return { typed, dir: dir === "" ? "/" : dir.replace(/\/+$/, "") || "/", rest };
 }
 
-/** A typed query that jumps: `~` home, `/` the root, `name/` into that folder of the level. */
-export function queryJump(query: string, rows: readonly PickerRow[], home: string | null): { path: string } | null {
-  // Before any listing named home, `~` asks the host for it (`cmux.picker.list {path: "~"}`).
-  if (query === "~") return { path: home ?? "~" };
-  if (query === "/") return { path: "/" };
-  if (query.length > 1 && query.endsWith("/")) {
-    const name = query.slice(0, -1).toLowerCase();
-    const row = rows.find((candidate) => candidate.kind === "dir" && candidate.name.toLowerCase() === name);
-    if (row) return { path: row.path };
+/**
+ * The entries of a path query's folder that complete its segment: a case-insensitive prefix, in
+ * the listing's order (folders first, Finder order); dot entries only for a segment starting `.`.
+ */
+export function pathCompletions(rows: readonly PickerRow[], rest: string): PickerRow[] {
+  const wanted = rest.toLowerCase();
+  return rows.filter(
+    (row) => (rest.startsWith(".") || !row.name.startsWith(".")) && row.name.toLowerCase().startsWith(wanted),
+  );
+}
+
+/** The query after completing `row` in path mode: a folder ends in `/`, so its entries follow. */
+export function completedQuery(path: PathQuery, row: PickerEntry): string {
+  return `${path.typed}${row.name}${row.kind === "dir" ? "/" : ""}`;
+}
+
+/** The path query that shows folder `path` (home written as `~`), ending in `/`. */
+export function folderQuery(path: string, home: string | null): string {
+  const base = home?.replace(/\/+$/, "") ?? null;
+  if (base && (path === base || path.startsWith(`${base}/`))) return `~${path.slice(base.length)}/`;
+  return path === "/" ? "/" : `${path}/`;
+}
+
+/** The kinds of place `cmux.picker.locations` answers, in its order (R89 Locations). */
+export type PickerPlaceKind = "workspace" | "home" | "desktop" | "documents" | "downloads" | "iCloudDrive" | "pinned";
+
+export interface PickerPlace {
+  kind: PickerPlaceKind;
+  path: string;
+}
+
+const PLACE_KINDS = new Set<string>([
+  "workspace",
+  "home",
+  "desktop",
+  "documents",
+  "downloads",
+  "iCloudDrive",
+  "pinned",
+]);
+
+/**
+ * The places of a `cmux.picker.locations` answer (`{locations: [{kind, path}]}`), in the host's
+ * order, each folder once; malformed rows are dropped.
+ */
+export function parsePickerPlaces(value: unknown): PickerPlace[] {
+  const rows = (value as { locations?: unknown } | null)?.locations;
+  if (!Array.isArray(rows)) return [];
+  const seen = new Set<string>();
+  const out: PickerPlace[] = [];
+  for (const row of rows as Array<Partial<PickerPlace> | null>) {
+    if (!row || typeof row.path !== "string" || row.path === "" || !PLACE_KINDS.has(String(row.kind))) continue;
+    const path = row.path.length > 1 ? row.path.replace(/\/+$/, "") : row.path;
+    if (seen.has(path)) continue;
+    seen.add(path);
+    out.push({ kind: row.kind as PickerPlaceKind, path });
   }
-  return null;
+  return out;
+}
+
+/** The standard places under `home` (the fallback when the host answers no locations). */
+export function standardPlaces(home: string | null): PickerPlace[] {
+  if (!home) return [];
+  const base = home.replace(/\/+$/, "");
+  return [
+    { kind: "home", path: base },
+    { kind: "desktop", path: `${base}/Desktop` },
+    { kind: "documents", path: `${base}/Documents` },
+    { kind: "downloads", path: `${base}/Downloads` },
+  ];
 }

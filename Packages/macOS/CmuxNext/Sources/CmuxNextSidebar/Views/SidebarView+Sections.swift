@@ -145,11 +145,11 @@ extension SidebarView {
     /// A space switch (R99): after a swipe the real list takes the page's
     /// place; else the old page slides out toward the side away from the new
     /// space's dot (a new space at the end comes in from the trailing edge).
-    func switchSpace(from old: ProfileKey?, to new: ProfileKey?, profiles: [SidebarProfile]) {
+    func switchSpace(from old: ProfileKey?, to new: ProfileKey?, profiles: [SidebarProfile], oldSections: [SidebarSection] = []) {
         if spacePaging.modelDidSwitch(to: new) { return list.reload(animated: false) }
         let oldIndex = profiles.firstIndex { $0.id == old }, newIndex = profiles.firstIndex { $0.id == new }
         guard let oldIndex, let newIndex, oldIndex != newIndex else { return list.reload(animated: false) }
-        spacePaging.prepareSlide()
+        spacePaging.prepareSlide(oldSections: oldSections)
         list.reload(animated: false)
         spacePaging.slide(direction: SpacePager.direction(from: oldIndex, to: newIndex))
     }

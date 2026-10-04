@@ -13,9 +13,9 @@ extension BrowserChromeView {
         case .stop: tab.stop()
         case .goBack: tab.goBack()
         case .goForward: tab.goForward()
-        case .zoomIn: tab.zoomIn()
-        case .zoomOut: tab.zoomOut()
-        case .resetZoom: tab.resetZoom()
+        case .zoomIn: tab.zoomIn(); siteZoom.userDidZoom()
+        case .zoomOut: tab.zoomOut(); siteZoom.userDidZoom()
+        case .resetZoom: tab.resetZoom(); siteZoom.userDidZoom()
         case .showDevTools: tab.showDevTools()
         }
     }
