@@ -220,3 +220,14 @@ on-disk cache and offline read-only view (home-scale.md A7), the daemon-held mir
 lands on feat-cmux-next, `cloud-inbox-list` takes `cursor?` and returns `next_cursor` so it matches
 `inbox.list`. The home-inbox branch had not landed when this branch merged feat-cmux-next, so part 1
 keeps the `{limit?, include_archived?}` request and `{entries, revision}` result.
+
+Subscription state for a later subscriber (cloud Home source review, 2026-10-04): section 5 says
+the client refuses edits while a target is not `live`. The Swift source (feat-cmux-next-home-cloud-source)
+cannot follow that yet. `CloudService::subscribe` answers `connecting` whenever a lease is active,
+also when the shared upstream socket for that target is already `live`, and `cloud-subscription-state`
+reports only later changes. A second local client, or the same client after it unsubscribed and
+subscribed within the 60 s linger, therefore stays at `connecting` with no event that moves it to
+`live`. Until the daemon answers with the socket's current state (or sends the current state to the
+new subscriber at once), the source refuses edits only while a target is `disconnected` or `closed`
+and lets them through while it is `connecting`. When this lands, the source refuses edits while not
+`live`, as section 5 says.
