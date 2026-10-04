@@ -395,8 +395,8 @@ Any call that needs the page (`tabs.use()` reads `tab.info`, so it is one)
 loads a hibernated tab again first, also when automatic restore of unloaded
 pages is off in Settings, and waits until the restored document is parsed,
 at most 30 s. The load runs off screen like any driven hidden tab; it never
-shows or focuses the tab. Closing, keeping or navigating a hibernated tab
-does not load its old page. A hidden tab whose process died is restored the
+shows or focuses the tab. Closing, keeping or navigating away from a
+hibernated tab does not load its old page, and `page.reload()` loads it once. A hidden tab whose process died is restored the
 same way on the next call. When the tab cannot be woken the call fails with
 an error that names it ([driver-protocol.md](driver-protocol.md#hibernated-and-crashed-tabs)
 has the exact texts): `hibernated` when the user stopped the tab from

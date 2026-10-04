@@ -149,6 +149,16 @@ struct BrowserReplTabWakeTests {
         #expect(tab.condition.state == .live)
     }
 
+    @Test func aCrashedTabRecoveringInANewProcessIsWaitedFor() async throws {
+        let tab = FakeTab(BrowserReplTabCondition(isCrashed: true))
+        // Recovery starts a load in a new web view; the tab is not hibernated.
+        tab.onRecover = { $0.condition = BrowserReplTabCondition() }
+        var waited = false
+        tab.onWait = { _ in waited = true }
+        #expect(try await tab.prepare("tab.reload", sleeper: DistantSleeper()) == .reloaded)
+        #expect(waited)
+    }
+
     @Test func reloadingAHibernatedTabIsItsWake() async throws {
         let tab = FakeTab(BrowserReplTabCondition(isHibernated: true))
         let outcome = try await tab.prepare("tab.reload", sleeper: DistantSleeper())

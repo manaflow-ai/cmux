@@ -231,11 +231,20 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         do {
             if let panel = tabToPrepare {
-                try await prepareTab(panel, for: method)
+                let preparation = try await prepareTab(panel, for: method)
                 let attachment = attachment(panel)
                 // WebKit signals the update; the bound only guards a web process
                 // that goes away before answering.
                 _ = await withTimeout(milliseconds: 2_000) { await attachment.renderingSettled() }
+                if preparation == .reloaded {
+                    // Loading the crashed or hibernated tab again was the reload.
+                    var result: [String: Any] = [:]
+                    if let status = attachment.mainDocumentStatus { result["status"] = status }
+                    guard let json = JSONSerialization.browserReplString(result.isEmpty ? nil : result as Any?) else {
+                        return .success("null")
+                    }
+                    return .success(json)
+                }
             }
             try checkPagePolicy(method: method, params: params)
             try await checkFramePolicy(method: method, params: params)
@@ -524,17 +533,23 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// stopped). Waking renders the tab off screen; it never shows or
     /// focuses it.
     @MainActor
-    private func prepareTab(_ panel: BrowserPanel, for method: String) async throws {
+    private func prepareTab(_ panel: BrowserPanel, for method: String) async throws -> BrowserReplTabPreparation {
         let label = BrowserReplTabLabel(id: panel.id.uuidString, title: Self.title(panel), url: Self.url(panel))
-        try await BrowserReplTabWaker(sleeper: sleeper).prepare(
+        return try await BrowserReplTabWaker(sleeper: sleeper).prepare(
             method: method,
             tab: label,
             condition: { self.tabCondition(panel) },
             wake: { self.attachment(panel).keepRendering() },
+            recoverCrash: {
+                // As the pane's Reload does: a new web content process loads
+                // the page into a new web view, off screen.
+                _ = panel.recoverTerminatedWebContent(reason: "browser.repl.reload")
+                self.attachment(panel).keepRendering()
+            },
             waitUntilLoaded: { [self] in
-                // The restore commits into the web view the discard put in
-                // place; a crash during it replaces that web view again.
-                while panel.hiddenWebViewDiscardManager.isDiscardedForMemory, !Task.isCancelled {
+                // The page commits into the web view the discard or the crash
+                // recovery put in place; one replaced again meanwhile is waited for too.
+                while !Task.isCancelled {
                     let outcome = await panel.automationDocumentReadiness.waitForCommit(instanceID: panel.webViewInstanceID)
                     guard outcome == .superseded else { break }
                 }

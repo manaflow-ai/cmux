@@ -62,6 +62,15 @@ public struct BrowserReplTabLabel: Sendable, CustomStringConvertible {
     }
 }
 
+/// What ``BrowserReplTabWaker/prepare(method:tab:condition:wake:recoverCrash:waitUntilLoaded:)`` did.
+public enum BrowserReplTabPreparation: Equatable, Sendable {
+    /// The tab is ready; run the call.
+    case ready
+    /// The call was `tab.reload` on a crashed or hibernated tab: bringing the
+    /// page back was the reload, and its page has loaded.
+    case reloaded
+}
+
 /// Brings a tab's web content back before a driver call that needs it.
 ///
 /// cmux unloads hidden browser tabs to save memory (hibernation). A tab a
@@ -86,9 +95,9 @@ public struct BrowserReplTabWaker {
     }
 
     /// Methods that never use the tab's current page: closing or keeping it,
-    /// and navigations, which replace the page anyway.
+    /// and navigations away, which replace the page anyway.
     private static let independentOfPage: Set<String> = [
-        "tabs.close", "tab.keep", "tab.navigate", "tab.reload", "tab.history",
+        "tabs.close", "tab.keep", "tab.navigate", "tab.history",
     ]
 
     /// Methods a crashed tab still answers: the navigations that start a new
@@ -105,25 +114,47 @@ public struct BrowserReplTabWaker {
 
     /// Makes the tab ready for `method`, or throws why it cannot be.
     ///
+    /// `tab.reload` on a crashed or hibernated tab is answered here: loading
+    /// the page into a new or restored web view is the reload, and a reload
+    /// of the old web view would be superseded by it.
+    ///
     /// - Parameters:
     ///   - condition: The tab's current condition; read again after each step.
     ///   - wake: Starts the restore of a hibernated tab (a no-op while one runs).
+    ///   - recoverCrash: Starts loading a crashed tab's page in a new web
+    ///     content process (only for `tab.reload`).
     ///   - waitUntilLoaded: Returns once the restored page has loaded, or
     ///     when it can no longer load (the restore failed). It keeps running
     ///     in the background when ``timeout`` passes first.
+    @discardableResult
     public func prepare(
         method: String,
         tab: BrowserReplTabLabel,
         condition: () -> BrowserReplTabCondition,
         wake: () -> Void,
+        recoverCrash: () -> Void,
         waitUntilLoaded: @escaping @MainActor () async -> Void
-    ) async throws {
+    ) async throws -> BrowserReplTabPreparation {
         var current = condition()
+        let isReload = method == "tab.reload"
         if current.isCrashed {
-            if Self.answeredWhenCrashed.contains(method) { return }
-            throw Self.crashedError(method: method, tab: tab)
+            guard isReload else {
+                if Self.answeredWhenCrashed.contains(method) { return .ready }
+                throw Self.crashedError(method: method, tab: tab)
+            }
+            recoverCrash()
+            current = condition()
+            if current.isCrashed { throw Self.crashedError(method: method, tab: tab) }
+            if !current.isHibernated {
+                // A new web content process loads the page.
+                let loaded = await race(waitUntilLoaded)
+                if condition().isCrashed { throw Self.crashedError(method: method, tab: tab) }
+                guard loaded else { throw Self.reloadTimeoutError(tab: tab, timeout: timeout) }
+                return .reloaded
+            }
+        } else {
+            guard current.isHibernated, Self.wakesHibernatedTab(method) else { return .ready }
         }
-        guard current.isHibernated, Self.wakesHibernatedTab(method) else { return }
         wake()
         current = condition()
         if current.isHibernated, !current.isWaking {
@@ -132,7 +163,7 @@ public struct BrowserReplTabWaker {
         let loaded = await race(waitUntilLoaded)
         current = condition()
         if current.isCrashed { throw Self.crashedError(method: method, tab: tab) }
-        guard current.isHibernated else { return }
+        guard current.isHibernated else { return isReload ? .reloaded : .ready }
         if loaded || !current.isWaking {
             throw Self.notRestoredError(method: method, tab: tab, stopped: current.restoreStoppedByUser)
         }
@@ -167,6 +198,13 @@ public struct BrowserReplTabWaker {
 
     private static func seconds(_ duration: Duration) -> Int {
         Int(duration.components.seconds)
+    }
+
+    static func reloadTimeoutError(tab: BrowserReplTabLabel, timeout: Duration) -> BrowserReplDriverError {
+        BrowserReplDriverError(
+            code: "timeout",
+            message: "tab.reload: \(tab) crashed and did not load again within \(seconds(timeout)) s; it is still loading: retry, or call page.reload() again"
+        )
     }
 
     static func crashedError(method: String, tab: BrowserReplTabLabel) -> BrowserReplDriverError {

@@ -105,15 +105,17 @@ drops a marked key that arrives outside the web view's own delivery.
 A tab a relaunch restored but no pane has shown yet lists as `hibernated`
 too; the first call on it creates its browser, which then wakes the same
 way. Every call with a `targetId` except `tabs.close`, `tab.keep`,
-`tab.navigate`, `tab.reload` and `tab.history` first wakes a hibernated tab
+`tab.navigate` and `tab.history` first wakes a hibernated tab
 (the driver starts the restore of the page cmux unloaded, off screen) and
 waits, at most 30 s on the injected clock, until the restore commits and
 the document reaches `DOMContentLoaded`. Then the call runs. On a crashed
 tab (web content process ended, Reload offered in the pane) every call but
 `tabs.close`, `tab.keep`, `tab.navigate`, `tab.reload`, `tab.history`,
 `tab.info`, `tabs.activate`, `tab.bringToFront` and `tab.handleEvents`
-fails at once. A hidden tab whose process ended is restored like a
-hibernated one. Errors, where `<tab>` is `tab <id> ("<title>", <url>)`:
+fails at once. `tab.reload` on a crashed tab loads the page in a new web
+content process (as the pane's Reload does) and waits for it like a wake;
+on a hibernated tab the wake is the reload. A hidden tab whose process
+ended is restored like a hibernated one. Errors, where `<tab>` is `tab <id> ("<title>", <url>)`:
 
 | Condition | Code | Message |
 | --- | --- | --- |
