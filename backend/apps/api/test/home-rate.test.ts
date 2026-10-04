@@ -99,4 +99,12 @@ describe("Home rate limits before reach", { timeout: 120_000 }, () => {
     expect(rejectOf(refused)).toMatchObject({ code: "home.rate_limited", retryable: true })
     expect(rec.calls).toEqual([])
   })
+
+  it("homeRateTake creates no storage in a UserDO that never served the user, and refuses", async () => {
+    const id = userIdFor(testEnv.STACK_PROJECT_ID, "rate-unbound-nobody")
+    const stub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(id)) as unknown as { homeRateTake(e: string, a: string, op: string): Promise<{ ok: boolean }> }
+    expect(await stub.homeRateTake(id, id, "conversation.create")).toMatchObject({ ok: false })
+    const tables = await inDO(stub, async (_i, state) => state.storage.sql.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('home_rate', 'do_entity')").toArray().map((r: any) => r.name))
+    expect(tables).not.toContain("home_rate")
+  })
 })
