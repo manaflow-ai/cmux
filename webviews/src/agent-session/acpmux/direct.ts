@@ -1614,6 +1614,12 @@ export class AcpmuxDirectClient {
   }
 }
 
+/// Why acpmux says a harness will not start: its launcher check, else its failed model probe.
+export function harnessRefusal(entry: { unavailable?: unknown; probeError?: unknown } | undefined): string | undefined {
+  for (const reason of [entry?.unavailable, entry?.probeError]) if (typeof reason === "string" && reason) return reason;
+  return undefined;
+}
+
 export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
   const harnesses = value?.harnesses ?? value?.items ?? value ?? [];
   return (
@@ -1625,7 +1631,8 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
       id: String(model.id ?? model.modelId),
       name: model.name,
     })),
-    // Why acpmux will not start it (a launcher it could not find), when it says.
-    ...(typeof harness.unavailable === "string" && harness.unavailable ? { unavailable: harness.unavailable } : {}),
+    // Why acpmux will not start it, when it says: its launcher check (`unavailable`), else its
+    // failed model probe (`probeError`).
+    ...(harnessRefusal(harness) ? { unavailable: harnessRefusal(harness) } : {}),
   }));
 }

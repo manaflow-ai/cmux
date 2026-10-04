@@ -1,4 +1,4 @@
-import { normalizeCatalog } from "./direct";
+import { harnessRefusal, normalizeCatalog } from "./direct";
 import type { AcpmuxSnapshot } from "./model";
 
 // The composer's model catalog. acpmux keeps its harness list (`_acpmux/harnesses`: names,
@@ -10,17 +10,18 @@ type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
 /// `names` (_acpmux/harnesses) with each harness's models from `probed` (_acpmux/models);
 /// harnesses only `probed` names (a peer's) are added. A list that already carries models
-/// (the mock daemon) keeps them. A harness either list marks `unavailable` (its launcher check,
-/// its model probe) keeps the reason, the launcher's first.
+/// (the mock daemon) keeps them. A harness acpmux will not start keeps the reason as
+/// `unavailable`: its launcher check (`unavailable` on the _acpmux/harnesses entry) first, else its
+/// failed model probe (`probeError`, on either list's entry).
 export function mergeModelCatalog(names: unknown, probed: unknown): Catalog {
   const catalog = normalizeCatalog(names);
   const entries = (probed as { harnesses?: unknown } | undefined)?.harnesses;
   if (!Array.isArray(entries)) return catalog;
   const byHarness = new Map<string, Catalog[number]["models"]>();
   const refused = new Map<string, string>();
-  for (const entry of entries as { harness?: unknown; models?: unknown; unavailable?: unknown }[]) {
-    if (typeof entry?.harness === "string" && typeof entry.unavailable === "string" && entry.unavailable)
-      refused.set(entry.harness, entry.unavailable);
+  for (const entry of entries as { harness?: unknown; models?: unknown; probeError?: unknown }[]) {
+    const reason = harnessRefusal({ probeError: entry?.probeError });
+    if (typeof entry?.harness === "string" && reason) refused.set(entry.harness, reason);
     if (typeof entry?.harness !== "string" || !Array.isArray(entry.models)) continue;
     byHarness.set(
       entry.harness,
