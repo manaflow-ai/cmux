@@ -41,6 +41,9 @@ struct BrowserReplFetchRedirectTests {
                 ["X-Auth-Token", "t0ken"],
                 ["Cookie", "sid=agent"],
                 ["Accept", "application/json"],
+                ["Content-Language", "en"],
+                ["X-Client-Ref", "opaque-ref-1"],
+                ["X-Request-Context", "ctx-2"],
             ],
             "credentials": "omit",
         ]
@@ -61,6 +64,18 @@ struct BrowserReplFetchRedirectTests {
             #expect(headers[name] == nil, "\(name) reached the other origin: \(headers)")
         }
         #expect(headers["accept"] == "application/json", "\(headers)")
+    }
+
+    /// A header's name need not say it carries a credential: a redirect to
+    /// another origin keeps only the CORS-safelisted headers the caller set.
+    @Test("A redirect to another origin drops every caller header that is not CORS-safelisted")
+    func crossOriginRedirectDropsNeutralCustomHeaders() async throws {
+        let headers = try await landingHeaders(redirectingFrom: "/cross")
+        for name in ["x-client-ref", "x-request-context"] {
+            #expect(headers[name] == nil, "\(name) reached the other origin: \(headers)")
+        }
+        #expect(headers["accept"] == "application/json", "\(headers)")
+        #expect(headers["content-language"] == "en", "\(headers)")
     }
 
     /// A request body past 64 MiB (the response body limit) is refused before
@@ -103,6 +118,7 @@ struct BrowserReplFetchRedirectTests {
         let headers = try await landingHeaders(redirectingFrom: "/same")
         #expect(headers["x-api-key"] == "k3y", "\(headers)")
         #expect(headers["x-auth-token"] == "t0ken", "\(headers)")
+        #expect(headers["x-client-ref"] == "opaque-ref-1", "\(headers)")
         #expect(headers["accept"] == "application/json", "\(headers)")
     }
 }
