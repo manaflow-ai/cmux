@@ -330,15 +330,7 @@ fn host_link_get_answers_the_daemon_values_and_needs_its_scope() {
         (refused["t"].clone(), refused["id"].clone(), refused["code"].clone()),
         (json!("host.error"), json!(7), json!("apps.scope_missing"))
     );
-    // A link change reaches only servers that may read the link.
-    f.supervisor.host_link_changed();
-    let event = &frames(&linked, 2)[1];
-    assert_eq!(
-        (event["t"].clone(), event["op"].clone(), event["data"].clone()),
-        (json!("host.event"), json!("cmux.host.link.changed"), value.clone())
-    );
-    std::thread::sleep(Duration::from_millis(200));
-    assert_eq!(frames(&unscoped, 1).len(), 1);
+    // A link change reaches only scoped servers: supervisor_link_tests.rs.
 }
 
 /// Makes the server app `cmux/<dir>` a terminal connector whose user runs of
@@ -631,3 +623,6 @@ fn a_server_without_the_relay_scope_is_refused() {
         (json!("host.error"), json!("apps.scope_missing"))
     );
 }
+
+#[path = "supervisor_link_tests.rs"]
+mod link;

@@ -305,6 +305,7 @@ fn fixture_with(defaults: &[&str], idle: Duration, root: TempDir) -> Fixture {
             .map(String::from)
             .to_vec(),
             server_dir: Some(root.0.join("servers")),
+            link_dir: Some(root.0.join("link")),
             sources: Sources {
                 first_party: None,
                 bundled: vec![bundled],

@@ -52,6 +52,7 @@ fn a_fresh_daemon_with_the_bundle_path_lists_coderouter_installed_by_default() {
             host_binary: None,
             host_args: Vec::new(),
             server_dir: None,
+            link_dir: None,
             sources: Sources {
                 first_party: Some(first_party),
                 bundled: vec![],
@@ -105,6 +106,7 @@ fn a_fresh_daemon_with_the_bundle_path_lists_coderouter_installed_by_default() {
             host_binary: None,
             host_args: Vec::new(),
             server_dir: None,
+            link_dir: None,
             sources: Sources {
                 first_party: Some(root.0.join("first-party")),
                 bundled: vec![],
@@ -164,6 +166,7 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
             host_binary: None,
             host_args: Vec::new(),
             server_dir: None,
+            link_dir: None,
             sources: Sources {
                 first_party: Some(tree.clone()),
                 bundled: vec![],
