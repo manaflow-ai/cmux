@@ -43,8 +43,10 @@ Outputs are deterministic (sorted, no timestamp unless --created is given):
 
 --reviewed JSON (owned by the license review):
   {"extra_license_files": {"<name>" | "<name> <version>": ["AUTHORS", ...]},
-   "license_texts": {"<name> <version>": {"reason": "...", "file": "<path
-                     relative to the JSON>"}},
+   "license_texts": {"<name> <version>": {"reason": "...", "files": [
+                     {"file": "<path relative to the JSON>",
+                      "source": "<upstream URL at a fixed commit>",
+                      "sha256": "<digest of the stored file>"}]}},
    "elections": {"<name>" | "<name> <version>":
                  {"declared": "<manifest expression>", "concluded": "MIT",
                   "reason": "..."}}}
@@ -532,8 +534,12 @@ def collect(args: argparse.Namespace) -> list[Crate]:
                     continue
                 files.append(LicenseFile(name, path.read_bytes()))
             text = Reviewed.lookup(reviewed.texts, key)
-            if text is not None:
-                files.append(LicenseFile(f"reviewed-{Path(text['file']).name}", (reviewed.base / text["file"]).read_bytes()))
+            for entry in (text or {}).get("files", []):
+                data = (reviewed.base / entry["file"]).read_bytes()
+                if hashlib.sha256(data).hexdigest() != entry.get("sha256"):
+                    errors.append(f"{key.name} {key.version}: reviewed text {entry['file']} does not match its sha256")
+                    continue
+                files.append(LicenseFile(f"reviewed-{Path(entry['file']).name}", data))
             source = lock[key].source
             if source == CRATES_IO:
                 download = f"https://crates.io/api/v1/crates/{key.name}/{key.version}/download"

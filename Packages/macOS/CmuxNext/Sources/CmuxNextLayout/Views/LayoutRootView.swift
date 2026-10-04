@@ -34,10 +34,9 @@ public final class LayoutRootView: NSView {
     /// coordinates; nil when nothing is highlighted. The drag session flies
     /// the ghost to it, so the ghost lands where the preview showed (R47).
     public internal(set) var tabDragHighlightOnScreen: CGRect?
-    /// Called after every overlay sync: a layout pass or an animation frame
-    /// moved panes (column scroll spring, divider drag). One subscriber: the
-    /// App's agent cursor visibility source. Not called while nothing moves.
-    public var onOverlaySync: (() -> Void)?
+    /// Overlay sync observers by id (`observeOverlaySync`).
+    var overlaySyncObservers: [Int: () -> Void] = [:]
+    var nextOverlaySyncObserver = 0
 
     /// Everything the view reads from the model, observed as one value.
     private struct Snapshot: Equatable, Sendable {
