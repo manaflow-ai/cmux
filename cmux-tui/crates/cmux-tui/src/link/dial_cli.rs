@@ -109,7 +109,9 @@ pub(super) fn parse(args: &[String]) -> Result<DialArgs, Failure> {
         Some(_) => return Err(Failure::BadUsage),
     };
     let socket = socket.map(PathBuf::from);
-    // RED stub: a relative --socket is not refused yet.
+    if socket.as_deref().is_some_and(|path| !path.is_absolute()) {
+        return Err(Failure::BadUsage);
+    }
     Ok(DialArgs { host, service, socket })
 }
 
@@ -118,9 +120,11 @@ pub(super) fn parse(args: &[String]) -> Result<DialArgs, Failure> {
 pub(super) fn chosen_socket(explicit: Option<&Path>) -> Result<PathBuf, Failure> {
     use std::os::unix::fs::FileTypeExt;
     let Some(path) = explicit else { return Ok(link_socket()) };
-    // RED stub: the path is not checked yet.
-    let _ = std::fs::metadata(path).map(|metadata| metadata.file_type().is_socket());
-    Ok(path.to_path_buf())
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.file_type().is_socket() => Ok(path.to_path_buf()),
+        Ok(_) => Err(Failure::BadUsage),
+        Err(_) => Err(Failure::LinkUnavailable),
+    }
 }
 
 /// Dial through the link at `socket`.
