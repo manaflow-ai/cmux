@@ -75,3 +75,23 @@ describe("link_token refuses a machine that is being deleted", { timeout: 60_000
     expect(await x.stub.mintLinkToken(x.team, installOf(x.p), { host, services: ["ssh"] })).toMatchObject({ ok: false, code: "cloud.machine.not_bound" })
   })
 })
+
+describe("missing bind-file configuration fails before any VM exists, and link_token never signs an unknown iss", { timeout: 60_000 }, () => {
+  it("a create without CLOUD_API_ORIGIN fails final and makes no VM (review P3-a)", async () => {
+    const x = person()
+    await x.stub.fakeControl({ unset: ["CLOUD_API_ORIGIN"] } as never)
+    const before = (await x.stub.fakeControl({})) as unknown as { creates: number }
+    const created = reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.create", { size: SIZE })))
+    const machine = created.value.machine.id as string
+    const after = (await x.stub.fakeControl({})) as unknown as { creates: number }
+    expect(after.creates).toBe(before.creates)
+    const got = await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })
+    expect(got.value?.status, JSON.stringify(got)).toBe("failed")
+  })
+  it("link_token refuses with owner.unreachable when the environment has no tag (review P3-b)", async () => {
+    const x = person()
+    const { host } = await createdAndBound(x)
+    await x.stub.fakeControl({ unset: ["ENVIRONMENT_TAG"] } as never)
+    expect(await x.stub.mintLinkToken(x.team, installOf(x.p), { host, services: ["ssh"] })).toMatchObject({ ok: false, code: "owner.unreachable" })
+  })
+})
