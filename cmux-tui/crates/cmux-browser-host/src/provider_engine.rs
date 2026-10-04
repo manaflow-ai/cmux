@@ -358,6 +358,13 @@ mod tests {
                 while let Ok(Some(frame)) = read_frame(&mut reader) {
                     thread_frames.lock().unwrap().push(frame.clone());
                     let reply = match frame {
+                        Frame::Call { id, params, .. } if params["failForTest"] == true => {
+                            Some(Frame::Result {
+                                id,
+                                result: None,
+                                error: Some(DriverError::invalid("the app failed the call")),
+                            })
+                        }
                         Frame::Call { id, method, .. } => Some(Frame::Result {
                             id,
                             result: Some(json!({"method": method})),
