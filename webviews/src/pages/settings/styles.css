@@ -874,3 +874,29 @@ mark {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
+/* Folder lists (picker.pinned, files.roots). */
+.folder-list {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.folder-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.folder-path {
+  max-width: 260px;
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.icon-up {
+  transform: rotate(180deg);
+}

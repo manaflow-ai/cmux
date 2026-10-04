@@ -1,9 +1,10 @@
 import CmuxNextDesign
 
 /// Appearance status indicator descriptors kept separate from the main schema list.
-extension SettingsSchema {
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum StatusIndicatorSettingsSchema {
     /// `appearance.statusIndicator.*` (plans/cmux-next/status-indicators.md).
-    static var statusIndicator: [SettingDescriptor] {
+    static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.statusIndicator", "Loading Indicator")
         let defaults = StatusIndicatorSettings()
         let path = StatusIndicatorConfigParser.path
@@ -31,7 +32,7 @@ extension SettingsSchema {
             SettingDescriptor(
                 path + ["thickness"], section: .appearance, group: group,
                 title: SettingsText.keyed("settings.statusIndicator.thickness", "Line Width"),
-                kind: .number(points(StatusIndicatorSettings.thicknessRange, step: 0.25)), default: .number(Double(defaults.thickness))
+                kind: .number(SettingsSchema.points(StatusIndicatorSettings.thicknessRange, step: 0.25)), default: .number(Double(defaults.thickness))
             ),
             SettingDescriptor(
                 path + ["color"], section: .appearance, group: group,

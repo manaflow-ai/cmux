@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentCursor
 import CmuxNextBrowser
 import CmuxNextBrowserAutomation
 import CmuxNextBrowserHost
@@ -15,6 +16,9 @@ final class AppBrowserHost {
     private let tabs: AppBrowserHostTabs
     private let relay: AppDevToolsRelay
     private weak var services: AppServices?
+    /// Lease frames to every content's agent cursor (agent-cursor.md section 3).
+    private let cursorLeases: AgentCursorLeaseFanOut
+    private var leaseObservation: ProviderLeaseObservation?
 
     init(services: AppServices, installID: String = AppBrowserHost.installID()) {
         self.services = services
@@ -27,6 +31,12 @@ final class AppBrowserHost {
         self.tabs = tabs
         self.relay = relay
         self.driver = driver
+        cursorLeases = AgentCursorLeaseFanOut(models: { [weak services] in
+            guard let services else { return [] }
+            return services.windows.controllers.flatMap { controller in
+                (controller.parked + [controller.content].compactMap { $0 }).compactMap { $0.agentCursor?.model }
+            }
+        })
         provider = BrowserHostProvider(
             identity: ProviderIdentity(providerID: "cmux-app:\(services.environment.launch.bundleID)", installID: installID),
             credentials: credentials, tabs: tabs, access: tabs, driver: driver, relay: relay, marking: tabs)
@@ -37,6 +47,9 @@ final class AppBrowserHost {
             driver.agentBundle = bundle
         }
         provider.onTabGone = { [driver] targetID in driver.tabClosed(BrowserTabID(rawValue: targetID)) }
+        leaseObservation = provider.observeLeases { [cursorLeases] targetID, lease in
+            cursorLeases.leaseChanged(target: targetID, session: lease?.session, wireState: lease?.state)
+        }
     }
 
     /// Starts the provider (idle until step c2) and feeds it a person's key

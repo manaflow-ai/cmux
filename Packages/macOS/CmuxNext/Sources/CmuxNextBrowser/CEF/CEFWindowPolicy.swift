@@ -8,6 +8,9 @@ nonisolated enum CEFWindowDecision: Equatable, Sendable {
     /// No Chromium window of that profile exists: Chromium opens nothing
     /// and cmux opens `url` in a new tab of its own.
     case openInNewTab(url: String, disposition: BrowserNewTabDisposition)
+    /// A modified click mapped to the current tab: Chromium opens nothing
+    /// and the requesting tab loads `url`.
+    case loadInSource(url: String)
     /// An incognito request ("Open Link in Incognito Window", New
     /// Incognito Window): Chromium opens nothing, and cmux opens `url` (or
     /// nothing, when empty) in a cmux incognito window, or in the source
@@ -25,11 +28,17 @@ nonisolated enum CEFWindowRefusal: Equatable, Sendable {
 }
 
 nonisolated enum CEFWindowPolicy {
-    static func decide(_ request: CEFWindowRequest, candidates: [CEFWindowCandidate]) -> CEFWindowDecision {
+    static func decide(_ request: CEFWindowRequest, candidates: [CEFWindowCandidate],
+                       links: CEFLinkContext = CEFLinkContext()) -> CEFWindowDecision {
         if request.kind == .offTheRecord || request.disposition == .offTheRecord {
             return .openOffTheRecord(url: request.url)
         }
-        let disposition = tabDisposition(for: request)
+        let disposition: BrowserNewTabDisposition
+        switch placement(for: request, links: links) {
+        case .tab(let tab): disposition = tab
+        case .opener: return .loadInSource(url: request.url)
+        case .chromium: disposition = .foregroundTab
+        }
         let sameProfile = candidates.filter { $0.profilePath == request.profilePath }
         let chosen = sameProfile.first(where: \.holdsSource)
             ?? sameProfile.first(where: \.lastShown)
@@ -43,13 +52,23 @@ nonisolated enum CEFWindowPolicy {
     }
 
     /// Popups (window features, popup windows) keep `.popup`, so a host that
-    /// shows them in a small floating pane can; everything else is a tab
-    /// that is selected unless Chromium asked for a background tab.
-    static func tabDisposition(for request: CEFWindowRequest) -> BrowserNewTabDisposition {
+    /// shows them in a small floating pane can. A page's link request (a
+    /// tab, or a window with a source tab, such as Shift-click) goes
+    /// through the link mapping (`CEFLinkClicks`); everything else (Chromium's
+    /// own UI, `chrome.windows.create` from an extension background) is a
+    /// selected tab. `.opener` needs the source tab.
+    static func placement(for request: CEFWindowRequest, links: CEFLinkContext) -> CEFLinkPlacement {
+        let placement: CEFLinkPlacement
         switch request.kind {
-        case .popup: return .popup
-        case .window, .app, .offTheRecord: return .foregroundTab
-        case .tab: return request.disposition.tabDisposition ?? .foregroundTab
+        case .popup: return .tab(.popup)
+        case .offTheRecord: return .tab(.foregroundTab)
+        case .window, .app:
+            guard request.sourceBrowser != 0, request.disposition.isLinkClick else { return .tab(.foregroundTab) }
+            placement = links.placement(for: request.disposition, source: request.sourceBrowser)
+        case .tab:
+            placement = links.placement(for: request.disposition, source: request.sourceBrowser)
         }
+        if placement == .opener, request.sourceBrowser == 0 || request.url.isEmpty { return .tab(.foregroundTab) }
+        return placement
     }
 }

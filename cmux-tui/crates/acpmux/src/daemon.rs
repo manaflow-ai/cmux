@@ -19,6 +19,8 @@ pub struct DaemonOptions {
     pub ready_fd: Option<i32>,
     /// `--allow-dev-origin`: loopback page dev server origins, never saved.
     pub dev_origins: Vec<String>,
+    /// `--dev`: a development launch (see `dev_origins_permitted`).
+    pub dev: bool,
 }
 
 /// How long SIGTERM or `_acpmux/shutdown` may take before the daemon exits
@@ -40,6 +42,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
     }
     let login_env = crate::login_env::requested();
+    anyhow::ensure!(
+        opts.dev_origins.is_empty() || dev_origins_permitted(cfg!(debug_assertions), opts.dev),
+        "--allow-dev-origin is for development only: it needs a debug build or --dev"
+    );
     let dev_origins = opts
         .dev_origins
         .iter()
@@ -173,10 +179,28 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.begin_startup(login_env);
     std::fs::write(home().join("daemon.pid"), std::process::id().to_string())?;
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
+    // A new LocalApp token at every launch (`server/local_app.rs`), for the
+    // app's bundled pane and an explicit `--allow-dev-origin` page only.
+    let local_app = if ws_listener.is_some() {
+        let mut pages = vec![crate::server::AGENT_PANE_ORIGIN.to_owned()];
+        // The validated `--allow-dev-origin` values (loopback http, a port).
+        pages.extend(hub.config.read().await.dev_origins.iter().cloned());
+        match crate::server::local_app::LocalAppAuth::create(&home(), &pages) {
+            Ok(auth) => Some(std::sync::Arc::new(auth)),
+            Err(e) => {
+                // Without it the pane is served as remote-origin, never wrongly local.
+                tracing::warn!("no LocalApp token this run: {e:#}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
     let ws_task = ws_listener.map(|(l, token)| {
         // `needs_token` above gave the saved listener a token.
         let token = token.unwrap_or_else(random_token);
-        tokio::spawn(crate::server::serve_ws(hub.clone(), l, token))
+        tokio::spawn(crate::server::serve_ws_with(hub.clone(), l, token, local_app))
     });
     let ready = serde_json::json!({
         "ready": true,
@@ -238,6 +262,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.flush();
     }
     let _ = std::fs::remove_file(home().join("daemon.pid"));
+    if let Some(file) = local_app_file {
+        let _ = std::fs::remove_file(file);
+    }
     tracing::info!("stopped");
     Ok(())
 }
@@ -260,6 +287,13 @@ fn write_ready(fd: i32, ready: &Value) {
         // Never close stdio.
         std::mem::forget(f);
     }
+}
+
+/// Whether `--allow-dev-origin` may take effect: in a debug build, or with
+/// an explicit `--dev` that release launchers never pass. A release config
+/// refuses it, so a dev page origin never becomes a LocalApp origin there.
+pub(crate) fn dev_origins_permitted(debug_build: bool, dev_flag: bool) -> bool {
+    debug_build || dev_flag
 }
 
 /// The rotation `websocket.tokenRotated` records (see `rotate_saved_token_once`).
@@ -575,6 +609,16 @@ fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_release_launch_refuses_a_dev_origin() {
+        assert!(
+            !dev_origins_permitted(false, false),
+            "a release config refuses --allow-dev-origin"
+        );
+        assert!(dev_origins_permitted(false, true), "an explicit --dev launch accepts it");
+        assert!(dev_origins_permitted(true, false), "a debug build accepts it");
+    }
 
     #[test]
     fn only_the_shared_home_listens_on_the_fixed_port() {

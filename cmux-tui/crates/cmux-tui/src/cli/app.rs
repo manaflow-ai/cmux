@@ -640,6 +640,11 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
     if timeout.is_none() && crate::restore_default_termination_signals().is_err() {
         return Ran::Done(130);
     }
+    if output_shows_notes(global.output)
+        && let Some(note) = settings::waiting_note(method, &params)
+    {
+        eprintln!("{note}");
+    }
     let response = match request_with_retry(stream, method, &params, timeout) {
         Ok(response) => response,
         Err(error) => {
@@ -670,6 +675,11 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             Ran::Done(code)
         }
     }
+}
+
+/// Progress notes go to stderr for a person, never in JSON or quiet output.
+fn output_shows_notes(output: OutputMode) -> bool {
+    output == OutputMode::Human
 }
 
 fn error_code(error: &Value) -> Option<&str> {
