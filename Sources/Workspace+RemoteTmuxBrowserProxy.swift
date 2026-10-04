@@ -3,18 +3,19 @@ import CmuxRemoteWorkspace
 import Foundation
 
 /// ssh-tmux's browser-preview proxy: a mirror workspace's browser tab (see
-/// `newBrowserSurface(inPane:)`) routes through a local SOCKS proxy over the
-/// ssh-tmux host's SSH connection (`RemoteTmuxBrowserProxyRegistry`), so it
-/// can preview a port on the remote host the same way a plain `cmux ssh`
-/// workspace's browser already can. This file owns only the forward's
-/// lifecycle — UI placement lives entirely in `Workspace.newBrowserSurface`.
+/// `newBrowserSurface(inPane:)`) routes through a credentialed local proxy
+/// that opens owner-only `ssh -W` streams through the ssh-tmux host's existing
+/// SSH connection (`RemoteTmuxBrowserProxyRegistry`), so it can preview a port
+/// on the remote host the same way a plain `cmux ssh` workspace's browser
+/// already can. This file owns only the proxy lifecycle — UI placement lives
+/// entirely in `Workspace.newBrowserSurface`.
 extension Workspace {
     /// The ssh-tmux host backing this mirror workspace, if any.
     var remoteTmuxBrowserProxyHost: RemoteTmuxHost? {
         remoteTmuxSessionMirror?.host
     }
 
-    /// Idempotent: ensures a browser-proxy forward exists for this mirror
+    /// Idempotent: ensures a browser proxy exists for this mirror
     /// workspace's host and publishes `remoteProxyEndpoint` once it's ready.
     /// Safe to call from any action path; never from SwiftUI `body`. No-ops
     /// for a non-mirror workspace. Acquired lazily here (not at mirror
@@ -34,8 +35,8 @@ extension Workspace {
     }
 
     /// A dropped-and-recovered ssh-tmux control connection reconnects with a
-    /// fresh SSH session; the previously acquired `-D` dynamic forward and
-    /// its SOCKS listener belonged to the old one and are now dead, but
+    /// fresh SSH session; the previously acquired browser proxy used the old
+    /// ControlMaster and must be rebuilt, but
     /// nothing in ``RemoteTmuxTransportRegistry``/``RemoteTmuxBrowserProxyRegistry``
     /// treats a reconnect (as opposed to the host being removed outright) as
     /// invalidating them — so without this, every browser tab on this host
