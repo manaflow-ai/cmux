@@ -304,3 +304,25 @@ fn open_directory_passes_focus_and_activate_for_both_flags() {
     }
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn keybinding_reads_call_the_app_read_ops() {
+    let (method, params) = call(
+        parse(&args(&["keybinding", "list", "--query", "tab", "--source", "user"]))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(method, "keybinding.list");
+    assert_eq!(params, json!({ "query": "tab", "source": "user" }));
+    let (method, params) = call(
+        parse(&args(&["keybinding", "resolve", "ctrl+k s", "--window", "win_a"])).unwrap().unwrap(),
+    );
+    assert_eq!(method, "keybinding.resolve");
+    assert_eq!(params, json!({ "keys": "ctrl+k s", "window": "win_a" }));
+    let (method, params) = call(parse(&args(&["keybinding", "context"])).unwrap().unwrap());
+    assert_eq!(method, "context.keys");
+    assert_eq!(params, json!({}));
+    assert!(parse(&args(&["keybinding", "resolve"])).is_err(), "resolve needs keys");
+    assert!(parse(&args(&["keybinding"])).is_err());
+    assert!(parse(&args(&["keybinding", "list", "--nope", "x"])).is_err());
+}
