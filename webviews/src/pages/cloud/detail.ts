@@ -80,12 +80,16 @@ export class DetailReader {
     const results = await Promise.allSettled(SECTIONS.map((section) => this.read(section, machine)));
     if (generation !== this.generation) return;
     const detail: MachineDetail = { machine, loading: false };
+    let failed: unknown;
     SECTIONS.forEach((section, index) => {
       const result = results[index];
       if (result.status === "fulfilled") Object.assign(detail, { [section]: result.value });
       else if (isUnsupported(result.reason)) this.host.unsupported(SECTION_OPS[section]);
+      else failed ??= result.reason;
     });
     this.host.set(detail);
+    // One banner for the first real failure; the failed sections stay empty until Refresh.
+    if (failed !== undefined) this.host.fail(failed);
   }
 
   async reload(section: DetailSection): Promise<void> {
