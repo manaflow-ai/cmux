@@ -87,4 +87,31 @@ describe("optchat-core as WebAssembly (hosted placement)", () => {
     expect(JSON.parse(sizeCheck(JSON.stringify(["a".repeat(600)]))).retry).toContain("That line is 600 bytes");
     expect(JSON.parse(sizeCheck(JSON.stringify([" "])))).toEqual({ fail: true });
   });
+
+  it("throws a failed or malformed store read and builds nothing from it", () => {
+    const store = new Store();
+    const memory = new OptChat(0);
+    store.messages.push({ kind: "user", text: "fine" });
+    memory.append();
+    drain(memory, store, () => "unused");
+    const broken = {
+      message: (i: number) => {
+        if (i === 1) throw new Error("SQLite busy");
+        return store.message(i);
+      },
+      node: (l: number, i: number) => store.node(l, i),
+    };
+    store.messages.push({ kind: "user", text: "later" });
+    memory.append();
+    expect(() => memory.pump(broken)).toThrow("SQLite busy");
+    expect(memory.settled()).toBe(false);
+    const malformed = { message: () => ({ kind: "mystery", text: "x" }), node: broken.node };
+    expect(() => memory.pump(malformed)).toThrow("unknown kind");
+    // The read works again: the real message becomes its node.
+    const work = JSON.parse(memory.pump(store)) as Array<Work>;
+    expect(work).toContainEqual({ kind: "free", l: 0, i: 1, text: "user: later" });
+    expect(() => memory.zoom(store, -1, 1)).toThrow("No line -1+1.");
+    expect(() => memory.zoom(store, Number.MAX_SAFE_INTEGER - 1, 2)).toThrow("No line");
+    expect(() => memory.complete(0, Number.NaN, "x")).toThrow("not a message id");
+  });
 });

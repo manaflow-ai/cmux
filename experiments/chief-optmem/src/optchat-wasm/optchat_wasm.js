@@ -29,7 +29,9 @@ export class OptChat {
         return ret;
     }
     /**
-     * The compactor call for node (l, i) as JSON `{system, context, step}`.
+     * The compactor call for node (l, i) as JSON `{system, context, marks, step}`:
+     * `marks` are byte offsets into the UTF-8 context where a cached piece ends
+     * (section 8); send each piece as its own block with a breakpoint.
      * `prompt` is `taelin`, `cmux` or `custom` (then `custom` is its text).
      * @param {any} store
      * @param {number} l
@@ -40,8 +42,8 @@ export class OptChat {
      * @returns {string}
      */
     compactRequest(store, l, i, prompt, custom, agent) {
-        let deferred4_0;
-        let deferred4_1;
+        let deferred5_0;
+        let deferred5_1;
         try {
             const ptr0 = passStringToWasm0(prompt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len0 = WASM_VECTOR_LEN;
@@ -50,11 +52,17 @@ export class OptChat {
             const ptr2 = passStringToWasm0(agent, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len2 = WASM_VECTOR_LEN;
             const ret = wasm.optchat_compactRequest(this.__wbg_ptr, store, l, i, ptr0, len0, ptr1, len1, ptr2, len2);
-            deferred4_0 = ret[0];
-            deferred4_1 = ret[1];
-            return getStringFromWasm0(ret[0], ret[1]);
+            var ptr4 = ret[0];
+            var len4 = ret[1];
+            if (ret[3]) {
+                ptr4 = 0; len4 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred5_0 = ptr4;
+            deferred5_1 = len4;
+            return getStringFromWasm0(ptr4, len4);
         } finally {
-            wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+            wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
         }
     }
     /**
@@ -65,14 +73,20 @@ export class OptChat {
     complete(l, i, text) {
         const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        wasm.optchat_complete(this.__wbg_ptr, l, i, ptr0, len0);
+        const ret = wasm.optchat_complete(this.__wbg_ptr, l, i, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
     }
     /**
      * @param {number} l
      * @param {number} i
      */
     fail(l, i) {
-        wasm.optchat_fail(this.__wbg_ptr, l, i);
+        const ret = wasm.optchat_fail(this.__wbg_ptr, l, i);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
     }
     /**
      * @returns {number}
@@ -124,19 +138,28 @@ export class OptChat {
     }
     /**
      * Work to do now, as JSON: `[{kind: "free", l, i, text} | {kind: "model", l, i}]`.
+     * A failed read stops the pump before it builds anything from it; the
+     * work found before it is returned (the free nodes are built in the core
+     * and must be stored), and with none it throws the read's error.
      * @param {any} store
      * @returns {string}
      */
     pump(store) {
-        let deferred1_0;
-        let deferred1_1;
+        let deferred2_0;
+        let deferred2_1;
         try {
             const ret = wasm.optchat_pump(this.__wbg_ptr, store);
-            deferred1_0 = ret[0];
-            deferred1_1 = ret[1];
-            return getStringFromWasm0(ret[0], ret[1]);
+            var ptr1 = ret[0];
+            var len1 = ret[1];
+            if (ret[3]) {
+                ptr1 = 0; len1 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred2_0 = ptr1;
+            deferred2_1 = len1;
+            return getStringFromWasm0(ptr1, len1);
         } finally {
-            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
         }
     }
     /**
@@ -145,15 +168,21 @@ export class OptChat {
      * @returns {string}
      */
     renderView(store) {
-        let deferred1_0;
-        let deferred1_1;
+        let deferred2_0;
+        let deferred2_1;
         try {
             const ret = wasm.optchat_renderView(this.__wbg_ptr, store);
-            deferred1_0 = ret[0];
-            deferred1_1 = ret[1];
-            return getStringFromWasm0(ret[0], ret[1]);
+            var ptr1 = ret[0];
+            var len1 = ret[1];
+            if (ret[3]) {
+                ptr1 = 0; len1 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred2_0 = ptr1;
+            deferred2_1 = len1;
+            return getStringFromWasm0(ptr1, len1);
         } finally {
-            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
         }
     }
     /**
@@ -247,20 +276,27 @@ function __wbg_get_imports() {
             const ret = Error(getStringFromWasm0(arg0, arg1));
             return ret;
         },
+        __wbg_String_82a612c7fffc2aa0: function(arg0, arg1) {
+            const ret = String(arg1);
+            const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len1 = WASM_VECTOR_LEN;
+            getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+        },
         __wbg___wbindgen_throw_41e9ee4f547fc59a: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
         },
-        __wbg_message_342231352cceb87f: function(arg0, arg1) {
+        __wbg_message_8aa14200b6aff9d2: function() { return handleError(function (arg0, arg1) {
             const ret = arg0.message(arg1);
             return ret;
-        },
-        __wbg_node_e24c1e9be37911e9: function(arg0, arg1, arg2, arg3) {
+        }, arguments); },
+        __wbg_node_8afdb31100211d87: function() { return handleError(function (arg0, arg1, arg2, arg3) {
             const ret = arg1.node(arg2 >>> 0, arg3);
             var ptr1 = isLikeNone(ret) ? 0 : passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             var len1 = WASM_VECTOR_LEN;
             getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
             getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
-        },
+        }, arguments); },
         __wbg_stringify_7c8252505a9d9825: function(arg0, arg1) {
             const ret = JSON.stringify(arg1);
             const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
@@ -288,6 +324,12 @@ const OptChatFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_optchat_free(ptr, 1));
 
+function addToExternrefTable0(obj) {
+    const idx = wasm.__externref_table_alloc();
+    wasm.__wbindgen_externrefs.set(idx, obj);
+    return idx;
+}
+
 let cachedDataViewMemory0 = null;
 function getDataViewMemory0() {
     if (cachedDataViewMemory0 === null || cachedDataViewMemory0.buffer.detached === true || (cachedDataViewMemory0.buffer.detached === undefined && cachedDataViewMemory0.buffer !== wasm.memory.buffer)) {
@@ -306,6 +348,15 @@ function getUint8ArrayMemory0() {
         cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
     }
     return cachedUint8ArrayMemory0;
+}
+
+function handleError(f, args) {
+    try {
+        return f.apply(this, args);
+    } catch (e) {
+        const idx = addToExternrefTable0(e);
+        wasm.__wbindgen_exn_store(idx);
+    }
 }
 
 function isLikeNone(x) {

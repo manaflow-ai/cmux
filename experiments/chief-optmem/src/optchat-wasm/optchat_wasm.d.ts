@@ -12,7 +12,9 @@ export class OptChat {
      */
     append(): number;
     /**
-     * The compactor call for node (l, i) as JSON `{system, context, step}`.
+     * The compactor call for node (l, i) as JSON `{system, context, marks, step}`:
+     * `marks` are byte offsets into the UTF-8 context where a cached piece ends
+     * (section 8); send each piece as its own block with a breakpoint.
      * `prompt` is `taelin`, `cmux` or `custom` (then `custom` is its text).
      */
     compactRequest(store: any, l: number, i: number, prompt: string, custom: string, agent: string): string;
@@ -32,6 +34,9 @@ export class OptChat {
     constructor(budget: number);
     /**
      * Work to do now, as JSON: `[{kind: "free", l, i, text} | {kind: "model", l, i}]`.
+     * A failed read stops the pump before it builds anything from it; the
+     * work found before it is returned (the free nodes are built in the core
+     * and must be stored), and with none it throws the read's error.
      */
     pump(store: any): string;
     /**
@@ -62,16 +67,16 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_optchat_free: (a: number, b: number) => void;
     readonly optchat_append: (a: number) => number;
-    readonly optchat_compactRequest: (a: number, b: any, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number];
-    readonly optchat_complete: (a: number, b: number, c: number, d: number, e: number) => void;
-    readonly optchat_fail: (a: number, b: number, c: number) => void;
+    readonly optchat_compactRequest: (a: number, b: any, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number, number];
+    readonly optchat_complete: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly optchat_fail: (a: number, b: number, c: number) => [number, number];
     readonly optchat_first: (a: number) => number;
     readonly optchat_isEmpty: (a: number) => number;
     readonly optchat_len: (a: number) => number;
     readonly optchat_load: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly optchat_new: (a: number) => number;
-    readonly optchat_pump: (a: number, b: any) => [number, number];
-    readonly optchat_renderView: (a: number, b: any) => [number, number];
+    readonly optchat_pump: (a: number, b: any) => [number, number, number, number];
+    readonly optchat_renderView: (a: number, b: any) => [number, number, number, number];
     readonly optchat_settled: (a: number) => number;
     readonly optchat_view: (a: number) => [number, number];
     readonly optchat_viewSize: (a: number) => number;
@@ -79,9 +84,11 @@ export interface InitOutput {
     readonly sizeCheck: (a: number, b: number) => [number, number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+    readonly __wbindgen_exn_store: (a: number) => void;
+    readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
-    readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __externref_table_dealloc: (a: number) => void;
+    readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_start: () => void;
 }
 
