@@ -22,6 +22,7 @@ import {
 import {
   ACTION_RUN,
   CloudOps,
+  hasNoDetails,
   isGone,
   isNotServed,
   isRouteMissing,
@@ -372,8 +373,10 @@ export class CloudStore {
     } catch (error) {
       this.dropIntent(key);
       // The machine's own 404 (`vm_not_found`): the owner dropped it and sent `removed`. Nothing
-      // failed. A bare 404 is a missing route: "Not available yet", and the machine stays.
+      // failed. A bare 404 is a missing route: "Not available yet". A `not_found` without details
+      // (a host that does not forward them) keeps the old answer: gone, no error.
       if (isGone(CloudOps.machineDelete, error)) return;
+      if (isPageError(error) && error.code === "cmux.cloud.not_found" && hasNoDetails(error)) return;
       if (isRouteMissing(CloudOps.machineDelete, error)) this.markUnavailable(CloudOps.machineDelete);
       else this.fail(CloudOps.machineDelete, error);
     }

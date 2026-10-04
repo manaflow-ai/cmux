@@ -51,14 +51,15 @@ Team list and select, sign-in and sign-out, billing and the idle policy. The ser
 
 A Cloud API route that does not exist answers a 404. The server maps it to `cmux.cloud.not_found`
 with `status` 404 and no `upstream_code`. The page reads both from the error's `details`
-(ops.ts `isRouteMissing`): a bare 404, or a 404 whose code is not the op kind's own not-found code
-(`vm_not_found` machine, `vm_snapshot_not_found`, `vm_firewall_rule_not_found`,
-`vm_file_not_found` for `fs` and `file`, `vm_publication_not_found`), shows "Not available yet" for
-that op and keeps no stale rows. A `not_found` without details counts as bare. A delete answered with
-its kind's own code found the item gone: the row goes and no error shows (`isGone`). Production has no
-`/api/vm/:id/fs/*`, firewall, network or tunnel routes today, so those sections show "Not available
-yet" there. The mock answers a bare 404 for the ops in `routeMissing`. Domains, publications, network, tunnel,
-firewall (R71 C6), files, ports and the browser route (R71 C5) are served.
+(ops.ts `isRouteMissing`): a bare 404, or a 404 whose code is none of the Cloud API's not-found codes
+(`vm_not_found` machine, `vm_snapshot_not_found`, `vm_firewall_rule_not_found`, `vm_file_not_found`
+for `fs` and `file`, `vm_publication_not_found`), shows "Not available yet" for that op and keeps no
+stale rows. A `not_found` without details counts as bare, except on a machine delete, which keeps its
+old answer (gone, no error). A delete answered with its kind's own code found the item gone: the row
+goes and no error shows (`isGone`). Another kind's code (`vm_not_found` on a firewall list, when the
+machine is gone) is an error, not a missing route. Production has no `/api/vm/:id/fs/*`, firewall,
+network or tunnel routes today, so those sections show "Not available yet" there. The mock answers a
+bare 404 for the ops in `routeMissing`.
 
 ## Host gaps
 
