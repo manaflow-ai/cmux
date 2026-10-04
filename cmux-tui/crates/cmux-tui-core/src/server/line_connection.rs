@@ -60,6 +60,7 @@ pub(super) fn serve_line_connection(
     };
     let client = mux.control_clients.register(transport, writer.clone());
     admission.registered(&mux, client);
+    let mut hello = client_hello::HelloGate::new(transport);
     let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
         mux.surface_operation_admission.clone(),
         connection_permit.clone(),
@@ -91,7 +92,14 @@ pub(super) fn serve_line_connection(
         }
         let keep_open = match admission.refusal(&line) {
             Some(refusal) => writer.send_control(&refusal).is_ok(),
-            None => handle_connection_message(&mux, client, &line, &writer, &surface_scheduler),
+            None => {
+                match hello.observe(&mux, client, &line, || reader.get_ref().peer_process_key()) {
+                    Some(reply) => writer.send_control(&reply).is_ok(),
+                    None => {
+                        handle_connection_message(&mux, client, &line, &writer, &surface_scheduler)
+                    }
+                }
+            }
         };
         zeroize_string(&mut line);
         if !keep_open {

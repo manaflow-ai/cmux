@@ -20,9 +20,31 @@ pub struct RequestEnvelope {
     pub params: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idempotency_key: Option<String>,
+    /// A claim that may only narrow the connection's origin
+    /// (`origin-claim-v1`; checked before parsing by the connection).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<crate::request_origin::OriginClaim>,
 }
 
 impl RequestEnvelope {
+    /// A `cmux.protocol/2` request with no origin claim.
+    pub fn request(
+        id: RequestId,
+        operation: ResourceOperation,
+        params: Value,
+        idempotency_key: Option<String>,
+    ) -> Self {
+        Self {
+            protocol: PROTOCOL.to_string(),
+            envelope_type: EnvelopeType::Request,
+            id,
+            operation,
+            params,
+            idempotency_key,
+            origin: None,
+        }
+    }
+
     pub fn validate(&self) -> Result<(), ResourceError> {
         if self.protocol != PROTOCOL || self.envelope_type != EnvelopeType::Request {
             return Err(ResourceError::validation_invalid(

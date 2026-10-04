@@ -11,6 +11,11 @@ pub trait Stream: Read + Write + Send + Sync {
     fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
     fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
     fn shutdown(&self, how: Shutdown) -> io::Result<()>;
+    /// `token:<pid>.<pid version>` of the process at the other end of a
+    /// local socket (request origin peer key); `None` where unknown.
+    fn peer_process_key(&self) -> Option<String> {
+        None
+    }
 }
 
 pub struct Listener {
@@ -101,6 +106,10 @@ mod imp {
 
         fn shutdown(&self, how: std::net::Shutdown) -> io::Result<()> {
             UnixStream::shutdown(self, how)
+        }
+
+        fn peer_process_key(&self) -> Option<String> {
+            crate::platform::peer_process::key(std::os::fd::AsRawFd::as_raw_fd(self))
         }
     }
 }

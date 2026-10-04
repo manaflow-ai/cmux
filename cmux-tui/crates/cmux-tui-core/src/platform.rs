@@ -7,6 +7,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+#[cfg(unix)]
+mod peer_process;
 pub mod transport;
 
 /// The effective uid that owns this process's private sockets.

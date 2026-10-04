@@ -364,6 +364,8 @@ pub enum ResourceOperation {
     SidebarViewReload,
     #[serde(rename = "stream.cancel")]
     StreamCancel,
+    #[serde(rename = "origin.confirmation.issue")]
+    OriginConfirmationIssue,
     #[serde(rename = "closed.list")]
     ClosedList,
     #[serde(rename = "closed.reopen")]
@@ -521,6 +523,7 @@ impl ResourceOperation {
             self,
             Self::RequestCancel
                 | Self::StreamCancel
+                | Self::OriginConfirmationIssue
                 | Self::ClientMetadataUpdate
                 | Self::ClientSizingSet
                 | Self::ClientSizingRelease

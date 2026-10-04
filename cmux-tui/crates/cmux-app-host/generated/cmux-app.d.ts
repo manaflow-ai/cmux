@@ -180,6 +180,8 @@ declare namespace Cmux {
   type NotificationLevel = "info" | "warning" | "error"
   type NotificationSnapshot = { id: string /* notification_… */; session_id: string /* session_… */; title: string; subtitle?: string; body: string; level: Cmux.NotificationLevel; terminal_id?: string /* terminal_… */; created_at_ms: string; unread: boolean; read_by: Array<string>; extra?: Record<string, Cmux.JsonValue> }
   type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
+  type OriginConfirmation = { token: string; expires_at: string }
+  type OriginForbiddenDetails = { derived: Cmux.RequestOrigin; required?: Cmux.RequestOrigin; claim?: Cmux.RequestOrigin; reason?: string }
   type PairingCode = string
   type PairingInfo = { name: string; platform: Cmux.Platform; os_version: string; arch: "x86_64" | "aarch64"; cmux_version: string }
   type PairingPreview = { code: Cmux.PairingCode; info: Cmux.PairingInfo; public_jwk: Cmux.PublicJwk; thumbprint: string; country: string | null; expires_at: number }
@@ -210,6 +212,7 @@ declare namespace Cmux {
   type RenderUnderline = "single" | "double" | "curly" | "dotted" | "dashed"
   type RepoPattern = string
   type RequestCancelResult = { canceled: boolean }
+  type RequestOrigin = "page" | "agent" | "app" | "user"
   type ResourceChange = unknown
   type ResourceChangeId = unknown
   type ResourceDelete = { kind: "delete"; sequence: number; resource: Cmux.ResourceKind; id: Cmux.ResourceChangeId }

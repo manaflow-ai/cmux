@@ -41,6 +41,7 @@ mod pairing;
 pub mod provider_management;
 #[cfg(unix)]
 mod pty_write;
+mod request_origin;
 pub mod resource;
 mod resource_api;
 mod resource_mutation;

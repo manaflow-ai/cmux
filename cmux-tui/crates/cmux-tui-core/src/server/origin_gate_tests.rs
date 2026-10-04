@@ -290,3 +290,24 @@ fn a_token_is_consumed_only_on_its_relay_connection() {
     let plain = connect(&mux);
     assert_forbidden(&send(&mux, &plain, &install(Some(user_claim(&token)))));
 }
+
+#[test]
+fn a_page_relay_is_never_the_hosting_app_for_apps_v1() {
+    let mux = mux("relay-apps-v1");
+    let install = json!({
+        "id": 1, "cmd": "apps-set", "origin": "user", "idempotency_key": "k1",
+        "app": "cmux/demo", "installed": true,
+    });
+    let declare_app = |conn: &Conn| {
+        let mut state = mux.control_clients.state.lock().unwrap();
+        state.clients.get_mut(&conn.client).unwrap().kind = Some("app".to_string());
+    };
+    let relay = relay(&mux, "token:10.1");
+    declare_app(&relay);
+    assert_eq!(send(&mux, &relay, &install)["error_code"], "apps.origin_forbidden");
+    // The same declaration on a connection without a hello passes this gate
+    // (unchanged apps-v1 behavior until P8).
+    let plain = connect(&mux);
+    declare_app(&plain);
+    assert_ne!(send(&mux, &plain, &install)["error_code"], "apps.origin_forbidden");
+}

@@ -173,7 +173,12 @@ fn claim_for(mux: &Mux, client: u64) -> crate::apps::ProviderClaim {
             .unwrap()
             .clients
             .get(&client)
-            .is_some_and(|record| record.kind.as_deref() == Some("app")),
+            // A page relay connection is never the hosting app, whatever
+            // kind it declares (request-origin.md: its requests are page).
+            .is_some_and(|record| {
+                record.kind.as_deref() == Some("app")
+                    && record.origin.role != crate::request_origin::HelloRole::PageRelay
+            }),
     }
 }
 
