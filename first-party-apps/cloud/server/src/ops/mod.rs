@@ -2,6 +2,7 @@
 //! op group (`machine`, `snapshot`, `plan`, `auth`, `network`, `domain`).
 
 mod auth;
+mod delete_retry;
 mod domain;
 mod machine;
 mod machine_projection;
@@ -315,9 +316,19 @@ impl<C: ControlPlane> Server<C> {
         if let Some(done) = self.ledger.replay(key, name, &args)? {
             return Ok(done);
         }
+        // A delete retried after an attempt whose outcome is unknown: a 404
+        // now means that attempt (or another) deleted it (delete_retry.rs).
+        let gone_is_done =
+            delete_retry::is_delete(name) && self.ledger.outcome_unknown(key, name, &args);
         self.ledger.attempt(key, name, &args);
         let upstream = upstream_key(name, &args, key);
-        match self.run(name, &args, request.origin, Some(&upstream)) {
+        let outcome = match self.run(name, &args, request.origin, Some(&upstream)) {
+            Err(error) if gone_is_done && error.code == codes::NOT_FOUND => {
+                delete_retry::gone_answer(name, &args).ok_or(error)
+            }
+            other => other,
+        };
+        match outcome {
             Ok(mut result) => {
                 // Recorded with the result, so a same-key replay answers the
                 // same revision and emits nothing new.
@@ -335,6 +346,8 @@ impl<C: ControlPlane> Server<C> {
                     && error.status.is_some_and(|s| (400..500).contains(&s));
                 if error.code == codes::INVALID_ARGS || refused {
                     self.ledger.forget(key);
+                } else {
+                    self.ledger.failed(key, !delete_retry::outcome_unknown(&error));
                 }
                 Err(error)
             }
