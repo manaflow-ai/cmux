@@ -18,6 +18,7 @@ cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
 cmux wg hub --config <wg-quick file> --socket <unix socket>
 cmux link dial --host <install or host id> [--service daemon|ssh] [--socket <absolute path>]
+cmux apps run <app> <op> [--args JSON] [--idempotency-key KEY]
 ```
 
 `relay` copies private protocol bytes between standard I/O and one session
@@ -51,6 +52,19 @@ Key order is not part of the contract. Exit codes:
 | 5 | `unreachable` | no path answered |
 | 6 | `link_unavailable` | no `cmux link` runs, or it did not answer the dial |
 | 64 | `bad_request` | bad arguments or a malformed dial |
+
+`apps run` runs one catalog op of an installed app through the session
+daemon (`apps-run`; the CLI sends no `origin`, so gesture-required and
+destructive ops answer `apps.gesture_required` or `apps.scope_missing`) and
+prints its result data as JSON (exit 0; an op error exits 1 with its
+`error_code` and `error_details`). Ctrl-C cancels the op: when the daemon
+advertises `cancel-request-v1` in `identify`, the CLI sends
+`{"cmd":"cancel-request","target":<the apps-run id>}` on the same connection,
+waits at most 3 seconds for the run to answer `cmux.op.cancelled`, prints
+"cancelled" and exits 130; otherwise it closes the connection (the daemon
+then cancels the op) and prints "cancelled (no confirmation)", exit 130. A
+second Ctrl-C exits 130 at once. A cancelled mutation may or may not have
+taken effect; retry it with the same `--idempotency-key`.
 
 `attach` opens the
 complete session TUI. `attach --terminal <terminal-id>` resolves an exact ID
