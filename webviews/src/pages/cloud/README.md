@@ -12,7 +12,7 @@ and 4; server `first-party-apps/cloud/server/src/ops/*.rs`, `src/api/models.rs`,
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `ops.ts`                                        | Op names, `NATIVE_ACTIONS`, error codes and the snake_case records (`CloudMachine`, `CloudSnapshot`, `CloudPlan`, `MigrationStatus`). |
 | `store.ts`                                      | Page-side state: machine mirror (list pages once, then `cmux.cloud.machine.watch` events), the pending intent log, create draft.      |
-| `account.ts`                                    | Teams (not served), plan read and re-read, "See plans" checkout, the classic migration banner state.                                  |
+| `account.ts`                                    | Teams (not served), plan read and re-read, "See plans" checkout (kept for when billing lands), the classic migration banner state.    |
 | `detail.ts`                                     | Reads and changes for the selected machine: snapshots, port forwards, browser route.                                                  |
 | `files.ts`, `transfers.ts`                      | Files over the machine daemon (`fs-v1`) and push/pull transfers settled by `cmux.cloud.file.transfer.changed`.                        |
 | `model.ts`                                      | Pure logic: events into the mirror, intent settlement, visible rows, classic rows, plan sizes, labels.                                |
@@ -38,7 +38,9 @@ and 4; server `first-party-apps/cloud/server/src/ops/*.rs`, `src/api/models.rs`,
   `memory_options_mb`; sizes in `locked_memory_options_mb` show disabled with "Not in your plan".
   The page computes no limit: `plan_required`, `quota_exceeded {limit, used}` and `size_locked` show
   as localized sentences (in the sheet for a create, else as a page notice) with "See plans", which
-  runs `cloud.billing.checkout {plan}` when the refusal names a plan.
+  links the public plans page (`PLANS_URL`, opened outside the page on the click) when a plan lifts
+  the limit (the error's `details.plan`, else `CloudPlan.upgrade_plan`). Billing is not built
+  (`cloud.billing.checkout` answers owner.unreachable); "See plans" runs the checkout when it lands.
 - Classic machines (`classic: true`, contract 4) show a "Classic" badge and are read-only: no
   inline or header actions, no ports or files, snapshots listed without actions. A one-time banner
   ("Machines from cmux Cloud classic: N") shows while `cloud.migration.status` is `available` with
