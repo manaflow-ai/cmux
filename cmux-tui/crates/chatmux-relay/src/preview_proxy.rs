@@ -1326,9 +1326,6 @@ mod tests {
         assert_eq!(reused_proxy, proxy);
         assert_eq!(reused_capability, capability);
         registry.shutdown().await;
-        // shutdown awaited each listener task, so its listener is closed. A
-        // connect to the old port proves nothing: a parallel test may bind
-        // the freed port (this assertion failed that way on a Linux runner).
         assert!(registry.proxies.lock().await.is_empty(), "shutdown drops every proxy");
     }
 
