@@ -1274,13 +1274,13 @@ export class AcpmuxDirectClient {
   get selectedSession(): string | undefined {
     return this.selectedSessionId;
   }
-  /** A `session/new` in flight, so a Send during the first prompt's start joins it. */
+  /** A new chat starting (`create`): a Send meanwhile waits for it and goes to the new chat, not to
+   *  the session still on screen (a harness pick), and a Send with no session joins it. */
   private creating?: Promise<string | undefined>;
   async ensureSession(): Promise<string | undefined> {
-    if (!this.selectedSessionId) {
-      this.creating ??= this.create().finally(() => (this.creating = undefined));
-      await this.creating;
-    }
+    // A failed start leaves the selection as it was; the prompt then goes where the pane is.
+    if (this.creating) await this.creating.catch(() => undefined);
+    if (!this.selectedSessionId) await this.create();
     return this.selectedSessionId;
   }
 
@@ -1396,12 +1396,21 @@ export class AcpmuxDirectClient {
     return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
   }
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
-  async create(harness?: string, cwd?: string): Promise<string | undefined> {
-    const result = await this.request("session/new", newSessionParams(cwd ? { cwd } : this.host, harness));
-    // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
-    if (result?.sessionId && !cwd) this.host = { ...this.host, cwd: undefined };
-    if (result?.sessionId) return this.select(String(result.sessionId));
-    return undefined;
+  create(harness?: string, cwd?: string): Promise<string | undefined> {
+    const started = (async () => {
+      const result = await this.request("session/new", newSessionParams(cwd ? { cwd } : this.host, harness));
+      // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
+      if (result?.sessionId && !cwd) this.host = { ...this.host, cwd: undefined };
+      if (result?.sessionId) return this.select(String(result.sessionId));
+      return undefined;
+    })();
+    const tracked = started.finally(() => {
+      if (this.creating === tracked) this.creating = undefined;
+    });
+    // A rejection is the caller's to handle; the tracked copy only orders sends behind it.
+    tracked.catch(() => undefined);
+    this.creating = tracked;
+    return started;
   }
   /** The session an adopt on connect resumed, for the host to keep as the tab's session. */
   adopted?: string;
