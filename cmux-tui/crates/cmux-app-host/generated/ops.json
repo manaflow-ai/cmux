@@ -57,6 +57,7 @@
     "cloud.domain.verify",
     "cloud.file.pull",
     "cloud.file.push",
+    "cloud.file.transfer.cancel",
     "cloud.firewall.create",
     "cloud.firewall.get",
     "cloud.firewall.list",
