@@ -153,6 +153,37 @@ import Testing
         dialog.dismiss()
     }
 
+    /// A forwarded click whose up never reached the panel (a drag session or
+    /// a menu loop in the page took it) does not capture the next click on
+    /// the overlay; and only the same button's up ends a forwarded click.
+    @Test func aForwardedClickEndsOnlyWithItsOwnButton() {
+        let main = makeMain()
+        defer { close(main) }
+        let target = ClickRecorder(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        main.contentView = target
+        let host = WindowOverlayHost.host(for: main)
+        let tab = NSRect(x: 0, y: 0, width: 300, height: 600)
+        let dialog = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)),
+                                  options: OverlayOptions(kind: .dialog, anchor: tab, isModal: true, modalRegion: tab))
+        // (a) A forwarded down whose up is lost, then a click inside the dialog's region.
+        host.panel.ignoresMouseEvents = false
+        host.panel.sendEvent(Self.mouse(.leftMouseDown, at: NSPoint(x: 600, y: 300), in: host.panel))
+        host.panel.ignoresMouseEvents = false
+        host.panel.sendEvent(Self.mouse(.leftMouseDown, at: NSPoint(x: 150, y: 300), in: host.panel))
+        host.panel.sendEvent(Self.mouse(.leftMouseDragged, at: NSPoint(x: 160, y: 300), in: host.panel))
+        host.panel.sendEvent(Self.mouse(.leftMouseUp, at: NSPoint(x: 160, y: 300), in: host.panel))
+        #expect(target.events == [.leftMouseDown], "the click inside the dialog stays with the dialog")
+
+        // (b) Left down forwarded, a right up meanwhile, then the left up.
+        target.events.removeAll()
+        host.panel.ignoresMouseEvents = false
+        host.panel.sendEvent(Self.mouse(.leftMouseDown, at: NSPoint(x: 600, y: 300), in: host.panel))
+        host.panel.sendEvent(Self.mouse(.rightMouseUp, at: NSPoint(x: 600, y: 300), in: host.panel))
+        host.panel.sendEvent(Self.mouse(.leftMouseUp, at: NSPoint(x: 600, y: 300), in: host.panel))
+        #expect(target.events == [.leftMouseDown, .leftMouseUp], "the right up does not end the left click")
+        dialog.dismiss()
+    }
+
     /// A forwarded click on the sidebar (an occluder) goes to the window,
     /// not to the page window whose frame runs under the sidebar.
     @Test func aForwardedClickOnTheSidebarReachesTheWindowNotThePage() {
@@ -287,7 +318,7 @@ import Testing
     private static func mouse(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow) -> NSEvent {
         NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
-                           pressure: type == .leftMouseUp ? 0 : 1)!
+                           pressure: [.leftMouseUp, .rightMouseUp].contains(type) ? 0 : 1)!
     }
 
     /// A key down as the keyboard sends it to `panel`.
@@ -314,4 +345,5 @@ private final class ClickRecorder: NSView {
     override func mouseDown(with event: NSEvent) { events.append(.leftMouseDown) }
     override func mouseDragged(with event: NSEvent) { events.append(.leftMouseDragged) }
     override func mouseUp(with event: NSEvent) { events.append(.leftMouseUp) }
+    override func rightMouseUp(with event: NSEvent) { events.append(.rightMouseUp) }
 }
