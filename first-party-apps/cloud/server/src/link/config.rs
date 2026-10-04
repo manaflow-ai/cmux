@@ -26,6 +26,9 @@ pub enum LinkConfig {
     /// A `link.get` waits for its answer.
     Waiting,
     Ready(LinkPaths),
+    /// A valid answer with `hub_socket: null`: no `cmux link` runs. Connect
+    /// answers `link_unavailable` until a `link.changed` brings a hub.
+    NoHub,
     /// The host answered `host.error`. `retry`: the next connect sends one
     /// new `link.get` (each retryable error allows one; nothing loops).
     HostError {
@@ -49,6 +52,28 @@ fn path(value: &Value, key: &str) -> Result<PathBuf, String> {
         return Err(format!("{key} has a .. part"));
     }
     Ok(path.to_path_buf())
+}
+
+/// A checked `link.get` answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LinkDetails {
+    Ready(LinkPaths),
+    /// Every other field is valid and `hub_socket` is null.
+    NoHub,
+}
+
+impl LinkDetails {
+    /// [`LinkPaths::decode`], with an explicit `hub_socket: null` read as
+    /// "no live `cmux link`" (the rest must still be valid).
+    pub fn decode(value: &Value) -> Result<Self, String> {
+        if value.get("hub_socket").is_some_and(Value::is_null) {
+            let mut probe = value.clone();
+            probe["hub_socket"] = json!("/");
+            LinkPaths::decode(&probe)?;
+            return Ok(Self::NoHub);
+        }
+        LinkPaths::decode(value).map(Self::Ready)
+    }
 }
 
 impl LinkPaths {
@@ -124,8 +149,18 @@ impl<C: ControlPlane> Server<C> {
     /// its forwards close as for any link change). Invalid: new connects
     /// get a typed error; links that run keep their last valid details.
     fn apply_link_details(&mut self, value: &Value) {
-        let paths = match LinkPaths::decode(value) {
-            Ok(paths) => paths,
+        let paths = match LinkDetails::decode(value) {
+            Ok(LinkDetails::Ready(paths)) => paths,
+            Ok(LinkDetails::NoHub) => {
+                // No `cmux link` runs: a link through the old hub cannot
+                // carry anything, so every live link ends (the next connect
+                // after a hub comes back opens a new one).
+                let attach = self.attach_mut();
+                attach.link = LinkConfig::NoHub;
+                attach.supervisor.pump();
+                attach.supervisor.disconnect_all("the cmux link is not running");
+                return;
+            }
             Err(why) => {
                 eprintln!("cmux-cloud: the link details from cmux are not valid: {why}");
                 self.attach_mut().link = LinkConfig::Invalid(why);
@@ -167,6 +202,7 @@ impl<C: ControlPlane> Server<C> {
                 false,
             )),
             LinkConfig::Waiting => Err(unavailable("cmux has not sent the link details yet", true)),
+            LinkConfig::NoHub => Err(unavailable("the cmux link is not running", true)),
             LinkConfig::Invalid(why) => Err(CloudError::new(
                 LINK_DETAILS_INVALID,
                 format!("cmux sent link details that are not valid: {why}"),
