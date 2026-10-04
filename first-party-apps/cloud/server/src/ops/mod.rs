@@ -2,6 +2,7 @@
 //! op group (`machine`, `snapshot`, `plan`, `migration`, `auth`).
 
 mod auth;
+mod declared;
 mod delete_retry;
 mod machine;
 mod machine_projection;
@@ -9,6 +10,7 @@ mod migration;
 mod plan;
 mod snapshot;
 
+pub use declared::{backend_ops, declared_errors};
 pub use machine_projection::{Projection, WatchEvent};
 
 use crate::api::{CloudError, ControlPlane, Ctx, Ledger, Origin, Request, codes, upstream_key};
@@ -45,8 +47,10 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.machine.idle_policy.set", Kind::Mutation),
     ("cloud.machine.connect_info", Kind::Read),
     ("cloud.snapshot.list", Kind::Read),
-    ("cloud.snapshot.create", Kind::Mutation),
-    ("cloud.snapshot.restore", Kind::Mutation),
+    // A snapshot counts against the plan's saved limit: a money op.
+    ("cloud.snapshot.create", Kind::UserOnly),
+    // A restore makes a new machine: it costs money like create.
+    ("cloud.snapshot.restore", Kind::UserOnly),
     ("cloud.snapshot.delete", Kind::UserOnly),
     ("cloud.plan.get", Kind::Read),
     ("cloud.billing.checkout", Kind::UserOnly),

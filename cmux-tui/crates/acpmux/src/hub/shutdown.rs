@@ -21,6 +21,10 @@ impl Hub {
     /// as cancelled.
     pub async fn shutdown_all(&self) {
         const LOCK: std::time::Duration = std::time::Duration::from_millis(200);
+        // The idle reaper must not end a hosted agent this shutdown hands off.
+        self.stop_idle_reaper();
+        // A pass that already started finishes first (bounded by its kills).
+        drop(self.idle_pass.lock().await);
         let end_agents = self.end_agents_on_shutdown.load(Ordering::SeqCst);
         let keep = self.keep_on_shutdown.lock().unwrap().clone();
         let sessions = self.sessions();

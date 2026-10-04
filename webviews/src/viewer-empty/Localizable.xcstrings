@@ -4226,133 +4226,133 @@
       }
     },
     "picker.placeholder": {
-      "comment": "Placeholder of the picker filter field; ~ and / are typed characters",
+      "comment": "Placeholder of the picker filter field; / starts a typed path (~/ also does; there is no ~ jump key)",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Filter, or type ~ or /"
+            "value": "Type to filter, or start with / to type a path"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "صفِّ، أو اكتب ~ أو /"
+            "value": "اكتب للتصفية، أو ابدأ بـ / لكتابة مسار"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Filtrirajte ili upišite ~ ili /"
+            "value": "Kucajte za filtriranje ili počnite sa / za unos putanje"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Filtrer, eller skriv ~ eller /"
+            "value": "Skriv for at filtrere, eller start med / for at skrive en sti"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Filtern oder ~ bzw. / eingeben"
+            "value": "Zum Filtern tippen oder mit / beginnen, um einen Pfad einzugeben"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Filtra, o escribe ~ o /"
+            "value": "Escribe para filtrar, o empieza con / para escribir una ruta"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Filtrer, ou taper ~ ou /"
+            "value": "Tapez pour filtrer, ou commencez par / pour saisir un chemin"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Filtra, o digita ~ o /"
+            "value": "Digita per filtrare, o inizia con / per digitare un percorso"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "絞り込み、または ~ か / を入力"
+            "value": "入力して絞り込み、/ で始めるとパスを入力"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ត្រង ឬវាយ ~ ឬ /"
+            "value": "វាយដើម្បីត្រង ឬចាប់ផ្ដើមដោយ / ដើម្បីវាយផ្លូវ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "필터링하거나 ~ 또는 / 입력"
+            "value": "입력하여 필터링하거나 /로 시작하여 경로 입력"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Filtrer, eller skriv ~ eller /"
+            "value": "Skriv for å filtrere, eller start med / for å skrive en bane"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Filtruj lub wpisz ~ albo /"
+            "value": "Pisz, aby filtrować, lub zacznij od /, aby wpisać ścieżkę"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Filtre, ou digite ~ ou /"
+            "value": "Digite para filtrar, ou comece com / para digitar um caminho"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Фильтр, или введите ~ или /"
+            "value": "Введите для фильтра или начните с /, чтобы ввести путь"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "กรอง หรือพิมพ์ ~ หรือ /"
+            "value": "พิมพ์เพื่อกรอง หรือขึ้นต้นด้วย / เพื่อพิมพ์พาธ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Filtreleyin veya ~ ya da / yazın"
+            "value": "Filtrelemek için yazın veya yol yazmak için / ile başlayın"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Фільтр, або введіть ~ чи /"
+            "value": "Введіть для фільтра або почніть із /, щоб ввести шлях"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lọc, hoặc gõ ~ hoặc /"
+            "value": "Gõ để lọc, hoặc bắt đầu bằng / để gõ đường dẫn"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "筛选，或输入 ~ 或 /"
+            "value": "输入以筛选，或以 / 开头输入路径"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "篩選，或輸入 ~ 或 /"
+            "value": "輸入以篩選，或以 / 開頭輸入路徑"
           }
         }
       }

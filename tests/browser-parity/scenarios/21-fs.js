@@ -4,7 +4,8 @@ const cleanUp = () => {
   for (const f of ["note.txt", "renamed.txt", "copy.txt", "p.txt"]) fs.rmSync(f, { force: true });
   fs.rmSync("dir", { recursive: true, force: true });
 };
-cleanUp();
+// The working directory is new for each run; the end removes what this
+// scenario made there.
 fs.writeFileSync("note.txt", "hello");
 fs.appendFileSync("note.txt", " world");
 emit("read", fs.readFileSync("note.txt", "utf8"));

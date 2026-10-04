@@ -23,6 +23,7 @@ import {
 } from "../src/viewer-empty/pickerModel";
 import { relativeTime } from "../src/viewer-empty/time";
 import { emptySourceOptions } from "../src/viewer-empty/DiffEmptyState";
+import pickerStrings from "../src/viewer-empty/generated/strings.json";
 
 describe("host op answers", () => {
   test("recents keep valid rows, newest first", () => {
@@ -228,5 +229,21 @@ describe("relative time", () => {
     expect(relativeTime(now - 5 * 60_000, now, "en")).toBe("5 min. ago");
     expect(relativeTime(now - 26 * 3600_000, now, "en")).toBe("yesterday");
     expect(relativeTime(now - 3 * 86400_000, now, "ja")).toBe("3 日前");
+  });
+});
+
+describe("picker copy", () => {
+  // PICKER-PATHS: `~` alone is text, not a jump key; only `/` and `~/` start a path. The field's
+  // placeholder and hint must not teach the old `~` jump in any language.
+  test("the placeholder and hint never offer ~ as a jump key, in every locale", () => {
+    const table = pickerStrings as Record<string, Record<string, string>>;
+    const offenders = Object.entries(table).flatMap(([locale, strings]) =>
+      ["picker.placeholder", "picker.hintPath"]
+        .filter((key) => /~(?!\/)/.test(strings[key] ?? ""))
+        .map((key) => `${locale} ${key}: ${strings[key]}`),
+    );
+    expect(Object.keys(table)).toHaveLength(21);
+    expect(offenders).toEqual([]);
+    expect(table.en["picker.placeholder"]).toBe("Type to filter, or start with / to type a path");
   });
 });

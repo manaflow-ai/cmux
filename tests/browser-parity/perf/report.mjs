@@ -8,7 +8,9 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const runs = process.argv.slice(2).map((name) => ({ name, data: JSON.parse(fs.readFileSync(path.join(here, "results", `${name}.json`), "utf8")) }));
 
-// label -> page -> result, one column per tool and run.
+// label -> page -> result, one column per tool and run. A column exists only
+// for tools a run recorded, so runs without the older reference B AX entries (or
+// pages a tool skipped) leave no column or an empty cell.
 const columns = [];
 for (const { name, data } of runs) {
   const tools = new Map();

@@ -136,7 +136,9 @@
         return entries.map((e) => e.name);
       },
       statSync: (p) => statOf(op("stat", { path: abs(p) })),
-      lstatSync: (p) => statOf(op("stat", { path: abs(p) })),
+      // cmux-next: the Rust host has no "lstat" op yet (fs rules, slice S1);
+      // there lstatSync fails with EINVAL instead of following the link.
+      lstatSync: (p) => statOf(op("lstat", { path: abs(p) })),
       existsSync(p) {
         try {
           return !!op("exists", { path: abs(p) });
@@ -394,6 +396,21 @@
     return u.searchParams.get("v");
   }
 
+  // The hosts a YouTube caption track URL may name. Track URLs come from page
+  // data and caption fetches send the session's cookies, so every caption
+  // fetch (page.exportContent, sites.youtube) goes through youtubeCaptionURL.
+  const YOUTUBE_CAPTION_HOSTS = Object.freeze(["www.youtube.com", "m.youtube.com", "youtube.com"]);
+  // A caption track URL resolved against `base`, or null when it is not https
+  // on one of YOUTUBE_CAPTION_HOSTS.
+  function youtubeCaptionURL(raw, base = "https://www.youtube.com") {
+    try {
+      const u = new core.URL(String(raw), base);
+      return u.protocol === "https:" && YOUTUBE_CAPTION_HOSTS.includes(u.hostname) ? u : null;
+    } catch {
+      return null;
+    }
+  }
+
   // YouTube's json3 caption format to plain text, one caption per line.
   function transcriptText(json3) {
     const lines = [];
@@ -408,7 +425,8 @@
     let n = 0;
     const target = (options, ext) => {
       if (options.path) return path.resolve(String(options.path));
-      const dir = path.join(host.tmpdir, "cmux-browser-repl", String(host.sessionId || "session").replace(/[^\w.-]/g, "_"));
+      // The session's own temporary directory (private, mode 0700).
+      const dir = host.tmpdir;
       fs.mkdirSync(dir, { recursive: true });
       return path.join(dir, `export-${++n}${ext}`);
     };
@@ -436,9 +454,11 @@
           return (list || []).map((t) => ({ baseUrl: t.baseUrl, lang: t.languageCode, kind: t.kind || null }));
         });
         if (!tracks.length) throw new Error(`page.exportContent: video ${id} has no captions`);
-        const want = options.lang ? tracks.find((t) => t.lang === options.lang) : tracks.find((t) => t.kind !== "asr") || tracks[0];
-        if (!want) throw new Error(`page.exportContent: video ${id} has no ${options.lang} captions; available: ${tracks.map((t) => t.lang).join(", ")}`);
-        const r = await fetch(new core.URL(want.baseUrl, pageURL).href + "&fmt=json3");
+        const usable = tracks.map((t) => ({ ...t, url: youtubeCaptionURL(t.baseUrl, pageURL) })).filter((t) => t.url);
+        if (!usable.length) throw new Error(`page.exportContent: video ${id} has no captions on YouTube's caption hosts (${YOUTUBE_CAPTION_HOSTS.join(", ")})`);
+        const want = options.lang ? usable.find((t) => t.lang === options.lang) : usable.find((t) => t.kind !== "asr") || usable[0];
+        if (!want) throw new Error(`page.exportContent: video ${id} has no ${options.lang} captions; available: ${usable.map((t) => t.lang).join(", ")}`);
+        const r = await fetch(want.url.href + "&fmt=json3");
         if (!r.ok) throw new Error(`page.exportContent: captions request returned HTTP ${r.status}`);
         const file = target(options, ".txt");
         fs.writeFileSync(file, transcriptText(await r.json()));
@@ -481,7 +501,8 @@
     }
 
     function imageLine(image) {
-      const dir = path.join(host.tmpdir, "cmux-browser-repl", String(host.sessionId || "session").replace(/[^\w.-]/g, "_"));
+      // The session's own temporary directory (private, mode 0700).
+      const dir = host.tmpdir;
       fs.mkdirSync(dir, { recursive: true });
       const file = path.join(dir, `image-${++state.images}.${image.type === "jpeg" ? "jpg" : "png"}`);
       fs.writeFileSync(file, image.buffer);
@@ -561,22 +582,32 @@
     }
 
     // Standard fetch that sends, and stores, the current tab's cookies.
+    // `credentials`: "include" (the default here: cookies for every URL),
+    // "same-origin" (only for the current tab's origin) or "omit" (none sent,
+    // none stored). The host checks the domain policy on every redirect hop,
+    // caps the body at 64 MiB and masks secrets in text bodies (cmux-next:
+    // the host's native fetch answers "unsupported" until slice S1).
     async function fetchWithCookies(input, init = {}) {
       const page = state.current && !state.current.isClosed() ? state.current : null;
       const base = page && /^https?:/.test(page.url()) ? page.url() : undefined;
       const url = new core.URL(String(input && input.url ? input.url : input), base).href;
+      const credentials = init.credentials === undefined ? "include" : init.credentials;
+      if (!["include", "same-origin", "omit"].includes(credentials)) throw new TypeError(`fetch: credentials: expected "include", "same-origin" or "omit", got ${JSON.stringify(credentials)}`);
+      const origin = base ? new core.URL(base).origin : undefined;
       const headers = {};
       const src = init.headers || {};
       if (typeof src.forEach === "function" && !Array.isArray(src)) src.forEach((v, k) => (headers[k] = v));
       else if (Array.isArray(src)) for (const [k, v] of src) headers[k] = v;
       else Object.assign(headers, src);
-      if (!host.fetchHandlesCookies && init.credentials !== "omit" && !Object.keys(headers).some((k) => k.toLowerCase() === "cookie")) {
-        const cookies = await session.call("cookies.get", { urls: [url] }).catch(() => []);
+      const sendsCookies = credentials === "include" || (credentials === "same-origin" && origin === new core.URL(url).origin);
+      if (!host.fetchHandlesCookies && sendsCookies && !Object.keys(headers).some((k) => k.toLowerCase() === "cookie")) {
+        const scope = page && !String(page._targetId).startsWith("lazy:") ? { targetId: page._targetId } : {};
+        const cookies = await session.call("cookies.get", { ...scope, urls: [url] }).catch(() => []);
         if (cookies.length) headers.cookie = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
       }
       const body = init.body === undefined || init.body === null ? undefined : Buffer.from(init.body).toString("base64");
       const targetId = page && !String(page._targetId).startsWith("lazy:") ? page._targetId : undefined;
-      const r = await host.fetch(url, { method: (init.method || "GET").toUpperCase(), headers, body, targetId });
+      const r = await host.fetch(url, { method: (init.method || "GET").toUpperCase(), headers, body, targetId, credentials, origin });
       const bytes = Buffer.from(r.base64 || "", "base64");
       return {
         ok: r.status >= 200 && r.status < 300,
@@ -613,7 +644,10 @@
         const list = await session.call("tabs.list", options && options.all ? { all: true } : {});
         const current = state.current && state.current._targetId;
         return list.map((t) => {
-          const row = { id: t.targetId, title: t.title, url: t.url, active: !!t.active, current: t.targetId === current };
+          // state: "live", "hibernated" (cmux unloaded the hidden page to
+          // save memory; the next call on it loads it again), "waking" or
+          // "crashed" (page.reload() loads it again).
+          const row = { id: t.targetId, title: t.title, url: t.url, active: !!t.active, current: t.targetId === current, state: t.state || "live" };
           if (options && options.all) row.workspace = t.windowId === undefined ? null : t.windowId;
           return row;
         });
@@ -742,5 +776,5 @@
     return { globals, show, importModule, state };
   }
 
-  ns.api = { createGlobals, createPath, createFs, inspect, Image, imageSize, pageMarkdown, googleExportURL, youtubeVideoId, transcriptText };
+  ns.api = { createGlobals, createPath, createFs, inspect, Image, imageSize, pageMarkdown, googleExportURL, youtubeVideoId, youtubeCaptionURL, YOUTUBE_CAPTION_HOSTS, transcriptText };
 })(typeof globalThis !== "undefined" ? globalThis : this);

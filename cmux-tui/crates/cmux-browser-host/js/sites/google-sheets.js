@@ -19,9 +19,13 @@
         await box.press("Enter");
         await t.sleep(300);
       }
-      function writeCells(action, sheet, range, values, options) {
+      function writeCells(action, sheet, range, rows, opts) {
         const name = `googleSheets.${action}`;
         if (typeof sheet === "string" && /^draft-\d+-[0-9a-f]+$/.test(sheet)) return ed.edit("googleSheets", action, name, null, sheet, range);
+        // Private copies: the draft's run writes the rows its preview shows,
+        // whatever the caller changes afterwards.
+        const values = t.copyInput(rows, `${name}: values`);
+        const options = t.copyInput(opts, `${name}: options`);
         if (!Array.isArray(values) || !values.length || !values.every(Array.isArray)) throw new S.SiteError("invalid", `${name}: values: expected rows, an array of arrays such as [["a", 1]]`);
         const r = ref(sheet, name, options || {});
         const start = String(range).split(":")[0].toUpperCase();
@@ -172,8 +176,10 @@
           return writeCells("append", sheet, `A${last + 1}`, rows, options);
         },
         // Clears the values in a range: { status: "cleared", range, verified }.
-        clear(sheet, range, options) {
+        clear(sheet, range, opts) {
           if (typeof sheet === "string" && /^draft-\d+-[0-9a-f]+$/.test(sheet)) return ed.edit("googleSheets", "clear", "googleSheets.clear", null, sheet, range);
+          const options = t.copyInput(opts, "googleSheets.clear: options");
+          range = String(range);
           const r = ref(sheet, "googleSheets.clear", options || {});
           S.parseA1Range(range);
           return ed.edit("googleSheets", "clear", "googleSheets.clear", r, { range }, options, () => ({

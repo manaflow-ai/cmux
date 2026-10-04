@@ -18,6 +18,8 @@ cancelled = set()
 failed_once = set()
 next_id = 100
 pending = {}
+# Sessions this process created or finished loading.
+known = set()
 
 
 def send(obj):
@@ -243,12 +245,27 @@ def main():
             }})
         elif m == "session/new":
             sessions += 1
+            known.add(f"fake-{sessions}")
             send({"jsonrpc": "2.0", "id": rid, "result": {
                 "sessionId": f"fake-{sessions}",
                 "modes": {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]},
                 "configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": "m1", "options": [{"value": "m1", "name": "m1"}, {"value": "m2", "name": "m2"}]}],
             }})
         elif m == "session/load":
+            # FAKE_LOAD_GATE=<path>: the load answers once that file exists, on
+            # its own thread, and until then the session is unknown: a prompt
+            # for it fails "Session not found", as real adapters answer.
+            load_gate = os.environ.get("FAKE_LOAD_GATE")
+            if load_gate:
+                def finish_load(rid=rid, sid=params["sessionId"]):
+                    import time as clock  # main() imports `time` locally
+                    while not os.path.exists(load_gate):
+                        clock.sleep(0.01)
+                    update(sid, {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "replayed"}})
+                    known.add(sid)
+                    send({"jsonrpc": "2.0", "id": rid, "result": None})
+                threading.Thread(target=finish_load, daemon=True).start()
+                continue
             update(params["sessionId"], {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "replayed"}})
             send({"jsonrpc": "2.0", "id": rid, "result": None})
         elif m == "session/fork":
@@ -260,6 +277,9 @@ def main():
             v = params.get("value")
             send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": v, "options": []}]}})
         elif m == "session/prompt":
+            if os.environ.get("FAKE_LOAD_GATE") and params.get("sessionId") not in known:
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32002, "message": "Session not found"}})
+                continue
             threading.Thread(target=handle_prompt, args=(rid, params), daemon=True).start()
         elif m == "session/cancel":
             cancelled.add(params.get("sessionId"))
