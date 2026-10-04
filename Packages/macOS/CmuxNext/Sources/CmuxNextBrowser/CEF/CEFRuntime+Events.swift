@@ -58,6 +58,9 @@ extension CEFRuntime {
     }
 
     func handle(_ event: CEFShimEvent) {
+        #if DEBUG
+        CEFDebugRawDevTools.record(event)
+        #endif
         switch event {
         case .contextInitialized:
             logger.info("CEF context initialized")

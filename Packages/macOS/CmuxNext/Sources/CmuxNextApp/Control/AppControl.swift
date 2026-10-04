@@ -205,6 +205,7 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.beginSidebarRename(call.params, services: services))
             },
+            .mainActor("debug.cef.raw") { [weak services] call in .value(services.map { DebugCEFRaw.run(call.params, $0) } ?? .null) },
             .async("debug.cef.devtools") { [weak services] call in
                 await DebugExtensions.devTools(call.params, services)
             },
