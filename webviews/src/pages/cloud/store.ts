@@ -8,7 +8,7 @@ import { DetailReader, type MachineDetail } from "./detail";
 import {
   applyEvent,
   atMachineLimit,
-  defaultSize,
+  defaultMemory,
   normalizeMachine,
   settled,
   visibleRows,
@@ -20,6 +20,7 @@ import {
 import {
   ACTION_RUN,
   CloudOps,
+  isUnsupported,
   type ActionRunResult,
   type AuthStatus,
   type CloudMachine,
@@ -30,6 +31,10 @@ import {
   type CreateMachineParams,
   type MachineEvent,
   type MachineListResult,
+  type MachineMutationResult,
+  type MachineStats,
+  type ResizeResult,
+  type SnapshotListResult,
 } from "./ops";
 
 export type Connection = "connecting" | "connected" | "disconnected";
@@ -38,8 +43,10 @@ export interface CreateDraft {
   /** One key per sheet: a retry after a failure sends the same key, so the owner creates once. */
   key: string;
   name: string;
-  size?: string;
+  memoryMb?: number;
+  /** Create from this snapshot (`cmux.cloud.snapshot.restore`) instead of the base image. */
   snapshot_id?: string;
+  /** The selected machine's snapshots (the Cloud API has no account-wide snapshot list). */
   snapshots?: CloudSnapshot[];
   submitting: boolean;
   error?: string;
@@ -61,6 +68,8 @@ export interface CloudState {
   create?: CreateDraft;
   error?: string;
   layout: MachineLayout;
+  /** Ops (and native actions) the owner answered as not served yet: the page shows "Not available yet". */
+  unavailable: string[];
 }
 
 export interface CloudStoreOptions {
@@ -93,11 +102,13 @@ export class CloudStore {
       rows: [],
       teams: [],
       layout: options.layout ?? "rows",
+      unavailable: [],
     };
     this.detail = new DetailReader(client, {
       get: () => this.state.detail,
       set: (detail) => this.set({ detail }),
       fail: (error) => this.set(failure(error)),
+      unsupported: (op) => this.markUnavailable(op),
       canChange: () => this.canChange(),
       key: () => this.key(),
     });
@@ -130,7 +141,7 @@ export class CloudStore {
     }
     if (session !== this.session) return;
     this.set({ auth, connection: "connected" });
-    if (auth.signed_in) await this.loadSignedIn(session);
+    if (auth.signedIn) await this.loadSignedIn(session);
     else this.set({ loading: false });
   }
 
@@ -163,12 +174,12 @@ export class CloudStore {
       const auth = await this.client.call<AuthStatus>(CloudOps.authStatus, {});
       if (session !== this.session) return;
       this.set({ auth, error: undefined });
-      if (auth.signed_in) {
+      if (auth.signedIn) {
         const next = this.restartSession();
         await this.loadSignedIn(next);
       }
     } catch (error) {
-      this.set(failure(error));
+      this.fail(CloudOps.authSignIn, error);
     }
   }
 
@@ -181,12 +192,12 @@ export class CloudStore {
       });
       if (result?.confirmed === false) return;
     } catch (error) {
-      this.set(failure(error));
+      this.fail(CloudOps.authSignOut, error);
       return;
     }
     this.restartSession();
     void this.detail.load(undefined);
-    this.set({ ...signedOutState(), auth: { signed_in: false } });
+    this.set({ ...signedOutState(), auth: { signedIn: false } });
   }
 
   async selectTeam(team: string): Promise<void> {
@@ -196,10 +207,17 @@ export class CloudStore {
     this.set({ ...signedOutState(), loading: true });
     try {
       await this.client!.call(CloudOps.teamSelect, { team, idempotency_key: this.key() });
+    } catch (error) {
+      if (session !== this.session) return;
+      if (!isUnsupported(error)) return this.set({ loading: false, ...failure(error) });
+      // Nothing changed at the owner: show the same team again.
+      this.markUnavailable(CloudOps.teamSelect);
+    }
+    try {
       const auth = await this.client!.call<AuthStatus>(CloudOps.authStatus, {});
       if (session !== this.session) return;
       this.set({ auth });
-      if (auth.signed_in) await this.loadSignedIn(session);
+      if (auth.signedIn) await this.loadSignedIn(session);
       else this.set({ loading: false });
     } catch (error) {
       if (session === this.session) this.set({ loading: false, ...failure(error) });
@@ -220,9 +238,12 @@ export class CloudStore {
 
   openCreate(): void {
     if (!this.canChange() || this.state.create) return;
-    this.set({ create: { key: this.key(), name: "", size: defaultSize(this.state.plan), submitting: false } });
-    void this.client!.call<CloudSnapshot[]>(CloudOps.snapshotList, {}).then(
-      (snapshots) => this.state.create && this.set({ create: { ...this.state.create, snapshots } }),
+    const key = this.key();
+    this.set({ create: { key, name: "", memoryMb: defaultMemory(this.state.plan), submitting: false } });
+    const machine = this.state.selection;
+    if (!machine) return;
+    void this.client!.call<SnapshotListResult>(CloudOps.snapshotList, { machine }).then(
+      ({ snapshots }) => this.state.create?.key === key && this.set({ create: { ...this.state.create, snapshots } }),
       () => undefined,
     );
   }
@@ -231,7 +252,7 @@ export class CloudStore {
     if (this.state.create && !this.state.create.submitting) this.set({ create: undefined });
   }
 
-  updateDraft(patch: Partial<Pick<CreateDraft, "name" | "size" | "snapshot_id">>): void {
+  updateDraft(patch: Partial<Pick<CreateDraft, "name" | "memoryMb" | "snapshot_id">>): void {
     const draft = this.state.create;
     if (draft && !draft.submitting) this.set({ create: { ...draft, ...patch, error: undefined } });
   }
@@ -241,17 +262,27 @@ export class CloudStore {
     if (!draft || draft.submitting || !this.canChange()) return;
     if (atMachineLimit(this.state.plan, this.state.machines)) return;
     this.set({ create: { ...draft, submitting: true, error: undefined } });
-    const name = draft.name.trim();
+    const snapshot = draft.snapshot_id ? draft.snapshots?.find((s) => s.id === draft.snapshot_id) : undefined;
+    const name = draft.snapshot_id ? (snapshot?.name ?? "") : draft.name.trim();
     this.pushIntent({ key: draft.key, kind: "create", name });
-    // No size (the plan did not load): the owner picks its default size.
-    const params: CreateMachineParams = { name, idempotency_key: draft.key };
-    if (draft.size) params.size = draft.size;
-    if (draft.snapshot_id) params.snapshot_id = draft.snapshot_id;
     const session = this.session;
     try {
-      const machine = await this.client!.call<CloudMachine>(CloudOps.machineCreate, params);
+      let result: MachineMutationResult;
+      if (draft.snapshot_id) {
+        // A machine from a snapshot is a restore: the owner takes only the snapshot.
+        result = await this.client!.call<MachineMutationResult>(CloudOps.snapshotRestore, {
+          snapshot: draft.snapshot_id,
+          idempotency_key: draft.key,
+        });
+      } else {
+        // No memory (the plan did not load) or no name: the owner picks its default.
+        const params: CreateMachineParams = { idempotency_key: draft.key };
+        if (name) params.displayName = name;
+        if (draft.memoryMb) params.memoryMb = draft.memoryMb;
+        result = await this.client!.call<MachineMutationResult>(CloudOps.machineCreate, params);
+      }
       if (session !== this.session) return;
-      this.updateIntent(draft.key, { result_id: machine.id, replied: true });
+      this.updateIntent(draft.key, { result_id: result.id, replied: true, revision: revisionOf(result) });
       this.set({ create: undefined });
     } catch (error) {
       if (session !== this.session) return;
@@ -262,32 +293,48 @@ export class CloudStore {
 
   // Machine intents.
 
-  pause(machine: string): Promise<void> {
-    return this.machineIntent("pause", machine, CloudOps.machinePause, {});
+  async pause(machine: string): Promise<void> {
+    await this.machineIntent("pause", machine, CloudOps.machinePause, {});
   }
 
-  resume(machine: string): Promise<void> {
-    return this.machineIntent("start", machine, CloudOps.machineStart, {});
+  async resume(machine: string): Promise<void> {
+    await this.machineIntent("start", machine, CloudOps.machineStart, {});
   }
 
-  rename(machine: string, name: string): Promise<void> {
+  async rename(machine: string, name: string): Promise<void> {
     const trimmed = name.trim();
-    if (!trimmed) return Promise.resolve();
-    return this.machineIntent("rename", machine, CloudOps.machineRename, { name: trimmed }, { name: trimmed });
+    if (!trimmed) return;
+    await this.machineIntent("rename", machine, CloudOps.machineRename, { displayName: trimmed }, { name: trimmed });
   }
 
-  resize(machine: string, size: string): Promise<void> {
-    return this.machineIntent("resize", machine, CloudOps.machineResize, { size }, { size });
+  /** Resizes memory to one of the plan's `memoryOptionsMb`. The answer is the new stats. */
+  async resize(machine: string, memoryMb: number): Promise<void> {
+    const stats = await this.machineIntent("resize", machine, CloudOps.machineResize, { memoryMb }, { memoryMb });
+    const detail = this.state.detail;
+    if (stats && detail?.machine === machine)
+      this.set({ detail: { ...detail, stats: statsOf(stats as ResizeResult) } });
   }
 
-  setIdlePolicy(machine: string, seconds: number | null): Promise<void> {
-    return this.machineIntent(
+  /** `null` = never pause (sent as 0 seconds). */
+  async setIdlePolicy(machine: string, seconds: number | null): Promise<void> {
+    await this.machineIntent(
       "idle",
       machine,
       CloudOps.machineIdlePolicySet,
-      { idle_timeout_seconds: seconds },
+      { idleTimeoutSeconds: seconds ?? 0 },
       { idle: seconds },
     );
+  }
+
+  /** A new machine from a snapshot (`snapshot.restore`); it shows as a pending create until its echo. */
+  restoreSnapshot(snapshot: CloudSnapshot): Promise<void> {
+    return this.newMachine(CloudOps.snapshotRestore, { snapshot: snapshot.id }, snapshot.name ?? "");
+  }
+
+  /** A copy of the machine (`snapshot.fork`); it shows as a pending create until its echo. */
+  forkMachine(machine: string): Promise<void> {
+    const source = this.state.machines.find((m) => m.id === machine);
+    return this.newMachine(CloudOps.snapshotFork, { machine }, source?.displayName ?? "");
   }
 
   /** Asks the host for the native delete confirmation; the host runs the delete as origin user. */
@@ -304,7 +351,7 @@ export class CloudStore {
       else this.replied(key, result);
     } catch (error) {
       this.dropIntent(key);
-      this.set(failure(error));
+      this.fail(CloudOps.machineDelete, error);
     }
   }
 
@@ -377,6 +424,12 @@ export class CloudStore {
       client.call<CloudUsage>(CloudOps.usageGet, {}),
     ]);
     if (session !== this.session) return;
+    for (const [op, result] of [
+      [CloudOps.teamList, teams],
+      [CloudOps.planGet, plan],
+      [CloudOps.usageGet, usage],
+    ] as const)
+      if (result.status === "rejected" && isUnsupported(result.reason)) this.markUnavailable(op);
     this.set({
       teams: teams.status === "fulfilled" ? teams.value : [],
       plan: plan.status === "fulfilled" ? plan.value : undefined,
@@ -392,22 +445,25 @@ export class CloudStore {
       return;
     }
     const target = event.type === "removed" ? event.id : event.machine.id;
-    // The echo of an answered intent: the owner's next event for that machine settles it,
-    // whatever value the owner chose (normalized name, failed status, other size name).
-    const pending = this.state.pending.filter((intent) => !(intent.replied && intent.machine === target));
+    // An answer without a revision (a native action): the owner's next event for that machine is
+    // its echo, whatever value the owner chose. Answers with a revision settle in setMirror.
+    const pending = this.state.pending.filter(
+      (intent) => !(intent.replied && intent.revision === undefined && intent.machine === target),
+    );
     if (pending.length !== this.state.pending.length) this.state = { ...this.state, pending };
     this.setMirror(applyEvent(this.state.machines, event), event.revision, patch);
   }
 
-  /** The owner answered an intent. A result revision already in the mirror settles it now. */
+  /**
+   * The owner answered an intent. Its result revision settles it once the mirror reaches it (now,
+   * when the watch event came first).
+   */
   private replied(key: string, result: unknown): void {
-    const revision = (result as { revision?: unknown } | null)?.revision;
-    if (typeof revision === "number" && revision <= this.state.revision) this.dropIntent(key);
-    else this.updateIntent(key, { replied: true });
+    this.updateIntent(key, { replied: true, revision: revisionOf(result) });
   }
 
   private setMirror(machines: CloudMachine[], revision: number, patch: Partial<CloudState> = {}): void {
-    const pending = this.state.pending.filter((intent) => !settled(intent, machines));
+    const pending = this.state.pending.filter((intent) => !settled(intent, machines, revision));
     const gone = this.state.selection && !machines.some((machine) => machine.id === this.state.selection);
     if (gone) void this.detail.load(undefined);
     this.set({
@@ -420,21 +476,43 @@ export class CloudStore {
     });
   }
 
+  /** Sends one machine intent; answers the owner's result, or undefined after a reject. */
   private async machineIntent(
     kind: IntentKind,
     machine: string,
     op: string,
     params: Record<string, unknown>,
     fields: Partial<PendingIntent> = {},
-  ): Promise<void> {
-    if (!this.canChange()) return;
+  ): Promise<unknown> {
+    if (!this.canChange()) return undefined;
     const key = this.key();
     this.pushIntent({ key, kind, machine, ...fields });
+    const session = this.session;
     try {
-      this.replied(key, await this.client!.call(op, { machine, ...params, idempotency_key: key }));
+      const result = await this.client!.call(op, { machine, ...params, idempotency_key: key });
+      if (session !== this.session) return undefined;
+      this.replied(key, result);
+      return result;
     } catch (error) {
       this.dropIntent(key);
-      this.set(failure(error));
+      this.fail(op, error);
+      return undefined;
+    }
+  }
+
+  /** Restore and fork: a new machine, shown as a pending create row until the mirror has it. */
+  private async newMachine(op: string, params: Record<string, unknown>, name: string): Promise<void> {
+    if (!this.canChange()) return;
+    const key = this.key();
+    this.pushIntent({ key, kind: "create", name });
+    const session = this.session;
+    try {
+      const result = await this.client!.call<MachineMutationResult>(op, { ...params, idempotency_key: key });
+      if (session !== this.session) return;
+      this.updateIntent(key, { result_id: result.id, replied: true, revision: revisionOf(result) });
+    } catch (error) {
+      this.dropIntent(key);
+      this.fail(op, error);
     }
   }
 
@@ -443,8 +521,18 @@ export class CloudStore {
     try {
       await this.client!.call<ActionRunResult | null>(ACTION_RUN, { action, args });
     } catch (error) {
-      this.set(failure(error));
+      this.fail(action, error);
     }
+  }
+
+  /** A reject: "not available yet" for an op the owner does not serve, else the error banner. */
+  private fail(op: string, error: unknown): void {
+    if (isUnsupported(error)) this.markUnavailable(op);
+    else this.set(failure(error));
+  }
+
+  private markUnavailable(op: string): void {
+    if (!this.state.unavailable.includes(op)) this.set({ unavailable: [...this.state.unavailable, op] });
   }
 
   private pushIntent(intent: PendingIntent): void {
@@ -453,7 +541,7 @@ export class CloudStore {
 
   private updateIntent(key: string, patch: Partial<PendingIntent>): void {
     const pending = this.state.pending.map((intent) => (intent.key === key ? { ...intent, ...patch } : intent));
-    this.setPending(pending.filter((intent) => !settled(intent, this.state.machines)));
+    this.setPending(pending.filter((intent) => !settled(intent, this.state.machines, this.state.revision)));
   }
 
   private dropIntent(key: string): void {
@@ -465,7 +553,7 @@ export class CloudStore {
   }
 
   private canChange(): boolean {
-    return !!this.client && this.state.connection !== "disconnected" && !!this.state.auth?.signed_in;
+    return !!this.client && this.state.connection !== "disconnected" && !!this.state.auth?.signedIn;
   }
 
   private key(): string {
@@ -493,6 +581,19 @@ function signedOutState(): Partial<CloudState> {
     error: undefined,
     loading: false,
   };
+}
+
+/** The stats of a resize answer, without its `revision`. */
+function statsOf(result: ResizeResult): MachineStats {
+  const stats: MachineStats & { revision?: number } = { ...result };
+  delete stats.revision;
+  return stats;
+}
+
+/** The `revision` of a mutation result, when the owner sent one. */
+function revisionOf(result: unknown): number | undefined {
+  const revision = (result as { revision?: unknown } | null)?.revision;
+  return typeof revision === "number" ? revision : undefined;
 }
 
 function message(error: unknown): string {

@@ -335,7 +335,7 @@ describe("CloudStore against the landed catalog (C4i)", () => {
     });
     expect(store.getSnapshot().pending).toEqual([]);
     expect(store.getSnapshot().detail?.stats?.memoryTotalMb).toBe(8192);
-    expect((store.getSnapshot().detail?.stats as { revision?: number }).revision).toBeUndefined();
+    expect(store.getSnapshot().detail?.stats).not.toHaveProperty("revision");
   });
 
   test("create from a snapshot calls snapshot.restore with the snapshot only", async () => {

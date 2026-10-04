@@ -12,10 +12,36 @@ import {
   type CloudPublication,
   type CloudSnapshot,
   type MachineEvent,
-  type MutationResult,
+  type MachineMutationResult,
 } from "./ops";
 
 export { sampleMachines } from "./mockData";
+
+/**
+ * Ops the Cloud app server does not serve yet (first-party-apps/cloud/README.md "Gaps"). The mock
+ * answers them like the server: `cmux.cloud.unsupported` for the idle policy, an unknown-op error
+ * for the rest. Pass `unsupported: []` to drive the page's full design.
+ */
+export const SERVER_GAPS: readonly string[] = [
+  CloudOps.machineIdlePolicySet,
+  CloudOps.authSignIn,
+  CloudOps.authSignOut,
+  CloudOps.teamList,
+  CloudOps.teamSelect,
+  CloudOps.domainList,
+  CloudOps.domainVerify,
+  CloudOps.publicationList,
+  CloudOps.publicationCreate,
+  CloudOps.publicationUpdate,
+  CloudOps.publicationDelete,
+  CloudOps.publicationVerify,
+  CloudOps.networkList,
+  CloudOps.firewallList,
+  CloudOps.firewallGet,
+  CloudOps.firewallCreate,
+  CloudOps.firewallDelete,
+  CloudOps.billingOpen,
+];
 
 export interface MockCall {
   op: string;
@@ -28,6 +54,8 @@ export interface MockOptions {
   holdEvents?: boolean;
   /** The user's answer to every native confirmation sheet. */
   confirm?: boolean;
+  /** Ops answered as not served (default `SERVER_GAPS`). */
+  unsupported?: readonly string[];
 }
 
 type Params = Record<string, unknown>;
@@ -35,10 +63,11 @@ type Params = Record<string, unknown>;
 export class MockCloudProvider implements PageClient {
   readonly calls: MockCall[] = [];
   machines: CloudMachine[] = sampleMachines();
-  snapshots: CloudSnapshot[] = sampleSnapshots();
+  snapshots: Array<CloudSnapshot & { machine: string }> = sampleSnapshots();
   account = sampleAccount();
   signedIn: boolean;
   confirm: boolean;
+  unsupported: Set<string>;
   /** Set to make every call reject as if the host went away. */
   offline = false;
   /** The next call of this op fails with a retryable owner error. */
@@ -47,9 +76,12 @@ export class MockCloudProvider implements PageClient {
   onList?: () => void;
   /** The owner's normalization of a new name (the echo then differs from the intent). */
   renameTransform?: (name: string) => string;
-  private revision = 10;
+  /** The projection revision: one step per change, shared by the events of that change. */
+  revision = 10;
   private nextId = 1;
-  private readonly created = new Map<string, string>();
+  private readonly memory = new Map<string, number>();
+  /** Idempotency ledger: key -> recorded result (a replay answers it and emits nothing). */
+  private readonly ledger = new Map<string, unknown>();
   private readonly subs = new Map<number, { listener: (data: unknown, seq: number) => void; seq: number }>();
   private nextSub = 1;
   private readonly handlers = new Map<string, PageHandler>();
@@ -58,6 +90,7 @@ export class MockCloudProvider implements PageClient {
   constructor(options: MockOptions = {}) {
     this.signedIn = options.signedIn ?? true;
     this.confirm = options.confirm ?? true;
+    this.unsupported = new Set(options.unsupported ?? SERVER_GAPS);
     this.held = options.holdEvents ? [] : null;
   }
 
@@ -73,7 +106,7 @@ export class MockCloudProvider implements PageClient {
     if (op === ACTION_RUN && p.action === CloudOps.authSignIn) return this.runAction(p) as R;
     if (!this.signedIn) throw pageError("cmux.cloud.auth_required", "Sign in to cmux Cloud.");
     if (op === ACTION_RUN) return this.runAction(p) as R;
-    return this.serve(op, p) as R;
+    return this.keyed(op, p) as R;
   }
 
   async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
@@ -98,15 +131,17 @@ export class MockCloudProvider implements PageClient {
     return this.subs.size;
   }
 
-  /** The owner changed a machine (or added one) and notifies. */
+  /** The owner changed a machine (or added one) and notifies: one change, one revision. */
   emitUpsert(machine: CloudMachine): void {
     const index = this.machines.findIndex((m) => m.id === machine.id);
+    if (index >= 0 && JSON.stringify(this.machines[index]) === JSON.stringify(machine)) return;
     if (index < 0) this.machines.push(machine);
     else this.machines[index] = machine;
     this.emit({ type: "upsert", revision: ++this.revision, machine });
   }
 
   emitRemoved(id: string): void {
+    if (!this.machines.some((machine) => machine.id === id)) return;
     this.machines = this.machines.filter((machine) => machine.id !== id);
     this.emit({ type: "removed", revision: ++this.revision, id });
   }
@@ -132,9 +167,7 @@ export class MockCloudProvider implements PageClient {
   }
 
   private authStatus() {
-    return this.signedIn
-      ? { signed_in: true, email: "dev@example.com", team: this.account.team }
-      : { signed_in: false };
+    return this.signedIn ? { signedIn: true, team: this.account.team } : { signedIn: false, team: null };
   }
 
   private machine(params: Params): CloudMachine {
@@ -143,34 +176,51 @@ export class MockCloudProvider implements PageClient {
     return machine;
   }
 
-  /** Changes a machine as the owner would: emits the echo, answers with the revision. */
-  private change(params: Params, patch: Partial<CloudMachine>): MutationResult {
+  /** Changes a machine as the owner would: emits the echo, answers the record with its revision. */
+  private change(params: Params, patch: Partial<CloudMachine>): MachineMutationResult {
     const machine = { ...this.machine(params), ...patch };
     this.emitUpsert(machine);
-    return { machine, revision: this.revision };
+    return { ...machine, revision: this.revision };
   }
 
-  private create(params: Params, snapshot?: string): CloudMachine {
-    const key = String(params.idempotency_key ?? "");
-    const existing = key ? this.created.get(key) : undefined;
-    if (existing) return this.machines.find((m) => m.id === existing) ?? this.machine({ machine: existing });
-    const plan = this.account.plan.sizes.find((size) => size.name === (params.size ?? "small-1"));
+  private create(displayName: unknown, memoryMb: unknown): MachineMutationResult {
     const id = `vm-new${this.nextId++}`;
     const machine: CloudMachine = {
       id,
       provider: "freestyle",
       status: "provisioning",
-      display_name: (params.name as string) || undefined,
-      created_at_ms: Date.now(),
-      size: plan && { name: plan.name, cpu: plan.cpu, memory_mb: plan.memory_mb, storage_mb: plan.storage_mb },
-      image: snapshot ? `snapshot ${snapshot}` : "cmux-base",
+      displayName: typeof displayName === "string" ? displayName : null,
+      slug: null,
+      kind: "terminal",
+      image: "cmux-base",
+      imageVersion: "20260902e",
+      createdAt: Date.now(),
+      address: null,
+      createdBy: { userId: "user-dev-1", displayName: "Dev User" },
+      freeAccessExpiresAt: null,
     };
-    if (key) this.created.set(key, id);
+    if (typeof memoryMb === "number") this.memory.set(id, memoryMb);
     this.emitUpsert(machine);
-    return machine;
+    return { ...machine, revision: this.revision };
+  }
+
+  /** The server's ledger: a mutation key replays its recorded result and changes nothing. */
+  private keyed(op: string, p: Params): unknown {
+    const key = typeof p.idempotency_key === "string" ? p.idempotency_key : undefined;
+    if (key && this.ledger.has(key)) return this.ledger.get(key);
+    const args = { ...p };
+    delete args.idempotency_key;
+    const result = this.serve(op, args);
+    if (key) this.ledger.set(key, result);
+    return result;
   }
 
   private serve(op: string, p: Params): unknown {
+    if (this.unsupported.has(op)) {
+      if (op === CloudOps.machineIdlePolicySet)
+        throw pageError("cmux.cloud.unsupported", "The cmux Cloud API has no idle policy route yet");
+      throw pageError("cmux.cloud.unknown_op", `${op} is not a Cloud op`);
+    }
     const a = this.account;
     switch (op) {
       case CloudOps.authSignOut:
@@ -189,41 +239,57 @@ export class MockCloudProvider implements PageClient {
       case CloudOps.machineGet:
         return this.machine(p);
       case CloudOps.machineCreate:
-        return this.create(p, p.snapshot_id as string | undefined);
+        return this.create(p.displayName, p.memoryMb);
       case CloudOps.machineRename:
-        return this.change(p, { display_name: (this.renameTransform ?? String)(String(p.name)) });
+        return this.change(p, { displayName: (this.renameTransform ?? String)(String(p.displayName)) });
       case CloudOps.machineStart:
         return this.change(p, { status: "running" });
       case CloudOps.machinePause:
         return this.change(p, { status: "paused" });
       case CloudOps.machineResize: {
-        const size = a.plan.sizes.find((s) => s.name === p.size);
-        return this.change(p, { size: size && { ...size } });
+        // The answer is the stats with the plan maximums; the record does not change.
+        const machine = this.machine(p);
+        if (typeof p.memoryMb === "number") this.memory.set(machine.id, p.memoryMb);
+        return { ...sampleStats(machine, this.memory.get(machine.id)), revision: this.revision };
       }
-      case CloudOps.machineIdlePolicySet:
-        return this.change(p, { idle_timeout_seconds: (p.idle_timeout_seconds as number | null) ?? undefined });
       case CloudOps.machineDelete:
         this.machine(p);
         this.emitRemoved(String(p.machine));
         return { ok: true };
-      case CloudOps.machineStats:
-        return sampleStats(this.machine(p));
-      case CloudOps.snapshotList:
-        return this.snapshots.filter((s) => !p.machine || s.machine === p.machine);
+      case CloudOps.machineStats: {
+        const machine = this.machine(p);
+        return sampleStats(machine, this.memory.get(machine.id));
+      }
+      case CloudOps.snapshotList: {
+        if (typeof p.machine !== "string") throw pageError("cmux.cloud.invalid_args", "machine is required");
+        const snapshots = this.snapshots
+          .filter((s) => s.machine === p.machine)
+          .map(({ id, name, createdAt }) => ({ id, name, createdAt }));
+        return { snapshots };
+      }
       case CloudOps.snapshotCreate: {
         const snapshot = {
           id: `snap-new${this.nextId++}`,
-          name: p.name as string | undefined,
+          name: typeof p.name === "string" ? p.name : null,
           machine: String(p.machine),
-          created_at_ms: Date.now(),
+          createdAt: new Date().toISOString(),
         };
         this.snapshots = [snapshot, ...this.snapshots];
-        return snapshot;
+        return { id: snapshot.id, name: snapshot.name, createdAt: snapshot.createdAt };
       }
-      case CloudOps.snapshotRestore:
-        return this.change(p, { status: "provisioning" });
-      case CloudOps.snapshotFork:
-        return this.create({ ...p, name: `${this.machine(p).display_name ?? "machine"}-fork` }, String(p.snapshot));
+      case CloudOps.snapshotRestore: {
+        // A new machine from the snapshot; the source machine does not change.
+        const snapshot = this.snapshots.find((s) => s.id === p.snapshot);
+        if (!snapshot) throw pageError("cmux.cloud.not_found", `no snapshot ${String(p.snapshot)}`);
+        return this.create(snapshot.name ?? null, undefined);
+      }
+      case CloudOps.snapshotFork: {
+        const source = this.machine(p);
+        return {
+          ...this.create(`${source.displayName ?? source.slug ?? "machine"}-fork`, undefined),
+          snapshotId: null,
+        };
+      }
       case CloudOps.snapshotDelete:
         this.snapshots = this.snapshots.filter((s) => s.id !== p.snapshot);
         return { ok: true };
@@ -257,7 +323,7 @@ export class MockCloudProvider implements PageClient {
       case CloudOps.networkList:
         return a.networks;
       case CloudOps.firewallList:
-        return a.firewall.filter((rule) => rule.destination.vm_id === p.machine || rule.source.vm_id === p.machine);
+        return a.firewall.filter((rule) => rule.destination.vmId === p.machine || rule.source.vmId === p.machine);
       case CloudOps.firewallCreate: {
         const rule = p.rule as {
           action: string;
@@ -272,7 +338,7 @@ export class MockCloudProvider implements PageClient {
             id: `fw-${this.nextId++}`,
             action: rule.action,
             source: rule.cidr ? { cidr: rule.cidr } : { public: true },
-            destination: { vm_id: String(p.machine), port: rule.port, protocol: rule.protocol },
+            destination: { vmId: String(p.machine), port: rule.port, protocol: rule.protocol },
             description: rule.description,
           },
         ];
@@ -294,10 +360,11 @@ export class MockCloudProvider implements PageClient {
   private runAction(p: Params): unknown {
     const action = String(p.action);
     if (!NATIVE_ACTIONS.has(action)) throw pageError("cmux.app.unknown_action", action);
+    if (this.unsupported.has(action)) throw pageError("cmux.cloud.unknown_op", `${action} is not a Cloud op`);
     if (action === CloudOps.machineConnect || action === CloudOps.billingOpen) return { confirmed: true };
     if (!this.confirm) return { confirmed: false };
     if (action === CloudOps.authSignIn) return ((this.signedIn = true), { confirmed: true });
-    this.serve(action, (p.args ?? {}) as Params);
+    this.keyed(action, (p.args ?? {}) as Params);
     return { confirmed: true };
   }
 }

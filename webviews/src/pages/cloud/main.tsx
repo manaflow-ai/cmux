@@ -27,9 +27,12 @@ export function mountCloudPage(root: HTMLElement, client: PageClient | null = de
   return store;
 }
 
+/** `?mock` answers like the Cloud app server today; `?mock=all` also serves the ops it lacks. */
 function defaultClient(): PageClient | null {
-  const mock = new URLSearchParams(location.search).has("mock");
-  return createPageClient(mock ? () => new MockCloudProvider() : undefined);
+  const params = new URLSearchParams(location.search);
+  const mock = params.has("mock");
+  const unsupported = params.get("mock") === "all" ? [] : undefined;
+  return createPageClient(mock ? () => new MockCloudProvider({ unsupported }) : undefined);
 }
 
 const root = document.getElementById("root");

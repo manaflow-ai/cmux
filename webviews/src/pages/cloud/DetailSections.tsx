@@ -1,11 +1,13 @@
 // Detail sections of the selected machine: snapshots, publications, domains, network and firewall.
 // Deletes and firewall changes go to the host's native confirmation (detail.ts `native`); other
 // changes call the op with an idempotency key and re-read the section after the owner answers.
+// Restore makes a new machine (`snapshot.restore`), shown as a pending create in the list. A
+// section whose op the owner does not serve yet shows "Not available yet" and no controls.
 import { useState, type KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
-import type { MachineDetail } from "./detail";
+import { SECTION_OPS, type DetailSection, type MachineDetail } from "./detail";
 import { formatDate, plain } from "./model";
-import type { CloudDomain, FirewallEndpoint } from "./ops";
+import { CloudOps, type CloudDomain, type FirewallEndpoint } from "./ops";
 import type { CloudStore } from "./store";
 import { L } from "./strings";
 
@@ -13,7 +15,16 @@ interface SectionProps {
   store: CloudStore;
   machine: string;
   detail: MachineDetail;
+  /** Ops the owner does not serve yet. */
+  unavailable: readonly string[];
   strings: Strings;
+}
+
+const isUnavailable = (unavailable: readonly string[], section: DetailSection) =>
+  unavailable.includes(SECTION_OPS[section]);
+
+function Unavailable({ t }: { t: (key: string) => string }) {
+  return <p className="cloud-muted cloud-unavailable">{t(L.unavailable)}</p>;
 }
 
 const DomainLabel: Record<CloudDomain["status"], string> = {
@@ -22,36 +33,38 @@ const DomainLabel: Record<CloudDomain["status"], string> = {
   failed: L.domainFailed,
 };
 
-export function SnapshotsSection({ store, machine, detail, strings }: SectionProps) {
+export function SnapshotsSection({ store, machine, detail, unavailable, strings }: SectionProps) {
   const { t, language } = strings;
+  if (isUnavailable(unavailable, "snapshots"))
+    return (
+      <>
+        <h3 className="cloud-subsection-title">{t(L.snapshots)}</h3>
+        <Unavailable t={t} />
+      </>
+    );
   return (
     <>
       <div className="cloud-subsection-header">
         <h3 className="cloud-subsection-title">{t(L.snapshots)}</h3>
-        <button type="button" className="cloud-link-button" onClick={() => void store.detail.createSnapshot(machine)}>
-          {t(L.snapshotCreate)}
-        </button>
+        {!unavailable.includes(CloudOps.snapshotCreate) && (
+          <button type="button" className="cloud-link-button" onClick={() => void store.detail.createSnapshot(machine)}>
+            {t(L.snapshotCreate)}
+          </button>
+        )}
       </div>
       {detail.snapshots?.length ? (
         <ul className="cloud-items">
           {detail.snapshots.map((snapshot) => (
             <li key={snapshot.id} className="cloud-item cloud-snapshot">
               <span className="cloud-item-title">{snapshot.name || t(L.snapshotUnnamed)}</span>
-              <span className="cloud-item-detail">{formatDate(snapshot.created_at_ms, language)}</span>
+              <span className="cloud-item-detail">{formatDate(snapshot.createdAt, language)}</span>
               <span className="cloud-item-actions">
                 <button
                   type="button"
-                  className="cloud-link-button"
-                  onClick={() => void store.detail.restoreSnapshot(machine, snapshot.id)}
+                  className="cloud-link-button cloud-snapshot-restore"
+                  onClick={() => void store.restoreSnapshot(snapshot)}
                 >
                   {t(L.restore)}
-                </button>
-                <button
-                  type="button"
-                  className="cloud-link-button"
-                  onClick={() => void store.detail.forkSnapshot(machine, snapshot.id)}
-                >
-                  {t(L.fork)}
                 </button>
                 <button
                   type="button"
@@ -104,8 +117,15 @@ function PortField({ label, onSubmit }: { label: string; onSubmit: (port: number
   );
 }
 
-export function PublicationsSection({ store, machine, detail, strings }: SectionProps) {
+export function PublicationsSection({ store, machine, detail, unavailable, strings }: SectionProps) {
   const { t } = strings;
+  if (isUnavailable(unavailable, "publications"))
+    return (
+      <>
+        <h3 className="cloud-subsection-title">{t(L.publications)}</h3>
+        <Unavailable t={t} />
+      </>
+    );
   return (
     <>
       <div className="cloud-subsection-header">
@@ -151,12 +171,14 @@ export function PublicationsSection({ store, machine, detail, strings }: Section
   );
 }
 
-export function DomainsSection({ store, detail, strings }: Omit<SectionProps, "machine">) {
+export function DomainsSection({ store, detail, unavailable, strings }: Omit<SectionProps, "machine">) {
   const { t } = strings;
   return (
     <>
       <h3 className="cloud-subsection-title">{t(L.domains)}</h3>
-      {detail.domains?.length ? (
+      {isUnavailable(unavailable, "domains") ? (
+        <Unavailable t={t} />
+      ) : detail.domains?.length ? (
         <ul className="cloud-items">
           {detail.domains.map((domain) => (
             <li key={domain.name} className="cloud-item">
@@ -184,23 +206,24 @@ export function DomainsSection({ store, detail, strings }: Omit<SectionProps, "m
 }
 
 function endpoint(value: FirewallEndpoint, t: (key: string) => string): string {
-  const where = value.public
-    ? t(L.firewallPublic)
-    : (value.cidr ?? value.vm_id ?? value.vpc_id ?? value.tunnel_id ?? "");
+  const where = value.public ? t(L.firewallPublic) : (value.cidr ?? value.vmId ?? value.vpcId ?? value.tunnelId ?? "");
   const port = value.port ? `:${value.port}${value.protocol ? `/${value.protocol}` : ""}` : "";
   return `${where}${port}`;
 }
 
-export function NetworkSection({ store, machine, detail, strings }: SectionProps) {
+export function NetworkSection({ store, machine, detail, unavailable, strings }: SectionProps) {
   const { t } = strings;
+  const firewallUnavailable = isUnavailable(unavailable, "firewall");
   return (
     <>
       <h3 className="cloud-subsection-title">{t(L.network)}</h3>
-      {detail.networks?.length ? (
+      {isUnavailable(unavailable, "networks") ? (
+        <Unavailable t={t} />
+      ) : detail.networks?.length ? (
         <ul className="cloud-items">
           {detail.networks.map((network) => (
             <li key={network.id} className="cloud-item">
-              <span className="cloud-item-title cloud-mono">{network.cidr ?? network.cidr_v6 ?? network.id}</span>
+              <span className="cloud-item-title cloud-mono">{network.cidr ?? network.cidrV6 ?? network.id}</span>
               <span className="cloud-item-detail">{network.scope}</span>
             </li>
           ))}
@@ -210,12 +233,18 @@ export function NetworkSection({ store, machine, detail, strings }: SectionProps
       )}
       <div className="cloud-subsection-header">
         <h3 className="cloud-subsection-title">{t(L.firewall)}</h3>
-        <PortField
-          label={t(L.firewallAdd)}
-          onSubmit={(port) => void store.detail.createFirewallRule(machine, { action: "allow", port, protocol: "tcp" })}
-        />
+        {!firewallUnavailable && (
+          <PortField
+            label={t(L.firewallAdd)}
+            onSubmit={(port) =>
+              void store.detail.createFirewallRule(machine, { action: "allow", port, protocol: "tcp" })
+            }
+          />
+        )}
       </div>
-      {detail.firewall?.length ? (
+      {firewallUnavailable ? (
+        <Unavailable t={t} />
+      ) : detail.firewall?.length ? (
         <ul className="cloud-items">
           {detail.firewall.map((rule) => (
             <li key={rule.id} className="cloud-item cloud-firewall-rule">

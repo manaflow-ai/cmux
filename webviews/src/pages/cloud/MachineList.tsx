@@ -1,6 +1,7 @@
 // The machine list in two prototype layouts (Debug setting `cloud.machines.layout`): dense rows
-// (default) and cards. Both draw the same rows: status dot, title, status or pending intent, size,
-// and an inline Pause or Resume. Plain Up/Down select, Return connects; chords are ignored.
+// (default) and cards. Both draw the same rows: status dot, title, status or pending intent, image
+// (cards), and an inline Pause or Resume. Plain Up/Down select, Return connects; chords are ignored.
+// The record carries no size: the size shows in the detail, from the machine's stats.
 import type { KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
 import {
@@ -9,7 +10,6 @@ import {
   IntentLabel,
   moveSelection,
   plain,
-  sizeSpec,
   StatusLabel,
   type MachineLayout,
   type MachineRow,
@@ -39,7 +39,7 @@ export function MachineList({
   onPause,
   onResume,
 }: MachineListProps) {
-  const { t, language } = strings;
+  const { t } = strings;
   const onKeyDown = (event: KeyboardEvent) => {
     // Only keys aimed at the list itself or a row; a focused inline button keeps its own Return.
     if (!plain(event) || (event.target as HTMLElement).tagName === "BUTTON") return;
@@ -56,7 +56,7 @@ export function MachineList({
       {rows.map((row) => {
         const selected = row.id === selection;
         const status = row.pending ? t(IntentLabel[row.pending]) : t(StatusLabel[row.status]);
-        const size = row.machine?.size;
+        const image = [row.machine?.image, row.machine?.imageVersion].filter(Boolean).join(" ");
         return (
           <div
             key={row.id}
@@ -85,10 +85,9 @@ export function MachineList({
               <span className="cloud-machine-title">{row.title || t(IntentLabel.create)}</span>
               <span className="cloud-machine-subtitle">
                 {status}
-                {size && layout === "cards" ? ` · ${sizeSpec(size, t, language)}` : ""}
+                {image && layout === "cards" ? ` · ${image}` : ""}
               </span>
             </span>
-            {layout === "rows" && size?.name && <span className="cloud-machine-size">{size.name}</span>}
             {canPause(row) && (
               <button
                 type="button"

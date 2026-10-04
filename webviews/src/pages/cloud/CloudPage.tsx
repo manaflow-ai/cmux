@@ -7,6 +7,7 @@ import { AccountPanel } from "./AccountPanel";
 import { CreateSheet } from "./CreateSheet";
 import { MachineDetailView } from "./MachineDetail";
 import { MachineList } from "./MachineList";
+import { CloudOps } from "./ops";
 import type { CloudStore } from "./store";
 import { L } from "./strings";
 
@@ -27,18 +28,22 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
       );
     if (!snap.auth || (snap.loading && snap.rows.length === 0))
       return <div className="cloud-message cloud-loading">{t(L.loading)}</div>;
-    if (!snap.auth.signed_in)
+    if (!snap.auth.signedIn)
       return (
         <div className="cloud-message cloud-signed-out">
           <h2 className="cloud-message-title">{t(L.signedOutTitle)}</h2>
           <p>{t(L.signedOutBody)}</p>
-          <button
-            type="button"
-            className="cloud-button primary cloud-signin-button"
-            onClick={() => void store.signIn()}
-          >
-            {t(L.signIn)}
-          </button>
+          {snap.unavailable.includes(CloudOps.authSignIn) ? (
+            <p className="cloud-muted cloud-unavailable">{t(L.unavailable)}</p>
+          ) : (
+            <button
+              type="button"
+              className="cloud-button primary cloud-signin-button"
+              onClick={() => void store.signIn()}
+            >
+              {t(L.signIn)}
+            </button>
+          )}
         </div>
       );
     const selected = snap.rows.find((row) => row.id === snap.selection);
@@ -76,6 +81,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
             row={selected}
             detail={snap.detail}
             plan={snap.plan}
+            unavailable={snap.unavailable}
             strings={strings}
           />
         ) : (

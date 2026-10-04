@@ -69,9 +69,7 @@ describe("CloudPage", () => {
     expect($(".cloud-title")?.textContent).toBe("Cloud");
     const rows = $$(".cloud-machine.layout-rows");
     expect(rows.length).toBe(sampleMachines().length);
-    expect($$(".cloud-machine-title").map((title) => title.textContent)).toEqual(
-      sampleMachines().map(machineTitle),
-    );
+    expect($$(".cloud-machine-title").map((title) => title.textContent)).toEqual(sampleMachines().map(machineTitle));
     expect($$(".cloud-status-dot").length).toBe(sampleMachines().length);
   });
 
