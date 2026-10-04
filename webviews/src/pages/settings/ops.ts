@@ -61,6 +61,8 @@ export type HostLists = {
   settings_file?: string | null;
   /** Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. */
   backdrops?: Array<{ id: string; title: string; attribution: string }>;
+  /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
+  derived?: Record<string, number>;
 };
 
 /** One button of the Accounts part; the host localizes every text. */
