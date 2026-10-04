@@ -169,6 +169,68 @@
     },
     {
       "accepts" : [
+        "hover",
+        "always"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.onHover",
+            "text" : "On Hover"
+          },
+          "value" : "hover"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
+      "default" : "hover",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.window.titlebarButtons.help",
+        "text" : "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "window.titlebarButtons",
+      "keywords" : [
+        "titlebar",
+        "buttons",
+        "back",
+        "forward",
+        "hover",
+        "hide",
+        "traffic lights",
+        "toolbar"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "window",
+        "titlebarButtons"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.window.titlebarButtons",
+        "text" : "Titlebar Buttons"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "same-kind",
         "terminal",
         "browser",
@@ -257,6 +319,66 @@
       "title" : {
         "key" : "settings.tabs.newTabKind",
         "text" : "New Tab Opens"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "hover",
+        "always"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.onHover",
+            "text" : "On Hover"
+          },
+          "value" : "hover"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
+      "default" : "hover",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.plusButton.help",
+        "text" : "On Hover shows each tab bar's + only while the pointer is over that tab bar."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.plusButton",
+      "keywords" : [
+        "plus",
+        "+",
+        "new tab",
+        "button",
+        "hover",
+        "tab bar"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "tabs",
+        "plusButton"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tabs.plusButton",
+        "text" : "New Tab Button"
       },
       "validation" : "portable"
     },
@@ -7405,7 +7527,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "628167ad78f854d28a67f50ba674d7a9b194fb951a66d7752dbf15f6962cead6",
+  "schema_hash" : "6a588ff8e3ef75921d2aa7fc616d0cc257e34fd6bc7184d2ab49b7bc08e7f2d0",
   "sections" : [
     {
       "id" : "general",

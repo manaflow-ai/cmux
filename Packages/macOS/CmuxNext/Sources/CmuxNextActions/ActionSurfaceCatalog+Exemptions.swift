@@ -209,6 +209,8 @@ nonisolated extension ActionSurfaceCatalog {
             "history.goTo",
             "home.show",
             "showHideAllWindows", "goToWorkspace", "showMainWindow", "nextSidebarTab", "prevSidebarTab",
+            // nextWorkspaceGroup/prevWorkspaceGroup: their cliName ("workspace-group next") is the action's
+            // identifier ActionContractTests requires; the CLI verb is deliberately not offered (a focus move).
             "nextSidebarTabInGroup", "prevSidebarTabInGroup", "nextWorkspaceGroup", "prevWorkspaceGroup",
             "selectWorkspaceByNumber", "workspace.selectFirst",
             "workspace.selectLast", "workspace.selectLastUsed", "space.next", "space.previous", "space.selectByNumber",

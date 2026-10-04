@@ -10,14 +10,25 @@ a developer laptop: the fixes change `pmset` power settings.
 
 The signed build must contain all three. Without them the steps below stop early:
 - the server stack (cmux-server, cmux-host, process roles; in the window queue): without it the
-  bundled `cmux` has no `cmux server status`, so the panel says the server is not available, no
-  health alert shows, and there is no Fix button (no helper round trip);
-- the server LaunchAgent plist `Contents/Library/LaunchAgents/com.cmux.server.plist` and its binary
-  in the bundle: without them **Make This Mac a Server** answers "This build does not include the
-  server software yet." (not bundled by any build script yet: a lane 10 follow-up);
-- the helper (`scripts/cmux-next/bundle-server-helper.sh`: `Contents/Library/LaunchDaemons/
-  com.cmux.server.helper.plist` and `Contents/Resources/libexec/cmux-server-helper`), signed with
-  the app's Team ID.
+  bundled `cmux` has no `cmux host run` and no `cmux server status`, so the panel says the server is
+  not available, no health alert shows, and there is no Fix button (no helper round trip). The
+  agent plist below is bundled anyway: until the stack ships, a registered agent exits non-zero
+  and launchd restarts it (at most once per 10 s), so **Make This Mac a Server** refuses with "The
+  server software is not ready in this build yet." until Debug Settings > Server > **Allow server
+  agent** (`server.agent.allowRegister`, off by default) is on. Stop Serving works with it off;
+- the server LaunchAgent plist `Contents/Library/LaunchAgents/com.cmux.server.plist`, now written by
+  `scripts/cmux-next/bundle-server-helper.sh` (Xcode phase "Bundle server helper", and `--stamp`
+  again at signing from the final bundle id) in every DEV and NIGHTLY build that bundles
+  `Contents/Resources/bin/cmux`; stable builds drop it. Label `<bundle id>.server`, `BundleProgram`
+  `Contents/Resources/bin/cmux`, arguments `host run`, `RunAtLoad`, `KeepAlive`
+  {`SuccessfulExit`: false}, `ThrottleInterval` 10, `ProcessType` Standard, no environment and no
+  log path (`cmux host run` writes its own log). Without it **Make This Mac a Server** answers "This build does not include the server software yet.";
+- the helper (same script: `Contents/Library/LaunchDaemons/com.cmux.server.helper.plist` and
+  `Contents/Resources/libexec/cmux-server-helper`), signed with the app's Team ID: release signing
+  (`scripts/sign-cmux-bundle.sh` through `scripts/sign-cmux-bundle-helpers.sh`) signs every libexec
+  helper with the Developer ID identity, the helper with the hardened runtime, a timestamp, the
+  identifier `cmux-server-helper` and no entitlements. Both plists are sealed by the app signature
+  and notarized with the app.
 Check: `ls "<app>/Contents/Library/LaunchAgents" "<app>/Contents/Library/LaunchDaemons"` and
 `plutil -extract Label raw "<app>/Contents/Library/LaunchAgents/com.cmux.server.plist"` (use that
 label in B.1).

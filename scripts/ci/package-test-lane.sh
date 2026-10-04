@@ -228,30 +228,54 @@ interface_fingerprint() {
 # pass share them, so the test pass finds the prebuilt products up to date.
 package_args() {
   local pkg="$1"
-  # Packages live under group folders (Packages/{Shared,iOS,macOS}/);
-  # resolve the actual directory so this list stays group-agnostic.
-  pkgdir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$pkg" -print -quit)"
+  pkgdir=""
+  if [[ "$pkg" == */* ]]; then
+    # A path is accepted only when it is exactly Packages/<group>/<name> with a
+    # Package.swift (2026-10-04: a path looked up as a name compiled nothing).
+    if [[ "$pkg" =~ ^Packages/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?$ && "$pkg" != *..* && -f "${pkg%/}/Package.swift" ]]; then
+      pkgdir="${pkg%/}"
+    fi
+  elif [[ "$pkg" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+    # Packages live under group folders (Packages/{Shared,iOS,macOS}/);
+    # resolve the actual directory so this list stays group-agnostic.
+    pkgdir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$pkg" -print -quit)"
+    [ -z "$pkgdir" ] || [ -f "$pkgdir/Package.swift" ] || pkgdir=""
+  fi
   if [ -z "$pkgdir" ]; then
-    echo "package '$pkg' not found under Packages/*/ (renamed or moved?)"
+    echo "package '$pkg' not found: give a name under Packages/*/ or a Packages/<group>/<name> path with a Package.swift"
     return 1
   fi
   swift_test_args=(--package-path "$pkgdir")
 }
 
-# One package's build, for prebuild_packages. It never fails the lane: a
+# One package's build. It exits non-zero when the package is not found or its
+# build fails, so a compile step run on its own is never green without a
+# compile (2026-10-04 false green). prebuild_packages ignores its status: a
 # package whose prebuild fails is built again by its `swift test`, which
 # reports the error in that package's group as before.
 prebuild_one() {
   local pkg="$1" log="$2" started=$SECONDS status=0
-  package_args "$pkg" > "$log" 2>&1 || { echo "Prebuild skipped $pkg (not found)."; return 0; }
+  if ! package_args "$pkg" > "$log" 2>&1; then
+    cat "$log" >&2
+    echo "error: prebuild of $pkg compiled nothing: package not found." >&2
+    return 2
+  fi
   python3 scripts/ci/run_with_timeout.py \
     --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
     -- swift build --build-tests "${swift_test_args[@]}" > "$log" 2>&1 < /dev/null || status=$?
   if [ "$status" -eq 0 ]; then
     echo "Prebuilt $pkg in $((SECONDS - started))s."
-  else
-    echo "Prebuild of $pkg exited $status after $((SECONDS - started))s; its swift test builds whatever is still missing (the GhosttyKit packages exit 1 here on the known binaryTarget diagnostic)."
+    return 0
   fi
+  # The GhosttyKit packages exit 1 on the known cosmetic binaryTarget
+  # diagnostic after a complete build; anything else is a failed build.
+  if [ "$status" -eq 1 ] && grep -q 'GhosttyKit\.xcframework' "$pkgdir/Package.swift" 2>/dev/null \
+    && grep -Fq 'Build complete!' "$log" && grep -Eq 'unexpected binary' "$log"; then
+    echo "Prebuilt $pkg in $((SECONDS - started))s (tolerated the GhosttyKit binaryTarget diagnostic)."
+    return 0
+  fi
+  echo "Prebuild of $pkg exited $status after $((SECONDS - started))s (log: $log)." >&2
+  return "$status"
 }
 
 # Every package is its own SwiftPM root with its own .build, so each selected

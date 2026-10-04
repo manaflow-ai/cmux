@@ -37,6 +37,16 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// The top-left toolbar band (R68): the static sidebar toggle, above
     /// the sidebar so it takes clicks while the sidebar animates.
     let toolbarBand = TitlebarToolbarBand(frame: .zero)
+    /// The top row the title bar buttons reveal over (R83): full width,
+    /// takes no clicks.
+    let titlebarRevealRegion = PassThroughView(frame: .zero)
+    /// A patch under the traffic lights that fades in with the buttons. It
+    /// is a theme fill, not a second glass material: the window keeps its
+    /// one root material (WindowRootMaterialTests).
+    let trafficLightsGlass = TrafficLightsPatch(frame: .zero)
+    /// Back, Forward and the glass patch: hidden until the top row is
+    /// hovered (`window.titlebarButtons`). The sidebar toggle never fades.
+    private(set) lazy var titlebarReveal = HoverReveal(region: titlebarRevealRegion)
 
     /// - Parameter sidebar: The window's sidebar.
     /// - Parameter reduceTransparency: The user's Reduce Transparency
@@ -60,7 +70,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         }
         addSubview(sidebar)
         addSubview(titlebarBandBlocker)
+        addSubview(trafficLightsGlass)
         addSubview(toolbarBand)
+        addSubview(titlebarRevealRegion)
         let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
             sidebar.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -83,9 +95,12 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         titleFollowsSidebar.isActive = true
         self.titleHeight = titleHeight
         applyTokens()
+        setUpTitlebarReveal()
         tokenObservation = Task { [weak self] in
-            for await _ in Observations({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0] }) {
+            for await _ in Observations({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
+                                           DesignSettings.shared.titlebarButtons == .hover ? 1 : 0] }) {
                 self?.applyTokens()
+                self?.applyTitlebarButtonsMode()
             }
         }
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(displayOptionsChanged),
@@ -188,6 +203,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         let bandHeight = TitlebarBandButton.side
         toolbarBand.frame = CGRect(x: x, y: (midY - bandHeight / 2).rounded(), width: TitlebarToolbarBand.width, height: bandHeight)
         sidebar.sidebarView.titlebarLeadingReserve = toolbarBand.frame.maxX + Metrics.space2
+        layoutTitlebarReveal(rowHeight: rowHeight)
         guard let badge = titlebarBadge else { return }
         badge.isHidden = !showsTitlebarBadge
         guard showsTitlebarBadge else { return }

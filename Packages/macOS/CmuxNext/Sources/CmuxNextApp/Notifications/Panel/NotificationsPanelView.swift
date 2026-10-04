@@ -115,9 +115,8 @@ final class NotificationsPanelView: NSView {
         scroll.documentView = document
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        // Overlay scrollers keep the clip as wide as the rows' fixed width.
-        scroll.scrollerStyle = .overlay
+        // The system's "Show scroll bars" setting (R111).
+        SystemScrollers.follow(scroll)
         NotificationCenter.default.addObserver(self, selector: #selector(scrollerStyleChanged),
                                                name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         document.translatesAutoresizingMaskIntoConstraints = false
@@ -211,7 +210,7 @@ final class NotificationsPanelView: NSView {
         }
     }
 
-    @objc private func scrollerStyleChanged(_ note: Notification) { scroll.scrollerStyle = .overlay }
+    @objc private func scrollerStyleChanged(_ note: Notification) { scroll.scrollerStyle = SystemScrollers.preferredStyle }
 
     @objc private func markAllPressed() { onMarkAllRead?() }
     @objc private func clearAllPressed() { onClearAll?() }

@@ -8,8 +8,7 @@ extension SidebarView {
         for (scroll, region) in [(aboveScroll, aboveRegion), (belowScroll, belowRegion)] {
             scroll.drawsBackground = false
             scroll.hasVerticalScroller = true
-            scroll.autohidesScrollers = true
-            scroll.scrollerStyle = .overlay
+            SystemScrollers.follow(scroll)
             scroll.automaticallyAdjustsContentInsets = false
             scroll.contentView.drawsBackground = false
             scroll.verticalScrollElasticity = .none

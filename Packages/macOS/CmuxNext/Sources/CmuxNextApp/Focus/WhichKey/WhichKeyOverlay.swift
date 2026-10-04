@@ -2,13 +2,13 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 
-/// The which-key overlay window: a borderless, non-activating,
-/// click-through glass panel (opaque under Reduce Transparency,
-/// `Glass.makeOverlayPanel`) at the bottom center of the shell window, a
-/// child window so it stays above Chromium page windows. It never takes the
-/// keyboard: the key router keeps the leader's second key. Fades follow
-/// `Motion` (shortened under Reduce Motion, none at animation speed off).
-final class WhichKeyPanel: NSPanel {
+/// The which-key overlay: a click-through glass card (opaque under Reduce
+/// Transparency, `Glass.makeOverlayPanel`) at the bottom center of the
+/// shell window, presented on the window's overlay host so it stays above
+/// Chromium page windows. It never takes the keyboard or the mouse: the key
+/// router keeps the leader's second key. Fades follow `Motion` (shortened
+/// under Reduce Motion, none at animation speed off).
+final class WhichKeyOverlay {
     static let accessibilityID = "app.whichKey"
     /// Widest the overlay grows on a wide window; more rows add columns
     /// up to it, then grow each column.
@@ -17,30 +17,17 @@ final class WhichKeyPanel: NSPanel {
     private let glass: OverlaySurfaceView
     private let body = WhichKeyView()
     private weak var parentWindowRef: NSWindow?
+    private var handle: OverlayHandle?
     private var isDismissing = false
 
     init() {
         glass = Glass.makeOverlayPanel(cornerRadius: Metrics.panelCornerRadius, interactive: false)
         glass.translatesAutoresizingMaskIntoConstraints = true
-        super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        isOpaque = false
-        backgroundColor = .clear
-        hasShadow = true
-        ignoresMouseEvents = true
-        isReleasedWhenClosed = false
-        // A no-activate test run is never active; its overlay must still show.
-        hidesOnDeactivate = !WindowPlacement.noActivate
-        animationBehavior = .none
-        collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
         body.frame = glass.contentView.bounds
         body.autoresizingMask = [.width, .height]
         glass.contentView.addSubview(body)
         glass.setAccessibilityIdentifier(Self.accessibilityID)
-        contentView = glass
     }
-
-    override var canBecomeKey: Bool { false }
-    override var canBecomeMain: Bool { false }
 
     /// Shows `rows` under `prefix` over `parent`, fading in unless shown.
     func present(prefix: [String], rows: [WhichKeyRow], on parent: NSWindow) {
@@ -48,44 +35,41 @@ final class WhichKeyPanel: NSPanel {
         isDismissing = false
         body.update(prefix: prefix, rows: rows)
         if parentWindowRef !== parent {
-            parentWindowRef?.removeChildWindow(self)
-            parent.addChildWindow(self, ordered: .above)
+            handle?.dismiss()
+            handle = nil
             parentWindowRef = parent
-            // The overlay draws in its window's theme and follows its changes.
-            parent.themeScope.adopt(self)
+            // The overlay follows its window's theme changes.
             parent.themeScope.addResponder(self)
         }
         themeDidChange()
-        place()
-        if !isVisible || alphaValue < 1 || wasDismissing {
-            if !isVisible { alphaValue = 0 }
-            orderFront(nil)
-            Motion.animateTimed(.fadeIn) { animator().alphaValue = 1 }
+        let size = body.size(fitting: min(Self.maxWidth, parent.frame.width - Metrics.space6 * 2))
+        glass.setFrameSize(size)
+        // Bottom center of the window (a toast sits 24 pt above its anchor's bottom edge).
+        let bottom = NSRect(x: 0, y: Metrics.space6 - 24, width: parent.frame.width, height: size.height)
+        if let handle, !handle.isDismissed {
+            handle.update(anchor: bottom)
+        } else {
+            glass.alphaValue = 0
+            handle = WindowOverlayHost.host(for: parent).present(glass, options: OverlayOptions(kind: .toast, anchor: bottom, passesThroughClicks: true))
+        }
+        if glass.alphaValue < 1 || wasDismissing {
+            Motion.animateTimed(.fadeIn) { glass.animator().alphaValue = 1 }
         }
     }
 
-    private func place() {
-        guard let parent = parentWindowRef else { return }
-        let frame = parent.frame
-        let size = body.size(fitting: min(Self.maxWidth, frame.width - Metrics.space6 * 2))
-        setFrame(NSRect(x: frame.midX - size.width / 2, y: frame.minY + Metrics.space6, width: size.width, height: size.height),
-                 display: true)
-    }
-
     func dismiss() {
-        guard isVisible, !isDismissing else { return }
+        guard let handle, !handle.isDismissed, !isDismissing else { return }
         isDismissing = true
-        Motion.animateTimed(.fadeOut, { animator().alphaValue = 0 }, completion: { [weak self] in
+        Motion.animateTimed(.fadeOut, { glass.animator().alphaValue = 0 }, completion: { [weak self] in
             guard let self, self.isDismissing else { return }
             self.isDismissing = false
-            self.parentWindowRef?.removeChildWindow(self)
-            self.parentWindowRef = nil
-            self.orderOut(nil)
+            self.handle?.dismiss()
+            self.handle = nil
         })
     }
 }
 
-extension WhichKeyPanel: ThemeResponsive {
+extension WhichKeyOverlay: ThemeResponsive {
     func themeDidChange() {
         glass.applyTheme()
         body.needsDisplay = true

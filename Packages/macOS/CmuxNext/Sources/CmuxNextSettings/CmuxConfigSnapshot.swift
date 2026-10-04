@@ -126,6 +126,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var inactiveTabStyle: InactiveTabStyle = PaneFocusSettings.inactiveTabStyleFallback
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
+    /// `window.titlebarButtons`; "hover" when unset or invalid.
+    public var titlebarButtons: TitlebarButtonsMode = TitlebarButtonsSetting.fallback
+    /// `tabs.plusButton`; "hover" when unset or invalid.
+    public var plusButton: PlusButtonMode = PlusButtonSetting.fallback
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `tabs.newTabKind`; "same-kind" when unset or invalid.
@@ -240,6 +244,12 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
         snapshot.titlebar = titlebar
         if let titlebarDiagnostic { snapshot.diagnostics.append(titlebarDiagnostic) }
+        let (titlebarButtons, titlebarButtonsDiagnostic) = TitlebarButtonsSetting.parse(root)
+        snapshot.titlebarButtons = titlebarButtons
+        if let titlebarButtonsDiagnostic { snapshot.diagnostics.append(titlebarButtonsDiagnostic) }
+        let (plusButton, plusButtonDiagnostic) = PlusButtonSetting.parse(root)
+        snapshot.plusButton = plusButton
+        if let plusButtonDiagnostic { snapshot.diagnostics.append(plusButtonDiagnostic) }
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }

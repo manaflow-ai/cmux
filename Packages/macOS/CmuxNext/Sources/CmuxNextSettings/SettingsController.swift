@@ -23,6 +23,8 @@ public final class SettingsController {
     public private(set) var diagnostics: [SettingsDiagnostic] = []
     /// The last snapshot that loaded (even if nothing changed).
     public private(set) var snapshot: CmuxConfigSnapshot = .empty
+    /// The dotted key the palette previews now (`preview`), or nil.
+    public internal(set) var previewingKey: String?
     /// Number of completed loads; tests and the App can await changes by it.
     public private(set) var loadCount = 0
     /// Keys an MDM profile or the team policy manages (dotted key -> manager).
@@ -254,6 +256,8 @@ public final class SettingsController {
         }.value
         if loaded.inputs != lastSource || loadCount == 0 {
             lastSource = loaded.inputs
+            // A file change ends a preview: the loaded values apply.
+            previewingKey = nil
             diagnostics = applier.apply(loaded.snapshot)
             let effective = loaded.effective
             snapshot = loaded.snapshot

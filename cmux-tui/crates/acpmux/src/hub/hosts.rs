@@ -121,6 +121,8 @@ impl Hub {
     /// Reattach every running agent host. Called once at daemon start,
     /// before agents may spawn.
     pub async fn adopt_agent_hosts(self: &Arc<Self>) {
+        // Pooled sessions of a previous daemon were never taken: end them.
+        self.sweep_pool_hosts().await;
         let dir = agent_host::hosts_dir();
         let (good, bad) = match agent_host::load_records(&dir) {
             Ok(records) => records,
@@ -521,7 +523,7 @@ fn response_result(msg: &Value) -> Result<Value, RpcError> {
 }
 
 /// `agent_host::terminate_unadoptable` off the async runtime.
-async fn end_host_blocking(
+pub(super) async fn end_host_blocking(
     dir: std::path::PathBuf,
     session_id: String,
     nonce: Option<String>,
