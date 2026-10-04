@@ -16,7 +16,10 @@ pub fn load_roles(config_file: &std::path::Path) -> RoleSet {
     if let Err(reason) = trusted_as_root(config_file) {
         return RoleSet {
             roles: Vec::new(),
-            invalid: vec![cmux_server_core::role_spec::InvalidRole { name: "roles".to_owned(), reason }],
+            invalid: vec![cmux_server_core::role_spec::InvalidRole {
+                name: "roles".to_owned(),
+                reason,
+            }],
         };
     }
     match ServerConfig::load(config_file) {
@@ -44,7 +47,10 @@ fn trusted_as_root(config_file: &std::path::Path) -> Result<(), String> {
     let dir = config_file.parent().unwrap_or(std::path::Path::new("/"));
     for path in [config_file, dir] {
         match std::fs::symlink_metadata(path) {
-            Ok(meta) if meta.uid() == 0 && meta.mode() & 0o022 == 0 && !meta.file_type().is_symlink() => {}
+            Ok(meta)
+                if meta.uid() == 0
+                    && meta.mode() & 0o022 == 0
+                    && !meta.file_type().is_symlink() => {}
             Ok(_) => {
                 return Err(format!(
                     "{} must belong to root and be writable only by root when roles run as root",

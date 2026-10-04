@@ -197,7 +197,11 @@ const NOTIFY_LINE_MAX: usize = 4096;
 
 /// `read_until(b'\n')` that keeps at most `max` bytes of the line. Returns
 /// the bytes consumed (0 at EOF).
-fn read_line_capped(reader: &mut impl BufRead, line: &mut Vec<u8>, max: usize) -> std::io::Result<usize> {
+fn read_line_capped(
+    reader: &mut impl BufRead,
+    line: &mut Vec<u8>,
+    max: usize,
+) -> std::io::Result<usize> {
     let mut consumed = 0;
     loop {
         let buf = reader.fill_buf()?;
