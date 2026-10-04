@@ -123,3 +123,90 @@ fn actor_of_missing(mux: &Mux, key: &str) -> Option<i64> {
         })
         .unwrap()
 }
+
+/// Every mutation the v2 dispatcher commits carries an actor: the user's or
+/// the credential's. A mutation path that builds its `WorkspaceMutation`
+/// without `ParsedResourceRequest::mutation` leaves `actor_json` empty and
+/// fails here (identity.md section 3).
+#[test]
+fn every_dispatcher_mutation_records_its_actor() {
+    let mux = Mux::new_for_test("launch-credential-every", crate::SurfaceOptions::default());
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal = surface.terminal_public_id().cloned().unwrap();
+    let credential = mux.mint_terminal_credential(&terminal).unwrap();
+    let request = |operation: &str, key: &str, params: Value, credential: Option<&str>| {
+        let mut envelope = json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":format!("req-{key}"),
+            "operation":operation,
+            "params":params,
+            "idempotency_key":key,
+        });
+        if let Some(credential) = credential {
+            envelope["credential"] = json!(credential);
+        }
+        envelope
+    };
+    let created = send(
+        &mux,
+        ClientTransport::Unix,
+        request(
+            "workspace.create",
+            "dispatch-create",
+            json!({"machine":"current","session":"current","initial_content":"terminal"}),
+            Some(&credential),
+        ),
+    );
+    assert_eq!(created["ok"], true, "{created}");
+    let workspace =
+        crate::resource_api::public_session_snapshot(&mux).unwrap()["workspaces"][0]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+    for (key, credential) in
+        [("dispatch-rename-user", None), ("dispatch-rename-agent", Some(credential.as_str()))]
+    {
+        let reply = send(
+            &mux,
+            ClientTransport::Unix,
+            request(
+                "workspace.rename",
+                key,
+                json!({"machine":"current","session":"current","workspace":workspace,"name":key}),
+                credential,
+            ),
+        );
+        assert_eq!(reply["ok"], true, "{reply}");
+    }
+
+    let rows = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .read_state(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT idempotency_key, actor_json FROM resource_mutations
+                 WHERE idempotency_key LIKE 'dispatch-%' ORDER BY idempotency_key",
+            )?;
+            let rows = statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 3, "{rows:?}");
+    for (key, actor) in &rows {
+        assert!(actor.is_some(), "{key} has no actor");
+    }
+    let actor_of = |key: &str| {
+        let json = rows.iter().find(|(k, _)| k == key).and_then(|(_, a)| a.clone()).unwrap();
+        serde_json::from_str::<cmux_local_auth::Actor>(&json).unwrap()
+    };
+    assert_eq!(actor_of("dispatch-create").kind, cmux_local_auth::ActorKind::Terminal);
+    assert_eq!(actor_of("dispatch-rename-agent").kind, cmux_local_auth::ActorKind::Terminal);
+    assert_eq!(actor_of("dispatch-rename-user"), cmux_local_auth::Actor::local_user());
+    mux.shutdown();
+}
