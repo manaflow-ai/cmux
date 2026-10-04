@@ -39,7 +39,8 @@ plans `cloud-app.md`, `transport.md`, `team-vm-plan.md`, `identity.md`, backend 
 
 - Protocol `cmux.wire/1`. Reads: `class: read`, `idempotency: forbidden`. Mutations: `class:
   mutation`, `idempotency: required`; the client sends one key per user intent and reuses it on
-  every retry (today's `Idempotency-Key` rule moves into the wire envelope).
+  every retry (today's `Idempotency-Key` rule moves into the wire envelope). The one exception is
+  `cloud.machine.link_token` (`idempotency: none`, section 1.7): each call mints a fresh token.
 - A provider call cut off mid-flight answers `mutation.indeterminate`; the client retries the same
   key and never makes a new one (C7's delete retry logic maps to this one code).
 - Every mutation result carries the entity `revision`; the client applies it to its projection and
@@ -82,7 +83,7 @@ plans `cloud-app.md`, `transport.md`, `team-vm-plan.md`, `identity.md`, backend 
 | `cloud.shell.open` | mutation | `{machine, cols, rows}` | `{stream}` (a wire stream id, section 2.6) | `cloud.machine.paused` |
 | `cloud.migration.status` | read | `{}` | `{state, classic_count, imported: [..]}` | |
 | `cloud.migration.start` | mutation | `{}` | `{state}` | `cloud.migration.unavailable` |
-| `cloud.machine.upgrade` | mutation | `{machine}` (classic only) | `{machine}` | `cloud.machine.not_classic`, `cloud.upgrade.failed` |
+| `cloud.machine.upgrade` | mutation (risk `execute`, person-only: origin `user`, it installs software through exec) | `{machine}` (classic only) | `{machine}` | `cloud.machine.not_classic`, `cloud.upgrade.failed` |
 
 Not in v1 (dropped with the classic VPC model or moved to other owners): `cloud.network.*`,
 `cloud.tunnel.*`, `cloud.firewall.*` (the overlay and `TeamDO` policy replace them, lane 12),
