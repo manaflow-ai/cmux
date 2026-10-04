@@ -32,6 +32,11 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         let credentials: String
         let origin: String?
         var blocked: String?
+        /// The first URL's origin; a hop to another one drops credentials.
+        var requestOrigin: String?
+        /// Set once a redirect left `requestOrigin`; later hops never get the
+        /// credentials back, also one that returns to it.
+        var leftOrigin = false
     }
 
     private let driver: any BrowserReplDriver
@@ -129,7 +134,12 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         guard ["include", "same-origin", "omit"].contains(credentials) else {
             return (.failure(BrowserReplDriverError(code: "invalid", message: "fetch: credentials: expected include, same-origin or omit, got \(credentials)")), 0)
         }
-        let info = TaskInfo(targetID: request["targetId"] as? String, credentials: credentials, origin: request["origin"] as? String)
+        let info = TaskInfo(
+            targetID: request["targetId"] as? String,
+            credentials: credentials,
+            origin: request["origin"] as? String,
+            requestOrigin: Self.origin(of: url)
+        )
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = (request["method"] as? String)?.uppercased() ?? "GET"
         if let headers = request["headers"] as? [[String]] {
@@ -267,22 +277,50 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
             task.cancel()
             return
         }
-        guard let info = lock.withLock({ tasks[task.taskIdentifier] }) else {
+        let targetOrigin = request.url.flatMap(Self.origin(of:))
+        let found: TaskInfo? = lock.withLock {
+            guard var info = tasks[task.taskIdentifier] else { return nil }
+            if targetOrigin == nil || targetOrigin != info.requestOrigin { info.leftOrigin = true }
+            tasks[task.taskIdentifier] = info
+            return info
+        }
+        guard let info = found else {
             completionHandler(nil)
             return
         }
-        let redirected = request
+        var redirected = request
+        // As browsers do: credentials meant for one origin never follow a
+        // redirect to another (Foundation drops Authorization itself; this
+        // does not depend on it).
+        if info.leftOrigin { Self.removeCredentialHeaders(from: &redirected) }
         Task {
             if let from = response.url, Self.sendsCookies(info, to: from) {
                 await self.storeCookies(from: response, targetID: info.targetID)
             }
             var next = redirected
+            // The Cookie header goes on every hop; cookies for the new URL
+            // come from the tab by the credentials rules.
             next.setValue(nil, forHTTPHeaderField: "Cookie")
             if let url = next.url, Self.sendsCookies(info, to: url),
                let cookie = await self.cookieHeader(for: url, targetID: info.targetID) {
                 next.setValue(cookie, forHTTPHeaderField: "Cookie")
             }
             completionHandler(next)
+        }
+    }
+
+    /// Header names that carry credentials: the standard ones, and custom
+    /// ones whose name says so (`X-Api-Key`, `X-Auth-Token`, `X-CSRF-Token`).
+    static func isCredentialHeader(_ name: String) -> Bool {
+        let lowered = name.lowercased()
+        if ["authorization", "proxy-authorization", "cookie", "cookie2"].contains(lowered) { return true }
+        return ["auth", "token", "api-key", "apikey", "api_key", "secret", "session", "password", "passwd", "csrf", "xsrf", "credential", "signature"]
+            .contains { lowered.contains($0) }
+    }
+
+    private static func removeCredentialHeaders(from request: inout URLRequest) {
+        for name in (request.allHTTPHeaderFields ?? [:]).keys where isCredentialHeader(name) {
+            request.setValue(nil, forHTTPHeaderField: name)
         }
     }
 
