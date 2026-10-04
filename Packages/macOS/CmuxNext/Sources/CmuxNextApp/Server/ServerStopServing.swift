@@ -18,7 +18,7 @@ struct ServerServiceRegistration {
     }
 }
 
-/// `server.stopServing` (not implemented yet; plans/cmux-next/server.md 4.4 and 9.4): puts back
+/// `server.stopServing` (plans/cmux-next/server.md 4.4 and 9.4): puts back
 /// every power setting a fix changed (the helper's revert restores the value
 /// it recorded), then unregisters the server LaunchAgent and the privileged
 /// helper. Idempotent: a job that is not registered is skipped, and a fix
@@ -45,5 +45,40 @@ struct ServerStopServing {
     var helper: ServerServiceRegistration?
     var revert: @MainActor (ServerFix) async throws(ServerHelperClient.Failure) -> Void
 
-    func run() async throws(Failure) {}
+    static func app() -> ServerStopServing {
+        ServerStopServing(
+            agent: ServerLaunchAgent.isBundled ? .agent(plistName: ServerLaunchAgent.plistName) : nil,
+            helper: ServerHelperClient.isBundled ? .daemon(plistName: ServerHelperConstants().plistName) : nil,
+            revert: { (fix: ServerFix) async throws(ServerHelperClient.Failure) in
+                try await ServerHelperClient.run(fix, revert: true)
+            })
+    }
+
+    func run() async throws(Failure) {
+        var revertFailure: String?
+        // Only an enabled helper can have applied a fix; reverting through
+        // one that is not registered would register it.
+        if let helper, helper.status() == .enabled {
+            for fix in ServerFix.allCases {
+                do throws(ServerHelperClient.Failure) {
+                    try await revert(fix)
+                } catch {
+                    if case let .refused(reason) = error, reason == ServerHelperService.nothingToRevert { continue }
+                    revertFailure = revertFailure ?? ServerHealthFixer.reject(for: error)
+                }
+            }
+        }
+        if let agent { try await unregister(agent) }
+        if let revertFailure { throw .revert(revertFailure) }
+        if let helper { try await unregister(helper) }
+    }
+
+    private func unregister(_ job: ServerServiceRegistration) async throws(Failure) {
+        guard job.status() != .notRegistered else { return }
+        do {
+            try await job.unregister()
+        } catch {
+            throw .unregister(String(describing: error))
+        }
+    }
 }
