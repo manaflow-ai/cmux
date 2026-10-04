@@ -29,6 +29,10 @@
     return wrapped;
   })();
   const AGENT = 'globalThis[Symbol.for("cmux.browserRepl.agent")]';
+  // The page-agent methods frame.observe allows (browser lead contract v1).
+  // hitTarget, scrollIntoViewIfNeeded, clickPoint and the other acts are not
+  // among them.
+  const OBSERVE_METHODS = new Set(["ping", "snapshot", "stats", "refState", "refForHandle", "elementAt", "splitFrames", "queryAll", "describe", "strictError", "elementState", "checkStates", "rect", "contentBox", "iframeHandles", "retarget", "read", "activeHandle"]);
   const DEFAULT_TIMEOUT = 30000;
   const UNDEFINED_MARK = "__cmuxUndefined__";
 
@@ -1012,8 +1016,31 @@
       const r = await this._call("page", wrapped, args, handles);
       return r && typeof r === "object" && !Array.isArray(r) && r[UNDEFINED_MARK] === 1 && Object.keys(r).length === 1 ? undefined : r;
     }
+    // Page-agent calls. Reads go through frame.observe, the host's read-only
+    // allowlist, so a lease never counts them as acts; acts and every other
+    // method stay frame.evaluate in the agent world. A host without
+    // frame.observe answers `unsupported` once and the session uses
+    // frame.evaluate from then on; any other error (a refusal included) is
+    // the call's error.
     _agent(method, ...args) {
+      if (OBSERVE_METHODS.has(method) && !this._session._observeUnsupported) return this._observe(method, args);
       return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args]);
+    }
+    async _observe(method, args) {
+      const blocked = this._page._blockedError();
+      if (blocked) throw blocked;
+      try {
+        return await this._page._raceDialog(this._session.call("frame.observe", {
+          targetId: this._page._targetId,
+          frameId: this._id || undefined,
+          method,
+          args,
+        }), true);
+      } catch (e) {
+        if (!e || e.code !== "unsupported") throw e;
+        this._session._observeUnsupported = true;
+        return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args]);
+      }
     }
     async _contentFrame(handle) {
       try {

@@ -30,7 +30,7 @@ const LOOPBACK = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/;
 const isIPHost = (host) => /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || /^\[[0-9a-f:.]+\]$/i.test(host);
 const htmlEscape = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const TITLES = { "tab.navigate": "page.goto", "tabs.open": "tabs.open" };
-const GUARDED = /^(frame\.evaluate|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond)/;
+const GUARDED = /^(frame\.evaluate|frame\.observe|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond)/;
 const NAVIGATIONS = new Set(["tab.navigate", "tab.history", "tab.reload"]);
 const BINARY = new Set(["tab.screenshot", "tab.pdf", "clipboard.read"]);
 const CAPTURES = new Set(["tab.screenshot", "tab.pdf"]);
