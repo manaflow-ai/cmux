@@ -107,6 +107,45 @@ struct FileQuitDocumentTests {
         await #expect(throws: QuitFlushError.readOnly("notes.md")) { try await locked.flushForQuit() }
     }
 
+    /// A page that reported text and then crashed answers no flush (its call fails, so it counts
+    /// as still dirty): the host writes the reported text only while the disk still matches the
+    /// base hash that text was edited from.
+    @Test func aCrashedPagesLastTextIsWrittenOnlyOnItsBase() async throws {
+        let (drafts, _) = try Self.store()
+        let url = try Self.file()
+        let base = FileDocument.hash(Data("v1\n".utf8))
+        let document = FileQuitDocument(url: url, drafts: drafts, writable: { true })
+        document.edited(text: "reported\n", baseHash: base)
+        let stop = document.addFlusher { true }
+        try await document.flushForQuit()
+        #expect(try String(contentsOf: url, encoding: .utf8) == "reported\n")
+        stop()
+
+        let changed = FileQuitDocument(url: url, drafts: drafts, writable: { true })
+        changed.edited(text: "mine\n", baseHash: FileDocument.hash(Data("reported\n".utf8)))
+        let stopChanged = changed.addFlusher { true }
+        try Data("changed on disk\n".utf8).write(to: url)
+        await #expect(throws: QuitFlushError.conflict("notes.md")) { try await changed.flushForQuit() }
+        #expect(try String(contentsOf: url, encoding: .utf8) == "changed on disk\n")
+        #expect(changed.hasUnsavedChanges)
+        stopChanged()
+    }
+
+    /// Don't Save: a flush after it asks no page and writes nothing.
+    @Test func noHostWriteHappensAfterDontSave() async throws {
+        let (drafts, _) = try Self.store()
+        let url = try Self.file()
+        let document = FileQuitDocument(url: url, drafts: drafts, writable: { true })
+        document.edited(text: "v2\n", baseHash: FileDocument.hash(Data("v1\n".utf8)))
+        var asked = 0
+        let stop = document.addFlusher { asked += 1; return true }
+        await document.discardForQuit()
+        try await document.flushForQuit()
+        #expect(asked == 0, "a discarded document asks no page to save")
+        #expect(try String(contentsOf: url, encoding: .utf8) == "v1\n")
+        stop()
+    }
+
     @Test func discardAndACloseWithoutSavingDropTheUnsavedState() async throws {
         let (drafts, _) = try Self.store()
         let document = FileQuitDocument(url: try Self.file(), drafts: drafts, writable: { true })
