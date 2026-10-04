@@ -138,7 +138,9 @@ final class QuitCoordinator {
             },
             endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
-            endLocalAgents: { await QuitAgents.end(QuitAgents.environment(services)) },
+            endLocalAgents: { [attempts = QuitAttempts()] in
+                await QuitAgents.end(QuitAgents.environment(services), waitForShutdown: attempts.isRetry())
+            },
             stopBrowserEngines: { await services.cache.cef.shutdown() }
         ))
         sender.reply(toApplicationShouldTerminate: true)

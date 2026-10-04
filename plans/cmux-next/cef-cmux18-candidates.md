@@ -18,6 +18,8 @@ ships. Nothing here is built yet.
 
 | 6 | Remote tab patches RP1-RP9 (owner: the remote tab lead, a9; design plans/cmux-next/remote-tab-r1.md): RP1 `--cmux-remote-presentation` + `cmux_rp_create_browser`/`set_screen`/`set_size`, RP2 frame capture, RP3 begin frames (r1); RP4 keys, RP5 IME (r3); RP6 select, RP7 popup surfaces, RP8 unhandled UI fallback, RP9 drag and drop (r4) | Remote presentation of tabs (Cloud). | Not shipped yet. |
 
+| 7 | Resolver hook for agent egress (owner hq-07, review the browser lead v4; a9 decision FETCH-PRIVATE-RANGES, 2026-10-04): a pre-connect callback on the browser's host resolver that applies the browser host's range rule to the addresses a name resolves to, for agent-driven tabs and agent fetches | DNS rebinding: a public name that resolves to a link-local, cloud-metadata, loopback or private address passes the host's name-based check. Rule: link-local and cloud metadata (169.254/16, fe80::/10, provider metadata names) refused in every session unless the machine owner's policy allows them; loopback and private ranges allowed for sessions local to the machine, refused for remote or relay origins unless the owner allows them. Design: /private/tmp/brepl-sec/host-fetch-design.md (lands in plans with the host-fetch slice). | The browser host checks `Network.responseReceived.remoteIPAddress` after the response and fails the fetch or stops the navigation (v1). Headless Chromium stays on this check. |
+
 Coordination between the entries:
 
 - Fork API numbers: every new export bumps `cef_cmux.h`'s API version. Numbers are given at landing (max + 1), not reserved here.

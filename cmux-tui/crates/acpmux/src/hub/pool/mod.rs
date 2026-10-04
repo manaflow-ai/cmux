@@ -27,6 +27,13 @@
 //! harness instead. Never for a remote-origin chain (REMOTE-FLOOR v3).
 //! Shutdown ends every entry; a crashed daemon's entries are ended by the
 //! next daemon before it adopts hosts (`sweep_pool_hosts`).
+//!
+//! Known gap (recorded, not for now): over a socket, a `session/new` is
+//! never cancelled. Requests run as spawned tasks and `$/cancel_request`
+//! is accepted but does nothing, so a client that gives up on a create
+//! still gets the session made. `ClaimGuard` covers the in-process case
+//! (a dropped `new_session` future puts its claimed entry back); a real
+//! cancel would need the server to abort the request task.
 
 use super::*;
 use crate::agent::Attached;

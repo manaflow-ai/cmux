@@ -53,7 +53,7 @@ export interface Env {
   readonly FREESTYLE_API_URL?: string
   /** Var: the snapshot team VMs boot from (lane 1's image with the team role). */
   readonly TEAM_VM_SNAPSHOT?: string
-  /** Var: provider slug prefix of team VMs; outside production it must start with `cmuxnp-dev-`. */
+  /** Var: provider slug prefix of NEW team VMs; staging must start with `cmuxnp-stg-`, other non-production envs with `cmuxnp-dev-` (FREESTYLE-NAMES). */
   readonly TEAM_VM_SLUG_PREFIX?: string
   /** Test only: `fake` selects the in-object fake provider when ENVIRONMENT=test. */
   readonly TEAM_VM_DRIVER?: string
