@@ -332,7 +332,7 @@ crashed, slow or unsure, the tool does not run.
     - **Export and import (P2-b):** the taint is part of `SessionMeta`, so `MUX_EXPORT`/`MUX_IMPORT`
       (`hub/transfer.rs`, `native::restore`) keep it; until that ships, `MUX_EXPORT` of a tainted
       session is refused.
-    - **OS boundary first (rev 14 P1; DECISION D-R pending with the coordinator).** Claude Code
+    - **OS boundary first (rev 14 P1; D-R decided: the Seatbelt sandbox is the primary control, cost accepted).** Claude Code
       2.1.289 starts its Bash shell with `detached: true` (`setsid()`), so every Bash command runs in
       a new session and process group, and a peer check on the group alone fails on the default
       path. The primary control is therefore an inherited sandbox. **Coverage:** the sandbox covers
