@@ -1374,3 +1374,43 @@ describe("firewall rule ownership on the shared provider account", () => {
     expect((listed.value as Array<{ id: string }>).map((r) => r.id).sort()).toEqual(["fw-base", "fw-into-mine", "fw-mine"]);
   });
 });
+
+describe("firewall limits on the shared provider account", () => {
+  const vmRow = (n: number, status = "running") => ({ id: `row-${n}`, userId: "user-1", ownerTeamId: "team-1", billingTeamId: "team-1", provider: "freestyle", providerVmId: `fs-${n}`, status, createdAt: new Date(n * 1000) });
+  const repoWith = (vms: ReturnType<typeof vmRow>[]) => ({
+    ...testRepo({ network: networkRow() }),
+    findUserVm: (input: { providerVmId: string }) => Effect.succeed(vms.find((vm) => vm.providerVmId === input.providerVmId) ?? null),
+    listUserVms: () => Effect.succeed(vms),
+  }) as unknown as VmRepositoryShape;
+  const ownedRules = (count: number) => Array.from({ length: count }, (_, i) => ({ id: `fw-${i}`, action: "allow", source: { vpcId: NETWORK.id }, destination: { vpcId: NETWORK.id, port: 1000 + i, protocol: "tcp" } }));
+  const gateway = (rules: unknown[], lists: unknown[], created: unknown[]) => ({
+    ...testGateway(),
+    listFirewallRules: (_p: string, options: unknown) => Effect.sync(() => { lists.push(options); return (options as { vpcId?: string }).vpcId ? rules : []; }),
+    createFirewallRule: (_p: string, rule: unknown) => Effect.sync(() => { created.push(rule); return { id: "fw-new", action: "allow" }; }),
+  }) as unknown as VmProviderGatewayShape;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tagOf = async (program: Effect.Effect<unknown, unknown, any>, repo: VmRepositoryShape, gw: VmProviderGatewayShape) => {
+    const exit = await Effect.runPromiseExit(program.pipe(Effect.provide(layerFor(repo, gw))) as Effect.Effect<unknown, unknown>);
+    if (Exit.isSuccess(exit)) return null;
+    const f = Cause.failureOption(exit.cause);
+    return f._tag === "Some" ? ((f.value as { _tag?: string })._tag ?? "unknown") : "die";
+  };
+  const input = { userId: "user-1", provider: "freestyle" as const, billingTeamId: "team-1" };
+  const rule = { source: { public: true as const }, destination: { vpcId: NETWORK.id, port: 443, protocol: "tcp" as const } };
+
+  test("a caller with 100 rules cannot create another (409 vm_firewall_rule_limit)", async () => {
+    const created: unknown[] = [];
+    expect(await tagOf(createVmFirewallRule({ ...input, ...rule }), repoWith([]), gateway(ownedRules(100), [], created))).toBe("VmFirewallRuleLimitError");
+    expect(created).toEqual([]);
+    expect(await tagOf(createVmFirewallRule({ ...input, ...rule }), repoWith([]), gateway(ownedRules(99), [], created))).toBeNull();
+    expect(created).toHaveLength(1);
+  });
+
+  test("an unfiltered list reads at most 10 live VMs, newest first, besides the network", async () => {
+    const vms = [...Array.from({ length: 25 }, (_, i) => vmRow(i)), vmRow(100, "failed"), vmRow(101, "destroyed")];
+    const lists: Array<{ vmId?: string; vpcId?: string }> = [];
+    expect(await tagOf(listVmFirewallRules(input), repoWith(vms), gateway([], lists, []))).toBeNull();
+    expect(lists.filter((l) => l.vpcId)).toHaveLength(1);
+    expect(lists.filter((l) => l.vmId).map((l) => l.vmId)).toEqual(Array.from({ length: 10 }, (_, i) => `fs-${24 - i}`));
+  });
+});
