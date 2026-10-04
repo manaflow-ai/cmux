@@ -891,25 +891,48 @@ describe("direct client session state", () => {
     expect(await sent).toBe("b");
   });
 
-  test("a prewarm hint goes out only to an acpmux that lists _acpmux/prewarm", async () => {
-    const client = await connect();
-    client.prewarm("codex");
-    await settle();
-    expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/prewarm")).toBe(false);
-    client.close();
+  // The acpmux pool (fdfc0cd36ee) refuses a hint over a remote-origin connection, and every
+  // WebSocket connection is remote-origin unless acpmux says otherwise in initialize.
+  test("a prewarm hint goes out only when acpmux lists _acpmux/prewarm and calls this connection local", async () => {
+    const hinted = async (meta: Record<string, unknown> | undefined) => {
+      ScriptedSocket.respond = ({ method, params }) => {
+        if (method === "initialize") return meta ? { _meta: { acpmux: meta } } : {};
+        if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b" }] };
+        if (method === "_acpmux/attach") return attachReply(params.sessionId);
+        if (method === "_acpmux/prewarm") throw new Error("never awaited");
+        return {};
+      };
+      const client = await connect();
+      // The folder argument is new; the cast keeps this test compiling before it exists.
+      (client.prewarm as (...args: unknown[]) => void).call(client, "codex", "/work/app");
+      await settle();
+      const sent = ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/prewarm")?.params;
+      client.close();
+      return sent;
+    };
+    expect(await hinted(undefined)).toBeUndefined();
+    expect(await hinted({ extensions: ["_acpmux/prewarm"] })).toBeUndefined();
+    expect(await hinted({ extensions: ["_acpmux/prewarm"], origin: "remote" })).toBeUndefined();
+    expect(await hinted({ extensions: [], origin: "local" })).toBeUndefined();
+    expect(await hinted({ extensions: ["_acpmux/prewarm"], origin: "local" })).toEqual({
+      harness: "codex",
+      cwd: "/work/app",
+    });
+  });
+
+  test("a refused prewarm hint is ignored and never blocks", async () => {
     ScriptedSocket.respond = ({ method, params }) => {
-      if (method === "initialize") return { _meta: { acpmux: { extensions: ["_acpmux/prewarm"] } } };
-      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b" }] };
+      if (method === "initialize") return { _meta: { acpmux: { extensions: ["_acpmux/prewarm"], origin: "local" } } };
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }] };
       if (method === "_acpmux/attach") return attachReply(params.sessionId);
       return {};
     };
-    const warm = await connect();
-    warm.prewarm("codex");
+    const client = await connect();
+    ScriptedSocket.held.add("_acpmux/prewarm");
+    expect(client.prewarm("codex")).toBeUndefined();
+    ScriptedSocket.current.fail("_acpmux/prewarm", { code: -32602, message: "the session pool is off" });
     await settle();
-    expect(ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/prewarm")?.params).toEqual({
-      harness: "codex",
-    });
-    warm.close();
+    client.close();
   });
 
   test("leaving the shown session detaches it and draws no session; a started one is not shown", async () => {
