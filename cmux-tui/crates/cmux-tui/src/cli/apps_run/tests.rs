@@ -54,7 +54,7 @@ impl Daemon {
         }
         self.write(json!({"id": identify["id"], "ok": true,
             "data": {"capabilities": capabilities}}))
-        .await;
+            .await;
     }
 }
 
@@ -176,7 +176,9 @@ fn the_arguments_are_app_op_and_json_args() {
     let parsed =
         parse(&args(&["cmux/cloud", "op", "--args", "{\"a\":1}"]), Some("k".into())).unwrap();
     assert_eq!((parsed.args, parsed.idempotency_key), (json!({"a": 1}), Some("k".into())));
-    for bad in [&["cmux/cloud"][..], &["cmux/cloud", "op", "--args", "[1]"], &["a", "b", "--x", "y"]] {
+    for bad in
+        [&["cmux/cloud"][..], &["cmux/cloud", "op", "--args", "[1]"], &["a", "b", "--x", "y"]]
+    {
         assert!(parse(&args(bad), None).is_err(), "{bad:?}");
     }
     assert_eq!(VERB, ["apps", "run"]);
@@ -195,7 +197,10 @@ async fn without_the_capability_ctrl_c_closes_the_connection() {
     press.send(()).unwrap();
     let outcome = run.await.unwrap();
     assert_eq!(outcome, Outcome::Cancelled { confirmed: false });
-    assert!(daemon.lines.next_line().await.unwrap().is_none(), "no cancel-request, connection closed");
+    assert!(
+        daemon.lines.next_line().await.unwrap().is_none(),
+        "no cancel-request, connection closed"
+    );
     let (_, stderr, code) = report(&outcome, OutputMode::Human);
     assert_eq!(code, EXIT_CANCELLED);
     assert_eq!(stderr.as_deref(), Some(messages().cancel_unconfirmed));

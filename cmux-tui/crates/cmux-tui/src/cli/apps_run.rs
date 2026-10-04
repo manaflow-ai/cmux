@@ -182,7 +182,10 @@ pub(super) fn parse(args: &[String], idempotency_key: Option<String>) -> Result<
 }
 
 /// What to print and the exit code for an outcome.
-pub(super) fn report(outcome: &Outcome, output: OutputMode) -> (Option<String>, Option<String>, i32) {
+pub(super) fn report(
+    outcome: &Outcome,
+    output: OutputMode,
+) -> (Option<String>, Option<String>, i32) {
     match outcome {
         Outcome::Answer(answer) if answer["ok"] == true => {
             let data = answer.get("data").cloned().unwrap_or(json!({}));
@@ -197,10 +200,11 @@ pub(super) fn report(outcome: &Outcome, output: OutputMode) -> (Option<String>, 
             let message = answer["error"].as_str().unwrap_or("");
             let mut text = format!("cmux: {code}: {message}");
             if let Some(hint) = error_hint(code) {
-                text.push_str("\n");
+                text.push('\n');
                 text.push_str(hint);
             }
-            if let Some(details) = answer.get("error_details").filter(|details| !details.is_null()) {
+            if let Some(details) = answer.get("error_details").filter(|details| !details.is_null())
+            {
                 text.push_str(&format!("\n{details}"));
             }
             (None, Some(text), 1)
