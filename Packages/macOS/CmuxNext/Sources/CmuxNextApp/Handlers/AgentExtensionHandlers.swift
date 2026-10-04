@@ -9,12 +9,32 @@ import Foundation
 /// socket refuses it whatever origin a caller claims, and the destructive
 /// confirmation sheet runs before the handler.
 enum AgentExtensionHandlers {
-    // Stub (plans/cmux-next/passwords.md, 3.4); the action lands next.
-    static func prompt(blockers names: [String]) -> DestructiveConfirmation.Prompt {
-        DestructiveConfirmation.Prompt(title: "", body: "", button: "")
+    static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        registry.bind("browser.allowAgentWithExtensions", run: { invocation in
+            let entry = try context.page(invocation)
+            guard let key = context.services.cache.key(of: entry.tab) else { throw ActionFailure(message: MiscHandlerStrings.noBrowser) }
+            context.services.cache.allowAgentWithExtensions(key)
+        })
     }
 
-    static func blockerNames(_ tab: any BrowserTab, access: AgentExtensionAccess) -> [String] { [] }
+    /// The warning for the focused page: which enabled extensions can read it.
+    static func prompt(_ invocation: ActionInvocation, _ context: AppActionContext,
+                       access: AgentExtensionAccess = .fromDisk) -> DestructiveConfirmation.Prompt? {
+        guard let entry = try? context.page(invocation) else { return nil }
+        return prompt(blockers: blockerNames(entry.tab, access: access))
+    }
+
+    static func prompt(blockers names: [String]) -> DestructiveConfirmation.Prompt {
+        let body = names.isEmpty ? AgentExtensionStrings.bodyNone
+            : AgentExtensionStrings.body(ListFormatter.localizedString(byJoining: names))
+        return DestructiveConfirmation.Prompt(title: AgentExtensionStrings.title, body: body, button: AgentExtensionStrings.button)
+    }
+
+    static func blockerNames(_ tab: any BrowserTab, access: AgentExtensionAccess) -> [String] {
+        guard let store = (tab as? any BrowserExtensionActionHosting)?.extensionStore else { return [] }
+        store.refresh()
+        return access.blockers(store.extensions, url: tab.state.url).map(\.name)
+    }
 }
 
 enum AgentExtensionStrings {
