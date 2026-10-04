@@ -33,24 +33,57 @@ BLACKSMITH = ("blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26", "blacks
 CAPACITY = dict(zip(BLACKSMITH, (5, 10, 10)))
 # Public alias retained for callers and table-driven tests.
 BLACKSMITH_CAPACITY = CAPACITY
-OWNED = re.compile(r"^glaeda-(?:std|light|xl)-xcode-[0-9]+(?:\.[0-9]+)*$")
+XCODE_VERSION = r"[0-9]+(?:\.[0-9]+)*"
+# The optional namespace keeps pools from different fleets separate.  AWS
+# runners use glaeda-aws-<class>-xcode-<version>; the unnamespaced labels are
+# the owned Mac minis.
+OWNED = re.compile(rf"^glaeda-(?:(?P<namespace>aws)-)?(?:std|light|xl)-xcode-{XCODE_VERSION}$")
 RESERVED = re.compile(r"(?:release|nightly)", re.IGNORECASE)
 # Owned classes in preference order, as pr_runner_pool.RUN_CLASSES.
 RUN_CLASSES = ("std", "light", "xl")
 # glaeda-[root-|side-|gui-]<class>-xcode-<version>: one family of labels on the same machines.
-OWNED_FAMILY = re.compile(r"^glaeda-(?:root-|side-|gui-)?(?P<family>(?:std|light|xl)-xcode-[0-9]+(?:\.[0-9]+)*)$")
+OWNED_FAMILY = re.compile(
+    rf"^glaeda-(?:(?P<namespace>aws)-)?(?:root-|side-|gui-)?"
+    rf"(?P<class>std|light|xl)-xcode-(?P<version>{XCODE_VERSION})$"
+)
 
 
 def owned_family(label: str) -> str:
-    """`light-xcode-26.6` for any label of that owned family, else ""."""
+    """Return a namespace-qualified family key for any owned label."""
     match = OWNED_FAMILY.fullmatch(label or "")
-    return match.group("family") if match else ""
+    if not match:
+        return ""
+    namespace = f"{match.group('namespace')}-" if match.group("namespace") else ""
+    return f"{namespace}{match.group('class')}-xcode-{match.group('version')}"
 
 
-def owned_order(label: str) -> tuple[int, str]:
-    family = owned_family(label)
-    owned_class = family.split("-", 1)[0]
-    return (RUN_CLASSES.index(owned_class) if owned_class in RUN_CLASSES else len(RUN_CLASSES), label)
+def _version_key(version: str) -> tuple[int, ...]:
+    """Compare dotted Xcode versions numerically, ignoring trailing zeroes."""
+    parts = [int(part) for part in version.split(".")]
+    while len(parts) > 1 and parts[-1] == 0:
+        parts.pop()
+    return tuple(parts)
+
+
+def owned_order(label: str) -> tuple[object, ...]:
+    """Sort owned pools by class, numeric Xcode version, then namespace.
+
+    Class preference remains the first key.  A missing namespace is the local
+    mini fleet and sorts before the explicit ``aws`` namespace when versions
+    match; the namespace and full label keep ties deterministic.
+    """
+    match = OWNED_FAMILY.fullmatch(label or "")
+    if not match:
+        return (len(RUN_CLASSES), (), 1, "", label)
+    owned_class = match.group("class")
+    namespace = match.group("namespace") or ""
+    return (
+        RUN_CLASSES.index(owned_class) if owned_class in RUN_CLASSES else len(RUN_CLASSES),
+        _version_key(match.group("version")),
+        0 if not namespace else 1,
+        namespace,
+        label,
+    )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -248,6 +281,8 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
         # Only the configured class pools: a runner can carry an owned-looking
         # label (the aws Macs' glaeda-std-xcode-26.3, five runners per Mac)
         # that is not a pool PR compiles should land on.
+        # A runner may carry an owned-looking label for another fleet.  Only
+        # labels explicitly listed in CI_OWNED_POOL_SLOTS are candidates.
         labels = set(_slots(env.get("CI_OWNED_POOL_SLOTS")))
         for label in sorted(labels, key=owned_order):
             online = [runner for runner in runners if runner.get("status") == "online"
@@ -294,9 +329,18 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
             configured = {str(label) for label in raw_slots}
     except (TypeError, ValueError):
         pass
-    root = f"glaeda-root-{choice.label.removeprefix('glaeda-')}" if choice.owned else ""
-    side = f"glaeda-side-{choice.label.removeprefix('glaeda-')}" if choice.owned else ""
-    gui = f"glaeda-gui-{choice.label.removeprefix('glaeda-')}" if choice.owned else ""
+    def role_label(role: str) -> str:
+        if not choice.owned:
+            return ""
+        match = OWNED_FAMILY.fullmatch(choice.label)
+        if not match:
+            return ""
+        namespace = f"{match.group('namespace')}-" if match.group("namespace") else ""
+        return f"glaeda-{namespace}{role}-{match.group('class')}-xcode-{match.group('version')}"
+
+    root = role_label("root")
+    side = role_label("side")
+    gui = role_label("gui")
     if root not in configured:
         root = ""
     if side not in configured:
