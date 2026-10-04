@@ -29,8 +29,17 @@ struct CloudWelcomeView: View {
     let nextStep: CloudWelcomeNextStep
     let onNotNow: () -> Void
     let onNext: (CloudWelcomeNextStep) -> Void
+    /// Where each slide's clip lives (the lab points this at a folder).
+    var mediaURL: (CloudWelcomeSlide) -> URL? = CloudWelcomeMediaCarousel.bundledMediaURL
+    // Lab toggles while the slider is designed.
+    var showsMedia = true
+    var showsReasons = true
+    var sliderAutoplays = true
+    var sliderShowsFeatureList = false
 
     static let windowWidth: CGFloat = 580
+    /// The list layouts put the features beside the clip, so they need more room.
+    static let listWindowWidth: CGFloat = 680
     private static let panelCornerRadius: CGFloat = 16
 
     var body: some View {
@@ -39,12 +48,18 @@ struct CloudWelcomeView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, 26)
                 .padding(.bottom, 2)
-            CloudWelcomeHero()
+            if showsMedia {
+                CloudWelcomeMediaCarousel(slides: CloudWelcomeSlide.all, mediaURL: mediaURL, autoplays: sliderAutoplays, showsFeatureList: sliderShowsFeatureList)
+                    .padding(.top, 18)
+                    .padding(.bottom, 18)
+            } else {
+                CloudWelcomeHero()
+            }
             panel
                 .padding(.horizontal, 10)
                 .padding(.bottom, 10)
         }
-        .frame(width: Self.windowWidth)
+        .frame(width: sliderShowsFeatureList && showsMedia ? Self.listWindowWidth : Self.windowWidth)
         .background(windowBackground)
         .accessibilityIdentifier("CloudWelcomeWindow")
     }
@@ -77,6 +92,7 @@ struct CloudWelcomeView: View {
                 defaultValue: "Persistent cloud computers that open as regular cmux workspaces."
             ))
             .cmuxFont(size: 15, weight: .medium)
+            if showsReasons {
             VStack(alignment: .leading, spacing: 12) {
                 CloudWelcomeReasonRow(
                     symbol: "terminal",
@@ -101,6 +117,7 @@ struct CloudWelcomeView: View {
                 )
             }
             .padding(.top, 16)
+            }
             footer
                 .padding(.top, 20)
         }

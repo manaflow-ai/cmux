@@ -1065,6 +1065,7 @@
 		5189C042A99401477E4DE49A /* CloudVPNSetupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3718948C68AF1E2610D73490 /* CloudVPNSetupTests.swift */; };
 		59FECE3AAB392E8976A8D16A /* CloudVPNSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA45F7A29A3227884DC3929F /* CloudVPNSetupView.swift */; };
 		22D165EB062C603B0C3A0A82 /* CloudWelcomeHero.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CA8C3407967FE40B15A41A3 /* CloudWelcomeHero.swift */; };
+		A96F06DDBC75735A826832F9 /* CloudWelcomeMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08CF5197FEF3DEAF664274E6 /* CloudWelcomeMedia.swift */; };
 		22EABB05BDD5DD6B52A4320C /* CloudWelcomeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E6A733B8AA5EAFC5C30907F /* CloudWelcomeTests.swift */; };
 		C0F314FC0BDC236EF220A9E3 /* CloudWelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C632B1DEF42152DBA995A37 /* CloudWelcomeView.swift */; };
 		D0158861231945076F7C049D /* CloudWelcomeWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E09A9B78125D188EEE10DEC4 /* CloudWelcomeWindowController.swift */; };
@@ -5569,6 +5570,7 @@
 		3718948C68AF1E2610D73490 /* CloudVPNSetupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudVPNSetupTests.swift"; sourceTree = "<group>"; };
 		EA45F7A29A3227884DC3929F /* CloudVPNSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVPNSetupView.swift; sourceTree = "<group>"; };
 		3CA8C3407967FE40B15A41A3 /* CloudWelcomeHero.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWelcomeHero.swift; sourceTree = "<group>"; };
+		08CF5197FEF3DEAF664274E6 /* CloudWelcomeMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWelcomeMedia.swift; sourceTree = "<group>"; };
 		6E6A733B8AA5EAFC5C30907F /* CloudWelcomeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWelcomeTests.swift"; sourceTree = "<group>"; };
 		6C632B1DEF42152DBA995A37 /* CloudWelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWelcomeView.swift; sourceTree = "<group>"; };
 		E09A9B78125D188EEE10DEC4 /* CloudWelcomeWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWelcomeWindowController.swift; sourceTree = "<group>"; };
@@ -9600,6 +9602,7 @@
 				E09A9B78125D188EEE10DEC4 /* CloudWelcomeWindowController.swift */,
 				6C632B1DEF42152DBA995A37 /* CloudWelcomeView.swift */,
 				3CA8C3407967FE40B15A41A3 /* CloudWelcomeHero.swift */,
+				08CF5197FEF3DEAF664274E6 /* CloudWelcomeMedia.swift */,
 				7AC64FE02675D0294E2CF115 /* MachinesPanelView+Activation.swift */,
 				2E642299D32B3539B81F7E90 /* MachinesPanelView+TeamScope.swift */,
 			);
@@ -14671,6 +14674,7 @@
 			C8783B458C963A34D5A93FF3 /* CloudVPNSetupPanelView.swift in Sources */,
 			59FECE3AAB392E8976A8D16A /* CloudVPNSetupView.swift in Sources */,
 				22D165EB062C603B0C3A0A82 /* CloudWelcomeHero.swift in Sources */,
+				A96F06DDBC75735A826832F9 /* CloudWelcomeMedia.swift in Sources */,
 				C0F314FC0BDC236EF220A9E3 /* CloudWelcomeView.swift in Sources */,
 				D0158861231945076F7C049D /* CloudWelcomeWindowController.swift in Sources */,
 				D12439060000000000000001 /* CloudWorkspaceBindingReconciliation.swift in Sources */,

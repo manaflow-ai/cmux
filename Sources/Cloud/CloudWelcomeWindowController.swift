@@ -38,18 +38,20 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         present(over: parent)
     }
 
-    func present(over parent: NSWindow?) {
+    /// The slider layout is a debug choice while it is designed; launch uses the default.
+    func present(over parent: NSWindow?, sliderShowsFeatureList: Bool = false) {
         window?.close()
-        let window = makeWindow()
+        let window = makeWindow(sliderShowsFeatureList: sliderShowsFeatureList)
         self.window = window
         position(window, over: parent)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
 
-    private func makeWindow() -> NSWindow {
+    private func makeWindow(sliderShowsFeatureList: Bool) -> NSWindow {
         let rootView = CloudWelcomeAccountView(
             accountFlow: AppDelegate.shared?.auth?.accountFlow,
+            sliderShowsFeatureList: sliderShowsFeatureList,
             onNotNow: { [weak self] in self?.dismiss() },
             onNext: { [weak self] step in self?.perform(step) }
         )
@@ -61,7 +63,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         hosting.safeAreaRegions = []
         let size = hosting.fittingSize
         let window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: NSSize(width: CloudWelcomeView.windowWidth, height: size.height)),
+            contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -139,6 +141,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
 /// the plan once on show, so the view itself stays free of app objects.
 private struct CloudWelcomeAccountView: View {
     let accountFlow: HostAccountFlow?
+    let sliderShowsFeatureList: Bool
     let onNotNow: () -> Void
     let onNext: (CloudWelcomeNextStep) -> Void
 
@@ -150,7 +153,8 @@ private struct CloudWelcomeAccountView: View {
                 isPro: accountFlow?.isProActive == true
             ),
             onNotNow: onNotNow,
-            onNext: onNext
+            onNext: onNext,
+            sliderShowsFeatureList: sliderShowsFeatureList
         )
         .task {
             // The plan decides between Upgrade and Enable; ask once on show.
