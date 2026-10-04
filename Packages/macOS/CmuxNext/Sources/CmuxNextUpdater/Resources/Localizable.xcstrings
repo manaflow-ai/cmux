@@ -1,6 +1,661 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "updater.rollback.nothingKept": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No previous version is kept on this Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No previous version is kept on this Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No previous version is kept on this Mac."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No previous version is kept on this Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No previous version is kept on this Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No previous version is kept on this Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No previous version is kept on this Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No previous version is kept on this Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac には以前のバージョンが保存されていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No previous version is kept on this Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No previous version is kept on this Mac."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No previous version is kept on this Mac."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No previous version is kept on this Mac."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No previous version is kept on this Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No previous version is kept on this Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No previous version is kept on this Mac."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No previous version is kept on this Mac."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No previous version is kept on this Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No previous version is kept on this Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No previous version is kept on this Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No previous version is kept on this Mac."
+          }
+        }
+      }
+    },
+    "updater.rollback.predates": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ はロールバック対応より前のバージョンのため、データを読めるか確認できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+          }
+        }
+      }
+    },
+    "updater.rollback.storeTooNew": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %1$@ は %2$@ のデータを読めません。データの形式は %3$ld で、そのバージョンは %4$ld までしか読めません。ロールバックするとデータが失われます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+          }
+        }
+      }
+    },
+    "updater.rollback.unknownStore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %1$@ は %2$@ のデータを認識しません。ロールバックするとデータが見えなくなります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ does not know your %2$@ data. Rolling back would hide it."
+          }
+        }
+      }
+    },
+    "updater.rollback.signature": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存されている cmux %@ は cmux チームの署名がないため実行しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The kept cmux %@ is not signed by the cmux team, so it will not run."
+          }
+        }
+      }
+    },
     "updater.testFeed.refused": {
       "extractionState": "manual",
       "localizations": {

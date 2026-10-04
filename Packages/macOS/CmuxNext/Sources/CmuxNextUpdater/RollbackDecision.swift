@@ -43,11 +43,34 @@ nonisolated public enum RollbackDecision {
     ///   - stored: the daemon's stored version of every store it has.
     ///   - teamID: this app's signing team.
     public static func decide(kept: [KeptVersion], build: String?, stored: [String: Int], teamID: String?) -> Result<KeptVersion, RollbackRefusal> {
-        .failure(.nothingKept)
+        guard let target = build.map({ wanted in kept.first { $0.build == wanted } }) ?? kept.first else {
+            return .failure(.nothingKept)
+        }
+        guard let teamID, target.teamID == teamID else { return .failure(.signature(target)) }
+        guard let readable = target.storeSchemas else { return .failure(.predatesRollback(target)) }
+        // Sorted, so the message names the same store every time.
+        for (store, version) in stored.sorted(by: { $0.key < $1.key }) {
+            guard let reads = readable[store] else { return .failure(.unknownStore(store: store, kept: target)) }
+            if version > reads { return .failure(.storeTooNew(store: store, stored: version, readable: reads, kept: target)) }
+        }
+        return .success(target)
     }
 }
 
 extension RollbackRefusal {
-    /// Red-test stub.
-    public var message: String { "" }
+    /// What the user reads (CLI, palette, dialog).
+    public var message: String {
+        switch self {
+        case .nothingKept:
+            UpdaterStrings.rollbackNothingKept
+        case .predatesRollback(let kept):
+            UpdaterStrings.rollbackPredates(kept.shortVersion)
+        case .storeTooNew(let store, let stored, let readable, let kept):
+            UpdaterStrings.rollbackStoreTooNew(kept.shortVersion, store, stored, readable)
+        case .unknownStore(let store, let kept):
+            UpdaterStrings.rollbackUnknownStore(kept.shortVersion, store)
+        case .signature(let kept):
+            UpdaterStrings.rollbackSignature(kept.shortVersion)
+        }
+    }
 }

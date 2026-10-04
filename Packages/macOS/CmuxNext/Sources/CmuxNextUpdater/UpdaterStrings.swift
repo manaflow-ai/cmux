@@ -32,6 +32,22 @@ nonisolated enum UpdaterStrings {
     static var installing: String { text("updater.title.installing", "Installing…") }
     static var readyToInstall: String { text("updater.title.readyToInstall", "Update Ready") }
 
+    // Rollback
+    static var rollbackNothingKept: String { text("updater.rollback.nothingKept", "No previous version is kept on this Mac.") }
+    static func rollbackPredates(_ version: String) -> String {
+        format("updater.rollback.predates", "cmux %@ is from before rollback support, so cmux cannot check that it reads your data.", version)
+    }
+    static func rollbackStoreTooNew(_ version: String, _ store: String, _ stored: Int, _ readable: Int) -> String {
+        format("updater.rollback.storeTooNew", "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it.",
+               version, store, stored, readable)
+    }
+    static func rollbackUnknownStore(_ version: String, _ store: String) -> String {
+        format("updater.rollback.unknownStore", "cmux %1$@ does not know your %2$@ data. Rolling back would hide it.", version, store)
+    }
+    static func rollbackSignature(_ version: String) -> String {
+        format("updater.rollback.signature", "The kept cmux %@ is not signed by the cmux team, so it will not run.", version)
+    }
+
     // Test feed
     static var testFeedRefused: String {
         text("updater.testFeed.refused", "A test update feed needs a DEV or NIGHTLY build and an https address (http only on this Mac).")
