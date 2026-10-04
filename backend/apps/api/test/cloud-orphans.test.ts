@@ -139,3 +139,36 @@ describe("N3 + N5: sweep scheduling", { timeout: 120_000 }, () => {
     expect((await stub.fakeControl({})).sweep_at).toBe(before)
   })
 })
+
+describe("cloud.admin.abandoned.clear (CloudDO side)", { timeout: 120_000 }, () => {
+  const abandoned = async () => {
+    const x = await cancelledCreate()
+    await tick(x.stub, 25 * HOUR)
+    return x
+  }
+  const who = (x: { p: Principal }) => ({ user: x.p.user!, email: "ops@example.com" })
+
+  it("refuses while a VM exists under the recorded name, and the row stays", async () => {
+    const x = await abandoned()
+    await x.stub.fakeControl({ add_vm: { name: x.name, team: x.team, machine: x.id } })
+    const r = await (x.stub as any).clearAbandoned(x.team, x.id, who(x), "checked the console by hand")
+    expect(r).toMatchObject({ ok: false, code: "vm_present" })
+    const again = await (x.stub as any).clearAbandoned(x.team, x.id, who(x), "checked the console by hand")
+    expect(again).toMatchObject({ ok: false, code: "vm_present" })
+    expect((await x.stub.fakeControl({})).deletes).toBe(0)
+  })
+
+  it("clears an abandoned row when no VM exists, records who/when/why, and a second clear finds nothing", async () => {
+    const x = await abandoned()
+    const r = await (x.stub as any).clearAbandoned(x.team, x.id, who(x), "VM gone in the provider console")
+    expect(r).toMatchObject({ ok: true, audit: { machine: x.id, by: x.p.user, by_email: "ops@example.com", reason: "VM gone in the provider console" } })
+    expect(typeof r.audit.at).toBe("number")
+    expect(await (x.stub as any).clearAbandoned(x.team, x.id, who(x), "VM gone in the provider console")).toMatchObject({ ok: false, code: "not_abandoned" })
+  })
+
+  it("refuses a machine whose row is not abandoned", async () => {
+    const x = person()
+    const id = reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.create", { size: SIZE }))).value.machine.id as string
+    expect(await (x.stub as any).clearAbandoned(x.team, id, { user: x.p.user!, email: "ops@example.com" }, "should not clear a live row")).toMatchObject({ ok: false, code: "not_abandoned" })
+  })
+})
