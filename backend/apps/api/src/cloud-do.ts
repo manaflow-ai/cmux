@@ -252,13 +252,28 @@ export class CloudDO extends OwnerDO<CloudState> {
     const limit = this.env.CLOUD_MUTATION_LIMIT
     if (rows && principal.install && limit && !(await limit.limit({ key: `cloud-link:${principal.install}` })).success) return { ok: false, code: "cloud.rate_limited", message: "too many link tokens; retry in a minute" }
     const keys = parseSigningKeys(this.env.CLOUD_LINK_SIGNING_KEYS)
-    return mintLinkToken({ entity, rows, p: principal, params, request, environment: cloudEnvTag(this.env.ENVIRONMENT) ?? "unknown", keys }, () => this.teamConnectServices(entity), () => this.audit)
+    // Review P3-b: never sign an iss this deployment cannot name.
+    const environment = this.envTag()
+    if (!environment) return { ok: false, code: "owner.unreachable", message: "this deployment has no Cloud environment tag" }
+    return mintLinkToken({ entity, rows, p: principal, params, request, environment, keys }, () => this.teamConnectServices(entity), () => this.audit)
   }
 
   /** The team's cloud.connectServices from its TeamDO (fail closed: a failed RPC fails the read). */
   private teamConnectServices(entity: string): Promise<ReadonlyArray<string>> {
     const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)) as unknown as { cloudConnectServices(e: string): Promise<ReadonlyArray<string>> }
     return stub.cloudConnectServices(entity)
+  }
+
+  /** Test only (fakeControl `unset`): configuration a test removes to prove a fail-closed path. */
+  private testUnset = new Set<string>()
+  /** The bind file's api_origin and env, or null when either is missing (then no create runs). */
+  private bindFileConfig(): { api_origin: string; env: string } | null {
+    const origin = this.testUnset.has("CLOUD_API_ORIGIN") ? null : cloudApiOrigin(this.env)
+    const env = this.envTag()
+    return origin && env ? { api_origin: origin, env } : null
+  }
+  private envTag(): string | null {
+    return this.testUnset.has("ENVIRONMENT_TAG") ? null : cloudEnvTag(this.env.ENVIRONMENT)
   }
 
   private get audit(): AccessAudit {
@@ -302,6 +317,8 @@ export class CloudDO extends OwnerDO<CloudState> {
       if (!driver) result = { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "no Cloud provider is configured on this deployment" }, final: true }
       // P1-1: a create runs only for a team with a plan (the allowlist may have changed since the intent). Deletes always run: they only stop cost.
       else if (row.op === "create" && !row.cancel && !teamPlan(this.config, tag.team)) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }
+      // Review P3-a: the bind file's origin and env tag are checked before ensure, so a misconfiguration never leaves a running VM.
+      else if (row.op === "create" && !row.cancel && !this.bindFileConfig()) result = { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "CLOUD_API_ORIGIN (https) or the environment tag is not configured" }, final: true }
       else {
         try {
           if (row.op === "create" && row.cancel) {
@@ -312,11 +329,9 @@ export class CloudDO extends OwnerDO<CloudState> {
             const id = (await driver.ensure(row.provider_name, tag, { idleSeconds: idle })).id
             // 5.8 item 1: a fresh one-time bind token into the VM; only its sha256 is committed.
             const token = newBindToken()
-            // a9's contract: one image for every environment, so the file names the https API origin and the env tag.
-            const origin = cloudApiOrigin(this.env)
-            const envTag = cloudEnvTag(this.env.ENVIRONMENT)
-            if (!origin || !envTag) throw new DriverError("cloud.provider.unavailable", "CLOUD_API_ORIGIN (https) or the environment tag is not configured", true)
-            await driver.writeBindFile(row.provider_name, tag, JSON.stringify({ team: tag.team, machine: row.machine, bind_token: token, api_origin: origin, env: envTag }))
+            // a9's contract: one image for every environment, so the file names the https API origin and the env tag (checked above).
+            const cfg = this.bindFileConfig()!
+            await driver.writeBindFile(row.provider_name, tag, JSON.stringify({ team: tag.team, machine: row.machine, bind_token: token, ...cfg }))
             result = { key: row.key, ok: true, provider_id: id, bind_token_sha256: await sha256Hex(token) }
           }
           else result = (await driver.remove(row.provider_name, tag), { key: row.key, ok: true })
@@ -442,9 +457,10 @@ export class CloudDO extends OwnerDO<CloudState> {
   }
 
   /** Test only (ENVIRONMENT=test): drive the fake provider and the object's clock. */
-  async fakeControl(cmd: { fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string } }) {
+  async fakeControl(cmd: { unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string } }) {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     cloudDriver(this.env, this.sqlStore)
+    if (cmd.unset) this.testUnset = new Set(cmd.unset)
     if (cmd.fail_next !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET fail_next = ? WHERE id = 1`, cmd.fail_next)
     if (cmd.drop_results !== undefined) this.dropResults = cmd.drop_results
     if (cmd.fail_list !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET fail_list = ? WHERE id = 1`, cmd.fail_list ? 1 : 0)

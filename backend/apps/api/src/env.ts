@@ -65,9 +65,9 @@ export interface Env {
    * Never logged. Without it, or without CLOUD_FREESTYLE_SNAPSHOT, create and delete answer cloud.provider.unavailable.
    */
   readonly CLOUD_FREESTYLE_API_KEY?: string
-  /** Secret: the operator key for /v1/admin/cloud/abandoned/clear (also needs a person's session token). */
   /** The https API origin written into each VM's bind file (the image's bind agent calls it). */
   readonly CLOUD_API_ORIGIN?: string
+  /** Secret: the operator key for /v1/admin/cloud/abandoned/clear (also needs a person's session token). */
   readonly CLOUD_ADMIN_KEY?: string
   /** Comma-separated user ids who may use the Cloud admin routes (with CLOUD_ADMIN_KEY and their own verified session). */
   readonly CLOUD_ADMIN_USERS?: string
