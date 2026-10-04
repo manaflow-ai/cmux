@@ -47,6 +47,9 @@ public final class WindowOverlayHost {
     public private(set) var reorderCount = 0
     /// Called after the panel was attached, detached or reordered.
     public var onPanelChange: (() -> Void)?
+    /// Called when `blocksWholeWindow` may have changed (a modal or dimming overlay came or went).
+    public var onBlockingChange: (() -> Void)?
+    var escapeMonitor: Any?
 
     private static var hosts: [ObjectIdentifier: WindowOverlayHost] = [:]
     private static var app: WindowOverlayHost?
@@ -100,6 +103,10 @@ public final class WindowOverlayHost {
     }
 
     public var hasPresentations: Bool { !handles.isEmpty }
+    /// A modal (without a region) or dimming overlay shows: nothing else in the window takes input.
+    public var blocksWholeWindow: Bool {
+        handles.contains { $0.options.dimsContent || ($0.options.isModal && $0.options.modalRegion == nil) }
+    }
     public var presentedHandles: [OverlayHandle] { handles }
 
     /// The window's layout planes need the panel while pages show (`WindowOverlayLayer`).
@@ -118,6 +125,7 @@ public final class WindowOverlayHost {
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
         removeMouseMonitor()
+        updateEscapeMonitor()
         stopObservingWindow()
         if let window {
             if panel.parent === window { window.removeChildWindow(panel) }

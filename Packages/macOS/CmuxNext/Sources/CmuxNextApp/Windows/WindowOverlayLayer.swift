@@ -207,6 +207,7 @@ final class WindowOverlayLayer {
 
     private func showPanel() {
         guard !isTornDown else { return }
+        host.onBlockingChange = { [weak self] in self?.syncCatchers() }
         host.setPlanesWantPanel(true)
     }
 
@@ -250,7 +251,9 @@ final class WindowOverlayLayer {
                 for plane in self?.planes ?? [] { (plane.home as? LayoutRootView)?.setDividerHovered(id, hovered) }
             }
         }
-        catchers.update(dividerAreas, active: placement == .overlayWindow)
+        // A modal or dimming overlay blocks the whole window: no divider takes the mouse under it.
+        let blocked = WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow == true
+        catchers.update(dividerAreas, active: placement == .overlayWindow && !blocked)
     }
 
     /// Every Chromium page of this window re-applies geometry, clip and

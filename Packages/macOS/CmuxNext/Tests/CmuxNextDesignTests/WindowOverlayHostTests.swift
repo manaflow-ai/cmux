@@ -98,8 +98,10 @@ import Testing
                                     options: OverlayOptions(kind: .dialog, anchor: region, modalRegion: region))
         #expect(host.acceptsMouse(at: NSPoint(x: 20, y: 20)), "inside the tab region")
         #expect(!host.acceptsMouse(at: NSPoint(x: 600, y: 50)), "the rest of the window stays usable")
+        #expect(!host.blocksWholeWindow, "dividers keep working beside a tab-region modal")
         let dialog = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 200)), options: .dialog())
         #expect(host.acceptsMouse(at: NSPoint(x: 600, y: 50)), "a dimming dialog blocks the window")
+        #expect(host.blocksWholeWindow, "divider catchers stand down under a dimming dialog")
         for handle in [dialog, tabModal, popover, tooltip] { handle.dismiss() }
         #expect(!host.hasPresentations)
     }

@@ -20,6 +20,8 @@ public extension WindowOverlayHost {
         layout(handle)
         if options.isModal { beginModal(handle) }
         updateMouseRouting()
+        updateEscapeMonitor()
+        onBlockingChange?()
         return handle
     }
 
@@ -53,7 +55,9 @@ extension WindowOverlayHost {
             .forEach { $0.removeFromSuperview() }
         if handle.options.isModal { endModal() }
         updateMouseRouting()
+        updateEscapeMonitor()
         syncPanel()
+        onBlockingChange?()
     }
 
     /// Places `handle` in panel coordinates, which are the window's own.
@@ -200,6 +204,26 @@ extension WindowOverlayHost {
         }
         restoreWindow = nil
         restoreResponder = nil
+    }
+
+    /// Escape reaches the panel only while it is key (a modal overlay). For
+    /// a non-modal overlay that dismisses on Escape, a local key monitor
+    /// lives while such an overlay shows and catches an Escape for any of the
+    /// app's windows; it goes with the last such overlay.
+    func updateEscapeMonitor() {
+        let wanted = handles.contains { $0.options.dismissOnEscape && !$0.options.isModal }
+        if wanted, escapeMonitor == nil {
+            escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, event.keyCode == 53, event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
+                      !self.panel.isKeyWindow,
+                      let handle = self.handles.last(where: { $0.options.dismissOnEscape && !$0.options.isModal }) else { return event }
+                handle.dismiss()
+                return nil
+            }
+        } else if !wanted, let monitor = escapeMonitor {
+            NSEvent.removeMonitor(monitor)
+            escapeMonitor = nil
+        }
     }
 
     /// Tab inside the newest modal overlay: the next (or previous) control, wrapping.

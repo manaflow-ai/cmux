@@ -36,6 +36,8 @@ private struct CmuxOverlayAnchor: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ view: CmuxOverlayProbe, coordinator: CmuxOverlayCoordinator) {
+        // No binding write while SwiftUI tears the view down.
+        coordinator.handle?.onDismiss = nil
         coordinator.handle?.dismiss()
         coordinator.handle = nil
     }
@@ -53,6 +55,7 @@ final class CmuxOverlayProbe: NSView {
 
 final class CmuxOverlayCoordinator {
     var handle: OverlayHandle?
+    var hosting: NSHostingView<AnyView>?
     var isPresented: Binding<Bool>?
     var options = OverlayOptions(kind: .popover)
     var content: (() -> AnyView)?
@@ -69,15 +72,24 @@ final class CmuxOverlayCoordinator {
         if options.anchor == nil, [.tooltip, .popover, .menu].contains(options.kind) {
             options.anchor = view.convert(view.bounds, to: nil)
         }
-        if let handle, !handle.isDismissed {
-            if let anchor = options.anchor { handle.update(anchor: anchor) }
+        if let handle, !handle.isDismissed, let hosting {
+            // New content or size: same overlay, updated in place.
+            hosting.rootView = content()
+            hosting.setFrameSize(hosting.fittingSize)
+            if let anchor = options.anchor {
+                handle.update(anchor: anchor, modalRegion: options.modalRegion)
+            } else {
+                handle.host?.layout(handle)
+            }
             return
         }
         let hosting = NSHostingView(rootView: content())
         hosting.setFrameSize(hosting.fittingSize)
+        self.hosting = hosting
         let handle = WindowOverlayHost.host(for: window).present(hosting, options: options)
         handle.onDismiss = { [weak self] in
             self?.handle = nil
+            self?.hosting = nil
             if isPresented.wrappedValue { isPresented.wrappedValue = false }
         }
         self.handle = handle
