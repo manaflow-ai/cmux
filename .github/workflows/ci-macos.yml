@@ -918,17 +918,24 @@ jobs:
             # real compiler errors still fail.
             echo "::warning::stale DerivedData dependency output detected; retrying compile from a clean tree"
             compile_workers_running() {
-              local compiler pgrep_status
-              # Probe the invocation and short-lived compiler workers. The
-              # Xcode build service is a persistent daemon shared by jobs, so
-              # a global probe would mistake an idle daemon for this build.
+              local compiler pid args pgrep_status
+              # Compiler names are global on an owned Mac. Inspect their
+              # command lines and only wait for workers carrying this job's
+              # DerivedData path; another runner's compile must not block the
+              # retry or make it discard a different job's state.
               for compiler in xcodebuild swift-frontend swiftc clang ld; do
-                if pgrep -x "$compiler" >/dev/null 2>&1; then
-                  return 0
-                else
+                pids="$(pgrep -x "$compiler" 2>/dev/null)" || {
                   pgrep_status=$?
-                fi
-                [ "$pgrep_status" -eq 1 ] || return 0
+                  [ "$pgrep_status" -eq 1 ] || return 0
+                  continue
+                }
+                for pid in $pids; do
+                  args="$(ps -o args= -p "$pid" 2>/dev/null || true)"
+                  [ -n "$args" ] || return 0
+                  case "$args" in
+                    *"$CMUX_COMPILE_ADMISSION_DERIVED_DATA"*) return 0 ;;
+                  esac
+                done
               done
               return 1
             }
