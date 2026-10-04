@@ -523,22 +523,31 @@ native (`BrowserReplBoundary` in the session, and the driver):
   `_callAsyncJavaScript` with `withUserGesture: NO`; a WebKit without it
   fails such calls with `unsupported`): `execCommand` is the native one in
   that world, and a page handler such a script sets off would hold the
-  gesture too.
-  A user's tab has no page clipboard guard, since its pages keep the
-  browser's clipboard. An agent's trusted input there (`input.mouse`,
-  `input.drag`, `input.key`, `input.insertText`) and its page-world
-  `frame.evaluate` give the page a gesture, which WebKit honors for up to
-  10 s after (a timer set within 1 s, a fetch started in the gesture that
-  settles within 10 s; measured on macOS 27.0, 26A428). So from the start
-  of such a call until 11 s after it, the general-pasteboard lookups WebKit
-  makes (by name and through `+generalPasteboard`, for any web view) get a
-  private pasteboard that is emptied at every lookup: the page's
-  `execCommand("copy")` or Clipboard API write reaches nobody, the session
-  included, and a read finds nothing. WebKit does not say which web view
-  wrote, so a copy or paste the person makes in another web view of cmux
-  during that time does nothing (the terminal, text fields and other code
-  keep the system clipboard). A command the session runs in its own tab
-  (Meta+C) keeps its private pasteboard meanwhile.
+  gesture too. So does every script the driver runs for itself, in its own
+  worlds or the agent's (the frame gate's checks and the scripts it gates,
+  capture masks, secret and focus checks, `tab.info`, frame names and
+  boxes, waits, selection reads, the sign-in fill, the page agent's
+  install): agent code can have replaced a getter they read, and a page
+  handler they set off would hold the gesture.
+  The page clipboard guard covers the page's world only, and a user's tab
+  has none, since its pages keep the browser's clipboard. An agent's
+  trusted input (`input.mouse`, `input.drag`, `input.key`,
+  `input.insertText`) and its page-world `frame.evaluate` give the tab a
+  gesture, which page script and code in the agent's world (a listener the
+  agent registered, which keeps WebKit's own `execCommand`) can use, and
+  which WebKit honors for up to 10 s after (a timer set within 1 s, a fetch
+  started in the gesture that settles within 10 s; measured on macOS 27.0,
+  26A428). So in every tab, from the start of such a call until 11 s after
+  it, the general-pasteboard lookups WebKit makes (by name and through
+  `+generalPasteboard`, for any web view) get a private pasteboard that is
+  emptied at every lookup: an `execCommand("copy")` or Clipboard API write
+  reaches nobody, the session included, and a read finds nothing (the page
+  clipboard guard's writes to the tab's clipboard are not pasteboard
+  writes and still land). WebKit does not say which web view wrote, so a
+  copy or paste the person makes in another web view of cmux during that
+  time does nothing (the terminal, text fields and other code keep the
+  system clipboard). A command the session runs in its own tab (Meta+C)
+  keeps its private pasteboard meanwhile.
 - Cookies: the domain policy applies by host, since a cookie belongs to a
   host and not an origin (a pattern's scheme and port do not narrow it).
   `cookies.clear` on a tab that shows a blocked page (its scope is that

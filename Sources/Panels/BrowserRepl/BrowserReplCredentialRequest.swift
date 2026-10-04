@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import WebKit
 
 /// The native half of `sites.browserAuth.request`, driver method `auth.request`
@@ -67,11 +68,12 @@ enum BrowserReplCredentialRequest {
             "__origin": fieldsOrigin,
         ]
         do {
-            let result = try await webView.callAsyncJavaScript(
+            let result = try await webView.browserReplCallAsyncJavaScript(
                 fillSource,
                 arguments: arguments,
                 in: frameInfo,
-                contentWorld: BrowserReplDriverWorld.world
+                contentWorld: BrowserReplDriverWorld.world,
+                userGesture: false
             )
             let status = (result as? [String: Any])?["status"] as? String ?? "page_changed"
             return ["status": status]

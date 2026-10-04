@@ -98,8 +98,8 @@ public import WebKit
 /// system pasteboard's change count. Writes a page's own scripts make (the
 /// asynchronous Clipboard API, `execCommand("copy")`) are not commands and
 /// are not redirected; ``BrowserReplPageClipboard`` handles those in a tab a
-/// session created, and ``beginQuarantine()`` while an agent's call gives a
-/// user's tab a gesture.
+/// session created, and ``withAgentGesture(lingering:_:)`` while an agent's
+/// call gives any tab a gesture.
 public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
     /// The redirect: one per process, since the hook it installs is.
     public static let shared = BrowserReplPasteboardRedirect()
@@ -575,8 +575,7 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
     // MARK: - Agent gestures
 
     /// Starts a quarantine of WebKit's own use of the general pasteboard,
-    /// for an agent's call that gives a page with no page clipboard guard
-    /// (a user's tab) a user gesture. Returns `false` when the hooks are
+    /// for an agent's call that gives a page a user gesture. Returns `false` when the hooks are
     /// missing; the caller must then not make the call.
     ///
     /// A page holding a gesture can write the system clipboard through
@@ -626,10 +625,20 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
     }
 
     /// Runs `body`, an agent's call that gives the pages of its tab a user
-    /// gesture (trusted input, page-world script). Seam; not used yet.
+    /// gesture (trusted input, page-world script), under the quarantine
+    /// (``beginQuarantine()``), which lasts `lingering` past it. In every
+    /// tab: a tab a session created has the page clipboard guard in the
+    /// page's world only, and code in the agent's world (a listener it
+    /// registered, a getter it replaced) keeps WebKit's own `execCommand`,
+    /// which such a call sets off with its gesture. Throws `unsupported`
+    /// without running `body` when the hooks are missing.
     @MainActor
     public func withAgentGesture<T>(lingering: Duration, _ body: () async throws -> T) async throws -> T {
-        try await body()
+        guard beginQuarantine() else {
+            throw BrowserReplDriverError(code: "unsupported", message: "This call would give the page a user gesture, and the system clipboard cannot be kept from it on this system")
+        }
+        defer { endQuarantine(lingering: lingering) }
+        return try await body()
     }
 
     /// The quarantine's private pasteboard, once one began (tests).

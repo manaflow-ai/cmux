@@ -94,6 +94,38 @@ extension WKWebView {
     }
 }
 
+extension WKWebView {
+    private static let evaluateWithGestureSelector = NSSelectorFromString("_evaluateJavaScript:withSourceURL:inFrame:inContentWorld:withUserGesture:completionHandler:")
+
+    /// `evaluateJavaScript(_:in:contentWorld:)` without a user gesture
+    /// (WebKit's public call always gives one); throws `unsupported` when
+    /// WebKit's variant that takes the choice is missing.
+    @MainActor
+    public func browserReplEvaluateJavaScriptWithoutGesture(
+        _ source: String,
+        in frame: WKFrameInfo?,
+        contentWorld: WKContentWorld
+    ) async throws -> Any? {
+        guard responds(to: Self.evaluateWithGestureSelector) else {
+            throw BrowserReplDriverError(code: "unsupported", message: "This WebKit cannot run the driver's script without a user gesture")
+        }
+        typealias Completion = @convention(block) (Any?, (any Error)?) -> Void
+        typealias Function = @convention(c) (AnyObject, Selector, NSString, NSURL?, WKFrameInfo?, WKContentWorld, Bool, Completion) -> Void
+        let function = unsafeBitCast(method(for: Self.evaluateWithGestureSelector), to: Function.self)
+        let box = BrowserReplScriptResultBox()
+        let result = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<BrowserReplScriptResult, any Error>) in
+            box.continuation = continuation
+            let completion: Completion = { value, error in
+                MainActor.assumeIsolated {
+                    if let error { box.finish(.failure(error)) } else { box.finish(.success(BrowserReplScriptResult(value: value))) }
+                }
+            }
+            function(self, Self.evaluateWithGestureSelector, source as NSString, nil, frame, contentWorld, false, completion)
+        }
+        return result.value is NSNull ? nil : result.value
+    }
+}
+
 /// A script's result, handed from WebKit's completion on the main thread.
 private struct BrowserReplScriptResult: @unchecked Sendable {
     let value: Any?
@@ -211,17 +243,19 @@ public final class BrowserReplFrameGate {
     /// and returns without running `body` if the frame has navigated since;
     /// the gate then judges the new document and runs it again.
     ///
-    /// With `userGesture` false the script runs without a user gesture (the
-    /// agent's own world): a page's handler it sets off synchronously (a
-    /// `focus`, a dispatched event) holds none either, and neither does the
-    /// script, so neither can write the system clipboard.
+    /// The script runs without a user gesture unless `userGesture` is true
+    /// (the agent's page-world script, which the driver runs under the
+    /// clipboard quarantine): a page's handler it sets off synchronously (a
+    /// `focus`, a dispatched event) holds none either, and neither does code
+    /// that replaced a getter the script reads in its world, so none of them
+    /// can write the system clipboard or open a window.
     public func callAsyncJavaScript(
         _ body: String,
         arguments: [String: Any],
         in webView: WKWebView,
         frame: BrowserReplFrame,
         contentWorld: WKContentWorld,
-        userGesture: Bool = true
+        userGesture: Bool = false
     ) async throws -> Any? {
         guard policy.isActive else {
             return try await webView.browserReplCallAsyncJavaScript(body, arguments: arguments, in: frame.info, contentWorld: contentWorld, userGesture: userGesture)

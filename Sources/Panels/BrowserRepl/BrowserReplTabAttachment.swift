@@ -973,11 +973,12 @@ final class BrowserReplTabAttachment {
     private func chooserElementHandle(in frame: WKFrameInfo) async -> String? {
         guard let webView = panel?.webView else { return nil }
         let source = "const a = globalThis[\(BrowserReplRuntimeBundle.agentGlobalKeyExpression)]; return a ? a.chooserHandle() : null;"
-        let value = try? await webView.callAsyncJavaScript(
+        let value = try? await webView.browserReplCallAsyncJavaScript(
             source,
             arguments: [:],
             in: frame,
-            contentWorld: BrowserReplAgentWorld.world
+            contentWorld: BrowserReplAgentWorld.world,
+            userGesture: false
         )
         return value as? String
     }

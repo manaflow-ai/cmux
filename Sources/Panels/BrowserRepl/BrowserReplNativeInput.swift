@@ -189,7 +189,7 @@ enum BrowserReplNativeInput {
     /// shadow roots, is a `contenteditable` editor (not a form field) in a
     /// frame the agent world can read.
     fileprivate static func focusIsRichTextEditor(_ webView: WKWebView) async -> Bool {
-        let result = try? await webView.callAsyncJavaScript(
+        let result = try? await webView.browserReplCallAsyncJavaScript(
             """
             let doc = document;
             let el = doc.activeElement;
@@ -211,7 +211,8 @@ enum BrowserReplNativeInput {
             """,
             arguments: [:],
             in: nil,
-            contentWorld: BrowserReplAgentWorld.world
+            contentWorld: BrowserReplAgentWorld.world,
+            userGesture: false
         )
         return (result as? Bool) ?? false
     }
@@ -278,11 +279,12 @@ enum BrowserReplNativeInput {
     /// One JavaScript round trip: WebKit answers after the web process has
     /// handled every message sent before it on the same connection.
     static func roundTrip(_ webView: WKWebView) async {
-        _ = try? await webView.callAsyncJavaScript(
+        _ = try? await webView.browserReplCallAsyncJavaScript(
             "return 0;",
             arguments: [:],
             in: nil,
-            contentWorld: BrowserReplAgentWorld.world
+            contentWorld: BrowserReplAgentWorld.world,
+            userGesture: false
         )
     }
 
