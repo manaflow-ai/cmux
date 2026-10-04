@@ -366,20 +366,36 @@ class DisplayService:
                            stderr=subprocess.DEVNULL, check=False)
 
     @staticmethod
-    def terminate_untracked_websockify(number):
+    def untracked_websockify_pids(number, proc=Path("/proc")):
+        """This user's websockify processes proxying this display, matched on
+        exact argv (pgrep's regex dialect cannot express the address set)."""
+        listen = {f"{host}:{6900 + number}" for host in ("127.0.0.1", "[::]", "0.0.0.0")}
+        target = f"127.0.0.1:{5900 + number}"
+        pids = []
+        for entry in proc.iterdir():
+            if not entry.name.isdigit() or int(entry.name) == os.getpid():
+                continue
+            try:
+                if entry.stat().st_uid != os.getuid():
+                    continue
+                argv = (entry / "cmdline").read_bytes().split(b"\0")
+            except OSError:
+                continue
+            args = [part.decode(errors="replace") for part in argv if part]
+            if any(Path(arg).name == "websockify" for arg in args[:2]) \
+                    and len(args) >= 2 and args[-1] == target and args[-2] in listen:
+                pids.append(int(entry.name))
+        return pids
+
+    @classmethod
+    def terminate_untracked_websockify(cls, number):
         """Stops websockify listeners for this display left by an older helper
         (a restarted service keeps the X session but not its proxy handle), so
         the replacement is the only listener on the port."""
-        pattern = (rf"websockify.*\s(?:127\.0\.0\.1|\[::\]|0\.0\.0\.0):{6900 + number}"
-                   rf"\s+127\.0\.0\.1:{5900 + number}(?:\s|$)")
-        try:
-            output = subprocess.check_output(["pgrep", "-u", str(os.getuid()), "-f", pattern], text=True)
-        except (OSError, subprocess.CalledProcessError):
-            return
-        for line in output.split():
+        for pid in cls.untracked_websockify_pids(number):
             try:
-                os.kill(int(line), 15)
-            except (OSError, ValueError):
+                os.kill(pid, 15)
+            except OSError:
                 pass
         deadline = time.monotonic() + 2
         while listening(6900 + number) and time.monotonic() < deadline:
