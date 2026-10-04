@@ -22,6 +22,7 @@ extension WindowOverlayHost {
             keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil,
                                                                  queue: .main) { [weak self] note in
                 let window = (note.object as AnyObject?).map(ObjectIdentifier.init)
+                // crash-allow: the observer runs on the main queue (queue: .main), so the main actor holds.
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     // The overlay taking the keyboard back cancels a move; any other window is a move.

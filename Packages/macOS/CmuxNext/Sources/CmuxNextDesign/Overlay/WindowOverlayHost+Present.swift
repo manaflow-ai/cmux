@@ -29,8 +29,9 @@ public extension WindowOverlayHost {
         handle.contentPostedFrameChanges = content.postsFrameChangedNotifications
         content.postsFrameChangedNotifications = true
         handle.frameObserver = NotificationCenter.default.addObserver(
-            forName: NSView.frameDidChangeNotification, object: content, queue: nil
+            forName: NSView.frameDidChangeNotification, object: content, queue: .main
         ) { [weak self] _ in
+            // crash-allow: the observer runs on the main queue (queue: .main), so the main actor holds.
             MainActor.assumeIsolated {
                 self?.cachedRegions = nil
                 self?.updateMouseRouting()

@@ -93,6 +93,7 @@ public final class WindowOverlayHost {
         host.observers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: window, queue: .main
         ) { [weak host] _ in
+            // crash-allow: the observer runs on the main queue (queue: .main), so the main actor holds.
             MainActor.assumeIsolated { host?.tearDown() }
         })
         return host
@@ -233,11 +234,13 @@ public final class WindowOverlayHost {
         stopObservingWindow()
         let center = NotificationCenter.default
         windowObservers.append(center.addObserver(forName: NSWindow.didUpdateNotification, object: window, queue: .main) { [weak self] _ in
+            // crash-allow: the observer runs on the main queue (queue: .main), so the main actor holds.
             MainActor.assumeIsolated { self?.reassertOrder() }
         })
         for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification, NSWindow.didEnterFullScreenNotification,
                      NSWindow.didExitFullScreenNotification, NSWindow.didChangeScreenNotification] {
             windowObservers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                // crash-allow: the observer runs on the main queue (queue: .main), so the main actor holds.
                 MainActor.assumeIsolated { self?.windowGeometryDidChange() }
             })
         }
