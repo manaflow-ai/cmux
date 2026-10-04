@@ -43,8 +43,13 @@ pub(crate) fn create_closed_history_schema(transaction: &Transaction<'_>) -> any
     migrate_v1(transaction)
 }
 
-/// `closed-history-v1` rows become one-member groups with the same ids, in
-/// their order; then the v1 table goes.
+/// `closed-history-v1` rows are COPIED to one-member groups with the same
+/// ids. The v1 table stays untouched and read-only for one release, so a
+/// downgraded daemon still sees its history; a later release drops it in
+/// its own commit. `closed_v1_copied` remembers every copied id, so the
+/// copy is idempotent (a reopened group never comes back) and rows a
+/// downgraded daemon adds meanwhile are copied once, as the newest groups.
+/// It keys on ids: v1 sequences restart at 1 when the v1 table empties.
 fn migrate_v1(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     let exists: bool = transaction.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'closed_history')",
@@ -54,9 +59,14 @@ fn migrate_v1(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     if !exists {
         return Ok(());
     }
+    transaction.execute_batch(
+        "CREATE TABLE IF NOT EXISTS closed_v1_copied (closed_id TEXT PRIMARY KEY NOT NULL);",
+    )?;
     let rows = {
         let mut statement = transaction.prepare(
-            "SELECT closed_id, kind, record_json, closed_at_ms FROM closed_history ORDER BY sequence ASC",
+            "SELECT closed_id, kind, record_json, closed_at_ms FROM closed_history
+             WHERE closed_id NOT IN (SELECT closed_id FROM closed_v1_copied)
+             ORDER BY sequence ASC",
         )?;
         statement
             .query_map([], |row| {
@@ -83,8 +93,8 @@ fn migrate_v1(transaction: &Transaction<'_>) -> anyhow::Result<()> {
              VALUES(?1, ?2, NULL, ?3, ?4)",
             params![closed_id, kind, closed_at_ms, serde_json::to_string(&group)?],
         )?;
+        transaction.execute("INSERT INTO closed_v1_copied(closed_id) VALUES(?1)", [&closed_id])?;
     }
-    transaction.execute_batch("DROP TABLE closed_history")?;
     Ok(())
 }
 
