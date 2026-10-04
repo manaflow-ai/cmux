@@ -137,6 +137,42 @@ struct BrowserReplFrameGateTests {
         #expect(allowedPixel.green > 0.8 && allowedPixel.red < 0.2, "the allowed frame was blanked too")
     }
 
+    /// The capture mask found a child frame whose marked document is
+    /// blocked although the tree's record of it is not (it navigated after
+    /// the tree was read): the screenshot blanks it too.
+    @Test func aScreenshotBlanksAFrameTheMaskFoundBlocked() async throws {
+        let page = try await FramePage.load()
+        let allowed = try #require(page.frame(path: "/child"))
+        _ = try await page.run("document.body.style.background = 'rgb(0, 255, 0)'; return true", in: allowed)
+        let gate = Self.gate(prohibiting: "cmux-test://other.test")
+        let image = try await gate.coverBlockedFrames(
+            in: page.webView,
+            frames: { await BrowserReplFrame.readTree(of: page.webView) },
+            blockedChildFrames: [allowed.frameID: "blocked by test"]
+        ) {
+            (try await FramePage.viewportImage(of: page.webView), CGRect(x: 0, y: 0, width: 400, height: 300))
+        }
+        let pixel = try #require(FramePage.pixel(image, x: 60, y: 50))
+        #expect(!(pixel.green > 0.8 && pixel.red < 0.2), "the frame the mask found blocked is in the capture")
+    }
+
+    /// A frame the capture mask found blocked that the screenshot cannot
+    /// find in the tree cannot be blanked, so the screenshot is refused.
+    @Test func aFrameTheMaskFoundBlockedThatTheTreeLacksRefusesTheScreenshot() async throws {
+        let page = try await FramePage.load()
+        let gate = Self.gate(prohibiting: "cmux-test://other.test")
+        let error = await Self.error {
+            try await gate.coverBlockedFrames(
+                in: page.webView,
+                frames: { await BrowserReplFrame.readTree(of: page.webView) },
+                blockedChildFrames: ["999999999": "blocked by test"]
+            ) {
+                (try await FramePage.viewportImage(of: page.webView), CGRect(x: 0, y: 0, width: 400, height: 300))
+            }
+        }
+        #expect(error?.code == "blocked", "a capture with a blocked frame it could not find was allowed")
+    }
+
     /// Blanking a box hides a frame only when nothing draws its content
     /// elsewhere; a reflection does, so the capture is refused.
     @Test func aScreenshotOfABlockedFrameDrawnOutsideItsBoxIsRefused() async throws {

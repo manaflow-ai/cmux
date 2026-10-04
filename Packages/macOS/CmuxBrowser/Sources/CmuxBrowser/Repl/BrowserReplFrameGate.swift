@@ -259,6 +259,7 @@ public final class BrowserReplFrameGate {
     public func coverBlockedFrames(
         in webView: WKWebView,
         frames: @MainActor () async -> [BrowserReplFrame],
+        blockedChildFrames: [String: String] = [:],
         capture: () async throws -> (image: CGImage, region: CGRect)
     ) async throws -> CGImage {
         guard policy.isActive else { return try await capture().image }

@@ -256,6 +256,44 @@ struct BrowserReplCaptureMaskTests {
         #expect(captured)
     }
 
+    // MARK: Blocked child frames
+
+    /// A frame keeps its id when it navigates, so a child frame can show a
+    /// page the policy blocks after the driver judged the tree and before
+    /// the mask marks it. A PDF cannot blank a frame, so a child frame whose
+    /// marked document is blocked refuses it.
+    @Test func aPDFOfAChildFrameWhoseDocumentIsBlockedIsRefused() async throws {
+        let page = try await FramePage.load()
+        let mask = BrowserReplCaptureMask(secretMasks: [], policy: Self.policy(prohibiting: "cmux-test://blocked.test"), blockedChildFrames: .refuse)
+        var captured = false
+        let error = await BrowserReplFrameGateTests.error {
+            try await mask.run(in: page.webView, frames: { page.frames.map(\.info) }) { captured = true }
+        }
+        #expect(error?.code == "blocked", "a PDF of a blocked child frame was allowed: \(String(describing: error))")
+        #expect(!captured)
+    }
+
+    /// A screenshot blanks blocked frames itself: the mask hands it each
+    /// child frame whose marked document the policy blocks, so a frame that
+    /// navigated to a blocked page after the tree was judged is blanked too.
+    @Test func aScreenshotIsHandedTheChildFramesWhoseDocumentIsBlocked() async throws {
+        let page = try await FramePage.load()
+        let blocked = try #require(page.frame(host: "blocked.test"))
+        let allowed = try #require(page.frame(path: "/child"))
+        let mask = BrowserReplCaptureMask(secretMasks: [], policy: Self.policy(prohibiting: "cmux-test://blocked.test"), blockedChildFrames: .handToCapture)
+        let handed = try await mask.run(in: page.webView, frames: { page.frames.map(\.info) }) { blockedChildFrames in
+            blockedChildFrames
+        }
+        #expect(handed[blocked.frameID] != nil, "the blocked child frame was not handed to the screenshot: \(handed)")
+        #expect(handed[allowed.frameID] == nil, "an allowed child frame was handed to the screenshot as blocked")
+    }
+
+    static func policy(prohibiting pattern: String) -> BrowserReplDomainPolicy {
+        var policy = BrowserReplDomainPolicy()
+        policy.prohibited = [try! BrowserReplDomainPattern.parse(pattern, title: "test")]
+        return policy
+    }
+
     /// The mask step fails in a frame on the secret's domain (here the frame
     /// went away after the frame list was read): the capture is refused
     /// rather than taken with that frame unmasked.

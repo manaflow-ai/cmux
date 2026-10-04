@@ -83,16 +83,33 @@ public struct BrowserReplCaptureMask {
     /// The content world the mask scan runs in.
     static let world = WKContentWorld.browserReplWorld(seeingClosedShadowRoots: "cmux-capture-mask")
 
+    /// What a capture does with a child frame whose document the domain
+    /// policy blocks.
+    public enum BlockedChildFrames: Sendable {
+        /// The capture cannot hide a frame (a PDF, laid out for print):
+        /// such a frame refuses it.
+        case refuse
+        /// The capture blanks blocked frames itself (a screenshot): it is
+        /// handed those frames and must blank each or refuse.
+        case handToCapture
+    }
+
     let masks: [Mask]
     let policy: BrowserReplDomainPolicy
+    let blockedChildFrames: BlockedChildFrames
     private let token = UUID().uuidString
 
     /// - Parameters:
     ///   - secretMasks: The `secretMasks` the session added to the call.
     ///   - policy: The session's domain policy; a capture while a frame
     ///     shows a page it blocks is refused.
-    public init(secretMasks: [[String: Any]], policy: BrowserReplDomainPolicy = BrowserReplDomainPolicy()) {
+    public init(
+        secretMasks: [[String: Any]],
+        policy: BrowserReplDomainPolicy = BrowserReplDomainPolicy(),
+        blockedChildFrames: BlockedChildFrames = .refuse
+    ) {
         self.policy = policy
+        self.blockedChildFrames = blockedChildFrames
         masks = secretMasks.compactMap { mask in
             guard let value = mask["value"] as? String, !value.isEmpty,
                   let domains = mask["domains"] as? [[String: Any]] else { return nil }
@@ -109,6 +126,14 @@ public struct BrowserReplCaptureMask {
     /// - Parameters:
     ///   - frames: Reads the tab's frames as they are now; `nil` stands for
     ///     the main frame when WebKit gives no frame info for it.
+    public func run<T>(
+        in webView: WKWebView,
+        frames: () async -> [WKFrameInfo?],
+        _ capture: (_ blockedChildFrames: [String: String]) async throws -> T
+    ) async throws -> T {
+        try await run(in: webView, frames: frames) { try await capture([:]) }
+    }
+
     public func run<T>(
         in webView: WKWebView,
         frames: () async -> [WKFrameInfo?],
