@@ -22,7 +22,7 @@ extension SettingsSchema {
     }
     /// Keys an agent may set and reset: the table below plus every
     /// `appearance.surfaces.<surface>.color|opacity` row (looks only, R55).
-    public static let agentSettableKeys: Set<String> = agentSettableTable.union(SurfaceBackgroundSetting.keys)
+    public static let agentSettableKeys: Set<String> = agentSettableTable.union(SurfaceBackgroundSetting.keys).union(BrowserLinkClickSchema.agentSettableKeys)
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
