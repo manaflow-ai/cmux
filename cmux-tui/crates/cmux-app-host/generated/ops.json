@@ -58,6 +58,7 @@
     "cloud.file.pull",
     "cloud.file.push",
     "cloud.file.transfer.cancel",
+    "cloud.file.transfer.list",
     "cloud.firewall.create",
     "cloud.firewall.get",
     "cloud.firewall.list",
