@@ -24,13 +24,19 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The edge the strip sits on (`tabs.barPosition`, R109); follows
     /// `DesignSettings` (`observePlacement`).
     var barPosition: TabBarPosition = .top {
-        didSet { if barPosition != oldValue { needsLayout = true } }
+        didSet { if barPosition != oldValue { updateBand() } }
     }
     private var placementObservation: Task<Void, Never>?
     /// A browser's tab bar above or below its toolbar (`tabs.barOrder`, R109).
-    var barOrder: TabBarOrder = .aboveToolbar
+    var barOrder: TabBarOrder = .aboveToolbar {
+        didSet { if barOrder != oldValue { updateBand() } }
+    }
+    /// The browser whose header band the strip uses (`PaneContentView+Band`).
+    weak var bandHost: (any PaneHeaderBandHosting)?
+    /// The strip's constraints to that band; empty while it is not pinned.
+    var bandPins: [NSLayoutConstraint] = []
     /// Whether the strip is pinned to a browser's header band.
-    var isBandActive: Bool { false }
+    var isBandActive: Bool { !bandPins.isEmpty }
     private var reportedChrome: (header: CGFloat, footer: CGFloat) = (-1, -1)
 
     /// - Parameter reveal: Holds the strip until the first tabs arrive and
@@ -39,6 +45,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         stripView = TabStripView(model: stripModel)
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         barPosition = DesignSettings.shared.tabBarPosition
+        barOrder = DesignSettings.shared.tabBarOrder
         wantsLayer = true
         contentHost.wantsLayer = true
         contentHost.layer?.masksToBounds = true
@@ -51,11 +58,13 @@ final class PaneContentView: NSView, PaneContentChrome {
         tokenObservation = Task { [weak self] in
             for await _ in Observations({ PaneChromeMetrics.current }) {
                 self?.needsLayout = true
+                self?.refreshBandHeight()
             }
         }
         placementObservation = Task { [weak self] in
-            for await position in Observations({ DesignSettings.shared.tabBarPosition }) {
+            for await (position, order) in Observations({ (DesignSettings.shared.tabBarPosition, DesignSettings.shared.tabBarOrder) }) {
                 self?.barPosition = position
+                self?.barOrder = order
             }
         }
     }
@@ -72,15 +81,19 @@ final class PaneContentView: NSView, PaneContentChrome {
     override var isFlipped: Bool { true }
 
     override func layout() {
-        super.layout()
         let stripHeight = self.stripHeight
         let contentHeight = max(0, bounds.height - stripHeight)
         let onTop = barPosition == .top
-        stripView.frame = NSRect(x: 0, y: onTop ? 0 : contentHeight, width: bounds.width, height: stripHeight)
-        let hostFrame = NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
+        // Pinned to a browser's band, the strip follows its constraints and
+        // the browser fills the pane (its band holds the strip's place).
+        if !isBandActive { stripView.frame = NSRect(x: 0, y: onTop ? 0 : contentHeight, width: bounds.width, height: stripHeight) }
+        let hostFrame = isBandActive ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
         if hostChanged { contentHost.frame = hostFrame }
+        // After the host frame: a strip pinned to a browser's band reads its
+        // frame from constraints that depend on the host frame.
+        super.layout()
         // Restored terminal views are attached while the pane is still at
         // zero size. Reapply their frame after the host receives its launch
         // bounds so Ghostty and its find/glass overlays get a real first
@@ -94,7 +107,10 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The hosted content's own header (a browser toolbar), if it has one.
     private var innerChrome: PaneContentChrome? { hostsContent ? content as? PaneContentChrome : nil }
 
-    var paneHeaderHeight: CGFloat { (barPosition == .top ? stripHeight : 0) + (innerChrome?.paneHeaderHeight ?? 0) }
+    var paneHeaderHeight: CGFloat {
+        // The band is inside the browser's header.
+        (barPosition == .top && !isBandActive ? stripHeight : 0) + (innerChrome?.paneHeaderHeight ?? 0)
+    }
 
     /// The strip below the content (`tabs.barPosition` bottom); else 0.
     var paneFooterHeight: CGFloat { barPosition == .bottom ? stripHeight : 0 }
@@ -108,6 +124,7 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        refreshBandHeight()
         needsLayout = true
     }
 
@@ -156,6 +173,8 @@ final class PaneContentView: NSView, PaneContentChrome {
         // Another pane may have reparented `previous` already (a moved tab):
         // only a view still installed here is removed.
         let hosted = previous.flatMap { $0.superview === contentHost ? $0 : nil }
+        // The strip's band pins end before the browser leaves (R109).
+        if hosted !== view { releaseBand() }
         if hosted !== view { hosted?.removeFromSuperview() }
         if let view, view.superview !== contentHost || view.frame != contentHost.bounds {
             view.frame = contentHost.bounds
@@ -170,9 +189,15 @@ final class PaneContentView: NSView, PaneContentChrome {
         }
         content = view
         if let inner = innerChrome {
-            inner.onPaneHeaderHeightChange = { [weak self] in self?.reportHeaderIfChanged() }
+            // A toolbar or bookmarks bar height change moves the strip and
+            // the content: lay out again, then report (v4 review b).
+            inner.onPaneHeaderHeightChange = { [weak self] in
+                self?.needsLayout = true
+                self?.reportHeaderIfChanged()
+            }
         }
         applyCornerRadius()
+        updateBand()
         reportHeaderIfChanged()
         return previous
     }
@@ -180,12 +205,15 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// Lets the content view go without touching it if another pane took
     /// it.
     func detachContent() {
+        // The strip's band pins end before the browser leaves (R109).
+        releaseBand()
         if hostsContent {
             (content as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
             content?.removeFromSuperview()
         }
         content = nil
         applyCornerRadius()
+        updateBand()
         reportHeaderIfChanged()
     }
 
@@ -202,6 +230,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The strip's scope follows the pane's (a workspace theme).
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // The pins need both views in one window (v4 note 1).
+        updateBand()
         stripView.reparentRootedThemeScope()
     }
 

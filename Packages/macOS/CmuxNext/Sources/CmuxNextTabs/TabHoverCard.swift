@@ -200,6 +200,6 @@ extension TabHoverCardController {
     /// Where a tab's hover card opens: below a strip at the top of its
     /// pane, above one at the bottom (`tabs.barPosition`, R109).
     static func placement(for position: TabBarPosition) -> HoverCardPlacement {
-        .below
+        position == .bottom ? .above : .below
     }
 }

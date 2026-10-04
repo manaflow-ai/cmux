@@ -29,6 +29,7 @@ extension SettingsSchema {
         "window.titlebarButtons",
         "tabs.plusButton",
         "tabs.barPosition",
+        "tabs.barOrder",
         "navigation.historyScope",
         "sidebar.minimalMode",
         "sidebar.side",
