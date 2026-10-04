@@ -456,6 +456,40 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         #expect(kept.ref.hash == sha256Hex(try Data(contentsOf: movie)))
     }
 
+    /// An image over 1024 px (or a HEIC) gets a JPEG preview, declared on
+    /// the part like a video's poster; a small one does not.
+    @MainActor @Test func largeImagesGetAJPEGPreviewSmallOnesDoNot() async throws {
+        let root = try temporaryDirectory()
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root)
+        let photo = try await store.prepareAttachment(data: try makeJPEG(width: 2400, height: 1200, orientation: 6),
+                                                      typeIdentifier: UTType.jpeg.identifier)
+        let meta = try #require(photo.ref.preview)
+        let previewURL = try #require(photo.previewURL)
+        let bytes = try Data(contentsOf: previewURL)
+        #expect(meta == AttachmentDerivedImage(hash: sha256Hex(bytes), mimeType: "image/jpeg", byteCount: bytes.count))
+        #expect(bytes.count <= HomeAttachmentPolicy.previewMaxBytes)
+        let source = try #require(CGImageSourceCreateWithData(bytes as CFData, nil))
+        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        #expect(max(image.width, image.height) <= HomeAttachmentPolicy.previewMaxPixel)
+        #expect(image.height > image.width) // orientation applied
+        #expect(photo.files.previewURL == previewURL)
+
+        let small = try await store.prepareAttachment(data: try makeJPEG(width: 40, height: 20, orientation: 1),
+                                                      typeIdentifier: UTType.jpeg.identifier)
+        #expect(small.ref.preview == nil)
+        #expect(small.previewURL == nil)
+    }
+
+    @Test func previewEncodesAsItsOwnPartKey() throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let photo = AttachmentRef(hash: "h", name: "p.heic", mimeType: "image/heic", byteCount: 9, width: 3, height: 4,
+                                  preview: AttachmentDerivedImage(hash: "q", mimeType: "image/jpeg", byteCount: 5))
+        #expect(String(decoding: try encoder.encode(photo), as: UTF8.self)
+            == #"{"byte_count":9,"hash":"h","height":4,"mime_type":"image/heic","name":"p.heic","preview":{"byte_count":5,"hash":"q","mime_type":"image/jpeg"},"width":3}"#)
+        #expect(try JSONDecoder().decode(AttachmentRef.self, from: encoder.encode(photo)) == photo)
+    }
+
     @Test func attachmentRefWithoutNewFieldsDecodes() throws {
         let expected = AttachmentRef(hash: "abc", name: "a.png", mimeType: "image/png", byteCount: 3, width: 4, height: 5)
         let wire = Data(#"{"hash":"abc","name":"a.png","mime_type":"image/png","byte_count":3,"width":4,"height":5}"#.utf8)
@@ -966,6 +1000,47 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         }
         #expect(store.transcript(for: conversation).last?.delivery == .notDelivered(.invalid("attachment_file_missing")))
         #expect(await source.uploadCalls.isEmpty)
+    }
+
+    /// The preview uploads with the image, travels on the part, and is the
+    /// `.preview` variant; a part without one throws `no_preview`.
+    @Test func previewUploadsWithTheImageAndFetchesAsAVariant() async throws {
+        let (store, source) = try await started()
+        let photo = try await store.prepareAttachment(data: try makeJPEG(width: 2000, height: 1500, orientation: 1),
+                                                      typeIdentifier: UTType.jpeg.identifier)
+        let meta = try #require(photo.ref.preview)
+        try await store.send(conversation: conversation, text: "", attachments: [photo], key: IdempotencyKey("attach-preview"))
+        await waitUntil { store.log.isEmpty }
+        #expect(try await source.snapshot(of: conversation, tail: 1).messages.last?.parts == [.attachment(photo.ref)])
+        #expect(try await store.fetchAttachment(photo.ref, variant: .preview, in: conversation) == photo.previewURL)
+        let here = AttachmentLocation(conversation: conversation)
+        let fetched = try await source.fetch(photo.ref, at: here, variant: .preview)
+        #expect(sha256Hex(try Data(contentsOf: fetched)) == meta.hash)
+
+        let small = try await store.prepareAttachment(data: try makeJPEG(width: 30, height: 30, orientation: 1),
+                                                      typeIdentifier: UTType.jpeg.identifier)
+        try await store.send(conversation: conversation, text: "", attachments: [small], key: IdempotencyKey("attach-no-preview"))
+        await #expect(throws: HomeRejection.invalid("no_preview")) {
+            try await store.fetchAttachment(small.ref, variant: .preview, in: conversation)
+        }
+        await #expect(throws: HomeRejection.invalid("no_preview")) {
+            try await source.fetch(small.ref, at: here, variant: .preview)
+        }
+    }
+
+    /// The owner recorded the image without a preview first: the part
+    /// carries none.
+    @Test func existsWithNoPreviewSendsThePartWithoutAPreview() async throws {
+        let (store, source) = try await started()
+        let photo = try await store.prepareAttachment(data: try makeJPEG(width: 1600, height: 1200, orientation: 1),
+                                                      typeIdentifier: UTType.jpeg.identifier)
+        #expect(photo.ref.preview != nil)
+        var first = photo.ref
+        first.preview = nil
+        _ = try await source.upload(AttachmentUpload(conversation: conversation, fileURL: photo.fileURL, ref: first))
+        try await store.send(conversation: conversation, text: "", attachments: [photo], key: IdempotencyKey("attach-exists-no-preview"))
+        await waitUntil { store.log.isEmpty }
+        #expect(try await source.snapshot(of: conversation, tail: 1).messages.last?.parts == [.attachment(first)])
     }
 
     @Test func fetchWithoutALocalCopyNamesTheMessagePart() async throws {
