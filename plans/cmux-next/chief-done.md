@@ -10,8 +10,9 @@ People and teams
 1. Two people sign in (real Stack accounts) on two Macs; each sees Home.
 2. "Team" is the existing cmux team (TeamDO members). Team members can DM each other and create group
    chats with team members (reach policy G1).
-3. Invites are by email, either into a DM or into the team. An address on the team's own email
-   domain gets a team invite; public mail domains (gmail.com and the like) never do.
+3. Invites are by email, either into a DM or into the team. An address on a verified team domain
+   (an admin's DNS TXT check) gets a team invite; public mail domains are on a deny list and can
+   never be verified; any other address gets a DM invite.
 4. DMs and groups show live on both Macs: messages, edits, reactions, read state, typing, push
    when the app is in the background.
 
@@ -24,8 +25,8 @@ Chiefs
    background compactor (prompt `taelin` by default, `cmux` and `custom` selectable).
 8. Chiefs talk to each other inside the team, in shared conversations: my Chief can DM another
    member's Chief or join a group with it; each Chief acts with its own owner's grants.
-9. A Chief has full autonomy for its owner's requests: no approval cards for its owner.
-   (Another person's message to my Chief still acts with my grants and is bounded by them.)
+9. A Chief has full autonomy for its owner's own requests: no approval cards for its owner.
+   Requests from anyone else keep the approval rule (coordinator record CHIEF-DONE, B3).
 10. A Chief sees every cmux workspace on each of its owner's Macs, creates and arranges workspaces,
     and spawns agents through the Rust acpmux on any of the owner's machines (laptop, Mac mini,
     cloud VMs), through each machine's daemon link.
@@ -40,19 +41,17 @@ Debug
     the tree walkable from the root, zoom into any line down to the message, the compactor queue,
     the raw log.
 
-## 2. Blockers and conflicts (need a decision or another owner)
+## 2. Blockers and rulings (coordinator, 2026-10-03: R57, decisions CHIEF-DONE 5ffee4e)
 
-- B1 Model route: check 13 depends on R35 (CodeRouter accounts in the agent pane). Until then Chiefs
-  cannot run on the team's accounts; Workers AI stays a stopgap.
-- B2 Cloud VMs on staging: check 11 needs a Freestyle key on staging, which is forbidden until the
-  non-production Freestyle account exists (Lawrence, 2026-10-03).
-- B3 Full autonomy (check 9) against the spec: identity-and-permissions and home.md say ops beyond
-  read and reply from a non-owner need the owner's approval. Proposed reading: full autonomy for
-  the owner's own requests; non-owner requests keep the spec rule. Needs the coordinator's record.
-- B4 Same-domain team invites (check 3): needs a list of public mail domains and the team's verified
-  domains (DomainDO exists for enterprise); a team without a verified domain gets no domain rule.
-- B5 Chief reach into Macs (check 10): needs the daemon link to accept Chief-originated ops with the
-  Chief's principal (actor stamp), and the catalog ops for workspaces and acpmux.
+- B1 Model route: check 13 depends on R35 (CodeRouter accounts in the agent pane). Until then
+  Workers AI stays a stopgap.
+- B2 Cloud VMs on staging: blocked until the non-production Freestyle account exists.
+- B3 Ruled: full autonomy for the owner's own requests; anyone else's requests keep the approval rule.
+- B4 Ruled: team invites only for a verified team domain (admin DNS TXT check); public mail domains
+  are on a deny list and can never be verified; otherwise a DM invite.
+- B5 Task for the daemon-link owner (after the backend review): the daemon link accepts
+  Chief-originated ops with the Chief's principal (actor stamp), and the catalog exposes the
+  workspace and acpmux ops a Chief needs.
 
 ## 3. Durable Objects from first principles (Lawrence's question)
 
@@ -67,7 +66,8 @@ may need only a Worker plus PlanetScale. Proposed audit of every DO class agains
 | AddressDO | per-address limits and suppression | no | delivery retries | candidate: PlanetScale rows + Worker, with atomic counters or a rate-limit binding |
 | PairingDO, ConnectionDO, FeedDO, SchedulerDO, DomainDO, TeamDO, AccountIndexDO | audit | audit | audit | audit |
 
-The audit and any refactor belong to the backend lead's area; this file only records the question.
+The full audit is plans/cmux-next/do-audit.md (R58, written by this lane, reviewed and owned by the
+backend lead after home-scale.md).
 
 ## 4. Work items (mapped to owners)
 
