@@ -58,7 +58,13 @@ check_agent() { # <bundle id>
   expect "$agent" ProgramArguments:1 host
   expect "$agent" ProgramArguments:2 run
   if pb ProgramArguments:3 "$agent" >/dev/null; then echo "extra ProgramArguments" >&2; exit 1; fi
-  expect "$agent" KeepAlive true
+  # Restart only after a failure: a clean `cmux host run` exit (the host was
+  # disabled) stays down. At most one restart per 10 s.
+  keepalive=$(plutil -extract KeepAlive json -o - "$agent") || { echo "no KeepAlive" >&2; exit 1; }
+  [[ "$keepalive" == '{"SuccessfulExit":false}' ]] || { echo "KeepAlive is $keepalive" >&2; exit 1; }
+  throttle=$(pb ThrottleInterval "$agent") || { echo "no ThrottleInterval" >&2; exit 1; }
+  [[ "$(plutil -type ThrottleInterval "$agent")" == integer && "$throttle" -ge 10 ]] \
+    || { echo "ThrottleInterval $throttle is not an integer >= 10" >&2; exit 1; }
   expect "$agent" RunAtLoad true
   expect "$agent" ProcessType Standard
   expect "$agent" AssociatedBundleIdentifiers:0 "$1"
