@@ -170,6 +170,55 @@ fn column_update_replaces_and_moves_edges_like_set_column_sticky() {
     assert_eq!(flags(&mux), vec![None, flag(StickyEdge::Left, StickyMode::Docked), None]);
 }
 
+/// The edge docks of `edge-docks-v1` (top and bottom) go through
+/// `column.update` like the side pins: `set-column-sticky` already takes
+/// them, and the reducer is the same.
+#[test]
+fn column_update_pins_top_and_bottom_docks() {
+    let (mux, _) = column_mux(3);
+    let columns = column_ids(&mux);
+    update(
+        &mux,
+        serde_json::json!({"column": columns[0], "sticky": true, "edge": "top"}),
+        "column-top",
+    )
+    .unwrap();
+    update(
+        &mux,
+        serde_json::json!({
+            "column": columns[2],
+            "sticky": true,
+            "edge": "bottom",
+            "mode": "overlay",
+        }),
+        "column-bottom",
+    )
+    .unwrap();
+    assert_eq!(
+        flags(&mux),
+        vec![
+            flag(StickyEdge::Top, StickyMode::Docked),
+            None,
+            flag(StickyEdge::Bottom, StickyMode::Overlay)
+        ]
+    );
+    // A second top dock replaces the first, like a side pin.
+    update(
+        &mux,
+        serde_json::json!({"column": columns[1], "sticky": true, "edge": "top"}),
+        "column-top-again",
+    )
+    .unwrap();
+    assert_eq!(
+        flags(&mux),
+        vec![
+            None,
+            flag(StickyEdge::Top, StickyMode::Docked),
+            flag(StickyEdge::Bottom, StickyMode::Overlay)
+        ]
+    );
+}
+
 #[test]
 fn column_update_refuses_to_leave_no_scrolling_column() {
     let (mux, _) = column_mux(2);
@@ -193,7 +242,7 @@ fn column_update_rejects_malformed_requests_without_changes() {
     for (key, fields) in [
         ("no-change", serde_json::json!({"column": columns[1]})),
         ("edge-alone", serde_json::json!({"column": columns[1], "edge": "left"})),
-        ("bad-edge", serde_json::json!({"column": columns[1], "sticky": true, "edge": "top"})),
+        ("bad-edge", serde_json::json!({"column": columns[1], "sticky": true, "edge": "middle"})),
         ("bad-width", serde_json::json!({"column": columns[1], "width": 1.5})),
         (
             "unknown-column",

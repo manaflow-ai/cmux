@@ -1,0 +1,317 @@
+/* The icon picker. Colors only from the page theme (pageBase.css: --page-*); no blue: hover and
+   the active cell are the foreground at low alpha. The grid cells are fixed 44 px squares
+   (store.ts CELL_SIZE) so the virtual layout never measures the DOM. Big glyphs, a docked
+   section header, and a detail bar for the selected cell. */
+.icon-picker {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.icon-picker-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 8px 8px 0;
+  align-items: center;
+}
+
+.icon-picker-tab {
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  padding: 4px 10px;
+  color: var(--page-text-2);
+}
+
+.icon-picker-tab:hover {
+  background: var(--page-hover);
+}
+
+.icon-picker-tab[aria-selected="true"] {
+  background: var(--page-selection);
+  color: var(--page-text);
+}
+
+.icon-picker-clear {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--page-text-2);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.icon-picker-clear:hover {
+  background: var(--page-hover);
+}
+
+.icon-picker-search-row {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  align-items: center;
+}
+
+.icon-picker-search {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--page-separator);
+  background: var(--page-hover);
+  outline: none;
+}
+
+.icon-picker-search:focus {
+  border-color: var(--page-text-3);
+}
+
+.icon-tone {
+  position: relative;
+}
+
+.icon-tone-button,
+.icon-tone-menu button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-family: "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 18px;
+  line-height: 28px;
+  padding: 0;
+}
+
+.icon-tone-button:hover,
+.icon-tone-menu button:hover,
+.icon-tone-menu button[aria-selected="true"] {
+  background: var(--page-hover);
+}
+
+.icon-tone-menu {
+  position: absolute;
+  right: 0;
+  top: 32px;
+  z-index: 5;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--page-elevated);
+  border: 1px solid var(--page-separator);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+}
+
+.icon-grid-frame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.icon-grid-docked {
+  position: absolute;
+  z-index: 2;
+  left: 8px;
+  right: 8px;
+  top: 0;
+  height: 28px;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 4px 4px;
+  color: var(--page-text-3);
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--cmux-surface-background, Canvas);
+  pointer-events: none;
+}
+
+.icon-grid-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 8px;
+  contain: strict;
+  overscroll-behavior: contain;
+}
+
+.icon-grid-body {
+  position: relative;
+  width: 100%;
+}
+
+.icon-grid-header,
+.icon-grid-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  will-change: transform;
+}
+
+.icon-grid-header {
+  height: 28px;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 4px 4px;
+  color: var(--page-text-3);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.icon-grid-row {
+  height: 44px;
+  display: flex;
+}
+
+.icon-cell {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  cursor: default;
+}
+
+.icon-cell[data-active] {
+  background: var(--page-selection);
+}
+
+.icon-emoji {
+  font-family: "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 30px;
+  line-height: 1;
+}
+
+.icon-symbol {
+  width: 24px;
+  height: 24px;
+  background: var(--page-text);
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+}
+
+.icon-grid-empty {
+  padding: 24px 8px;
+  text-align: center;
+  color: var(--page-text-3);
+}
+
+.icon-picker-footer {
+  height: 48px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-top: 1px solid var(--page-separator);
+  color: var(--page-text-2);
+  overflow: hidden;
+}
+
+.icon-footer-glyph {
+  font-family: "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.icon-footer-symbol {
+  flex: none;
+}
+
+.icon-footer-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.icon-footer-name,
+.icon-footer-detail {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.icon-footer-name {
+  color: var(--page-text);
+}
+
+.icon-footer-detail {
+  font-size: 11px;
+  color: var(--page-text-3);
+  font-family: ui-monospace, "SF Mono", monospace;
+}
+
+.icon-asset {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.icon-asset-drop {
+  flex: 1;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px dashed var(--page-text-3);
+  border-radius: 10px;
+  color: var(--page-text-2);
+}
+
+.icon-asset[data-dragging] .icon-asset-drop {
+  background: var(--page-hover);
+}
+
+.icon-asset-choose {
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: var(--page-selection);
+  color: var(--page-text);
+}
+
+.icon-asset-url {
+  display: flex;
+  gap: 6px;
+}
+
+.icon-asset-url input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--page-separator);
+  background: var(--page-hover);
+  outline: none;
+}
+
+.icon-asset-url button {
+  border: 0;
+  border-radius: 6px;
+  padding: 0 12px;
+  background: var(--page-selection);
+}
+
+.icon-asset-hint,
+.icon-asset-error {
+  margin: 0;
+  font-size: 11px;
+  color: var(--page-text-3);
+}
+
+.icon-asset-error {
+  color: var(--page-text);
+}

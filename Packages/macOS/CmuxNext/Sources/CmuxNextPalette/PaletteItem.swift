@@ -10,6 +10,10 @@ public struct PaletteItem: Identifiable {
     public var accessory: String?
     /// SF Symbol name.
     public var symbol: String?
+    /// An agent brand id (CmuxAgentBrands, such as "claude"): the row draws that brand's
+    /// mark in the symbol's place, tinted like the symbol. Nil, or a brand without a mark,
+    /// draws `symbol`.
+    public var brand: String?
     /// Shortcut keycaps shown at the right edge, one badge per entry.
     public var keycaps: [String]?
     public var section: PaletteSection
@@ -48,6 +52,7 @@ public struct PaletteItem: Identifiable {
         subtitle: String? = nil,
         accessory: String? = nil,
         symbol: String? = nil,
+        brand: String? = nil,
         keycaps: [String]? = nil,
         section: PaletteSection = .results,
         keywords: [String] = [],
@@ -65,6 +70,7 @@ public struct PaletteItem: Identifiable {
         self.subtitle = subtitle
         self.accessory = accessory
         self.symbol = symbol
+        self.brand = brand
         self.keycaps = keycaps
         self.section = section
         self.keywords = keywords

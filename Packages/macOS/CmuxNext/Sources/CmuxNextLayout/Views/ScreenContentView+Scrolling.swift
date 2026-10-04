@@ -42,7 +42,7 @@ extension ScreenContentView {
     var acceptsHorizontalScroll: Bool { geometry.isColumns && geometry.maxOffset > 0.5 }
 
     /// A horizontal scroll at `localPoint` scrolls the strip only over its
-    /// uncovered range; over a sticky column it stays with the pane.
+    /// uncovered range; over a docked column it stays with the pane.
     func acceptsHorizontalScroll(at localPoint: NSPoint) -> Bool {
         acceptsHorizontalScroll && uncoveredRect.contains(localPoint)
     }

@@ -44,6 +44,18 @@ SOFTWARE.
 
 ---
 
+## Emoji data (icon picker)
+
+- **Unicode emoji-test.txt 17.0** and **CLDR annotations 48.2.0** (`en`, `ja`):
+  Unicode License v3, Copyright (c) 2004-2026 Unicode, Inc.
+- **emojibase-data 17.0.0** GitHub shortcodes: MIT License, Copyright (c) 2017-2019 Miles Johnson.
+- **Source:** pinned by URL and SHA-256 in `webviews/scripts/icon-picker/sources.json`.
+
+The derived table is `webviews/src/icon-picker/generated/emoji-data.json`; the full license texts
+are in `webviews/src/icon-picker/generated/LICENSES.md`.
+
+---
+
 ## Ghostty
 
 - **License:** MIT License

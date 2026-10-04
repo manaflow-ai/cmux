@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// The strip scrollbar (sticky-column.md, B1 to B5): placed along the
+/// The strip scrollbar (dock-column.md, B1 to B5): placed along the
 /// bottom of the strip's uncovered range, fed the presented offset each
 /// frame, and driving the scroll reducer like a trackpad gesture (thumb
 /// drag) or a wheel notch (track click).
@@ -59,7 +59,7 @@ extension ScreenContentView {
         return bar
     }
 
-    /// The scrollbar's state for `debug.sticky`: mode, shown, thumb and
+    /// The scrollbar's state for `debug.dock`: mode, shown, thumb and
     /// band (local coordinates).
     var scrollbarReport: (shown: Bool, thumb: CGRect?, band: CGRect)? {
         guard let scrollbar, !scrollbar.isHidden else { return nil }

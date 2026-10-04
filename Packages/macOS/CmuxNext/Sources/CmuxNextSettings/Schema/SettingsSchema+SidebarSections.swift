@@ -24,22 +24,22 @@ extension SettingsSchema {
                 title: SettingsText.keyed("settings.sidebar.topBandMaxShare", "Top Sections Height"),
                 help: SettingsText.keyed("settings.sidebar.topBandMaxShare.help", "The share of the sidebar the top sections fill before they scroll."),
                 kind: .number(share), default: .number(SidebarSectionsPreferences.defaults.topBandMaxShare),
-                keywords: ["sidebar", "sections", "sticky", "height", "scroll"]
+                keywords: ["sidebar", "sections", "pinned", "height", "scroll"]
             ),
             SettingDescriptor(
                 SidebarSectionsSetting.bottomSharePath, section: .appearance, group: sidebar,
                 title: SettingsText.keyed("settings.sidebar.bottomBandMaxShare", "Bottom Sections Height"),
                 help: SettingsText.keyed("settings.sidebar.bottomBandMaxShare.help", "The share of the sidebar the bottom sections fill before they scroll."),
                 kind: .number(share), default: .number(SidebarSectionsPreferences.defaults.bottomBandMaxShare),
-                keywords: ["sidebar", "sections", "sticky", "height", "scroll"]
+                keywords: ["sidebar", "sections", "pinned", "height", "scroll"]
             ),
             SettingDescriptor(
                 SidebarSectionsSetting.scrollPath, section: .appearance, group: sidebar,
-                title: SettingsText.keyed("settings.sidebar.stickyBandsScroll", "Scroll Tall Sections"),
-                help: SettingsText.keyed("settings.sidebar.stickyBandsScroll.help",
+                title: SettingsText.keyed("settings.sidebar.pinnedBandsScroll", "Scroll Tall Sections"),
+                help: SettingsText.keyed("settings.sidebar.pinnedBandsScroll.help",
                                         "Off: the top and bottom sections never scroll and the workspace list gets smaller."),
-                kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.stickyBandsScroll),
-                keywords: ["sidebar", "sections", "sticky", "scroll"]
+                kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.pinnedBandsScroll),
+                keywords: ["sidebar", "sections", "pinned", "scroll"]
             ),
             SidebarSectionsSetting.showWorkspaceTabsDescriptor(group: sidebar),
             SidebarSectionsSetting.minimalModeDescriptor(group: sidebar),

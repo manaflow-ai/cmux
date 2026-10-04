@@ -17,6 +17,8 @@ const keys = [
   "customElements",
   "Node",
   "MutationObserver",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 const saved = Object.fromEntries(keys.map((key) => [key, globals[key]]));
@@ -29,12 +31,20 @@ Object.assign(globals, {
   customElements: dom.window.customElements,
   Node: dom.window.Node,
   MutationObserver: dom.window.MutationObserver,
+  requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
+  cancelAnimationFrame: (handle: number) => clearTimeout(handle),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
+// Code cards render @pierre/diffs, which reaches for DOM classes by their global names.
+const domClasses = Object.getOwnPropertyNames(dom.window).filter(
+  (key) => /^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in globals),
+);
+for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
 afterAll(async () => {
   // React finishes scheduled work on a timer; let it run before the DOM globals go away.
   await new Promise((resolve) => setTimeout(resolve, 20));
   Object.assign(globals, saved);
+  for (const key of domClasses) delete globals[key];
 });
 
 const { act, createElement } = await import("react");
@@ -105,7 +115,8 @@ describe("revealed reply", () => {
     expect(partial.length).toBeGreaterThan(2);
     expect(partial.length).toBeLessThan(more.length);
     expect(more.startsWith(partial)).toBe(true);
-    step(30);
+    // A live stream trails by its lag; once nothing arrives for a moment the rest drains.
+    step(90);
     expect(view.host.textContent).toBe(more);
     view.root.unmount();
   });
@@ -118,6 +129,39 @@ describe("revealed reply", () => {
     view.render(createElement(RevealedMarkdown, { text: "Para one.\n\nTwo", streaming: false }));
     step(5);
     expect(view.host.querySelector("p")).toBe(first);
+    view.root.unmount();
+  });
+});
+
+/// Code cards (acp-streaming.md "Code"): an open fence draws plain lines with the card's metrics,
+/// and highlighting runs once, when the fence closes, instead of on every delta.
+describe("streaming code", () => {
+  test("an open fence draws plain lines and no highlighter", () => {
+    const view = mount();
+    view.render(<Markdown streaming>{"Look:\n\n```ts\nconst a = 1;\nconst b"}</Markdown>);
+    const plain = view.host.querySelector(".cv-codeblock--plain");
+    expect(plain?.textContent).toContain("const a = 1;");
+    expect(plain?.textContent).toContain("const b");
+    expect(view.host.querySelectorAll("diffs-container")).toHaveLength(0);
+    view.root.unmount();
+  });
+
+  test("a fence that closes while streaming is highlighted once, and later text does not touch it", () => {
+    const view = mount();
+    view.render(<Markdown streaming>{"```ts\nconst a = 1;\n"}</Markdown>);
+    view.render(<Markdown streaming>{"```ts\nconst a = 1;\n```\n\nAfter"}</Markdown>);
+    const host = view.host.querySelector(".cv-code-handoff diffs-container");
+    expect(host).not.toBeNull();
+    view.render(<Markdown streaming>{"```ts\nconst a = 1;\n```\n\nAfter the code, more text"}</Markdown>);
+    expect(view.host.querySelector(".cv-code-handoff diffs-container")).toBe(host);
+    view.root.unmount();
+  });
+
+  test("a finished reply's fence draws the highlighted card directly", () => {
+    const view = mount();
+    view.render(<Markdown>{"```ts\nconst a = 1;\n```"}</Markdown>);
+    expect(view.host.querySelectorAll(".cv-codeblock--plain, .cv-code-handoff")).toHaveLength(0);
+    expect(view.host.querySelectorAll("diffs-container")).toHaveLength(1);
     view.root.unmount();
   });
 });

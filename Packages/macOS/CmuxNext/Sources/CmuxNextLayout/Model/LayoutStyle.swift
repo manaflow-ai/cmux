@@ -133,7 +133,7 @@ extension LayoutStyle {
         if let height = LayoutTunables.minimumContentHeight.override { style.minimumPaneContentSize.height = height }
         style.prototype = LayoutPrototypeSettings(model: LayoutTunables.prototypeModel.value, dockEdge: LayoutTunables.prototypeDockEdge.value,
                                                   orientation: LayoutTunables.prototypeOrientation.value,
-                                                  dockMode: LayoutTunables.prototypeDockMode.value.stickyMode)
+                                                  dockMode: LayoutTunables.prototypeDockMode.value.dockMode)
         return style
     }
 }

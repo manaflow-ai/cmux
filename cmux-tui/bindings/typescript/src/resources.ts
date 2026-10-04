@@ -62,6 +62,7 @@ import {
   type Document,
   type FrontendProjectionSnapshot,
   type LayoutColumn,
+  type LayoutColumnSticky,
   type LayoutDocument,
   type LayoutNode,
   type MachineSnapshot,
@@ -726,6 +727,17 @@ function clientTerminalSize(value: unknown): ClientTerminalSize {
   });
 }
 
+/** An omitted or null flag reads as absent (the column scrolls). */
+function layoutColumnSticky(value: unknown): LayoutColumnSticky | undefined {
+  if (value === undefined || value === null) return undefined;
+  const sticky = record(value, "layout column sticky");
+  strictObject(sticky, ["edge", "mode"], "layout column sticky");
+  return Object.freeze({
+    edge: requiredEnum(sticky, "edge", ["left", "right", "top", "bottom"] as const),
+    mode: requiredEnum(sticky, "mode", ["docked", "overlay"] as const),
+  });
+}
+
 function layoutNode(value: unknown): LayoutNode {
   const payload = record(value, "layout node");
   const kind = requiredString(payload, "kind");
@@ -806,15 +818,17 @@ function layoutNode(value: unknown): LayoutNode {
     }
     const columns: LayoutColumn[] = payload.columns.map((item) => {
       const column = record(item, "layout column");
-      strictObject(column, ["column_id", "width", "root"], "layout column");
+      strictObject(column, ["column_id", "width", "root", "sticky"], "layout column");
       const width = requiredNumber(column, "width");
       if (width < 0.1 || width > 1) {
         throw new CmuxProtocolError("layout column width must be between 0.1 and 1");
       }
+      const sticky = layoutColumnSticky(column.sticky);
       return Object.freeze({
         columnId: requiredId(column, ["column_id"], splitId),
         width,
         root: layoutNode(column.root),
+        ...(sticky !== undefined ? { sticky } : {}),
       });
     });
     return Object.freeze({
@@ -1321,6 +1335,9 @@ function layoutNodeFields(node: LayoutNode): Record<string, unknown> {
           column_id: column.columnId,
           width: column.width,
           root: layoutNodeFields(column.root),
+          ...(column.sticky !== undefined
+            ? { sticky: { edge: column.sticky.edge, mode: column.sticky.mode } }
+            : {}),
         })),
       };
   }
@@ -3611,7 +3628,7 @@ export class Screen extends Handle<ScreenId, ScreenSnapshot> {
     column: string,
     update: {
       sticky?: boolean;
-      edge?: "left" | "right";
+      edge?: "left" | "right" | "top" | "bottom";
       mode?: "docked" | "overlay";
       width?: number;
     },

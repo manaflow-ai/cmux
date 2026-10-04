@@ -3,7 +3,7 @@ import { parsePatchFiles, preloadHighlighter, processFile, registerCustomTheme }
 import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import "../../Resources/markdown-viewer/viewer-navigation.js";
 import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
@@ -42,6 +42,8 @@ import {
 import { DiffHeaderMetadata } from "./diff-metadata";
 import { collapsedFileKey, withCollapsedFile } from "./collapsed-files";
 import { treeFileActivation, treeFileRowPath } from "./file-activation";
+import { computedTranslateX, createFilesPanelMotion, type FilesPanelMotion } from "./files-panel-motion";
+import { DEFERRED_PATCH_KEY, hydrateDeferredFileDiff } from "./deferred-parse";
 import { isHeaderToggleKey, shouldToggleFromHeaderClick, type HeaderPress } from "./file-header-toggle";
 import { FileIcon } from "./file-icons";
 import {
@@ -183,6 +185,7 @@ type AppAction =
   | { type: "apply-viewed"; items: DiffItem[]; change: ViewedChange }
   | { type: "begin-viewed-load"; scopeKey: string }
   | { type: "expand-item"; itemId: string }
+  | { type: "hydrate-item"; itemId: string; fileDiff: any }
   | { type: "set-item-collapsed"; itemId: string; collapsed: boolean; collapsedFiles: string[] }
   | { type: "replace-viewed"; scopeKey: string; entries: ViewedFileEntry[] }
   | { type: "set-file-filter"; filter: Partial<DiffFileFilter> }
@@ -334,6 +337,19 @@ function reducer(state: AppState, action: AppAction): AppState {
         items: state.items.map((item) =>
           item.id === action.itemId && Boolean(item.collapsed) !== action.collapsed
             ? { ...item, collapsed: action.collapsed, version: (item.version ?? 0) + 1 }
+            : item,
+        ),
+      };
+    case "hydrate-item":
+      return {
+        ...state,
+        items: state.items.map((item) =>
+          item.id === action.itemId
+            ? withCommentAnnotations(
+                { ...item, fileDiff: action.fileDiff, version: (item.version ?? 0) + 1 },
+                state.comments,
+                state.draft,
+              )
             : item,
         ),
       };
@@ -638,6 +654,9 @@ export function App({ config, initialStatus }: ConfigProps) {
     [state.fileFilter, state.items, state.viewedByPath],
   );
   const visibleItemsRef = useSyncedRef(visibleItems);
+  // What CodeView renders: a collapsed file as plain text, so no highlight
+  // work is spent on it (see presentedItem).
+  const presentedItems = useMemo(() => visibleItems.map(presentedItem), [visibleItems]);
   const filteredTreeSource = useMemo(
     () => filteredFileTreeSource(state.treeSource, state.fileFilter, visibleItems),
     [state.fileFilter, state.treeSource, visibleItems],
@@ -704,6 +723,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   );
 
   usePageDataAttributes(state);
+  useDeferredHydration(state.items, dispatch);
   useViewedFilesBootstrap(viewedScope, dispatch);
   usePendingReplacement(payload, label, dispatch, transport);
   useRenderDiff(
@@ -1038,7 +1058,7 @@ export function App({ config, initialStatus }: ConfigProps) {
                 ref={codeViewRef}
                 className="code-view-root"
                 containerRef={viewerContainerRef}
-                items={visibleItems}
+                items={presentedItems}
                 onScroll={handleCodeViewScroll}
                 options={renderedCodeViewOptions}
                 renderCustomHeader={(item) => (
@@ -2690,6 +2710,7 @@ function useRenderDiff(
           onTreeSource: (source) => {
             if (!cancelled) dispatch({ type: "set-tree-source", source });
           },
+          isGeneratedPath: (path) => latestState.current.generatedPaths.includes(path),
           parsePatchFiles,
           patchURL,
           processFile,
@@ -2934,9 +2955,49 @@ function usePendingReplacement(
   }, [dispatch, label, payload, transport]);
 }
 
-function usePageDataAttributes(state: AppState) {
+/**
+ * Parses a deferred file (deferred-parse.ts) once it is expanded, by Load
+ * diff, its header bar, the files tree or find. The parse runs in a task
+ * after the expanding commit, so the click's own frame stays short, and its
+ * result replaces the placeholder in place.
+ */
+function useDeferredHydration(items: DiffItem[], dispatch: React.Dispatch<AppAction>) {
+  const scheduled = useRef(new Set<string>());
   useEffect(() => {
-    document.body.dataset.filesHidden = state.filesVisible ? "false" : "true";
+    for (const item of items) {
+      if (item.collapsed || item.fileDiff?.[DEFERRED_PATCH_KEY] == null || scheduled.current.has(item.id)) {
+        continue;
+      }
+      scheduled.current.add(item.id);
+      const placeholder = item.fileDiff;
+      setTimeout(() => {
+        scheduled.current.delete(item.id);
+        const fileDiff = hydrateDeferredFileDiff(placeholder, processFile);
+        if (fileDiff != null) {
+          resolveDiffItemLanguage({ ...item, fileDiff } as DiffItem);
+          dispatch({ type: "hydrate-item", itemId: item.id, fileDiff });
+        }
+      }, 0);
+    }
+  }, [dispatch, items]);
+}
+
+function usePageDataAttributes(state: AppState) {
+  // The files panel shows and hides through its motion (files-panel-motion.ts),
+  // which flips `data-files-hidden` in this commit's frame and slides the
+  // panel on the compositor afterwards.
+  const filesPanelMotion = useRef<FilesPanelMotion | null>(null);
+  useLayoutEffect(() => {
+    filesPanelMotion.current ??= createFilesPanelMotion({
+      panel: () => document.getElementById("files-sidebar"),
+      body: document.body,
+      currentOffset: (panel) => computedTranslateX(panel as HTMLElement),
+      requestFrame: (callback) => requestAnimationFrame(() => callback()),
+      reducedMotion: () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
+    });
+    filesPanelMotion.current.set(state.filesVisible);
+  }, [state.filesVisible]);
+  useEffect(() => {
     document.body.dataset.loading = state.status.loading ? "true" : "false";
     document.documentElement.dataset.layout = state.options.layout;
     document.documentElement.dataset.wordWrap = String(state.options.wordWrap);
@@ -3112,6 +3173,33 @@ export function keepStuckHeaderInView(
   }
   flushSync(update);
   codeViewRef.current?.scrollTo({ type: "item", id: collapsingItemId!, align: "start", behavior: "instant" });
+}
+
+const plainTextItems = new WeakMap<DiffItem, DiffItem>();
+
+/**
+ * A collapsed file shows only its header, but @pierre/diffs still sends a
+ * mounted collapsed file to the highlight workers (FileDiff.render runs the
+ * hunks renderer with an empty range, which queues the whole file). On a
+ * large diff that put five collapsed 20,000-line files ahead of the visible
+ * file in the worker queue. Presenting a collapsed file as plain text
+ * (`lang: "text"`, Pierre's own no-highlight path, with its own cache key)
+ * keeps it out of the queue; expanding the file changes the item (a new
+ * version), which presents the real language and highlights it then.
+ * Cached per item object, so CodeView sees a stable item while it is
+ * unchanged.
+ */
+export function presentedItem(item: DiffItem): DiffItem {
+  const diff = item.fileDiff;
+  if (!item.collapsed || diff == null || diff.lang === "text") {
+    return item;
+  }
+  let presented = plainTextItems.get(item);
+  if (presented == null) {
+    presented = { ...item, fileDiff: { ...diff, lang: "text", cacheKey: `${diff.cacheKey ?? item.id}:collapsed` } };
+    plainTextItems.set(item, presented);
+  }
+  return presented;
 }
 
 function scrollTargetForItem(itemId: string, items: DiffItem[]): string {

@@ -4,13 +4,13 @@
 (* screen is a strip of columns, each column a strip of rows, each row a   *)
 (* sequence of panes (its split tree, geometry abstracted), each pane a    *)
 (* sequence of tabs. Rows have a height in 1..MaxH units (MaxH stands for  *)
-(* 1000 permille). Columns may be sticky (left or right).                  *)
+(* 1000 permille). Columns may be docked (left or right).                  *)
 (*                                                                         *)
 (* Owner (workspace store) applies typed ops with a pure reducer: split,   *)
 (* new column, new row, move tab to a pane, move tab to a new row (with    *)
-(* the spawn-same-kind variant), close tab, set row height, set sticky.    *)
+(* the spawn-same-kind variant), close tab, set row height, set dock.      *)
 (* A rejected op changes nothing. A container that empties is removed in   *)
-(* the same step, bottom up (pane, row, column), and sticky flags are      *)
+(* the same step, bottom up (pane, row, column), and dock flags are        *)
 (* normalized after a column removal. New ids are fresh and never reused.  *)
 (* Every op carries a key; a replayed key changes nothing.                 *)
 (*                                                                         *)
@@ -44,17 +44,17 @@ Edges   == IF FRAME THEN {"none", "left", "right", "top", "bottom"} ELSE {"none"
 Bands   == {"top", "bottom"}     \* docks that hold exactly one row (layout-model.md E3)
 Orients == {"col", "row"}        \* column-major or row-major frame (decision L2)
 
-ASSUME BUG \in {"none", "keepEmptyRow", "noStickyNormalize", "ownPlaceRowOnly",
+ASSUME BUG \in {"none", "keepEmptyRow", "noDockNormalize", "ownPlaceRowOnly",
                 "noDedup", "noFocusRepair", "focusColumnFirst", "respawnDropsTab",
                 "dockAllowsRows", "pinRowNoCascade", "orientTouchesPins"}
 \* START "one": one column, one row, two panes (a split screen; the daemon keeps
 \* a screen with one column and one row as a split tree, which this model
-\* represents as that one column and row). "sticky3": three columns of one
-\* row and one pane each, the first sticky left and the last sticky right,
-\* so removing the middle column leaves only sticky columns.
+\* represents as that one column and row). "dock3": three columns of one
+\* row and one pane each, the first docked left and the last docked right,
+\* so removing the middle column leaves only docked columns.
 \* "frame": two strip columns, the second with two rows, for the four-edge
 \* docks and orientation of layout-model.md.
-ASSUME START \in {"one", "sticky3", "frame"}
+ASSUME START \in {"one", "dock3", "frame"}
 
 \* --------------------------------------------------------------------------
 \* Sequence helpers
@@ -72,19 +72,19 @@ Empty == [cols |-> <<>>,
           panesOf |-> [r \in RowIds |-> <<>>],
           tabsOf |-> [p \in PaneIds |-> <<>>],
           height |-> [r \in RowIds |-> 0],
-          sticky |-> [c \in ColIds |-> "none"],
+          dock |-> [c \in ColIds |-> "none"],
           usedT |-> {}, usedP |-> {}, usedR |-> {}, usedC |-> {}, closed |-> {}, orient |-> "col"]
 
 InitOne == [Empty EXCEPT !.cols = <<1>>, !.rowsOf[1] = <<1>>, !.panesOf[1] = <<1, 2>>,
                          !.tabsOf[1] = <<1>>, !.tabsOf[2] = <<2>>, !.height[1] = MaxH,
                          !.usedT = {1, 2}, !.usedP = {1, 2}, !.usedR = {1}, !.usedC = {1}]
-InitSticky3 ==
+InitDock3 ==
   [Empty EXCEPT !.cols = <<1, 2, 3>>,
                 !.rowsOf = [c \in ColIds |-> IF c \in 1..3 THEN <<c>> ELSE <<>>],
                 !.panesOf = [r \in RowIds |-> IF r \in 1..3 THEN <<r>> ELSE <<>>],
                 !.tabsOf = [p \in PaneIds |-> IF p \in 1..3 THEN <<p>> ELSE <<>>],
                 !.height = [r \in RowIds |-> IF r \in 1..3 THEN MaxH ELSE 0],
-                !.sticky = [c \in ColIds |-> IF c = 1 THEN "left" ELSE IF c = 3 THEN "right" ELSE "none"],
+                !.dock = [c \in ColIds |-> IF c = 1 THEN "left" ELSE IF c = 3 THEN "right" ELSE "none"],
                 !.usedT = {1, 2, 3}, !.usedP = {1, 2, 3}, !.usedR = {1, 2, 3}, !.usedC = {1, 2, 3}]
 InitFrame ==
   [Empty EXCEPT !.cols = <<1, 2>>, !.rowsOf[1] = <<1>>, !.rowsOf[2] = <<2, 3>>,
@@ -92,7 +92,7 @@ InitFrame ==
                 !.tabsOf = [p \in PaneIds |-> IF p \in 1..3 THEN <<p>> ELSE <<>>],
                 !.height = [r \in RowIds |-> IF r \in 1..3 THEN MaxH ELSE 0],
                 !.usedT = {1, 2, 3}, !.usedP = {1, 2, 3}, !.usedR = {1, 2, 3}, !.usedC = {1, 2}]
-Init0 == CASE START = "one" -> InitOne [] START = "sticky3" -> InitSticky3 [] OTHER -> InitFrame
+Init0 == CASE START = "one" -> InitOne [] START = "dock3" -> InitDock3 [] OTHER -> InitFrame
 InitTabSet == Init0.usedT
 
 LiveCols(S)  == Range(S.cols)
@@ -107,7 +107,7 @@ PaneOfTab(S, t) == CHOOSE p \in LivePanes(S) : t \in Range(S.tabsOf[p])
 \* What a user sees, ids of panes, rows and columns erased (tab ids kept).
 Sig(S) == <<S.orient, [i \in 1..Len(S.cols) |->
              LET c == S.cols[i] IN
-             <<S.sticky[c],
+             <<S.dock[c],
                [j \in 1..Len(S.rowsOf[c]) |->
                   LET r == S.rowsOf[c][j] IN
                   <<S.height[r], [k \in 1..Len(S.panesOf[r]) |-> S.tabsOf[S.panesOf[r][k]]]>>]>>]>>
@@ -115,12 +115,12 @@ Sig(S) == <<S.orient, [i \in 1..Len(S.cols) |->
 Fresh(used, pool) == Min(pool \ used)
 HasFresh(used, pool) == pool \ used # {}
 
-\* Sticky normalization after a column removal (sticky-column.md): with fewer
-\* than two columns, or only sticky columns, nothing is sticky.
+\* Docked normalization after a column removal (dock-column.md): with fewer
+\* than two columns, or only docked columns, nothing is docked.
 Normalize(S) ==
-  IF BUG = "noStickyNormalize" THEN S
-  ELSE IF Len(S.cols) < 2 \/ \A c \in LiveCols(S) : S.sticky[c] # "none"
-       THEN [S EXCEPT !.sticky = [c \in ColIds |-> "none"]]
+  IF BUG = "noDockNormalize" THEN S
+  ELSE IF Len(S.cols) < 2 \/ \A c \in LiveCols(S) : S.dock[c] # "none"
+       THEN [S EXCEPT !.dock = [c \in ColIds |-> "none"]]
        ELSE S
 
 \* Remove pane p (already without tabs) and cascade: row, then column.
@@ -132,7 +132,7 @@ RemovePane(S, p) ==
             THEN [S1 EXCEPT !.rowsOf[c] = Remove(@, r), !.height[r] = 0]
             ELSE S1
   IN IF S2.rowsOf[c] = <<>>
-     THEN Normalize([S2 EXCEPT !.cols = Remove(@, c), !.sticky[c] = "none"])
+     THEN Normalize([S2 EXCEPT !.cols = Remove(@, c), !.dock[c] = "none"])
      ELSE S2
 
 \* Take tab t out of its pane; an emptied pane is removed.
@@ -157,11 +157,11 @@ OpsFrom(M) ==
                                                     h \in Heights, rs \in BOOLEAN, b \in BOOLEAN}
   \cup {Op("close", t, 0, 0, 0, "none", FALSE, FALSE, {}) : t \in LiveTabs(M)}
   \cup {Op("heights", 0, 0, c, h, "none", FALSE, FALSE, Range(M.rowsOf[c])) : c \in LiveCols(M), h \in Heights}
-  \cup {Op("sticky", 0, 0, c, 0, e, FALSE, FALSE, {}) : c \in LiveCols(M), e \in Edges}
+  \cup {Op("dock", 0, 0, c, 0, e, FALSE, FALSE, {}) : c \in LiveCols(M), e \in Edges}
   \cup {Op("pinrow", 0, p, 0, 0, e, FALSE, FALSE, {}) : p \in IF FRAME THEN LivePanes(M) ELSE {}, e \in Bands}
   \cup {Op("orient", 0, 0, 0, 0, o, FALSE, FALSE, {}) : o \in IF FRAME THEN Orients ELSE {}}
 
-InBand(S, p) == S.sticky[ColOfRow(S, RowOfPane(S, p))] \in Bands /\ BUG # "dockAllowsRows"
+InBand(S, p) == S.dock[ColOfRow(S, RowOfPane(S, p))] \in Bands /\ BUG # "dockAllowsRows"
 
 Reject == [ok |-> FALSE, noop |-> FALSE, s |-> Empty]
 Done(S) == [ok |-> TRUE, noop |-> FALSE, s |-> S]
@@ -270,16 +270,16 @@ Apply(S, op) ==
         IF op.c \notin LiveCols(S) \/ op.rows # Range(S.rowsOf[op.c]) THEN Reject
         ELSE IF \A r \in op.rows : S.height[r] = op.h THEN NoOp(S)
         ELSE Done([S EXCEPT !.height = [r \in RowIds |-> IF r \in op.rows THEN op.h ELSE @[r]]])
-    [] op.k = "sticky" ->
+    [] op.k = "dock" ->
         IF op.c \notin LiveCols(S) THEN Reject
-        ELSE IF S.sticky[op.c] = op.e THEN NoOp(S)
+        ELSE IF S.dock[op.c] = op.e THEN NoOp(S)
         ELSE IF op.e \in Bands /\ Len(S.rowsOf[op.c]) # 1 /\ BUG # "dockAllowsRows" THEN Reject
         ELSE LET st == [c \in ColIds |->
                           IF c = op.c THEN op.e
-                          ELSE IF op.e # "none" /\ S.sticky[c] = op.e THEN "none"
-                          ELSE S.sticky[c]]
+                          ELSE IF op.e # "none" /\ S.dock[c] = op.e THEN "none"
+                          ELSE S.dock[c]]
              IN IF \E c \in LiveCols(S) : st[c] = "none"
-                THEN Done([S EXCEPT !.sticky = st])
+                THEN Done([S EXCEPT !.dock = st])
                 ELSE Reject
     [] op.k = "pinrow" ->
         \* PinRow: lift the pane's row into a new top or bottom dock column.
@@ -288,22 +288,22 @@ Apply(S, op) ==
                  c  == ColOfRow(S, r)
                  nc == Fresh(S.usedC, ColIds)
                  st == [x \in ColIds |-> IF x = nc THEN op.e
-                                         ELSE IF S.sticky[x] = op.e THEN "none" ELSE S.sticky[x]]
+                                         ELSE IF S.dock[x] = op.e THEN "none" ELSE S.dock[x]]
                  S1 == [S EXCEPT !.rowsOf[c] = Remove(@, r), !.rowsOf[nc] = <<r>>,
                                  !.cols = InsertAt(@, IndexOf(@, c) + 1, nc),
-                                 !.sticky = st, !.usedC = @ \cup {nc}]
+                                 !.dock = st, !.usedC = @ \cup {nc}]
                  S2 == IF S1.rowsOf[c] = <<>> /\ BUG # "pinRowNoCascade"
-                       THEN Normalize([S1 EXCEPT !.cols = Remove(@, c), !.sticky[c] = "none"])
+                       THEN Normalize([S1 EXCEPT !.cols = Remove(@, c), !.dock[c] = "none"])
                        ELSE S1
-             IN IF S.sticky[c] = op.e /\ Len(S.rowsOf[c]) = 1 THEN NoOp(S)
+             IN IF S.dock[c] = op.e /\ Len(S.rowsOf[c]) = 1 THEN NoOp(S)
                 \* The pin must survive normalization: lifting the only row of the
                 \* last strip column would leave only the dock, normalize would unpin
                 \* it, and the op would only churn ids (found by R6_OwnPlaceComplete).
-                ELSE IF S2.sticky[nc] = op.e /\ \E x \in LiveCols(S2) : S2.sticky[x] = "none" THEN Done(S2)
+                ELSE IF S2.dock[nc] = op.e /\ \E x \in LiveCols(S2) : S2.dock[x] = "none" THEN Done(S2)
                 ELSE Reject
     [] op.k = "orient" ->
         IF S.orient = op.e THEN NoOp(S)
-        ELSE IF BUG = "orientTouchesPins" THEN Done([S EXCEPT !.orient = op.e, !.sticky = [c \in ColIds |-> "none"]])
+        ELSE IF BUG = "orientTouchesPins" THEN Done([S EXCEPT !.orient = op.e, !.dock = [c \in ColIds |-> "none"]])
         ELSE Done([S EXCEPT !.orient = op.e])
 
 \* --------------------------------------------------------------------------
@@ -459,13 +459,13 @@ R3_TabConservation == LiveTabs(own) = own.usedT \ own.closed /\ own.closed \subs
 
 R4_HeightInRange == \A r \in LiveRows(own) : own.height[r] \in Heights
 
-R5_StickyConsistent ==
-  /\ \A c \in ColIds \ LiveCols(own) : own.sticky[c] = "none"
-  /\ \A e \in Edges \ {"none"} : Cardinality({c \in LiveCols(own) : own.sticky[c] = e}) <= 1
-  /\ (\E c \in LiveCols(own) : own.sticky[c] # "none") => (\E c \in LiveCols(own) : own.sticky[c] = "none")
+R5_DockConsistent ==
+  /\ \A c \in ColIds \ LiveCols(own) : own.dock[c] = "none"
+  /\ \A e \in Edges \ {"none"} : Cardinality({c \in LiveCols(own) : own.dock[c] = e}) <= 1
+  /\ (\E c \in LiveCols(own) : own.dock[c] # "none") => (\E c \in LiveCols(own) : own.dock[c] = "none")
 
 \* E3: a top or bottom dock holds exactly one row.
-E3_BandOneRow == \A c \in LiveCols(own) : own.sticky[c] \in Bands => Len(own.rowsOf[c]) = 1
+E3_BandOneRow == \A c \in LiveCols(own) : own.dock[c] \in Bands => Len(own.rowsOf[c]) = 1
 
 \* R6 (soundness): an op the owner treats as own place would not have
 \* changed what a user sees.

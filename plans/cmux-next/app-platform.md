@@ -324,7 +324,7 @@ Every app, built-in or third-party, says how it appears with one manifest v2 blo
 | Field | Meaning | Validator |
 | --- | --- | --- |
 | `sidebarItem {section, title?, icon?, order?}` | a sidebar item that opens the app; title and icon default to the app's; the user may hide or move it (R53) | `order` 0-99 is first-party only (`presentation.orderReserved`), so no app sits above Home (Home 0, App Store 10, CodeRouter 20) |
-| `screen` | `app` (the app fills the screen) or `appColumn` (a sticky app column next to the normal columns, like Home) | |
+| `screen` | `app` (the app fills the screen) or `appColumn` (a docked app column next to the normal columns, like Home) | |
 | `tab` | the app may also open as a page tab (Open as Tab, drag into a workspace) | |
 | `primaryInput` | where typing goes when nothing has focus: a CSS selector in a web page, or a scene node id | |
 | `web {url, profile?, origins?}` | a web app shown in the browser engine with its own profile (`app`: cookies stay per app) and the browser's network policy; the native install confirmation lists `url` and `origins` | `https` only; a sidebar item, screen or tab needs content: `implements["cmux.pane/1"]` or `web` (`presentation.noContent`); not both (`presentation.twoContents`) |
