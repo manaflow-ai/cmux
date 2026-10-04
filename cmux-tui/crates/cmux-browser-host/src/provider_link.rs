@@ -77,10 +77,13 @@ pub const EXTENSION_HOST_ACCESS: &str = "extension_host_access";
 /// first-party cmux-page hosts: `policy::is_browser_page`).
 pub const BROWSER_PAGE: &str = "browser_page";
 
+/// The password lead's text (2026-10-04), the same as the app's control
+/// path (`AppBrowserPage.agentExtensionRefusal`). Names go in `data`.
 const EXTENSION_REFUSAL: &str = "the tab's profile has an enabled extension with access to this \
-     page; use a browser profile without extensions, or ask the person to allow agents in this tab";
-const EXTENSION_REFUSAL_HINT: &str =
-    "use a browser profile without extensions, or ask the person to allow agents in this tab";
+     page; open the tab with openBrowser profile \"agent\" (a profile without extensions), or ask \
+     the person to allow agents in this tab";
+const EXTENSION_REFUSAL_HINT: &str = "open the tab with openBrowser profile \"agent\" (a profile \
+     without extensions), or ask the person to allow agents in this tab";
 
 /// The provider's tabs as the app reports them: engine per tab, and for CEF
 /// tabs the last `tab.access` report (interim extension rule).
@@ -155,19 +158,19 @@ impl TabTable {
         if self.engines.get(target_id).map(String::as_str) == Some("webkit") {
             return None;
         }
-        // The text the coordinator fixed (2026-10-04); extension names follow.
-        let message = match self.access.get(target_id) {
+        let (message, names) = match self.access.get(target_id) {
             Some((false, _, _) | (true, true, _)) => return None,
-            Some((true, false, names)) if !names.is_empty() => {
-                format!("{method}: {EXTENSION_REFUSAL} (extensions: {})", names.join(", "))
-            }
-            Some((true, false, _)) => format!("{method}: {EXTENSION_REFUSAL}"),
-            None => format!(
-                "{method}: the cmux app has not reported this tab's extension access yet; {EXTENSION_REFUSAL_HINT}"
+            Some((true, false, names)) => (EXTENSION_REFUSAL.to_owned(), names.clone()),
+            None => (
+                format!(
+                    "{method}: the cmux app has not reported this tab's extension access yet; {EXTENSION_REFUSAL_HINT}"
+                ),
+                Vec::new(),
             ),
         };
         let mut error = DriverError::new(crate::protocol::ErrorCode::Forbidden, message);
         error.error_name = Some(EXTENSION_HOST_ACCESS.to_owned());
+        error.data = Some(json!({"reason": EXTENSION_HOST_ACCESS, "extensions": names}));
         Some(error)
     }
 }
