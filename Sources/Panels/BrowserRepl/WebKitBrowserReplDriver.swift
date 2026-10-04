@@ -2068,10 +2068,6 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         return true
     }
 
-    /// Runs Copy, Cut or Paste in a tab a session created and returns what
-    /// the tab's clipboard takes (`nil`: it stays as it is). The caller
-    /// stores it only after the focus check that follows the command.
-    @MainActor
     /// Runs the Cocoa editing action behind a Command shortcut. Clipboard
     /// actions use the tab's virtual clipboard, not the system pasteboard:
     /// WebKit's own Copy, Cut and Paste run against a private pasteboard that
@@ -2142,6 +2138,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// Meta+C, Meta+X or Meta+V in a tab a session created (see
     /// ``performEditingCommand(_:panel:webView:)``).
     @MainActor
+    /// Runs Copy, Cut or Paste in a tab a session created and returns what
+    /// the tab's clipboard takes (`nil`: it stays as it is). The REPL's
+    /// caller stores it only after the focus check that follows the command.
     private static func performClipboardCommand(
         _ command: String,
         panel: BrowserPanel,
