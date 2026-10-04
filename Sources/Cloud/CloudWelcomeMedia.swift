@@ -139,7 +139,11 @@ struct CloudWelcomeMediaCarousel: View {
 
     private var currentSlide: CloudWelcomeSlide { slides[index] }
 
-    private var mediaFrame: CGSize { mediaSize }
+    /// Beside the list the clip takes the room the titles don't need, so it
+    /// reads larger (same 16:10, so recorded clips fit either layout).
+    private var mediaFrame: CGSize {
+        showsFeatureList ? CGSize(width: 390, height: 244) : mediaSize
+    }
 
     // MARK: Feature list
 
