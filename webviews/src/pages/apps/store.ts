@@ -44,6 +44,9 @@ export interface AppsSnapshot {
 
 const LOG_LINES = 200;
 
+/** The host's code for a declined native sheet: the person said no, which is not an error. */
+const CANCELLED = "cmux.page.cancelled";
+
 export class AppsStore {
   private snapshot: AppsSnapshot;
   private readonly listeners = new Set<() => void>();
@@ -53,6 +56,12 @@ export class AppsStore {
   private starting = false;
   private generation = 0;
   private detailGeneration = 0;
+  /**
+   * The idempotency key of each action still in flight or failed with a retryable error, by op and
+   * params: the person's next try of the same action sends the same key, so a retry after a
+   * timeout never installs or toggles twice. Success, a refusal or a declined sheet ends it.
+   */
+  private readonly pendingKeys = new Map<string, string>();
 
   constructor(
     private readonly client: PageClient | null,
@@ -273,16 +282,28 @@ export class AppsStore {
   }
 
   open(app: string): Promise<void> {
-    return this.intent(AppsOps.open, { app, focus: true }, false);
+    return this.intent(AppsOps.open, { app, focus: true }, { reread: false, mutation: false });
   }
 
-  private async intent(op: string, params: Record<string, unknown>, reread = true): Promise<void> {
+  private async intent(
+    op: string,
+    params: Record<string, unknown>,
+    { reread = true, mutation = true }: { reread?: boolean; mutation?: boolean } = {},
+  ): Promise<void> {
     if (!this.client) return;
+    const action = `${op}\u0000${JSON.stringify(params)}`;
+    let key = mutation ? this.pendingKeys.get(action) : undefined;
+    if (mutation && !key) {
+      key = newKey();
+      this.pendingKeys.set(action, key);
+    }
     try {
-      await this.client.call(op, params);
+      await this.client.call(op, key ? { ...params, idempotency_key: key } : params);
+      this.pendingKeys.delete(action);
       if (this.snapshot.error) this.set({ error: undefined });
     } catch (error) {
-      this.set(failure(error));
+      if (!(isPageError(error) && error.retryable)) this.pendingKeys.delete(action);
+      if (!(isPageError(error) && error.code === CANCELLED)) this.set(failure(error));
       return;
     }
     if (reread) await this.reload();
@@ -292,6 +313,12 @@ export class AppsStore {
     this.snapshot = { ...this.snapshot, ...patch };
     for (const listener of this.listeners) listener();
   }
+}
+
+/** A random key; `getRandomValues` works outside secure contexts, unlike `randomUUID`. */
+function newKey(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return `pg_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
 function message(error: unknown): string {
