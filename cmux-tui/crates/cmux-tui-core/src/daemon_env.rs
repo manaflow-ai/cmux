@@ -98,7 +98,8 @@ pub(crate) fn strip_integration_owned(env: &mut Vec<(String, String)>) -> Vec<St
 /// without a shim directory or a `PATH` entry.
 pub(crate) fn keep_shim_first_on_path(env: &mut Vec<(String, String)>, shim_dir: Option<&str>) {
     let Some(shim_dir) = shim_dir.filter(|dir| !dir.is_empty()) else { return };
-    let Some(path) = env.iter().rev().find(|(key, _)| key == "PATH").map(|(_, value)| value.clone())
+    let Some(path) =
+        env.iter().rev().find(|(key, _)| key == "PATH").map(|(_, value)| value.clone())
     else {
         return;
     };

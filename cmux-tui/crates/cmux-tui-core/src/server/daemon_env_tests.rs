@@ -57,10 +57,8 @@ fn spawn_with_env(command: &str, caller_env: &[(&str, &str)]) -> Spawned {
     let dir = std::env::temp_dir().join(format!("cmux-daemon-env-{}-{nanos}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let out = dir.join("env");
-    let script = format!(
-        "/usr/bin/env > '{out}.tmp' && /bin/mv '{out}.tmp' '{out}'",
-        out = out.display()
-    );
+    let script =
+        format!("/usr/bin/env > '{out}.tmp' && /bin/mv '{out}.tmp' '{out}'", out = out.display());
     let mut env = serde_json::Map::new();
     env.insert("SHELL".into(), Value::String("/bin/sh".into()));
     for (key, value) in caller_env {
