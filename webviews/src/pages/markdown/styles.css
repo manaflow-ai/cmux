@@ -1,0 +1,474 @@
+/* The markdown editor page; the shared base (colors, one background) is shared/pageBase.css. Code
+   colors come from the terminal palette (highlight.ts sets --md-tok-light/--md-tok-dark per token),
+   the code font from the host appearance (appearance.ts --cmux-diff-code-font-family). */
+:root {
+  --md-code-font: var(--cmux-diff-code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
+  --md-code-bg: color-mix(in srgb, var(--page-text) 5%, transparent);
+  --md-border: var(--page-separator);
+  --md-link: light-dark(#0b63c7, #6cb0ff);
+  --md-accent-bg: color-mix(in srgb, var(--page-text) 8%, transparent);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  user-select: text;
+}
+
+.md-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-width: 0;
+}
+
+.md-page-message {
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--page-text-2);
+}
+
+.md-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--md-border);
+  user-select: none;
+}
+
+.md-file {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.md-status {
+  flex: 0 0 auto;
+  color: var(--page-text-3);
+  font-size: 12px;
+}
+
+.md-status-failed {
+  color: light-dark(#b42318, #ff8a80);
+}
+
+.md-status-read-only {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--md-accent-bg);
+  color: var(--page-text-2);
+}
+
+.md-mode {
+  display: inline-flex;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 0;
+  min-inline-size: 0;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--md-accent-bg);
+}
+
+.md-mode-button {
+  border: 0;
+  padding: 2px 10px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--page-text-2);
+  font-size: 12px;
+}
+
+.md-mode-button[aria-pressed="true"] {
+  background: var(--page-elevated);
+  color: var(--page-text);
+  box-shadow: 0 0 0 1px var(--md-border);
+}
+
+.md-banner,
+.md-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--md-border);
+  user-select: none;
+}
+
+.md-banner {
+  background: light-dark(rgb(255 196 0 / 0.16), rgb(255 196 0 / 0.12));
+}
+
+.md-banner > span {
+  flex: 1 1 200px;
+}
+
+.md-note {
+  color: var(--page-text-2);
+  font-size: 12px;
+}
+
+.md-button {
+  border: 1px solid var(--md-border);
+  padding: 2px 10px;
+  border-radius: 5px;
+  background: var(--page-elevated);
+}
+
+.md-button-primary {
+  font-weight: 600;
+}
+
+.md-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.md-doc {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 16px 28px 80px;
+}
+
+.md-source {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 16px 20px;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--page-text);
+  font: 12px/1.6 var(--md-code-font);
+  tab-size: 4;
+}
+
+/* The prose. */
+.md-prose {
+  outline: none;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--page-text);
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.md-prose > * {
+  margin: 0 0 12px;
+}
+
+.md-prose h1,
+.md-prose h2,
+.md-prose h3,
+.md-prose h4,
+.md-prose h5,
+.md-prose h6 {
+  margin: 24px 0 12px;
+  line-height: 1.25;
+  font-weight: 600;
+}
+
+.md-prose h1 {
+  font-size: 1.9em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--md-border);
+}
+
+.md-prose h2 {
+  font-size: 1.45em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--md-border);
+}
+
+.md-prose h3 {
+  font-size: 1.2em;
+}
+
+.md-prose h4 {
+  font-size: 1em;
+}
+
+.md-prose a {
+  color: var(--md-link);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--md-link) 40%, transparent);
+}
+
+.md-prose code {
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--md-code-bg);
+  font: 0.88em var(--md-code-font);
+}
+
+.md-prose blockquote {
+  margin-left: 0;
+  padding: 0 1em;
+  border-left: 3px solid var(--md-border);
+  color: var(--page-text-2);
+}
+
+.md-prose ul,
+.md-prose ol {
+  padding-left: 1.8em;
+}
+
+.md-prose li > p {
+  margin: 0.2em 0;
+}
+
+.md-prose li[data-item-type="task"] {
+  list-style: none;
+  position: relative;
+}
+
+.md-prose li[data-item-type="task"]::before {
+  content: "";
+  position: absolute;
+  left: -1.4em;
+  top: 0.35em;
+  width: 0.9em;
+  height: 0.9em;
+  border: 1px solid var(--page-text-3);
+  border-radius: 3px;
+}
+
+.md-prose li[data-item-type="task"][data-checked="true"]::before {
+  background: var(--md-link);
+  border-color: var(--md-link);
+}
+
+.md-prose hr {
+  height: 1px;
+  border: 0;
+  background: var(--md-border);
+  margin: 24px 0;
+}
+
+.md-prose img {
+  max-width: 100%;
+}
+
+.md-prose table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  white-space: normal;
+}
+
+.md-prose th,
+.md-prose td {
+  padding: 4px 10px;
+  border: 1px solid var(--md-border);
+}
+
+.md-prose th {
+  font-weight: 600;
+  background: var(--md-code-bg);
+}
+
+.md-prose th p,
+.md-prose td p {
+  margin: 0;
+}
+
+.md-prose .footnote-definition,
+.md-prose [data-type="footnote_definition"] {
+  font-size: 0.9em;
+  color: var(--page-text-2);
+}
+
+.md-prose sup,
+.md-prose [data-type="footnote_reference"] {
+  font-size: 0.75em;
+  vertical-align: super;
+}
+
+/* Code blocks: language label, Shiki colors, diagrams. */
+.md-code {
+  position: relative;
+  border-radius: 6px;
+  background: var(--md-code-bg);
+}
+
+.md-code pre {
+  margin: 0;
+  padding: 10px 14px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.md-code pre code {
+  padding: 0;
+  background: transparent;
+  font: 12px/1.55 var(--md-code-font);
+}
+
+.md-code-language {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  font-size: 11px;
+  color: var(--page-text-3);
+  user-select: none;
+}
+
+.md-code [style*="--md-tok-light"] {
+  color: var(--md-tok-light);
+}
+
+@media (prefers-color-scheme: dark) {
+  .md-code [style*="--md-tok-dark"] {
+    color: var(--md-tok-dark);
+  }
+}
+
+.md-diagram {
+  display: none;
+}
+
+.md-code-diagram .md-diagram {
+  display: block;
+  padding: 12px;
+  overflow-x: auto;
+  text-align: center;
+  cursor: text;
+}
+
+.md-code-diagram .md-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.md-code-diagram pre {
+  display: none;
+  border-top: 1px solid var(--md-border);
+}
+
+.md-code-diagram.md-active pre,
+.md-code-diagram:has(.md-diagram[data-state="error"]) pre {
+  display: block;
+}
+
+.md-diagram-error {
+  color: light-dark(#b42318, #ff8a80);
+  font-size: 12px;
+  text-align: left;
+  white-space: pre-wrap;
+}
+
+/* Raw blocks: front matter (folded), HTML (preview, source when editing), definitions. */
+.md-raw {
+  border-radius: 6px;
+}
+
+.md-raw pre {
+  margin: 0;
+  padding: 6px 12px;
+  white-space: pre-wrap;
+  background: var(--md-code-bg);
+  border-radius: 6px;
+}
+
+.md-raw pre code {
+  padding: 0;
+  background: transparent;
+  font: 12px/1.55 var(--md-code-font);
+  color: var(--page-text-2);
+}
+
+.md-raw-label {
+  display: none;
+  border: 0;
+  padding: 0 0 2px;
+  background: transparent;
+  color: var(--page-text-3);
+  font-size: 11px;
+  cursor: default;
+}
+
+.md-raw-frontmatter .md-raw-label {
+  display: inline-block;
+}
+
+.md-raw-frontmatter .md-raw-label::before {
+  content: "\25B8\00A0";
+}
+
+.md-raw-frontmatter.md-open .md-raw-label::before {
+  content: "\25BE\00A0";
+}
+
+.md-raw-frontmatter:not(.md-open):not(.md-active) pre {
+  display: none;
+}
+
+.md-raw-preview {
+  display: none;
+}
+
+.md-raw-html.md-raw-has-preview .md-raw-preview {
+  display: block;
+  white-space: normal;
+  cursor: text;
+}
+
+.md-raw-html.md-raw-has-preview:not(.md-active) pre {
+  display: none;
+}
+
+.md-raw-html.md-active .md-raw-label,
+.md-raw-definition.md-active .md-raw-label,
+.md-raw-source .md-raw-label {
+  display: inline-block;
+}
+
+.md-raw-preview img {
+  max-width: 100%;
+}
+
+.md-raw-preview p {
+  margin: 0 0 8px;
+}
+
+[data-read-only="true"] .md-prose {
+  caret-color: transparent;
+}
+
+.ProseMirror-selectednode {
+  outline: 2px solid color-mix(in srgb, var(--md-link) 50%, transparent);
+}
+
+.ProseMirror-gapcursor {
+  display: none;
+  pointer-events: none;
+  position: absolute;
+}
+
+.ProseMirror-gapcursor::after {
+  content: "";
+  display: block;
+  position: absolute;
+  top: -2px;
+  width: 20px;
+  border-top: 1px solid var(--page-text);
+}
+
+.ProseMirror-focused .ProseMirror-gapcursor {
+  display: block;
+}
