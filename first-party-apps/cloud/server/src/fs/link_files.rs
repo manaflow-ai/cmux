@@ -118,10 +118,13 @@ pub fn decode_answer(op: &str, line: &[u8]) -> Result<Value, CloudError> {
     })?;
     match value["ok"].as_bool() {
         Some(true) => Ok(value.get("data").cloned().unwrap_or(Value::Null)),
+        // The daemon's v12 envelope (decision D1): text in `error`, the code
+        // in `error_code`, details (for example `{current}`) in `error_details`.
         Some(false) => {
-            let code = value["error"]["code"].as_str().unwrap_or("fs.error").to_owned();
-            let message = value["error"]["message"].as_str().unwrap_or("the daemon refused");
-            Err(fs_error(&code, message))
+            let code = value["error_code"].as_str().unwrap_or("fs.error").to_owned();
+            let message = value["error"].as_str().unwrap_or("the daemon refused");
+            let details = value.get("error_details").filter(|d| !d.is_null()).cloned();
+            Err(CloudError { details, ..fs_error(&code, message) })
         }
         None => Err(CloudError::new(codes::BAD_RESPONSE, format!("{op}: the answer has no ok"))),
     }
