@@ -215,4 +215,21 @@ import Testing
         harness.controller.feedOverride = nil
         #expect(harness.controller.driver.resolvedFeedURL() == baked)
     }
+
+    /// After a rollback, the build rolled back from (and anything older) is not offered
+    /// again; a newer build is.
+    @Test func skippedBuildsAreNotOfferedAgain() {
+        let harness = Harness()
+        harness.controller.installsUpdatesInBackground = true
+        harness.controller.skipsBuildsThrough = "0.64.17"
+        let found = ChoiceBox()
+        find(harness, into: found)
+        #expect(found.choice == .dismiss)
+        #expect(harness.controller.stagedUpdate == nil)
+
+        harness.controller.skipsBuildsThrough = "0.64.16"
+        let newer = ChoiceBox()
+        find(harness, into: newer)
+        #expect(newer.choice == .install)
+    }
 }

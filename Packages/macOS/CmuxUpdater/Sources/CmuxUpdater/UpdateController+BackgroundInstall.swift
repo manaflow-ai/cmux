@@ -59,4 +59,10 @@ extension UpdateController {
         get { driver.feedOverride }
         set { driver.feedOverride = newValue }
     }
+
+    /// Builds at or below this `sparkle:version` are not offered (the build a rollback left).
+    public var skipsBuildsThrough: String? {
+        get { driver.skipsBuildsThrough }
+        set { driver.skipsBuildsThrough = newValue }
+    }
 }
