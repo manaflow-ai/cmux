@@ -22,9 +22,9 @@ extension WindowOverlayHost {
         guard mouseMonitor == nil else { return }
         mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged,
                                                                    .otherMouseDragged, .mouseEntered, .mouseExited,
-                                                                   .leftMouseDown, .rightMouseDown]) { [weak self] event in
+                                                                   .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             guard let self else { return event }
-            if event.type == .leftMouseDown || event.type == .rightMouseDown {
+            if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type) {
                 self.clickDidLand(in: event.window, at: event.window === self.panel ? event.locationInWindow : .zero)
             } else {
                 self.routeMouse(at: NSEvent.mouseLocation)
@@ -99,7 +99,7 @@ extension WindowOverlayHost {
         switch event.type {
         case .leftMouseDown, .leftMouseDragged, .leftMouseUp: 0
         case .rightMouseDown, .rightMouseDragged, .rightMouseUp: 1
-        default: event.buttonNumber
+        default: max(2, event.buttonNumber)
         }
     }
 

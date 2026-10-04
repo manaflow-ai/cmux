@@ -56,20 +56,25 @@ extension WindowOverlayHost {
         guard !isTearingDown, !focusMoved else {
             restoreWindow = nil
             restoreResponder = nil
+            restoreSelection = nil
             return
         }
         let window = restoreWindow ?? self.window
         if let window, window.isVisible { window.makeKey() }
         if let responder = restoreResponder, let window {
             // A field editor stands in for its text field; give the field back.
+            let target: NSResponder
             if let editor = responder as? NSTextView, editor.isFieldEditor, let field = editor.delegate as? NSResponder {
-                window.makeFirstResponder(field)
+                target = field
             } else {
-                window.makeFirstResponder(responder)
+                target = responder
             }
-            // The field selects all its text when it takes the keyboard; put the old selection back.
-            if let selection = restoreSelection, let editor = window.firstResponder as? NSTextView, editor.isFieldEditor {
-                editor.selectedRanges = selection
+            // The field selects all its text when it takes the keyboard: put
+            // the old selection back, only in that field, clamped to its text
+            // (it may have got shorter while the modal showed).
+            if window.makeFirstResponder(target), let selection = restoreSelection,
+               let editor = window.firstResponder as? NSTextView, editor.isFieldEditor, editor.delegate as AnyObject === target {
+                editor.selectedRanges = Self.clamped(selection, length: (editor.string as NSString).length)
             }
         }
         restoreSelection = nil
@@ -117,6 +122,16 @@ extension WindowOverlayHost {
     }
 
     /// Controls that take the keyboard, in view order.
+    /// `ranges` inside a text of `length` UTF-16 units (at least one, an insertion point at worst).
+    static func clamped(_ ranges: [NSValue], length: Int) -> [NSValue] {
+        let fitted = ranges.map { value -> NSValue in
+            let range = value.rangeValue
+            let start = min(max(range.location, 0), length)
+            return NSValue(range: NSRange(location: start, length: min(range.length, length - start)))
+        }
+        return fitted.isEmpty ? [NSValue(range: NSRange(location: length, length: 0))] : fitted
+    }
+
     static func keyViews(in view: NSView) -> [NSView] {
         var found: [NSView] = view.acceptsFirstResponder && view is NSControl ? [view] : []
         for child in view.subviews where !child.isHidden { found += keyViews(in: child) }
