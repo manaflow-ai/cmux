@@ -34,7 +34,7 @@ fn connect_dials_the_machine_host_id_through_cmux_link() {
     assert_eq!(log.commands.len(), 1, "one carrier");
     assert_eq!(
         log.commands[0].args,
-        ["link", "dial", "--host", "host-vm-alpha01"],
+        ["link", "dial", "--host", "host-vm-alpha01", "--socket", "/tmp/cmux-test/link.sock"],
         "the carrier dials the host id, with no route and no credential"
     );
 }

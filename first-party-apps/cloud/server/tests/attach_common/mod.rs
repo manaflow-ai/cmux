@@ -134,7 +134,7 @@ impl LinkSpawner for FakeSpawner {
 pub fn paths() -> LinkPaths {
     LinkPaths {
         binary: PathBuf::from("/opt/cmux/bin/cmux-tui"),
-        hub_socket: PathBuf::from("/tmp/cmux-test/wg-hub.sock"),
+        hub_socket: PathBuf::from("/tmp/cmux-test/link.sock"),
         state_dir: PathBuf::from("/tmp/cmux-test/link-state"),
         socket_dir: PathBuf::from("/tmp/cmux-test"),
         device_name: "test-mac".into(),

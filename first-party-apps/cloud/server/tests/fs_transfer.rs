@@ -145,6 +145,7 @@ fn the_daemon_transfer_pulls_in_ranges_and_pushes_with_create() {
     let target = DialTarget {
         binary: PathBuf::from("/opt/cmux/bin/cmux"),
         host: "host-vm-alpha01".into(),
+        socket: PathBuf::from("/tmp/cmux-test/link.sock"),
         env: Vec::new(),
     };
     let dir = scratch_file("daemon").parent().unwrap().to_path_buf();
