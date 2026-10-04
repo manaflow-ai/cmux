@@ -152,9 +152,9 @@ const ownerTarget = (principal: Principal, frame: OpFrame): { id: string; frame:
 /**
  * A rate-gated op whose key is already decided in its target conversation: the ledger answers it
  * (its stored result, or idempotency.conflict for other params) from identity and key alone, so it
- * goes straight to submit with the plain principal, with no charge and no reach RPC. Only asked
- * once the budget refused. A dm.open whose existing DM has another id (from an accepted invite)
- * is not found here.
+ * goes straight to submit with the plain principal, with no charge and no reach RPC. Asked before
+ * the budget (one RPC to the target conversation). A dm.open whose existing DM has another id
+ * (from an accepted invite) is not found here.
  */
 const replayDecided = async (env: Env, principal: Principal, frame: OpFrame): Promise<SubmitResult | null> => {
   const target = ownerTarget(principal, frame)
@@ -189,11 +189,14 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
   // dm.open with a user peer may create a conversation and resolves reach: it spends the conversation.create budget.
   const rateOp = isHomeRateOp(frame.op) ? frame.op : frame.op === "dm.open" && typeof params.peer === "string" && !params.peer.startsWith("agent_") ? "conversation.create" : null
   if (rateOp) {
+    // A decided key replays first: no unit, no reach, and the exact frame the first call sent.
+    const replayed = await replayDecided(env, principal, frame)
+    if (replayed) return replayed
     const gate = await takeHomeRate(env, principal, actorOf(principal), rateOp)
     if (!gate.ok && "not_ready" in gate) return reject(key, HOME_USER_NOT_READY, "call user.ensure once before Home conversation ops")
     if (!gate.ok) {
-      const replayed = (await replayDecided(env, principal, frame)) ?? (await reopenDm(env, principal, frame))
-      if (replayed) return replayed
+      const reopened = await reopenDm(env, principal, frame)
+      if (reopened) return reopened
       const message = `too many ${frame.op} requests; retry in ${Math.ceil(gate.retry_after_ms / 1000)} s`
       return { frames: [{ t: "reject", tx: "", idempotency_key: key, code: HOME_RATE_LIMITED, message, retryable: true, replayed: false, details: { retry_after_ms: gate.retry_after_ms } } as OwnerFrame] }
     }

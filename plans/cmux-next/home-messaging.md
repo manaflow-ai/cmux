@@ -309,9 +309,10 @@ sends an upsert with the new body. No raw address, token or token hash is ever p
   All of an owner's chiefs together also share a total of 3x the per-actor limit per hour (180
   and 360): every `agent_` actor counted in the owner's UserDO counts toward it, and the owner's
   own budget is separate, so archiving and creating chiefs mints no fresh budget.
-  After a refusal, a retry of a key already decided in the target conversation goes straight to
-  the owner with the plain principal (no reach RPC): its stored result, or `idempotency.conflict`
-  for other params. A refused `dm.open` with a user peer still reopens the caller's existing DM
+  Before the budget, the Worker asks the target conversation whether the key is decided; a
+  decided key goes straight to the owner with the plain principal (no unit, no reach RPC) and the
+  exact frame the first call sent: its stored result, or `idempotency.conflict` for other params.
+  `dm.open` create params carry no display names (the owner takes them from the principal). A refused `dm.open` with a user peer still reopens the caller's existing DM
   (inbox peer index, no charge; not for a chief). A caller whose UserDO never served them (no `user.ensure`) gets
   `home.user_not_ready`, not retryable. A create the owner refuses (reach, policy) opens an empty
   ConversationDO: the refusal is decided on the initial state and writes no storage or ledger.
