@@ -292,6 +292,11 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
         return nil
     }
 
+    /// Why a main-frame navigation to `url` may not load, or nil.
+    public func navigationBlockReason(_ url: URL, initiator: BrowserReplFrameDocument?) -> String? {
+        blockReason(url.absoluteString)
+    }
+
     /// Why the session may not read, set or clear a cookie on `domain`, or
     /// nil. A cookie belongs to a host, not an origin, so a pattern's scheme
     /// and port do not narrow it. A cookie is in reach when a host an allowed
@@ -434,7 +439,7 @@ extension BrowserReplDomainPolicy {
     /// controls the URL. So only web pages open: http and https URLs the
     /// browser's URL allowlist and this policy allow, `about:blank` (also a
     /// window with no URL), and `blob:` URLs whose origin is such a page.
-    public func popupBlockReason(_ url: URL?, allowlist: BrowserURLAllowlistPolicy) -> String? {
+    public func popupBlockReason(_ url: URL?, allowlist: BrowserURLAllowlistPolicy, opener: BrowserReplFrameDocument? = nil) -> String? {
         guard let url else { return nil }
         let raw = url.absoluteString
         switch url.scheme?.lowercased() {
@@ -497,7 +502,8 @@ public enum BrowserReplPopupRoute: Equatable, Sendable {
         openerCreatedBySession: Bool,
         creatorPolicy: BrowserReplDomainPolicy,
         inputSession: (id: String, policy: BrowserReplDomainPolicy)? = nil,
-        allowlist: BrowserURLAllowlistPolicy
+        allowlist: BrowserURLAllowlistPolicy,
+        opener: BrowserReplFrameDocument? = nil
     ) {
         if openerCreatedBySession {
             self = creatorPolicy.popupBlockReason(url, allowlist: allowlist).map(Self.refused) ?? .session
