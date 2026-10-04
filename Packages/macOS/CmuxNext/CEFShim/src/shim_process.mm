@@ -135,13 +135,20 @@ CefRefPtr<CefRequestContext> RequestContextFor(const std::string& cache_path) {
   }
   CefRefPtr<CefRequestContext> context = CefRequestContext::CreateContext(settings, new ContextHandler(cache_path));
   contexts[cache_path] = context;
+  // cmux-page:// pages added so far (each profile has its own factories).
+  RegisterPageSchemes(context);
   return context;
 }
 
 void ReleaseRequestContext(const std::string& key) {
+  ForgetPreferenceWatches(key);
   request_contexts().erase(key);
   initialized_contexts().erase(key);
   ForgetContextProxy(key);
+}
+
+void ForEachRequestContext(const std::function<void(CefRefPtr<CefRequestContext>)>& body) {
+  for (auto& [key, context] : request_contexts()) body(context);
 }
 
 CefRefPtr<CefRequestContext> ExistingRequestContext(const std::string& cache_path) {
@@ -381,6 +388,8 @@ void cmux_shim_shutdown(void) {
     fork_api().set_omnibox_suggestions_handler(nullptr, nullptr);
   }
   host() = Host();
+  // Preference observer registrations go before their contexts.
+  ReleasePreferenceWatches();
   request_contexts().clear();
   CefShutdown();
 }
