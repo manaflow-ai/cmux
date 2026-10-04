@@ -38,6 +38,11 @@ export function MenuRow({
       }}
     >
       {node.hint && <kbd className="acpmux-menu-hint">{node.hint}</kbd>}
+      {node.icon && (
+        <span className="acpmux-menu-icon" aria-hidden="true">
+          {node.icon}
+        </span>
+      )}
       <span className="acpmux-menu-text">
         <span className="acpmux-menu-label">{node.label}</span>
       </span>

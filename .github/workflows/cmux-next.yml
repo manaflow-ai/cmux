@@ -22,12 +22,9 @@ on:
       - cmuxCLITestSupport/**
       - Resources/Localizable.xcstrings
       - web/**
-      - scripts/ghosttykit-checksums.txt
-      - ghostty
       - Resources/InfoPlist.xcstrings
       - scripts/cmux-next/check-*.sh
       - scripts/cmux-next/compile-string-catalogs.sh
-      - scripts/cmux-next/prefix-ghosttykit-archives.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
       - scripts/cmux-next/cef-manifest.json
       - scripts/cmux-next/ensure-cef.sh
@@ -38,7 +35,6 @@ on:
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
-      - scripts/download-prebuilt-ghosttykit.sh
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
   push:
@@ -61,13 +57,9 @@ on:
       - cmuxCLITestSupport/**
       - Resources/Localizable.xcstrings
       - web/**
-      - scripts/ghosttykit-checksums.txt
-      - ghostty
-      - scripts/download-prebuilt-ghosttykit.sh
       - Resources/InfoPlist.xcstrings
       - scripts/cmux-next/check-*.sh
       - scripts/cmux-next/compile-string-catalogs.sh
-      - scripts/cmux-next/prefix-ghosttykit-archives.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
       - scripts/cmux-next/cef-manifest.json
       - scripts/cmux-next/ensure-cef.sh
@@ -304,13 +296,15 @@ jobs:
         run: scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
       # Behavior tests of the build scripts: pin-cmux-tui.sh fetch on a stale
-      # --ref mirror, and embed-cef.sh reaching ensure-cef.sh under set -u.
-      - name: Script tests (pin-cmux-tui, embed-cef)
+      # --ref mirror, embed-cef.sh reaching ensure-cef.sh under set -u, and
+      # ensure-cef.sh's controller artifact store source.
+      - name: Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
         id: script-tests
         continue-on-error: true
         run: |
           bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
           bash scripts/cmux-next/tests/embed-cef.test.sh
+          bash scripts/cmux-next/tests/ensure-cef-store.test.sh
 
       - name: Checks job structure
         id: checks-structure
@@ -329,7 +323,7 @@ jobs:
             ${{ steps.crash-safety.outcome }}|Crash safety
             ${{ steps.l10n.outcome }}|String tables (21 languages)
             ${{ steps.module-resources.outcome }}|Module resource bundles
-            ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef)
+            ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
             ${{ steps.checks-structure.outcome }}|Checks job structure
         run: |
           failed=()
@@ -376,23 +370,17 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          # The package graph reads no submodule; the GhosttyKit download only
-          # needs the ghostty commit recorded in this tree.
+          # The package graph reads no submodule; GhosttyNextKit comes from
+          # SwiftPM (Packages/Shared/CmuxGhosttyKit).
           submodules: false
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      - name: Download pre-built GhosttyKit.xcframework
-        run: |
-          set -euo pipefail
-          GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh
-
-      # SwiftPM links a binary target's static archive only when its name
-      # starts with `lib`; the prebuilt one is `ghostty-internal.a`, so
-      # CmuxNextAppTests (through CmuxNextTerminal) failed to link.
-      - name: Give GhosttyKit's archives the lib prefix SwiftPM links
-        run: scripts/cmux-next/prefix-ghosttykit-archives.sh GhosttyKit.xcframework
+      # macOS-only script behavior test (PlistBuddy, plutil): the "Bundle
+      # server helper" phase must not need the app's processed Info.plist.
+      - name: Script tests (bundle-server-helper)
+        run: bash scripts/cmux-next/tests/bundle-server-helper.test.sh
 
       - name: Build package and tests
         id: build-tests
@@ -524,11 +512,6 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      - name: Download pre-built GhosttyKit.xcframework
-        run: |
-          set -euo pipefail
-          GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh
-
       - name: Release compile
         run: scripts/cmux-next/check-release-compile.sh "$RUNNER_TEMP/cmux-next-release-compile"
 
@@ -620,11 +603,6 @@ jobs:
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
-
-      - name: Download pre-built GhosttyKit.xcframework
-        run: |
-          set -euo pipefail
-          GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh
 
       # The Bundle cmux-tui phase bundles this commit's same-tree cmux-tui
       # and runs check-daemon-capabilities.sh on it (Debug builds).

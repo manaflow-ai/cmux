@@ -31,6 +31,10 @@ enum AppBrowserPage {
             target = resolved
         }
         if let refusal = agentURLRefusal(operation, target: target, page: page) { throw refusal }
+        if let refusal = agentExtensionRefusal(operation, target: target, page: page,
+                                               allowedByPerson: services.cache.agentMayUseExtensionTab(tabID), access: .fromDisk) {
+            throw refusal
+        }
         switch operation {
         case .navigate:
             if let target { page.load(target) }

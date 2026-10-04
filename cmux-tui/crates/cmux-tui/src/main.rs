@@ -75,6 +75,8 @@ mod sidebar_files;
 mod sidebar_projection;
 #[cfg(all(test, unix))]
 mod test_exec;
+#[cfg(test)]
+mod test_wait;
 mod ui;
 
 use headless::run_headless;

@@ -16,9 +16,11 @@ import {
 } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { postNative } from "./native";
+import { pageHostClient, startHostEvents } from "./pageHost";
 import { NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { NewTabScreen } from "./newtab/NewTabScreen";
 import { newTabScreenActions } from "./newtab/screenActions";
+import { useNewTabAdoption } from "./newtab/adoption";
 import { projectLabel } from "./sessionList";
 import { composerDraft } from "./composerDraft";
 import { paneContext } from "./paneContext";
@@ -1014,6 +1016,8 @@ function AcpmuxPane() {
   /// The session list shows beside the transcript in a wide pane and on demand in a narrow one.
   const [sidebar, setSidebar] = useState<"auto" | "open" | "closed">("auto");
   const [newTab, setNewTab] = useState<NewTabHost | undefined>();
+  // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen.
+  const newTabGeneration = useNewTabAdoption(setNewTab);
   const sidebarToggle = useRef<HTMLButtonElement>(null);
   // Escape and the scrim close the narrow-pane overlay and give focus back to its toggle.
   const closeOverlay = useCallback(() => {
@@ -1230,6 +1234,9 @@ function AcpmuxPane() {
         deliverDictation(update);
       },
     };
+    // On the shared page host the host pushes arrive as events once the bridge exists.
+    const pageHost = pageHostClient();
+    if (pageHost) void startHostEvents(pageHost).catch(() => undefined);
     window.cmuxAcpmuxDebug = createAcpmuxDebug({
       replaceRows(rows) {
         rowsRef.current = new Map(rows.map((row) => [row.id, row]));
@@ -1258,6 +1265,8 @@ function AcpmuxPane() {
     // A seeded first prompt (onboarding's first task). Swift hands it out once, so it is kept
     // here until a connect succeeds: a first connect that fails retries without it.
     let pendingPrompt: string | undefined;
+    // The harness that seeded prompt starts on (`newTab.submit --agent`), kept with it.
+    let pendingHarness: string | undefined;
     const connectHost = async () => {
       if (connecting) return;
       connecting = true;
@@ -1275,6 +1284,7 @@ function AcpmuxPane() {
           cwd?: string;
           draft?: string;
           prompt?: string;
+          harness?: string;
           adopt?: unknown;
           account?: unknown;
           handoffStrings?: unknown;
@@ -1301,6 +1311,7 @@ function AcpmuxPane() {
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
+        if (typeof host.harness === "string" && host.harness) pendingHarness = host.harness;
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
         // Links copy in this build's scheme; only the hostless mock page falls back to Release's.
@@ -1416,7 +1427,8 @@ function AcpmuxPane() {
         // prompt still joins this in-flight creation through ensureSession().
         // A new-tab page stays empty until the user chooses a kind or sends a prompt.
         // Other new chats still prewarm their process before the first keypress.
-        if (host.newSession && !host.adopt && !host.newTab) void client.ensureSession().catch(() => undefined);
+        if (host.newSession && !host.adopt && !host.newTab && !pendingHarness)
+          void client.ensureSession().catch(() => undefined);
         // A resumed chat is the tab's session from the start, so restoring the tab reopens it.
         if (client.adopted) void persistSession(client.adopted);
         // A `#turn-<turnId>` link that opened this tab: scroll once the turn's row renders.
@@ -1424,8 +1436,12 @@ function AcpmuxPane() {
         // Onboarding's first task runs without a Send press, once. If the chat cannot start,
         // the prompt waits in the composer instead of vanishing.
         const prompt = pendingPrompt;
+        const harness = pendingHarness;
         pendingPrompt = undefined;
-        if (prompt) void send(prompt).catch(() => setDraft(prompt));
+        pendingHarness = undefined;
+        // A chat seeded with an agent starts on it before the prompt goes out.
+        const start = harness && prompt ? client.create(harness, host.cwd).then(persistSession) : Promise.resolve();
+        if (prompt) void start.then(() => send(prompt)).catch(() => setDraft(prompt));
       } catch (error) {
         if (!cancelled) {
           acpWire.lifecycle("handshake failed", { message: String(error) });
@@ -1640,6 +1656,7 @@ function AcpmuxPane() {
         <div className="acpmux-main" data-new-chat={freshChat && !showNewTab ? "" : undefined}>
           {showNewTab && newTab.layout === "b" ? (
             <NewTabScreen
+              key={newTabGeneration}
               snapshot={composerSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
@@ -1656,6 +1673,7 @@ function AcpmuxPane() {
             />
           ) : showNewTab ? (
             <NewTabPage
+              key={newTabGeneration}
               snapshot={composerSnapshot}
               hotkeys={newTab.hotkeys}
               initialKind={newTab.initialKind}

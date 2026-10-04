@@ -73,10 +73,10 @@ fn views_need_a_page_and_ids_are_unique() {
 #[test]
 fn actions_on_the_apps_own_family_must_exist_in_its_catalog() {
     let m = manifest(items(
-        json!([{ "id": "a", "kind": "button", "title": "A", "action": { "op": "demo.missing" } },
+        json!([{ "id": "a", "kind": "button", "title": "A", "action": { "op": "local.x.missing" } },
         { "id": "b", "kind": "button", "title": "B", "action": { "op": "workspace.new" } }]),
     ));
-    let catalog = json!({ "family": "demo", "operations": [] });
+    let catalog = json!({ "family": "local.x", "operations": [] });
     let got: Vec<(String, &str)> =
         validate_catalog(&m, &catalog).into_iter().map(|i| (i.path, i.code)).collect();
     assert_eq!(

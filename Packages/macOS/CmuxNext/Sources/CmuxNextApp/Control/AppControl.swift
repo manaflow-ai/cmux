@@ -44,6 +44,7 @@ final class AppControl {
         service.router.register(PaletteScopeControl.methods(services: services, router: service.router))
         service.router.register(BookmarkControl.methods(services: services))
         service.router.register(FeedControl.methods(services: services))
+        service.router.register(KeybindingControl.methods(services: services))
         service.router.register([
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
@@ -212,6 +213,10 @@ final class AppControl {
             .async("debug.agent_pane") { [weak services] call in
                 await DebugAgentPane.handle(call.params, services)
             }.withDeadline(.fixed(DebugAgentPane.deadline)),
+            // Instant new tab: spares, opening times, the field (new-tab.md 2.3).
+            .async("debug.new_tab") { [weak services] call in
+                await DebugNewTab.handle(call.params, services)
+            },
             .mainActor("debug.menu") { [weak services] call in
                 .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
             },

@@ -45,6 +45,74 @@
     },
     {
       "accepts" : [
+        "workspace",
+        "window",
+        "surface"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.navigation.historyScope.workspace",
+            "text" : "Workspace"
+          },
+          "value" : "workspace"
+        },
+        {
+          "title" : {
+            "key" : "settings.navigation.historyScope.window",
+            "text" : "Window"
+          },
+          "value" : "window"
+        },
+        {
+          "title" : {
+            "key" : "settings.navigation.historyScope.surface",
+            "text" : "Focused Page"
+          },
+          "value" : "surface"
+        }
+      ],
+      "default" : "workspace",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.history",
+        "text" : "History"
+      },
+      "help" : {
+        "key" : "settings.navigation.historyScope.help",
+        "text" : "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "navigation.historyScope",
+      "keywords" : [
+        "history",
+        "back",
+        "forward",
+        "navigation",
+        "location",
+        "scope"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "navigation",
+        "historyScope"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.navigation.historyScope",
+        "text" : "Back and Forward"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "minimal",
         "standard"
       ],
@@ -154,7 +222,7 @@
           "value" : "auto"
         }
       ],
-      "default" : "same-kind",
+      "default" : "page",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -4410,6 +4478,109 @@
     },
     {
       "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.sameAsWindow",
+        "text" : "Same as window"
+      },
+      "group" : {
+        "key" : "settings.group.surfaces",
+        "text" : "Surfaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaces.diff.color",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "transparency",
+        "opacity",
+        "diff"
+      ],
+      "kind" : "color",
+      "path" : [
+        "appearance",
+        "surfaces",
+        "diff",
+        "color"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.surfaces.diff.color",
+        "text" : "Diff Viewer Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.windowOpacity",
+        "text" : "Window opacity"
+      },
+      "group" : {
+        "key" : "settings.group.surfaces",
+        "text" : "Surfaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaces.diff.opacity",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "transparency",
+        "opacity",
+        "diff"
+      ],
+      "kind" : "number",
+      "path" : [
+        "appearance",
+        "surfaces",
+        "diff",
+        "opacity"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.surfaces.diff.opacity",
+        "text" : "Diff Viewer Opacity"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "arc",
         "native",
         "dot",
@@ -6856,7 +7027,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "05105855c31f7f93fcf88986e2342c08663583d9a4f77c9b6f51423d7da574c9",
+  "schema_hash" : "e12150f8b61dbf417a3d358a7ee17a2f96a3674fccb9be89af5ddfe4d2796e2e",
   "sections" : [
     {
       "id" : "general",

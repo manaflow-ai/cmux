@@ -92,7 +92,7 @@ pub(crate) fn check_ops(m: &Value, catalog: &Value, out: &mut Vec<Issue>) {
             ));
         for (at, action) in actions {
             let op = action["op"].as_str().unwrap_or_default();
-            if op.split('.').next() == Some(family) && !names.contains(op) {
+            if op.starts_with(&format!("{family}.")) && !names.contains(op) {
                 out.push(Issue::error(
                     at,
                     "toolbar.unknownOp",

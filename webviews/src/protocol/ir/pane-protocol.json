@@ -43,117 +43,174 @@
   ],
   "ops": [
     {
+      "cli": {
+        "path": "git status",
+        "visible": true
+      },
       "errors": [
         "cmux.git.not_a_repo"
       ],
       "kind": "read",
+      "mcp": {
+        "expose": "default",
+        "group": "git"
+      },
       "name": "cmux.git.status",
       "owner": "first-party",
       "params": {
         "$ref": "#/types/GitStatusParams"
       },
+      "paths": [
+        "cwd"
+      ],
       "result": {
         "$ref": "#/types/GitStatus"
       },
-      "scope": "git:read"
+      "scope": "git:read",
+      "secret_output": false
     },
     {
+      "cli": {
+        "path": "git diff",
+        "positional": [
+          "base"
+        ],
+        "visible": true
+      },
       "errors": [
         "cmux.git.not_a_repo",
         "cmux.git.bad_ref"
       ],
       "kind": "read",
+      "mcp": {
+        "expose": "default",
+        "group": "git"
+      },
       "name": "cmux.git.diff",
       "owner": "first-party",
       "params": {
         "$ref": "#/types/GitDiffParams"
       },
+      "paths": [
+        "cwd"
+      ],
       "result": {
         "$ref": "#/types/GitDiff"
       },
-      "scope": "git:read"
+      "scope": "git:read",
+      "secret_output": false
     },
     {
       "errors": [
         "cmux.router.refused"
       ],
       "kind": "mutation",
+      "mcp": {
+        "expose": "never"
+      },
       "name": "cmux.router.hello",
       "owner": "first-party",
       "params": {
         "$ref": "#/types/ProviderHello"
       },
+      "paths": [],
       "result": {
         "$ref": "#/types/ProviderWelcome"
       },
-      "scope": "router:provide"
+      "scope": "router:provide",
+      "secret_output": false
     },
     {
       "errors": [
         "cmux.router.no_provider"
       ],
       "kind": "read",
+      "mcp": {
+        "expose": "never"
+      },
       "name": "cmux.router.resolve",
       "owner": "first-party",
       "params": {
         "$ref": "#/types/ResolveParams"
       },
+      "paths": [],
       "result": {
         "$ref": "#/types/ResolveResult"
       },
-      "scope": "router:use"
+      "scope": "router:use",
+      "secret_output": false
     },
     {
       "errors": [],
       "kind": "mutation",
+      "mcp": {
+        "expose": "never"
+      },
       "name": "cmux.router.token.refresh",
       "owner": "first-party",
       "params": {
         "$ref": "#/types/TokenRefreshParams"
       },
+      "paths": [],
       "result": {
         "$ref": "#/types/TokenRefreshResult"
       },
-      "scope": "router:use"
+      "scope": "router:use",
+      "secret_output": false
     },
     {
       "errors": [],
       "kind": "read",
+      "mcp": {
+        "expose": "never"
+      },
       "name": "cmux.router.interfaces.list",
       "owner": "first-party",
       "params": {
         "$ref": "#/types/InterfacesListParams"
       },
+      "paths": [],
       "result": {
         "$ref": "#/types/InterfacesListResult"
       },
-      "scope": "router:use"
+      "scope": "router:use",
+      "secret_output": false
     },
     {
       "errors": [],
       "kind": "read",
+      "mcp": {
+        "expose": "never"
+      },
       "name": "cmux.router.pages.list",
       "owner": "first-party",
       "params": {
         "$ref": "#/types/PagesListParams"
       },
+      "paths": [],
       "result": {
         "$ref": "#/types/PagesListResult"
       },
-      "scope": "router:use"
+      "scope": "router:use",
+      "secret_output": false
     },
     {
       "errors": [],
       "kind": "read",
+      "mcp": {
+        "expose": "never"
+      },
       "name": "com.example.hello.greet.say",
       "owner": "app:com.example.hello",
       "params": {
         "$ref": "#/types/HelloParams"
       },
+      "paths": [],
       "result": {
         "$ref": "#/types/HelloResult"
       },
-      "scope": "com.example.hello:use"
+      "scope": "com.example.hello:use",
+      "secret_output": false
     }
   ],
   "types": {

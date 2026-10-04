@@ -7,6 +7,8 @@ import { open, seal, type SealedSecret } from "./integrations/crypto.ts"
 import type { DomainReply } from "./team-domain-external.ts"
 import { keyFingerprint, sshPurpose, type PresenceProof, type SshPresence } from "./team-ssh-presence.ts"
 import { authorizedKeyLine, certLine, certToSign, ed25519Blob, parseUserKey, toBase64, type UserKey } from "./team-ssh-wire.ts"
+import type { RowReader } from "@cmux/ownership"
+import { hostByInstall, memberOf, roleOf } from "./domains/team-members.ts"
 
 /**
  * The team SSH CA in TeamDO (plans/cmux-next/team-vm-plan.md S3). The Ed25519 CA key is made in
@@ -35,6 +37,8 @@ const RETAIN_MS = 24 * 60 * 60_000
 export interface SshCaDeps {
   /** The current state (it changes after every submitSystem). */
   readonly state: () => TeamState
+  /** TeamDO rows (members and hosts, team-members.ts). */
+  readonly rows?: RowReader
   readonly team: string
   readonly stream: string
   readonly kek: string | undefined
@@ -74,8 +78,8 @@ export const ensureSshTables = (sql: SqlStorage) => {
 const signers = new Map<string, Promise<CryptoKey>>()
 
 const hex = (b: ArrayBuffer) => Array.from(new Uint8Array(b), (x) => x.toString(16).padStart(2, "0")).join("")
-const role = (s: TeamState, user: string | undefined) => (user ? s.members[user]?.role : undefined)
-const isAdmin = (s: TeamState, user: string | undefined) => role(s, user) === "owner" || role(s, user) === "admin"
+const role = (s: TeamState, user: string | undefined, rows?: RowReader) => roleOf(s, rows, user)
+const isAdmin = (s: TeamState, user: string | undefined, rows?: RowReader) => role(s, user, rows) === "owner" || role(s, user, rows) === "admin"
 
 class Refusal {
   constructor(
@@ -157,8 +161,8 @@ type ChallengeParams = { public_key: string; validity_minutes?: number; presence
  * mutate-own, because a token does not show whether a person or an agent holds it (D28). An agent
  * principal: `agent` only. A team server: nothing (server.md: servers never get SSH access).
  */
-const classFor = (s: TeamState, p: Principal, params: CertParams): "human" | "agent" => {
-  if (p.kind === "install" && p.install && (s.server_revocations?.[p.install] || Object.values(s.hosts).some((h) => h.kind === "server" && h.enrolled_by === p.install)))
+const classFor = (s: TeamState, p: Principal, params: CertParams, rows?: RowReader): "human" | "agent" => {
+  if (p.kind === "install" && p.install && (s.server_revocations?.[p.install] || hostByInstall(s, rows, p.install)?.kind === "server"))
     throw new Refusal("team_vm.ssh_class_refused", "a team server does not get SSH certificates")
   const classes = p.grant_classes ?? []
   const human = !p.agent && p.kind === "session"
@@ -237,8 +241,8 @@ const resume = async (deps: SshCaDeps, p: Principal, params: CertParams, idem: s
   }
   try {
     // The same caller checks as a new request (a team server, a removed member or a revoked install gets nothing).
-    classFor(deps.state(), p, params)
-    if (!deps.state().members[p.user!]) throw new Refusal("auth.forbidden", "not a member of this team")
+    classFor(deps.state(), p, params, deps.rows)
+    if (!memberOf(deps.state(), deps.rows, p.user)) throw new Refusal("auth.forbidden", "not a member of this team")
     if (p.install && deps.sql.exec(`SELECT 1 FROM ssh_revoked_installs WHERE install = ?`, p.install).toArray().length > 0) throw new Refusal("auth.forbidden", "this install was revoked")
   } catch (e) {
     forget(deps.sql, p.identity, idem, prep.serial)
@@ -284,7 +288,7 @@ const issue = async (deps: SshCaDeps, p: Principal, params: CertParams, idem: st
     const again = await resume(deps, p, params, idem, key, JSON.parse(row.body) as Prepared, bound)
     if (again) return again
   }
-  const cls = classFor(deps.state(), p, params)
+  const cls = classFor(deps.state(), p, params, deps.rows)
   const since = deps.now() - RATE_WINDOW_MS
   const byIdentity = deps.sql.exec<{ n: number }>(`SELECT count(*) AS n FROM ssh_certs WHERE identity = ? AND issued_at > ?`, p.identity, since).toArray()[0]!.n
   const byUser = deps.sql.exec<{ n: number }>(`SELECT count(*) AS n FROM ssh_certs WHERE user = ? AND issued_at > ?`, user, since).toArray()[0]!.n
@@ -300,13 +304,13 @@ const issue = async (deps: SshCaDeps, p: Principal, params: CertParams, idem: st
   for (let attempt = 0; attempt < 3; attempt++) {
     const ca = deps.state().ssh_ca!
     const account = deps.state().vm_accounts?.[user]
-    if (!account || !deps.state().members[user]) throw new Refusal("auth.forbidden", "not a member of this team")
+    if (!account || !memberOf(deps.state(), deps.rows, user)) throw new Refusal("auth.forbidden", "not a member of this team")
     // Opened before the row is written, so the prepared row and the ssh_certs row commit together.
     await signer(deps, ca.generation)
     if (deps.state().ssh_ca?.generation !== ca.generation) continue
     // Checked again after the await, in the same synchronous segment as the rows: a member removed meanwhile gets nothing.
     const current = deps.state().vm_accounts?.[user]
-    if (!current || !deps.state().members[user]) throw new Refusal("auth.forbidden", "not a member of this team")
+    if (!current || !memberOf(deps.state(), deps.rows, user)) throw new Refusal("auth.forbidden", "not a member of this team")
     // The person approved this Linux user; a certificate never names another one.
     if (linuxUserFor(current, "human") !== linuxUserFor(named, "human")) throw new Refusal("revision.conflict", "the Linux account changed during the request; try again", true)
     const now = deps.now()
@@ -359,7 +363,7 @@ const issue = async (deps: SshCaDeps, p: Principal, params: CertParams, idem: st
 type RevokeParams = { serial?: number; user?: string; install?: string; reason?: string }
 
 const revoke = (deps: SshCaDeps, p: Principal, params: RevokeParams, key: string) => {
-  const admin = isAdmin(deps.state(), p.user)
+  const admin = isAdmin(deps.state(), p.user, deps.rows)
   const selectors = [params.serial, params.user, params.install].filter((v) => v !== undefined)
   if (selectors.length !== 1) throw new Refusal("validation.invalid", "give exactly one of serial, user or install")
   const now = deps.now()
@@ -400,7 +404,7 @@ export const revokeInstallCerts = async (deps: SshCaDeps, user: string, install:
 }
 
 const rotate = async (deps: SshCaDeps, p: Principal, compromised: boolean) => {
-  if (p.kind !== "session" || p.agent || !isAdmin(deps.state(), p.user)) throw new Refusal("auth.forbidden", "only team owners and admins rotate the SSH CA, in a person's session")
+  if (p.kind !== "session" || p.agent || !isAdmin(deps.state(), p.user, deps.rows)) throw new Refusal("auth.forbidden", "only team owners and admins rotate the SSH CA, in a person's session")
   await ensureCa(deps, p.user!, { compromised })
   const ca = deps.state().ssh_ca!
   return { generation: ca.generation, ca_public_key: ca.public_key, previous_trusted_until: ca.previous?.trusted_until ?? null }
@@ -416,7 +420,7 @@ const rotate = async (deps: SshCaDeps, p: Principal, compromised: boolean) => {
 export const sshExternal = async (deps: SshCaDeps, p: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> => {
   const base = { op: frame.op, transaction: "", idempotency_key: frame.idempotency_key, stream: deps.stream, sequence: 0, replayed: false }
   const fail = (code: string, message: string, retryable = false): DomainReply => ({ ...base, ok: false, error: { code, message, retryable } })
-  if (!p.user || !deps.state().members[p.user] || p.team !== deps.team) return fail("auth.forbidden", "not a member of this team")
+  if (!p.user || !memberOf(deps.state(), deps.rows, p.user) || p.team !== deps.team) return fail("auth.forbidden", "not a member of this team")
   const defs = { "team_vm.ssh_cert": TeamVmSshCert, "team_vm.ssh_cert.challenge": TeamVmSshCertChallenge, "team_vm.ssh_cert.revoke": TeamVmSshCertRevoke, "team_vm.ssh_ca.rotate": TeamVmSshCaRotate } as const
   const def = Object.hasOwn(defs, frame.op) ? defs[frame.op as keyof typeof defs] : null
   if (!def) return fail("validation.invalid", `unknown op ${frame.op}`)

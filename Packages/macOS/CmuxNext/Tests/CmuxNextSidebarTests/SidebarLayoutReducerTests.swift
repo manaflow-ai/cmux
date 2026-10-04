@@ -21,20 +21,20 @@ import Testing
     // MARK: Defaults
 
     @Test func defaultsAreHomeWorkspacesSettingsCustomizeAccount() {
-        #expect(defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.home), .builtIn(.appStore), .app("cmux/coderouter")])
+        #expect(defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.ref) == [.app("cmux/home"), .app("cmux/app-store"), .app("cmux/coderouter")])
         #expect(defaults.sections(in: .middle, room: nil).map(\.content) == [.workspaces])
         #expect(defaults.sections(in: .bottom, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.account)])
         #expect(defaults.sections.filter { $0.region != .middle && $0.content == .items }.allSatisfy { $0.look == .builtIn && $0.title == nil })
         #expect(defaults.sections.allSatisfy { $0.content != .app })
-        #expect(defaults.firstTopItem(room: nil)?.ref == .builtIn(.home))
+        #expect(defaults.firstTopItem(room: nil)?.ref == .app("cmux/home"))
     }
 
     // MARK: Items
 
     @Test func removeHomeMakesTheAppStoreTheFirstTopItem() throws {
         let doc = try reduce(defaults, .itemRemove(home))
-        #expect(doc.firstItem(with: .builtIn(.home)) == nil)
-        #expect(doc.firstTopItem(room: nil)?.ref == .builtIn(.appStore))
+        #expect(doc.firstItem(with: .app("cmux/home")) == nil)
+        #expect(doc.firstTopItem(room: nil)?.ref == .app("cmux/app-store"))
         #expect(doc.revision == defaults.revision + 1)
     }
 
@@ -47,13 +47,13 @@ import Testing
     }
 
     @Test func addingTheSameRefTwiceToASectionIsANoOp() throws {
-        let again = LayoutItem(id: LayoutItemID("itm_home2"), ref: .builtIn(.home))
+        let again = LayoutItem(id: LayoutItemID("itm_home2"), ref: .app("cmux/home"))
         let doc = try reduce(defaults, .itemAdd(again, section: SidebarLayoutDocument.topSectionID, index: 0))
         #expect(doc == defaults)
     }
 
     @Test func theSameRefMayLiveInTwoSections() throws {
-        let copy = LayoutItem(id: LayoutItemID("itm_home2"), ref: .builtIn(.home))
+        let copy = LayoutItem(id: LayoutItemID("itm_home2"), ref: .app("cmux/home"))
         let doc = try reduce(defaults, .itemAdd(copy, section: SidebarLayoutDocument.bottomSectionID, index: 0))
         #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.first == copy)
     }
@@ -82,7 +82,7 @@ import Testing
     }
 
     @Test func moveOntoASectionHoldingTheSameRefIsRefused() throws {
-        let copy = LayoutItem(id: LayoutItemID("itm_home2"), ref: .builtIn(.home))
+        let copy = LayoutItem(id: LayoutItemID("itm_home2"), ref: .app("cmux/home"))
         let doc = try reduce(defaults, .itemAdd(copy, section: SidebarLayoutDocument.bottomSectionID, index: 0))
         #expect(reject(doc, .itemMove(home, section: SidebarLayoutDocument.bottomSectionID, index: 0)) == .duplicateRef)
     }
@@ -188,12 +188,12 @@ import Testing
     }
 
     @Test func removeRefTakesEveryCopyOutOfTheSidebar() throws {
-        let copy = LayoutItem(id: LayoutItemID("itm_h2"), ref: .builtIn(.home))
+        let copy = LayoutItem(id: LayoutItemID("itm_h2"), ref: .app("cmux/home"))
         let two = try reduce(defaults, .itemAdd(copy, section: SidebarLayoutDocument.bottomSectionID, index: 0))
-        let none = try reduce(two, .itemRemoveRef(.builtIn(.home)))
-        #expect(none.firstItem(with: .builtIn(.home)) == nil)
+        let none = try reduce(two, .itemRemoveRef(.app("cmux/home")))
+        #expect(none.firstItem(with: .app("cmux/home")) == nil)
         #expect(none.revision == two.revision + 1)
-        #expect(reject(none, .itemRemoveRef(.builtIn(.home))) == .unknownItem)
+        #expect(reject(none, .itemRemoveRef(.app("cmux/home"))) == .unknownItem)
     }
 
     @Test func itemUpdateTogglesTheLabel() throws {
@@ -233,25 +233,25 @@ import Testing
 
     @Test func reAddHomeGoesBackToTheTop() throws {
         let removed = try reduce(defaults, .itemRemove(home))
-        let op = try #require(SidebarLayoutPlanner.add(.builtIn(.home), in: removed, newItem: LayoutItemID("itm_h2")))
+        let op = try #require(SidebarLayoutPlanner.add(.app("cmux/home"), in: removed, newItem: LayoutItemID("itm_h2")))
         let doc = try reduce(removed, op)
-        #expect(doc.firstTopItem(room: nil)?.ref == .builtIn(.home))
-        #expect(SidebarLayoutPlanner.add(.builtIn(.home), in: defaults) == nil)
+        #expect(doc.firstTopItem(room: nil)?.ref == .app("cmux/home"))
+        #expect(SidebarLayoutPlanner.add(.app("cmux/home"), in: defaults) == nil)
     }
 
     @Test func reAddHomeCreatesATopSectionWhenTheRegionIsEmpty() throws {
         let removed = try reduce(defaults, .sectionRemove(SidebarLayoutDocument.topSectionID))
-        let op = try #require(SidebarLayoutPlanner.add(.builtIn(.home), in: removed, newItem: LayoutItemID("itm_h2"),
+        let op = try #require(SidebarLayoutPlanner.add(.app("cmux/home"), in: removed, newItem: LayoutItemID("itm_h2"),
                                                        newSection: LayoutSectionID("sec_t2")))
         let doc = try reduce(removed, op)
         let top = doc.sections(in: .top, room: nil)
         #expect(top.map(\.id) == [LayoutSectionID("sec_t2")])
-        #expect(top.first?.look == .builtIn && top.first?.items.map(\.ref) == [.builtIn(.home)])
+        #expect(top.first?.look == .builtIn && top.first?.items.map(\.ref) == [.app("cmux/home")])
     }
 
     @Test func plannerRemove() throws {
-        let op = try #require(SidebarLayoutPlanner.remove(.builtIn(.home), in: defaults))
-        #expect(op == .itemRemoveRef(.builtIn(.home)))
+        let op = try #require(SidebarLayoutPlanner.remove(.app("cmux/home"), in: defaults))
+        #expect(op == .itemRemoveRef(.app("cmux/home")))
         #expect(SidebarLayoutPlanner.remove(.builtIn(.history), in: defaults) == nil)
     }
 

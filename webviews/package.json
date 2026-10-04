@@ -11,7 +11,7 @@
     "dev": "vp dev",
     "dev:agent-pane": "vp dev --config vite.config.acpmux-pane.mjs",
     "dev:settings": "vp dev --config vite.config.settings-page.mjs",
-    "strings:settings": "bun scripts/pages/settings/generate-strings.mjs",
+    "strings:settings": "node scripts/pages/gen-strings.mjs settings",
     "compare:agent-pane": "node scripts/agent-pane/compare.mjs",
     "fmt": "vp fmt",
     "lint": "vp lint",
@@ -44,6 +44,7 @@
     "react-dom": "19.2.3",
     "shiki": "3.23.0",
     "solid-js": "^1.9.13",
+    "vega-interpreter": "1.0.5",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0"
   },
   "devDependencies": {

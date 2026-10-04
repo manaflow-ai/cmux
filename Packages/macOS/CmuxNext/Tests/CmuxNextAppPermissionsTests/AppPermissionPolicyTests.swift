@@ -168,4 +168,13 @@ import Testing
         #expect(AppPermissionPolicy.refusedScopes(asked, for: .unverified) == ["fs:write", "feed:answer", "coderouter:keys"])
         #expect(AppPermissionPolicy.refusedScopes(asked, for: .firstParty).isEmpty)
     }
+
+    @Test func elevatedScopesNeverStartCheckedAndAnyTierMayHoldThem() {
+        let kind = AppScopeKind("terminal:backend")
+        #expect(kind.isElevated && !kind.isRestricted)
+        for tier in AppTier.allCases {
+            #expect(!AppInstallDraft.onByDefault(kind, tier: tier), "\(tier)")
+            #expect(AppPermissionPolicy.mayHold("terminal:backend", tier: tier), "\(tier)")
+        }
+    }
 }

@@ -4,7 +4,7 @@ import type { Rendered } from "./testing";
 
 const restore = installDom();
 afterAll(() => restore());
-const { changeValue, fire, ops, renderPage, run } = await import("./testing");
+const { changeValue, fire, ops, renderPage, rowElement, run } = await import("./testing");
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -71,9 +71,14 @@ test("Return reveals the row in its section and focuses its control; Esc clears,
 
 test("Up/Down move between rows, Space toggles; dispatcher commands reset, go back and find; chords do nothing", async () => {
   page = await renderPage({ path: "/settings/general" });
+  const sectionRows = [
+    ...page.container.querySelectorAll<HTMLElement>(".content [data-row-key], .content [data-action-row]"),
+  ];
   await fire(search(page), "keydown", { key: "ArrowDown" });
-  const first = document.activeElement as HTMLElement;
-  expect(first.getAttribute("data-row-key")).toBe("history.terminalCommands");
+  expect(document.activeElement).toBe(sectionRows[0]!);
+  // A toggle row by key, so a new row in General does not change what this test drives.
+  const first = rowElement(page.container, "history.terminalCommands");
+  first.focus();
   await fire(first, "keydown", { key: " " });
   expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "history.terminalCommands", value: true }]);
   // The page handles no Cmd chords: the app's key dispatcher owns them.
@@ -81,8 +86,11 @@ test("Up/Down move between rows, Space toggles; dispatcher commands reset, go ba
   expect(ops(page.provider, "cmux.settings.reset")).toEqual([]);
   await run(() => page!.provider.sendCommand("reset"));
   expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key: "history.terminalCommands" }]);
+  // The next row in the section's rendered order (the schema decides which one it is).
+  const rows = [...page.container.querySelectorAll(".content [data-row-key], .content [data-action-row]")];
+  const next = rows[rows.indexOf(first) + 1]!;
   await fire(first, "keydown", { key: "ArrowDown" });
-  expect((document.activeElement as HTMLElement).getAttribute("data-row-key")).toBe("window.titlebar");
+  expect(document.activeElement).toBe(next);
 
   await fire(page.container.querySelector('[data-section-link="browser"]')!, "click");
   expect(page.history.location.pathname).toBe("/settings/browser");

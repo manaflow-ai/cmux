@@ -7,9 +7,14 @@
 //! server never sees the bearer.
 
 pub mod api;
+pub mod app_env;
+pub mod clock;
 pub mod connector;
+pub mod fs;
 pub mod link;
 pub mod ops;
+pub mod ports;
+pub mod proxy;
 pub mod rescue;
 
 pub use api::{

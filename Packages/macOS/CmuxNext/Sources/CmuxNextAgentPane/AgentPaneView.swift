@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextPages
 import os
 public import WebKit
 
@@ -40,9 +41,14 @@ public final class AgentPaneView: NSView {
     private let navigation = AgentPaneNavigation()
     /// The composer's mic; nothing runs until the user starts it.
     let dictation: AgentPaneDictation
-    private var crashReloads = AgentPaneCrashReloads()
+    var crashReloads = PageCrashReloads()
     /// Shown instead of reloading once the page keeps crashing.
-    private var crashNotice: NSView?
+    var crashNotice: NSView?
+    /// On the shared page host (`cmux-page://cmux.agent/`, the `agent.pageHost` tunable): the page
+    /// view and the provider that answers its calls and carries the host's pushes. Nil on the old
+    /// host (`cmux-agent://pane`, deleted with P5 of the agent pane move).
+    let page: PageWebView?
+    let pageEvents: AgentPageProvider?
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
     private var motionObservation: Task<Void, Never>?
@@ -64,29 +70,51 @@ public final class AgentPaneView: NSView {
     ///   - renderRate: How fast the page renders. Adaptive starts at the
     ///     display's full rate and caps it while scrolls miss frames, as they
     ///     do on a loaded machine (#16471).
-    public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped) {
+    ///   - pageHost: Host the page on the shared page host (``PageWebView``) instead of this
+    ///     view's own WebKit host. Only a bundled page can move; a dev-server page stays.
+    public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
+                 pageHost: Bool = false) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.model = model
         self.source = source
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
         self.renderRate = renderRate
-        if renderRate != .capped {
-            configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: false)
+        let webView: WKWebView
+        if pageHost, case .bundled(let index) = source {
+            let provider = AgentPageProvider { [weak model] _ in model }
+            guard let page = Self.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate)
+            else { return nil }
+            self.page = page
+            pageEvents = provider
+            webView = page.webKitView
+            dictation = AgentPaneDictation(send: { [weak provider] update in
+                if let event = AgentPageEvent.dictation(update) { provider?.publish(event) }
+            })
+        } else {
+            let configuration = WKWebViewConfiguration()
+            configuration.websiteDataStore = .nonPersistent()
+            if renderRate != .capped {
+                configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: false)
+            }
+            source.register(on: configuration)
+            // The shared web theme (`window.cmuxTheme`, `--cmux-*`): the page
+            // background is the one surface token, or clear over a see-through
+            // window (plans/cmux-next/windows.md).
+            configuration.userContentController.addUserScript(
+                WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            webView = WKWebView(frame: .zero, configuration: configuration)
+            page = nil
+            pageEvents = nil
+            dictation = AgentPaneDictation(evaluate: { [weak webView] script in webView?.evaluateJavaScript(script, completionHandler: nil) })
         }
-        source.register(on: configuration)
-        // The shared web theme (`window.cmuxTheme`, `--cmux-*`): the page
-        // background is the one surface token, or clear over a see-through
-        // window (plans/cmux-next/windows.md).
-        configuration.userContentController.addUserScript(
-            WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        let webView = WKWebView(frame: .zero, configuration: configuration)
         self.webView = webView
-        dictation = AgentPaneDictation { [weak webView] script in webView?.evaluateJavaScript(script, completionHandler: nil) }
         super.init(frame: .zero)
-        configuration.userContentController.addScriptMessageHandler(
-            AgentPaneBridge(view: self), contentWorld: .page, name: AgentPaneRequest.handlerName
-        )
+        if let page {
+            attachPage(page)
+        } else {
+            webView.configuration.userContentController.addScriptMessageHandler(
+                AgentPaneBridge(view: self), contentWorld: .page, name: AgentPaneRequest.handlerName
+            )
+        }
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
@@ -108,10 +136,12 @@ public final class AgentPaneView: NSView {
             self.rendersAtFullRate = full
         }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
-        navigation.view = self
-        webView.navigationDelegate = navigation
-        addSubview(webView)
-        source.load(into: webView)
+        if page == nil {
+            navigation.view = self
+            webView.navigationDelegate = navigation
+            addSubview(webView)
+            source.load(into: webView)
+        }
         Self.logger.info("agent pane webview loading source=\(Self.sourceDescription(source), privacy: .public) bundled=\(Self.bundledPage != nil, privacy: .public)")
         observeMotion()
     }
@@ -146,7 +176,7 @@ public final class AgentPaneView: NSView {
 
     public override func layout() {
         super.layout()
-        webView.frame = bounds
+        if let page { page.frame = bounds } else { webView.frame = bounds }
     }
 
     /// WebKit's feature that renders a page at the display-rate divisor
@@ -230,19 +260,19 @@ public final class AgentPaneView: NSView {
     /// Opens the page's "Search chats" palette (Cmd-K, `agentPane.searchChats`);
     /// a second call closes it.
     public func showSearchChats() {
-        webView.evaluateJavaScript("window.cmuxAcpmuxBridge?.command?.(\"searchChats\");", completionHandler: nil)
+        deliver([.command("searchChats")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"searchChats\");"])
     }
 
     /// Opens the frontend's Continue in… chooser. The chooser owns target
     /// selection and preparation; native actions do not create a second
     /// handoff pipeline.
     public func showContinueIn() {
-        evaluateScript("window.cmuxAcpmuxBridge?.command?.(\"continueIn\");")
+        deliver([.command("continueIn")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"continueIn\");"])
     }
     /// Palette and page buttons enter the same inline checkpoint review.
     public func showCreateCheckpoint() {
         guard model.checkpointAvailable else { return }
-        evaluateScript("window.cmuxAcpmuxBridge?.command?.(\"createCheckpoint\");")
+        deliver([.command("createCheckpoint")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"createCheckpoint\");"])
     }
 
     /// Runs a grouped-permission action from the app shortcut registry. The
@@ -252,7 +282,7 @@ public final class AgentPaneView: NSView {
         let allowed = ["permissionAllowOnce", "permissionAllowChat", "permissionDeny", "permissionExpand",
                        "permissionRetry", "permissionRevoke", "permissionRefresh"]
         guard allowed.contains(command) else { return }
-        evaluateScript("window.cmuxAcpmuxBridge?.command?.(\"\(command)\");")
+        deliver([.command(command)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"\(command)\");"])
     }
 
     /// Stops whichever agent pane is dictating, keeping its words, so the
@@ -272,8 +302,12 @@ public final class AgentPaneView: NSView {
         reduceMotionObserver = nil
         reduceMotionOverrideObserver = nil
         dictation.close()
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: AgentPaneRequest.handlerName, contentWorld: .page)
-        webView.navigationDelegate = nil
+        if let page {
+            page.close()
+        } else {
+            webView.configuration.userContentController.removeScriptMessageHandler(forName: AgentPaneRequest.handlerName, contentWorld: .page)
+            webView.navigationDelegate = nil
+        }
         webView.stopLoading()
         webView.loadHTMLString("", baseURL: nil)
         removeFromSuperview()
@@ -297,57 +331,6 @@ public final class AgentPaneView: NSView {
         applyTheme()
     }
 
-    /// Reloads the page after its web content process crashed, unless it
-    /// keeps crashing; then the pane says so and waits for the user.
-    func webContentProcessDidTerminate() {
-        // The composer that held the session's words is gone.
-        dictation.handle(.cancel)
-        if crashReloads.shouldReload(at: .now) {
-            source.load(into: webView)
-        } else {
-            showCrashNotice()
-        }
-    }
-
-    private func showCrashNotice() {
-        guard crashNotice == nil else { return }
-        let message = NSTextField(wrappingLabelWithString: Self.crashedMessage)
-        message.alignment = .center
-        let reload = NSButton(title: Self.reloadTitle, target: self, action: #selector(reloadAfterCrashes))
-        let notice = NSStackView(views: [message, reload])
-        notice.orientation = .vertical
-        notice.spacing = 12
-        notice.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(notice)
-        let inset = notice.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -48)
-        // A pane narrower than the inset clips the notice instead of
-        // breaking the layout.
-        inset.priority = .defaultHigh
-        NSLayoutConstraint.activate([
-            notice.centerXAnchor.constraint(equalTo: centerXAnchor),
-            notice.centerYAnchor.constraint(equalTo: centerYAnchor),
-            inset,
-        ])
-        crashNotice = notice
-        themeCrashNotice(themeTokens)
-    }
-
-    /// The notice sits on the pane's background, so it takes the pane's
-    /// theme rather than the system appearance.
-    private func themeCrashNotice(_ tokens: ThemeTokens) {
-        guard let notice = crashNotice else { return }
-        notice.appearance = NSAppearance(named: tokens.isDark ? .darkAqua : .aqua)
-        for case let label as NSTextField in notice.subviews {
-            label.textColor = tokens.textSecondary.nsColor
-        }
-    }
-
-    @objc private func reloadAfterCrashes() {
-        crashNotice?.removeFromSuperview()
-        crashNotice = nil
-        crashReloads = AgentPaneCrashReloads()
-        source.load(into: webView)
-    }
 
     /// Runs a script in the page (tests record them).
     lazy var evaluateScript: (String) -> Void = { [weak self] script in
@@ -357,15 +340,13 @@ public final class AgentPaneView: NSView {
     /// Focus Location Bar on a new tab page: the field takes the keyboard and
     /// selects its text, wherever focus was on the page.
     public func focusLocation() {
-        evaluateScript("window.dispatchEvent(new Event('acpmux-focus-location'))")
+        deliver([.focusLocation], scripts: ["window.dispatchEvent(new Event('acpmux-focus-location'))"])
     }
 
     /// Pushes ``customization`` to the page, even an empty one (it clears
     /// what removed files left behind).
     func applyCustomization() {
-        for script in customization.scripts() {
-            evaluateScript(script)
-        }
+        deliver(AgentPageEvent.customization(customization), scripts: customization.scripts())
     }
 
     /// Re-pushes a non-empty ``customization`` to a page that may not have
@@ -381,8 +362,7 @@ public final class AgentPaneView: NSView {
 
     /// Pushes ``shortcuts`` to the page.
     func applyShortcuts() {
-        guard let script = shortcuts.script() else { return }
-        evaluateScript(script)
+        deliver([.shortcuts(shortcuts)], scripts: shortcuts.script().map { [$0] } ?? [])
     }
 
     /// Pushes this view's scope tokens to the page (and to the area WebKit
@@ -392,7 +372,17 @@ public final class AgentPaneView: NSView {
         let surface = surfaceKind
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
         themeCrashNotice(tokens)
-        guard let script = AgentPaneTheme.script(tokens, surface: surface) else { return }
-        evaluateScript(script)
+        page?.themeSurface = surface
+        deliver(AgentPageEvent.theme(tokens, surface: surface).map { [$0] } ?? [],
+                scripts: AgentPaneTheme.script(tokens, surface: surface).map { [$0] } ?? [])
+    }
+
+    /// Sends a push to the page: events on the page host, scripts on the old host (only built there).
+    func deliver(_ events: [AgentPageEvent], scripts: @autoclosure () -> [String]) {
+        if let pageEvents {
+            for event in events { pageEvents.publish(event) }
+        } else {
+            for script in scripts() { evaluateScript(script) }
+        }
     }
 }

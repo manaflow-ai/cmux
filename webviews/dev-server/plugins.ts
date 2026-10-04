@@ -3,14 +3,17 @@
 // shipped bundles never see it. Surfaces, each a path:
 //   /                 an index of the surfaces below
 //   /diff/            the diff viewer (`cmux diff`) against the real cmux-diff-sidecar
-//   /markdown?file=   the markdown viewer shell (Resources/markdown-viewer/shell.html)
+//   /markdown?file=   the markdown editor (markdown-page.html, src/pages/markdown) on a repo file
+//   /markdown/viewer?file=  the classic markdown viewer shell (Resources/markdown-viewer/shell.html)
 //   /agent-pane/      the agent pane (src/agent-session/acpmux/index.html; prototype.html beside it)
-//   /history/ /apps/ /cloud/  React pages (src/pages/<page>/index.html); `?mock` uses the page's in-memory provider
+//   /history/ /apps/ /cloud/ /keybindings/  React pages (src/pages/<page>/index.html); `?mock` uses the page's in-memory provider
 // scripts/agent-pane/dev-slot.sh runs one per slot next to a standalone acpmux daemon.
 //
 // Env: CMUX_WEBVIEWS_DEV_PORT (default 4200). Diff: CMUX_DIFF_SIDECAR (else the newest one in a
 // built app), CMUX_DIFF_DEV_CMUX, CMUX_DIFF_DEV_REPO (the repo above webviews/), CMUX_DIFF_DEV_BASE
-// (HEAD~5). Markdown: CMUX_MARKDOWN_DEV_ROOT (the repo above webviews/), CMUX_MARKDOWN_DEV_FILE.
+// (HEAD~5). Markdown: CMUX_MARKDOWN_DEV_ROOT (the repo above webviews/, writable),
+// CMUX_MARKDOWN_DEV_READONLY_ROOTS (colon-separated folders whose files open read only),
+// CMUX_MARKDOWN_DEV_FILE.
 import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
@@ -29,7 +32,19 @@ import {
   rpcRequestStatus,
 } from "./diffHost";
 import { diffLanguagesDirectory, readDiffLanguagePack } from "./diffLanguages";
-import { SHELL_LIBS, SHELL_PLACEHOLDERS, fillShell, markdownFiles, splitStyles } from "./markdownHost";
+import {
+  PAGE_LIBS,
+  SHELL_LIBS,
+  SHELL_PLACEHOLDERS,
+  fillShell,
+  markdownAsset,
+  markdownFiles,
+  cmuxConfigFile,
+  readMarkdown,
+  readMarkdownLook,
+  saveMarkdown,
+  splitStyles,
+} from "./markdownHost";
 
 const webviewsRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const repoRoot = path.join(webviewsRoot, "..");
@@ -69,10 +84,11 @@ const indexPage = `<!doctype html>
 <h1>cmux webviews (dev)</h1>
 <ul>
 <li><a href="/diff/">/diff/</a>: diff viewer, <code>?source=branch&amp;base=HEAD~5</code>, <code>?source=unstaged|staged</code>, <code>&amp;layout=unified</code></li>
-<li><a href="/markdown">/markdown</a>: markdown viewer, <code>?file=&lt;path&gt;</code></li>
+<li><a href="/markdown">/markdown</a>: markdown editor, <code>?file=&lt;path&gt;</code>; <a href="/markdown/viewer">/markdown/viewer</a>: the classic viewer shell</li>
 <li><a href="/history/?mock">/history/?mock</a>: History page against the in-page mock provider</li>
 <li><a href="/apps/?mock">/apps/?mock</a>: App Store page against the in-page mock provider (<code>#/discover?layout=list|split</code>, <code>#/installed</code>)</li>
 <li><a href="/cloud/?mock">/cloud/?mock</a>: Cloud page against the in-page mock provider (<code>&amp;layout=cards</code> for the cards layout)</li>
+<li><a href="/keybindings/?mock">/keybindings/?mock</a>: Keyboard Shortcuts page against the in-page mock provider</li>
 <li><a href="/agent-pane/?mock">/agent-pane/?mock</a>: agent pane against the in-page mock daemon (<code>dev-slot.sh</code> prints a real-daemon URL); <a href="/agent-pane/prototype.html?mock">prototype.html</a></li>
 </ul>
 </body></html>`;
@@ -83,6 +99,8 @@ const devEntries = [
   "src/agent-session/acpmux/dev.tsx",
   "src/agent-session/acpmux/prototype/dev.tsx",
   "src/markdown-viewer/devHost.ts",
+  "src/pages/markdown/devBridge.ts",
+  "src/pages/markdown/main.tsx",
 ];
 
 /// The index page, dev React and the dependency cache.
@@ -191,7 +209,7 @@ function agentPaneHost(): Plugin {
 
 /// /<page>/ serves src/pages/<page>/index.html for the React pages (plans/cmux-next/react-pages.md).
 /// The page boots its own client: the app bridge when present, else the mock provider with `?mock`.
-const DEV_PAGES = ["history", "apps", "cloud"];
+const DEV_PAGES = ["history", "apps", "cloud", "keybindings"];
 
 function pagesHost(): Plugin {
   return {
@@ -400,7 +418,12 @@ function diffHost(): Plugin {
   };
 }
 
-/// The markdown viewer: /markdown fills shell.html's {{placeholders}} from the same assets
+/// The markdown editor and the classic viewer. /markdown serves markdown-page.html (the editor,
+/// src/pages/markdown) with src/pages/markdown/devBridge.ts first, which installs a stand-in for the
+/// app's cmuxPage bridge: its calls arrive as POST /__cmux-markdown/op and this server implements
+/// the host ops (host.ts) on files below the root, saves refused on a hash conflict; images come
+/// from /__cmux-markdown/asset/<file>/<path>, diagram libraries from /__cmux-markdown/page-lib/.
+/// /markdown/viewer fills shell.html's {{placeholders}} from the same assets
 /// MarkdownViewerAssets.shellHTML uses and adds src/markdown-viewer/devHost.ts, which plays the
 /// Swift host (render calls and the `cmuxLib` handler). Edits to a shell <style> block or a bundled
 /// stylesheet replace that style in place; markdown saves re-render in place; script edits reload.
@@ -410,6 +433,7 @@ function markdownHost(): Plugin {
   const files = markdownFiles(
     process.env.CMUX_MARKDOWN_DEV_ROOT || repoRoot,
     process.env.CMUX_MARKDOWN_DEV_FILE || path.join(webviewsRoot, "src/agent-session/acpmux/README.md"),
+    (process.env.CMUX_MARKDOWN_DEV_READONLY_ROOTS ?? "").split(":").filter(Boolean),
   );
   const watchedAssets = new Set([
     shellPath,
@@ -419,31 +443,158 @@ function markdownHost(): Plugin {
   const readAsset = (name: string) => fs.readFileSync(path.join(assetsDir, name), "utf8");
   const shellHTML = () => fillShell(readAsset("shell.html"), readAsset);
   let last = { styles: [] as string[], skeleton: "" };
+  const watch = (server: ViteDevServer, file: string) => {
+    if (watchedFiles.has(file)) return;
+    watchedFiles.add(file);
+    server.watcher.add(file);
+  };
+
+  type OpReply = { status: number; body: unknown };
+  const runOp = (server: ViteDevServer, file: string, op: string, params: Record<string, unknown>): OpReply => {
+    const pageError = (status: number, code: string, message: string, details?: unknown) => ({
+      status,
+      body: { code, message, details },
+    });
+    if (op === "cmux.markdown.config" || op === "cmux.markdown.read") {
+      const content = readMarkdown(file);
+      if (!content)
+        return op === "cmux.markdown.read"
+          ? { status: 200, body: { deleted: true } }
+          : pageError(404, "cmux.markdown.not_found", file);
+      watch(server, file);
+      if (op === "cmux.markdown.read") return { status: 200, body: { text: content.text, hash: content.hash } };
+      return {
+        status: 200,
+        body: {
+          path: file,
+          text: content.text,
+          hash: content.hash,
+          readOnly: !files.writable(file) || !content.utf8,
+          assetBase: `/__cmux-markdown/asset/${encodeURIComponent(file)}/`,
+          libBase: "/__cmux-markdown/page-lib/",
+          ...readMarkdownLook(cmuxConfigFile()),
+        },
+      };
+    }
+    if (op === "cmux.markdown.save") {
+      if (params.path !== file || typeof params.text !== "string")
+        return pageError(400, "cmux.protocol.invalid_params", "save");
+      const baseHash = typeof params.baseHash === "string" ? params.baseHash : null;
+      const outcome = saveMarkdown(file, params.text, baseHash, files.writable(file));
+      if (outcome.ok) return { status: 200, body: { hash: outcome.hash } };
+      return pageError(409, outcome.code, outcome.code, "details" in outcome ? outcome.details : undefined);
+    }
+    if (op === "cmux.markdown.openLink") {
+      // The dev stand-in for the app: a markdown file below the root opens in this page, anything
+      // else the browser opens.
+      const href = typeof params.href === "string" ? params.href : "";
+      if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return { status: 200, body: { url: href } };
+      const target = files.link(file, href);
+      return { status: 200, body: target ? { navigate: `/markdown?file=${encodeURIComponent(target)}` } : {} };
+    }
+    return pageError(404, "cmux.protocol.unknown_op", op);
+  };
+
   return {
     name: "cmux-dev-markdown",
     apply: "serve",
     configureServer(server) {
+      const port = () => server.config.server.port ?? DEV_SERVER_PORT;
       server.watcher.add([...watchedAssets]);
+      server.watcher.on("unlink", (file) => {
+        if (watchedFiles.has(file)) server.ws.send({ type: "custom", event: "cmux-markdown:content", data: { file } });
+      });
       last = splitStyles(shellHTML());
-      server.middlewares.use((request, response, next) => {
+      // The look follows cmux.json's `markdown` section and markdown/theme.css live, as the app's
+      // watcher does: fs.watch on the config folder (Vite's watcher skips files outside the root).
+      const configFile = cmuxConfigFile();
+      const sendLook = () =>
+        server.ws.send({ type: "custom", event: "cmux-markdown:look", data: readMarkdownLook(configFile) });
+      for (const [folder, names] of [
+        [path.dirname(configFile), [path.basename(configFile)]],
+        [path.join(path.dirname(configFile), "markdown"), ["theme.css"]],
+      ] as const) {
+        try {
+          const watcher = fs.watch(folder, (_event, name) => {
+            if (!name || (names as readonly string[]).includes(String(name))) sendLook();
+          });
+          server.httpServer?.on("close", () => watcher.close());
+        } catch {
+          // No such folder: a look file created later applies on the next page load.
+        }
+      }
+      server.middlewares.use(async (request, response, next) => {
         const url = new URL(request.url ?? "/", "http://localhost");
         if (url.pathname === "/markdown" || url.pathname === "/markdown/") {
           const file = files.file(url.searchParams.get("file") ?? "");
           if (!file) return send(response, 404, "text/plain", `not a markdown file under ${files.root}`);
-          if (!url.searchParams.has("file")) return redirect(response, `/markdown?file=${encodeURIComponent(file)}`);
+          if (!url.searchParams.has("file") || url.pathname.endsWith("/")) {
+            return redirect(response, `/markdown?file=${encodeURIComponent(file)}`);
+          }
+          try {
+            let html = fs.readFileSync(path.join(webviewsRoot, "markdown-page.html"), "utf8");
+            html = html
+              .replace('src="./src/', 'src="/src/')
+              .replace("<body>", '<body>\n    <script type="module" src="/src/pages/markdown/devBridge.ts"></script>');
+            html = await server.transformIndexHtml("/markdown-page.html", html, request.originalUrl);
+            return send(response, 200, "text/html; charset=utf-8", html);
+          } catch (error) {
+            return next(error);
+          }
+        }
+        if (url.pathname === "/markdown/viewer") {
+          const file = files.file(url.searchParams.get("file") ?? "");
+          if (!file) return send(response, 404, "text/plain", `not a markdown file under ${files.root}`);
+          if (!url.searchParams.has("file"))
+            return redirect(response, `/markdown/viewer?file=${encodeURIComponent(file)}`);
           const html = shellHTML().replace(
             "</body>",
             '<script type="module" src="/@vite/client"></script>\n<script type="module" src="/src/markdown-viewer/devHost.ts"></script>\n</body>',
           );
           return send(response, 200, "text/html; charset=utf-8", html);
         }
+        if (url.pathname === "/__cmux-markdown/op") {
+          const refused = rpcRequestStatus(request, port());
+          if (refused) return send(response, refused, "text/plain", "");
+          try {
+            const body = JSON.parse((await readBody(request)).toString("utf8")) as {
+              file?: string;
+              op?: string;
+              params?: Record<string, unknown>;
+            };
+            const file = files.file(body.file ?? "");
+            if (!file)
+              return send(response, 404, "application/json", JSON.stringify({ code: "cmux.markdown.not_found" }));
+            const reply = runOp(server, file, String(body.op), body.params ?? {});
+            return send(response, reply.status, "application/json", JSON.stringify(reply.body));
+          } catch (error) {
+            server.config.logger.error(`cmux markdown dev: ${errorText(error)}`);
+            return send(
+              response,
+              500,
+              "application/json",
+              JSON.stringify({ code: "cmux.page.failed", message: String(error) }),
+            );
+          }
+        }
+        const asset = url.pathname.match(/^\/__cmux-markdown\/asset\/([^/]+)\/(.+)$/);
+        if (asset) {
+          const file = files.file(decodeURIComponent(asset[1]));
+          const resolved = file ? markdownAsset(file, decodeURIComponent(asset[2])) : undefined;
+          if (!resolved) return send(response, 404, "text/plain", "");
+          response.setHeader("Content-Type", resolved.contentType);
+          response.setHeader("Cache-Control", "no-store");
+          return void fs.createReadStream(resolved.file).pipe(response);
+        }
+        const pageLib = url.pathname.match(/^\/__cmux-markdown\/page-lib\/([a-z-]+)\.js$/)?.[1];
+        if (pageLib) {
+          if (!Object.hasOwn(PAGE_LIBS, pageLib)) return send(response, 404, "text/plain", "unknown lib");
+          return send(response, 200, "text/javascript", PAGE_LIBS[pageLib].map(readAsset).join("\n;"));
+        }
         if (url.pathname === "/__cmux-markdown/content") {
           const file = files.file(url.searchParams.get("file") ?? "");
           if (!file) return send(response, 404, "text/plain", "not found");
-          if (!watchedFiles.has(file)) {
-            watchedFiles.add(file);
-            server.watcher.add(file);
-          }
+          watch(server, file);
           return send(response, 200, "text/markdown; charset=utf-8", fs.readFileSync(file, "utf8"));
         }
         if (url.pathname === "/__cmux-markdown/resolve") {

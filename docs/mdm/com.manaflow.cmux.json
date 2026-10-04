@@ -205,6 +205,18 @@
       "title" : "Browser Toolbar Opacity",
       "type" : "number"
     },
+    "appearance.surfaces.diff.color" : {
+      "description" : "appearance.surfaces.diff.color",
+      "title" : "Diff Viewer Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.diff.opacity" : {
+      "description" : "appearance.surfaces.diff.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Diff Viewer Opacity",
+      "type" : "number"
+    },
     "appearance.surfaces.docks.color" : {
       "description" : "appearance.surfaces.docks.color",
       "title" : "Docked Columns Color",
@@ -639,6 +651,17 @@
       "title" : "MinimumVersion",
       "type" : "string"
     },
+    "navigation.historyScope" : {
+      "default" : "workspace",
+      "description" : "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history.",
+      "enum" : [
+        "workspace",
+        "window",
+        "surface"
+      ],
+      "title" : "Back and Forward",
+      "type" : "string"
+    },
     "newTerminal.opensWorkspace" : {
       "default" : false,
       "description" : "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click.",
@@ -1034,7 +1057,7 @@
       "type" : "boolean"
     },
     "tabs.newTabKind" : {
-      "default" : "same-kind",
+      "default" : "page",
       "description" : "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.",
       "enum" : [
         "same-kind",

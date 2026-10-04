@@ -27,6 +27,21 @@ export interface InboxBump {
   readonly dm_peer?: string
   /** The user left or was removed in this commit. */
   readonly removed?: boolean
+  /**
+   * Push facts of the last message (`last_seq`), for the UserDO push decision. Every bump of
+   * the conversation describes the same last message, so a coalesced bump keeps them.
+   */
+  readonly last_author?: string
+  readonly last_author_kind?: "human" | "agent"
+  /**
+   * The last message is an agent's approval request addressed to this user (the agent's
+   * `owner_user`): it notifies even when the conversation is muted. Other members never get it.
+   */
+  readonly last_approval?: true
+  /** The last message mentions this user. */
+  readonly last_mention?: true
+  /** This user's `joined_seq`: messages at or before it were history when the user joined. */
+  readonly joined_seq?: number
 }
 
 export type WakeReason = "dm" | "mention" | "reply"
@@ -100,6 +115,9 @@ export const truncateUtf8 = (text: string, maxBytes: number): string => {
   }
   return out
 }
+
+/** An `approval` part (home.md section 5). Read structurally: the part type is not in the conversation vocabulary yet. */
+export const hasApprovalPart = (message: Message): boolean => message.parts.some((part) => (part as { readonly type: string }).type === "approval")
 
 export const mentionsOf = (message: Message): ReadonlySet<string> =>
   new Set(message.parts.flatMap((part) => (part.type === "text" ? (part.runs ?? []).flatMap((run) => (run.mention ? [run.mention] : [])) : [])))
@@ -224,6 +242,8 @@ export const fanOut = ({ before, request, commit, counts }: FanOutInput): FanOut
   const row = (user: string, isRemoved: boolean): InboxBump => {
     const count = isRemoved ? undefined : countFor(user)
     const peer = dmPeer(head, user)
+    const author = lastMessage && lastMessage.retracted_at === undefined ? findParticipant(head, lastMessage.author) : undefined
+    const joined = findParticipant(head, user)?.joined_seq
     return {
       user,
       conversation: head.id,
@@ -235,7 +255,12 @@ export const fanOut = ({ before, request, commit, counts }: FanOutInput): FanOut
       preview,
       ...(count ? { unread: count.unread, mentions: count.mentions } : {}),
       ...(peer ? { dm_peer: peer } : {}),
-      ...(isRemoved ? { removed: true } : {})
+      ...(isRemoved ? { removed: true } : {}),
+      ...(author && lastMessage ? { last_author: author.id, last_author_kind: author.kind === "agent" ? ("agent" as const) : ("human" as const) } : {}),
+      // Only an agent asks for approval, and only its owner can decide it (home.md section 5).
+      ...(author?.kind === "agent" && author.owner_user === user && lastMessage && hasApprovalPart(lastMessage) ? { last_approval: true as const } : {}),
+      ...(author && lastMessage && mentionsOf(lastMessage).has(user) ? { last_mention: true as const } : {}),
+      ...(joined === undefined ? {} : { joined_seq: joined })
     }
   }
   const bumps = [...recipients.map((user) => row(user, false)), ...(ROW_CHANGING.has(op.kind) ? removed.map((user) => row(user, true)) : [])]

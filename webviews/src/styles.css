@@ -24,11 +24,17 @@
   --cmux-diff-accent: light-dark(#0a84ff, #7ab7ff);
   --cmux-diff-text-muted: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
   --cmux-diff-text-subtle: color-mix(in lab, var(--cmux-diff-fg) 84%, var(--cmux-diff-bg));
-  /* The one diff viewer background: page, toolbar, file headers, files
-     sidebar and tree all paint this opaque host-theme color, so no surface
-     shows another through it. `--cmux-diff-bg` follows the host theme (light
-     and dark) and is set from the terminal theme by applyDiffViewerAppearance. */
-  --cmux-diff-viewer-bg: var(--cmux-diff-bg);
+  /* The page background is the shared backdrop (R48): the host's
+     `--cmux-surface-background` (WebTheme.swift: the theme color in an opaque
+     window, transparent over a see-through one, or the surface's R55
+     override); without a host, the terminal theme color. Only `html` paints
+     it; the toolbar, diff body and every other block are clear over it.
+     `--cmux-diff-solid-bg` is that backdrop composited onto the theme color at
+     full alpha (backdrop.ts sets it): file header bars are never transparent,
+     and the files panel uses it because the tree's truncation marker must
+     cover the text under it. This fallback is the opaque case. */
+  --cmux-diff-viewer-bg: var(--cmux-surface-background, var(--cmux-diff-bg));
+  --cmux-diff-solid-bg: var(--cmux-diff-bg);
 
   background: var(--cmux-diff-viewer-bg);
   color: var(--cmux-diff-fg);
@@ -42,17 +48,19 @@
 * {
   box-sizing: border-box;
 }
+html {
+  background: var(--cmux-diff-viewer-bg);
+}
 html,
 body {
   height: 100%;
-  background: var(--cmux-diff-viewer-bg);
   overflow: hidden;
 }
 body {
   margin: 0;
   height: 100vh;
   min-height: 0;
-  background: var(--cmux-diff-viewer-bg);
+  background: transparent;
   color: var(--cmux-diff-fg);
   display: flex;
   flex-direction: column;
@@ -110,7 +118,7 @@ body {
   min-height: 32px;
   padding: 3px 4px 3px 8px;
   border-bottom: 1px solid var(--cmux-diff-border);
-  background: var(--cmux-diff-viewer-bg);
+  background: transparent;
   color: color-mix(in lab, var(--cmux-diff-fg) 76%, var(--cmux-diff-bg));
   z-index: 50;
 }
@@ -713,7 +721,7 @@ body[data-status-only="true"] #content {
   flex-direction: column;
   overflow: hidden;
   border-left: 1px solid var(--cmux-diff-border);
-  background: var(--cmux-diff-viewer-bg);
+  background: var(--cmux-diff-solid-bg);
   contain: strict;
   transform: translate3d(0, 0, 0);
   transition:
@@ -770,7 +778,7 @@ body[data-status-only="true"] #files-sidebar {
   gap: 8px;
   padding: 0 7px 0 10px;
   border-bottom: 1px solid var(--cmux-diff-border);
-  background: var(--cmux-diff-viewer-bg);
+  background: transparent;
   color: var(--cmux-diff-text-muted);
 }
 #files-title {
@@ -816,9 +824,9 @@ body[data-status-only="true"] #files-sidebar {
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
-  background: var(--cmux-diff-viewer-bg);
+  background: transparent;
   padding: 4px 2px 4px 4px;
-  --trees-bg-override: var(--cmux-diff-viewer-bg);
+  --trees-bg-override: var(--cmux-diff-solid-bg);
   --trees-fg-override: var(--cmux-diff-text-subtle);
   --trees-fg-muted-override: var(--cmux-diff-text-muted);
   --trees-bg-muted-override: var(--cmux-diff-hover-bg);
@@ -974,7 +982,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     opacity: 1;
     pointer-events: auto;
     border-left: 1px solid var(--cmux-diff-border);
-    background: var(--cmux-diff-bg);
+    background: var(--cmux-diff-solid-bg);
     box-shadow: -18px 0 42px color-mix(in srgb, #000 34%, transparent);
     isolation: isolate;
   }
@@ -1145,7 +1153,7 @@ body[data-loading="true"] #status::before {
   min-height: 0;
   max-height: 40%;
   border-top: 1px solid var(--cmux-diff-border);
-  background: var(--cmux-diff-viewer-bg);
+  background: transparent;
 }
 #comments-header {
   display: flex;
@@ -1390,7 +1398,7 @@ body[data-loading="true"] #status::before {
   gap: 4px;
   padding: 6px 7px 6px 10px;
   border-bottom: 1px solid var(--cmux-diff-border);
-  background: var(--cmux-diff-viewer-bg);
+  background: transparent;
   color: var(--cmux-diff-text-muted);
   font-size: calc(var(--cmux-diff-ui-font-size) * 0.92);
 }
@@ -1470,7 +1478,7 @@ body[data-loading="true"] #status::before {
   padding: 4px;
   border: 1px solid var(--cmux-diff-border);
   border-radius: 7px;
-  background: var(--cmux-diff-viewer-bg);
+  background: var(--cmux-diff-solid-bg);
   box-shadow: 0 8px 24px color-mix(in lab, var(--cmux-diff-fg) 18%, transparent);
 }
 .file-review-controls {

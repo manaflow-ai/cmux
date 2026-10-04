@@ -215,7 +215,7 @@ final class SidebarBridge {
     /// Whether the workspace list leaves the home workspace out: only while
     /// a Home item shows it, so it is never unreachable from the sidebar.
     static func hidesHome(_ layout: SidebarLayoutDocument) -> Bool {
-        layout.firstItem(with: .builtIn(.home)) != nil
+        layout.firstItem(with: SidebarLayoutDocument.homeRef) != nil
     }
 
     /// The profile bar of the local daemon's profiles (empty when it has

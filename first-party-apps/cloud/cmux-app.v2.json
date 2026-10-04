@@ -16,6 +16,7 @@
   "keywords": ["cloud", "vm", "machine", "snapshot", "remote"],
   "engines": { "cmux": "^2.0" },
   "catalog": "catalog/cloud-catalog.json",
+  "cli": { "name": "cloud" },
   "presentation": {
     "sidebarItem": { "section": "top", "order": 30 },
     "screen": "app",
@@ -34,7 +35,8 @@
     "data": [{ "name": "projection", "class": "ephemeral" }],
     "lifecycle": { "start": "onDemand" },
     "scopes": {
-      "op:cmux.credential.relay": "Send each Cloud request to cmux, which adds your sign-in and calls the cmux Cloud API. The server never receives the sign-in token."
+      "op:cmux.credential.relay": "Send each Cloud request to cmux, which adds your sign-in and calls the cmux Cloud API. The server never receives the sign-in token.",
+      "op:cmux.host.link.get": "Ask cmux which link program, network hub and folders to use for the private link to your Cloud machines, and get told when they change."
     }
   },
   "implements": {
@@ -42,11 +44,13 @@
       "native": "cloud",
       "title": { "en": "Cloud", "ja": "クラウド" },
       "symbol": "cloud"
-    }
+    },
+    "cmux.fs.provider/1": { "server": true, "schemes": ["cloud-vm"] }
   },
   "scopes": {
     "cloud:read": "See your Cloud machines, their status and stats, snapshots, plan and usage.",
-    "cloud:write": "Create, rename, start, pause, resize and delete Cloud machines and snapshots when you or an allowed agent asks. Deletes always need you."
+    "cloud:write": "Create, start, pause, resize and delete Cloud machines and snapshots, and forward their ports to this Mac, when you or an allowed agent asks. Deletes always need you.",
+    "fs:write": "Write and make files on your Cloud machines. Removing a file and copying files to or from this Mac always need you."
   },
   "files": ["catalog/"]
 }
