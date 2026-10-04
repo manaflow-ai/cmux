@@ -33,11 +33,11 @@ pub(crate) fn take_event_lines<C: ControlPlane>(server: &mut Server<C>) -> Vec<V
             CarrierEvent::Up { carrier } => json!({ "type": "event", "event": "cloud.link.changed",
                 "machine": carrier.target, "state": "up", "carrier": carrier.id,
                 "generation": carrier.generation }),
-            CarrierEvent::Down { target, generation, retryable, reason } => json!({
+            CarrierEvent::Down { target, generation, retryable, reason, .. } => json!({
                 "type": "event", "event": "cloud.link.changed", "machine": target,
                 "state": "down", "generation": generation, "retryable": retryable,
                 "reason": reason }),
-            CarrierEvent::Revoked { target, reason } => json!({ "type": "event",
+            CarrierEvent::Revoked { target, reason, .. } => json!({ "type": "event",
                 "event": "cloud.link.changed", "machine": target, "state": "revoked",
                 "reason": reason }),
         })
