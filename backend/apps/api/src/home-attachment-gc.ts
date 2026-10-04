@@ -16,16 +16,15 @@ export interface AttachmentGcDeps {
 
 /** The earliest attachment work: the unreferenced sweep, an upload slot's expiry, or a prefix purge. */
 export const attachmentWakeAt = (sql: Pick<SqlStore, "exec">): number | null => {
-  // A queued drop is due at once (a failing one throws, so the alarm backs off).
-  const drops = store.pendingDrops(sql, 1).length > 0 ? 0 : null
-  const times = [drops, store.nextSweepAt(sql), store.nextSlotDue(sql), store.purgeAt(sql)].filter((t): t is number => t !== null)
+  // A queued drop is due at its own next attempt (a real time, so a commit never sets the alarm to 0).
+  const times = [store.nextDropAt(sql), store.nextSweepAt(sql), store.nextSlotDue(sql), store.purgeAt(sql)].filter((t): t is number => t !== null)
   return times.length ? Math.min(...times) : null
 }
 
 /** The attachment part of the ConversationDO wake: slot expiry, the due sweep, and a due prefix purge of `entity`. */
 export const runAttachmentWake = async (deps: AttachmentGcDeps, entity: string | undefined, now: number): Promise<void> => {
   await expireSlots(deps, now)
-  await drainDrops(deps)
+  await drainDrops(deps, now)
   // A reference released earlier in this wake marks the sweep dirty at Date.now(), which may be later than the wake's `now`.
   const at = Math.max(now, Date.now())
   const due = store.nextSweepAt(deps.sql)
@@ -58,31 +57,38 @@ const expireSlots = async (deps: AttachmentGcDeps, now: number): Promise<void> =
 /** Unreferenced uploads past the grace period: forget, delete their objects, release the uploaders' storage. */
 export const sweepAttachments = async (deps: AttachmentGcDeps, now: number): Promise<number> => {
   const { records, done } = store.sweepBatch(deps.sql, now - conversation.ATTACHMENT_LIMITS.unreferencedGraceMs)
-  await drainDrops(deps)
+  await drainDrops(deps, Math.max(now, Date.now()))
   store.markSwept(deps.sql, now, done)
   return records.length
 }
 
 /**
- * Deletes the R2 objects of queued drops and releases their uploaders' stored bytes; a drop
- * leaves the queue only after both succeeded. A failure is rethrown after the batch, so the
- * owner's alarm backs off and the next wake retries (R2 deletes and releases are idempotent).
+ * Deletes the R2 objects of the due drops and releases their uploaders' stored bytes; a drop
+ * leaves the queue only after both succeeded. A failed attempt moves that drop's next attempt
+ * (store.failDrop backoff) instead of throwing, so the rest of the wake runs and the owner's alarm
+ * follows the earliest next attempt. R2 deletes and releases are idempotent.
  */
-const drainDrops = async (deps: AttachmentGcDeps): Promise<void> => {
-  let failure: unknown
-  for (let drops = store.pendingDrops(deps.sql); drops.length > 0 && failure === undefined; drops = store.pendingDrops(deps.sql)) {
-    if (deps.env.HOME_ATTACHMENTS) await deps.env.HOME_ATTACHMENTS.delete(drops.flatMap(store.recordKeys))
+const drainDrops = async (deps: AttachmentGcDeps, now: number): Promise<void> => {
+  const fail = (r: conversation.AttachmentRecord, e: unknown) => {
+    console.error(JSON.stringify({ msg: "attachment drop failed", object_key: r.object_key, error: String(e).slice(0, 200) }))
+    store.failDrop(deps.sql, r.object_key, now)
+  }
+  for (let drops = store.dueDrops(deps.sql, now); drops.length > 0; drops = store.dueDrops(deps.sql, now)) {
+    try {
+      if (deps.env.HOME_ATTACHMENTS) await deps.env.HOME_ATTACHMENTS.delete(drops.flatMap(store.recordKeys))
+    } catch (e) {
+      for (const r of drops) fail(r, e)
+      continue
+    }
     for (const r of drops) {
       try {
         await deps.users(r.quota_user).releaseAttachmentStorage(r.quota_user, r.object_key)
         store.clearDrop(deps.sql, r.object_key)
       } catch (e) {
-        console.error(JSON.stringify({ msg: "attachment storage release failed", error: String(e) }))
-        failure ??= e
+        fail(r, e)
       }
     }
   }
-  if (failure !== undefined) throw failure
 }
 
 /**
@@ -100,7 +106,9 @@ export const deleteAttachmentStorage = async (deps: AttachmentGcDeps, entity: st
     store.schedulePurge(deps.sql, Math.max(...slots.map((s) => s.expires_at)) + store.UPLOADING_GRACE_MS)
     deps.scheduleAlarm()
   }
-  await drainDrops(deps)
+  await drainDrops(deps, Date.now())
+  // A drop that failed keeps the alarm at its next attempt.
+  deps.scheduleAlarm()
   for (const slot of slots) if (slot.state !== "tombstone") await deps.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
   const known = new Set(records.flatMap(store.recordKeys))
   return records.length + (await deletePrefix(deps.env, entity)).filter((k) => !known.has(k)).length

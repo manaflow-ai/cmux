@@ -339,7 +339,9 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     const wake = this.wakeAt(now)
     const want = outboxAt === null ? wake : wake === null ? outboxAt : Math.min(outboxAt, wake)
     if (want === null) return
-    void this.ctx.storage.getAlarm().then((t) => (t === null || t > want ? this.ctx.storage.setAlarm(want) : undefined))
+    // setAlarm refuses a time <= 0; a past time fires at once, so the alarm never goes before now.
+    const at = Math.max(want, now)
+    void this.ctx.storage.getAlarm().then((t) => (t === null || t > at ? this.ctx.storage.setAlarm(at) : undefined))
   }
 
   /** One op. On an object that does not exist yet it is decided on the initial state first; a refusal writes nothing (no ledger entry). */
@@ -492,6 +494,6 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     const due = this.wakeAt(Date.now())
     const wake = wakeRetryAt !== null && due !== null ? Math.max(due, wakeRetryAt) : due
     const at = outboxAt === null ? wake : wake === null ? outboxAt : Math.min(outboxAt, wake)
-    if (at !== null) await this.ctx.storage.setAlarm(at)
+    if (at !== null) await this.ctx.storage.setAlarm(Math.max(at, Date.now()))
   }
 }

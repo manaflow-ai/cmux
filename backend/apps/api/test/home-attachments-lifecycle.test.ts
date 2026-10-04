@@ -210,6 +210,11 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
       i.env = { ...i.env, HOME_ATTACHMENTS: real }
     })
     expect(await objects(g.id)).toBe(1)
+    // The drop waits for its own backoff; once that has passed, the next alarm retries it.
+    const [drop] = await drops(stub)
+    expect(drop!.attempts).toBe(1)
+    expect(drop!.next_attempt_at!).toBeGreaterThan(Date.now())
+    await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_drops SET next_attempt_at = ?", Date.now() - 1))
     await wake(stub)
     expect(await objects(g.id)).toBe(0)
     expect(await storedBytes(alice.user)).toBe(0)
