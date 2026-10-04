@@ -224,6 +224,15 @@ class RustNoticesTest(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(tree(files), tree(fresh))
 
+    def test_files_out_with_foreign_entries_is_not_cleaned(self) -> None:
+        files = self.tmp / "foreign" / "files"
+        files.mkdir(parents=True)
+        (files / "Info.plist").write_text("not ours\n")
+        code, err, _, _ = self.generate("foreign")
+        self.assertEqual(code, 1)
+        self.assertIn("refusing to clean", err)
+        self.assertEqual((files / "Info.plist").read_text(), "not ours\n")
+
     def test_check_passes_when_fresh_and_fails_when_stale(self) -> None:
         code, err, out, files = self.generate("check")
         self.assertEqual(code, 0, err)
@@ -251,6 +260,26 @@ class RustNoticesTest(unittest.TestCase):
         code, err, _, _ = self.generate("not-an-option")
         self.assertEqual(code, 1)
         self.assertIn("BSD-3-Clause", err)
+
+    def test_or_alternatives(self) -> None:
+        cases = {
+            "MIT OR Apache-2.0 OR LGPL-2.1-or-later": ["MIT", "Apache-2.0", "LGPL-2.1-or-later"],
+            "(MIT OR Apache-2.0) AND Unicode-3.0": ["(MIT OR Apache-2.0) AND Unicode-3.0"],
+            "(MIT OR Apache-2.0) AND (Zlib OR ISC)": ["(MIT OR Apache-2.0) AND (Zlib OR ISC)"],
+            "(MIT OR Apache-2.0) OR Zlib": ["MIT OR Apache-2.0", "Zlib"],
+            "Apache-2.0 WITH LLVM-exception OR MIT": ["Apache-2.0 WITH LLVM-exception", "MIT"],
+        }
+        for expression, terms in cases.items():
+            self.assertEqual(rust_notices.or_alternatives(expression), terms, expression)
+
+    def test_shipped_reviewed_json_is_consistent(self) -> None:
+        reviewed = rust_notices.Reviewed.load(Path(__file__).resolve().parent / "reviewed.json")
+        for key, election in reviewed.elections.items():
+            self.assertTrue(election.get("reason"), key)
+            self.assertIn(election["concluded"], rust_notices.or_alternatives(election["declared"]), key)
+        for key, text in reviewed.texts.items():
+            self.assertTrue(text.get("reason"), key)
+            self.assertTrue((reviewed.base / text["file"]).is_file(), key)
 
     def test_reviewed_rejects_unknown_keys(self) -> None:
         self.fx.reviewed_data["overrides"] = {}

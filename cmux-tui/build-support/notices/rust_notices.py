@@ -23,8 +23,14 @@ subset of the text closure.
 Texts. Every license text is the verbatim bytes of a file in the crate's
 source: top-level LICENSE*/LICENCE*/COPYING*/NOTICE*/UNLICENSE*/COPYRIGHT*
 files, the manifest `license-file`, and extra files that --reviewed names. A
-crate with no text and no reviewed text fails the run. The tool never writes
-license text of its own.
+crate with no text and no reviewed text fails the run. A text that is not
+UTF-8 fails the run (it is never re-encoded). The tool never writes license
+text of its own. A `cargo vendor` directory must carry the Cargo.lock checksum
+in .cargo-checksum.json.
+
+downloadLocation: crates.io download URL; git sources as SPDX VCS form
+git+URL@REV; first-party path crates as the permanent source tag
+https://github.com/manaflow-ai/cmux/tree/<--source-tag>/<path>.
 
 Outputs are deterministic (sorted, no timestamp unless --created is given):
   --format spdx-json  SPDX 2.3 JSON; one package per crate (name = prefix +
@@ -32,6 +38,7 @@ Outputs are deterministic (sorted, no timestamp unless --created is given):
                       license file (fileName = <crate>-<version>/<file>, SHA256)
   --format markdown   one notices section for an app bundle
   --files-out DIR     the license files, as DIR/<crate>-<version>/<file>
+                      (DIR then holds exactly these files)
   --check             regenerate and fail when --out or --files-out differ
 
 --reviewed JSON (owned by the license review):
@@ -42,12 +49,13 @@ Outputs are deterministic (sorted, no timestamp unless --created is given):
                  {"declared": "<manifest expression>", "concluded": "MIT",
                   "reason": "..."}}}
 An election fails the run when the manifest expression differs from
-"declared".
+"declared" or when "concluded" is not one of its top-level OR alternatives.
 """
 
 from __future__ import annotations
 
 import argparse
+import collections
 import dataclasses
 import hashlib
 import json
@@ -64,6 +72,7 @@ LICENSE_FILE = re.compile(
     r"^(LICEN[CS]E|COPYING|NOTICE|UNLICENSE|COPYRIGHT)([-._].*)?$", re.I
 )
 TOOL = "rust_notices.py"
+CRATE_DIR = re.compile(r"^[A-Za-z0-9_-]+-\d+\.\d+\.\d+([-+][0-9A-Za-z.+-]*)?$")
 
 
 class NoticeError(RuntimeError):
@@ -231,7 +240,8 @@ def read_manifest(path: Path, target: dict, workspace: dict | None) -> Manifest:
         value = package.get(field)
         if isinstance(value, dict) and value.get("workspace") is True:
             package[field] = (workspace or {}).get("package", {}).get(field)
-    proc_macro = bool(data.get("lib", {}).get("proc-macro", False))
+    lib = data.get("lib", {})
+    proc_macro = bool(lib.get("proc-macro", lib.get("proc_macro", False)))
     return Manifest(path, package, normal, proc_macro)
 
 
@@ -299,8 +309,19 @@ class Sources:
             for candidate in (base / f"{key.name}-{key.version}", base / key.name):
                 manifest = candidate / "Cargo.toml"
                 if manifest.is_file() and _manifest_version(candidate, self) == key.version:
+                    _check_vendor_checksum(candidate, package)
                     return candidate, None
         raise NoticeError(f"{key.name} {key.version}: no source directory in --sources or CARGO_HOME (run `cargo fetch --locked` or `cargo vendor` where cargo runs)")
+
+
+def _check_vendor_checksum(crate_dir: Path, package: LockPackage) -> None:
+    """A `cargo vendor` directory records the .crate digest; it must be the lock's."""
+    record = crate_dir / ".cargo-checksum.json"
+    if not record.is_file() or package.checksum is None:
+        return
+    vendored = json.loads(record.read_text(encoding="utf-8")).get("package")
+    if vendored != package.checksum:
+        raise NoticeError(f"{package.key.name} {package.key.version}: vendored checksum {vendored} differs from Cargo.lock {package.checksum}")
 
 
 def _manifest_version(crate_dir: Path, sources: Sources) -> str | None:
@@ -351,6 +372,13 @@ class LicenseFile:
         return hashlib.sha256(self.data).hexdigest()
 
 
+def utf8(crate: "Crate", lf: LicenseFile) -> str:
+    try:
+        return lf.data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise NoticeError(f"{crate.key.name} {crate.key.version}: {lf.name} is not UTF-8 ({error}); the notices print texts verbatim, so convert nothing and review the file") from None
+
+
 @dataclasses.dataclass
 class Crate:
     key: Key
@@ -369,6 +397,37 @@ def spdx_expression(text: str | None) -> str | None:
         return None
     # Cargo's legacy "A/B" separator means A OR B.
     return " OR ".join(part.strip() for part in text.split("/")) if "/" in text else text.strip()
+
+
+def or_alternatives(expression: str) -> list[str]:
+    """Top-level OR terms of an SPDX expression; a term wrapped in one pair of
+    parentheses is unwrapped ("(MIT OR Apache-2.0) AND X" stays one term)."""
+
+    def split(text: str) -> list[str]:
+        terms, depth, current = [], 0, []
+        for token in re.split(r"(\(|\)|\s+OR\s+)", text):
+            depth += token == "("
+            depth -= token == ")"
+            if depth == 0 and re.fullmatch(r"\s+OR\s+", token):
+                terms.append("".join(current).strip())
+                current = []
+            else:
+                current.append(token)
+        terms.append("".join(current).strip())
+        return terms
+
+    def unwrap(term: str) -> str:
+        if not (term.startswith("(") and term.endswith(")")):
+            return term
+        depth = 0
+        for char in term[1:-1]:
+            depth += char == "("
+            depth -= char == ")"
+            if depth < 0:  # "(A) AND (B)": the outer parentheses do not pair
+                return term
+        return term[1:-1].strip()
+
+    return [unwrap(term) for term in split(expression)]
 
 
 def slug(text: str) -> str:
@@ -495,6 +554,9 @@ def collect(args: argparse.Namespace) -> list[Crate]:
                 errors.append(f"{key.name} {key.version}: election expects declared {election.get('declared')!r}, manifest says {declared!r}")
                 continue
             concluded = election["concluded"]
+            if concluded not in or_alternatives(declared):
+                errors.append(f"{key.name} {key.version}: election concludes {concluded!r}, which is not one of the alternatives of {declared!r}")
+                continue
         crates.append(Crate(key, first_party, declared, concluded, download, lock[key].checksum, files, closure_label, sorted(reached[key])))
     if errors:
         raise NoticeError("\n".join(errors))
@@ -539,7 +601,11 @@ def render_spdx(crates: list[Crate], args: argparse.Namespace) -> str:
             })
             relationships.append({"spdxElementId": pid, "relationshipType": "CONTAINS", "relatedSpdxElement": fid})
         for ref in re.findall(r"LicenseRef-[A-Za-z0-9.-]+", crate.declared + " " + crate.concluded):
-            extracted.setdefault(ref, crate.files[0].data.decode("utf-8", errors="replace"))
+            extracted.setdefault(ref, "\n".join(utf8(crate, lf) for lf in crate.files))
+    counts = collections.Counter([p["SPDXID"] for p in packages] + [f["SPDXID"] for f in files])
+    duplicates = sorted(i for i, n in counts.items() if n > 1)
+    if duplicates:
+        raise NoticeError("duplicate SPDX ids: " + ", ".join(duplicates))
     body = {
         "packages": packages,
         "files": files,
@@ -573,28 +639,42 @@ def render_markdown(crates: list[Crate], args: argparse.Namespace) -> str:
         "identical license texts are printed once, under \"License texts\"."
     )
     out.append("")
-    texts: dict[str, bytes] = {}
+    texts: dict[str, str] = {}
     for crate in crates:
         refs = []
         for lf in crate.files:
-            texts.setdefault(lf.sha256, lf.data)
+            texts.setdefault(lf.sha256, utf8(crate, lf))
             refs.append(f"`{lf.name}` (text {lf.sha256[:12]})")
         license_line = crate.concluded if crate.concluded == crate.declared else f"{crate.concluded} (elected from {crate.declared})"
         out.append(f"- **{crate.key.name} {crate.key.version}**: {license_line}. Source: {crate.download}. Files: {', '.join(refs)}")
     out += ["", f"### License texts ({args.title})", ""]
-    for sha, data in sorted(texts.items()):
-        text = data.decode("utf-8", errors="replace")
+    for sha, text in sorted(texts.items()):
         f = fence(text)
         out += [f"#### Text {sha[:12]}", "", f + "text", text.rstrip("\n"), f, ""]
     return "\n".join(out) + "\n"
 
 
 def write_files(crates: list[Crate], root: Path) -> None:
-    for crate in crates:
-        for lf in crate.files:
-            dest = root / file_path(crate, lf)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(lf.data)
+    """Make ROOT hold exactly the license files (stale files from older runs go).
+
+    ROOT may hold only <crate>-<version>/ directories: the tool refuses to clean
+    a directory that holds anything else, so a wrong --files-out deletes nothing.
+    """
+    wanted = {file_path(crate, lf): lf.data for crate in crates for lf in crate.files}
+    if root.is_dir():
+        foreign = sorted(p.name for p in root.iterdir() if not (p.is_dir() and CRATE_DIR.match(p.name)))
+        if foreign:
+            raise NoticeError(f"--files-out {root} holds entries that are not <crate>-<version>/ directories ({', '.join(foreign[:5])}); refusing to clean it")
+        for path in sorted(root.rglob("*"), reverse=True):
+            rel = path.relative_to(root).as_posix()
+            if path.is_file() and rel not in wanted:
+                path.unlink()
+            elif path.is_dir() and not any(path.iterdir()):
+                path.rmdir()
+    for rel, data in sorted(wanted.items()):
+        dest = root / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
 
 
 def tree_digest(root: Path) -> dict[str, str]:
@@ -632,10 +712,10 @@ def main(argv: Iterable[str]) -> int:
     args = parse_args(argv)
     try:
         crates = collect(args)
+        text = render_spdx(crates, args) if args.format == "spdx-json" else render_markdown(crates, args)
     except NoticeError as error:
         print(f"rust_notices: error: {error}", file=sys.stderr)
         return 1
-    text = render_spdx(crates, args) if args.format == "spdx-json" else render_markdown(crates, args)
     if args.check:
         stale = []
         if args.out and (not args.out.is_file() or args.out.read_text(encoding="utf-8") != text):
@@ -649,13 +729,17 @@ def main(argv: Iterable[str]) -> int:
             print("rust_notices: stale: " + ", ".join(stale), file=sys.stderr)
             return 1
         return 0
+    try:
+        if args.files_out:
+            write_files(crates, args.files_out)
+    except NoticeError as error:
+        print(f"rust_notices: error: {error}", file=sys.stderr)
+        return 1
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(text, encoding="utf-8")
     else:
         sys.stdout.write(text)
-    if args.files_out:
-        write_files(crates, args.files_out)
     return 0
 
 
