@@ -62,6 +62,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugHome.report(services: services))
             },
+            // My pending and refused sends with the reason (no screenshot needed).
+            .mainActor("debug.home.delivery") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugHome.delivery(services: services))
+            },
             // Room, workspace and terminal theme scopes.
             .mainActor("debug.themes") { [weak services] _ in
                 guard let services else { return .value(.null) }

@@ -27,6 +27,10 @@ public final class HomeStoreBinding {
     /// attachment (type, size, empty file, too many parts); its draft and
     /// attachments went back to the host's field.
     public var onAttachmentRefusal: (HomeIntent, HomeAttachmentError) -> Void = { _, _ in }
+    /// One of my sends was logged and then refused (its row shows "Not
+    /// Delivered"): the host can say why (for example a conversation whose
+    /// owner stores no attachments). `retry` or Cancel stay on the row.
+    public var onSendNotDelivered: (HomeIntent, HomeRejection) -> Void = { _, _ in }
 
     public init(store: HomeStore, controller: HomeController) {
         self.store = store
@@ -119,6 +123,8 @@ public final class HomeStoreBinding {
                 }
                 if !store.transcript(for: id).contains(where: { $0.key == intent.key }) {
                     controller.restoreDraft(for: intent.key)
+                } else if let self, !self.stopped {
+                    self.onSendNotDelivered(intent, rejection)
                 }
             } catch {
                 // HomeSendState.pendingResend: the store resends with the same

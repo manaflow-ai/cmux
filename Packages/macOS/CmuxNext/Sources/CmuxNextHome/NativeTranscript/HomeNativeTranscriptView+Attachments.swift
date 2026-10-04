@@ -104,6 +104,12 @@ extension HomeNativeTranscriptView {
         field.showNotice(HomeStrings.rejection(rejection))
     }
 
+    /// One of my sends was refused after it was logged (its row says "Not
+    /// Delivered", `HomeStoreBinding.onSendNotDelivered`): say why.
+    public func showNotDelivered(_ rejection: HomeRejection) {
+        field.showNotice(HomeStrings.notDeliveredReason(rejection))
+    }
+
     /// Returns when every attachment given so far is in the draft (tests).
     func attachmentsReady() async {
         while let current = intake {
