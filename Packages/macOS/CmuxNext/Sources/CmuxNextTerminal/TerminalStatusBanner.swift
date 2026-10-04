@@ -58,7 +58,16 @@ final class TerminalStatusBanner: NSView {
         case .connected:
             return nil
         case .exited:
-            return strings.text("terminal.link.exited", defaultValue: "Process exited")
+            switch hostLoss {
+            case .hostEnded:
+                return strings.text("terminal.link.lost.hostEnded", defaultValue: "Terminal lost: its host process ended")
+            case .sessionShutdown:
+                return strings.text("terminal.link.lost.sessionShutdown", defaultValue: "Terminal lost: the session shut down")
+            case .hostMissing:
+                return strings.text("terminal.link.lost.hostMissing", defaultValue: "Terminal lost: its host is gone")
+            case nil:
+                return strings.text("terminal.link.exited", defaultValue: "Process exited")
+            }
         case .disconnected(.turnedOffByOrganization, _):
             return strings.text("terminal.link.turnedOffByOrganization", defaultValue: "Turned off by your organization")
         case .disconnected(_, reconnecting: true):

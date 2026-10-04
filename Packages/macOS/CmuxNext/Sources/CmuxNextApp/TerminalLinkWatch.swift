@@ -88,7 +88,14 @@ final class TerminalLinkWatch {
 
     /// The banner's reason for a tab `end` (nil unless the host was lost).
     static func hostLoss(_ end: TerminalTabEnd?) -> TerminalHostLoss? {
-        nil
+        guard let end, end.kind == .hostLost else { return nil }
+        switch end.reason {
+        case .sessionShutdown: return .sessionShutdown
+        case .missingRecord, .incarnationMismatch: return .hostMissing
+        case .deadBeforeAdoption, .diedDuringAdoption, .diedWithoutExitStatus, .missingExitReceipt,
+             .unadoptableHostEnded, .other, nil:
+            return .hostEnded
+        }
     }
 
     private func forwardDirectory() {
