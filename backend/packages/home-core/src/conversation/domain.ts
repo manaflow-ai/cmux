@@ -195,7 +195,7 @@ const recount = (rows: RowReader, user: string, cursor: number): UnreadCounts =>
  * Where a user's unread count starts: the read cursor, and with history_visible since_join never
  * below the user's join (the same floor reads, search and snapshots use).
  */
-const unreadFloor = (head: ConversationHead, user: string): number => {
+export const unreadFloor = (head: ConversationHead, user: string): number => {
   const cursor = head.read_cursors[user] ?? 0
   if (head.settings?.history_visible !== "since_join") return cursor
   const joined = head.participants.find((p) => p.id === user && p.left_at === undefined)?.joined_seq ?? 0
