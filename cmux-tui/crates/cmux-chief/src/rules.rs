@@ -187,6 +187,7 @@ mod tests {
             display_name: id.into(),
             agent_class: None,
             acp_session: None,
+            person: None,
         }
     }
 
@@ -218,6 +219,7 @@ mod tests {
             edited_at: None,
             retracted_at: None,
             reactions: Vec::new(),
+            origin: None,
         }
     }
 
@@ -242,6 +244,24 @@ mod tests {
         assert!(!wakes(&one_to_one, &retracted, |_| false));
         let without = summary("conv_c", vec![person(USER_LOCAL, human), person("agent_x", agent)]);
         assert!(!wakes(&without, &message(USER_LOCAL, None, None), |_| false));
+    }
+
+    /// Pairing adds a device of the same person: a plain local message still
+    /// wakes the Chief, and a device message does not (no remote chains yet).
+    #[test]
+    fn a_paired_device_does_not_change_the_wake_rule() {
+        let human = ParticipantKind::Human;
+        let mut device = person("remote_inst_1", human);
+        device.person = Some(USER_LOCAL.into());
+        let paired = summary(
+            "conv_a",
+            vec![person(USER_LOCAL, human), person(AGENT_MUX, ParticipantKind::Agent), device],
+        );
+        assert!(wakes(&paired, &message(USER_LOCAL, None, None), |_| false));
+        assert!(!wakes(&paired, &message("remote_inst_1", None, None), |_| false));
+        let mut remote = message(USER_LOCAL, None, None);
+        remote.origin = Some(cmux_conversation::Origin::Remote { install: "inst_1".into() });
+        assert!(!wakes(&paired, &remote, |_| false));
     }
 
     /// Float gap (plans/cmux-next/chief-mac.md section 4): the cores write
