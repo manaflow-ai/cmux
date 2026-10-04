@@ -64,7 +64,15 @@ const indexPage = `<!doctype html>
 </ul>
 </body></html>`;
 
-/// The index page, and dev React.
+const devEntries = [
+  "src/diff/dev.ts",
+  "src/diff-worker.ts",
+  "src/agent-session/acpmux/dev.tsx",
+  "src/agent-session/acpmux/prototype/dev.tsx",
+  "src/markdown-viewer/devHost.ts",
+];
+
+/// The index page, dev React and the dependency cache.
 function devServerShell(): Plugin {
   return {
     name: "cmux-dev-server",
@@ -73,6 +81,15 @@ function devServerShell(): Plugin {
       // vite.config.ts pins NODE_ENV to production for the shipped bundle; dev keeps React's
       // development build, which Fast Refresh needs.
       if (config.define) delete config.define["process.env.NODE_ENV"];
+      return {
+        // One dependency cache per server. A cache shared with another server on the same
+        // node_modules (vite.config.acpmux-pane.mjs, another slot) is re-optimized under it, and
+        // open pages then fail to load modules and requests mid-load.
+        cacheDir: `node_modules/.vite-dev-server-${config.server?.port ?? DEV_SERVER_PORT}`,
+        // Every surface's entry, so the first scan finds all dependencies instead of a page
+        // discovering one late and triggering an optimizer reload.
+        optimizeDeps: { entries: devEntries },
+      };
     },
     configureServer(server) {
       server.middlewares.use((request, response, next) => {
