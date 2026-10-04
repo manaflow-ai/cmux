@@ -597,6 +597,30 @@ async fn an_idle_detached_session_harness_exits_and_resumes_on_the_next_prompt()
     assert!(kinds.iter().any(|k| k == "resumed"), "{kinds:?}");
 }
 
+/// Shutdown owns every child from its first step: once it started, the
+/// idle reaper never stops a harness again (a hosted one is handed off to
+/// the next daemon, not terminated).
+#[tokio::test]
+async fn the_idle_reaper_stops_for_good_when_shutdown_starts() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let clock = acpmux::clock::ManualClock::new();
+    hub.set_clock(clock.clone());
+    hub.set_idle_child(Some(Duration::from_secs(300)));
+    hub.shutdown_all().await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "after-stop"}}}),
+        )
+        .await
+        .unwrap();
+    c.request(method::MUX_DETACH, json!({"sessionId": s["sessionId"]})).await.unwrap();
+    clock.advance(Duration::from_secs(3600));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let session = hub.resolve("after-stop").unwrap();
+    assert_eq!(hub.session_summary(&session)["status"], "ready", "reaped during shutdown");
+}
+
 #[tokio::test]
 async fn attach_replays_and_watch_broadcasts() {
     let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;

@@ -17,10 +17,16 @@ struct Daemon {
     child: Option<Child>,
     home: PathBuf,
     socket: PathBuf,
+    /// Extra daemon environment (the idle harness period).
+    env: Vec<(String, String)>,
 }
 
 impl Daemon {
     fn new(tag: &str, policy: &str) -> Self {
+        Self::with_env(tag, policy, &[])
+    }
+
+    fn with_env(tag: &str, policy: &str, env: &[(&str, &str)]) -> Self {
         // Short: socket paths must stay under the macOS limit.
         let home = std::env::temp_dir().join(format!("amd-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
@@ -31,7 +37,8 @@ impl Daemon {
         )
         .unwrap();
         let socket = home.join("s.sock");
-        let mut daemon = Self { child: None, home, socket };
+        let env = env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let mut daemon = Self { child: None, home, socket, env };
         daemon.start();
         daemon
     }
@@ -45,6 +52,8 @@ impl Daemon {
             .env_remove("ACPMUX_AGENT_HOSTS")
             .env_remove("ACPMUX_LOGIN_ENV")
             .env_remove("XPC_SERVICE_NAME")
+            .env_remove("ACPMUX_IDLE_CHILD_SECS")
+            .envs(self.env.iter().map(|(k, v)| (k, v)))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -427,4 +436,76 @@ async fn shutdown_with_end_agents_keeps_the_named_sessions_running() {
             .iter()
             .any(|e| e["kind"] == "turn_result" && e["msg"]["detail"] == "quit")
     );
+}
+
+/// The idle harness exit (one second here) terminates an unused hosted
+/// session's agent and its host, and the session resumes on its next
+/// prompt; a turn or a permission prompt that an adopted host's recovery
+/// rebuilt after a daemon restart is in use, never idle.
+const IDLE_1S: &[(&str, &str)] = &[("ACPMUX_IDLE_CHILD_SECS", "1")];
+
+#[tokio::test]
+async fn an_idle_hosted_agent_is_terminated_and_the_session_resumes() {
+    let daemon = Daemon::with_env("idle", "approve-all", IDLE_1S);
+    let session = new_session(&daemon).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    assert!(gone_within(harness_pid, Duration::from_secs(20)), "the idle agent kept running");
+    let mut rpc = daemon.rpc().await;
+    let reply = rpc
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "after idle"}]}),
+        )
+        .await;
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+    let events = daemon.events(&session);
+    assert!(events.iter().any(|e| e["kind"] == "resumed"), "the session did not resume");
+}
+
+#[tokio::test]
+async fn an_adopted_open_turn_is_not_idle() {
+    let mut daemon = Daemon::with_env("idleturn", "approve-all", IDLE_1S);
+    let (session, host, client) = gated_turn(&daemon).await;
+    let harness_pid = host["harness_pid"].as_i64().unwrap();
+    daemon.sigkill();
+    drop(client);
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    // No client attached, and three idle periods pass with the turn open.
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(alive(harness_pid), "the reaper ended an agent with an adopted open turn");
+    std::fs::write(daemon.home.join(format!("gate-{session}")), b"go").unwrap();
+    let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    assert_eq!(result["msg"]["status"], "completed", "{result}");
+}
+
+#[tokio::test]
+async fn a_recovered_permission_prompt_is_not_idle() {
+    let mut daemon = Daemon::with_env("idleperm", "ask", IDLE_1S);
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "ask: deploy"}]}),
+        )
+        .await;
+    let asked =
+        daemon.wait_event(&session, "permission_request", |e| e["kind"] == "permission_request");
+    let permission_id = asked["msg"]["permissionId"].as_str().unwrap().to_owned();
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    daemon.sigterm();
+    drop(client);
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(alive(harness_pid), "the reaper ended an agent with a recovered permission prompt");
+    let mut rpc = daemon.rpc().await;
+    rpc.call(
+        "_acpmux/permission_respond",
+        json!({"sessionId": session, "permissionId": permission_id, "optionId": "yes"}),
+    )
+    .await;
+    let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    assert_eq!(result["msg"]["status"], "completed", "{result}");
 }
