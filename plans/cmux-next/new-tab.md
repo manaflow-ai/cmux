@@ -93,12 +93,12 @@ CEF would make the page pay for Chromium start on every launch. The page code st
 | --- | --- |
 | empty / spaces | `none` (Enter does nothing; Up/Down walk recent chats) |
 | `!` then anything | `terminal {command: rest}` |
-| a URL with scheme (`http`, `https`, `file`, `about`, `cmux`), `localhost[:port][/...]`, an IP[:port], or one token that is a host with a known TLD or a port (`vite.dev/guide`, `foo.local:3000`) | `url {url}` |
+| what BrowserURLResolver loads (`http`/`https`/`file`/`about:blank`, `/path`, `~/path`, loopback, an IP, a dotted host, a host with a port), except a bare `name.ext` with a file extension (Q4) | `url {url}` |
 | anything else | `prompt {text}` in Ask mode, `search {text}` in Search mode |
 
 The table lives in one fixture file `webviews/test/fixtures/new-tab-intents.json` (about 60 rows:
 `!ls`, `! ls`, `!` alone, `github.com`, `localhost:3000`, `127.0.0.1`, `what is a.b`, `fix the
-build`, `file:///tmp`, `cmux://session/x`, `node.js` (decision: URL or text, see Q4), IME text,
+build`, `file:///tmp`, `cmux://session/x`, `node.js` and `readme.md` (text, Q4), IME text,
 leading spaces). The bun test reads it; the Swift classifier used by CLI/MCP (`NewTabIntent` in
 CmuxNextApp, reusing `suggestionEngine.resolver` for URL rules) reads the same file in its Swift
 test. Two implementations, one table: the page needs a synchronous answer per keystroke, and the CLI
@@ -178,19 +178,19 @@ must work with no page.
 
 N1 and N2 start now (webviews only). N4 needs a fleet build for every measurement.
 
-## 8. Questions (through the coordinator)
+## 8. Decisions (coordinator, 2026-10-04)
 
-- Q1: Should Cmd-T open this screen by default (`tabs.newTabKind` default `page` instead of
-  `same-kind`)? Lawrence's "load instantly" suggests yes. Proposal: yes.
-- Q2: `!` behavior: convert on the `!` key itself (proposal, matches "instantly becomes a
-  terminal"), or switch the field to command mode and convert on Enter (today's behavior)?
-- Q3: "Remembered per user": app-local memory plus optional settings (proposal), or a settings write
-  on each pick (syncs through cmux-next.json)?
-- Q4: Ambiguous single tokens like `node.js` or `readme.md`: URL only with a known public TLD
-  (proposal: `.js` and `.md` are TLDs but common file names, so treat them as text unless a scheme,
-  `www.` or a path follows), or always a URL?
-- Q5: Suggested tasks: what source (Leo's ideas, git status of the cwd, open PRs, failed CI)?
-- Q6: Keep variant A as the prototype baseline, or delete the Terminal | Browser | Agent switch now?
+- Q1 yes: Cmd-T opens this screen by default (`tabs.newTabKind` default `page`), slice N6.
+- Q2: `!` converts on the key itself (Lawrence: "! and it instantly becomes a terminal").
+- Q3 yes: app-local memory of mode and agent, plus optional settings `newTab.defaultMode` and
+  `newTab.defaultAgent` that win when set.
+- Q4 yes: a scheme-less single token whose last label is a common file extension (`node.js`,
+  `readme.md`, `main.rs`) is text, unless a scheme, `www.`, a port or a path follows. The browser
+  omnibox keeps its own rule (BrowserURLResolver); the new tab classifier applies this filter on top.
+- Q5: wait for Leo's ideas; suggested tasks stay hidden until a source exists.
+- Q6: keep variant A behind the debug flag only until variant B passes dogfood, then delete A in
+  this lane.
+- Pool size: measure the spare memory in N4 before the pool size is final.
 
 ## 9. Leo's ideas
 
