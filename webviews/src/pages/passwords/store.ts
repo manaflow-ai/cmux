@@ -80,40 +80,200 @@ export class PasswordsStore {
     };
   };
 
-  /** Not built yet: the page stays empty. */
-  async start(): Promise<void> {}
+  /** Subscribes to the change stream and the page streams, then loads. Idempotent. */
+  async start(): Promise<void> {
+    if (!this.client || this.started) return;
+    this.started = true;
+    try {
+      this.stops.push(
+        await this.client.subscribe<ChangedEvent>(PasswordOps.changed, (event) => {
+          if (event.profile === this.snapshot.profile) void this.reload();
+        }),
+      );
+      this.stops.push(
+        await subscribePageStreams(this.client, { onConnection: (connected) => this.onConnection(connected) }),
+      );
+    } catch (error) {
+      this.set({ loading: false, ...failure(error) });
+      return;
+    }
+    if (!this.started) {
+      this.stop();
+      return;
+    }
+    await this.reload();
+  }
 
-  stop(): void {}
+  stop(): void {
+    this.started = false;
+    for (const stop of this.stops) stop();
+    this.stops = [];
+  }
 
-  async reload(): Promise<void> {}
+  private onConnection(connected: boolean): void {
+    if (!connected) {
+      this.set({ connection: "disconnected", loading: false });
+    } else if (this.snapshot.connection === "disconnected") {
+      this.set({ connection: "connecting" });
+      void this.reload();
+    }
+  }
 
-  setText(_text: string): void {}
+  /** Reads the capabilities and profiles, then every list the build can serve. */
+  async reload(): Promise<void> {
+    if (!this.client) return;
+    const generation = ++this.generation;
+    try {
+      const state = await this.client.call<StateResult>(PasswordOps.state, {});
+      if (generation !== this.generation) return;
+      const known = state.profiles.some((profile) => profile.id === this.snapshot.profile);
+      const profile = known ? this.snapshot.profile : state.profile;
+      const sections = { ...state.sections };
+      const [passwords, passkeys, exceptions] = await Promise.all([
+        this.list<{ passwords: SavedPassword[] }>(sections, "passwords", PasswordOps.list, profile),
+        this.list<{ passkeys: SavedPasskey[] }>(sections, "passkeys", PasswordOps.passkeysList, profile),
+        this.list<{ exceptions: PasswordException[] }>(sections, "exceptions", PasswordOps.exceptionsList, profile),
+      ]);
+      if (generation !== this.generation) return;
+      this.set({
+        connection: "connected",
+        loading: false,
+        profiles: state.profiles,
+        profile,
+        sections,
+        passwords: passwords?.passwords ?? [],
+        passkeys: passkeys?.passkeys ?? [],
+        exceptions: exceptions?.exceptions ?? [],
+      });
+    } catch (error) {
+      if (generation !== this.generation) return;
+      this.set({ loading: false, ...failure(error) });
+    }
+  }
 
-  setSort(_sort: SortMode): void {}
+  /** One list, or null when the section is not available (a refusal marks it unavailable). */
+  private async list<R>(sections: Sections, name: keyof Sections, op: string, profile: string): Promise<R | null> {
+    if (!sections[name] || !this.client) return null;
+    try {
+      return await this.client.call<R>(op, { profile });
+    } catch (error) {
+      if (isPageError(error) && error.code === PasswordCodes.unavailable) {
+        sections[name] = false;
+        return null;
+      }
+      throw error;
+    }
+  }
 
-  resetQuery(): void {}
+  // Query.
 
-  setProfile(_profile: string): void {}
+  setText(text: string): void {
+    if (text !== this.snapshot.text) this.set({ text });
+  }
 
-  dismissNotice(): void {}
+  setSort(sort: SortMode): void {
+    if (sort !== this.snapshot.sort) this.set({ sort });
+  }
 
-  editUsername(_row: SavedPassword): void {}
+  /** The `reset` page command. */
+  resetQuery(): void {
+    this.set({ text: "", editing: undefined });
+  }
 
-  cancelEdit(): void {}
+  setProfile(profile: string): void {
+    if (profile === this.snapshot.profile) return;
+    this.set({ profile, editing: undefined, passwords: [], passkeys: [], exceptions: [], loading: true });
+    void this.reload();
+  }
 
-  async commitUsername(_row: SavedPassword, _text: string): Promise<void> {}
+  dismissNotice(): void {
+    if (this.snapshot.notice) this.set({ notice: undefined });
+  }
 
-  async removePassword(_row: SavedPassword): Promise<void> {}
+  // Inline username editor.
 
-  async removePasskey(_row: SavedPasskey): Promise<void> {}
+  editUsername(row: SavedPassword): void {
+    this.set({ editing: row.id });
+  }
 
-  async removeException(_row: PasswordException): Promise<void> {}
+  cancelEdit(): void {
+    if (this.snapshot.editing) this.set({ editing: undefined });
+  }
 
-  async reveal(_row: SavedPassword): Promise<void> {}
+  async commitUsername(row: SavedPassword, text: string): Promise<void> {
+    this.set({ editing: undefined });
+    const username = text.trim();
+    if (username === row.username) return;
+    await this.write(PasswordOps.usernameSet, { id: row.id, username });
+  }
 
-  async copy(_row: SavedPassword): Promise<void> {}
+  // Writes and native steps. Each asks the app; the app shows its own sheet.
 
-  async exportAll(): Promise<void> {}
+  async removePassword(row: SavedPassword): Promise<void> {
+    await this.write(PasswordOps.remove, { ids: [row.id] });
+  }
+
+  async removePasskey(row: SavedPasskey): Promise<void> {
+    await this.write(PasswordOps.passkeyRemove, { id: row.id });
+  }
+
+  async removeException(row: PasswordException): Promise<void> {
+    await this.write(PasswordOps.exceptionRemove, { id: row.id });
+  }
+
+  async reveal(row: SavedPassword): Promise<void> {
+    await this.native(PasswordOps.reveal, { id: row.id });
+  }
+
+  async copy(row: SavedPassword): Promise<void> {
+    if (await this.native(PasswordOps.copy, { id: row.id })) this.set({ notice: { kind: "copied" } });
+  }
+
+  async exportAll(): Promise<void> {
+    if (await this.write(PasswordOps.export, {}, false)) this.set({ notice: { kind: "exported" } });
+  }
+
+  /** A native step that changes nothing (reveal, copy): no idempotency key, no reload. */
+  private async native(op: string, params: Record<string, unknown>): Promise<boolean> {
+    if (!this.client) return false;
+    try {
+      await this.client.call(op, { profile: this.snapshot.profile, ...params });
+    } catch (error) {
+      this.report(error);
+      return false;
+    }
+    if (this.snapshot.notice?.kind === "failed") this.set({ notice: undefined });
+    return true;
+  }
+
+  private async write(op: string, params: Record<string, unknown>, reload = true): Promise<boolean> {
+    if (!this.client) return false;
+    try {
+      await this.client.call(op, { profile: this.snapshot.profile, ...params, idempotency_key: this.key() });
+    } catch (error) {
+      this.report(error);
+      return false;
+    }
+    if (this.snapshot.notice?.kind === "failed") this.set({ notice: undefined });
+    // The app also sends `cmux.passwords.changed`; re-reading keeps the page right when it is late.
+    if (reload) await this.reload();
+    return true;
+  }
+
+  /** A declined sheet is the person's answer, not a failure. */
+  private report(error: unknown): void {
+    if (isPageError(error) && error.code === PasswordCodes.cancelled) return;
+    if (isPageError(error) && error.code === PasswordCodes.unavailable) {
+      this.set({ notice: { kind: "failed", message: error.message } });
+      void this.reload();
+      return;
+    }
+    this.set(failure(error));
+  }
+
+  private key(): string {
+    return this.options.newKey?.() ?? crypto.randomUUID();
+  }
 
   private set(patch: Partial<PasswordsSnapshot>): void {
     this.snapshot = { ...this.snapshot, ...patch };
