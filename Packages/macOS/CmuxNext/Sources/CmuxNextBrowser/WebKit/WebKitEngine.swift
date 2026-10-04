@@ -26,6 +26,9 @@ public final class WebKitEngine: BrowserEngine {
     public var passkeyAuthorization: WebKitPasskeyAuthorization = .shared
     /// Appended to WebKit's user agent, e.g. "cmux/1.0 Safari/605.1.15".
     public var applicationNameForUserAgent: String?
+    /// What modified link clicks do (cmux.json `browser.links.*`). Read on
+    /// each click.
+    public var linkClicks: BrowserLinkClickMapping = .chrome
 
     public init(
         profileStore: WebKitProfileStore = WebKitProfileStore(),

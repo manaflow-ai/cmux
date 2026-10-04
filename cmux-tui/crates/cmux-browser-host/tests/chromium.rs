@@ -59,6 +59,11 @@ fn serve() -> u16 {
                     "/second" => "<!doctype html><title>Second</title><p>second</p>".to_owned(),
                     "/script.js" => "window.__loaded = true;".to_owned(),
                     "/scripted" => "<!doctype html><html><head><title>Scripted</title><script src=\"/script.js\"></script></head><body><p>second</p><script>window.__inline = 1;</script></body></html>".to_owned(),
+                    "/fields" => "<!doctype html><title>Fields</title>\
+                         <label for=pw>Password</label><input id=pw type=password value=hunter2-default>\
+                         <input id=otp autocomplete=one-time-code><input id=cc autocomplete=\"cc-number\">\
+                         <input id=plain value=visible-value>"
+                        .to_owned(),
                     _ => "<!doctype html><title>404</title>".to_owned(),
                 };
                 let mut stream = stream;
@@ -258,6 +263,52 @@ fn browser_host_drives_headless_chromium_over_the_pipe() {
     assert_eq!(popup_title, "Second");
     call("tabs.close", json!({"targetId": popup}));
 
+    // frame.observe: only allowlisted page agent reads, and sensitive field
+    // values never come back (browser-host.md, frame.observe).
+    call(
+        "tab.navigate",
+        json!({"targetId": target, "url": format!("{origin}/fields"), "waitUntil": "load"}),
+    );
+    call(
+        "frame.evaluate",
+        json!({"targetId": target, "world": "page", "source":
+        "() => { pw.value = 's3cret-pass'; otp.value = '123456'; cc.value = '4111111111111111'; }"}),
+    );
+    // A stand-in page agent under the real symbol: handle ids are element ids.
+    call(
+        "frame.evaluate",
+        json!({"targetId": target, "world": "agent", "source": r#"() => {
+        const el = (id) => document.getElementById(id);
+        globalThis[Symbol.for("cmux.browserRepl.agent")] = {
+          element: el,
+          retarget: (id) => (el(id).tagName === "LABEL" ? el(id).htmlFor : id),
+          read: (id, what, arg) => what === "inputValue" ? el(id).value
+            : what === "getAttribute" ? el(id).getAttribute(arg) : el(id)[what],
+          snapshot: () => [...document.querySelectorAll("input")]
+            .map((i) => `${i.id}=${i.value}|${i.getAttribute("value") || ""}`).join(" "),
+          fill: (id, v) => { el(id).value = v; },
+        };
+      }"#}),
+    );
+    let observe = |method: &str, args: Value| {
+        driver.call("frame.observe", &json!({"targetId": target, "method": method, "args": args}))
+    };
+    assert_eq!(observe("read", json!(["pw", "inputValue"])).unwrap(), "********");
+    assert_eq!(observe("read", json!(["otp", "inputValue"])).unwrap(), "********");
+    assert_eq!(observe("read", json!(["cc", "inputValue"])).unwrap(), "********");
+    assert_eq!(observe("read", json!(["pw", "getAttribute", "value"])).unwrap(), "********");
+    assert_eq!(observe("read", json!(["plain", "inputValue"])).unwrap(), "visible-value");
+    let snapshot = observe("snapshot", json!([])).unwrap();
+    let snapshot = snapshot.as_str().unwrap();
+    for secret in ["s3cret-pass", "123456", "4111111111111111", "hunter2-default"] {
+        assert!(!snapshot.contains(secret), "{secret} leaked: {snapshot}");
+    }
+    assert!(snapshot.contains("plain=visible-value"), "{snapshot}");
+    let refused = observe("fill", json!(["plain", "x"])).unwrap_err();
+    assert_eq!(refused.code, ErrorCode::Forbidden, "{refused}");
+    assert_eq!(refused.error_name.as_deref(), Some("observe_not_allowed"));
+    assert_eq!(observe("read", json!(["plain", "inputValue"])).unwrap(), "visible-value");
+
     call("tabs.close", json!({"targetId": target}));
     wait_event(&events, "tab.closed");
     assert!(
@@ -363,7 +414,17 @@ fn a_headless_session_lists_no_start_tab() {
     unsafe { std::env::set_var("CMUX_BROWSER_HOST_CHROMIUM", &binary) };
     let engines =
         cmux_browser_host::engines::HostEngines::new(cmux_browser_host::host::agent_bundle());
-    let driver = engines.driver("headless", Arc::new(|_| {})).expect("headless driver");
+    let session = cmux_browser_host::host::SessionContext {
+        name: "start-tab".into(),
+        caller: cmux_browser_host::host::Caller {
+            actor: "test".into(),
+            on_behalf_of: None,
+            origin: "cli".into(),
+        },
+        label: "start-tab".into(),
+        profile: cmux_browser_host::host::AGENT_PROFILE.into(),
+    };
+    let driver = engines.driver("headless", Arc::new(|_| {}), &session).expect("headless driver");
     let tabs = driver.call("tabs.list", &json!({})).expect("tabs.list");
     assert_eq!(tabs, json!([]), "the start tab is listed");
     let opened = driver.call("tabs.open", &json!({"url": "about:blank"})).expect("tabs.open");

@@ -62,6 +62,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugHome.report(services: services))
             },
+            // My pending and refused sends with the reason (no screenshot needed).
+            .mainActor("debug.home.delivery") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugHome.delivery(services: services))
+            },
             // Room, workspace and terminal theme scopes.
             .mainActor("debug.themes") { [weak services] _ in
                 guard let services else { return .value(.null) }
@@ -110,6 +115,11 @@ final class AppControl {
             .mainActor("debug.dock") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugDockColumns.handle(call.params, services: services))
+            },
+            // Agent cursor visibility per browser tab (`target` narrows it).
+            .mainActor("debug.agent_cursor") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugAgentCursor.report(call.params, services: services))
             },
             .mainActor("debug.screens") { [weak services] _ in
                 guard let services else { return .value(.null) }

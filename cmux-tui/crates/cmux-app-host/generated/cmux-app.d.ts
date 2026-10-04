@@ -181,6 +181,8 @@ declare namespace Cmux {
   type NotificationLevel = "info" | "warning" | "error"
   type NotificationSnapshot = { id: string /* notification_… */; session_id: string /* session_… */; title: string; subtitle?: string; body: string; level: Cmux.NotificationLevel; terminal_id?: string /* terminal_… */; created_at_ms: string; unread: boolean; read_by: Array<string>; extra?: Record<string, Cmux.JsonValue> }
   type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
+  type OriginConfirmation = { token: string; expires_at: string }
+  type OriginForbiddenDetails = { derived: Cmux.RequestOrigin; required?: Cmux.RequestOrigin; claim?: Cmux.RequestOrigin; reason?: string }
   type PairingCode = string
   type PairingInfo = { name: string; platform: Cmux.Platform; os_version: string; arch: "x86_64" | "aarch64"; cmux_version: string }
   type PairingPreview = { code: Cmux.PairingCode; info: Cmux.PairingInfo; public_jwk: Cmux.PublicJwk; thumbprint: string; country: string | null; expires_at: number }
@@ -211,6 +213,7 @@ declare namespace Cmux {
   type RenderUnderline = "single" | "double" | "curly" | "dotted" | "dashed"
   type RepoPattern = string
   type RequestCancelResult = { canceled: boolean }
+  type RequestOrigin = "page" | "agent" | "app" | "user"
   type ResourceChange = unknown
   type ResourceChangeId = unknown
   type ResourceDelete = { kind: "delete"; sequence: number; resource: Cmux.ResourceKind; id: Cmux.ResourceChangeId }
@@ -499,7 +502,7 @@ interface CmuxGlobal {
         /** `cloud.machine.idle_policy.set` (mutation, scope `cloud:write`): Set when an idle machine pauses; 0 = never. */
         set: CmuxOp<{ machine: Cmux.MachineId; idle_seconds: number; expected_revision?: string }, Cmux.MutationResult<{ machine: Cmux.CloudMachine }>>
       }
-      /** `cloud.machine.link_token` (mutation, scope `cloud:execute`): Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only; only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app. */
+      /** `cloud.machine.link_token` (mutation, scope `cloud:execute`): Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app. */
       link_token: CmuxOp<{ host: Cmux.HostId; services: Array<"daemon" | "ssh"> }, Cmux.MutationResult<{ token: string; expires_at: number; host: Cmux.HostId; epoch: number; services: Array<"daemon" | "ssh"> }>>
       /** `cloud.machine.list` (read, scope `cloud:read`): List the team's Cloud machines one page at a time; no cursor = the first page. `revision` is the team's registry revision when the page was read. */
       list: CmuxOp<{ cursor?: string; limit?: number }, { machines: Array<Cmux.CloudMachine>; next_cursor: string | null; revision: Cmux.Revision }>

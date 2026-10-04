@@ -251,6 +251,53 @@ committed result. Reusing a key with different parameters returns
 `idempotency.conflict`. Replay lookup runs before selectors and revision
 checks. SDKs never retry mutations implicitly.
 
+### Request origin
+
+Capability `origin-claim-v1`. The daemon derives one origin per request from
+its connection: `page` on every request of a connection whose `client-hello`
+role is `page_relay`; `user` only on a verified cmux app connection (role
+`main` plus a proof; none exists before peer verification ships); `app` for an
+app's calls through the app supervisor; `agent` on every other connection,
+including one that sent no `client-hello`. `set-client-info` never changes it.
+
+A request may carry `"origin": {"claim": "page"|"agent"|"app"|"user",
+"confirmation"?: "<token>"}`. A claim may only narrow the derived origin
+(`user` > `app` > `agent` > `page`). On a page relay connection the only
+accepted claims are `{"claim": "page"}` and `{"claim": "user",
+"confirmation": <token>}`, where the token comes from
+`origin.confirmation.issue` and is consumed on first presentation. A request
+with no `origin` keeps the derived origin. Any other claim, a spent, expired or
+mismatched token, and `origin.confirmation.issue` on a page relay fail with
+`origin.forbidden` before the request is parsed further; every transported
+operation may return it.
+
+`apps.install`, `apps.uninstall` and `apps.enable` need origin `user`. A
+refusal is `origin.forbidden` with the message "needs a verified cmux app
+connection" and details `{"required": "user", "derived": <origin>}`.
+
+`origin.confirmation.issue {operation, params_sha256, relay_connection_id}`
+returns `{token, expires_at}` to the verified app for a page relay connection
+of the same peer: 32 random bytes in base64url, single use, valid 60 s, bound
+to the operation, to `params_sha256` (SHA-256 of the request params in
+canonical JSON: keys sorted by code point at every depth, no whitespace, UTF-8,
+no escaping of `/` or non-ASCII) and to that relay connection. The digest is
+over serde_json's compact re-serialization of the received params; a client
+must hash the exact encoding it sends. Floats whose shortest form differs
+between encoders (for example exponent notation) make the digest differ, and
+the claim fails closed with `origin.forbidden`; confirmed page operations carry
+integer params. Validity uses a monotonic clock: a wall clock step neither
+extends nor cuts the 60 s; `expires_at` is wall-clock milliseconds for display.
+
+The legacy `apps-set` command (install, uninstall, enable, disable, hide,
+sandbox and grant changes, whatever `origin` it claims) and every legacy
+`apps-*` request with `origin: "user"` (for example an `apps-run` gesture)
+need origin `user` too, with the same refusal in the raw envelope:
+`error_code` `origin.forbidden`, `error` "needs a verified cmux app
+connection" and `error_details {"required": "user", "derived": <origin>}`. A
+connection that only declares `set-client-info` kind `app` is not the verified
+app. Hiding an app needs a verified app until P8 adds the verified-app path:
+agents must not change what the user sees.
+
 Completed pure mutations retain the newest 4096 ordinary replay records. A
 running registry may retain at most 127 additional ordinary records between
 batched pruning passes; startup removes that slack. The newest
@@ -537,7 +584,7 @@ operations after the server socket is bound.
 | read | `agent.list`, `browser.get`, `browser.list`, `client.get`, `client.list`, `closed.list`, `frontend_projection.get`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.diff`, `git.files.search`, `git.status`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `pane.get`, `pane.list`, `pane.neighbor.get`, `room.list`, `saved_tab_group.list`, `screen.get`, `screen.layout.export`, `screen.list`, `screen_group.get`, `screen_group.list`, `session.creation.resolve`, `session.get`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.producer.list`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.list`, `session.ping`, `session.snapshot`, `sidebar_view.get`, `tab.get`, `tab.list`, `tab_group.get`, `tab_group.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.output_read`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `terminal.wait_exit`, `window_record.list`, `workspace.get`, `workspace.list`, `workspace.placement.list`, `workspace_group.list`, `workspace_log.list`, `workspace_status.list` |
 | mutation | `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `closed.reopen`, `column.update`, `frontend_projection.put`, `git.checkpoint.create`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `notification.ack`, `notification.clear`, `notification.create`, `pairing_request.resolve`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `room.create`, `room.delete`, `room.follow`, `room.move`, `room.pin`, `room.unpin`, `room.update`, `saved_tab_group.delete`, `saved_tab_group.reopen`, `saved_tab_group.save`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.move`, `screen.rename`, `screen.update`, `screen_group.add_screens`, `screen_group.create`, `screen_group.remove_screens`, `screen_group.ungroup`, `screen_group.update`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.hook.put`, `session.journal.producer.put`, `session.journal.segment.seal`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update`, `tab_group.add_tabs`, `tab_group.close`, `tab_group.create`, `tab_group.move`, `tab_group.remove_tabs`, `tab_group.ungroup`, `tab_group.update`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.project`, `terminal.viewport.scroll`, `window_record.delete`, `window_record.put`, `workspace.close`, `workspace.create`, `workspace.ensure_home`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.place`, `workspace.rename`, `workspace.run`, `workspace.update`, `workspace_group.create`, `workspace_group.delete`, `workspace_group.move`, `workspace_group.update`, `workspace_log.append`, `workspace_log.clear`, `workspace_progress.clear`, `workspace_progress.set`, `workspace_status.clear`, `workspace_status.set` |
 | stream_open | `browser.attach`, `session.events`, `session.journal.subscribe`, `sidebar_view.attach`, `terminal.attach` |
-| connection_control | `browser.viewer.release`, `browser.viewer.resize`, `client.cell_pixels.set`, `client.detach`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `request.cancel`, `stream.cancel`, `terminal.renderer_grant.create`, `terminal.viewer.release`, `terminal.viewer.resize` |
+| connection_control | `browser.viewer.release`, `browser.viewer.resize`, `client.cell_pixels.set`, `client.detach`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `origin.confirmation.issue`, `request.cancel`, `stream.cancel`, `terminal.renderer_grant.create`, `terminal.viewer.release`, `terminal.viewer.resize` |
 | local | `sidebar_plugin.install`, `sidebar_plugin.list`, `sidebar_plugin.remove`, `sidebar_plugin.update`, `sidebar_plugin.use`, `sidebar_plugin.use_builtin` |
 
 A selector is a flat object of scope strings. A nested target includes every

@@ -7,7 +7,9 @@ use std::time::{Duration, Instant};
 
 use super::super::*;
 use super::gate::{ALLOWED_COMMANDS, COMMAND_PARAMS, Denial, check_frame};
-use crate::remote_relay_state::{LinkPeer, PairingRecords, RevocationClock};
+use crate::remote_relay_state::{
+    BindRefused, LinkPeer, PairingRecords, RelayLock, RelayStateError, RevocationClock,
+};
 
 const OWNER: &str = "42";
 
@@ -64,9 +66,9 @@ fn peer(install: &str, user: &str) -> LinkPeer {
 
 /// A remote connection of `install` (checked with the control plane now).
 fn remote(fixture: &Fixture, install: &str, user: &str) -> u64 {
-    fixture.mux.record_remote_check(install);
+    fixture.mux.record_remote_check(install).unwrap();
     let client = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
-    fixture.mux.bind_remote_peer(client, &peer(install, user));
+    fixture.mux.bind_remote_peer(client, &peer(install, user)).unwrap();
     client
 }
 
@@ -269,7 +271,7 @@ fn a_remote_identify_reveals_no_local_state() {
     keys.sort();
     assert_eq!(keys, ["app", "capabilities", "protocol"], "{reply}");
     assert_eq!(data["capabilities"], json!(["local-conversations-v1"]));
-    assert_eq!(data["protocol"], json!(crate::server::PROTOCOL_VERSION), "{reply}");
+    assert_eq!(data["protocol"], json!(PROTOCOL_VERSION), "{reply}");
 }
 
 #[test]
@@ -548,18 +550,24 @@ fn error_codes_follow_the_section_8_mapping() {
 fn offline_limits_follow_the_injected_clock() {
     let fixture = fixture();
     let clock = Arc::new(TestClock(Mutex::new(Instant::now())));
-    fixture.mux.set_remote_revocation_clock(clock.clone());
+    fixture.mux.set_remote_revocation_clock(clock.clone()).unwrap();
     let existing = remote(&fixture, "inst_1", OWNER);
     clock.advance(Duration::from_secs(23 * 3600));
-    assert!(fixture.mux.enforce_remote_limits().is_empty(), "an unreachable cloud closes nothing");
+    assert!(
+        fixture.mux.enforce_remote_limits().unwrap().is_empty(),
+        "an unreachable cloud closes nothing"
+    );
     clock.advance(Duration::from_secs(2 * 3600));
     let late = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
-    fixture.mux.bind_remote_peer(late, &peer("inst_1", OWNER));
+    assert_eq!(
+        fixture.mux.bind_remote_peer(late, &peer("inst_1", OWNER)),
+        Err(BindRefused::Policy)
+    );
     assert_eq!(fixture.mux.principal(late), None, "24 h: new streams refused");
     assert!(fixture.mux.control_clients.is_remote(existing), "24 h: existing streams stay");
-    assert!(fixture.mux.enforce_remote_limits().is_empty());
+    assert!(fixture.mux.enforce_remote_limits().unwrap().is_empty());
     clock.advance(Duration::from_secs(48 * 3600));
-    assert_eq!(fixture.mux.enforce_remote_limits(), ["inst_1"]);
+    assert_eq!(fixture.mux.enforce_remote_limits().unwrap(), ["inst_1"]);
     assert!(!fixture.mux.control_clients.is_remote(existing), "72 h: existing streams closed");
 }
 
@@ -568,14 +576,17 @@ fn a_revoke_acts_in_one_step() {
     let fixture = fixture();
     let one = remote(&fixture, "inst_1", OWNER);
     let other = remote(&fixture, "inst_2", OWNER);
-    fixture.mux.revoke_remote_install("inst_1");
+    fixture.mux.revoke_remote_install("inst_1").unwrap();
     assert!(!fixture.mux.control_clients.is_remote(one));
     assert_eq!(fixture.mux.principal(one), None);
     assert!(fixture.mux.control_clients.is_remote(other));
     assert_eq!(*fixture.records.deleted.lock().unwrap(), ["inst_1"]);
     let again = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
-    fixture.mux.record_remote_check("inst_1");
-    fixture.mux.bind_remote_peer(again, &peer("inst_1", OWNER));
+    fixture.mux.record_remote_check("inst_1").unwrap();
+    assert_eq!(
+        fixture.mux.bind_remote_peer(again, &peer("inst_1", OWNER)),
+        Err(BindRefused::Policy)
+    );
     assert_eq!(fixture.mux.principal(again), None, "a revoke is final");
 }
 
@@ -583,7 +594,10 @@ fn a_revoke_acts_in_one_step() {
 fn an_install_never_checked_opens_no_stream() {
     let fixture = fixture();
     let client = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
-    fixture.mux.bind_remote_peer(client, &peer("inst_new", OWNER));
+    assert_eq!(
+        fixture.mux.bind_remote_peer(client, &peer("inst_new", OWNER)),
+        Err(BindRefused::Policy)
+    );
     assert_eq!(fixture.mux.principal(client), None);
 }
 
@@ -704,7 +718,10 @@ fn a_revoked_install_is_refused_on_its_next_frame() {
     fixture.mux.remote_relay().revocation.lock().unwrap().record_revoked("inst_1");
     assert_code(&send(&fixture.mux, client, list), "remote_denied");
     let late = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
-    assert!(!fixture.mux.bind_remote_peer(late, &peer("inst_1", OWNER)));
+    assert_eq!(
+        fixture.mux.bind_remote_peer(late, &peer("inst_1", OWNER)),
+        Err(BindRefused::Policy)
+    );
     assert!(fixture.mux.remote_relay().peer(late).is_none());
 }
 
@@ -714,17 +731,17 @@ fn a_revoked_install_is_refused_on_its_next_frame() {
 fn a_revoke_racing_a_bind_leaves_no_served_stream() {
     for _ in 0..200 {
         let fixture = fixture();
-        fixture.mux.record_remote_check("inst_1");
+        fixture.mux.record_remote_check("inst_1").unwrap();
         let client = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
         let binder = {
             let mux = fixture.mux.clone();
             std::thread::spawn(move || mux.bind_remote_peer(client, &peer("inst_1", OWNER)))
         };
-        fixture.mux.revoke_remote_install("inst_1");
+        fixture.mux.revoke_remote_install("inst_1").unwrap();
         let bound = binder.join().unwrap();
         let served = fixture.mux.remote_relay().peer(client).is_some()
             && fixture.mux.control_clients.is_remote(client);
-        assert!(!served, "bound={bound}: a revoked install kept a served stream");
+        assert!(!served, "bound={bound:?}: a revoked install kept a served stream");
     }
 }
 
@@ -834,4 +851,136 @@ fn a_remote_entry_connection_keeps_the_remote_path_after_disconnect() {
         &connection_frame(&fixture.mux, client, ClientTransport::Remote, bad),
         "remote_error",
     );
+}
+
+// Poisoned relay locks (lane 10 lock slice): every admission, binding and
+// revocation step fails closed and returns a typed error.
+
+/// Poisons `mutex`: a panic while it is held.
+fn poison<T>(mutex: &Mutex<T>) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _held = mutex.lock().unwrap();
+        panic!("poisons the lock for a fail-closed test");
+    }));
+    assert!(mutex.is_poisoned());
+}
+
+const POISONED_REVOCATION: RelayStateError = RelayStateError::Poisoned(RelayLock::Revocation);
+const POISONED_PEERS: RelayStateError = RelayStateError::Poisoned(RelayLock::Peers);
+
+#[test]
+fn a_poisoned_revocation_lock_records_no_check_and_binds_no_stream() {
+    let fixture = fixture();
+    poison(&fixture.mux.remote_relay().revocation);
+    assert_eq!(fixture.mux.record_remote_check("inst_1"), Err(POISONED_REVOCATION));
+    let client = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
+    assert_eq!(
+        fixture.mux.bind_remote_peer(client, &peer("inst_1", OWNER)),
+        Err(BindRefused::State(POISONED_REVOCATION))
+    );
+    assert_eq!(fixture.mux.principal(client), None);
+    let clock = Arc::new(TestClock(Mutex::new(Instant::now())));
+    assert_eq!(fixture.mux.set_remote_revocation_clock(clock), Err(POISONED_REVOCATION));
+}
+
+#[test]
+fn a_poisoned_revocation_lock_refuses_the_next_frame_of_an_open_stream() {
+    let fixture = fixture();
+    let client = remote(&fixture, "inst_1", OWNER);
+    let list = json!({"id":1,"cmd":"conversation-list"});
+    assert_eq!(send(&fixture.mux, client, list.clone())["ok"], json!(true));
+    poison(&fixture.mux.remote_relay().revocation);
+    assert_code(&send(&fixture.mux, client, list), "remote_denied");
+}
+
+#[test]
+fn a_poisoned_pairing_lock_denies_the_owner_scope() {
+    let fixture = fixture();
+    let client = remote(&fixture, "inst_1", OWNER);
+    poison(&fixture.mux.remote_relay().pairing);
+    assert_code(
+        &send(&fixture.mux, client, json!({"id":1,"cmd":"conversation-list"})),
+        "remote_denied",
+    );
+}
+
+/// A poisoned peers lock cannot say which clients have a peer record, so
+/// no client gets a principal from it and none is trusted as local.
+#[test]
+fn a_poisoned_peers_lock_gives_no_principal_and_no_local_trust() {
+    let fixture = fixture();
+    let client = remote(&fixture, "inst_1", OWNER);
+    poison(&fixture.mux.remote_relay().peers);
+    assert_eq!(fixture.mux.principal(client), None);
+    assert!(fixture.mux.is_remote_client(fixture.local));
+    assert_eq!(fixture.mux.principal(fixture.local), None);
+    let late = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
+    assert_eq!(
+        fixture.mux.bind_remote_peer(late, &peer("inst_1", OWNER)),
+        Err(BindRefused::State(POISONED_PEERS))
+    );
+}
+
+#[test]
+fn a_poisoned_registry_lock_trusts_no_client_as_local() {
+    let fixture = fixture();
+    poison(&fixture.mux.control_clients.state);
+    assert!(fixture.mux.control_clients.transport_of(fixture.local).is_none());
+    assert!(fixture.mux.is_remote_client(fixture.local));
+}
+
+/// A revoke that meets a poisoned lock cannot tell the install's streams
+/// apart, so it closes every remote stream, and still deletes the record.
+#[test]
+fn a_revoke_on_a_poisoned_lock_closes_every_remote_stream() {
+    let fixture = fixture();
+    let one = remote(&fixture, "inst_1", OWNER);
+    let other = remote(&fixture, "inst_2", OWNER);
+    poison(&fixture.mux.remote_relay().peers);
+    assert_eq!(fixture.mux.revoke_remote_install("inst_1"), Err(POISONED_PEERS));
+    assert!(!fixture.mux.control_clients.is_remote(one));
+    assert!(!fixture.mux.control_clients.is_remote(other));
+    assert!(matches!(
+        fixture.mux.control_clients.transport_of(fixture.local),
+        Some(ClientTransport::Unix)
+    ));
+    assert_eq!(*fixture.records.deleted.lock().unwrap(), ["inst_1"]);
+}
+
+#[test]
+fn the_offline_limits_on_a_poisoned_lock_close_every_remote_stream() {
+    let fixture = fixture();
+    let one = remote(&fixture, "inst_1", OWNER);
+    poison(&fixture.mux.remote_relay().revocation);
+    assert_eq!(fixture.mux.enforce_remote_limits(), Err(POISONED_REVOCATION));
+    assert!(!fixture.mux.control_clients.is_remote(one));
+}
+
+/// 24 h offline (RefuseNew): an open stream still gets its frames served.
+#[test]
+fn an_open_stream_keeps_its_frames_at_the_24_hour_limit() {
+    let fixture = fixture();
+    let clock = Arc::new(TestClock(Mutex::new(Instant::now())));
+    fixture.mux.set_remote_revocation_clock(clock.clone()).unwrap();
+    let client = remote(&fixture, "inst_1", OWNER);
+    clock.advance(Duration::from_secs(25 * 3600));
+    let list = json!({"id":1,"cmd":"conversation-list"});
+    assert_eq!(send(&fixture.mux, client, list)["ok"], json!(true));
+}
+
+/// A revoke with only the pairing lock poisoned still closes the install's
+/// streams (and only those), keeps the record, and returns the error.
+#[test]
+fn a_revoke_with_a_poisoned_pairing_lock_still_closes_the_install() {
+    let fixture = fixture();
+    let one = remote(&fixture, "inst_1", OWNER);
+    let other = remote(&fixture, "inst_2", OWNER);
+    poison(&fixture.mux.remote_relay().pairing);
+    assert_eq!(
+        fixture.mux.revoke_remote_install("inst_1"),
+        Err(RelayStateError::Poisoned(RelayLock::Pairing))
+    );
+    assert!(!fixture.mux.control_clients.is_remote(one));
+    assert!(fixture.mux.control_clients.is_remote(other));
+    assert!(fixture.records.deleted.lock().unwrap().is_empty());
 }

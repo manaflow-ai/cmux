@@ -31,7 +31,9 @@ use std::sync::PoisonError;
 use serde_json::{Value, json};
 
 use super::{ClientTransport, Command, MessageWriter, Mux, Response};
-use crate::remote_relay_state::{LinkPeer, StreamPolicy, remote_participant};
+use crate::remote_relay_state::{
+    BindRefused, LinkPeer, RelayLock, StreamPolicy, lock_checked, remote_participant,
+};
 
 pub use gate::ConversationGate;
 
@@ -85,13 +87,26 @@ pub(super) enum Principal {
     Remote(LinkPeer),
 }
 
+impl Principal {
+    /// The participant id: `user_local`, the bound agent, or
+    /// `remote_<install>`.
+    pub(super) fn participant(self) -> String {
+        match self {
+            Self::Local => crate::conversation_store::LOCAL_USER.to_string(),
+            Self::Agent(participant) => participant,
+            Self::Remote(peer) => remote_participant(&peer.install),
+        }
+    }
+}
+
 impl super::ClientRegistry {
     /// The transport of a registered client, or `None` for an id the
     /// registry does not list (never registered, or already disconnected).
+    /// A poisoned registry lock also gives `None`, which every caller treats
+    /// as remote (fail closed).
     pub(super) fn transport_of(&self, client: u64) -> Option<ClientTransport> {
-        self.state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock_checked(&self.state, RelayLock::Clients)
+            .ok()?
             .clients
             .get(&client)
             .map(|record| record.transport)
@@ -112,42 +127,59 @@ impl Mux {
     /// local (a frame racing its connection's disconnect, a stray id).
     pub(super) fn is_remote_client(&self, client: u64) -> bool {
         match self.control_clients.transport_of(client) {
+            // A poisoned peers lock cannot say the client has no peer
+            // record: remote (fail closed).
             Some(ClientTransport::Unix | ClientTransport::WebSocket) => {
-                self.remote_relay().peer(client).is_some()
+                self.remote_relay().peer_checked(client).map_or(true, |peer| peer.is_some())
             }
             Some(ClientTransport::Remote) | None => true,
         }
     }
 
     /// Record the verified link peer of remote connection `client` and bind
-    /// its participant `remote_<install>`. Returns false, and records
-    /// nothing, when the install may not open new streams (section 10); the
-    /// connection loop then closes the stream before its first frame.
+    /// its participant `remote_<install>`. Refuses, and records nothing,
+    /// when the install may not open new streams (section 10) or a relay
+    /// lock is poisoned (fail closed); the connection loop then closes the
+    /// stream before its first frame.
     ///
     /// Lock order: revocation, then peers. The revocation lock is held while
     /// the peer is added, so a concurrent revoke either sees the new stream
     /// (and closes it) or runs first (and this refuses it).
-    pub(crate) fn bind_remote_peer(&self, client: u64, peer: &LinkPeer) -> bool {
-        let revocation =
-            self.remote_relay().revocation.lock().unwrap_or_else(PoisonError::into_inner);
+    pub(crate) fn bind_remote_peer(&self, client: u64, peer: &LinkPeer) -> Result<(), BindRefused> {
+        let relay = self.remote_relay();
+        let revocation = lock_checked(&relay.revocation, RelayLock::Revocation)?;
         if revocation.policy(&peer.install) != StreamPolicy::Serve {
-            return false;
+            return Err(BindRefused::Policy);
         }
-        self.remote_relay()
-            .peers
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(client, peer.clone());
+        lock_checked(&relay.peers, RelayLock::Peers)?.insert(client, peer.clone());
         self.bind_conversation_principal(client, remote_participant(&peer.install));
         drop(revocation);
-        true
+        Ok(())
+    }
+
+    /// The principal of `client` for one frame, checked now: a remote
+    /// principal also needs its install's revocation policy to allow its
+    /// open streams (a revoked install, or one past the 72 h offline limit,
+    /// is refused even before its streams close). A poisoned relay lock
+    /// refuses (fail closed).
+    pub(super) fn frame_principal(&self, client: u64) -> Option<Principal> {
+        let principal = self.principal(client)?;
+        if let Principal::Remote(peer) = &principal {
+            let revocation =
+                lock_checked(&self.remote_relay().revocation, RelayLock::Revocation).ok()?;
+            if revocation.policy(&peer.install) == StreamPolicy::Close {
+                return None;
+            }
+        }
+        Some(principal)
     }
 
     /// The principal of `client`, or `None` for a remote connection without
     /// a peer record and any other connection that is not trusted local
     /// (refused, never `user_local`).
     pub(super) fn principal(&self, client: u64) -> Option<Principal> {
-        if let Some(peer) = self.remote_relay().peer(client) {
+        // A poisoned peers lock gives no principal, never a local one.
+        if let Some(peer) = self.remote_relay().peer_checked(client).ok()? {
             return Some(Principal::Remote(peer));
         }
         if !self.control_clients.is_unix(client) {
@@ -165,17 +197,14 @@ impl Mux {
     /// not trusted local) gets [`NO_PRINCIPAL`], which names no participant,
     /// so it fails closed and never falls back to `user_local`.
     pub(crate) fn conversation_principal(&self, client: u64) -> String {
-        match self.principal(client) {
-            Some(Principal::Local) => crate::conversation_store::LOCAL_USER.to_string(),
-            Some(Principal::Agent(participant)) => participant,
-            Some(Principal::Remote(peer)) => remote_participant(&peer.install),
-            None => NO_PRINCIPAL.to_string(),
-        }
+        self.principal(client).map_or_else(|| NO_PRINCIPAL.to_string(), Principal::participant)
     }
 
     /// Install the pairing records (`cmux server pair`) the owner scope
     /// reads.
     pub fn set_pairing_records(&self, records: Arc<dyn crate::PairingRecords>) {
+        // Safety: this replaces the whole value, and the lock stays poisoned,
+        // so every owner read still fails closed (`owner_user`).
         *self.remote_relay().pairing.lock().unwrap_or_else(PoisonError::into_inner) = Some(records);
     }
 }

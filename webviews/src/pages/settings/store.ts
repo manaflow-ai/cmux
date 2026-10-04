@@ -128,6 +128,18 @@ export class SettingsStore {
     return reply.ok && reply.value.accepts;
   }
 
+  /** Opens the cmux picker for the folder list `key`; the host writes the chosen folders. */
+  async addFolders(key: string): Promise<void> {
+    const reply = await this.request("cmux.settings.folders.add", { key });
+    if (!reply.ok)
+      this.setError(key, {
+        code: errorCode(reply.error),
+        message: errorText(errorCode(reply.error)),
+        detail: reply.error.message,
+      });
+    else await this.refresh();
+  }
+
   revealSettingsFile(): void {
     void this.request("cmux.settings.file.reveal", {});
   }

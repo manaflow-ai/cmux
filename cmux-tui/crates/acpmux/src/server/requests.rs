@@ -69,7 +69,7 @@ pub(super) async fn handle_request(
     if conn.origin != Origin::Local
         && let Ok(v) = &mut reply
     {
-        redact_for_remote(v);
+        super::redact::redact_for_remote(m, v);
     }
     reply
 }
@@ -148,7 +148,11 @@ async fn dispatch_request(
                     "sessionCapabilities": {"list": {}, "fork": {}, "close": {}, "delete": {}},
                 },
                 "authMethods": [],
-                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD, "extensions": [
+                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD,
+                // `local`: the unix socket or the proven local app
+                // (`local_app.rs`), which the session pool serves.
+                "origin": if conn.origin == Origin::Web { "remote" } else { "local" },
+                "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
@@ -181,8 +185,19 @@ async fn dispatch_request(
                 }
                 return Ok(result);
             }
-            let cwd = str_param(&params, "cwd").map(PathBuf::from);
+            let mut cwd = str_param(&params, "cwd").map(PathBuf::from);
             let meta = mux_meta(&params);
+            // The local app starts a preset by its id only: anything that
+            // would shape the harness command from the request is refused.
+            // LocalApp cwd: any existing directory of this user until the native transport limits it to workspace roots.
+            if conn.origin == Origin::LocalApp {
+                super::local_app::preset_by_id_only(&params, meta)?;
+                if super::local_app::names_preset(&params, meta)
+                    && let Some(given) = &cwd
+                {
+                    cwd = Some(super::local_app::canonical_cwd(given).await?);
+                }
+            }
             let adopt =
                 crate::adopt::AdoptRequest::from_meta(meta).map_err(RpcError::invalid_params)?;
             let pick = |key: &str| {
@@ -203,6 +218,7 @@ async fn dispatch_request(
                 model: pick("model"),
                 effort: pick("effort"),
                 adopt,
+                // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin == Origin::Web,
             };
             let s = hub.new_session(req).await?;
@@ -383,6 +399,7 @@ async fn dispatch_request(
                 preset: s("preset"),
                 cwd: s("cwd").map(PathBuf::from),
                 wait: params.get("wait").and_then(Value::as_bool) == Some(true),
+                // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin == Origin::Web,
             })
             .await
@@ -583,7 +600,8 @@ async fn dispatch_request(
                 // REMOTE-FLOOR v3: a remote-origin client builds its settings
                 // from scratch, so it never sets, changes or clears a preset
                 // that shapes the harness command line (args, systemPrompt).
-                let remote = conn.origin == Origin::Web;
+                // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
+                let remote = conn.origin != Origin::Local;
                 if remote
                     && (cfg.presets.get(&name).is_some_and(|p| p.shapes_command())
                         || set.is_some_and(|s| {
@@ -968,30 +986,4 @@ async fn dispatch_request(
             Err(RpcError::method_not_found(other))
         }
     }
-}
-
-/// A remote-origin (Web) connection never learns a token: not the
-/// dashboard link (`webUrl` carries this listener's token) and not the
-/// userinfo, query or fragment of a peer's URL (a user may have written a
-/// peer's token there). The local socket keeps both (`acpmux web`, the app's host).
-fn redact_for_remote(reply: &mut Value) {
-    if let Some(obj) = reply.as_object_mut() {
-        obj.remove("webUrl");
-    }
-    if let Some(peers) = reply.get_mut("peers").and_then(Value::as_array_mut) {
-        for peer in peers {
-            if let Some(url) = peer.get("url").and_then(Value::as_str) {
-                peer["url"] = Value::String(url_without_secrets(url));
-            }
-        }
-    }
-}
-
-/// `scheme://user:secret@host/path?q#f` -> `scheme://host/path`.
-fn url_without_secrets(url: &str) -> String {
-    let bare = url.split(['?', '#']).next().unwrap_or_default();
-    let Some((scheme, rest)) = bare.split_once("://") else { return bare.to_owned() };
-    let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
-    let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
-    format!("{scheme}://{host}{path}")
 }

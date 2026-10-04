@@ -368,6 +368,71 @@
       "title" : "Never Hibernate",
       "type" : "array"
     },
+    "browser.links.cmdClick" : {
+      "default" : "backgroundTab",
+      "description" : "In Chromium tabs, Download keeps Chrome's default.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Command-Click",
+      "type" : "string"
+    },
+    "browser.links.cmdShiftClick" : {
+      "default" : "foregroundTab",
+      "description" : "Shift-middle-click does the same.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Shift-Command-Click",
+      "type" : "string"
+    },
+    "browser.links.middleClick" : {
+      "default" : "backgroundTab",
+      "description" : "Chromium tabs use the Command-Click setting.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Middle-Click",
+      "type" : "string"
+    },
+    "browser.links.optionClick" : {
+      "default" : "download",
+      "description" : "Chromium tabs always download.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Option-Click",
+      "type" : "string"
+    },
+    "browser.links.shiftClick" : {
+      "default" : "newWindow",
+      "description" : "In Chromium tabs, Download keeps Chrome's default.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Shift-Click",
+      "type" : "string"
+    },
     "browser.newTabPage" : {
       "default" : "",
       "description" : "An address such as https://example.com. Empty opens a blank page.",

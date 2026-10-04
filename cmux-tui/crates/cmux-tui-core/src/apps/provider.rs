@@ -107,7 +107,9 @@ pub struct ProviderClaim {
     /// The connection is bound to an agent (its conversation principal is
     /// not the local user).
     pub agent: bool,
-    /// The connection declared `set-client-info` kind `app`.
+    /// The connection is the hosting app by the evidence the caller's check
+    /// accepts: the verified app for origin `user`; for provider registration
+    /// also a declared `set-client-info` kind `app` (until P8).
     pub app_kind: bool,
 }
 
@@ -131,7 +133,7 @@ pub fn admit_origin(origin: Origin, claim: &ProviderClaim) -> Result<(), ApiErro
     let why = if claim.agent {
         "an agent connection cannot act with origin user"
     } else {
-        "only the cmux app (set-client-info kind app) can act with origin user"
+        "only the verified cmux app can act with origin user"
     };
     Err(ApiError::new("apps.origin_forbidden", why))
 }
