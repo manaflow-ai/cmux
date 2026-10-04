@@ -26,9 +26,13 @@ nonisolated enum HomeChiefName {
     }
 
     /// The chief conversation among `conversations`, by the rule the mux host
-    /// shares (select_chief_conversation). Stub: the first one (red).
+    /// shares (select_chief_conversation): the oldest conversation with
+    /// agent_mux, by created_at, then id. List order never decides it.
     static func select(from conversations: [CmuxNextDaemon.ConversationSummary]) -> CmuxNextDaemon.ConversationSummary? {
-        conversations.first { $0.participants.contains { $0.id == muxID } }
+        conversations.filter { $0.participants.contains { $0.id == muxID } }.min { a, b in
+            let (da, db) = (HomeCoreMapping.date(a.createdAt) ?? .distantFuture, HomeCoreMapping.date(b.createdAt) ?? .distantFuture)
+            return da != db ? da < db : a.id < b.id
+        }
     }
 
     /// The local user's name in the chief create request; the mux host gets
