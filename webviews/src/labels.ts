@@ -1,4 +1,4 @@
-const DEFAULT_DIFF_VIEWER_LABELS = {
+export const DEFAULT_DIFF_VIEWER_LABELS = {
   additions: "Additions",
   bars: "Bars",
   binaryFile: "Binary file",

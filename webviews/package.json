@@ -8,6 +8,7 @@
     "benchmark": "bun run bench/diff-stream.bench.ts",
     "check": "vp check",
     "check:fix": "vp check --fix",
+    "dev": "vp dev",
     "dev:agent-pane": "vp dev --config vite.config.acpmux-pane.mjs",
     "compare:agent-pane": "node scripts/agent-pane/compare.mjs",
     "fmt": "vp fmt",
