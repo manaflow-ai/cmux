@@ -105,6 +105,9 @@ pub struct Config {
     pub host_args: Vec<String>,
     /// Where first-party app server binaries ship (`servers.rs`).
     pub server_dir: Option<PathBuf>,
+    /// The daemon state directory that holds the link registration
+    /// (`link.json`, lane 12) for `cmux.host.link.get`.
+    pub link_dir: Option<PathBuf>,
     pub sources: Sources,
     /// `apps.idleStopSeconds` (default 60).
     pub idle_stop: Duration,
@@ -206,6 +209,8 @@ pub(super) struct Inner {
     pub run_key_order: VecDeque<String>,
     /// One server process per app with a manifest `server` (`servers.rs`).
     pub servers: HashMap<String, super::servers::Server>,
+    /// The last link socket servers were told about (`host_ops.rs`).
+    pub hub_socket: Option<PathBuf>,
     /// Open tokens minted for user runs of server ops (`servers.rs`).
     pub open_tokens: HashMap<String, super::open_tokens::OpenToken>,
     pub server_crashes: HashMap<String, super::servers::Crashes>,
@@ -234,6 +239,8 @@ pub struct Supervisor {
     pub(super) me: Weak<Supervisor>,
     /// Connector links of the terminal interfaces (`terminal_ops.rs`).
     pub(super) terminals: super::terminal_links::Terminals,
+    /// The watch on the link registration (`host_ops.rs`), kept alive here.
+    link_watch: Mutex<Option<notify::RecommendedWatcher>>,
     transactions: AtomicU64,
 }
 
@@ -294,6 +301,7 @@ impl Supervisor {
                 run_key_order: VecDeque::new(),
                 servers: HashMap::new(),
                 open_tokens: HashMap::new(),
+                hub_socket: None,
                 server_crashes: HashMap::new(),
             }),
             config,
@@ -303,11 +311,14 @@ impl Supervisor {
             timers: Timers::default(),
             me: me.clone(),
             terminals: Default::default(),
+            link_watch: Mutex::new(None),
             transactions: AtomicU64::new(1),
         });
         if seeded {
             let _ = supervisor.persist(&supervisor.inner.lock().unwrap().mirror);
         }
+        supervisor.inner.lock().unwrap().hub_socket = supervisor.hub_socket();
+        *supervisor.link_watch.lock().unwrap() = supervisor.watch_link_registration();
         supervisor.start_always_servers();
         supervisor
     }

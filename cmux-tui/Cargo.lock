@@ -1199,6 +1199,7 @@ dependencies = [
  "ghostty-vt",
  "jsonschema",
  "libc",
+ "notify",
  "proptest",
  "regex",
  "reqwest",

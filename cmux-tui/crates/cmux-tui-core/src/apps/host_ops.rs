@@ -17,6 +17,8 @@
 //!   its frames and errors are in `credential_relay.rs`.
 //! - Any other `cmux.host.*` op answers `host.error` `apps.op.unknown`.
 
+use std::path::PathBuf;
+
 use serde_json::{Value, json};
 
 use super::mirror::Tier;
@@ -28,19 +30,17 @@ impl Supervisor {
     /// hub socket, a link state directory in the app's data directory, the
     /// app's temporary directory for link sockets, and this machine's name.
     ///
-    /// `hub_socket` is always `null` for now. The link lane (lane 12: the
-    /// WireGuard engine and the `cmux link` agent) owns that socket; the
-    /// daemon neither spawns it nor reads it from its launch environment. It
-    /// will come from the link agent's registration file at a well-known
-    /// path under the daemon state directory, which lane 12 defines. Until
-    /// then the Cloud server answers `link_unavailable`.
+    /// `hub_socket` comes from the link agent's registration (lane 12,
+    /// `<daemon state dir>/link.json`) and is set only while that link runs
+    /// (its pid is alive and its socket accepts); otherwise `null`. The
+    /// daemon never spawns the link and never reads it from its environment.
     pub(super) fn host_link(&self, app: &str) -> Value {
         let (data, tmp) = self.server_dirs(app);
         let state_dir = data.join("link");
         let _ = std::fs::create_dir_all(&state_dir);
         json!({
             "binary": std::env::current_exe().ok(),
-            "hub_socket": Value::Null,
+            "hub_socket": self.hub_socket(),
             "state_dir": state_dir,
             "socket_dir": tmp,
             "device_name": device_name(),
@@ -80,13 +80,22 @@ impl Supervisor {
         }
     }
 
-    /// Sends `cmux.host.link.changed` to every running server that may read
-    /// the link. Nothing changes the daemon's link values during its life
-    /// yet; the daemon calls this when the link agent's registration (lane
-    /// 12) appears or changes.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// The live link registration's socket, if a link runs.
+    pub(super) fn hub_socket(&self) -> Option<PathBuf> {
+        let dir = self.config.link_dir.as_deref()?;
+        cmux_link::registration::read_live(dir).map(|registration| registration.socket)
+    }
+
+    /// The link registration may have changed (a watch on link.json): when
+    /// the live socket differs from the last one, every running server that
+    /// may read the link gets `cmux.host.link.changed`.
     pub(super) fn host_link_changed(&self) {
-        let inner = self.inner.lock().unwrap();
+        let current = self.hub_socket();
+        let mut inner = self.inner.lock().unwrap();
+        if inner.hub_socket == current {
+            return;
+        }
+        inner.hub_socket = current;
         for (app, server) in &inner.servers {
             if !server.stopping && Self::host_op_allowed(&inner, app, "cmux.host.link.get") {
                 server.process.send(line(&json!({
@@ -94,6 +103,31 @@ impl Supervisor {
                 })));
             }
         }
+    }
+
+    /// Watches the link registration's directory so a link that starts,
+    /// stops or moves reaches running servers without a poll. No watch when
+    /// the daemon has no state directory.
+    pub(super) fn watch_link_registration(&self) -> Option<notify::RecommendedWatcher> {
+        use notify::Watcher as _;
+        let dir = self.config.link_dir.clone()?;
+        std::fs::create_dir_all(&dir).ok()?;
+        let me = self.me.clone();
+        let mut watcher =
+            notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+                let touches_registration = event.is_ok_and(|event| {
+                    event.paths.iter().any(|path| {
+                        path.file_name()
+                            == Some(std::ffi::OsStr::new(cmux_link::registration::FILE_NAME))
+                    })
+                });
+                if touches_registration && let Some(me) = me.upgrade() {
+                    me.host_link_changed();
+                }
+            })
+            .ok()?;
+        watcher.watch(&dir, notify::RecursiveMode::NonRecursive).ok()?;
+        Some(watcher)
     }
 }
 

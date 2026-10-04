@@ -31,6 +31,8 @@ wait-timeout.workspace = true
 tungstenite.workspace = true
 cmux-local-auth.workspace = true
 cmux-link.workspace = true
+# Watches the link registration (link.json) for cmux.host.link.changed.
+notify.workspace = true
 getrandom.workspace = true
 rusqlite.workspace = true
 fs4.workspace = true
