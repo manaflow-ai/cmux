@@ -744,6 +744,14 @@ pub fn discover_harnesses() -> BTreeMap<String, HarnessProfile> {
             );
         }
     }
+    // Codex speaks ACP only through its adapter. Without a codex-acp on PATH (or an ~/.acpx
+    // entry), an installed codex still gets a harness through the pinned adapter package.
+    if !agents.contains_key("codex")
+        && let Some(profile) =
+            codex_through_adapter_package(which("codex").as_deref(), which("npx").as_deref())
+    {
+        agents.insert("codex".to_owned(), profile);
+    }
     // A direct Claude falls over to the pool when its account is exhausted.
     if agents.contains_key("claude-sr")
         && let Some(c) = agents.get_mut("claude")
@@ -752,6 +760,31 @@ pub fn discover_harnesses() -> BTreeMap<String, HarnessProfile> {
         c.fallback = Some("claude-sr".into());
     }
     agents
+}
+
+/// The codex-acp adapter version acpmux runs when only `codex` is installed (the version the
+/// cmux ACP installer pins).
+pub const CODEX_ACP_PACKAGE: &str = "@agentclientprotocol/codex-acp@1.10.0";
+
+/// A `codex` harness through `npx -y <CODEX_ACP_PACKAGE>`, the adapter pointed at the installed
+/// codex by CODEX_PATH; None unless both codex and npx are found.
+pub fn codex_through_adapter_package(
+    codex: Option<&str>,
+    npx: Option<&str>,
+) -> Option<HarnessProfile> {
+    let (codex, npx) = (codex?, npx?);
+    Some(HarnessProfile {
+        kind: HarnessKind::Acp,
+        argv: vec![npx.to_owned(), "-y".into(), CODEX_ACP_PACKAGE.into()],
+        env: BTreeMap::from([("CODEX_PATH".to_owned(), codex.to_owned())]),
+        description: Some(format!("Codex through {CODEX_ACP_PACKAGE} (no codex-acp on PATH)")),
+        fallback: None,
+        family: None,
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    })
 }
 
 /// Drop discovered launcher profiles whose binary cannot actually run the
