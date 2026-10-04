@@ -103,6 +103,9 @@ public final class BrowserReplFrameGate {
     private let prober: BrowserReplScriptProbe
     /// The document each frame last showed when the gate read it.
     private var known: [Key: BrowserReplFrameDocument] = [:]
+    /// Holds back child-frame loads while guarded input or a capture is in
+    /// flight; the navigation delegate honors it.
+    let loadHold: BrowserReplSubframeLoadHold
 
     private struct Key: Hashable {
         let webView: ObjectIdentifier
@@ -113,8 +116,15 @@ public final class BrowserReplFrameGate {
     ///   - world: a content world agent and page code cannot reach.
     ///   - probeTimeout: the bound on each of the gate's own probes.
     ///   - clock: measures `probeTimeout`.
-    public init(world: WKContentWorld, probeTimeout: Duration = .seconds(5), clock: any Clock<Duration> = ContinuousClock()) {
+    ///   - loadHold: the hold the web views' navigation delegate honors.
+    public init(
+        world: WKContentWorld,
+        probeTimeout: Duration = .seconds(5),
+        clock: any Clock<Duration> = ContinuousClock(),
+        loadHold: BrowserReplSubframeLoadHold = .shared
+    ) {
         self.world = world
+        self.loadHold = loadHold
         prober = BrowserReplScriptProbe(timeout: probeTimeout, clock: clock)
     }
 
