@@ -152,12 +152,18 @@ extension TerminalController {
             // renames must instead retain the projected surface identity, or
             // they would rename both the remote window and its active pane.
             let titlePanelID = resolvesMirroredTab ? surfaceId : panelId
-            workspace.setPanelCustomTitle(panelId: titlePanelID, title: trimmedTitle)
+            let isProjectedTmuxPane = workspace.remoteTmuxControlPane(surfaceID: titlePanelID) != nil
+            guard workspace.setPanelCustomTitle(panelId: titlePanelID, title: trimmedTitle) || !isProjectedTmuxPane else {
+                return .renameFailed
+            }
             return finish(.title(trimmedTitle))
 
         case "clear_name":
             let titlePanelID = resolvesMirroredTab ? surfaceId : panelId
-            workspace.setPanelCustomTitle(panelId: titlePanelID, title: nil)
+            let isProjectedTmuxPane = workspace.remoteTmuxControlPane(surfaceID: titlePanelID) != nil
+            guard workspace.setPanelCustomTitle(panelId: titlePanelID, title: nil) || !isProjectedTmuxPane else {
+                return .renameFailed
+            }
             return finish(.none)
 
         case "pin":
