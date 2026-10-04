@@ -29,3 +29,17 @@ import Testing
         #expect(tab.conversation != nil)
     }
 }
+
+/// The session bind is a compare-and-swap: it always names the session it expects (null for
+/// a tab with none), so a chat changed elsewhere is refused instead of overwritten.
+@Suite struct AgentSessionBindWireTests {
+    @Test func theBindAlwaysNamesTheExpectedSession() throws {
+        let data = try WireCoding.encodeRequest(BindConversationTabSessionRequest(surface: 3, session: "s-2"), id: 1)
+        guard case .object(let object) = try JSONDecoder().decode(JSONValue.self, from: data) else {
+            throw DaemonError.malformedResponse("not an object")
+        }
+        #expect(object["cmd"] == .string("bind-conversation-tab-session"))
+        #expect(object["session"] == .string("s-2"))
+        #expect(object["expected_session"] == .null, "an unbound tab expects null, sent explicitly")
+    }
+}

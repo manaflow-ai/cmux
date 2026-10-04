@@ -55,3 +55,20 @@ import Testing
         fixture.tabs.release(key)
     }
 }
+
+/// R81 zero wait: a new agent tab shows in the pane at once, before the store answers
+/// (an intent on the store's log), and the store's tab replaces it without a second tab.
+@MainActor
+@Suite struct AgentTabZeroWaitTests {
+    @Test func aNewTabShowsBeforeTheStoreAnswers() async throws {
+        let fixture = try AgentTabFixture()
+        let (gate, release) = AsyncStream<Void>.makeStream()
+        fixture.holdCreate = { for await _ in gate { return } }
+        let opening = Task { try await fixture.open() }
+        await ReopenClosedTabTests.settle { !fixture.shownAgentTabs.isEmpty }
+        #expect(fixture.shownAgentTabs.count == 1, "the tab shows before the store answers")
+        release.yield()
+        let key = try await opening.value
+        #expect(fixture.shownAgentTabs.map(\.id) == [key], "the store's tab replaces the one shown at once")
+    }
+}

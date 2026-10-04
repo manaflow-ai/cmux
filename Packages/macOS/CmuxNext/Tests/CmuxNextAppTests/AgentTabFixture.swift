@@ -18,6 +18,8 @@ final class AgentTabFixture {
     private(set) var keys: [String] = []
     private(set) var binds: [(key: String, session: String)] = []
     private(set) var creations: [(record: AgentSessionRef, idempotencyKey: String)] = []
+    /// Runs inside each creation before the store answers (a test holds the answer back).
+    var holdCreate: (@MainActor () async -> Void)?
 
     init(registry: ActionRegistry = .standard(), linkScheme: String? = nil, tree: [String] = []) throws {
         tabs = AgentTabStore(tag: nil, registry: registry, environment: Self.mock, linkScheme: linkScheme)
@@ -31,6 +33,7 @@ final class AgentTabFixture {
             daemon.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap { tab in tab.agentSession.map { (key: tab.id, record: $0) } }
         }
         tabs.create = { [unowned self] _, _, record, key in
+            await holdCreate?()
             if let index = creations.firstIndex(where: { $0.idempotencyKey == key }) {
                 return AgentTabCreated(key: keys[index], surface: SurfaceID(rawValue: UInt64(index + 100)))
             }
@@ -43,6 +46,11 @@ final class AgentTabFixture {
             return AgentTabCreated(key: id, surface: SurfaceID(rawValue: UInt64(surface)))
         }
         tabs.bind = { [unowned self] key, session in binds.append((key, session)) }
+    }
+
+    /// The agent chat tabs the pane shows now.
+    var shownAgentTabs: [TabModel] {
+        daemon.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).filter { $0.agentSession != nil }
     }
 
     /// A terminal tab and the tabs created so far, in one pane.
