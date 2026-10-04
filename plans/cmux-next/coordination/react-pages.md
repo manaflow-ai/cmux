@@ -26,8 +26,12 @@
   serves settings.*. One kept page view (no reload on reopen) until the R94 PageHostPool lands.
 - Measured on cmux-lawrence-2 (scripts/cmux-next/bench-settings.py, 3 interleaved runs, median):
   open 339 -> 213 ms (main-thread stall 298 -> 102 ms); reopen 353 -> 28 ms (stall 278 -> 7 ms);
-  search keystroke worst stall 2,159 -> 5 ms (React keys go through the real key path; the Swift
-  field took no synthesized keys, so its numbers set the query through the model binding).
+  search keystroke worst stall 2,159 -> 5 ms. NOT THE SAME METHOD: the React number is 8 real
+  keystrokes through the app key path (debug.key into the WKWebView). The Swift number sets the
+  query through the model binding (`debug.settings {action: query}`), because the SwiftUI field
+  took no synthesized keys in a window that is never key. Compare the two only as stall sizes.
+- Open items: live preview (`cmux.settings.preview`) is a no-op; tracked in commit 5 (theme levels).
+  The first-open stall (~100 ms) goes with the R94 PageHostPool prewarm; no second prewarm here.
 - Next: commits 2-5 (accounts, rooms, machines, theme levels, backdrop, browser profiles, keymap
   import/export as native ops), then commit 6 deletes CmuxNextSettingsWindow UI (the settingsPage.
   strings catalog moves first; Debug Settings moves to a React tunables page).
