@@ -1134,11 +1134,15 @@
     return hops;
   }
 
-  function queryAll(selector, scopeHandle) {
+  // Handles of the matches, the first `limit` when given: a handle is kept
+  // in this world's table until its element goes, so a read that wants a
+  // few of a page-sized match list keeps only those.
+  function queryAll(selector, scopeHandle, limit) {
     const inj = requireInjected();
     const root = scopeHandle ? element(scopeHandle) : document;
     const parsed = inj.parseSelector(selector);
-    return withReadCaches(() => inj.querySelectorAll(parsed, root)).map(handleFor);
+    const found = withReadCaches(() => inj.querySelectorAll(parsed, root));
+    return (Number.isInteger(limit) && limit >= 0 ? found.slice(0, limit) : found).map(handleFor);
   }
 
   function describe(id) {

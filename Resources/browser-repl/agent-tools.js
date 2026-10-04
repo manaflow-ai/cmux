@@ -658,15 +658,28 @@
   // (attribute; href and src resolve to absolute URLs), "@attr" or "." (the
   // scope itself), ["spec"] (every match), or an object: { $: "selector", ...fields }
   // is one object per match, an object without $ is one nested object.
+  // Matches and values are read within the page-read budget (A.budget):
+  // each list keeps at most `limit` matches, every value read is charged,
+  // and past the budget the rest reads as null; `report` says where it
+  // stopped.
   function extractInFrame(schema, opts) {
     const A = globalThis[Symbol.for("cmux.browserRepl.agent")];
+    const B = A.budget();
     const limit = opts.limit || 1000;
-    const all = (sel, scope) => A.queryAll(sel, scope && scope !== document ? A.handleFor(scope) : undefined).map((h) => A.element(h));
+    const all = (sel, scope, max) => A.queryAll(sel, scope && scope !== document ? A.handleFor(scope) : undefined, max).map((h) => A.element(h));
+    const value = (v) => (v === null || v === undefined || B.truncated ? null : B.fit(String(v)));
     const text = (el) => {
       const t = (el.tagName || "").toUpperCase();
-      if (t === "INPUT" || t === "TEXTAREA") return el.value;
-      if (t === "SELECT") return [...el.selectedOptions].map((o) => o.label || o.text).join(", ");
-      return (el.innerText !== undefined ? el.innerText : el.textContent || "").replace(/[\s ]+/g, " ").trim();
+      if (t === "INPUT" || t === "TEXTAREA") return value(el.value);
+      if (t === "SELECT") {
+        const picked = [];
+        for (const o of el.selectedOptions) {
+          if (!B.spend(1)) break;
+          picked.push(value(o.label || o.text));
+        }
+        return picked.join(", ");
+      }
+      return value((el.innerText !== undefined ? el.innerText : el.textContent || "").replace(/[\s ]+/g, " ").trim());
     };
     const split = (spec) => {
       const m = /^(.*?)@([A-Za-z_][\w:.-]*)$/.exec(spec);
@@ -674,16 +687,25 @@
       return [spec.trim(), null];
     };
     const read = (el, attr) => {
-      if (!el) return null;
+      if (!el || !B.spend(1)) return null;
       if (!attr) return text(el);
-      if ((attr === "href" || attr === "src") && typeof el[attr] === "string" && el[attr]) return el[attr];
-      return el.getAttribute(attr);
+      if ((attr === "href" || attr === "src") && typeof el[attr] === "string" && el[attr]) return value(el[attr]);
+      return value(el.getAttribute(attr));
+    };
+    // One item per match while the budget lasts.
+    const each = (els, fn) => {
+      const out = [];
+      for (const e of els) {
+        if (B.truncated) break;
+        out.push(fn(e));
+      }
+      return out;
     };
     const leaf = (spec, scope, many) => {
       const [sel, attr] = split(spec);
       if (!sel || sel === ".") return many ? [read(scope, attr)] : read(scope, attr);
-      const els = all(sel, scope);
-      return many ? els.slice(0, limit).map((e) => read(e, attr)) : read(els[0], attr);
+      if (!many) return read(all(sel, scope, 1)[0], attr);
+      return each(all(sel, scope, limit), (e) => read(e, attr));
     };
     const run = (spec, scope) => {
       if (typeof spec === "string") return leaf(spec, scope, false);
@@ -698,15 +720,16 @@
       // survives drivers whose JSON does not keep it (the app's).
       if (spec && typeof spec === "object" && Array.isArray(spec.__cmuxPairs)) {
         const entries = spec.__cmuxPairs;
-        const each = entries.find(([k]) => k === "$");
+        const perMatch = entries.find(([k]) => k === "$");
         const fields = (s) => ({ __cmuxPairs: entries.filter(([k]) => k !== "$").map(([k, v]) => [k, run(v, s)]) });
-        if (each && typeof each[1] === "string") return all(each[1], scope).slice(0, limit).map(fields);
+        if (perMatch && typeof perMatch[1] === "string") return each(all(perMatch[1], scope, limit), fields);
         return fields(scope);
       }
       throw new Error(`page.extract: expected a selector string, [spec] or an object, got ${JSON.stringify(spec)}`);
     };
     const scope = opts.scope ? A.element(opts.scope) : document;
-    return run(schema, scope);
+    const result = run(schema, scope);
+    return { value: result, report: B.report() };
   }
 
   // Text matches with context, like grep over what the page renders.
@@ -780,12 +803,22 @@
     return { total, matches };
   }
 
+  // Options are read within the page-read budget (A.budget): each option
+  // and its label and value are charged; `report` says where it stopped.
   function dropdownInFrame(handle) {
     const A = globalThis[Symbol.for("cmux.browserRepl.agent")];
+    const B = A.budget();
     const el = A.element(handle);
     const clean = (s) => (s || "").replace(/[\s ]+/g, " ").trim();
+    const fit = (s) => (s === null || s === undefined ? s : B.fit(String(s)));
     if (el.tagName && el.tagName.toUpperCase() === "SELECT") {
-      return { kind: "select", multiple: el.multiple, options: [...el.options].map((o, index) => ({ index, label: o.label || clean(o.text), value: o.value, selected: o.selected, disabled: o.disabled })) };
+      const options = [];
+      const all = el.options;
+      for (let index = 0; index < all.length && B.spend(1); index++) {
+        const o = all[index];
+        options.push({ index, label: fit(o.label || clean(o.text)), value: fit(o.value), selected: o.selected, disabled: o.disabled });
+      }
+      return { kind: "select", multiple: el.multiple, options, report: B.report() };
     }
     const rootNode = el.getRootNode();
     const byId = (id) => (rootNode.getElementById ? rootNode.getElementById(id) : document.getElementById(id));
@@ -799,20 +832,21 @@
       if (!popup) popup = el.querySelector("[role=listbox], [role=menu], [role=tree]");
     }
     if (!popup) return { kind: "none", options: [] };
-    const items = [...popup.querySelectorAll("[role=option], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox], [role=treeitem], [role=radio]")]
-      .filter((o) => !(typeof o.checkVisibility === "function") || o.checkVisibility({ visibilityProperty: true }));
-    return {
-      kind: "aria",
-      multiple: popup.getAttribute("aria-multiselectable") === "true",
-      options: items.map((o, index) => ({
-        index,
-        label: clean(o.getAttribute("aria-label") || o.innerText || o.textContent),
-        value: o.getAttribute("data-value") || o.getAttribute("value") || null,
+    const found = popup.querySelectorAll("[role=option], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox], [role=treeitem], [role=radio]");
+    const options = [];
+    for (let i = 0; i < found.length && B.spend(1); i++) {
+      const o = found[i];
+      if (typeof o.checkVisibility === "function" && !o.checkVisibility({ visibilityProperty: true })) continue;
+      options.push({
+        index: options.length,
+        label: fit(clean(o.getAttribute("aria-label") || o.innerText || o.textContent)),
+        value: fit(o.getAttribute("data-value") || o.getAttribute("value") || null),
         selected: o.getAttribute("aria-selected") === "true" || o.getAttribute("aria-checked") === "true",
         disabled: o.getAttribute("aria-disabled") === "true",
         handle: A.handleFor(o),
-      })),
-    };
+      });
+    }
+    return { kind: "aria", multiple: popup.getAttribute("aria-multiselectable") === "true", options, report: B.report() };
   }
 
   function scrollInfoInFrame(handle) {
@@ -1395,6 +1429,14 @@
 
   const P = core.Page.prototype;
 
+  // A page read cut at the page-read budget returns what it read; this
+  // line says so in the call's output.
+  function printCut(page, title, report, rest) {
+    try {
+      page._session.host.print("warn", `# ${title}: ${core.readCutNote("it", report)}; ${rest}`);
+    } catch {}
+  }
+
   // The page-read budget of one page.markdown(), over all its frames
   // (page-agent.js readBudget: the snapshot's nodes and characters), and
   // at most MARKDOWN_FRAMES iframes. Frames are read one after another, so
@@ -1519,7 +1561,9 @@
       if (v && typeof v === "object") return { __cmuxPairs: Object.entries(v).map(([k, x]) => [k, pair(x)]) };
       return v;
     };
-    return unpair(await agentCall(frame, extractInFrame, pair(schema), { scope, limit: options.limit }));
+    const r = await agentCall(frame, extractInFrame, pair(schema), { scope, limit: options.limit });
+    if (r.report && r.report.truncated) printCut(this, "page.extract", r.report, "the values after it are null or left out");
+    return unpair(r.value);
   };
 
   // Text matches with surrounding context and the ref of the element each is
@@ -1619,6 +1663,7 @@
       if (o.handle) row.ref = await this._refForHandle(r.frame, o.handle).catch(() => null);
       out.push(row);
     }
+    if (d.report && d.report.truncated) printCut(this, "page.dropdownOptions", d.report, "the options after it are not listed");
     return out;
   };
 
