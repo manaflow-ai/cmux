@@ -2,7 +2,7 @@
 
 use cmux_server_core::layout::{Layout, LayoutEnv, layout};
 use cmux_server_core::units::{
-    UnitError, app_service_agent_plist, host_run_argv, launch_agent_plist, launch_daemon_plist,
+    UnitError, app_service_agent_plist, host_run_argv, host_run_argv_with_mode, launch_agent_plist, launch_daemon_plist,
     scheduled_task_xml, systemd_app_server_template, systemd_system_unit, systemd_update_path_unit,
     systemd_update_service_unit, systemd_user_unit, windows_service_create_argv,
     windows_service_failure_argv,
@@ -191,7 +191,10 @@ fn launch_agent_plist_golden() {
 <plist version=\"1.0\">
 <dict>
 \t<key>KeepAlive</key>
-\t<true/>
+\t<dict>
+\t\t<key>SuccessfulExit</key>
+\t\t<false/>
+\t</dict>
 \t<key>Label</key>
 \t<string>com.cmux.server</string>
 \t<key>ProcessType</key>
@@ -211,7 +214,7 @@ fn launch_agent_plist_golden() {
 \t<key>StandardOutPath</key>
 \t<string>/Users/ana/Library/Application Support/cmux/server/logs/server.log</string>
 \t<key>ThrottleInterval</key>
-\t<integer>2</integer>
+\t<integer>10</integer>
 </dict>
 </plist>
 "
@@ -250,6 +253,18 @@ fn app_service_agent_plist_needs_the_app_layout_and_a_plain_bundle_id() {
     }
     let headless = unix(InstallMode::User, Platform::MacOs, "/Users/ana");
     assert_eq!(app_service_agent_plist(&headless, "com.cmuxterm.app"), Err(UnitError::WrongLayout));
+}
+
+#[test]
+fn host_run_argv_with_mode_appends_the_mode() {
+    assert_eq!(
+        host_run_argv_with_mode("/x/cmux", InstallMode::User),
+        ["/x/cmux", "host", "run", "--mode", "user"]
+    );
+    assert_eq!(
+        host_run_argv_with_mode("Contents/Resources/bin/cmux", InstallMode::System),
+        ["Contents/Resources/bin/cmux", "host", "run", "--mode", "system"]
+    );
 }
 
 #[test]

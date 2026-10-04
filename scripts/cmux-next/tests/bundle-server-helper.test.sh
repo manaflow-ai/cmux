@@ -83,9 +83,15 @@ check_agent com.cmuxterm.app.debug.testtag
 # the same bytes for this bundle id (tests/units_golden.rs). plutil writes the
 # canonical form (sorted keys, tab indent), so the files compare byte for byte.
 golden="$ROOT/cmux-tui/crates/cmux-server-core/tests/fixtures/app-service-agent.plist"
+# On a byte mismatch, the parsed content tells a plutil format change (same
+# JSON) apart from a real content change.
 if ! cmp -s "$golden" "$agent"; then
-  echo "agent plist differs from $golden:" >&2
   diff "$golden" "$agent" >&2 || true
+  if [[ "$(plutil -convert json -o - "$golden")" == "$(plutil -convert json -o - "$agent")" ]]; then
+    echo "plutil format drift: $agent has the golden's content in other bytes ($golden)" >&2
+  else
+    echo "content drift: $agent differs from $golden" >&2
+  fi
   exit 1
 fi
 
