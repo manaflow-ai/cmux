@@ -381,11 +381,12 @@ impl Supervisor {
         };
         // Only the supervisor mints open tokens: a client's never reaches the
         // server, and only a user run (origin user, admitted by the A2 gate)
-        // gets one.
+        // of one of the app's openOps gets one.
         if let Some(fields) = args.as_object_mut() {
             fields.remove("open_token");
         }
-        let open_token = (origin == Origin::User).then(|| {
+        let open_op = inner.catalog.packages.get(app).is_some_and(|p| p.open_ops().contains(op));
+        let open_token = (origin == Origin::User && open_op).then(|| {
             super::open_tokens::mint_open_token(
                 inner,
                 app,

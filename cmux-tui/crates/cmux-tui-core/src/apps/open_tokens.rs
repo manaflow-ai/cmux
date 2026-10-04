@@ -1,8 +1,10 @@
 //! Open tokens for app servers (Cloud C10).
 //!
 //! Open tokens: the op line of a user run (origin user, admitted by the A2
-//! gate) carries a top-level `"open_token"`, a fresh 128-bit hex token,
-//! single use, bound to {app, op, idempotency_key} and valid for 60 s. No
+//! gate) of an op in the app's `openOps` (options of its terminal backend
+//! and connector implementations) carries a top-level `"open_token"`, a
+//! fresh 128-bit hex token, single use, bound to {app, op,
+//! idempotency_key} and valid for 60 s. No other op and no
 //! other origin gets one, and a client's `open_token` (top level of the
 //! request or of `args`) never reaches the server. The host side of a
 //! connect checks a token the server passes on with
@@ -83,7 +85,11 @@ impl Supervisor {
         let mut inner = self.inner.lock().unwrap();
         let minted = inner.open_tokens.remove(token)?;
         inner.open_tokens.retain(|_, t| t.expires > now);
-        (minted.app == app && minted.expires > now)
+        // The op must still be one of the app's openOps (the manifest may have
+        // changed since the token was minted).
+        let open_op =
+            inner.catalog.packages.get(app).is_some_and(|p| p.open_ops().contains(&minted.op));
+        (minted.app == app && minted.expires > now && open_op)
             .then_some(OpenTokenUse { op: minted.op, idempotency_key: minted.idempotency_key })
     }
 }
