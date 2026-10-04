@@ -84,6 +84,19 @@ pub(crate) struct TerminalSnapshotFrame {
     pub active_top_marker: u64,
 }
 
+/// A READY taken exactly at a resize cut for a viewer that reflows its own
+/// history (`terminal-snapshot-local-history-v1`). No history follows it; the
+/// viewer checks its reflowed history against `history_rows` and
+/// `history_digest`. Encoded once per resize and shared by every viewer of
+/// the surface that gets it.
+#[derive(Debug)]
+pub(crate) struct LocalReadySnapshot {
+    /// `history` is empty.
+    pub frame: TerminalSnapshotFrame,
+    pub history_rows: u64,
+    pub history_digest: Vec<u8>,
+}
+
 /// The idle digest: sha256 of [`ghostty_vt::snapshot_digest_input`] of the
 /// host's READY encoding.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,10 +185,13 @@ impl SnapshotRequestGate {
 
 impl Surface {
     /// Register a snapshot viewer. Its first event is a READY snapshot.
+    /// `local_history`: the viewer reflows its own history, so a resize
+    /// reaches it as a local-history READY at the resize cut.
     pub(crate) fn attach_snapshot_stream(
         &self,
         lifecycle: AttachLifecycle,
         backlog_bytes: usize,
+        local_history: bool,
     ) -> ghostty_vt::Result<SnapshotAttachStream> {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
@@ -190,6 +206,7 @@ impl Surface {
         }
         let (tap, receiver) =
             AttachTap::snapshot_pair(lifecycle.clone(), ATTACH_STREAM_CAPACITY, backlog_bytes);
+        receiver.set_local_history(local_history);
         if exited {
             // The final screen is still served once; then the stream ends.
             drop(tap);
@@ -267,6 +284,16 @@ impl Surface {
         pty.term.lock().unwrap().encode_snapshot(phase)
     }
 
+    /// The host terminal's history check now (tests compare it with a
+    /// local-history READY's).
+    #[cfg(test)]
+    pub(crate) fn terminal_history_digest(&self) -> Option<ghostty_vt::HistoryDigest> {
+        let term = self.as_pty()?.term.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // The same order as the host: READY encode, then the digest.
+        term.encode_snapshot(SnapshotPhase::Ready).ok()?;
+        term.history_digest()
+    }
+
     /// `terminal.history`: GHOSTSNP HISTORY pages above `before`.
     pub(crate) fn history_pages(
         &self,
@@ -309,6 +336,73 @@ impl Surface {
     /// `(generation, offset)` of the published stream.
     pub(crate) fn snapshot_stream_position(&self) -> Option<(u64, u64)> {
         self.as_pty().map(|pty| pty.snapshot_position.load())
+    }
+}
+
+impl PtySurface {
+    /// Publish a grid change of a resize to the attach viewers. The caller
+    /// holds the terminal lock and has just resized `term`. `frame` is the
+    /// replay for replay viewers, or `None` when only snapshot viewers are
+    /// attached.
+    ///
+    /// The grid change starts a new generation. A snapshot viewer that
+    /// reflows its own history and is not behind gets one READY of the new
+    /// grid queued after every frame before the resize, at the resize's
+    /// generation and offset; every other snapshot viewer gets a READY with
+    /// history at a later cut, as before.
+    pub(super) fn publish_resize_locked(&self, term: &Terminal, frame: Option<AttachFrame>) {
+        match &frame {
+            Some(frame) => self.snapshot_position.observe_frame(frame),
+            None => self.snapshot_position.bump_generation(),
+        }
+        // Only the terminal lock (held) moves a viewer from behind to caught
+        // up, so a viewer that is behind now stays behind until the sends
+        // below: the encode is skipped when no viewer can use it.
+        let wanted = self
+            .taps
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .any(AttachTap::wants_local_ready);
+        let local = if wanted { self.encode_local_ready_locked(term) } else { None };
+        let mut taps = self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match frame {
+            Some(frame) => taps.retain(|tap| tap.try_send_resize(frame.clone(), local.as_ref())),
+            None => {
+                for tap in &*taps {
+                    tap.resync_snapshot_at_cut(local.as_ref());
+                }
+            }
+        }
+    }
+
+    /// The local-history READY of `term` at the current stream position, or
+    /// `None` when it cannot be encoded now or the history check is not
+    /// available (those viewers get a READY with history instead).
+    fn encode_local_ready_locked(&self, term: &Terminal) -> Option<Arc<LocalReadySnapshot>> {
+        // The digest covers the history rows directly above this READY's
+        // seam in the terminal's page layout, so it is computed directly
+        // after the encode, on the same terminal under the same lock hold.
+        let data = term.encode_snapshot(SnapshotPhase::Ready).ok()?;
+        let check = term.history_digest()?;
+        let (generation, offset) = self.snapshot_position.load();
+        let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+        Some(Arc::new(LocalReadySnapshot {
+            frame: TerminalSnapshotFrame {
+                generation,
+                offset,
+                version: ghostty_vt::snapshot_version(),
+                cols: term.cols(),
+                rows: term.rows(),
+                data,
+                history: Vec::new(),
+                colors: self.terminal_colors_locked(term, defaults),
+                marker_epoch: term.history_marker_epoch(),
+                active_top_marker: term.active_top_marker(),
+            },
+            history_rows: check.rows,
+            history_digest: check.digest,
+        }))
     }
 }
 

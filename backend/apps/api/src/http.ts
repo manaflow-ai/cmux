@@ -214,9 +214,9 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           if (payload.idempotency_key) return yield* new BadRequest({ code: "validation.invalid", message: `${payload.op} takes no idempotency_key` })
           const p = yield* principalFor(def.owner, principal)
           const request = crypto.randomUUID()
-          const stub = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(p.team!)) as unknown as { mintLinkToken(e: string, q: Principal, params: unknown, request: string): Promise<{ ok: boolean; value?: unknown; code?: string; message?: string }> }
+          const stub = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(p.team!)) as unknown as { mintLinkToken(e: string, q: Principal, params: unknown, request: string): Promise<{ ok: boolean; value?: unknown; code?: string; message?: string; details?: unknown }> }
           const r = yield* Effect.tryPromise({ try: () => stub.mintLinkToken(p.team!, p, payload.params ?? {}, request), catch: unreachable })
-          const outcome = r.ok ? { value: r.value } : { error: { code: r.code ?? "owner.unreachable", message: r.message ?? "", retryable: r.code === "owner.unreachable" } }
+          const outcome = r.ok ? { value: r.value } : { error: { code: r.code ?? "owner.unreachable", message: r.message ?? "", retryable: r.code === "owner.unreachable", ...(r.details === undefined ? {} : { details: r.details }) } }
           return { ok: r.ok, op: payload.op, ...outcome, transaction: request, idempotency_key: "", replayed: false, stream: "", sequence: 0 }
         }
         if (!payload.idempotency_key) return yield* new BadRequest({ code: "validation.invalid", message: "mutations require idempotency_key" })

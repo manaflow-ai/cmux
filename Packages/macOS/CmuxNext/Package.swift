@@ -175,6 +175,7 @@ let package = Package(
                 "CmuxNextBookmarks",
                 "CmuxNextAgentActivity",
                 "CmuxNextAgentCursor",
+                .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor"),
                 "CmuxNextAgentCursorVisibility",
                 "CmuxNextApps",
                 "CmuxNextTasks",
