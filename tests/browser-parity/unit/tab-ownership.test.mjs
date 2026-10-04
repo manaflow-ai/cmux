@@ -40,6 +40,10 @@ out.dialogResult = await user.locator("#r").textContent();
 user.once("dialog", (d) => d.accept());
 await user.locator("#confirm").click();
 out.dialogWithListener = await user.locator("#r").textContent();
+// Script the agent runs (el.click(), form.submit()) is its own action too.
+out.evaluateError = await user.evaluate(() => { document.querySelector("#confirm").click(); }).then(() => null, (e) => /blocked by a JavaScript confirm dialog/.test(e.message));
+out.evaluateDialogHeld = !!user.dialog();
+if (user.dialog()) await user.dialog().dismiss();
 await user.goto(${JSON.stringify(primary)} + "/files.html?user-owned");
 await user.locator("#one").click();
 await sleep(300);
@@ -62,6 +66,8 @@ console.log(JSON.stringify(out));`,
       dialogHeld: true,
       dialogResult: "confirm false",
       dialogWithListener: "confirm true",
+      evaluateError: true,
+      evaluateDialogHeld: true,
       chooserHeld: true,
       chooserWithListener: true,
       downloadsWithoutListener: 0,
