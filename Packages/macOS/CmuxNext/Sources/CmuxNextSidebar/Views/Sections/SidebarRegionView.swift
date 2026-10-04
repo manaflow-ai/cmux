@@ -20,6 +20,8 @@ final class SidebarRegionView: NSView {
 
     let region: SidebarRegion
     var onActivate: ((LayoutItemID) -> Void)?
+    /// An item's trailing control was pressed.
+    var onAccessory: ((LayoutItemID) -> Void)?
     var onActivateWithModifiers: ((LayoutItemID, NSEvent.ModifierFlags) -> Void)?
     var onToggleSection: ((LayoutSectionID) -> Void)?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
@@ -155,6 +157,7 @@ final class SidebarRegionView: NSView {
                 self?.onActivate?(id)
             }
         }
+        view.onAccessory = { [weak self] in self?.onAccessory?(id) }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)

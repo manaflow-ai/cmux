@@ -18,6 +18,7 @@ extension SidebarView {
                 self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
             }
             region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
+            region.onAccessory = { [weak self] id in self?.model.send(.activateItemAccessory(id)) }
         }
         aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)
         belowFade = ScrollEdgeFadeView(scrollView: belowScroll)

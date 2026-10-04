@@ -103,8 +103,11 @@ extension SidebarBridge {
             sendPinned(ids, pinned)
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
-        case .activateItemAccessory:
-            break
+        case .activateItemAccessory(let id):
+            // The update badge on Settings opens the updater sheet.
+            if model.itemInfo[id]?.accessory == .update || model.layout.item(id)?.ref == .builtIn(.settings) {
+                services.updater.presentUpdateUI?()
+            }
         case .layout(let op):
             applyLayoutOp(op)
         case .toggleLayoutSection:

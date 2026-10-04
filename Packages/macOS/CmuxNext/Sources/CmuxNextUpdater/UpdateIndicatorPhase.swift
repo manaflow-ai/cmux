@@ -23,6 +23,15 @@ nonisolated public enum UpdateIndicatorPhase: Equatable, Sendable {
     /// hides itself.
     case note(String, isError: Bool)
 
+    /// An update was found: downloading, downloaded and waiting, or
+    /// installing (the Settings item's badge).
+    public var isUpdateAvailable: Bool {
+        switch self {
+        case .downloading, .ready, .installing: true
+        case .hidden, .checking, .note: false
+        }
+    }
+
     /// Whether the circle shows.
     public var showsCircle: Bool {
         switch self {
