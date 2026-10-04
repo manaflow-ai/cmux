@@ -1472,7 +1472,7 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
-  /** Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms). */
+  /** Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */
   readonly "conversation.create": {
     readonly params: {
       readonly kind?: "group"
