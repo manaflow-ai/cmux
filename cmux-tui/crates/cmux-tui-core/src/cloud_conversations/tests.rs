@@ -638,3 +638,135 @@ fn an_account_switch_resets_the_inbox_instead_of_resuming_the_old_users_seq() {
     );
     service.shutdown();
 }
+
+/// A Stack-shaped access token whose payload names `sub` (unsigned; the
+/// daemon only reads the account for tagging, the Worker verifies).
+fn jwt(sub: &str) -> String {
+    use base64::Engine;
+    let encode = |value: Value| {
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(value.to_string().as_bytes())
+    };
+    format!(
+        "{}.{}.signature",
+        encode(json!({"alg": "ES256", "typ": "JWT"})),
+        encode(json!({"sub": sub, "exp": 1}))
+    )
+}
+
+fn lease_for(token: &str) -> SessionParams {
+    let mut params = session_params(9_000_000);
+    params.access_token = token.into();
+    params
+}
+
+fn wire_events(seen: &[CloudEvent], name: &str) -> Vec<Value> {
+    seen.iter().map(CloudEvent::wire_json).filter(|event| event["event"] == name).collect()
+}
+
+#[test]
+fn conversation_events_carry_the_account_of_the_lease_that_opened_the_socket() {
+    let backend = Arc::new(FakeBackend::default());
+    let (service, events, _) = service(&backend);
+    service.set_session(lease_for(&jwt("account-a"))).unwrap();
+    let first = backend.wire();
+    first.push_text(welcome_as(ME));
+    first.push_text(snapshot_frame(4, 4, &[message(1, ME, "one")]).to_string());
+    first.push_text(send_event(5, 5, &message(2, ME, "two")).to_string());
+    let second = backend.wire();
+    second.push_text(welcome_as(OTHER));
+    second.push_text(snapshot_frame(2, 2, &[]).to_string());
+
+    service.subscribe(1, Target::Conversation(CONV.into())).unwrap();
+    let seen = events.wait_for(|seen| {
+        seen.iter().any(|e| matches!(e, CloudEvent::ConversationChanged { seq: 5, .. }))
+    });
+    for name in ["cloud-conversation-resynced", "cloud-conversation-changed"] {
+        let tagged = wire_events(&seen, name);
+        assert!(!tagged.is_empty(), "{name}");
+        assert!(tagged.iter().all(|event| event["account"] == "account-a"), "{name}: {tagged:#?}");
+    }
+    let live: Vec<Value> = wire_events(&seen, "cloud-subscription-state")
+        .into_iter()
+        .filter(|event| event["state"] == "live")
+        .collect();
+    assert_eq!(live.len(), 1, "{live:#?}");
+    assert_eq!(live[0]["account"], "account-a");
+
+    // Another account signs in: the socket reconnects and its events name
+    // the new lease's account, so a client can drop the old account's events.
+    events.take();
+    service.set_session(lease_for(&jwt("account-b"))).unwrap();
+    let seen = events.wait_for(|seen| {
+        seen.iter().any(|e| matches!(e, CloudEvent::ConversationResynced { seq: 2, .. }))
+    });
+    let resynced = wire_events(&seen, "cloud-conversation-resynced");
+    assert_eq!(resynced.len(), 1, "{resynced:#?}");
+    assert_eq!(resynced[0]["account"], "account-b");
+    service.shutdown();
+}
+
+#[test]
+fn inbox_events_carry_the_account_and_omit_it_without_a_readable_sub() {
+    let backend = Arc::new(FakeBackend::default());
+    let (service, events, _) = service(&backend);
+    service.set_session(lease_for(&jwt("account-a"))).unwrap();
+    let first = backend.wire();
+    first.push_text(welcome_as(ME));
+    first.push_text(inbox_snapshot(ME, 3));
+    let entry = json!({"conversation": CONV, "rev": 2, "kind": "group", "title": "Launch"});
+    first.push_text(
+        json!({"t": "event", "stream": format!("inbox:{ME}"), "seq": 4, "tx": "t4", "op": "inbox.bump",
+               "effects": {"state": {"next_pin": 0}, "writes": [
+                   {"table": "entry", "op": "upsert", "key": CONV, "n": null, "row": entry}]}})
+        .to_string(),
+    );
+    let second = backend.wire();
+    second.push_text(welcome_as(OTHER));
+    second.push_text(inbox_snapshot(OTHER, 2));
+
+    service.subscribe(1, Target::Inbox).unwrap();
+    let seen = events
+        .wait_for(|seen| seen.iter().any(|e| matches!(e, CloudEvent::InboxChanged { seq: 4, .. })));
+    for name in ["cloud-inbox-reset", "cloud-inbox-changed"] {
+        let tagged = wire_events(&seen, name);
+        assert_eq!(tagged.len(), 1, "{name}: {tagged:#?}");
+        assert_eq!(tagged[0]["account"], "account-a", "{name}");
+    }
+
+    // A lease whose token has no readable `sub` tags nothing.
+    events.take();
+    service.set_session(lease_for("opaque.not-base64-json.token")).unwrap();
+    let seen = events
+        .wait_for(|seen| seen.iter().any(|e| matches!(e, CloudEvent::InboxReset { seq: 2, .. })));
+    let reset = wire_events(&seen, "cloud-inbox-reset");
+    assert_eq!(reset[0]["seq"], 2);
+    assert!(reset[0].get("account").is_none(), "{reset:#?}");
+    service.shutdown();
+}
+
+#[test]
+fn a_later_subscriber_is_told_the_shared_sockets_current_state() {
+    let backend = Arc::new(FakeBackend::default());
+    let (service, events, _) = service(&backend);
+    service.set_session(session_params(9_000_000)).unwrap();
+    let wire = backend.wire();
+    wire.push_text(welcome());
+    wire.push_text(snapshot_frame(4, 4, &[message(1, ME, "one")]).to_string());
+    let target = Target::Conversation(CONV.into());
+    assert_eq!(service.subscribe(1, target.clone()).unwrap()["state"], "connecting");
+    events.wait_for(|seen| seen.iter().any(|e| is_state(e, "live")));
+
+    // The socket is shared and already live: a second client must not be
+    // told `connecting` with no event to follow.
+    assert_eq!(
+        service.subscribe(2, target.clone()).unwrap(),
+        json!({"state": "live", "conversation": CONV})
+    );
+    assert_eq!(backend.connected().len(), 1, "the socket is shared");
+
+    // Every later change of the shared socket reaches subscribers.
+    events.take();
+    wire.push_close(Some(1006));
+    events.wait_for(|seen| seen.iter().any(|e| is_state(e, "disconnected")));
+    service.shutdown();
+}

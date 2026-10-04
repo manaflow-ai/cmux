@@ -327,3 +327,41 @@ fn a_request_over_the_concurrency_limit_is_refused_at_once() {
     assert!(backend.posted().is_empty(), "nothing leaves over the limit");
     drop(held);
 }
+
+#[test]
+fn a_later_subscriber_gets_the_current_state_and_a_state_event_after_its_reply() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    let events = mux.subscribe();
+    let wire = backend.wire();
+    wire.push_text(
+        json!({"t":"welcome","principal":{"user":ME},"streams":[format!("conv:{CONV}")]})
+            .to_string(),
+    );
+    run(&mux, client, json!({"cmd":"cloud-conversation-subscribe","conversation":CONV})).unwrap();
+    let mut seen = Vec::new();
+    wait_until("the socket to go live", || {
+        seen.extend(cloud_events(&events));
+        seen.iter().any(|event| event["event"] == "cloud-subscription-state" && event["state"] == "live")
+    });
+
+    let second = mux.control_clients.register(ClientTransport::Unix, writer());
+    let _ = cloud_events(&events);
+    let subscribed = reply(
+        &mux,
+        second,
+        json!({"id":7,"cmd":"cloud-conversation-subscribe","conversation":CONV}),
+    );
+    assert_eq!(subscribed["ok"], true, "{subscribed}");
+    assert_eq!(subscribed["data"]["state"], "live", "{subscribed}");
+    // The current state also follows the reply as an event, so a client
+    // whose reply raced a change still ends on the true state.
+    let mut after = Vec::new();
+    wait_until("the state event after the reply", || {
+        after.extend(cloud_events(&events));
+        after.iter().any(|event| event["event"] == "cloud-subscription-state"
+            && event["conversation"] == CONV
+            && event["state"] == "live")
+    });
+    mux.cloud_conversations().unwrap().shutdown();
+}
