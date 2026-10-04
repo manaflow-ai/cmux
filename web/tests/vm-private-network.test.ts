@@ -29,7 +29,7 @@ import type {
 } from "../services/vms/drivers";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { listTeamMemberIdsWithTimeout, vmClientRoutesTeamNetworks } from "../services/vms/teamDirectory";
-import { deleteVmFirewallRule, getVmFirewallRule } from "../services/vms/workflows";
+import { createVmFirewallRule, deleteVmFirewallRule, getVmFirewallRule, listVmFirewallRules } from "../services/vms/workflows";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import {
@@ -1232,5 +1232,46 @@ describe("firewall rule not found (404 vm_firewall_rule_not_found)", () => {
     expect(await tagOf(deleteVmFirewallRule({ userId: "user-1", provider: "freestyle", ruleId: "rule-1" }), gatewayWith(deleted))).toBeNull();
     expect(deleted).toEqual(["rule-1"]);
     expect(await tagOf(getVmFirewallRule({ userId: "user-1", provider: "freestyle", ruleId: "rule-missing" }), gatewayWith([]))).toBe("VmFirewallRuleNotFoundError");
+  });
+});
+
+describe("firewall VM endpoints on team-owned VMs", () => {
+  // Staging rehearsal 2026-10-04: every new VM is team-owned (create requires a billing team), but the
+  // firewall ownership check looked the VM up in the personal scope, so vmId endpoints were vm_not_found.
+  const vmRow = (userId: string) => ({ id: "row-1", userId, ownerTeamId: "team-1", billingTeamId: "team-1", provider: "freestyle", providerVmId: "fs-1", status: "running" });
+  const repoWith = (creator: string, scopes: Array<string | null | undefined>) => ({
+    ...testRepo({ network: networkRow() }),
+    findUserVm: (input: { billingTeamId?: string | null; providerVmId: string }) =>
+      Effect.sync(() => { scopes.push(input.billingTeamId); return input.billingTeamId === "team-1" && input.providerVmId === "fs-1" ? vmRow(creator) : null; }),
+  }) as unknown as VmRepositoryShape;
+  const gateway = (created: unknown[]) => ({
+    ...testGateway(),
+    listFirewallRules: () => Effect.succeed([]),
+    createFirewallRule: (_provider: string, rule: unknown) => Effect.sync(() => { created.push(rule); return { id: "rule-new", action: "allow" }; }),
+  }) as unknown as VmProviderGatewayShape;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const run = async (program: Effect.Effect<unknown, unknown, any>, repo: VmRepositoryShape, gw: VmProviderGatewayShape) => {
+    const exit = await Effect.runPromiseExit(program.pipe(Effect.provide(layerFor(repo, gw))) as Effect.Effect<unknown, unknown>);
+    if (Exit.isSuccess(exit)) return null;
+    const f = Cause.failureOption(exit.cause);
+    return f._tag === "Some" ? ((f.value as { _tag?: string })._tag ?? "unknown") : "die";
+  };
+  const input = { userId: "user-1", provider: "freestyle" as const, billingTeamId: "team-1" };
+
+  test("a rule from the caller's team-owned VM is created", async () => {
+    const created: unknown[] = []; const scopes: Array<string | null | undefined> = [];
+    expect(await run(createVmFirewallRule({ ...input, source: { vmId: "fs-1" }, destination: { cidr: "10.250.0.0/24", port: 8080, protocol: "tcp" } }), repoWith("user-1", scopes), gateway(created))).toBeNull();
+    expect(scopes).toEqual(["team-1"]);
+    expect(created).toHaveLength(1);
+  });
+
+  test("rules of the caller's team-owned VM are listed", async () => {
+    expect(await run(listVmFirewallRules({ ...input, vmId: "fs-1" }), repoWith("user-1", []), gateway([]))).toBeNull();
+  });
+
+  test("a teammate's VM is not on the caller's network: vm_not_found and nothing is created", async () => {
+    const created: unknown[] = [];
+    expect(await run(createVmFirewallRule({ ...input, source: { vmId: "fs-1" }, destination: { cidr: "10.250.0.0/24" } }), repoWith("user-2", []), gateway(created))).toBe("VmNotFoundError");
+    expect(created).toEqual([]);
   });
 });
