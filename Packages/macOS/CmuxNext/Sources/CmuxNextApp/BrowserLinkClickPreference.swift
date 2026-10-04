@@ -5,7 +5,18 @@ import Observation
 extension BrowserLinkClickMapping {
     /// Pure: cmux.json `browser.links.*` as the browser module's value (1:1).
     init(_ setting: BrowserLinkClickSetting) {
-        self.init()
+        func action(_ value: BrowserLinkClickSetting.Action) -> BrowserLinkAction {
+            switch value {
+            case .currentTab: .currentTab
+            case .backgroundTab: .backgroundTab
+            case .foregroundTab: .foregroundTab
+            case .newWindow: .newWindow
+            case .download: .download
+            }
+        }
+        self.init(cmdClick: action(setting.cmdClick), cmdShiftClick: action(setting.cmdShiftClick),
+                  shiftClick: action(setting.shiftClick), optionClick: action(setting.optionClick),
+                  middleClick: action(setting.middleClick))
     }
 }
 

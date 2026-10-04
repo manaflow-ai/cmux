@@ -44,11 +44,6 @@ public nonisolated struct BrowserLinkClickSetting: Sendable, Hashable {
     /// Missing keys are defaults with no diagnostic; a bad value is that
     /// key's default plus a diagnostic.
     static func parse(_ root: JSONValue) -> (BrowserLinkClickSetting, [SettingsDiagnostic]) {
-        let setting = fallback
-        return (setting, [])
-    }
-
-    static func unusedParse(_ root: JSONValue) -> (BrowserLinkClickSetting, [SettingsDiagnostic]) {
         var setting = fallback
         guard let links = root.value(at: configPath) else { return (setting, []) }
         guard case .object(let members) = links else {
