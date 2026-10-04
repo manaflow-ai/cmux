@@ -526,3 +526,20 @@ fn every_state_mutation_takes_an_explicit_idempotency_key() {
     };
     assert_eq!(plan.idempotency_key.as_deref(), Some("mutation_retry"));
 }
+
+/// `screen <selector> column <split_…> update --edge` takes every edge the
+/// `column.update` catalog and reducer take: left, right, top, and bottom.
+#[test]
+fn screen_column_update_accepts_every_edge() {
+    const COLUMN: &str = "split_00000000000000000000000000000011";
+    for edge in ["left", "right", "top", "bottom"] {
+        let args =
+            ["screen", SCREEN, "column", COLUMN, "update", "--sticky", "true", "--edge", edge];
+        let (operation, params) = sent(&args);
+        assert_eq!(operation, "column.update");
+        assert_eq!(params["edge"], edge, "{params}");
+        assert_eq!(params["column"], COLUMN, "{params}");
+    }
+    let refused = rejects(&["screen", SCREEN, "column", COLUMN, "update", "--edge", "middle"]);
+    assert!(refused.contains("--edge"), "{refused}");
+}
