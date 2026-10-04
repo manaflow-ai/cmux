@@ -175,6 +175,87 @@ struct BrowserReplCaptureMaskTests {
         #expect(during.after == "disc")
     }
 
+    /// A frame keeps its id when it navigates, so the frame list can name a
+    /// document of the secret's domain that the frame no longer shows. The
+    /// mask goes by the document the frame shows when it runs: a page of
+    /// another origin gets no value and no masking that would tell it
+    /// where the value is.
+    @Test func aFrameThatNavigatedSinceTheListGetsNoValue() async throws {
+        let webView = await load("""
+            <iframe id=child srcdoc="<script>webkit.messageHandlers.frame.postMessage('child')</script>"></iframe>
+            \(Self.post)
+            """, posting: ["main", "child"])
+        let main = try #require(frames.infos["main"])
+        let stale = try #require(frames.infos["child"])
+        try await page("""
+            const child = document.getElementById('child');
+            child.removeAttribute('srcdoc');
+            child.src = 'data:text/html,<p id=p>\(Self.value)</p><script>webkit.messageHandlers.frame.postMessage("moved")</script>';
+            """, in: webView)
+        let frames = frames
+        await frames.wait { frames.infos["moved"] != nil }
+        let moved = try #require(frames.infos["moved"])
+        let during = try await mask.run(in: webView, frames: { [main, stale] }) {
+            try await webView.callAsyncJavaScript(
+                "return getComputedStyle(document.getElementById('p')).getPropertyValue('\(Self.prop)')",
+                arguments: [:], in: moved, contentWorld: .page
+            ) as? String
+        }
+        #expect(during == "none", "a page of another origin was masked with the secret's value")
+    }
+
+    /// A frame shows a page of the secret's domain only while the capture
+    /// runs, then another page again: it was never masked, so the capture
+    /// may show the value, and it is refused.
+    @Test func aFrameThatShowsAnotherDocumentDuringTheCaptureRefusesIt() async throws {
+        let webView = await load("""
+            <iframe id=child src="data:text/html,<script>webkit.messageHandlers.frame.postMessage('child')</script>"></iframe>
+            \(Self.post)
+            """, posting: ["main", "child"])
+        let main = try #require(frames.infos["main"])
+        let child = try #require(frames.infos["child"])
+        let frames = frames
+        var captured = false
+        await #expect(throws: BrowserReplDriverError.self) {
+            try await mask.run(in: webView, frames: { [main, child] }) {
+                try await page("""
+                    document.getElementById('child').srcdoc = '<p>\(Self.value)</p><script>webkit.messageHandlers.frame.postMessage("shown")</script>';
+                    """, in: webView)
+                await frames.wait { frames.infos["shown"] != nil }
+                try await page("""
+                    const child = document.getElementById('child');
+                    child.removeAttribute('srcdoc');
+                    child.src = 'data:text/html,<script>webkit.messageHandlers.frame.postMessage("back")</script>';
+                    """, in: webView)
+                await frames.wait { frames.infos["back"] != nil }
+                captured = true
+            }
+        }
+        #expect(captured)
+    }
+
+    /// The tab shows a page the domain policy blocks only while the capture
+    /// runs: the capture is refused, also with no secret to mask.
+    @Test func aBlockedPageShownDuringTheCaptureRefusesIt() async throws {
+        let webView = await load(Self.post, posting: ["main"])
+        var policy = BrowserReplDomainPolicy()
+        policy.allowed = [try BrowserReplDomainPattern.parse("example.test", title: "test")]
+        let frames = frames
+        var captured = false
+        await #expect(throws: BrowserReplDriverError.self) {
+            try await BrowserReplCaptureMask(secretMasks: [], policy: policy).run(in: webView, frames: { [nil] }) {
+                frames.finished = false
+                webView.loadHTMLString(
+                    "<p>blocked</p><script>webkit.messageHandlers.frame.postMessage('blocked')</script>",
+                    baseURL: URL(string: "https://blocked.test/")
+                )
+                await frames.wait { frames.finished && frames.infos["blocked"] != nil }
+                captured = true
+            }
+        }
+        #expect(captured)
+    }
+
     /// The mask step fails in a frame on the secret's domain (here the frame
     /// went away after the frame list was read): the capture is refused
     /// rather than taken with that frame unmasked.

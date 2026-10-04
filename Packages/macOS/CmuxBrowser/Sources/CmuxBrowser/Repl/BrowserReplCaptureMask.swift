@@ -72,10 +72,14 @@ public struct BrowserReplCaptureMask {
     static let world = WKContentWorld.browserReplWorld(seeingClosedShadowRoots: "cmux-capture-mask")
 
     let masks: [Mask]
+    let policy: BrowserReplDomainPolicy
     private let token = UUID().uuidString
 
-    /// - Parameter secretMasks: The `secretMasks` the session added to the call.
-    public init(secretMasks: [[String: Any]]) {
+    /// - Parameters:
+    ///   - secretMasks: The `secretMasks` the session added to the call.
+    ///   - policy: The session's domain policy.
+    public init(secretMasks: [[String: Any]], policy: BrowserReplDomainPolicy = BrowserReplDomainPolicy()) {
+        self.policy = policy
         masks = secretMasks.compactMap { mask in
             guard let value = mask["value"] as? String, !value.isEmpty,
                   let domains = mask["domains"] as? [[String: Any]] else { return nil }
