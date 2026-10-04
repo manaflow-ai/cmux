@@ -154,4 +154,26 @@ mod tests {
         let floor = send_buffer(&socket).unwrap();
         assert!((MIN_SEND_BUFFER..=2 * MIN_SEND_BUFFER).contains(&floor), "floor {floor}");
     }
+
+    /// An MTU above the requested send buffer still sends full datagrams:
+    /// on macOS the send buffer caps the datagram size, so a 16 KiB buffer
+    /// under a 40000-byte MTU would refuse every full packet with EMSGSIZE.
+    /// The buffer grows to one full WireGuard data message (16-byte header,
+    /// the packet padded to 16 bytes, 16-byte tag).
+    #[tokio::test]
+    async fn a_large_mtu_raises_the_send_buffer_to_one_full_datagram() {
+        let receiver = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let mut config = crate::testing::config_pair(receiver.local_addr().unwrap()).client;
+        config.mtu = 40_000;
+        let largest = usize::from(config.mtu).next_multiple_of(16) + 32;
+        let path = new_socket_path(&config, Some(MIN_SEND_BUFFER)).await.unwrap();
+        let reported = send_buffer(path.socket()).unwrap();
+        assert!(reported >= largest, "send buffer {reported} under one datagram of {largest}");
+        let peer = path.peer().unwrap();
+        let sent = path.socket().send_to(&vec![7u8; largest], peer).await.unwrap();
+        assert_eq!(sent, largest);
+        let mut buffer = vec![0u8; largest + 1];
+        let (received, _) = receiver.recv_from(&mut buffer).await.unwrap();
+        assert_eq!(received, largest);
+    }
 }
