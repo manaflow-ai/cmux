@@ -33,18 +33,36 @@ const MAX_STAMP_BYTES: u64 = 4096;
 
 /// True when this daemon serves `fs-v1`.
 pub(super) fn is_cloud_host(linux: bool, trusted_stamp: bool, model_plane_identity: bool) -> bool {
-    // RED: the stamp is ignored.
-    let _ = trusted_stamp;
-    linux && model_plane_identity
+    linux && trusted_stamp && model_plane_identity
 }
 
 /// True when `stamp` is a regular file whose text starts like a Cloud
 /// image stamp, and it and each folder from its parent up to `top` are
 /// owned by `owner_uid`, not writable by group or others, and not symlinks.
 pub(super) fn trusted_stamp(stamp: &Path, top: &Path, owner_uid: u32) -> bool {
-    // RED: the stamp is not checked yet.
-    let _ = (stamp, top, owner_uid, MAX_STAMP_BYTES, STAMP_PREFIXES);
-    true
+    if !stamp.starts_with(top) {
+        return false;
+    }
+    let mut current = Some(stamp);
+    while let Some(path) = current {
+        let Ok(meta) = std::fs::symlink_metadata(path) else { return false };
+        let kind_ok = if path == stamp { meta.file_type().is_file() } else { meta.is_dir() };
+        if !kind_ok || meta.uid() != owner_uid || meta.mode() & 0o022 != 0 {
+            return false;
+        }
+        if path == top {
+            break;
+        }
+        current = path.parent();
+    }
+    let Ok(file) = std::fs::File::open(stamp) else { return false };
+    let mut text = String::new();
+    if std::io::Read::read_to_string(&mut std::io::Read::take(file, MAX_STAMP_BYTES), &mut text)
+        .is_err()
+    {
+        return false;
+    }
+    STAMP_PREFIXES.iter().any(|prefix| text.starts_with(prefix))
 }
 
 /// Installs the file owner over `HOME` when this is a Cloud host. Returns
