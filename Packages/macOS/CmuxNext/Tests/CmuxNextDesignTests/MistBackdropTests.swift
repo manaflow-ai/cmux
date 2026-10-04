@@ -1,3 +1,4 @@
+import AppKit
 import Testing
 @testable import CmuxNextDesign
 
@@ -52,5 +53,19 @@ struct MistBackdropTests {
         let plan = MistBackdropPlan(tokens: tokens, metadata: metadata)
 
         #expect(plan.sampledArt == tokens.windowBackground.withAlpha(1))
+    }
+
+    @MainActor
+    @Test func scrimViewRendersPlanAndPassesThroughClicks() {
+        let tokens = ThemeTokens.derive(from: ThemeFixtures.catppuccinMocha)
+        let plan = MistBackdropPlan(tokens: tokens, metadata: Self.metadata)
+        let view = MistBackdropView(frame: NSRect(x: 0, y: 0, width: 320, height: 240), plan: plan)
+        view.layoutSubtreeIfNeeded()
+
+        #expect(view.plan == plan)
+        #expect(view.gradientLayer.startPoint == CGPoint(x: 0.5, y: 0))
+        #expect(view.gradientLayer.endPoint == CGPoint(x: 0.5, y: 1))
+        #expect(view.gradientLayer.colors?.count == plan.gradient.stops.count)
+        #expect(view.hitTest(NSPoint(x: 10, y: 10)) == nil)
     }
 }
