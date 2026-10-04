@@ -190,6 +190,22 @@ describe("AppsPage", () => {
     expect(store.getSnapshot().selection).toBeUndefined();
   });
 
+  test("DESKTOP-FEEL: only content selects (description, scope reasons, logs, errors), never chrome", async () => {
+    const provider = new MockAppsProvider();
+    await render(provider, "#/discover?app=acme.caffeinate");
+    expect($(".apps-detail-description")?.classList.contains("selectable")).toBe(true);
+    expect($$(".apps-scope .apps-muted").every((reason) => reason.classList.contains("selectable"))).toBe(true);
+    expect($(".apps-detail-name")?.closest(".selectable")).toBeNull();
+    expect($(".apps-detail-actions")?.closest(".selectable")).toBeNull();
+    provider.failNext(AppsOps.install, new Error("refused"));
+    await click($$(".apps-detail-actions .apps-button").find((button) => button.textContent === "Install"));
+    expect($(".apps-error")?.classList.contains("selectable")).toBe(true);
+    await render(provider, "#/installed");
+    await click($$(".apps-installed-actions .apps-button").find((button) => button.textContent === "Logs"));
+    expect($(".apps-logs")?.classList.contains("selectable")).toBe(true);
+    expect($(".apps-installed-actions")?.closest(".selectable")).toBeNull();
+  });
+
   test("Japanese strings and the disconnected state", async () => {
     await render(null, "", "ja");
     expect($(".apps-empty")?.textContent).toBe("cmux が再接続するまで App Store は使用できません。");
