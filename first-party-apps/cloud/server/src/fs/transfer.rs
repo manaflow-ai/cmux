@@ -13,6 +13,7 @@
 use super::key::TransferKey;
 pub use super::openssh::host_alias;
 use super::path::{guest_arg, local_arg};
+use super::running::{Running, TRANSFER_BUSY};
 use crate::api::{CloudError, ControlPlane, Origin, args, codes};
 use crate::app_env::SshFiles;
 use crate::ops::Server;
@@ -23,6 +24,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 pub use super::openssh::OpenSshTransfer;
 
@@ -140,6 +142,15 @@ pub(crate) fn run<C: ControlPlane>(
     let local = local_arg(map, "localPath")?;
     let guest = guest_arg(map, "path")?.literal_for_transfer()?.to_owned();
     check_local(&local, direction)?;
+    if server.edge_parts().0.transfers.full() {
+        return Err(CloudError {
+            retryable: true,
+            ..CloudError::new(
+                TRANSFER_BUSY,
+                "Other file transfers are running: try again when one ends",
+            )
+        });
+    }
     // The children's environment and the app's OpenSSH files, before any
     // Cloud API call: without a data folder nothing starts.
     let app_env = server.attach().env().clone();
@@ -165,7 +176,7 @@ pub(crate) fn run<C: ControlPlane>(
         CloudError::new(TRANSFER_FAILED, format!("could not pin the machine's host key: {e}"))
     })?;
     let handler = edge.forward_handler(&carrier, "localhost", endpoint.port);
-    let mut route = Listener::bind(handler).map_err(|e| {
+    let route = Listener::bind(handler).map_err(|e| {
         CloudError::new(TRANSFER_FAILED, format!("could not listen on 127.0.0.1: {e}"))
     })?;
     // A pull lands in a fresh hidden name next to the target and is
@@ -187,28 +198,24 @@ pub(crate) fn run<C: ControlPlane>(
         ssh,
         temp_dir: app_env.temp_dir(),
     };
-    let result = edge.transfer.run(&job, &transfer_key);
-    route.close();
-    drop(transfer_key);
-    let published = result.and_then(|bytes| match direction {
-        Direction::Push => Ok(bytes),
-        Direction::Pull => std::fs::hard_link(&landing, &local).map(|()| bytes).map_err(|e| {
-            TransferError { message: format!("{}: {e}", local.display()), retryable: false }
-        }),
-    });
-    if direction == Direction::Pull {
-        let _ = std::fs::remove_file(&landing);
-    }
-    let bytes = published.map_err(|e| CloudError {
-        retryable: e.retryable,
-        ..CloudError::new(TRANSFER_FAILED, e.message)
-    })?;
+    // The copy runs on a worker; the loop finishes it when it ends.
+    let worker = Arc::clone(&edge.transfer);
+    let running = Running {
+        machine: machine.clone(),
+        direction,
+        guest: guest.clone(),
+        local: local.clone(),
+        landing,
+        route,
+    };
+    let transfer = edge.transfers.start(worker, job, transfer_key, running)?;
     Ok(json!({
         "ok": true,
+        "transfer": transfer,
+        "state": "running",
         "machine": machine,
         "path": guest,
         "localPath": local.to_string_lossy(),
-        "bytes": bytes,
     }))
 }
 

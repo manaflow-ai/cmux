@@ -34,7 +34,7 @@ pub fn serve_with<R: BufRead + Send + 'static, W: Write>(
     let (relay, waker) = relay.into_inbox()?;
     let mut server = Server::with_parts(relay, attach, edge);
     let link_waker = waker.clone();
-    server.attach_mut().supervisor_mut().set_wake(Arc::new(move || link_waker.wake()));
+    server.set_wake(Arc::new(move || link_waker.wake()));
     // Ask the host for the link details before the first op; connect
     // answers `link_unavailable` until they come.
     server.request_link_details();
@@ -112,6 +112,10 @@ fn send_events<R: BufRead, W: Write>(
     for down in server.take_edge_events() {
         server.control_plane_mut().send(&edge_line(&down))?;
     }
+    // File transfers that ended (their workers woke the loop).
+    for event in server.take_transfer_events() {
+        server.control_plane_mut().send(&transfer_line(&event))?;
+    }
     Ok(())
 }
 
@@ -124,6 +128,29 @@ fn edge_line(down: &EdgeDown) -> Value {
         "state": "down", "reason": down.reason });
     if let Some(port) = down.port {
         line["port"] = json!(port);
+    }
+    line
+}
+
+/// `cloud.file.transfer.changed`: one transfer ended (`done` with
+/// `bytes`, or `failed` with the typed `error`).
+fn transfer_line(event: &crate::fs::TransferEvent) -> Value {
+    let direction = match event.direction {
+        crate::fs::Direction::Push => "push",
+        crate::fs::Direction::Pull => "pull",
+    };
+    let mut line = json!({ "type": "event", "event": "cloud.file.transfer.changed",
+        "transfer": event.transfer, "machine": event.machine, "direction": direction,
+        "path": event.path, "localPath": event.local_path.to_string_lossy() });
+    match &event.outcome {
+        Ok(bytes) => {
+            line["state"] = json!("done");
+            line["bytes"] = json!(bytes);
+        }
+        Err(error) => {
+            line["state"] = json!("failed");
+            line["error"] = json!(error);
+        }
     }
     line
 }

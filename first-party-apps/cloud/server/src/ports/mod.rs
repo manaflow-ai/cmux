@@ -66,7 +66,9 @@ pub struct EdgeDown {
 /// Files transfers, forwards and proxy routes of this server.
 pub struct Edge {
     pub(crate) tunnel: Arc<dyn PortTunnel>,
-    pub(crate) transfer: Box<dyn Transfer>,
+    pub(crate) transfer: Arc<dyn Transfer>,
+    /// Running file transfers (crate::fs::running); the loop is the only writer.
+    pub(crate) transfers: crate::fs::running::Transfers,
     pub(crate) forwards: BTreeMap<(String, u16), Forward>,
     pub(crate) proxies: BTreeMap<String, Forward>,
     /// Closes by link state since the last [`Edge::take_events`], in order.
@@ -90,7 +92,8 @@ impl Edge {
     pub fn new(tunnel: Arc<dyn PortTunnel>, transfer: Box<dyn Transfer>) -> Self {
         Self {
             tunnel,
-            transfer,
+            transfer: Arc::from(transfer),
+            transfers: crate::fs::running::Transfers::new(),
             forwards: BTreeMap::new(),
             proxies: BTreeMap::new(),
             events: Vec::new(),

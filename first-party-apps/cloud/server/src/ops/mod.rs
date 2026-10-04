@@ -17,6 +17,7 @@ pub use machine_projection::{Projection, WatchEvent};
 
 use crate::api::{CloudError, ControlPlane, Ctx, Ledger, Origin, Request, codes, upstream_key};
 use serde_json::Value;
+use std::sync::Arc;
 
 /// How an op is guarded before it runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -295,8 +296,23 @@ impl<C: ControlPlane> Server<C> {
         self.edge.reconcile(&self.attach.supervisor);
     }
 
-    /// Blocks until every running file transfer has finished.
-    pub fn wait_transfers(&mut self) {}
+    /// Blocks until every running file transfer has ended (embedders and
+    /// tests; the serve loop never blocks on a copy).
+    pub fn wait_transfers(&mut self) {
+        self.edge.transfers.wait_all();
+    }
+
+    /// `cloud.file.transfer.changed` events: transfers that ended since the
+    /// last call, in the order they ended.
+    pub fn take_transfer_events(&mut self) -> Vec<crate::fs::TransferEvent> {
+        self.edge.transfers.take_events()
+    }
+
+    /// Wakes the serve loop after each link event and each transfer end.
+    pub(crate) fn set_wake(&mut self, wake: crate::link::LinkWake) {
+        self.attach.supervisor_mut().set_wake(Arc::clone(&wake));
+        self.edge.transfers.set_wake(wake);
+    }
 
     /// Forwards and routes closed by link state since the last call.
     pub fn take_edge_events(&mut self) -> Vec<crate::ports::EdgeDown> {

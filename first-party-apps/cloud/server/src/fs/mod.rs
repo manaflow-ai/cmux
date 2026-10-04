@@ -7,6 +7,7 @@ pub mod key;
 mod openssh;
 pub mod path;
 pub mod provider;
+pub(crate) mod running;
 pub mod transfer;
 
 pub use files::Entry;
@@ -14,6 +15,7 @@ pub use key::TransferKey;
 pub use openssh::scp_args;
 pub use path::GuestPath;
 pub use provider::{CloudFs, FS_PROVIDER_INTERFACE, FsProvider, Root, SCHEME};
+pub use running::{MAX_TRANSFERS, TRANSFER_BUSY, TransferEvent};
 pub use transfer::{Direction, OpenSshTransfer, ScpEndpoint, Transfer, TransferError, TransferJob};
 
 use crate::api::{CloudError, ControlPlane, Origin};
