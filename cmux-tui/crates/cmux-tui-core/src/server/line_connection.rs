@@ -97,14 +97,9 @@ pub(super) fn serve_line_connection(
         }
         let keep_open = match admission.refusal(&line) {
             Some(refusal) => writer.send_control(&refusal).is_ok(),
-            None => handle_connection_frame(
-                &mux,
-                client,
-                transport,
-                &line,
-                &writer,
-                &surface_scheduler,
-            ),
+            None => {
+                handle_connection_frame(&mux, client, transport, &line, &writer, &surface_scheduler)
+            }
         };
         zeroize_string(&mut line);
         if !keep_open {
