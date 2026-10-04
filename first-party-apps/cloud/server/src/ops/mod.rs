@@ -73,6 +73,21 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.publication.update", Kind::UserOnly),
     ("cloud.publication.delete", Kind::UserOnly),
     ("cloud.publication.verify", Kind::Mutation),
+    // Files (crate::fs): reads through the Cloud API file routes; remove is
+    // destructive, so only a person may run it.
+    ("cloud.fs.list", Kind::Read),
+    ("cloud.fs.stat", Kind::Read),
+    ("cloud.fs.read", Kind::Read),
+    ("cloud.fs.write", Kind::Mutation),
+    ("cloud.fs.mkdir", Kind::Mutation),
+    ("cloud.fs.remove", Kind::UserOnly),
+    ("cloud.file.push", Kind::Mutation),
+    ("cloud.file.pull", Kind::Mutation),
+    // Ports and browser routes (crate::ports).
+    ("cloud.port.list", Kind::Read),
+    ("cloud.port.forward", Kind::Mutation),
+    ("cloud.port.close", Kind::Mutation),
+    ("cloud.browser.open", Kind::Mutation),
 ];
 
 /// Other names for ops: the `resume` verb and the old relay names
@@ -171,6 +186,7 @@ pub struct Server<C> {
     projection: Projection,
     ledger: Ledger,
     attach: crate::link::Attach,
+    edge: crate::ports::Edge,
 }
 
 impl<C> Server<C> {
@@ -190,7 +206,35 @@ impl<C: ControlPlane> Server<C> {
     }
 
     pub fn with_attach(control_plane: C, attach: crate::link::Attach) -> Self {
-        Self { control_plane, projection: Projection::default(), ledger: Ledger::default(), attach }
+        Self::with_parts(control_plane, attach, crate::ports::Edge::real())
+    }
+
+    /// A server with its attach state and its files and ports edge (tests
+    /// pass fakes for the link, the tunnel and the transfer).
+    pub fn with_parts(
+        control_plane: C,
+        attach: crate::link::Attach,
+        edge: crate::ports::Edge,
+    ) -> Self {
+        Self {
+            control_plane,
+            projection: Projection::default(),
+            ledger: Ledger::default(),
+            attach,
+            edge,
+        }
+    }
+
+    /// The forward and route state with the link state it follows.
+    pub(crate) fn edge_parts(&mut self) -> (&mut crate::ports::Edge, &crate::link::LinkSupervisor) {
+        self.attach.supervisor.pump();
+        (&mut self.edge, &self.attach.supervisor)
+    }
+
+    /// Closes forwards and routes whose link went down or was replaced.
+    pub fn reconcile_edge(&mut self) {
+        let (edge, links) = self.edge_parts();
+        edge.reconcile(links);
     }
 
     /// One Cloud API call context for an attach op.
@@ -248,10 +292,13 @@ impl<C: ControlPlane> Server<C> {
         if key.len() > 128 {
             return Err(CloudError::invalid("an idempotency key has at most 128 characters"));
         }
-        if crate::link::ops::live_state_op(name) || RERUN_OPS.contains(&name) {
-            // The answer is live state (a carrier, or DNS and certificate
-            // state): a replay of an old answer would be stale. These ops are
-            // idempotent by themselves, so they run every time.
+        if crate::link::ops::live_state_op(name)
+            || crate::ports::live_state_op(name)
+            || RERUN_OPS.contains(&name)
+        {
+            // The answer is live state (a carrier, a forward, or DNS and
+            // certificate state): a replay of an old answer would be stale.
+            // These ops are idempotent by themselves, so they run every time.
             let upstream = upstream_key(name, &args, key);
             return self.run(name, &args, request.origin, Some(&upstream));
         }
@@ -301,6 +348,12 @@ impl<C: ControlPlane> Server<C> {
     ) -> Result<Value, CloudError> {
         if crate::link::ops::serves(name) {
             return crate::link::ops::run(self, name, args, origin, key);
+        }
+        if crate::fs::serves(name) {
+            return crate::fs::run(self, name, args, origin, key);
+        }
+        if crate::ports::serves(name) {
+            return crate::ports::run(self, name, args, origin, key);
         }
         let mut ctx = Ctx::new(&mut self.control_plane, &mut self.projection, name, key);
         let group = name.split('.').nth(1).unwrap_or_default();
