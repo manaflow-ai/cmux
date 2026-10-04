@@ -33,7 +33,7 @@ probes, rev 10).
   ad-hoc DEV builds (a DEV build without a team signature cannot serve remote peers).
 - Identity: WireGuard authenticates the peer static key; the link maps it to the install id
   through the pairing record (allowed IP: the /128 from the install id) and sends the **stamp**
-  `{install_id, user_id, wg_key}` as the first out-of-band record of each stream that
+  `{install, user, team}` (the code shape; the WireGuard key is not needed for the principal) as the first out-of-band record of each stream that
   `link.dial {host, service: "daemon"}` opens. The daemon trusts the stamp and nothing else.
   No stamp, a stamp on the admin socket, or a stamp from a process that fails the peer check:
   the stream is closed before the first frame.
@@ -77,7 +77,7 @@ kinds for owned conversations leave it (section 8). Nothing reaches the remote w
 
 ## 5. Owned objects and the remote participant (D-B)
 
-- Owner scope (v1): the stamp's `user_id` must equal the server **owner** (the `user` of the
+- Owner scope (v1): the stamp's `user` must equal the server **owner** (the `user` of the
   stored pairing record); a peer that is not the owner owns nothing. The store's list, snapshot
   and history do no participant check today, so the gate applies the clause below.
 - Unknown and unowned conversation or message IDs give the **same** error (`remote_denied`), so a
@@ -110,7 +110,7 @@ kinds for owned conversations leave it (section 8). Nothing reaches the remote w
     the cloud `ConversationDO` replays, so the change lands with a coordination line and the corpus
     update in the same push, agreed first with the `ConversationDO` owner (the backend lead)
     through a coordination line that names both new fields, `origin` and `person`.
-- Owned conversation: `remote_<install>` is a participant and the stamp's `user_id` is the server
+- Owned conversation: `remote_<install>` is a participant and the stamp's `user` is the server
   owner. The gate checks this for list, snapshot, history, typing and ops.
 
 ## 6. Remote prompts to agents (D-A no waiver; D-E to D-J; rev 15)
@@ -131,9 +131,9 @@ crashed, slow or unsure, the tool does not run.
    cursors and non-owned conversations) and contains no deny path (for another agent: its session's
    workspace root, under the same rules). Reads without an approval are allowed only there. The
    deny list is a second layer: `state/`, `*.token`, `.claude/`, `.env*`, `~/.ssh`, the
-   `MUX_AGENT_TOKEN_FILE` path, the pairing record and install keys always ask approval, and the
-   acpmux home (its config and the WebSocket dashboard token) is never approvable for reads or
-   writes in a remote chain.
+   `MUX_AGENT_TOKEN_FILE` path, the pairing record, the install keys and the acpmux home (its config
+   and the WebSocket dashboard token) are **denied** in a remote chain: one rule, never an approval
+   (`permissions.deny` for the Claude tools, `sandbox.filesystem.denyRead` for Bash).
    **Memory files (P2-3, D-M decided: reads ask).** In a remote chain, reads of the Chief's memory
    files (`LOG.txt`, `TREE/`) ask the human with a presence proof, because they can hold
    non-owned conversation content and local tool output. Follow-up: a memory projection in the
@@ -349,16 +349,22 @@ crashed, slow or unsure, the tool does not run.
         allowlists are the control (a file deny on the socket path would do nothing); this also
         blocks loopback and acpmux's WebSocket dashboard port;
       - writes: the sandbox write area is a separate **scratch folder**, not the working folder (the
-        read root); no extra `allowWrite`, and an `allowWrite` deny on the read root, so approved
-        Bash cannot write `LOG.txt` or `TREE/`;
+        read root); no extra `allowWrite`; `sandbox.filesystem.denyWrite` on the read root, so
+        approved Bash cannot write `LOG.txt` or `TREE/`; `sandbox.filesystem.denyRead` on the acpmux
+        home and every rule 2 deny path, so approved Bash cannot read them;
+      - `/tmp` and `$TMPDIR`: writable by default in the sandbox. Accepted risk (they hold no secret
+        of ours, and tools need them); the agent host sets `TMPDIR` to the scratch folder;
+      - `sandbox.enableWeakerNestedSandbox: false`;
       - the daemon refuses any Bash `rawInput` with `dangerouslyDisableSandbox: true`, and refuses
         every sandbox network-domain approval in a remote chain (a name such as `localtest.me`
         resolves to 127.0.0.1);
       - the managed-settings check (rule 5) refuses any managed `sandbox.*` key outside a reviewed
-        list (managed arrays merge with the inline ones);
+        list (managed arrays merge with the inline ones); `ignoreViolations` and
+        `enableWeakerNestedSandbox` are on the refused list;
       - **fail closed:** if Seatbelt is unavailable, Claude may run Bash unsandboxed with only a
         warning, so at every spawn and respawn the agent host runs a canary inside the sandbox: a
-        Unix-socket connect and a loopback connect must fail, or the chain is refused.
+        Unix-socket connect, a loopback connect and a Mach service request (`launchctl submit` or
+        `open`) must fail, or the chain is refused.
     - **Children only through the daemon spawn tool.** A remote chain starts a child only through a
       daemon MCP tool. Its inputs are only the prompt text and a workspace from a reviewed list;
       harness, argv, mode, policy, model, env, tools and a free cwd are refused. The parent comes
@@ -370,8 +376,10 @@ crashed, slow or unsure, the tool does not run.
     - **No persistence by Edit or Write.** Edit and Write run outside the sandbox, so in a remote
       chain these paths are never approvable: `~/Library/LaunchAgents`, `~/Library/LaunchDaemons`,
       shell rc and profile files (`.zshrc`, `.zprofile`, `.bashrc`, `.bash_profile`, `.profile`),
-      `.git/hooks`, `~/.config/cmux/cmux.json` (actions), cron and `at` files, and the acpmux and
-      daemon configuration.
+      fish config (`~/.config/fish/`), `.git/hooks`, `~/.gitconfig` (`core.hooksPath`),
+      `~/.ssh/config`, `~/.ssh/authorized_keys`, `~/.claude/settings.json`, `~/.codex/config.toml`,
+      `.envrc`, `.vscode/tasks.json`, `~/.config/cmux/cmux.json` (actions), cron and `at` files, and
+      the acpmux and daemon configuration.
     - **Peer check, second layer (rev 13 P2, rev 14).** It cannot see a process that was reparented
       to pid 1 (after `setsid` plus exit, or a double fork): such a process looks local, so those
       cases are covered by the sandbox only. acpmux finds the caller from its peer
@@ -530,8 +538,8 @@ Tests for this section (the acpmux owner adds fake-model probes on a Testbox):
 - a prompt without `_meta` origin is remote; a client cannot set origin over the web listener or
   the peer path.
 - remote `/clear`, `!rm -rf x` and `@/etc/hosts` arrive as text.
-- reads of `state/`, a `*.token` file, `.claude/settings.json`, `.env` and the agent token file
-  ask approval.
+- reads of `state/`, a `*.token` file, `.claude/settings.json`, `.env`, the agent token file and the
+  acpmux home are denied (no approval offered), through the Claude tools and through Bash.
 - another harness, an auto-mode agent, `claude-sr` and extra argv are refused for a remote chain.
 - revocation kills the chain's process group (a background `sleep` dies).
 
