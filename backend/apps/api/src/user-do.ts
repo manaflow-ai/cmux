@@ -12,9 +12,6 @@ import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./
 import { SecondaryStream } from "./secondary-stream.ts"
 import { HOME_RATE_LIMITS, HOME_RATE_WINDOW_MS, homeRateDecision, isHomeRateOp, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
 
-/** Inbox entries a list scans at most (p99 2,000 conversations per user, design section 6). */
-const INBOX_SCAN_LIMIT = 10_000
-
 const CHALLENGE_TTL_MS = 2 * 60_000
 
 export type RedeemResult = ({ ok: true } & InstallClaims) | { ok: false; code: "auth.forbidden" | "validation.invalid"; message: string }
@@ -49,7 +46,8 @@ export class UserDO extends OwnerDO<UserState> {
       // Params arrive as untrusted JSON; the inbox reducer validates them (validBump, userOp).
       domain: homeInbox.inboxDomain as Domain<homeInbox.InboxHead>,
       // Entries are unordered rows (n = null): snapshots carry the head; clients page with inbox.list.
-      engine: { rowMode: { snapshotTable: homeInbox.TABLE_ENTRY, snapshotTail: 0 } },
+      // The list order index is derived owner data: its writes never reach subscribers.
+      engine: { rowMode: { snapshotTable: homeInbox.TABLE_ENTRY, snapshotTail: 0 }, redact: { privateTables: homeInbox.INBOX_PRIVATE_TABLES } },
       owns: (op) => op.startsWith("inbox."),
       maySubscribe: (_head, principal, entity) => principal.user === entity
     }, (ws, a) => this.socketLive(ws, a))
@@ -152,12 +150,31 @@ export class UserDO extends OwnerDO<UserState> {
       return { ok: true, value: { conversation: homeInbox.dmPeer(engine.rows, peer) }, revision: String(engine.currentSeq) }
     }
     if (op === "inbox.list") {
-      const entries = engine.rows.scan<homeInbox.InboxEntry>(homeInbox.TABLE_ENTRY, INBOX_SCAN_LIMIT).map((r) => r.row)
-      const limit = typeof params.limit === "number" && params.limit > 0 ? Math.min(params.limit, 200) : 200
-      const query: homeInbox.InboxListQuery = { limit, include_archived: params.include_archived === true }
-      return { ok: true, value: { entries: homeInbox.listInbox(entries, query) }, revision: String(engine.currentSeq) }
+      if (params.cursor !== undefined && (typeof params.cursor !== "string" || params.cursor.length > 256)) return { ok: false, code: "validation.invalid", message: "cursor must be a next_cursor string" }
+      if (engine.currentState.ordered !== true) this.reindexInbox(entity)
+      const limit = typeof params.limit === "number" && params.limit > 0 ? Math.min(params.limit, homeInbox.INBOX_PAGE_LIMIT) : homeInbox.INBOX_PAGE_LIMIT
+      const page = homeInbox.pageInbox(engine.rows, { limit, include_archived: params.include_archived === true, ...(params.cursor === undefined ? {} : { cursor: params.cursor as string }) })
+      return { ok: true, value: page, revision: String(engine.currentSeq) }
     }
     return { ok: false, code: "validation.invalid", message: `unknown inbox read ${op}` }
+  }
+
+  /**
+   * One-time migration of an inbox written before the list order index (home-core order.ts):
+   * reads the entry keys once, in key windows, and commits them as `inbox.reindex` system ops.
+   * Batch keys name their contents, so a rerun after a crash replays what committed.
+   */
+  private reindexInbox(entity: string): void {
+    const engine = this.inbox.open(entity)
+    const keys: Array<string> = []
+    for (let window = engine.rows.keyRange(homeInbox.TABLE_ENTRY, { limit: 1000 }); window.length > 0; window = engine.rows.keyRange(homeInbox.TABLE_ENTRY, { after: keys[keys.length - 1]!, limit: 1000 })) {
+      keys.push(...window.map((r) => r.key))
+    }
+    const principal: Principal = { identity: "system:inbox", kind: "system" }
+    for (const batch of homeInbox.inboxReindexBatches(keys)) {
+      this.inbox.submit(principal, { t: "op", op: "inbox.reindex", params: batch.params, idempotency_key: batch.key, origin: "script" }, () => {})
+    }
+    this.scheduleAlarm()
   }
 
   /**

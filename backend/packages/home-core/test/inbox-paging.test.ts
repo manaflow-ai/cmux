@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite"
-import { OwnerEngine, type OwnerFrame, type SqlStore } from "@cmux/ownership"
+import { OwnerEngine, type Domain, type OwnerFrame, type SqlStore } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
 import type { Principal } from "../src/conversation/engine-types.ts"
 import {
@@ -70,7 +70,7 @@ const bump = (conversation: string, rev: number, second: number, extra: Partial<
 })
 
 const open = (sql: CountingStore = store()) => {
-  const engine = new OwnerEngine<InboxHead>(sql, inboxDomain, {
+  const engine = new OwnerEngine<InboxHead>(sql, inboxDomain as Domain<InboxHead>, {
     stream: "inbox:user_alice",
     prefix: "inbox_",
     rowMode: { snapshotTable: TABLE_ENTRY, snapshotTail: 0 },

@@ -94,11 +94,12 @@ inside a DO only), `link` (an unauthenticated holder of an invite secret, read o
 | Op | Params | Key | Callers | Rules |
 | --- | --- | --- | --- | --- |
 | `inbox.bump` | `{conversation, rev, kind, title, last_seq, last_at, preview, unread, mentions, dm_peer?, removed?}` | `bump:<conversation>:<rev>` | system (ConversationDO outbox) | applies only when `rev` is newer (max merge, so duplicates and reordering are harmless) |
+| `inbox.reindex` | `{conversations[], done}` | `inbox-reindex:<sha256 of the batch>` | system (the UserDO itself) | one-time migration: writes the order rows of entries stored before `entry_order` existed; `done` sets the head flag `ordered` |
 | `inbox.pin` | `{conversation, pinned, position?}` | client key | session, install | user-owned |
 | `inbox.mute` | `{conversation, until?}` | client key | session, install | approvals still notify (spec) |
 | `inbox.archive` | `{conversation, archived}` | client key | session, install | a new message un-archives (bump rule) |
 | `inbox.mark_unread` | `{conversation, unread}` | client key | session, install | flag only; the read cursor stays |
-| `inbox.list` (read) | `{after_rev?, limit}` | n/a | session, install | pinned first, then `last_at` desc |
+| `inbox.list` (read) | `{cursor?, limit, include_archived?}` | n/a | session, install | pinned first by position, then `last_at` desc, ties by conversation id; pages of at most 200 by a keyset `cursor` (the `next_cursor` of the previous page, null on the last); an index table `entry_order` keeps the order, so a page reads about one page of rows. Changes after a snapshot come from the `inbox:` stream (`after_seq`), not from this read, so the earlier `after_rev` param is dropped |
 | `chief.create` | `{name, parent?, avatar?, brain}` | client key | session | creates the agent principal, its grant (class `mux`), its `MuxDO` and its `chief` conversation (outbox, system ops with derived keys); the first chief is pinned |
 | `chief.update` / `chief.archive` | `{agent, ...}` | client key | session (owner) | archive keeps history read-only |
 | `invite.quota.take` | `{invite_id, channel}` | `quota:<invite_id>` | system (Worker on the inviter's behalf) | per-user windows (section 9); a refused take refuses the invite |
