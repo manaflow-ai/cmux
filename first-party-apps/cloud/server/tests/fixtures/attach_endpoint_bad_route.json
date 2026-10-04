@@ -1,0 +1,15 @@
+{
+  "$comment": "A malformed answer: the route reads as a flag. The server must refuse it before any process starts.",
+  "request": {
+    "method": "POST",
+    "path": "/api/vm/vm-alpha01/attach-endpoint"
+  },
+  "status": 200,
+  "body": {
+    "transport": "cmux-remote",
+    "route": "--wireguard-config=/tmp/evil",
+    "token": "fake-attach-token-must-not-leak",
+    "session": "cloud",
+    "trustedCarrier": true
+  }
+}
