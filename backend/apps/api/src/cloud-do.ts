@@ -347,7 +347,6 @@ export class CloudDO extends OwnerDO<CloudState> {
     return times.length ? Math.min(...times) : null
   }
 
-  /** Test only (ENVIRONMENT=test): drive the fake provider and the object's clock. */
   /**
    * Operator action (route /v1/admin/cloud/abandoned/clear: admin key plus a person's session):
    * clear one abandoned ledger row. Refused unless a provider lookup of the recorded name, done
@@ -370,6 +369,7 @@ export class CloudDO extends OwnerDO<CloudState> {
     return { ok: true, audit: f.value.audit }
   }
 
+  /** Test only (ENVIRONMENT=test): drive the fake provider and the object's clock. */
   async fakeControl(cmd: { fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string } }) {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     cloudDriver(this.env, this.sqlStore)
