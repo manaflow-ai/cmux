@@ -36,11 +36,6 @@ pub fn is_temporary_name(name: &str) -> bool {
 
 /// Removes stale temporaries under `roots`; returns how many it removed.
 pub fn remove_stale_temporaries(roots: &Roots, now: SystemTime) -> usize {
-    // RED: nothing is swept yet.
-    if roots.canonical_paths().count() < usize::MAX {
-        let _ = (now, open_below as fn(&OwnedFd, &[String]) -> Option<OwnedFd>);
-        return 0;
-    }
     let cutoff = now.checked_sub(STALE_AFTER).unwrap_or(UNIX_EPOCH);
     let cutoff_ms = cutoff.duration_since(UNIX_EPOCH).map_or(0, |since| since.as_millis());
     let mut removed = 0;
