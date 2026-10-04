@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "0edc0a3c7e51c1f0843d49e78b98ef01dea251fb14beeda82935fcf345a138a1";
+pub const ir_sha256 = "6e41cec831ffb93327a004dac892e0cc173eedbbba6fe1c1926b2b91e2a7db55";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -237,6 +237,311 @@ pub const ColorHex = []const u8;
 pub const ColumnPin = struct {
     edge: []const u8,
     mode: []const u8,
+};
+
+pub const ConversationAgentClass = enum {
+    mux,
+    agent,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "mux")) return .mux;
+        if (std.mem.eql(u8, value, "agent")) return .agent;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .mux => "mux",
+            .agent => "agent",
+        };
+    }
+};
+
+pub const ConversationChangeConversation = struct {
+    conversation: ConversationSummary,
+};
+
+pub const ConversationChangeMessage = struct {
+    message: ConversationMessage,
+};
+
+pub const ConversationChangeMessageUpdated = struct {
+    message: ConversationMessage,
+};
+
+pub const ConversationChangeReadCursor = struct {
+    participant: []const u8,
+    seq: u64,
+};
+
+pub const ConversationChange = union(enum) {
+    conversation: ConversationChangeConversation,
+    message: ConversationChangeMessage,
+    message_updated: ConversationChangeMessageUpdated,
+    read_cursor: ConversationChangeReadCursor,
+
+    pub const cmux_wire_custom_union = true;
+
+    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
+        return switch (self) {
+            .conversation => |payload| try wire.encodeTagged(allocator, "kind", "conversation", payload),
+            .message => |payload| try wire.encodeTagged(allocator, "kind", "message", payload),
+            .message_updated => |payload| try wire.encodeTagged(allocator, "kind", "message-updated", payload),
+            .read_cursor => |payload| try wire.encodeTagged(allocator, "kind", "read-cursor", payload),
+        };
+    }
+
+    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
+        const tag_value = try wire.objectString(value, "kind");
+        if (std.mem.eql(u8, tag_value, "conversation")) {
+            return .{ .conversation = try wire.decodeLeaky(ConversationChangeConversation, allocator, value) };
+        }
+        if (std.mem.eql(u8, tag_value, "message")) {
+            return .{ .message = try wire.decodeLeaky(ConversationChangeMessage, allocator, value) };
+        }
+        if (std.mem.eql(u8, tag_value, "message-updated")) {
+            return .{ .message_updated = try wire.decodeLeaky(ConversationChangeMessageUpdated, allocator, value) };
+        }
+        if (std.mem.eql(u8, tag_value, "read-cursor")) {
+            return .{ .read_cursor = try wire.decodeLeaky(ConversationChangeReadCursor, allocator, value) };
+        }
+        return error.UnknownUnionVariant;
+    }
+};
+
+pub const ConversationEmojiReaction = struct {
+    emoji: []const u8,
+};
+
+pub const ConversationMessage = struct {
+    author: []const u8,
+    client_msg_id: []const u8,
+    conversation: []const u8,
+    created_at: []const u8,
+    edited_at: ?[]const u8 = null,
+    id: []const u8,
+    parts: []const ConversationPart,
+    reactions: []const ConversationReaction,
+    reply_to: ?ConversationPartRef = null,
+    retracted_at: ?[]const u8 = null,
+    seq: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "edited_at",
+        "reply_to",
+        "retracted_at",
+    };
+};
+
+pub const ConversationPartText = struct {
+    runs: ?[]const ConversationTextRun = null,
+    text: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "runs",
+    };
+};
+
+pub const ConversationPartWork = struct {
+    host: ?[]const u8 = null,
+    preview: ?[]const u8 = null,
+    session: []const u8,
+    status: ConversationWorkStatus,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "host",
+        "preview",
+    };
+};
+
+pub const ConversationPart = union(enum) {
+    text: ConversationPartText,
+    work: ConversationPartWork,
+
+    pub const cmux_wire_custom_union = true;
+
+    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
+        return switch (self) {
+            .text => |payload| try wire.encodeTagged(allocator, "type", "text", payload),
+            .work => |payload| try wire.encodeTagged(allocator, "type", "work", payload),
+        };
+    }
+
+    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
+        const tag_value = try wire.objectString(value, "type");
+        if (std.mem.eql(u8, tag_value, "text")) {
+            return .{ .text = try wire.decodeLeaky(ConversationPartText, allocator, value) };
+        }
+        if (std.mem.eql(u8, tag_value, "work")) {
+            return .{ .work = try wire.decodeLeaky(ConversationPartWork, allocator, value) };
+        }
+        return error.UnknownUnionVariant;
+    }
+};
+
+pub const ConversationPartRef = struct {
+    message_id: []const u8,
+    part_index: u32,
+};
+
+pub const ConversationParticipant = struct {
+    acp_session: ?[]const u8 = null,
+    agent_class: ?ConversationAgentClass = null,
+    display_name: []const u8,
+    id: []const u8,
+    kind: ConversationParticipantKind,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "acp_session",
+        "agent_class",
+    };
+};
+
+pub const ConversationParticipantKind = enum {
+    human,
+    agent,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "human")) return .human;
+        if (std.mem.eql(u8, value, "agent")) return .agent;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .human => "human",
+            .agent => "agent",
+        };
+    }
+};
+
+pub const ConversationReaction = struct {
+    at: []const u8,
+    author: []const u8,
+    kind: ConversationReactionKind,
+    part_index: u32,
+};
+
+pub const ConversationReactionKind = union(enum) {
+    conversation_tapback_reaction: ConversationTapbackReaction,
+    conversation_emoji_reaction: ConversationEmojiReaction,
+
+    pub const cmux_wire_custom_union = true;
+
+    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
+        return switch (self) {
+            .conversation_tapback_reaction => |payload| try wire.encodeValue(allocator, payload),
+            .conversation_emoji_reaction => |payload| try wire.encodeValue(allocator, payload),
+        };
+    }
+
+    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
+        _ = allocator;
+        _ = value;
+        return error.AmbiguousUnion;
+    }
+};
+
+pub const ConversationSearchHit = struct {
+    author: []const u8,
+    conversation: []const u8,
+    created_at: []const u8,
+    message_id: []const u8,
+    seq: u64,
+    snippet: []const u8,
+    title: []const u8,
+};
+
+pub const ConversationSummary = struct {
+    created_at: []const u8,
+    id: []const u8,
+    last_message: ?ConversationMessage = null,
+    last_seq: u64,
+    owner: []const u8,
+    participants: []const ConversationParticipant,
+    read_cursors: wire.Map(u64),
+    rev: u64,
+    title: []const u8,
+    updated_at: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "last_message",
+    };
+};
+
+pub const ConversationTabRecord = struct {
+    conversation: []const u8,
+    owner: []const u8,
+};
+
+pub const ConversationTapback = enum {
+    love,
+    like,
+    dislike,
+    laugh,
+    emphasize,
+    question,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "love")) return .love;
+        if (std.mem.eql(u8, value, "like")) return .like;
+        if (std.mem.eql(u8, value, "dislike")) return .dislike;
+        if (std.mem.eql(u8, value, "laugh")) return .laugh;
+        if (std.mem.eql(u8, value, "emphasize")) return .emphasize;
+        if (std.mem.eql(u8, value, "question")) return .question;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .love => "love",
+            .like => "like",
+            .dislike => "dislike",
+            .laugh => "laugh",
+            .emphasize => "emphasize",
+            .question => "question",
+        };
+    }
+};
+
+pub const ConversationTapbackReaction = struct {
+    tapback: ConversationTapback,
+};
+
+pub const ConversationTextRun = struct {
+    length: u32,
+    link: ?[]const u8 = null,
+    mention: ?[]const u8 = null,
+    start: u32,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "link",
+        "mention",
+    };
+};
+
+pub const ConversationWorkStatus = enum {
+    running,
+    done,
+    failed,
+    waiting,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "running")) return .running;
+        if (std.mem.eql(u8, value, "done")) return .done;
+        if (std.mem.eql(u8, value, "failed")) return .failed;
+        if (std.mem.eql(u8, value, "waiting")) return .waiting;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .running => "running",
+            .done => "done",
+            .failed => "failed",
+            .waiting => "waiting",
+        };
+    }
 };
 
 pub const CopyResultMode = enum {
@@ -3039,7 +3344,10 @@ pub const ConversationAgentTokenRequest = struct {
     participant: []const u8,
 };
 
-pub const ConversationAgentTokenResult = JsonValue;
+pub const ConversationAgentTokenResult = struct {
+    participant: []const u8,
+    token: []const u8,
+};
 
 pub fn conversationAgentToken(client: anytype, request: ConversationAgentTokenRequest) !wire.Decoded(ConversationAgentTokenResult) {
     return client.callTyped(
@@ -3059,7 +3367,9 @@ pub const ConversationBindRequest = struct {
     token: []const u8,
 };
 
-pub const ConversationBindResult = JsonValue;
+pub const ConversationBindResult = struct {
+    participant: []const u8,
+};
 
 pub fn conversationBind(client: anytype, request: ConversationBindRequest) !wire.Decoded(ConversationBindResult) {
     return client.callTyped(
@@ -3081,7 +3391,10 @@ pub const ConversationCreateRequest = struct {
     title: []const u8,
 };
 
-pub const ConversationCreateResult = JsonValue;
+pub const ConversationCreateResult = struct {
+    conversation: ConversationSummary,
+    replayed: bool,
+};
 
 pub fn conversationCreate(client: anytype, request: ConversationCreateRequest) !wire.Decoded(ConversationCreateResult) {
     return client.callTyped(
@@ -3102,7 +3415,9 @@ pub const ConversationHistoryRequest = struct {
     limit: u32,
 };
 
-pub const ConversationHistoryResult = JsonValue;
+pub const ConversationHistoryResult = struct {
+    messages: []const ConversationMessage,
+};
 
 pub fn conversationHistory(client: anytype, request: ConversationHistoryRequest) !wire.Decoded(ConversationHistoryResult) {
     return client.callTyped(
@@ -3119,7 +3434,9 @@ pub fn conversationHistory(client: anytype, request: ConversationHistoryRequest)
 
 pub const ConversationListRequest = struct {};
 
-pub const ConversationListResult = JsonValue;
+pub const ConversationListResult = struct {
+    conversations: []const ConversationSummary,
+};
 
 pub fn conversationList(client: anytype, request: ConversationListRequest) !wire.Decoded(ConversationListResult) {
     return client.callTyped(
@@ -3142,7 +3459,18 @@ pub const ConversationOpRequest = struct {
     transaction: wire.Field([]const u8) = .absent,
 };
 
-pub const ConversationOpResult = JsonValue;
+pub const ConversationOpResult = struct {
+    change: ConversationChange,
+    replayed: bool,
+    rev: u64,
+    seq: ?u64 = null,
+    transaction: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "seq",
+        "transaction",
+    };
+};
 
 pub fn conversationOp(client: anytype, request: ConversationOpRequest) !wire.Decoded(ConversationOpResult) {
     return client.callTyped(
@@ -3162,7 +3490,9 @@ pub const ConversationSearchRequest = struct {
     query: []const u8,
 };
 
-pub const ConversationSearchResult = JsonValue;
+pub const ConversationSearchResult = struct {
+    hits: []const ConversationSearchHit,
+};
 
 pub fn conversationSearch(client: anytype, request: ConversationSearchRequest) !wire.Decoded(ConversationSearchResult) {
     return client.callTyped(
@@ -3182,7 +3512,10 @@ pub const ConversationSnapshotRequest = struct {
     tail: u32,
 };
 
-pub const ConversationSnapshotResult = JsonValue;
+pub const ConversationSnapshotResult = struct {
+    conversation: ConversationSummary,
+    messages: []const ConversationMessage,
+};
 
 pub fn conversationSnapshot(client: anytype, request: ConversationSnapshotRequest) !wire.Decoded(ConversationSnapshotResult) {
     return client.callTyped(
@@ -3203,7 +3536,7 @@ pub const ConversationTypingRequest = struct {
     on: bool,
 };
 
-pub const ConversationTypingResult = JsonValue;
+pub const ConversationTypingResult = EmptyResult;
 
 pub fn conversationTyping(client: anytype, request: ConversationTypingRequest) !wire.Decoded(ConversationTypingResult) {
     return client.callTyped(
@@ -4807,7 +5140,13 @@ pub const NewConversationTabRequest = struct {
     workspace: wire.Field(Id) = .absent,
 };
 
-pub const NewConversationTabResult = JsonValue;
+pub const NewConversationTabResult = struct {
+    content_resource_id: wire.Nullable([]const u8),
+    conversation: ConversationTabRecord,
+    replayed: bool,
+    surface: Id,
+    tab_resource_id: wire.Nullable([]const u8),
+};
 
 pub fn newConversationTab(client: anytype, request: NewConversationTabRequest) !wire.Decoded(NewConversationTabResult) {
     return client.callTyped(

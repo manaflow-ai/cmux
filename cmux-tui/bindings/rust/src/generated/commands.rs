@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 0edc0a3c7e51c1f0843d49e78b98ef01dea251fb14beeda82935fcf345a138a1.
+// cmux-tui mux protocol 12, IR 6e41cec831ffb93327a004dac892e0cc173eedbbba6fe1c1926b2b91e2a7db55.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -443,7 +443,11 @@ pub struct ConversationAgentTokenRequest {
 }
 
 #[rustfmt::skip]
-pub type ConversationAgentTokenResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAgentTokenResult {
+    pub participant: String,
+    pub token: String,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -453,7 +457,10 @@ pub struct ConversationBindRequest {
 }
 
 #[rustfmt::skip]
-pub type ConversationBindResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationBindResult {
+    pub participant: String,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -466,7 +473,11 @@ pub struct ConversationCreateRequest {
 }
 
 #[rustfmt::skip]
-pub type ConversationCreateResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationCreateResult {
+    pub conversation: T::ConversationSummary,
+    pub replayed: bool,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -477,7 +488,10 @@ pub struct ConversationHistoryRequest {
 }
 
 #[rustfmt::skip]
-pub type ConversationHistoryResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationHistoryResult {
+    pub messages: Vec<T::ConversationMessage>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -485,7 +499,10 @@ pub struct ConversationListRequest {
 }
 
 #[rustfmt::skip]
-pub type ConversationListResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationListResult {
+    pub conversations: Vec<T::ConversationSummary>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -500,7 +517,16 @@ pub struct ConversationOpRequest {
 }
 
 #[rustfmt::skip]
-pub type ConversationOpResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationOpResult {
+    pub change: T::ConversationChange,
+    pub replayed: bool,
+    pub rev: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub transaction: Option<String>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -510,7 +536,10 @@ pub struct ConversationSearchRequest {
 }
 
 #[rustfmt::skip]
-pub type ConversationSearchResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationSearchResult {
+    pub hits: Vec<T::ConversationSearchHit>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -520,7 +549,11 @@ pub struct ConversationSnapshotRequest {
 }
 
 #[rustfmt::skip]
-pub type ConversationSnapshotResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationSnapshotResult {
+    pub conversation: T::ConversationSummary,
+    pub messages: Vec<T::ConversationMessage>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -532,7 +565,7 @@ pub struct ConversationTypingRequest {
 }
 
 #[rustfmt::skip]
-pub type ConversationTypingResult = T::JsonValue;
+pub type ConversationTypingResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1482,7 +1515,14 @@ pub struct NewConversationTabRequest {
 }
 
 #[rustfmt::skip]
-pub type NewConversationTabResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewConversationTabResult {
+    pub content_resource_id: Nullable<String>,
+    pub conversation: T::ConversationTabRecord,
+    pub replayed: bool,
+    pub surface: T::Id,
+    pub tab_resource_id: Nullable<String>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
