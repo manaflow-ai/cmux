@@ -11,7 +11,8 @@ import Foundation
 // - `snapshot` (`path`, default /tmp/cmux-page-<id>.png): the page as WebKit rendered it;
 // - `command` (`command`, `text`): a dispatcher command (`find`, `focusSearch`, `back`, `forward`,
 //   `reset`) on the page's command stream, as the key dispatcher sends it;
-// - `connected` (`value` bool): the owner link state on the page's connection stream.
+// - `connected` (`value` bool): the owner link state on the page's connection stream;
+// - `click` (`selector`): clicks the first element matching the CSS selector (live proofs).
 // The control router's deadline bounds every action.
 extension AppControl {
     func registerPageDebugMethods() {
@@ -49,6 +50,9 @@ enum DebugPages {
             var arguments: [String: JSONValue] = [:]
             if let text = params["text"] { arguments["text"] = text }
             return ["handled": .bool(page.send(command: command, arguments: arguments))]
+        case "click":
+            guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
+            return ["clicked": .bool(await page.debugClick(selector))]
         case "connected":
             page.setConnected(params["value"]?.boolValue ?? true)
             return ["connected": .bool(page.router.connected)]

@@ -5,6 +5,10 @@ nonisolated extension ActionSurfaceCatalog {
     /// Why no right-click menu offers an action.
     static let contextMenuExemption: [ActionID: SurfaceExemption] = byReason(contextMenuExemptionsByReason)
     static let contextMenuExemptionsByReason: [SurfaceExemption: [ActionID]] = [
+        // The menus offer New Tab Page, whose field is this action's GUI form.
+        .duplicateOfDefault: [
+            "newTab.submit",
+        ],
         .secondaryEngine: [
             "openBrowser.webkit",
             "browser.openInWebKit",

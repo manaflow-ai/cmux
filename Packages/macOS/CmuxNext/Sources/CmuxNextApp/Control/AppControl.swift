@@ -213,6 +213,10 @@ final class AppControl {
             .async("debug.agent_pane") { [weak services] call in
                 await DebugAgentPane.handle(call.params, services)
             }.withDeadline(.fixed(DebugAgentPane.deadline)),
+            // Instant new tab: spares, opening times, the field (new-tab.md 2.3).
+            .async("debug.new_tab") { [weak services] call in
+                await DebugNewTab.handle(call.params, services)
+            },
             .mainActor("debug.menu") { [weak services] call in
                 .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
             },

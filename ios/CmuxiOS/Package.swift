@@ -95,6 +95,11 @@ let package = Package(
         ),
         // GhosttyNextKit comes from Packages/Shared/CmuxGhosttyKit, the one
         // pin the Mac and iOS apps share (plans/cmux-next/ghostty-next-switch.md).
+        .testTarget(
+            name: "CmuxiOSTerminalTests",
+            dependencies: ["CmuxiOSTerminal"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .target(
             name: "CmuxiOSPush",
             dependencies: [

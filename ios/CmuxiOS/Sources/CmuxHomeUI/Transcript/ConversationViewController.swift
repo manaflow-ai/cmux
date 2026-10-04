@@ -69,7 +69,12 @@ final class ConversationViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         setVisible(true)
+        // Esc and Cmd-[ work before the field is tapped; a field that already
+        // edits keeps the keyboard.
+        if transcript?.field.textView.isFirstResponder != true { becomeFirstResponder() }
     }
+
+    override var canBecomeFirstResponder: Bool { true }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
@@ -94,6 +99,21 @@ final class ConversationViewController: UIViewController {
     private func setVisible(_ visible: Bool) {
         isVisible = visible
         transcript?.controller.isVisibleToUser = visible
+    }
+
+    // MARK: Hardware keyboard (plans/cmux-next/ios-keyboard.md K5)
+
+    /// Esc and Cmd-[ go back to Home, as the Back button. Esc yields to an
+    /// input method that is composing (system behavior first).
+    override var keyCommands: [UIKeyCommand]? {
+        // One overlay entry (Cmd-[); Esc is the same action without a second listing.
+        [UIKeyCommand(title: HomeText.backCommand, action: #selector(backCommand), input: "[", modifierFlags: .command),
+         UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(backCommand))]
+    }
+
+    @objc private func backCommand() {
+        guard navigationController?.topViewController === self else { return }
+        navigationController?.popViewController(animated: !CmuxiOSDesign.HomeMotion.reduceMotion)
     }
 
     // MARK: Transcript

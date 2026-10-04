@@ -296,13 +296,15 @@ jobs:
         run: scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
       # Behavior tests of the build scripts: pin-cmux-tui.sh fetch on a stale
-      # --ref mirror, and embed-cef.sh reaching ensure-cef.sh under set -u.
-      - name: Script tests (pin-cmux-tui, embed-cef)
+      # --ref mirror, embed-cef.sh reaching ensure-cef.sh under set -u, and
+      # ensure-cef.sh's controller artifact store source.
+      - name: Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
         id: script-tests
         continue-on-error: true
         run: |
           bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
           bash scripts/cmux-next/tests/embed-cef.test.sh
+          bash scripts/cmux-next/tests/ensure-cef-store.test.sh
 
       - name: Checks job structure
         id: checks-structure
@@ -321,7 +323,7 @@ jobs:
             ${{ steps.crash-safety.outcome }}|Crash safety
             ${{ steps.l10n.outcome }}|String tables (21 languages)
             ${{ steps.module-resources.outcome }}|Module resource bundles
-            ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef)
+            ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
             ${{ steps.checks-structure.outcome }}|Checks job structure
         run: |
           failed=()

@@ -5,11 +5,14 @@ import QuartzCore
 /// springs (or, under Reduce Motion, one short cross-fade).
 extension HomeScene {
     /// Applies new rows (nil: the rows did not change, only the field moved).
-    /// `sendField` is the field rect the send morph flies from.
-    func commit(_ rows: [RowSpec]?, change: TranscriptChange, sendField: CGRect? = nil) {
+    /// `sendField` is the field rect the send morph flies from. `animated:
+    /// false` commits with no motion (the host animates the change). Returns
+    /// how far the rows moved in the viewport (old minus new, design points).
+    @discardableResult
+    func commit(_ rows: [RowSpec]?, change: TranscriptChange, sendField: CGRect? = nil, animated: Bool = true) -> CGFloat {
         commitCount += 1
         let begin = now
-        let animate = motion.moves && change.animates
+        let animate = animated && motion.moves && change.animates
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if motion.crossFades, change.animates, rows != nil { beginCrossFade(begin: begin) }
@@ -43,6 +46,7 @@ extension HomeScene {
         refreshVisibleRows()
         CATransaction.commit()
         scheduleSettle()
+        return (oldRowsTop - oldOffset) - (layout.rowsTop - newOffset)
     }
 
     /// Viewport delta of every row near the viewport as additive springs (one
