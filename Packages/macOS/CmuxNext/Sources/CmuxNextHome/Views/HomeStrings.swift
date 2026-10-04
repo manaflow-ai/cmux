@@ -4,6 +4,18 @@ import Foundation
 enum HomeStrings {
     static var thisMacOnly: String { String(localized: "home.owner.thisMac", defaultValue: "This Mac only", bundle: .module) }
     static var copyMessage: String { String(localized: "home.menu.copy", defaultValue: "Copy", bundle: .module) }
+    static var firstRunTitle: String {
+        String(localized: "home.firstRun.title", defaultValue: "Chief runs your agents on this Mac.", bundle: .module)
+    }
+    static var firstRunBody: String {
+        String(localized: "home.firstRun.body", defaultValue: "Ask it to start work, check on your agents, or answer what they need.", bundle: .module)
+    }
+    static var memoryDeviceOnly: String {
+        String(localized: "home.chief.memoryScope.deviceOnly", defaultValue: "This Chief remembers on this device only.", bundle: .module)
+    }
+    static var firstRunSuggestion: String {
+        String(localized: "home.firstRun.suggestion", defaultValue: "What are my agents doing right now?", bundle: .module)
+    }
     static var messagePlaceholder: String { String(localized: "home.composer.placeholder", defaultValue: "Message", bundle: .module) }
     static var sending: String { String(localized: "home.receipt.sending", defaultValue: "Sending", bundle: .module) }
     static var notDelivered: String { String(localized: "home.receipt.failed", defaultValue: "Not delivered", bundle: .module) }

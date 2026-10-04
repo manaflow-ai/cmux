@@ -62,6 +62,8 @@ public final class HomeController {
     var hostedFieldInHost: CGRect?
     /// The latest summary from `update`.
     public var conversationSummary: ConversationSummary? { summary }
+    /// The conversation has no message, here or older (a first-run state).
+    public var isEmpty: Bool { items.isEmpty && !hasOlder }
     /// The host shows this conversation to the user (window visible, app
     /// active). Read cursors advance only while it is true.
     public var isVisibleToUser = false {

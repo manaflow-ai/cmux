@@ -39,16 +39,28 @@ public final class HomeNativeTranscriptView: NSView {
         rowHost.controller = controller
         rowHost.layer?.addSublayer(controller.rootLayer)
         scroll.controller = controller
+        addSubview(firstRun)
+        firstRun.isHidden = true
+        firstRun.onSuggestion = { [weak self] prompt in
+            guard let self else { return }
+            self.field.text = prompt
+            self.window?.makeFirstResponder(self.field.textView)
+            self.needsLayout = true
+        }
         addSubview(field)
         addSubview(header)
         controller.topInset = HomeGlassHeaderView.height
         controller.onSummaryChange = { [weak self] summary in
             guard let self else { return }
             self.header.show(summary, me: self.controller.me)
+            self.updateFirstRun()
         }
         controller.onScrollGeometryChange = { [weak self] g in self?.scroll.apply(g) }
         controller.onAccessibilityChange = { [weak self] in self?.rowHost.accessibilityChanged() }
-        controller.onRowsChange = { [weak self] in self?.rowHost.rowsChanged() }
+        controller.onRowsChange = { [weak self] in
+            self?.rowHost.rowsChanged()
+            self?.updateFirstRun()
+        }
         controller.onRestoreDraft = { [weak self] text in
             guard let self, self.field.text.isEmpty else { return }
             self.field.text = text
@@ -105,7 +117,16 @@ public final class HomeNativeTranscriptView: NSView {
         controller.resize(to: bounds.size)
         header.frame = CGRect(x: 0, y: 0, width: bounds.width, height: HomeGlassHeaderView.height)
         layoutField(send: false)
+        let top = HomeGlassHeaderView.height
+        firstRun.frame = CGRect(x: 0, y: top, width: bounds.width, height: max(0, fieldFrame.minY - top))
+        updateFirstRun()
         scroll.apply(controller.scrollGeometry)
+    }
+
+    /// The first-run panel shows only in an empty Chief conversation.
+    private func updateFirstRun() {
+        let me = controller.me
+        firstRun.isHidden = !(controller.isEmpty && controller.conversationSummary?.kind(me: me) == .chief)
     }
 
     private func layoutField(send: Bool) {
@@ -165,6 +186,9 @@ public final class HomeNativeTranscriptView: NSView {
         let active = window?.isKeyWindow ?? true
         let accent = accentOverride
         controller.palette = performWithTheme { HomeThemePalette.resolveInScope(active: active, accentOverride: accent) }
-        performWithTheme { header.applyColors(disc: Palette.elevatedBackground, text: Palette.textPrimary, page: Palette.pageBackground) }
+        performWithTheme {
+            header.applyColors(disc: Palette.elevatedBackground, text: Palette.textPrimary, page: Palette.pageBackground)
+            firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary)
+        }
     }
 }
