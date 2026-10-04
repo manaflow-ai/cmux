@@ -102,6 +102,14 @@ import Testing
         #expect((object["params"] as? [String: Any])?["additionalDirectories"] as? [String] == [t.root])
     }
 
+    /// A JSON escape in the key ("c\u0077d" is "cwd") is still checked: no substring shortcut.
+    @Test func anEscapedFolderKeyIsStillChecked() throws {
+        let t = try tree()
+        let text = #"{"jsonrpc":"2.0","id":4,"method":"session/new","params":{"c\u0077d":"\#(t.outside)","mcpServers":[]}}"#
+        #expect(AcpmuxPathPolicy.checkNow(text, roots: [t.root])
+            == .failure(.init(error: .pathOutsideRoots, requestID: "4", method: "session/new")))
+    }
+
     @Test func framesWithoutAPathPassUnchanged() {
         let text = #"{"jsonrpc":"2.0","id":1,"method":"session/prompt","params":{"sessionId":"s"}}"#
         #expect(AcpmuxPathPolicy.checkNow(text, roots: []) == .success(text))

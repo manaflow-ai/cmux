@@ -43,6 +43,8 @@ import Testing
             (frame(1, "_acpmux/permission_chat_revoke", #"{"sessionId":"s"}"#), false),
             (frame(1, "_acpmux/watch", #"{"enabled":true}"#), false),
             (frame(1, "session/new", #"{"mcpServers":[]}"#), false),
+            // An escaped method name is still the method.
+            (#"{"jsonrpc":"2.0","id":1,"method":"session\/prompt","params":{"sessionId":"s","prompt":[]}}"#, true),
         ]
         for (text, expected) in grants {
             #expect(AcpmuxPaneMethods.needsGesture(text, options: options) == expected, "\(text)")

@@ -151,7 +151,7 @@ public nonisolated struct AgentPaneTransportEvent: Equatable, Sendable {
         let id = current
         localAppToken = connection.localAppToken
         sentFirst = false
-        let socket = AcpmuxPaneSocket(request: connection.request, limits: limits) { [weak self] in
+        let socket = AcpmuxPaneSocket(request: connection.request, limits: limits, options: permissionOptions) { [weak self] in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.arrived(id) } }
         }
         self.socket = socket
@@ -186,13 +186,19 @@ public nonisolated struct AgentPaneTransportEvent: Equatable, Sendable {
         for frame in frames {
             guard id == current, let socket else { return firstError ?? .staleConnection }
             var decision = AcpmuxPaneMethods.decide(frame, isFirst: !sentFirst, localAppToken: localAppToken)
-            if case .send(let text) = decision, sentFirst, AcpmuxPathPolicy.mayNamePath(text) {
+            if case .send(let text) = decision, sentFirst {
                 switch await AcpmuxPathPolicy.check(text, roots: roots()) {
                 case .success(let checked): decision = .send(checked)
                 case .failure(let refusal): decision = .refuse(refusal.error, method: refusal.method, requestID: refusal.requestID)
                 }
                 // The connection may have changed while the disk was read.
                 guard id == current, self.socket === socket else { return firstError ?? .staleConnection }
+            }
+            // A frame that grants uses the user's gesture (one per grant).
+            if case .send(let text) = decision, sentFirst, AcpmuxPaneMethods.needsGesture(text, options: permissionOptions),
+               !gestures.consume() {
+                let identity = AcpmuxPaneMethods.identity(text)
+                decision = .refuse(.gestureRequired, method: identity.method, requestID: identity.id)
             }
             switch decision {
             case .send(let text):
@@ -276,12 +282,15 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     private let request: URLRequest
     private let limits: AgentPaneTransport.Limits
+    private let options: AcpmuxPermissionOptions
     private let signal: @Sendable () -> Void
     private let state = Mutex(State())
 
-    init(request: URLRequest, limits: AgentPaneTransport.Limits, signal: @escaping @Sendable () -> Void) {
+    init(request: URLRequest, limits: AgentPaneTransport.Limits, options: AcpmuxPermissionOptions,
+         signal: @escaping @Sendable () -> Void) {
         self.request = request
         self.limits = limits
+        self.options = options
         self.signal = signal
     }
 
@@ -327,6 +336,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     }
 
     private func arrived(_ text: String) {
+        options.observe(text)
         let bytes = text.utf8.count
         let (wake, overflow) = state.withLock { state -> (Bool, Bool) in
             guard state.closed == nil else { return (false, false) }

@@ -57,6 +57,8 @@ public final class AgentPaneView: NSView {
     private var motionObservation: Task<Void, Never>?
     private var reduceMotionObserver: (any NSObjectProtocol)?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
+    /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
+    private var gestureMonitor: Any?
     /// Paces the transport's pushes (stopped when the pane closes).
     private var transportPacer: AgentPaneFramePacer?
 
@@ -151,6 +153,11 @@ public final class AgentPaneView: NSView {
             self.rendersAtFullRate = full
         }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
+        // A frame that grants needs a real gesture in this pane; page script cannot make one.
+        gestureMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            MainActor.assumeIsolated { self?.noteGesture(event) }
+            return event
+        }
         // The host owns the acpmux socket; its frames reach the page in display-frame batches.
         let pacer = AgentPaneFramePacer(view: self)
         transportPacer = pacer
@@ -279,6 +286,8 @@ public final class AgentPaneView: NSView {
         let allowed = ["permissionAllowOnce", "permissionAllowChat", "permissionDeny", "permissionExpand",
                        "permissionRetry", "permissionRevoke", "permissionRefresh"]
         guard allowed.contains(command) else { return }
+        // The user pressed the app's permission shortcut: that is the gesture its answer uses.
+        model.transport.gestures.record()
         deliver([.command(command)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"\(command)\");"])
     }
 
@@ -300,6 +309,8 @@ public final class AgentPaneView: NSView {
         reduceMotionObserver = nil
         reduceMotionOverrideObserver = nil
         dictation.close()
+        if let gestureMonitor { NSEvent.removeMonitor(gestureMonitor) }
+        gestureMonitor = nil
         if let connection = model.transport.connection { model.transport.close(connection: connection) }
         model.transport.deliver = nil
         transportPacer?.stop()
@@ -332,6 +343,18 @@ public final class AgentPaneView: NSView {
         applyTheme()
     }
 
+
+    /// A key press with the page focused, or a click on the page: the user's gesture.
+    private func noteGesture(_ event: NSEvent) {
+        guard let window, event.window === window else { return }
+        switch event.type {
+        case .keyDown:
+            guard !event.isARepeat, (window.firstResponder as? NSView)?.isDescendant(of: webView) == true else { return }
+        default:
+            guard webView.bounds.contains(webView.convert(event.locationInWindow, from: nil)) else { return }
+        }
+        model.transport.gestures.record()
+    }
 
     /// Runs a script in the page (tests record them).
     lazy var evaluateScript: (String) -> Void = { [weak self] script in

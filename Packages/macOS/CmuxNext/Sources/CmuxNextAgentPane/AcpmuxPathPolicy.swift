@@ -25,14 +25,9 @@ public nonisolated enum AcpmuxPathPolicy {
         checkNow(text, roots: roots)
     }
 
-    /// True when `text` may name a path (a cheap test before parsing).
-    public static func mayNamePath(_ text: String) -> Bool {
-        keys.contains { text.contains("\"\($0)\"") }
-    }
-
     static func checkNow(_ text: String, roots: [String]) -> Result<String, Refusal> {
-        guard mayNamePath(text),
-              var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+        // Parsed every time: a substring test would miss an escaped key ("c\u0077d").
+        guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
               let params = object["params"] else { return .success(text) }
         let method = object["method"] as? String
         let id = object["id"].flatMap(AcpmuxPaneMethods.rawID)

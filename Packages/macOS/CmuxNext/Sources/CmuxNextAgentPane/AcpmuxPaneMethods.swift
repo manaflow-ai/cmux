@@ -113,8 +113,29 @@ public nonisolated enum AcpmuxPaneMethods {
     ]
 
     /// Whether `text` (a page frame the allowlist passed) grants and needs a gesture.
+    /// Parsed every time: a substring test would miss an escaped method name.
     public static func needsGesture(_ text: String, options: AcpmuxPermissionOptions) -> Bool {
-        false // RED STUB
+        guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+              let method = object["method"] as? String, let rule = gestureRules[method] else { return false }
+        let params = object["params"] as? [String: Any] ?? [:]
+        switch rule {
+        case .always:
+            return true
+        case .whenTrusting:
+            let level = params["level"] as? String
+            return level != "untrusted" && level != "unknown"
+        case .whenOptionAllows:
+            guard let permission = params["permissionId"] as? String, let option = params["optionId"] as? String else { return true }
+            return !options.isDeny(permissionId: permission, optionId: option)
+        case .whenDecisionAllows:
+            return params["decision"] as? String != "deny"
+        }
+    }
+
+    /// A frame's method and raw JSON-RPC id, for a refusal.
+    static func identity(_ text: String) -> (method: String?, id: String?) {
+        guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return (nil, nil) }
+        return (object["method"] as? String, object["id"].flatMap(rawID))
     }
 
     /// The key whose entries ({command, args, env}) a harness spawns.
