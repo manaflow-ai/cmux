@@ -14,8 +14,7 @@ import CmuxNextLayout
 enum DockColumnHandlers {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         let capability = DaemonCapabilities.shared.dockColumns
-        let daemon = ctx.services.activeDaemon
-        registry.bind("column.dock", requires: capability, daemon: daemon, run: { invocation in
+        registry.bind("column.dock", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
             let edge = invocation["edge"]?.stringValue.flatMap(DockEdge.init(rawValue:))
             let mode = invocation["mode"]?.stringValue.flatMap(DockMode.init(rawValue:)) ?? ColumnDocking.defaultMode
             try dock(invocation, edge: edge, mode: mode, ctx)
@@ -23,14 +22,14 @@ enum DockColumnHandlers {
         let sides: [(ActionID, DockEdge)] = [("column.dockLeft", .left), ("column.dockRight", .right),
                                                ("column.dockTop", .top), ("column.dockBottom", .bottom)]
         for (id, edge) in sides {
-            registry.bind(id, requires: capability, daemon: daemon, run: { invocation in
+            registry.bind(id, requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
                 try dock(invocation, edge: edge, mode: ColumnDocking.defaultMode, ctx)
             })
         }
-        registry.bind("column.float", requires: capability, daemon: daemon, run: { invocation in
+        registry.bind("column.float", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
             try dock(invocation, edge: nil, mode: .overlay, ctx)
         })
-        registry.bind("column.undock", requires: capability, daemon: daemon, run: { invocation in
+        registry.bind("column.undock", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
             guard let (content, column) = ColumnHandlers.column(invocation, ctx) else { return }
             try ColumnDocking.apply(nil, to: column, in: content)
         })

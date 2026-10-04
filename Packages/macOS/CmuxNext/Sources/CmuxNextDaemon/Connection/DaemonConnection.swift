@@ -136,10 +136,9 @@ public actor DaemonConnection {
 
     public func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
         guard case .ready(let transport, _) = phase else { throw DaemonError.notConnected }
+        try R.requireServed(by: identity)
         let response = try await Self.perform(request, on: transport, timeout: timeout)
-        if let scope = DaemonCommandScope.current, let creating = request as? any DaemonCreatingRequest {
-            scope.noteCreated(creating.createdObjects(inAny: response))
-        }
+        DaemonCommandScope.noteCreated(by: request, response: response)
         return response
     }
 

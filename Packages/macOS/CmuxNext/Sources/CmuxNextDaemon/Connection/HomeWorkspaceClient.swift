@@ -40,6 +40,7 @@ public struct NewConversationTabRequest: DaemonRequest {
         }
     }
     public static let command = "new-conversation-tab"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.conversationTabs
     public var conversation: String
     public var owner: String
     public var pane: PaneID?
