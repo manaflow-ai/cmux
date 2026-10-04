@@ -34,6 +34,7 @@ extension BrowserReplPasteboardRedirectTests {
             <button id=write-item>write a late item</button>
             <button id=exec-copy>execCommand copy</button>
             <button id=exec-copy-handler>execCommand copy with a handler</button>
+            <button id=write-held>write an item whose data the page releases later</button>
             <script>
             const done = (value) => { window.__done = value; };
             const failed = (e) => done('rejected ' + (e && e.name));
@@ -43,6 +44,12 @@ extension BrowserReplPasteboardRedirectTests {
             document.getElementById('write-item').onclick = () => {
               const late = new Promise((resolve) => setTimeout(() => resolve(new Blob(['planted by a late item'], { type: 'text/plain' })), 300));
               navigator.clipboard.write([new ClipboardItem({ 'text/plain': late })]).then(() => done('ok'), failed);
+            };
+            document.getElementById('write-held').onclick = () => {
+              const held = new Promise((resolve) => {
+                window.__release = () => resolve(new Blob(['planted by a held item'], { type: 'text/plain' }));
+              });
+              navigator.clipboard.write([new ClipboardItem({ 'text/plain': held })]).then(() => done('ok'), failed);
             };
             document.getElementById('exec-copy').onclick = () => {
               const field = document.getElementById('field');

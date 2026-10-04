@@ -68,6 +68,48 @@ extension BrowserReplPasteboardRedirectTests {
             #expect(lingered == [false], "a page's write reached the system pasteboard while the quarantine lingered")
         }
 
+        /// The asynchronous Clipboard API takes a `ClipboardItem` whose data
+        /// is a promise: the page calls `navigator.clipboard.write` in the
+        /// agent's gesture, and WebKit writes when the data settles, which the
+        /// page can hold past the quarantine. WebKit writes only when the
+        /// general pasteboard's change count is the one it read when the
+        /// page called `write`, which in the quarantine is the private
+        /// pasteboard's; so the write stays quarantined however late its
+        /// data arrives only when the system pasteboard can never show that
+        /// count. The test plays the worst case: the private pasteboard has
+        /// seen more changes than the system's (lookups empty it, so its
+        /// count grows), and after the quarantine the system's count is
+        /// raised to the one the page read, as copies the person makes would.
+        @Test("A clipboard write the page started in an agent's gesture stays quarantined however late its data arrives")
+        func aWriteStartedInTheQuarantineStaysQuarantinedWhenItsDataArrivesLater() async throws {
+            let redirect = BrowserReplPasteboardRedirect.shared
+            #expect(redirect.install())
+            var done: String?
+            var written = false
+            try await Self.withStandInSystemPasteboard { standIn in
+                let webView = try await PageScripts.load(PageScripts.page) { _ in }
+                #expect(redirect.beginQuarantine())
+                let earlier = try #require(redirect.quarantinePasteboard)
+                while earlier.changeCount <= standIn.changeCount + 10 { earlier.clearContents() }
+                // The agent's click: the page starts its write in the gesture.
+                try await PageScripts.click("write-held", in: webView)
+                let seen = redirect.quarantinePasteboard?.changeCount ?? 0
+                redirect.endQuarantine(lingering: .zero)
+                // The quarantine is over. The system pasteboard's count
+                // reaches the one the page read, then the page releases the
+                // data.
+                while standIn.changeCount < seen - 1 { standIn.clearContents() }
+                standIn.clearContents()
+                standIn.setString(PageScripts.personsClipboard, forType: .string)
+                _ = try await webView.callAsyncJavaScript("window.__release(); return true", arguments: [:], in: nil, contentWorld: .page)
+                done = try await PageScripts.waitForDone(in: webView)
+                written = standIn.string(forType: .string) != PageScripts.personsClipboard
+            }
+            redirect.liftQuarantine()
+            #expect(done != nil, "the page's write never settled")
+            #expect(!written, "a write the page started in the agent's gesture reached the system pasteboard once its data arrived after the quarantine")
+        }
+
         @Test("Once the quarantine is over, a page's clipboard writes reach the system pasteboard as in a browser")
         func writesAfterTheQuarantineReachTheSystemPasteboard() async throws {
             let redirect = BrowserReplPasteboardRedirect.shared
