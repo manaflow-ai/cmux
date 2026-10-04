@@ -217,19 +217,22 @@ struct CloudTreeNodeActions {
                         workspaceID = capturedWorkspaceID
                     }
                     let opened: (projection: SurfaceProjection, reused: Bool)
-                    if let port = resource.forwardedPort {
-                        opened = try await catalog.openCloudPort(
-                            machine: resource.machine,
-                            port: port,
-                            into: .workspace(id: workspaceID, placement: placement),
-                            focus: true,
-                            reuseExisting: reuseExisting,
-                            reuseInWorkspace: workspaceID
-                        )
-                    } else {
-                        opened = try await catalog.project(
+                    opened = try await SurfacePaneFactory.openPreferringSplit(
+                        at: .workspace(id: workspaceID, placement: placement)
+                    ) { target in
+                        if let port = resource.forwardedPort {
+                            return try await catalog.openCloudPort(
+                                machine: resource.machine,
+                                port: port,
+                                into: target,
+                                focus: true,
+                                reuseExisting: reuseExisting,
+                                reuseInWorkspace: workspaceID
+                            )
+                        }
+                        return try await catalog.project(
                             resource,
-                            into: .workspace(id: workspaceID, placement: placement),
+                            into: target,
                             focus: true,
                             reuseExisting: reuseExisting,
                             reuseInWorkspace: resource.kind == .display ? workspaceID : nil
