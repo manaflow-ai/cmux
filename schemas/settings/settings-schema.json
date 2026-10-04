@@ -925,6 +925,73 @@
     },
     {
       "accepts" : [
+        "defer-low-data",
+        "defer-expensive",
+        "download"
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.updatesDeferLowData",
+            "text" : "Wait in Low Data Mode"
+          },
+          "value" : "defer-low-data"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesDeferExpensive",
+            "text" : "Wait on Cellular and Low Data"
+          },
+          "value" : "defer-expensive"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesDownloadAlways",
+            "text" : "Always Download"
+          },
+          "value" : "download"
+        }
+      ],
+      "default" : "defer-low-data",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.meteredNetwork.help",
+        "text" : "While downloads wait, a found update shows as a card and one click downloads it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.meteredNetwork",
+      "keywords" : [
+        "update",
+        "metered",
+        "cellular",
+        "low data",
+        "hotspot"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "updates",
+        "meteredNetwork"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.updates.meteredNetwork",
+        "text" : "On Metered Networks"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -1025,6 +1092,56 @@
       "title" : {
         "key" : "settings.updates.notify",
         "text" : "When an Update Is Ready"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        5,
+        2.5
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.keepPreviousVersions.help",
+        "text" : "Earlier builds kept so you can roll back. Uses almost no disk until files change."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.keepPreviousVersions",
+      "keywords" : [
+        "update",
+        "rollback",
+        "previous",
+        "downgrade"
+      ],
+      "kind" : "number",
+      "path" : [
+        "updates",
+        "keepPreviousVersions"
+      ],
+      "range" : {
+        "max" : 5,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -5,
+        10,
+        "1"
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.updates.keepPreviousVersions",
+        "text" : "Keep Previous Versions"
       },
       "validation" : "portable"
     },
@@ -8053,7 +8170,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "64dad7a83726f58ddf1346f96ee8fc0ac62d000983fc794b8e3e88b403b67626",
+  "schema_hash" : "6da492ae6bca7cb1b97a4c02c4f88fd8c3ab49a20650602712ff23209e2674b2",
   "sections" : [
     {
       "id" : "general",

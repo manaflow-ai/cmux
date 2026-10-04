@@ -9,15 +9,23 @@ public struct PaletteKeyMap {
     /// `hierarchical`: the page walks a tree (`PaletteHierarchy`), so Left
     /// and Right move through it where they would not move the caret:
     /// Right from the end of the query enters the selected row, Left from
-    /// its start goes up.
+    /// its start goes up. `selectedTogglesInPlace`: the selected row's
+    /// primary command keeps the palette open (a toggle), so Space with an
+    /// empty query toggles it.
     public static func command(for event: NSEvent, actionsMenuOpen: Bool, queryIsEmpty: Bool, registry: ActionRegistry,
-                               hierarchical: Bool = false, caretAtEnd: Bool = true, caretAtStart: Bool? = nil) -> PaletteKeyCommand? {
+                               hierarchical: Bool = false, caretAtEnd: Bool = true, caretAtStart: Bool? = nil,
+                               selectedTogglesInPlace: Bool = false) -> PaletteKeyCommand? {
         let caretAtStart = caretAtStart ?? queryIsEmpty
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
         let pressed = Shortcut(key, modifiers: flags)
         if let next = registry.effectiveShortcut(for: "commandPaletteNext"), next == pressed { return .moveDown }
         if let previous = registry.effectiveShortcut(for: "commandPalettePrevious"), previous == pressed { return .moveUp }
+        // List navigation (R85): the list.next / list.previous bindings (Ctrl-J / Ctrl-K by default).
+        if listKeys(for: "list.next", in: registry).contains(pressed) { return .moveDown }
+        if listKeys(for: "list.previous", in: registry).contains(pressed) { return .moveUp }
+
+        if event.keyCode == 49, flags.isEmpty, queryIsEmpty, selectedTogglesInPlace, !actionsMenuOpen { return .submit }
 
         switch event.keyCode {
         // Cmd-Up: a tree page's parent, else the first row.
@@ -47,6 +55,12 @@ public struct PaletteKeyMap {
             return .actionsFilterAppend(characters)
         }
         return nil
+    }
+
+    /// The single-key bindings of a list action in the binding table,
+    /// whatever their `when` (the palette is a list).
+    static func listKeys(for id: ActionID, in registry: ActionRegistry) -> [Shortcut] {
+        RegistryKeyBindings(registry).table.entries.filter { $0.command == id && $0.keys.count == 1 }.map { $0.keys[0] }
     }
 
     /// Cmd-W, the chord that closes the selected row's object.

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextPages
 
 // The context keys of the window a key goes to (plans/cmux-next/keybindings.md
 // section 4): built from that window's focus, never from the process-wide
@@ -15,7 +16,20 @@ extension KeyRouter {
         /// The focused screen has a primary input and none of its text
         /// fields has the keyboard (`PrimaryInputTarget`).
         var primaryInputReady = false
+        /// The focused page cannot take typing yet: its document has not
+        /// focused its primary input, or keys typed before still wait.
+        var pageInputPending = false
+        /// The focused React page's id (`cmux.markdown`): context key
+        /// `pageId`; the markdown page also sets `markdownFocused`.
+        var pageID: String?
+        /// A list-like control in the focused page has the keyboard (R85;
+        /// the sidebar list and its field imply it without this).
+        var listFocus = false
     }
+
+    /// The markdown page's id (`PageDescriptor.markdown`), for the
+    /// `markdownFocused` bit.
+    nonisolated static let markdownPageID = "cmux.markdown"
 
     /// The context keys for a key in a window with `focus`.
     func keyContext(for focus: FocusState, facts: Facts) -> KeyContext {
@@ -32,7 +46,9 @@ extension KeyRouter {
         if implied.browser { bits.insert(.browserFocused) }
         if implied.agent { bits.insert(.agentPaneFocused) }
         if case .addressBar = focus.resolved { bits.insert(.omnibarFocused) }
+        if facts.pageID == Self.markdownPageID { bits.insert(.markdownFocused) }
         var context = KeyContext(bits: bits)
+        if let page = facts.pageID { context[KeyContext.pageID] = .string(page) }
         context[KeyContext.windowKind] = .string(KeyContext.WindowKindValue.main)
         let resolved = focus.resolved
         if let kind = surfaceKind(resolved) { context[KeyContext.surfaceKind] = .string(kind) }
@@ -40,6 +56,7 @@ extension KeyRouter {
         if resolved.isTextInput { context[KeyContext.textInputFocus] = .bool(true) }
         if focus.isBrowserFocusModeActive { context[KeyContext.browserFocusMode] = .bool(true) }
         if facts.terminalCopyMode, case .terminal = resolved { context[KeyContext.terminalCopyMode] = .bool(true) }
+        if facts.listFocus || Self.isNativeList(resolved) { context[KeyContext.listFocus] = .bool(true) }
         return context
     }
 
@@ -86,7 +103,28 @@ extension KeyRouter {
     /// The facts of `window` (the key window) and its cmux window.
     func facts(in window: NSWindow, controller: WindowController) -> Facts {
         Facts(hasMarkedText: (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true,
-              terminalCopyMode: terminalCopyMode(in: controller))
+              terminalCopyMode: terminalCopyMode(in: controller), pageID: focusedPage(in: controller)?.descriptor.id,
+              listFocus: focusedReadiness(in: controller)?.isListFocused == true)
+    }
+
+    /// The sidebar list and its search field are lists for Ctrl-N/P/J/K.
+    nonisolated static func isNativeList(_ resolved: FocusState.Resolved) -> Bool {
+        switch resolved {
+        case .sidebar, .sidebarField: true
+        default: false
+        }
+    }
+
+    private func focusedReadiness(in controller: WindowController) -> PageInputReadiness? {
+        guard let pane = controller.focus.state.resolved.pane else { return nil }
+        return controller.content?.paneController(key: pane)?.currentContent?.inputReadiness
+    }
+
+    /// The React page the focused pane's selected tab shows, if any.
+    func focusedPage(in controller: WindowController) -> PageWebView? {
+        guard case .page(_, _) = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
+              case .page(let view)? = controller.content?.paneController(key: pane)?.currentContent else { return nil }
+        return view.content as? PageWebView
     }
 
     private func terminalCopyMode(in controller: WindowController) -> Bool {

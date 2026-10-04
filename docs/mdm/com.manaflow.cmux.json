@@ -1239,6 +1239,25 @@
       "title" : "Install Updates When Quitting",
       "type" : "boolean"
     },
+    "updates.keepPreviousVersions" : {
+      "default" : 1,
+      "description" : "Earlier builds kept so you can roll back. Uses almost no disk until files change.",
+      "maximum" : 5,
+      "minimum" : 0,
+      "title" : "Keep Previous Versions",
+      "type" : "number"
+    },
+    "updates.meteredNetwork" : {
+      "default" : "defer-low-data",
+      "description" : "While downloads wait, a found update shows as a card and one click downloads it.",
+      "enum" : [
+        "defer-low-data",
+        "defer-expensive",
+        "download"
+      ],
+      "title" : "On Metered Networks",
+      "type" : "string"
+    },
     "updates.notify" : {
       "default" : "card",
       "description" : "updates.notify",

@@ -244,7 +244,11 @@ wherever its tier allows).
 - K-T6 (coordinator): keybindings.json is parsed by the Rust `cmux-config` (one config
   owner); that slice needs a cmux-tui landing window.
 - R59 is done only after a live Ctrl-Tab proof on cmux-lawrence-2 (never the laptop).
-- Reported, not changed: Ctrl-1/2/3 conflict with Spaces (R38) belongs to that lane.
+- R85 (Lawrence, 2026-10-04): Ctrl-1...9 = Select Tab N (the common editor default), Spaces on
+  Ctrl-Opt-1...9, Cmd-1...9 Select Workspace N; all rebindable. #17182 had given Ctrl-digits to
+  Spaces, so with one Space they did nothing. macOS Mission Control "Switch to Desktop N" uses
+  Ctrl-1...9 when a user turns it on (System Settings > Keyboard > Keyboard Shortcuts > Mission
+  Control); the system then takes those keys before cmux sees them.
 
 ## 8. Customization slices (keys lead v2, 2026-10-04)
 

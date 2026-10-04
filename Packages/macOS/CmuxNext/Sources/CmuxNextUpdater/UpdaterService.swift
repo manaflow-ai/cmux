@@ -1,5 +1,6 @@
 public import CmuxUpdater
 import CmuxNextWakeups
+import Network
 public import Foundation
 import Observation
 
@@ -55,6 +56,9 @@ public final class UpdaterService {
     @ObservationIgnored var cancelStaged: () -> Void = {}
     @ObservationIgnored var acceptAvailable: () -> Void = {}
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
+    @ObservationIgnored var pathMonitor: NWPathMonitor?
+    @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
+    @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (true, .deferLowData)
     /// The App's observation of what a relaunch would interrupt.
     @ObservationIgnored public var blockersObservation: Task<Void, Never>?
     /// The App's observation of the `updates.*` settings.
@@ -124,6 +128,7 @@ public final class UpdaterService {
         }
         minuteOfDay = Self.minuteOfDay(now())
         restorePinnedTestFeed()
+        restoreRollbackSkip()
     }
 
     /// Why Sparkle does not run right now, or nil.

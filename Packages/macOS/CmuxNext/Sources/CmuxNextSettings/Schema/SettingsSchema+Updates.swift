@@ -28,6 +28,22 @@ extension SettingsSchema {
                 keywords: ["update", "download", "background", "metered"]
             ),
             SettingDescriptor(
+                UpdatesSettings.meteredNetworkPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.updates.meteredNetwork", "On Metered Networks"),
+                help: SettingsText.keyed("settings.updates.meteredNetwork.help",
+                                        "While downloads wait, a found update shows as a card and one click downloads it."),
+                kind: .choice([
+                    SettingChoice(UpdatesMeteredSetting.deferLowData.rawValue,
+                                  SettingsText.keyed("settings.choice.updatesDeferLowData", "Wait in Low Data Mode")),
+                    SettingChoice(UpdatesMeteredSetting.deferExpensive.rawValue,
+                                  SettingsText.keyed("settings.choice.updatesDeferExpensive", "Wait on Cellular and Low Data")),
+                    SettingChoice(UpdatesMeteredSetting.download.rawValue,
+                                  SettingsText.keyed("settings.choice.updatesDownloadAlways", "Always Download")),
+                ]),
+                default: .string(defaults.meteredNetwork.rawValue),
+                keywords: ["update", "metered", "cellular", "low data", "hotspot"]
+            ),
+            SettingDescriptor(
                 UpdatesSettings.installOnQuitPath, section: .general, group: group,
                 title: SettingsText.keyed("settings.updates.installOnQuit", "Install Updates When Quitting"),
                 help: SettingsText.keyed("settings.updates.installOnQuit.help",
@@ -45,6 +61,15 @@ extension SettingsSchema {
                 ]),
                 default: .string(defaults.notify.rawValue),
                 keywords: ["update", "notify", "card", "badge", "silent"]
+            ),
+            SettingDescriptor(
+                UpdatesSettings.keepPreviousVersionsPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.updates.keepPreviousVersions", "Keep Previous Versions"),
+                help: SettingsText.keyed("settings.updates.keepPreviousVersions.help",
+                                        "Earlier builds kept so you can roll back. Uses almost no disk until files change."),
+                kind: .number(SettingNumber(UpdatesSettings.keepPreviousVersionsRange, step: 1, unit: .count)),
+                default: .number(Double(defaults.keepPreviousVersions)),
+                keywords: ["update", "rollback", "previous", "downgrade"]
             ),
             SettingDescriptor(
                 UpdatesSettings.quietHoursPath, section: .general, group: group,

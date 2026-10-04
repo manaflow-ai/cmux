@@ -222,6 +222,12 @@ pub(super) fn handle_frame(
     if mux.daemon_handoff_in_progress() {
         return writer.send_control(&refusal(message, REMOTE_ERROR)).is_ok();
     }
+    // The seven `fs-v1` ops (exactly; fs_wire.rs) have their own owner and
+    // checks, outside the conversation allowlist.
+    #[cfg(unix)]
+    if let Some(keep_open) = super::fs_wire::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
     if gate::check_frame(message).is_err() {
         return writer.send_control(&refusal(message, REMOTE_DENIED)).is_ok();
     }
@@ -286,7 +292,8 @@ pub(super) fn refusal(message: &str, code: &str) -> Value {
 fn identify() -> Value {
     json!({
         "app": "cmux-tui",
-        "protocol": crate::provider_management::PROTOCOL_VERSION,
+        // The daemon socket protocol, as the local `identify` answers (clients read it as that).
+        "protocol": crate::server::PROTOCOL_VERSION,
         "capabilities": gate::REMOTE_CAPABILITIES,
     })
 }

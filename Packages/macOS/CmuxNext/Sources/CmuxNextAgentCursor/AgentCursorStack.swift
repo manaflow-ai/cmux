@@ -3,20 +3,18 @@ public import QuartzCore
 
 /// The agent cursor parts for one content area, wired once: the publisher
 /// (the one entry point drivers call), the overlay model and the CALayer
-/// host on the area's `OverlayPlane` layer. The resolver slot answers
-/// `.elsewhere` until the visibility adapter is set, so the stack draws
-/// nothing and does no work until both a producer and a resolver exist.
+/// host on the area's `OverlayPlane` layer. With no input events it draws
+/// nothing and does no work.
 public final class AgentCursorStack {
     public let publisher: AgentCursorPublisher
     public let model: AgentCursorOverlayModel
     public let host: AgentCursorLayerHost
-    public let resolver: AgentCursorResolverSlot
-
-    public init(hostLayer: CALayer, color: @escaping AgentCursorLayerHost.Coloring = AgentCursorStack.sessionColor) {
-        let resolver = AgentCursorResolverSlot()
+    public init(
+        hostLayer: CALayer, resolver: AgentCursorTargetResolving,
+        color: @escaping AgentCursorLayerHost.Coloring = AgentCursorStack.sessionColor
+    ) {
         let host = AgentCursorLayerHost(hostLayer: hostLayer, color: color)
         let model = AgentCursorOverlayModel(resolver: resolver, host: host)
-        self.resolver = resolver
         self.host = host
         self.model = model
         publisher = AgentCursorPublisher(renderer: model)
@@ -32,17 +30,5 @@ public final class AgentCursorStack {
         }
         let components = mid.map { CGFloat($0) / 255 }
         return CGColor(colorSpace: space, components: components) ?? CGColor(gray: 0.96, alpha: 1)
-    }
-}
-
-/// Holds the visibility resolver once it exists (a9's App adapter); answers
-/// `.elsewhere` for every target until then.
-public final class AgentCursorResolverSlot: AgentCursorTargetResolving {
-    public var inner: AgentCursorTargetResolving?
-
-    public init() {}
-
-    public func placement(forTarget targetID: String) -> AgentCursorPlacement {
-        inner?.placement(forTarget: targetID) ?? .elsewhere
     }
 }

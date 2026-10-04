@@ -11,6 +11,24 @@ extension AppControl {
     func registerUpdateMethods(_ updater: UpdaterService, services appServices: AppServices) {
         service?.router.register([
             .mainActor("updates.status") { _ in .value(Self.json(updater.status, log: updater.log.recent)) },
+            // `{build?, check?}`: rolls back to a kept build, or with check
+            // only reports whether it would. The daemon's stored formats come
+            // with the cmux-tui store.schemas op; until then it refuses.
+            .mainActor("updates.rollback") { call in
+                let build = call.params["build"]?.stringValue
+                if call.params["check"]?.boolValue == true {
+                    switch updater.rollbackDecision(to: build, stored: nil) {
+                    case .success(let kept): return .value(.object(["allowed": true, "build": .string(kept.build)]))
+                    case .failure(let refusal): return .value(.object(["allowed": false, "reason": .string(refusal.message)]))
+                    }
+                }
+                do {
+                    let kept = try updater.rollback(to: build, stored: nil, relaunch: UpdaterService.relaunchAfterExit)
+                    return .value(.object(["rolled_back_to": .string(kept.build)]))
+                } catch let refusal as RollbackRefusal {
+                    throw ControlError(code: "rollback_refused", message: refusal.message)
+                }
+            },
             .mainActor("updates.check") { call in
                 let probe = updater.probe()
                 // Answer inside the 2 s control deadline. A slower feed leaves

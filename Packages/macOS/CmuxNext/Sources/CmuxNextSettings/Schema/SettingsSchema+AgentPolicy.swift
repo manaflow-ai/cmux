@@ -141,7 +141,9 @@ extension SettingsSchema {
         "updates.checkAutomatically": .network,
         "updates.checkIntervalSeconds": .network,
         "updates.downloadAutomatically": .network,
+        "updates.meteredNetwork": .network,
         "updates.installOnQuit": .destructive,
+        "updates.keepPreviousVersions": .destructive,
     ]
 
     /// True when an agent may change `descriptor`, false when it may not, nil

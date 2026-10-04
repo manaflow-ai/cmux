@@ -233,3 +233,24 @@ describe("KeybindingsStore", () => {
     expect(store.getSnapshot()).toMatchObject({ connection: "disconnected", loading: false });
   });
 });
+
+describe("keymap files", () => {
+  test("export and import call the host and an import re-lists", async () => {
+    const { provider, store } = await started();
+    await store.exportKeymap();
+    expect(writes(provider, KeybindingOps.keymapExport)).toEqual([{}]);
+    const lists = provider.calls.filter((call) => call.op === KeybindingOps.list).length;
+    await store.importKeymap();
+    expect(writes(provider, KeybindingOps.keymapImport)).toEqual([{}]);
+    expect(provider.calls.filter((call) => call.op === KeybindingOps.list).length).toBe(lists + 1);
+  });
+
+  test("a failed import shows the notice and keeps the rows", async () => {
+    const { provider, store } = await started();
+    const before = store.getSnapshot().bindings;
+    provider.keymapFails = true;
+    await store.importKeymap();
+    expect(store.getSnapshot().notice).toBeDefined();
+    expect(store.getSnapshot().bindings).toEqual(before);
+  });
+});

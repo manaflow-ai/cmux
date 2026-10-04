@@ -30,20 +30,20 @@ private func input(
     private let content = CGRect(x: 100, y: 50, width: 800, height: 600)
 
     @Test func viewportPointsScaleByZoomTimesMagnificationFromTheContentOrigin() {
-        let point = AgentCursorGeometry.overlayPoint(of: input(zoom: 1.25), content: content, magnification: 2)
+        let point = AgentCursorGeometry.overlayPoint(of: input(zoom: 1.25), content: content, clip: content, zoom: 1, magnification: 2)
         #expect(point == CGPoint(x: 100 + 40 * 2.5, y: 50 + 12 * 2.5))
     }
 
     @Test func pointsOutsideTheContentAreClampedToIt() {
         let far = input(point: .init(x: 5000, y: -30))
-        #expect(AgentCursorGeometry.overlayPoint(of: far, content: content, magnification: 1) == CGPoint(x: 900, y: 50))
+        #expect(AgentCursorGeometry.overlayPoint(of: far, content: content, clip: content, zoom: 1, magnification: 1) == CGPoint(x: 900, y: 50))
     }
 
     @Test func typeWithoutAPointUsesTheFocusedRectAndKeyWithNeitherDrawsNothing() {
         let typed = input(kind: .type, point: nil, rect: .init(x: 10, y: 20, w: 100, h: 30))
         #expect(AgentCursorGeometry.pagePoint(of: typed) == CGPoint(x: 60, y: 35))
         let layout = FakeLayout()
-        layout.placements["tab_1"] = .visible(content: content, magnification: 1)
+        layout.placements["tab_1"] = .visible(content: content, clip: content, zoom: 1, magnification: 1)
         let host = RecordingHost()
         let model = AgentCursorOverlayModel(resolver: layout, host: host)
         model.render(input(kind: .key, point: nil))
@@ -52,7 +52,7 @@ private func input(
 
     @Test func theFirstInputPlacesTheCursorAndTheNextGlidesFromThere() throws {
         let layout = FakeLayout()
-        layout.placements["tab_1"] = .visible(content: content, magnification: 1)
+        layout.placements["tab_1"] = .visible(content: content, clip: content, zoom: 1, magnification: 1)
         let host = RecordingHost()
         let model = AgentCursorOverlayModel(resolver: layout, host: host)
         model.render(input(seq: 0, kind: .move, point: .init(x: 0, y: 0)))
@@ -81,7 +81,7 @@ private func input(
 
     @Test func aPausedLeaseFreezesTheCursorUntilHandBack() {
         let layout = FakeLayout()
-        layout.placements["tab_1"] = .visible(content: content, magnification: 1)
+        layout.placements["tab_1"] = .visible(content: content, clip: content, zoom: 1, magnification: 1)
         let host = RecordingHost()
         let model = AgentCursorOverlayModel(resolver: layout, host: host)
         model.render(input(seq: 0, kind: .move))
@@ -99,7 +99,7 @@ private func input(
 
     @Test func twoSessionsKeepSeparateCursors() {
         let layout = FakeLayout()
-        layout.placements["tab_1"] = .visible(content: content, magnification: 1)
+        layout.placements["tab_1"] = .visible(content: content, clip: content, zoom: 1, magnification: 1)
         let host = RecordingHost()
         let model = AgentCursorOverlayModel(resolver: layout, host: host)
         model.render(input("a", kind: .move, point: .init(x: 0, y: 0)))

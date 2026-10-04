@@ -62,4 +62,16 @@ import Testing
             #expect(descriptor?.defaultValue == value, "\(key) default")
         }
     }
+
+    /// Rollback keeps the newest N previous builds (default 1, 0 keeps none).
+    @Test func keepPreviousVersions() throws {
+        #expect(try parse("{}").updates.keepPreviousVersions == 1)
+        #expect(try parse(#"{"updates": {"keepPreviousVersions": 3}}"#).updates.keepPreviousVersions == 3)
+        #expect(try parse(#"{"updates": {"keepPreviousVersions": 0}}"#).updates.keepPreviousVersions == 0)
+        let clamped = try parse(#"{"updates": {"keepPreviousVersions": 9}}"#)
+        #expect(clamped.updates.keepPreviousVersions == 5)
+        #expect(clamped.diagnostics.count == 1)
+        let descriptor = SettingsSchema.descriptor(for: UpdatesSettings.keepPreviousVersionsPath)
+        #expect(descriptor?.defaultValue == .number(1))
+    }
 }

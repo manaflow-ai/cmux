@@ -1,5 +1,5 @@
 public import CmuxUpdater
-import Foundation
+public import Foundation
 import Security
 
 /// Rollback (decision 2026-10-04): the running bundle is kept right before
@@ -7,7 +7,7 @@ import Security
 /// store the daemon has. The swap itself and `cmux update rollback` land
 /// with the cmux-tui `store.schemas` op.
 extension UpdaterService {
-    /// Previous versions this app keeps (`updates.keepPreviousVersions`, 1 for now).
+    /// Previous versions this app keeps (`updates.keepPreviousVersions`).
     public var keptVersions: KeptVersionStore {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let root = support.appending(path: "cmux-next/\(identity.bundleIdentifier ?? "cmux")/versions", directoryHint: .isDirectory)
@@ -43,5 +43,32 @@ extension UpdaterService {
         guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess
         else { return nil }
         return (information as? [String: Any])?[kSecCodeInfoTeamIdentifier as String] as? String
+    }
+}
+
+extension UpdaterService {
+    /// Builds at or below this are not offered after a rollback.
+    static let skipsBuildsThroughKey = "cmux.next.updates.skipsBuildsThrough"
+
+    /// Rolls back to `build` (nil: the newest kept) when ``rollbackDecision``
+    /// allows it: swaps the bundles, stops offering the build left behind,
+    /// then quits keeping every session and lets `relaunch` reopen the app.
+    @discardableResult
+    public func rollback(to build: String?, stored: [String: Int]?, relaunch: (URL) -> Void) throws -> KeptVersion {
+        let target = try rollbackDecision(to: build, stored: stored).get()
+        let bundle = Bundle.main.bundleURL
+        try RollbackSwap.perform(current: bundle, currentBuild: identity.build, target: target,
+                                 store: keptVersions, limit: preferences.keepPreviousVersions)
+        defaults.set(identity.build, forKey: Self.skipsBuildsThroughKey)
+        controller?.skipsBuildsThrough = identity.build
+        log.append("rolled back \(identity.build) -> \(target.build)")
+        willRelaunch?()
+        relaunch(bundle)
+        return target
+    }
+
+    /// Restores the skip after a rollback at launch.
+    func restoreRollbackSkip() {
+        controller?.skipsBuildsThrough = defaults.string(forKey: Self.skipsBuildsThroughKey)
     }
 }
