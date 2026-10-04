@@ -101,9 +101,12 @@ pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
 mod admission;
+mod client_hello;
 #[cfg(unix)]
 mod fs_wire;
 mod line_connection;
+mod origin_gate;
+mod pending_handoff;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod bookmarks;
 mod browser_profiles;
@@ -112,7 +115,6 @@ mod conversations;
 mod frontend_browser_history;
 mod home;
 mod launch_snapshot;
-mod pending_handoff;
 mod personal;
 mod raw_tab;
 #[cfg(unix)]
@@ -512,6 +514,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
+        crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -5241,6 +5244,8 @@ struct ClientRecord {
     resource_waits: HashMap<ResourceRequestId, ResourceClientWait>,
     announced_attached: bool,
     writer: MessageWriter,
+    /// Hello role, peer and confirmations (request_origin.rs).
+    origin: crate::request_origin::ConnectionOrigin,
 }
 
 #[derive(Clone)]
@@ -5282,6 +5287,7 @@ pub(crate) struct ClientRegistry {
     loopback: loopback_forward::LoopbackForwarder,
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
     apps: crate::apps::AppsSlot,
+    origin_clock: crate::request_origin::OriginClock,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
     resource_wait_admission: Arc<ResourceWorkerAdmission>,
@@ -5297,6 +5303,7 @@ impl ClientRegistry {
             loopback: loopback_forward::LoopbackForwarder::default(),
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
+            origin_clock: Default::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
                 RESOURCE_STREAMS_SERVER_CAPACITY,
@@ -5337,6 +5344,7 @@ impl ClientRegistry {
                 resource_waits: HashMap::new(),
                 announced_attached: false,
                 writer,
+                origin: Default::default(),
             },
         );
         client
@@ -7386,6 +7394,7 @@ const fn handles_resource_connection_operation(operation: ResourceOperation) -> 
             | ResourceOperation::BrowserAttach
             | ResourceOperation::SidebarViewAttach
             | ResourceOperation::StreamCancel
+            | ResourceOperation::OriginConfirmationIssue
     )
 }
 
@@ -7631,6 +7640,9 @@ fn handle_resource_connection_message(
         ResourceOperation::StreamCancel => {
             let result = cancel_resource_stream(mux, client, writer, &request);
             send_resource_response(writer, id, operation, result)
+        }
+        ResourceOperation::OriginConfirmationIssue => {
+            origin_gate::handle_issue(mux, client, &request, id, writer)
         }
         _ => {
             debug_assert!(
@@ -10560,7 +10572,7 @@ fn handle_connection_frame(
         return pending_handoff::reject_message_during_pending_handoff(message, writer);
     }
     if crate::resource_router::is_resource_protocol_message(message) {
-        return handle_resource_connection_message(mux, client, message, writer);
+        return origin_gate::handle_resource_line(mux, client, message, writer);
     }
     if let Some(keep_open) = loopback_forward::try_handle(mux, client, message, writer) {
         return keep_open;
@@ -20242,7 +20254,7 @@ mod tests {
             );
             connection_operations += usize::from(requires_connection);
         }
-        assert_eq!(connection_operations, 32);
+        assert_eq!(connection_operations, 33);
     }
 
     #[test]

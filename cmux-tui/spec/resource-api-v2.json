@@ -23,6 +23,16 @@
       "pattern": "^(?=[\\s\\S]*[^\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000])[^\\u0000-\\u001F\\u007F-\\u009F]+$",
       "x-cmux-max-utf8-bytes": 128
     },
+    "originClaim": {
+      "type": "object",
+      "description": "Capability origin-claim-v1. Narrows the origin the daemon derives from the connection; it can never widen it. On a page relay connection only {claim: page} and {claim: user, confirmation} are accepted, the confirmation being a token from origin.confirmation.issue.",
+      "additionalProperties": false,
+      "required": ["claim"],
+      "properties": {
+        "claim": {"enum": ["page", "agent", "app", "user"]},
+        "confirmation": {"type": "string", "minLength": 1}
+      }
+    },
     "decimal": {
       "type": "string",
       "pattern": "^(0|[1-9][0-9]*)$",
@@ -82,6 +92,7 @@
         "notification.clear",
         "notification.create",
         "notification.list",
+        "origin.confirmation.issue",
         "pairing_request.list",
         "pairing_request.resolve",
         "pane.close",
@@ -426,6 +437,7 @@
           "client.metadata.update",
           "client.sizing.release",
           "client.sizing.set",
+          "origin.confirmation.issue",
           "request.cancel",
           "stream.cancel",
           "terminal.renderer_grant.create",
@@ -444,7 +456,8 @@
         "id": {"$ref": "#/$defs/requestId"},
         "operation": {"$ref": "#/$defs/operation"},
         "params": {"type": "object"},
-        "idempotency_key": {"$ref": "#/$defs/idempotencyKey"}
+        "idempotency_key": {"$ref": "#/$defs/idempotencyKey"},
+        "origin": {"$ref": "#/$defs/originClaim"}
       },
       "allOf": [
         {

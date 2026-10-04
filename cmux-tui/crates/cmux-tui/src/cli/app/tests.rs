@@ -447,3 +447,48 @@ fn a_user_only_refusal_says_what_to_do() {
     settings::explain_refusal("settings.set", &confirmed, &mut other);
     assert_eq!(other["message"], "managed by your organization");
 }
+
+/// RED: `--` ends the options, so a value or path may start with `--`
+/// (`cmux settings set <key> -- --confirm` sets the string "--confirm").
+#[test]
+fn a_double_dash_ends_the_settings_options() {
+    let cases = [
+        (
+            &["settings", "set", "a.b", "--", "--confirm"][..],
+            "settings.set",
+            json!({ "path": "a.b", "value": "--confirm" }),
+        ),
+        (
+            &["settings", "set", "--confirm", "a.b", "--", "--x"][..],
+            "settings.set",
+            json!({ "path": "a.b", "value": "--x", "confirm": true }),
+        ),
+        (
+            &["settings", "set", "--", "a.b", "-1"][..],
+            "settings.set",
+            json!({ "path": "a.b", "value": -1 }),
+        ),
+        (&["settings", "reset", "--", "--odd"][..], "settings.reset", json!({ "path": "--odd" })),
+    ];
+    for (words, method, params) in cases {
+        let command = parse(&args(words)).unwrap_or_else(|error| panic!("{words:?}: {error:?}"));
+        assert_eq!(call(command.unwrap()), (method, params), "{words:?}");
+    }
+    assert!(parse(&args(&["settings", "set", "a.b", "--"])).is_err());
+    assert!(parse(&args(&["settings", "set", "a.b", "--", "x", "y"])).is_err());
+}
+
+/// A `--confirm` write says first that the sheet is in the app; other
+/// requests print no note.
+#[test]
+fn a_confirmed_write_says_where_to_answer() {
+    let messages = &crate::localization::catalog().app_control;
+    let confirmed = json!({ "path": "a.b", "confirm": true });
+    for method in ["settings.set", "settings.reset", "settings.unset"] {
+        assert_eq!(settings::waiting_note(method, &confirmed), Some(messages.settings_waiting));
+    }
+    assert_eq!(settings::waiting_note("settings.set", &json!({ "path": "a.b" })), None);
+    assert_eq!(settings::waiting_note("action.run", &confirmed), None);
+    assert!(output_shows_notes(OutputMode::Human));
+    assert!(!output_shows_notes(OutputMode::Json) && !output_shows_notes(OutputMode::Quiet));
+}
