@@ -23,6 +23,11 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     /// Touched only on `queue`.
     private var surface: ghostty_surface_t?
     private let closing = Atomic<Bool>(false)
+    /// The last READY restore succeeded. Written on `queue`; history after a
+    /// failed READY is skipped until the next READY.
+    private let readyRestored = Atomic<Bool>(false)
+    /// Whether the last READY restored (read after ``drained()``).
+    var lastReadyRestored: Bool { readyRestored.load(ordering: .acquiring) }
 
     private struct Backlog {
         var bytes = 0
@@ -63,10 +68,13 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
         queue.async { [self] in
             defer { parsed(data.count) }
             guard let surface, !closing.load(ordering: .relaxed) else { return }
+            let ready = phase == GHOSTTY_SURFACE_SNAPSHOT_READY
+            guard ready || readyRestored.load(ordering: .relaxed) else { return }
             let restored = data.withUnsafeBytes { buffer -> Bool in
                 guard let base = buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return false }
                 return ghostty_surface_restore_snapshot(surface, base, buffer.count, phase)
             }
+            if ready { readyRestored.store(restored, ordering: .releasing) }
             if !restored {
                 Self.logger.error("snapshot restore failed (phase \(phase.rawValue), \(data.count) bytes)")
             }

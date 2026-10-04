@@ -198,8 +198,8 @@ public final class TerminalSession {
             TerminalTimings.contentApplied()
         case .snapshot(let data, let phase):
             // The same surface takes the owner's state: no swap.
-            await restoreSnapshot(data, phase: phase)
-            guard phase == .ready else { return }
+            let restored = await restoreSnapshot(data, phase: phase)
+            guard phase == .ready, restored else { return }
             restoredSnapshots += 1
             surfaceHasContent = true
             TerminalTimings.contentApplied()

@@ -47,6 +47,7 @@ public nonisolated enum TerminalStreamPlan {
         case .closed, .colorsChanged, .scrollChanged:
             []
         case .snapshot(let frame):
+            // The decoder admits a READY only with its grid.
             if frame.phase == .ready, let cols = frame.cols, let rows = frame.rows {
                 [.grid(columns: cols, rows: rows), .snapshot(frame)]
             } else {

@@ -119,9 +119,10 @@ public nonisolated final class TerminalStepQueue: Sendable {
         let consumer = state.withLock { state -> CheckedContinuation<TerminalStreamPlan.Step?, Never>? in
             guard !state.finished else { return nil }
             if supersede {
-                // Grids stay: they are ordered with the replay and cheap.
-                // Output and an older READY's history are replaced by it.
-                state.items = state.items[state.head...].filter { Self.outputSize($0) == 0 }
+                // Grids and link status stay: ordered with the replay and
+                // cheap. Output, older replays and READYs and their history
+                // are replaced by it.
+                state.items = state.items[state.head...].filter { Self.outputSize($0) == 0 && !Self.supersedes($0) }
                 state.head = 0
                 state.outputBytes = 0
             }

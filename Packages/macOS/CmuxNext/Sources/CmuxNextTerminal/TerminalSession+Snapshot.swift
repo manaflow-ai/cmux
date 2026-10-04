@@ -20,8 +20,10 @@ extension TerminalSession {
     /// Restores GHOSTSNP bytes on the live surface's output lane, in stream
     /// order behind earlier output and the grid lock of the preceding
     /// `.resize` (a READY keeps that lock's generation and takes its size).
-    func restoreSnapshot(_ data: Data, phase: TerminalSnapshotPhase) async {
-        guard let lane = surfaceView.lane else { return }
+    /// Returns whether a READY restored (history: whether it was queued).
+    @discardableResult
+    func restoreSnapshot(_ data: Data, phase: TerminalSnapshotPhase) async -> Bool {
+        guard let lane = surfaceView.lane else { return false }
         switch phase {
         case .ready:
             lane.restoreSnapshot(data, phase: GHOSTTY_SURFACE_SNAPSHOT_READY)
@@ -30,13 +32,19 @@ extension TerminalSession {
             // only this surface's limits). This surface's config owns the
             // defaults: re-apply it once the restore ran, which keeps the
             // program's OSC overrides (`changeConfig` changes defaults only).
+            // The renderer can draw one frame in the owner's palette before
+            // this lands (known flash; the fix belongs in ghostty-next's
+            // restore, which applies only local limits today).
             await lane.drained()
-            guard let surface = surfaceView.surface,
-                  let config = theme?.config ?? GhosttyRuntime.shared.config else { return }
-            ghostty_surface_update_config(surface, config)
+            guard lane.lastReadyRestored else { return false }
+            if let surface = surfaceView.surface, let config = theme?.config ?? GhosttyRuntime.shared.config {
+                ghostty_surface_update_config(surface, config)
+            }
+            return true
         case .history:
             await lane.waitForCapacity()
             surfaceView.lane?.restoreSnapshot(data, phase: GHOSTTY_SURFACE_SNAPSHOT_HISTORY)
+            return true
         }
     }
 }

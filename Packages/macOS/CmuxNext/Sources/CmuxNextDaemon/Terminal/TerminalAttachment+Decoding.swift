@@ -91,9 +91,9 @@ extension TerminalAttachment {
                 return DecodedAttachLine(event: .replay(state.terminalReplay))
             case "snapshot":
                 let snapshot = try decoder.decode(Snapshot.self, from: line)
-                guard scoped(snapshot.surface), let phase = TerminalSnapshotFrame.Phase(rawValue: snapshot.phase) else {
-                    return nil
-                }
+                guard scoped(snapshot.surface), let phase = TerminalSnapshotFrame.Phase(rawValue: snapshot.phase),
+                      phase == .history || (snapshot.cols != nil && snapshot.rows != nil)
+                else { return nil }  // A READY without its grid cannot lock the mirror's grid.
                 return DecodedAttachLine(event: .snapshot(TerminalSnapshotFrame(
                     phase: phase, generation: snapshot.generation, offset: snapshot.offset, version: snapshot.version,
                     cols: snapshot.cols, rows: snapshot.rows, colors: snapshot.colors, data: snapshot.data)))
