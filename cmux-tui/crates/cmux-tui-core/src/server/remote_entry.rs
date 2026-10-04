@@ -91,13 +91,6 @@ fn file_identity(path: &Path) -> Option<(u64, u64)> {
     std::fs::symlink_metadata(path).ok().map(|metadata| (metadata.dev(), metadata.ino()))
 }
 
-/// The conversation principal of a remote peer: one participant per paired
-/// install, never `user_local` (server-remote-conversations.md 5, decision
-/// D-B; the relay gate counts it as the same person as the owner).
-pub fn remote_principal(peer: &RemotePeer) -> String {
-    format!("remote_{}", peer.install)
-}
-
 /// Listen on `path` (mode 0600, in a 0700 directory it creates) and serve
 /// link streams for `mux`.
 pub fn serve_remote_entry(
@@ -236,7 +229,7 @@ struct RemoteAdmission {
 
 impl LineAdmission for RemoteAdmission {
     fn registered(&self, mux: &Arc<Mux>, client: u64) {
-        mux.bind_conversation_principal(client, remote_principal(&self.peer));
+        mux.bind_remote_peer(client, &self.peer);
     }
 
     fn refusal(&self, line: &str) -> Option<Value> {
