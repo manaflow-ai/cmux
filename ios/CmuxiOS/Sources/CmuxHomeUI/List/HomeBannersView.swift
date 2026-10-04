@@ -8,7 +8,7 @@ final class HomeBannersView: UICollectionReusableView {
     /// One element kind per set of cards: a header whose cards change gets a
     /// new kind, so the layout measures it again instead of keeping the old
     /// self-sized height.
-    static let elementKinds = ["home.banners.update", "home.banners.offline", "home.banners.update-offline"]
+    nonisolated static let elementKinds = ["home.banners.update", "home.banners.offline", "home.banners.update-offline"]
 
     struct State: Equatable {
         var updateRequired: HomeUpdateRequired?
