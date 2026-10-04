@@ -16,8 +16,8 @@
 5. killpg after the leader is reaped (host.rs) can signal a reused group id. Fix: keep a group-member proof or signal before reaping.
 6. Recovery from a partial log: wait_logged times out after REPLAY_BUDGET with the `out session/prompt` entry not yet logged, and recovery marks a running turn outcome_unknown. Fix: recovery waits for the entry by hseq, not by a fixed budget.
 7. LANDED cd6f5cb3d45 (append_logged: the entry's own store result; tests hub/tap_tests.rs; review clean). Was: tap.rs: append_errors is a counter shared across tasks; a failure in another task (or before_agent_update) marks this entry unlogged and breaks the link. Fix: a per-append result.
-8. host.rs: a failed bind, spawn or record write leaves the `.live` lock file. Fix: remove it on every early return.
-9. Shutdown flag order: an endAgents request that arrives after a SIGTERM shutdown started is ignored. Fix: read the flag after the last request drains, or refuse endAgents with an error once shutdown started.
+8. LANDED 1b306caaa85 (StartCleanup guard; failed lock and record-write temp files removed too). Was: host.rs: a failed bind, spawn or record write leaves the `.live` lock file. Fix: remove it on every early return.
+9. LANDED 4c1d215b649 (one locked ShutdownPlan; a too-late endAgents is refused). Was: Shutdown flag order: an endAgents request that arrives after a SIGTERM shutdown started is ignored. Fix: read the flag after the last request drains, or refuse endAgents with an error once shutdown started.
 10. Reaper (hq-48 lane, recommended to them): a hosted child with a closed link is not ended by detach_child; use end_unadopted_host.
 
 ## Progress (save point, 2026-10-04)
@@ -29,3 +29,4 @@
 - 2026-10-04 QuitSheetTests GUI-lane-only (WindowSession trait) LANDED 4c7842e4511. P2-7 LANDED cd6f5cb3d45; hosted run 37219613949. Next slice: P2-3 (lost Exit ack).
 - P2-3 LANDED e97b6890e41; hosted run 37220449099. Next slice: P2-4 (setsid grandchild keeps the host alive).
 - P2-4 LANDED a14d948594e; hosted run 37221596838. Hosted 37219613949 (P2-7) and 37220449099 (P2-3) SUCCESS. Next slice: P2-8 (leftover .live file).
+- P2-8 LANDED 1b306caaa85, P2-9 LANDED 4c1d215b649. Hosted 37221596838 (P2-4) SUCCESS. New open item 11 (review of P2-9): after a shutdown starts the socket is gone, so the app maps a late endAgents to noDaemon (agents keep running, no error shown); the app should treat a socket that existed at the census as a failure. Next slice: P2-5 (killpg pid reuse).
