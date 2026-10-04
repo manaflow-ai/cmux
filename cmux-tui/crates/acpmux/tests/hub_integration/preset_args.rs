@@ -106,9 +106,15 @@ async fn argv_of(hub: &Arc<Hub>, c: &mut TestClient, id: &str) -> Vec<String> {
     )
     .await
     .unwrap();
-    let preview =
-        hub.session_summary(&hub.resolve(id).unwrap())["preview"].as_str().unwrap().to_owned();
-    serde_json::from_str(&preview).unwrap()
+    // The whole reply (the summary's preview is cut short).
+    let text: String = hub
+        .events(id, 0, 10_000)
+        .unwrap()
+        .iter()
+        .filter(|e| e.kind == "agent_message_chunk")
+        .filter_map(|e| e.msg.pointer("/params/update/content/text").and_then(Value::as_str))
+        .collect();
+    serde_json::from_str(&text).unwrap_or_else(|e| panic!("{e}: {text}"))
 }
 
 #[tokio::test]
