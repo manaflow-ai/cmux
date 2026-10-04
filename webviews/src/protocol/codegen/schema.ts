@@ -4,7 +4,7 @@
 
 import { IrError, type JsonSchema } from "./ir";
 
-const ANNOTATIONS = new Set([
+export const ANNOTATIONS: ReadonlySet<string> = new Set([
   "$schema",
   "$id",
   "$comment",
@@ -17,7 +17,7 @@ const ANNOTATIONS = new Set([
   "writeOnly",
 ]);
 
-const SUPPORTED = new Set([
+export const SUPPORTED: ReadonlySet<string> = new Set([
   "type",
   "$ref",
   "properties",
@@ -99,6 +99,14 @@ function propertyKey(name: string): string {
 }
 
 // TypeScript types
+
+/** JSDoc from a schema's `description` (schemars copies Rust doc comments there), or "". */
+export function docComment(schema: JsonSchema, indent: string): string {
+  if (typeof schema !== "object" || typeof schema.description !== "string" || !schema.description.trim()) return "";
+  const lines = schema.description.replaceAll("*/", "*\\/").trim().split("\n");
+  if (lines.length === 1) return `${indent}/** ${lines[0]} */\n`;
+  return `${indent}/**\n${lines.map((line) => `${indent} *${line ? ` ${line}` : ""}`).join("\n")}\n${indent} */\n`;
+}
 
 export function renderType(schema: JsonSchema, types: Record<string, JsonSchema>, where: string, indent = ""): string {
   if (schema === true) return "unknown";
@@ -184,7 +192,8 @@ function renderObjectType(
   const inner = `${indent}  `;
   const lines = Object.entries(properties).map(([key, value]) => {
     const optional = required.has(key) ? "" : "?";
-    return `${inner}${propertyKey(key)}${optional}: ${renderType(value, types, `${where}.properties.${key}`, inner)};`;
+    const doc = docComment(value, inner);
+    return `${doc}${inner}${propertyKey(key)}${optional}: ${renderType(value, types, `${where}.properties.${key}`, inner)};`;
   });
   const extra = schema.additionalProperties;
   let base = lines.length > 0 ? `{\n${lines.join("\n")}\n${indent}}` : null;

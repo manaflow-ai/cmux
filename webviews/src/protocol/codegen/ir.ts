@@ -10,6 +10,11 @@ export interface IrNamespace {
 
 export interface IrOp {
   name: string;
+  /** "first-party" or "app:<id>". */
+  owner: string;
+  /** Older names that still route to this op (receivers validate them with the same schema). */
+  aliases: string[];
+  /** read | mutation | stream. */
   kind: string;
   scope: string;
   params: JsonSchema;
@@ -23,10 +28,13 @@ export interface IrEvent {
   data: JsonSchema;
 }
 
+/**
+ * Interfaces use the cmux-app-host shape ({name, version, docs, props, methods, events, status}).
+ * The codegen only needs `name`; the rest is carried through as metadata.
+ */
 export interface IrInterface {
   name: string;
-  ops: string[];
-  events: string[];
+  [key: string]: unknown;
 }
 
 export interface Ir {
@@ -89,6 +97,8 @@ export function parseIr(raw: unknown): Ir {
       params: op.params,
       result: op.result,
       errors: op.errors === undefined ? [] : stringArray(op.errors, `${where}.errors`),
+      owner: op.owner === undefined ? "first-party" : string(op.owner, `${where}.owner`),
+      aliases: op.aliases === undefined ? [] : stringArray(op.aliases, `${where}.aliases`),
     };
   });
   const events = (Array.isArray(raw.events) ? raw.events : []).map((event: unknown, index) => {
@@ -103,12 +113,7 @@ export function parseIr(raw: unknown): Ir {
   });
   const interfaces = (Array.isArray(raw.interfaces) ? raw.interfaces : []).map((iface: unknown, index) => {
     if (!isRecord(iface)) throw new IrError(`interfaces[${index}] must be an object`);
-    const where = `interfaces[${index}]`;
-    return {
-      name: string(iface.name, `${where}.name`),
-      ops: stringArray(iface.ops ?? [], `${where}.ops`),
-      events: stringArray(iface.events ?? [], `${where}.events`),
-    };
+    return { ...iface, name: string(iface.name, `interfaces[${index}].name`) };
   });
   const rawTypes = raw.types ?? {};
   if (!isRecord(rawTypes)) throw new IrError("types must be an object");
@@ -120,9 +125,9 @@ export function parseIr(raw: unknown): Ir {
     types[name] = schema;
   }
   const seen = new Set<string>();
-  for (const entry of [...ops, ...events]) {
-    if (seen.has(entry.name)) throw new IrError(`duplicate op or event name ${entry.name}`);
-    seen.add(entry.name);
+  for (const name of [...ops.flatMap((op) => [op.name, ...op.aliases]), ...events.map((event) => event.name)]) {
+    if (seen.has(name)) throw new IrError(`duplicate op, alias or event name ${name}`);
+    seen.add(name);
   }
   return { version, namespaces, ops, events, interfaces, types };
 }
