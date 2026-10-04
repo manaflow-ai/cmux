@@ -9,7 +9,14 @@ enum WindowKeyFamily {
     /// resigned active) is outside `window`'s family. `owner` is a window's
     /// parent or sheet parent.
     static func leftFamily<W: AnyObject>(of window: W, newKey: W?, owner: (W) -> W?) -> Bool {
-        true
+        var next = newKey
+        // Window chains are a few levels deep; the bound guards a cycle.
+        for _ in 0..<32 {
+            guard let current = next else { return true }
+            if current === window { return false }
+            next = owner(current)
+        }
+        return true
     }
 
     /// Captures `presenters`' shown pages into `cache` when the keyboard
