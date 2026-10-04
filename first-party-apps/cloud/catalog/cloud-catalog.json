@@ -4297,6 +4297,95 @@
       "since": "cloud/1"
     },
     {
+      "name": "cloud.file.transfer.list",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "transfers"
+        ],
+        "properties": {
+          "transfers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "transfer",
+                "machine",
+                "direction",
+                "state",
+                "started_at"
+              ],
+              "properties": {
+                "transfer": {
+                  "type": "string"
+                },
+                "machine": {
+                  "type": "string"
+                },
+                "direction": {
+                  "enum": [
+                    "push",
+                    "pull"
+                  ]
+                },
+                "state": {
+                  "enum": [
+                    "running",
+                    "done",
+                    "failed",
+                    "cancelled"
+                  ]
+                },
+                "started_at": {
+                  "type": "integer",
+                  "description": "Epoch milliseconds."
+                },
+                "ended_at": {
+                  "type": "integer",
+                  "description": "Epoch milliseconds; absent while running."
+                },
+                "error": {
+                  "type": "object",
+                  "description": "The typed error of a failed transfer (code, message, retryable)."
+                }
+              }
+            }
+          }
+        }
+      },
+      "cli": {
+        "path": "file transfer list",
+        "visible": true,
+        "positional": []
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "palette": {
+        "title": {
+          "en": "List Cloud File Transfers",
+          "ja": "クラウドのファイル転送を一覧表示"
+        }
+      },
+      "docs": "The file transfers of this server: every running one (oldest start first), then the most recent finished ones (newest end first), so a new page session can show them again. The history keeps at most 32 finished transfers and none older than one hour (by the server's clock; nothing runs on a timer). Each entry: transfer, machine, direction (push or pull), state (running, done, failed or cancelled), started_at and, once ended, ended_at (epoch milliseconds), and error for a failed one. Local paths are not listed.",
+      "since": "cloud/1"
+    },
+    {
       "name": "cloud.file.transfer.cancel",
       "owner": "app:cmux/cloud",
       "class": "mutation",
@@ -4346,7 +4435,7 @@
         }
       },
       "cli": {
-        "path": "file cancel",
+        "path": "file transfer cancel",
         "visible": true,
         "positional": [
           "transfer"
