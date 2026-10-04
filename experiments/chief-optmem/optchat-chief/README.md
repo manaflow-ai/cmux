@@ -136,6 +136,9 @@ $MUX_HOME/optchat/claude/         the turn sessions' CLAUDE_CONFIG_DIR (settings
                                   transcripts kept 2 days)
 $MUX_HOME/optchat/compactor-claude/  the compactor sessions' own CLAUDE_CONFIG_DIR (0700; same settings as below;
                                   unused on claude-sr, which resets CLAUDE_CONFIG_DIR)
+$MUX_HOME/optchat/compactor-codex/slot-<k>/  a codex compactor slot's own CODEX_HOME (0700): only config.toml
+                                  (the user's routing and model keys, plus no AGENTS.md, skills, apps,
+                                  plugins, memories, hooks or history); emptied but for it around every node
 $TMPDIR/optchat-compact-<home id>/slot-<k>/  the compactor sessions' working directories (0700), one per slot
                                   on a Claude harness (`shared/` for any other): .claude/settings.json (every
                                   tool denied, all hooks off, no auto-memory, no bundled skills, transcripts
@@ -182,12 +185,18 @@ first-party since 2026-09-17; it drives `claude -p` over stream-json and
 `sr claude proxy` gives it the subrouter's account pool). The compactor
 follows the Chief's harness unless `OPTCHAT_COMPACTOR_HARNESS` says
 otherwise. Changing the value needs no code change; each family gets the
-layout its cache needs:
+layout its cache needs. The family is what acpmux says the harness is
+(`_acpmux/harnesses`: a declared `family`, else the harness kind and
+command, so `claude-stdio` or a `claude` command is Claude and a
+`codex-acp` command is codex), read once at host start; a harness's name
+decides nothing. The host stops with a host.log line when acpmux cannot
+answer (except the native engine with the API compactor, which needs no
+acpmux):
 
 | harness | turn layout | node layout | cache mechanism | measured (2026-10-04, cmux-lawrence-2) |
 | --- | --- | --- | --- | --- |
-| claude, claude-sr (any `claude*`) | turn preset `systemPrompt` = system text + view up to 50k; prompt = rest of the view, ONE `cache_control` marker on the piece ending at the last mark, then the new messages; no CLAUDE.md | slot preset `systemPrompt` = compactor system text + context up to 50k; rest of the context with one marker; then the step | Claude Code's own breakpoints (system prompt, last messages) plus ours; the replaced system prompt drops Claude Code's date and cwd lines | turns: 2nd turn read 64,893 / wrote 11,085 (85% read); nodes: 2nd node read 37,671 / wrote 10,442 (78%), $0.121 then $0.035 |
-| codex | view pieces first, new messages last, no marker; instructions in the session directory's AGENTS.md; memory tools as `chief zoom` / `chief date` | system text, context pieces, step; all nodes in one shared cwd | OpenAI automatic prefix caching (1024-token blocks), routed by `prompt_cache_key` | turns: 2nd turn read 12,032 of 56,632 (21%); nodes: 2nd node read 12,032 of 48,653 (25%) |
+| Claude family (claude, claude-sr) | turn preset `systemPrompt` = system text + view up to 50k; prompt = rest of the view, ONE `cache_control` marker on the piece ending at the last mark, then the new messages; no CLAUDE.md | slot preset `systemPrompt` = compactor system text + context up to 50k; rest of the context with one marker; then the step | Claude Code's own breakpoints (system prompt, last messages) plus ours; the replaced system prompt drops Claude Code's date and cwd lines | turns: 2nd turn read 64,893 / wrote 11,085 (85% read); nodes: 2nd node read 37,671 / wrote 10,442 (78%), $0.121 then $0.035 |
+| codex family | view pieces first, new messages last, no marker; instructions in the session directory's AGENTS.md; memory tools as `chief zoom` / `chief date` | system text, context pieces, step; all nodes in one shared cwd | OpenAI automatic prefix caching (1024-token blocks), routed by `prompt_cache_key`: `optchat-<home id>-turn` for turns, `optchat-<home id>-compact` for nodes (needs the cmux codex fork) | turns: 2nd turn read 12,032 of 56,632 (21%); nodes: 2nd node read 12,032 of 48,653 (25%) |
 | any other acpmux harness | as codex | as codex | whatever the harness does with a byte-stable prefix | not measured |
 
 Every turn logs `turn <key> cache: first request read .. written ..
@@ -221,12 +230,33 @@ later turns skip it. An acpmux without `systemPrompt` keeps the old layout
 **Codex.** Its request is `instructions`, the tool list, the permission and
 environment messages (cwd, shell, date), AGENTS.md, then our blocks, so
 the prefix is byte-stable up to the first changed view line except once a
-day (the date). codex sets `prompt_cache_key` to the thread id
-(`codex-rs/core/src/client.rs`, no config key overrides it), and acpmux
-starts a fresh thread per turn and per node, so every request has a new
-key. The measured 12,032 cached tokens are codex's own instructions and
-tools, which are warm everywhere; the view itself was not read back. A
-stable key per Chief would need a change outside this branch (open item).
+day (the date). Upstream codex sets `prompt_cache_key` to the thread id
+(`codex-rs/core/src/client.rs`), and acpmux starts a fresh thread per
+turn and per node, so every request had a new key: the measured 12,032
+cached tokens were codex's own instructions and tools, and the view was
+never read back. The cmux codex fork (manaflow-ai/codex
+`feat/prompt-cache-key-override`) sends `CODEX_PROMPT_CACHE_KEY` (or
+`prompt_cache_key` in config.toml) instead; the turn preset sets
+`optchat-<home id>-turn` and every compactor slot preset
+`optchat-<home id>-compact` through env only (the preset args allowlist
+is unchanged). Upstream codex ignores the env, so the layout still works
+there, without the reads.
+
+**Codex compactor isolation.** Each compactor slot's preset points
+`CODEX_HOME` at the slot's own directory, whose config.toml keeps only the
+user's routing and model keys (`model`, `model_provider`,
+`model_providers`, `openai_base_url`, `chatgpt_base_url`, `service_tier`,
+`model_reasoning_effort`, `model_verbosity`) and turns off project
+AGENTS.md, skills (none loaded, none listed), apps, plugins, memories,
+hooks, subagents, code mode and history. The slot's auth.json is a
+symlink to the user's: codex-acp refuses `session/new` without a sign-in
+("Authentication required", checked live), a copy whose token refresh
+rotated the refresh token would sign the user out, and codex rewrites
+auth.json in place, so a refresh through the link updates the user's own
+file. A sign-in kept in the keyring instead of auth.json is not linked. The node's rollout, thread database and logs are
+deleted when it ends (and a crash's leftovers before the next node in the
+slot). The start-up probe fails when the session lists any `$skill`
+command.
 acpmux gives codex no MCP servers, so the memory tools are the launcher's
 `zoom` and `date` commands (`optchat-chief zoom ID N`, `optchat-chief date
 ID`), named by absolute path in AGENTS.md.
@@ -391,9 +421,9 @@ subrouter it gets the same 429 (`--test live two_native_turns` repeats it).
   harness the view's first piece is the system prompt (Claude Code's
   breakpoint) and one marker sits at the last mark: two of the spec's three
   breakpoints (50k and 100k; 80k is lost to Claude Code's own three). On
-  codex there are no breakpoints, only automatic prefix caching, which the
-  per-thread `prompt_cache_key` defeats across turns (see Harnesses and
-  cache layout).
+  codex there are no breakpoints, only automatic prefix caching, routed by
+  the Chief's stable `prompt_cache_key` on the cmux codex fork (upstream's
+  per-thread key defeats it across turns; see Harnesses and cache layout).
 - **Messages during a turn (section 7, MASTER).** The spec delivers them at
   the next tool boundary; here a human message interrupts at once (see the
   top of this file), and MASTER's line says so. On the acpmux engine the

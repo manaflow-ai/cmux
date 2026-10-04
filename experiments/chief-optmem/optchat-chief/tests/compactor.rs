@@ -1064,7 +1064,6 @@ base_url = "http://router:31415/v1"
         "hooks",
         "multi_agent",
         "code_mode",
-        "code_mode_host",
     ] {
         assert_eq!(
             config["features"][feature].as_bool(),
@@ -1075,6 +1074,16 @@ base_url = "http://router:31415/v1"
     assert_eq!(
         config["features"]["skip_host_skill_discovery"].as_bool(),
         Some(true)
+    );
+    // Live 2026-10-04: `code_mode_host = false` makes codex-acp put "Code
+    // Mode is unavailable because code-mode host is disabled" at the head of
+    // every node's reply, so the slot leaves that key alone.
+    assert!(
+        !config["features"]
+            .as_table()
+            .unwrap()
+            .contains_key("code_mode_host"),
+        "{text}"
     );
     // codex reports an under-development feature as an error item each
     // session; the slot asks it not to.

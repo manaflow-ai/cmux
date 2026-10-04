@@ -966,7 +966,6 @@ memories = false
 hooks = false
 multi_agent = false
 code_mode = false
-code_mode_host = false
 skip_host_skill_discovery = true
 
 [skills]
