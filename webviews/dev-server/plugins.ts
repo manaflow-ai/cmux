@@ -5,6 +5,7 @@
 //   /diff/            the diff viewer (`cmux diff`) against the real cmux-diff-sidecar
 //   /markdown?file=   the markdown viewer shell (Resources/markdown-viewer/shell.html)
 //   /agent-pane/      the agent pane (src/agent-session/acpmux/index.html; prototype.html beside it)
+//   /history/         React pages (src/pages/<page>/index.html); `?mock` uses the page's in-memory provider
 // scripts/agent-pane/dev-slot.sh runs one per slot next to a standalone acpmux daemon.
 //
 // Env: CMUX_WEBVIEWS_DEV_PORT (default 4200). Diff: CMUX_DIFF_SIDECAR (else the newest one in a
@@ -28,7 +29,7 @@ export const DEV_SERVER_PORT = Number(process.env.CMUX_WEBVIEWS_DEV_PORT) || 420
 
 /// All dev-server plugins, for vite.config.ts.
 export function cmuxDevServer(): Plugin[] {
-  return [devServerShell(), agentPaneHost(), diffHost(), markdownHost()];
+  return [devServerShell(), agentPaneHost(), pagesHost(), diffHost(), markdownHost()];
 }
 
 function send(response: ServerResponse, status: number, type: string, body: string): void {
@@ -60,6 +61,7 @@ const indexPage = `<!doctype html>
 <ul>
 <li><a href="/diff/">/diff/</a>: diff viewer, <code>?source=branch&amp;base=HEAD~5</code>, <code>?source=unstaged|staged</code>, <code>&amp;layout=unified</code></li>
 <li><a href="/markdown">/markdown</a>: markdown viewer, <code>?file=&lt;path&gt;</code></li>
+<li><a href="/history/?mock">/history/?mock</a>: History page against the in-page mock provider</li>
 <li><a href="/agent-pane/?mock">/agent-pane/?mock</a>: agent pane against the in-page mock daemon (<code>dev-slot.sh</code> prints a real-daemon URL); <a href="/agent-pane/prototype.html?mock">prototype.html</a></li>
 </ul>
 </body></html>`;
@@ -155,6 +157,35 @@ function agentPaneHost(): Plugin {
           // The page's relative script sources are relative to the pane directory, not /agent-pane/.
           html = html.replace(/(\bsrc=")\.\//g, `$1${paneURL}/`);
           html = await server.transformIndexHtml(`${paneURL}/${name}`, html, request.originalUrl);
+          send(response, 200, "text/html; charset=utf-8", html);
+        } catch (error) {
+          next(error);
+        }
+      });
+    },
+  };
+}
+
+/// /<page>/ serves src/pages/<page>/index.html for the React pages (plans/cmux-next/react-pages.md).
+/// The page boots its own client: the app bridge when present, else the mock provider with `?mock`.
+const DEV_PAGES = ["history"];
+
+function pagesHost(): Plugin {
+  return {
+    name: "cmux-dev-pages",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use(async (request, response, next) => {
+        const url = new URL(request.url ?? "/", "http://localhost");
+        const match = url.pathname.match(/^\/([a-z-]+)\/?$/);
+        const page = match?.[1];
+        if (!page || !DEV_PAGES.includes(page)) return next();
+        if (!url.pathname.endsWith("/")) return redirect(response, `/${page}/${url.search}`);
+        const pageURL = `/src/pages/${page}`;
+        try {
+          let html = fs.readFileSync(path.join(webviewsRoot, "src/pages", page, "index.html"), "utf8");
+          html = html.replace(/(\bsrc=")\.\//g, `$1${pageURL}/`);
+          html = await server.transformIndexHtml(`${pageURL}/index.html`, html, request.originalUrl);
           send(response, 200, "text/html; charset=utf-8", html);
         } catch (error) {
           next(error);

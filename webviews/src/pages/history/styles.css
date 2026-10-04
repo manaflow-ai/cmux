@@ -1,0 +1,271 @@
+/* History page. Colors come only from the shared web theme (`--cmux-*`, WebTheme.swift); the
+   fallbacks are system colors for the plain-browser dev loop. One background: html paints
+   `--cmux-surface-background` (transparent over a see-through window), body and every block are
+   transparent; groups are separated by spacing and `--cmux-separator` hairlines only. No blue. */
+:root {
+  color-scheme: light dark;
+  --history-text: var(--cmux-text, CanvasText);
+  --history-text-2: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 70%, transparent));
+  --history-text-3: var(--cmux-text-tertiary, color-mix(in srgb, CanvasText 50%, transparent));
+  --history-separator: var(--cmux-separator, color-mix(in srgb, CanvasText 8%, transparent));
+  --history-hover: var(--cmux-hover, color-mix(in srgb, CanvasText 6%, transparent));
+  --history-selection: var(--cmux-selection, color-mix(in srgb, CanvasText 10%, transparent));
+  --history-elevated: var(--cmux-elevated-background, Canvas);
+}
+
+html {
+  background: var(--cmux-surface-background, transparent);
+}
+
+body {
+  margin: 0;
+  background: transparent;
+  color: var(--history-text);
+  font: 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+.history-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-width: 0;
+}
+
+.history-header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 18px 18px 0;
+  border-bottom: 1px solid var(--history-separator);
+}
+
+.history-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 12px;
+  row-gap: 4px;
+  min-width: 0;
+}
+
+/* The title keeps one line and truncates; in a narrow pane the menu buttons wrap below it. */
+.history-title {
+  flex: 1 1 120px;
+  min-width: 0;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-title-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-width: 0;
+}
+
+.history-menu-button {
+  white-space: nowrap;
+  border: 0;
+  background: transparent;
+  color: var(--history-text-2);
+  padding: 2px 6px;
+  border-radius: 5px;
+  cursor: default;
+}
+
+.history-menu-button:hover {
+  background: var(--history-hover);
+}
+
+.history-search {
+  width: 100%;
+  font-size: 15px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--history-separator);
+  background: transparent;
+  outline: none;
+  user-select: text;
+}
+
+.history-search:focus {
+  border-color: var(--history-text-3);
+}
+
+.history-search::placeholder {
+  color: var(--history-text-3);
+}
+
+/* Narrow panes wrap the filters onto a second row; none is ever hidden. */
+.history-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  min-width: 0;
+}
+
+.history-chip {
+  border: 0;
+  background: transparent;
+  padding: 3px 0 6px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--history-text-2);
+  border-bottom: 2px solid transparent;
+  cursor: default;
+}
+
+.history-chip.selected {
+  color: var(--history-text);
+  border-bottom-color: var(--history-text);
+}
+
+.history-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 10px 18px;
+  outline: none;
+}
+
+.history-group-title {
+  margin: 14px 8px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--history-text-2);
+}
+
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 36px;
+}
+
+.history-row:hover {
+  background: var(--history-hover);
+}
+
+.history-row.selected {
+  background: var(--history-selection);
+}
+
+.history-row-icon {
+  display: inline-flex;
+  width: 16px;
+  justify-content: center;
+  color: var(--history-text-2);
+}
+
+.history-row-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.history-row-title,
+.history-row-detail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.history-row.unavailable .history-row-title {
+  color: var(--history-text-3);
+}
+
+.history-row-detail {
+  font-size: 11px;
+  color: var(--history-text-3);
+}
+
+.history-row-badge {
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--history-text-2);
+}
+
+.history-row-time {
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--history-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.history-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--history-text-3);
+  padding: 24px;
+  text-align: center;
+}
+
+.page-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+}
+
+.page-menu {
+  position: fixed;
+  min-width: 180px;
+  max-width: 280px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--history-elevated);
+  border: 1px solid var(--history-separator);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+  outline: none;
+}
+
+.page-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 3px 10px;
+  border-radius: 5px;
+  cursor: default;
+}
+
+.page-menu-item.active:not(:disabled) {
+  background: var(--history-selection);
+}
+
+.page-menu-item:disabled {
+  color: var(--history-text-3);
+}
+
+.page-menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--history-separator);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto !important;
+  }
+}
