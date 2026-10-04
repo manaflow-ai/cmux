@@ -112,7 +112,10 @@ pub(crate) struct StreamState {
     target: Target,
     /// The last stream seq applied (from a snapshot or an event).
     last_seq: Option<u64>,
-    /// The inbox owner, from the gateway's `welcome`.
+    /// The principal of the last `welcome` (also the inbox owner). A
+    /// different principal (another account signed in) drops `last_seq`, so
+    /// the stream starts again from a snapshot instead of resuming another
+    /// user's position.
     user: Option<String>,
     awaiting_snapshot: bool,
 }
@@ -165,11 +168,23 @@ impl StreamState {
         let Ok(frame) = serde_json::from_str::<Value>(text) else { return Vec::new() };
         match frame.get("t").and_then(Value::as_str) {
             Some("welcome") => {
-                if self.target == Target::Inbox {
-                    let user = frame.pointer("/principal/user").and_then(Value::as_str);
-                    match user {
-                        Some(user) if !user.is_empty() => self.user = Some(user.to_string()),
-                        _ => return vec![StreamAction::Forbidden],
+                let user = frame
+                    .pointer("/principal/user")
+                    .and_then(Value::as_str)
+                    .filter(|user| !user.is_empty());
+                match user {
+                    Some(user) => {
+                        if self.user.as_deref() != Some(user) {
+                            self.last_seq = None;
+                            self.user = Some(user.to_string());
+                        }
+                    }
+                    // The inbox stream is named after the principal.
+                    None if self.target == Target::Inbox => return vec![StreamAction::Forbidden],
+                    // Unknown principal: never resume a position it may not own.
+                    None => {
+                        self.last_seq = None;
+                        self.user = None;
                     }
                 }
                 vec![StreamAction::Send(self.frame("subscribe")), StreamAction::Live]

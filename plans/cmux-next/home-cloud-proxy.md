@@ -42,7 +42,19 @@ snake_case. Every command requires a trusted local (Unix) connection (authority 
 `local-conversations-v1`). The capability is advertised in `identify.capabilities` only when the
 daemon was built with the cloud transport. Commands that call the cloud run off the connection's
 request loop, so a slow cloud call never delays other commands on that connection; replies can
-therefore arrive out of order and are matched by `id`.
+therefore arrive out of order and are matched by `id`. At most 16 cloud requests run at once per
+daemon; one more is answered at once with `cloud_unavailable` (retryable) and nothing is sent.
+
+A connection bound to a conversation agent (`conversation-bind`) is refused every `cloud-*` command
+with `cloud conversations are refused on a connection bound to a conversation agent`: the lease is
+the human's cloud authority and a bound agent acts only as itself.
+
+DECISION (open, for Lawrence): unbound trusted local connections (any same-uid process, including
+an agent in a cmux terminal that never called `conversation-bind`) can still use the human's lease,
+set or clear it, and send `origin:"user"`. Options: an app-only capability token issued with the
+lease, a peer-credential check of the app's pid or code signature, or restricting
+`cloud-session-set`/`-clear` and `origin:"user"` to the app. Part 1 ships only the bound-agent
+refusal.
 
 Types (shapes are home-core's, identical to home.md section 2 where they overlap):
 
@@ -81,7 +93,10 @@ loopback host for development); no path, query, fragment or user info. `access_t
 visible ASCII characters. `expires_at` is the token expiry in Unix milliseconds. `client_version` is
 the app's version (1-64 visible ASCII characters), forwarded as `x-cmux-client-version` so a team's
 minimum-version policy judges the app, not the daemon. A new lease
-replaces the old one; open upstream sockets reconnect with it and resume with `after_seq`.
+replaces the old one; open upstream sockets reconnect with it and resume with `after_seq` when the
+gateway's `welcome` names the same principal. A different principal (another account) drops the
+resume point: the stream starts from a snapshot, so clients get `cloud-inbox-reset` or
+`cloud-conversation-resynced` instead of the old account's position.
 
 `cloud-conversation-snapshot`: `rev` is the head's `rev`; `seq` is the owner's stream sequence (the
 `after_seq` a resume uses). The owner returns at most its snapshot tail (50 messages); older pages
@@ -90,7 +105,7 @@ come from `cloud-conversation-history`.
 `cloud-conversation-op`: one op vocabulary (home-messaging.md section 20). `op` is tagged by `kind`;
 its other fields are the op's params, sent unchanged. `conversation` names the target and is
 required for every kind except `dm.open` and `conversation.create`, which must not carry it.
-`idempotency_key` is 1-256 characters and goes to the owner unchanged; a retry with the same key
+`idempotency_key` is 1-128 characters (the backend's `IdempotencyKey`) and goes to the owner unchanged; a retry with the same key
 returns the stored result with `replayed: true`. `origin` is `user|cli|mcp|script|remote`
 (absent = `cli`) and goes to the owner unchanged.
 
@@ -161,7 +176,11 @@ local subscriber leaves (home-scale.md A7). At most 64 conversation subscription
 | `cloud_signed_out` | `missing` | false | no lease; nothing was sent |
 | `cloud_session_expired` | `expired` | true | the lease expired; nothing was sent; `cloud-session-needed` was emitted |
 | `cloud_unauthenticated` | `unauthenticated` | true | the cloud answered 401; `cloud-session-needed` was emitted |
-| `cloud_unavailable` | `unavailable` | true | transport failure, timeout, 5xx or a malformed reply; for a mutation the outcome is unknown, so retry with the same `idempotency_key` |
+| `cloud_unavailable` | `unavailable` | true | transport failure, timeout, 5xx, a malformed reply or the daemon's request limit; for a mutation the outcome is unknown, so retry with the same `idempotency_key` |
+
+A 4xx without a `{code, message}` body (an edge or proxy answered) is `cloud_conversation_rejected`
+with reason `http_<status>` and `retryable:false`, except 429, which is reason `rate_limited` with
+`retryable:true`.
 
 Parameter shape errors are plain `bad request: …` errors without `error_code`, as on the local owner.
 A connection that is not a trusted local connection gets `cloud conversations require a trusted local
@@ -182,7 +201,8 @@ command with `cloud conversations are not available in this daemon`.
 Every HTTP call and handshake sends `authorization: Bearer <token>` (sockets: the subprotocol) and,
 when the lease has one, `x-cmux-client-version`. HTTP 401 maps to
 `cloud_unauthenticated`; a reply with `ok:false` or a 4xx body `{code, message}` maps to
-`cloud_conversation_rejected`; everything else that is not a decoded reply maps to
+`cloud_conversation_rejected` (a 4xx without that body: reason `http_<status>`, or `rate_limited`
+for 429); everything else that is not a decoded reply maps to
 `cloud_unavailable`. A WebSocket handshake 401 or close code 4401 asks for a new lease; 403 closes
 the subscription; other drops reconnect with backoff (1 s doubling to 30 s, cancelled by
 unsubscribe, a new lease or shutdown).

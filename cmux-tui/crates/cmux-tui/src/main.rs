@@ -1344,7 +1344,6 @@ fn provider_connector_with_unix_token(
     Ok(connector)
 }
 
-#[cfg(unix)]
 /// Installs the cloud transport behind `cloud-conversations-v1`. A failure
 /// leaves the daemon without the capability; nothing else depends on it.
 #[cfg(unix)]
@@ -1362,6 +1361,7 @@ fn install_cloud_conversations(mux: &Arc<Mux>) {
     }
 }
 
+#[cfg(unix)]
 fn parse_provider_token(value: OsString) -> anyhow::Result<BearerToken> {
     let mut bytes = value.into_encoded_bytes();
     let value = std::str::from_utf8(&bytes)

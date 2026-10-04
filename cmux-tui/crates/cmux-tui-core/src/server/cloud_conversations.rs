@@ -14,6 +14,7 @@ use super::{Command, MessageWriter, Mux, Response, handle_command_with_cancellat
 use crate::cloud_conversations::{
     CloudConversations, CloudError, OpRequest, SessionParams, Target,
 };
+use crate::conversation_store::LOCAL_USER;
 
 pub(super) use crate::cloud_conversations::CLOUD_CONVERSATIONS_CAPABILITY as CAPABILITY;
 
@@ -96,6 +97,12 @@ fn service(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
         mux.control_clients.is_unix(client),
         "cloud conversations require a trusted local connection"
     );
+    // The lease is the human's cloud authority. A connection that bound
+    // itself to a conversation agent acts as that agent, never as the human.
+    anyhow::ensure!(
+        mux.conversation_principal(client) == LOCAL_USER,
+        "cloud conversations are refused on a connection bound to a conversation agent"
+    );
     mux.cloud_conversations()
         .ok_or_else(|| anyhow::anyhow!("cloud conversations are not available in this daemon"))
 }
@@ -175,22 +182,26 @@ pub(super) fn start(
     cmd: Command,
     writer: &MessageWriter,
 ) -> bool {
-    let precheck = service(mux, client).and_then(|service| match &cmd {
-        Command::CloudConversationOp(params) => Ok(service.check_op(&OpRequest {
-            conversation: params.conversation.clone(),
-            idempotency_key: params.idempotency_key.clone(),
-            origin: params.origin.clone(),
-            op: params.op.clone(),
-        })?),
-        _ => Ok(()),
+    let precheck = service(mux, client).and_then(|service| {
+        if let Command::CloudConversationOp(params) = &cmd {
+            service.check_op(&OpRequest {
+                conversation: params.conversation.clone(),
+                idempotency_key: params.idempotency_key.clone(),
+                origin: params.origin.clone(),
+                op: params.op.clone(),
+            })?;
+        }
+        Ok(service.begin_request()?)
     });
-    if let Err(error) = precheck {
-        return send(writer, id, Err(error));
-    }
+    let permit = match precheck {
+        Ok(permit) => permit,
+        Err(error) => return send(writer, id, Err(error)),
+    };
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let spawned = std::thread::Builder::new().name("mux-cloud-request".into()).spawn(move || {
+        let _permit = permit;
         let result =
             handle_command_with_cancellation(&worker_mux, client, cmd, &worker_writer, None);
         send(&worker_writer, worker_id, result);

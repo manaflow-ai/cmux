@@ -27,7 +27,8 @@ pub const CLOUD_OP_KINDS: &[&str] = &[
 /// Kinds that create or open a conversation and therefore name none.
 const UNSCOPED_KINDS: &[&str] = &["dm.open", "conversation.create"];
 const ORIGINS: &[&str] = &["user", "cli", "mcp", "script", "remote"];
-const MAX_KEY_CHARS: usize = 256;
+/// The backend's `IdempotencyKey` (backend/packages/protocol/src/schemas.ts).
+const MAX_KEY_CHARS: usize = 128;
 pub(crate) const MAX_TAIL: u32 = 50;
 pub(crate) const MAX_PAGE: u32 = 200;
 /// home-core `TABLE_MSG` and `TABLE_INV`, inbox `TABLE_ENTRY`.
@@ -166,9 +167,18 @@ fn classify(reply: &HttpReply) -> Result<(), CloudError> {
             Some((code, message, retryable)) => {
                 Err(CloudError::Rejected { code, message, retryable })
             }
-            None => {
-                Err(CloudError::Unavailable(format!("HTTP {} without an error body", reply.status)))
-            }
+            // An edge or proxy answered without the owner's body: the
+            // request was refused, not lost. Only 429 may succeed later.
+            None if reply.status == 429 => Err(CloudError::Rejected {
+                code: "rate_limited".into(),
+                message: "HTTP 429 without an error body".into(),
+                retryable: true,
+            }),
+            None => Err(CloudError::Rejected {
+                code: format!("http_{}", reply.status),
+                message: format!("HTTP {} without an error body", reply.status),
+                retryable: false,
+            }),
         },
         status => Err(CloudError::Unavailable(format!("HTTP {status}"))),
     }

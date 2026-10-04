@@ -3,7 +3,7 @@
 //! socket per subscribed target with resume and reconnect.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -77,7 +77,15 @@ pub trait CloudBackend: Send + Sync {
 }
 
 /// One reserved cloud request slot, released on drop.
-pub struct RequestPermit(());
+pub struct RequestPermit {
+    inner: Arc<Inner>,
+}
+
+impl Drop for RequestPermit {
+    fn drop(&mut self) {
+        self.inner.requests_in_flight.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 /// Receives every daemon event (the mux publishes it to subscribers).
 pub type EventSink = Arc<dyn Fn(CloudEvent) + Send + Sync>;
@@ -145,6 +153,8 @@ struct Inner {
     signal: Mutex<u64>,
     wake: Condvar,
     shutdown: AtomicBool,
+    /// Cloud HTTP requests running now (bounded by `max_concurrent_requests`).
+    requests_in_flight: AtomicUsize,
 }
 
 /// The daemon's cloud link. Cheap to clone; all clones share one state.
@@ -169,6 +179,7 @@ impl CloudConversations {
                 signal: Mutex::new(0),
                 wake: Condvar::new(),
                 shutdown: AtomicBool::new(false),
+                requests_in_flight: AtomicUsize::new(0),
             }),
         }
     }
@@ -225,8 +236,19 @@ impl CloudConversations {
     }
 
     /// Reserves one of the daemon's concurrent cloud request slots.
+    /// Over the limit it fails at once with `cloud_unavailable` (retryable),
+    /// so a busy client cannot pile up threads or upstream requests.
     pub fn begin_request(&self) -> Result<RequestPermit, CloudError> {
-        Ok(RequestPermit(()))
+        let limit = self.inner.options.max_concurrent_requests;
+        self.inner
+            .requests_in_flight
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |running| {
+                (running < limit).then_some(running + 1)
+            })
+            .map_err(|_| {
+                CloudError::Unavailable(format!("{limit} cloud requests are already running"))
+            })?;
+        Ok(RequestPermit { inner: self.inner.clone() })
     }
 
     /// `cloud-inbox-list`.
