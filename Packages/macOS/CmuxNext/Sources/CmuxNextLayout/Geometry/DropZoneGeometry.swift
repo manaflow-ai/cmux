@@ -131,7 +131,7 @@ public nonisolated enum DropZoneGeometry {
     /// drops into the strip, so the top band starts below it (dogfood
     /// 2026-10-03: a band inside the tab bar was never reached).
     public static func dockTarget(atView point: CGPoint, screen: ScreenID, geometry: ScreenGeometry, style: LayoutStyle,
-                                  topInset: CGFloat = 0) -> DropTarget? {
+                                  topInset: CGFloat = 0, bottomInset: CGFloat = 0) -> DropTarget? {
         let size = geometry.viewport
         let band = min(style.dockDropBand, size.height / 4)
         let topBand = min(style.dockTopDropBand, size.height / 4)

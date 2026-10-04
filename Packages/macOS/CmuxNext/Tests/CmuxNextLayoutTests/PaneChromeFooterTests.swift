@@ -37,4 +37,18 @@ import Testing
         #expect(host.footerHeight == 30)
         #expect(host.chrome.borderFrame.maxY <= 166.5)
     }
+
+    /// The bottom dock band starts above a bottom tab bar (review of
+    /// R109 part 2a): a tab dropped on the footer joins its pane, as the
+    /// top band starts below a header (`topInset`).
+    @Test func theBottomDockBandStartsAboveTheFooter() {
+        let columns = [LayoutColumn(id: ColumnID("c0"), width: 1, root: .leaf(PaneID("p0")))]
+        let geometry = ScreenGeometry.compute(.columns(columns), viewport: CGSize(width: 1000, height: 600), style: LayoutStyle(), scale: 2)
+        let style = LayoutStyle()
+        let target = { (y: CGFloat) in
+            DropZoneGeometry.dockTarget(atView: CGPoint(x: 500, y: y), screen: "s", geometry: geometry, style: style, bottomInset: 30)
+        }
+        #expect(target(590) == nil, "on the footer: the pane takes the tab")
+        #expect(target(565) == .newDock(screen: "s", edge: .bottom), "just above the footer")
+    }
 }
