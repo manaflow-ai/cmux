@@ -237,7 +237,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// Whether `name` still holds the secret of `revision` (from
     /// ``typing(_:at:)``): not deleted, cleared or set again since.
     public func isCurrent(_ name: String, revision: Int) -> Bool {
-        true
+        lock.withLock { revisions[name] == revision }
     }
 
     /// Plain values, and the TOTP codes that are valid now, with their

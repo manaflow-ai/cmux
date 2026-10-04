@@ -216,7 +216,7 @@ All input is delivered as native, trusted events (`isTrusted === true`).
 | --- | --- |
 | `input.mouse` | `{ targetId, type: "move"\|"down"\|"up"\|"wheel", x, y, button: "left"\|"right"\|"middle", clickCount, modifiers, deltaX?, deltaY? }` |
 | `input.key` | `{ targetId, type: "down"\|"up", key, code, text?, location?, modifiers, autoRepeat? }` |
-| `input.insertText` | `{ targetId, text }` or, from the runtime, `{ targetId, secret: name }`, which the native session turns into `{ targetId, text, secretName, secretDomains }` (see "Guards") (IME commit into the focused element. On WebKit a `contenteditable` editor gets marked text then its confirmation, so `compositionstart`, `beforeinput`/`input` and `compositionend` fire, trusted, and editors that start an edit only on a keydown or a composition (Google Sheets) take it; a form field gets a plain insert with one `input` event, as Chrome's `Input.insertText`; text with a line break or tab, or focus in an unreadable frame, inserts without a composition) |
+| `input.insertText` | `{ targetId, text }` or, from the runtime, `{ targetId, secret: name }`, which the native session turns into `{ targetId, text, secretName, secretDomains, secretRevision }` (see "Guards") (IME commit into the focused element. On WebKit a `contenteditable` editor gets marked text then its confirmation, so `compositionstart`, `beforeinput`/`input` and `compositionend` fire, trusted, and editors that start an edit only on a keydown or a composition (Google Sheets) take it; a form field gets a plain insert with one `input` event, as Chrome's `Input.insertText`; text with a line break or tab, or focus in an unreadable frame, inserts without a composition) |
 | `input.drag` | `{ targetId, path: [{ x, y }], button, modifiers }` (native drag session so HTML5 drag and drop fires). The drag's data goes to a private pasteboard of that drag, never the system's named drag pasteboard: around each move that may start the drag, WebKit's lookups of the drag pasteboard get the private one until WebKit starts the drag, the move is handled or 5 s pass. One drag holds that window at a time across all tabs (WebKit's lookups do not say which web view they serve); a move that cannot get it within 5 s fails with `timeout` and is not delivered. A drag WebKit starts after its window closed drops no data. A person's drag in another web view during the window writes the private pasteboard too, but a drop there never reads it: the drop's access grant comes from AppKit calling WebKit, which diverts the window to an extra private pasteboard emptied at each lookup until it closes (the automated drag then carries no data) |
 
 `modifiers` is an array of `Alt`, `Control`, `Meta`, `Shift`. Key names follow
@@ -297,7 +297,7 @@ native (`BrowserReplBoundary` in the session, and the driver):
   any of them the pattern or list fails with `invalid`, naming the limit.
 
 - Secrets: values stay in the session. `input.insertText { secret }` reaches
-  the driver as `{ text, secretName, secretDomains }`; the driver types it
+  the driver as `{ text, secretName, secretDomains, secretRevision }`; the driver types it
   only when the document that holds the focused element has an origin
   matching one of `secretDomains`, else fails with `secret "x" may not be
   typed into <origin>; its domains are ...`. The origin is read in the
@@ -310,7 +310,11 @@ native (`BrowserReplBoundary` in the session, and the driver):
   same main-thread turn. A page can still move focus in its own web process
   between the check's last reply and the insert reaching that process:
   WebKit has no insert bound to an element or frame, so that cross-process
-  window remains. Captures get `secretMasks
+  window remains. The call also carries `secretRevision`, the secret's
+  revision when the session filled in the value; on that same turn the
+  driver asks the session whether the name still holds that revision, and a
+  secret deleted, cleared or set again since the call was made fails with
+  `invalid` and nothing is typed. Captures get `secretMasks
   [{ value, domains }]` (plain values, and the codes of a TOTP secret a
   server still accepts: the current window and one on each side); the
   driver masks only in frames whose document's origin is on those
