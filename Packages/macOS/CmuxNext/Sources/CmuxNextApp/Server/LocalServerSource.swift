@@ -64,15 +64,15 @@ final class LocalServerSource: ServerSource {
         self.makeWatcher = makeWatcher
     }
 
-    /// The App's source: the bundled CLI and the user-mode server's files.
-    /// No check has an automatic fix yet.
-    static func app() -> LocalServerSource {
+    /// The App's source: the bundled CLI, the user-mode server's files, and
+    /// fixes through the privileged helper.
+    static func app(fixer: ServerHealthFixer = .helper) -> LocalServerSource {
         LocalServerSource(
             binary: bundledCLI(),
             hostName: (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "",
             watchedFiles: watchedFiles(home: FileManager.default.homeDirectoryForCurrentUser),
             runCLI: { executable, arguments in await runProcess(executable, arguments) },
-            fix: { _ in RefusalStrings.text("refusal.server.noFix", "This check has no automatic fix.") },
+            fix: { await fixer.fix($0) },
             makeWatcher: { file, onChange in ConfigFileWatcher(url: file, onChange: onChange) })
     }
 
