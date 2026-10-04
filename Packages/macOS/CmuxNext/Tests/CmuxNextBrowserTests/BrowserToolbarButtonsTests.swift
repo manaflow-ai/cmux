@@ -139,6 +139,10 @@ import Testing
         let modes = chrome.toolbarButtons.modes
         modes.colorScheme = .dark
         modes.designMode = true
+        for _ in 0..<20 { await Task.yield() }
+        // On shows as the pressed fill (the app accent is a neutral gray).
+        #expect((chrome.toolbarButtons.button(.designMode) as? ChromeIconButton)?.isOn == true)
+        #expect((chrome.toolbarButtons.button(.devTools) as? ChromeIconButton)?.isOn == false)
         first.load(URL(string: "https://example.com/next")!)
         for _ in 0..<20 { await Task.yield() }
         #expect(!modes.designMode)
