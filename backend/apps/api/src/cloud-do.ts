@@ -115,6 +115,8 @@ export class CloudDO extends OwnerDO<CloudState> {
    * retries the same key, which replays the result and resumes the call); failed = the provider error.
    */
   override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
+    const limited = PROVIDER_OPS.has(frame.op) ? await this.rateLimited(entity, principal, frame) : undefined
+    if (limited) return limited
     const result = await super.submit(entity, principal, frame)
     if (!PROVIDER_OPS.has(frame.op)) return result
     const reply = result.frames.find((f) => f.t === "result" || f.t === "reject")
@@ -132,6 +134,25 @@ export class CloudDO extends OwnerDO<CloudState> {
     if (after?.state === "pending") return this.refuse(result.frames, "mutation.indeterminate", "the provider call was cut off; retry with the same key", true)
     if (after?.state === "failed") return this.refuse(result.frames, "cloud.provider.unavailable", after.error?.message ?? "the provider call failed", false)
     return result
+  }
+
+  /**
+   * P2-4: create and delete per team (CLOUD_MUTATION_LIMIT). A decided key replays and a refused
+   * principal gets its refusal without spending the budget; only new intents count.
+   */
+  private async rateLimited(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult | undefined> {
+    const limit = this.env.CLOUD_MUTATION_LIMIT
+    if (!limit) return undefined
+    if (this.isBound(entity) && this.bind(entity).gate(principal, frame) !== undefined) return undefined
+    const { success } = await limit.limit({ key: `cloud:${entity}` })
+    if (success) return undefined
+    const key = frame.idempotency_key
+    return {
+      frames: [
+        { t: "reject", tx: "", idempotency_key: key, code: "cloud.rate_limited", message: "too many machine creates and deletes for this team; retry in a minute", details: { retry_after_ms: 60_000 }, retryable: true, replayed: false },
+        { t: "request-settled", tx: "", idempotency_key: key, stream: `cloud:${entity}`, sequence: 0, ok: false }
+      ]
+    }
   }
 
   private refuse(frames: ReadonlyArray<OwnerFrame>, code: string, message: string, retryable: boolean): SubmitResult {

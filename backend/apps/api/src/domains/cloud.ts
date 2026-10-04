@@ -197,6 +197,9 @@ const remove = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
   const stored = machineRow(ctx.rows, d.value.machine)
   if (!stored) return reject("cloud.machine.not_found", "no such machine in this team")
   if (!mayManage(ctx.principal, stored.row)) return reject("auth.forbidden", "only the machine's creator or a team admin may delete it")
+  // A delete already waiting for its call: the same answer, no new ledger row (no churn).
+  const deleting = Object.entries(state.pending).some(([key, e]) => e.machine === stored.row.id && ledgerRow(ctx.rows, key)?.row.op === "delete")
+  if (deleting) return noChange(state, { deleted: true })
   if (!config.prefix || !ctx.idempotencyKey) return unavailable()
   const rev = state.rev + 1
   const writes: Array<RowWrite> = []

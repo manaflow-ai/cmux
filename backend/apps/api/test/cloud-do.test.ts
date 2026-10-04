@@ -238,6 +238,8 @@ describe("CloudDO review fixes (P2-3, P2-4, P3-8, P3-9)", { timeout: 60_000 }, (
 
   it("P2-4: create and delete are rate limited per team (cloud.rate_limited); a decided key still replays", async () => {
     const { team, alice, stub } = people()
+    // A machine binds the object, so the refused delete below is recorded and replays.
+    expect((await create(stub, team, alice)).t).toBe("result")
     const first = reply(await stub.submit(team, alice, frame("cloud.machine.delete", { machine: "vm_00000000000000000009" }, "rl-0")))
     expect(first).toMatchObject({ t: "reject", code: "cloud.machine.not_found" })
     let limited: ReturnType<typeof reply> | undefined
