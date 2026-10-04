@@ -16,6 +16,18 @@
 # Exit codes: 0 clean, 1 violations found.
 set -uo pipefail
 
+NAMESPACE_FIX=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --namespace-fix) NAMESPACE_FIX=(--fix); shift ;;
+    -h|--help)
+      echo "usage: $0 [--namespace-fix]"
+      exit 0
+      ;;
+    *) echo "error: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -101,6 +113,7 @@ if ! python3 scripts/lint_swift_namespaces.py \
   --general-baseline "$BASELINE_FILE" \
   --ratchet scripts/lint-namespace-types-ratchet.txt \
   ${NAMESPACE_RATCHET_UPDATE:+--update-ratchet} \
+  "${NAMESPACE_FIX[@]}" \
   --enum-roots "${SCOPES[@]}" \
   --type-roots "${NS_TYPE_ROOTS[@]}"; then
   fail=1

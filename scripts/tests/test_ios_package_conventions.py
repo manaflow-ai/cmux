@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 class NamespaceLintTests(unittest.TestCase):
-    def lint(self, source, ratchet=None, update=False):
+    def lint(self, source, ratchet=None, update=False, fix=False):
         root = Path(__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory() as temporary:
             checkout = Path(temporary)
@@ -28,10 +28,11 @@ class NamespaceLintTests(unittest.TestCase):
             if update:
                 env['NAMESPACE_RATCHET_UPDATE'] = '1'
             result = subprocess.run(
-                ['bash', str(scripts / 'lint-ios-package-conventions.sh')],
+                ['bash', str(scripts / 'lint-ios-package-conventions.sh')] + (['--namespace-fix'] if fix else []),
                 text=True, capture_output=True, timeout=30, env=env,
             )
             result.ratchet = ratchet_path.read_text() if ratchet_path.exists() else None
+            result.fixed_source = (package / 'Fixture.swift').read_text()
             return result
 
     def test_braces_in_strings_and_comments_do_not_hide_instance_members(self):
@@ -118,6 +119,25 @@ public struct Value {
         result = self.lint(self.NAMESPACE, update=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(self.FIXTURE_KEY, result.ratchet)
+
+    def test_fix_converts_a_namespace_enum_and_adds_explicit_initializer(self):
+        source = '''public nonisolated enum Policy {
+    public static let enabled = true
+}
+'''
+        result = self.lint(source, fix=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('public nonisolated struct Policy {', result.fixed_source)
+        self.assertIn('public nonisolated init() {}', result.fixed_source)
+
+    def test_fix_adds_an_initializer_to_an_all_static_struct_and_is_idempotent(self):
+        source = '''public package struct Policy {
+    public static let enabled = true
+}
+'''.replace('public package', 'package')
+        result = self.lint(source, fix=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('package init() {}', result.fixed_source)
 
 
 if __name__ == '__main__':
