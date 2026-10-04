@@ -3,23 +3,26 @@
 //! `cloud.rescue.open`) and [`Attach`], the attach state the server owns.
 
 mod argv;
+mod carrier;
 pub mod config;
+pub mod dial;
 pub(crate) mod ops;
 mod park;
 mod spawner;
 mod supervisor;
 
-pub use argv::{AttachEndpoint, LinkCommand, LinkLine, LinkPaths, link_command, parse_line};
-pub use spawner::{
-    LinkEvents, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag, LinkWake, ProcessSpawner,
+pub use argv::{
+    LinkCommand, LinkLine, LinkPaths, dial_failed_line, link_command, parse_line, ready_line,
 };
+pub use carrier::CarrierSpawner;
+pub use spawner::{LinkEvents, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag, LinkWake};
 pub use supervisor::{CONNECTOR_KIND, LinkFailure, LinkState, LinkSupervisor, READY_DEADLINE};
 
 use crate::app_env::AppEnv;
 use crate::connector::iface::{BackendId, CarrierEvent, ConnectorEvent, LocalId, check_kinds};
 use crate::rescue::iface::ByteTerminal;
 use crate::rescue::{MissingRescueRoute, RescueBackend, RescueTransport};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// Link events each side holds until it takes them. A side that never
 /// takes them (no daemon connector) loses the oldest, never memory.
@@ -43,9 +46,12 @@ pub struct Attach {
     /// The link details from the host (`cmux.host.link.get`). Until they
     /// are `Ready`, connect answers a typed error.
     pub(crate) link: config::LinkConfig,
-    /// The last attach endpoint of each machine, so a link-details change
-    /// respawns a live link without a new Cloud API call.
-    pub(crate) endpoints: BTreeMap<String, AttachEndpoint>,
+    /// The last overlay host id of each machine, so a link-details change
+    /// respawns a live link without a new backend call.
+    pub(crate) hosts: BTreeMap<String, String>,
+    /// Machines whose paused dial already got its one start (cleared when
+    /// a link comes up).
+    pub(crate) paused_restarts: BTreeSet<String>,
     /// The server's allowlisted environment; children get only
     /// [`AppEnv::child_env`].
     pub(crate) env: AppEnv,
@@ -81,7 +87,8 @@ impl Attach {
         Self {
             supervisor: LinkSupervisor::new(spawner),
             link: paths.map_or(config::LinkConfig::Unrequested, config::LinkConfig::Ready),
-            endpoints: BTreeMap::new(),
+            hosts: BTreeMap::new(),
+            paused_restarts: BTreeSet::new(),
             env: AppEnv::default(),
             rescue: RescueBackend::new(rescue),
             rescue_terminals: BTreeMap::new(),
@@ -102,13 +109,13 @@ impl Attach {
 
     /// No link configuration and no rescue route: attach ops answer typed errors.
     pub fn unconfigured() -> Self {
-        Self::new(Box::new(ProcessSpawner), None, Box::new(MissingRescueRoute))
+        Self::new(Box::new(CarrierSpawner), None, Box::new(MissingRescueRoute))
     }
 
     /// The real link spawner and no rescue route; the link details come
     /// from the host (`cmux.host.link.get`), never from the environment.
     pub fn real() -> Self {
-        Self::new(Box::new(ProcessSpawner), None, Box::new(MissingRescueRoute))
+        Self::new(Box::new(CarrierSpawner), None, Box::new(MissingRescueRoute))
     }
 
     /// The server's allowlisted environment (from the host's start).
