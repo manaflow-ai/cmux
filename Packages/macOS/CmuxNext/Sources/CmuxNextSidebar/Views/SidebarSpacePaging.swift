@@ -107,7 +107,7 @@ import QuartzCore
         let model = SidebarModel(sections: host.model.spaceSections?(profiles[index]) ?? [])
         model.showWorkspaceTabs = host.model.showWorkspaceTabs
         let list = SidebarListView(model: model)
-        let container = NSView(frame: page.frame)
+        let container = SpacePageView(frame: page.frame)
         container.wantsLayer = true
         list.frame = container.bounds
         list.autoresizingMask = [.width, .height]
@@ -142,14 +142,12 @@ import QuartzCore
     /// What the list shows now, kept for a slide (call before the reload).
     func prepareSlide() {
         finishSlide()
-        guard pendingTarget == nil, pager == nil, let rep = page.bitmapImageRepForCachingDisplay(in: page.bounds) else { return }
-        page.cacheDisplay(in: page.bounds, to: rep)
-        let image = NSImage(size: page.bounds.size)
-        image.addRepresentation(rep)
-        let view = NSImageView(frame: page.frame)
-        view.image = image
-        view.imageScaling = .scaleNone
+        guard pendingTarget == nil, pager == nil, let image = Self.render(page) else { return }
+        // The rows are layer-backed: render the layer tree (cacheDisplay draws them empty).
+        let view = SpacePageView(frame: page.frame)
         view.wantsLayer = true
+        view.layer?.contents = image
+        view.layer?.contentsGravity = .resize
         snapshot = view
     }
 
@@ -181,4 +179,22 @@ import QuartzCore
             host.clipsToBounds = false
         }
     }
+
+    /// The page's layer tree as an image (its rows draw into layers).
+    private static func render(_ view: NSView) -> CGImage? {
+        guard let layer = view.layer, view.bounds.width > 0, view.bounds.height > 0 else { return nil }
+        let scale = view.window?.backingScaleFactor ?? 2
+        guard let context = CGContext(data: nil, width: Int(view.bounds.width * scale), height: Int(view.bounds.height * scale),
+                                      bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.scaleBy(x: scale, y: scale)
+        layer.render(in: context)
+        return context.makeImage()
+    }
+}
+
+/// A swipe page or the kept page of a slide: drawn only, never hit (the
+/// gesture and clicks stay on the list).
+private final class SpacePageView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
