@@ -1,0 +1,21 @@
+{
+  "$comment": "Shape recorded from web/app/api/vm/firewall/route.ts POST (201) + VMFirewallRule (no customer data).",
+  "request": {
+    "method": "POST",
+    "path": "/api/vm/firewall"
+  },
+  "status": 201,
+  "body": {
+    "id": "fw-test02",
+    "action": "allow",
+    "source": {
+      "cidr": "203.0.113.0/24"
+    },
+    "destination": {
+      "vmId": "vm-alpha01",
+      "port": 22,
+      "protocol": "tcp"
+    },
+    "description": "office ssh"
+  }
+}

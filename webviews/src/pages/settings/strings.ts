@@ -1,5 +1,5 @@
 // Localized strings, generated from the xcstrings catalogs by
-// scripts/settings/generate-strings.mjs (generated/strings.json). The page picks the
+// scripts/pages/gen-strings.mjs (generated/strings.json). The page picks the
 // locale the app reports in ready(), else navigator.language, else English.
 import generated from "./generated/strings.json";
 import type { LocalizedText } from "./schema";

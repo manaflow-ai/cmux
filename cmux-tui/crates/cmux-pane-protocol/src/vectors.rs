@@ -318,7 +318,7 @@ fn validation_cases() -> Vec<Value> {
     let case = |name: &str, ty: &str, value: Value, valid: bool| json!({ "kind": "validation", "name": name, "type": ty, "value": value, "valid": valid });
     let hello = json!({
         "proto": "cmux.pane/0", "app": "com.example.hello", "namespaces": ["com.example.hello"],
-        "ops": [{ "name": "com.example.hello.greet.say", "kind": "read", "scope": "com.example.hello:use" }],
+        "ops": [{ "name": "com.example.hello.greet.say", "kind": "read", "scope": "hello:read" }],
         "events": [], "interfaces": [], "ir": { "version": "0.1.0", "sha256": "00" },
         "endpoints": [{ "kind": "ws", "url": "ws://127.0.0.1:4100/" }]
     });
@@ -512,7 +512,7 @@ fn fragment_cases() -> Value {
     let fragment = json!({
         "namespaces": [{ "name": "octo.diff_tools", "owner": "app:octo.diff_tools" }],
         "ops": [{
-            "name": "octo.diff_tools.diff.list", "kind": "read", "scope": "octo.diff_tools:use",
+            "name": "octo.diff_tools.diff.list", "kind": "read", "scope": "diff:read", "risk": "read", "gesture": false,
             "owner": "app:octo.diff_tools",
             "params": { "$ref": "#/types/OctoListParams" }, "result": { "type": "array", "items": { "type": "string" } },
             "errors": []
@@ -527,7 +527,7 @@ fn fragment_cases() -> Value {
     third_party_alias["ops"][0]["aliases"] = json!(["difftools.list"]);
     let first_party = |alias: &str| {
         json!({ "ops": [{
-            "name": "cmux.workspace.list", "kind": "read", "scope": "workspace:read",
+            "name": "cmux.workspace.list", "kind": "read", "scope": "workspace:read", "risk": "read", "gesture": false,
             "owner": "first-party", "aliases": [alias],
             "params": { "type": "object" }, "result": { "type": "object" }, "errors": []
         }] })
@@ -543,7 +543,7 @@ fn fragment_cases() -> Value {
     // Decision 21: mcp, cli and secret_output.
     let op21 = |name: &str, mcp: Option<Value>, cli: Option<Value>, result: Value| {
         let mut op = json!({
-            "name": name, "kind": "read", "scope": "octo.diff_tools:use", "owner": "app:octo.diff_tools",
+            "name": name, "kind": "read", "scope": "diff:read", "risk": "read", "gesture": false, "owner": "app:octo.diff_tools",
             "params": { "$ref": "#/types/OctoGetParams" }, "result": result, "errors": []
         });
         if let Some(mcp) = mcp {
@@ -600,6 +600,30 @@ fn fragment_cases() -> Value {
         op
     };
     let no_mcp = op21("octo.diff_tools.diff.get", None, None, plain());
+    // Decision 27: risk, gesture and the derived scope class.
+    let with = |name: &str, fields: Value| {
+        let mut op = op21(name, None, None, plain());
+        for (key, value) in fields.as_object().into_iter().flatten() {
+            op[key] = value.clone();
+        }
+        op
+    };
+    let every_risk: Vec<Value> = crate::op::RISKS
+        .iter()
+        .map(|risk| {
+            let verb = risk.replace('-', "_");
+            with(
+                &format!("octo.diff_tools.risk.{verb}"),
+                json!({ "risk": risk, "scope": "diff:write" }),
+            )
+        })
+        .collect();
+    let bad_risk = with("octo.diff_tools.diff.get", json!({ "risk": "money" }));
+    let mut no_gesture = op21("octo.diff_tools.diff.get", None, None, plain());
+    no_gesture.as_object_mut().map(|op| op.remove("gesture"));
+    let scoped =
+        |scope: &str| fragment21(vec![with("octo.diff_tools.diff.get", json!({ "scope": scope }))]);
+    let declared_class = with("octo.diff_tools.diff.get", json!({ "scope_class": "standard" }));
     json!([
         { "name": "third-party fragment", "decision": 14, "fragment": fragment, "valid": true },
         { "name": "unsupported keyword", "decision": 9, "fragment": keyword, "valid": false },
@@ -624,6 +648,20 @@ fn fragment_cases() -> Value {
           "expect": { "op": "octo.diff_tools.file.get", "paths": ["id"] } },
         { "name": "path param that is not a param", "decision": 22, "fragment": fragment21(vec![with_paths(json!(["nope"]))]), "valid": false },
         { "name": "path param that is not a string", "decision": 22, "fragment": fragment21(vec![with_paths(json!(["count"]))]), "valid": false },
+        { "name": "an op of each risk", "decision": 27, "fragment": fragment21(every_risk), "valid": true,
+          "expect": { "op": "octo.diff_tools.risk.send_external", "risk": "send-external", "gesture": false } },
+        { "name": "risk outside the enum", "decision": 27, "fragment": fragment21(vec![bad_risk]), "valid": false },
+        { "name": "gesture missing", "decision": 27, "fragment": fragment21(vec![no_gesture]), "valid": false },
+        { "name": "standard scope", "decision": 27, "fragment": scoped("diff:read"), "valid": true,
+          "expect": { "op": "octo.diff_tools.diff.get", "scope_class": "standard" } },
+        { "name": "sensitive scope", "decision": 27, "fragment": scoped("diff:write"), "valid": true,
+          "expect": { "op": "octo.diff_tools.diff.get", "scope_class": "sensitive" } },
+        { "name": "restricted scope", "decision": 27, "fragment": scoped("fs:write"), "valid": true,
+          "expect": { "op": "octo.diff_tools.diff.get", "scope_class": "restricted" } },
+        { "name": "server-only rule", "decision": 27, "fragment": scoped("process:spawn:git"), "valid": true,
+          "expect": { "op": "octo.diff_tools.diff.get", "scope_class": "restricted", "server_only": true } },
+        { "name": "scope that matches no rule", "decision": 27, "fragment": scoped("diff:use"), "valid": false },
+        { "name": "fragment declares scope_class", "decision": 27, "fragment": fragment21(vec![declared_class]), "valid": false },
         { "name": "op name with only a verb below its namespace", "decision": 26,
           "fragment": fragment21(vec![op21("octo.diff_tools.get", None, None, plain())]), "valid": false },
         { "name": "two never-exposed ops with the same MCP tool name", "decision": 23,

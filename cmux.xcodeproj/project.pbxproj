@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		CE7A00000000000000000015 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
 		CE7A00000000000000000012 /* CmuxNextApp in Frameworks */ = {isa = PBXBuildFile; productRef = CE7A00000000000000000014 /* CmuxNextApp */; };
-		CE7A00000000000000000011 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5001016 /* GhosttyKit.xcframework */; };
 		CE7A00000000000000000019 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000002 /* InfoPlist.xcstrings */; };
 		CE7A0000000000000000001D /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A11CE0050000000000000001 /* LICENSE */; };
 		CE7A00000000000000000002 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE7A00000000000000000001 /* main.swift */; };
@@ -35,7 +34,6 @@
 		CE7A00000000000000000004 /* cmux-next.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "cmux-next.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		FEED0A00000000000000F006 /* feed-tui */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "feed-tui"; sourceTree = "<group>"; };
 		A5001017 /* ghostty.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ghostty.h; sourceTree = "<group>"; };
-		A5001016 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
 		DA7A10CA710E000000000002 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		A11CE0050000000000000001 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = SOURCE_ROOT; };
 		CE7A00000000000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/main.swift"; sourceTree = SOURCE_ROOT; };
@@ -110,7 +108,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				CE7A00000000000000000012 /* CmuxNextApp in Frameworks */,
-				CE7A00000000000000000011 /* GhosttyKit.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -123,7 +120,6 @@
 				CE7A00000000000000000022 /* Resources */,
 				A5001101 /* Assets.xcassets */,
 				IC000002 /* AppIcon.icon */,
-				A5001016 /* GhosttyKit.xcframework */,
 				A5001017 /* ghostty.h */,
 				A5001042 /* Products */,
 				CE7A00000000000000000021 /* App */,

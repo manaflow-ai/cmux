@@ -266,3 +266,17 @@ describe("cloud unread counts (home-scale review P1)", () => {
     expect(bumpFor(host, ALICE)).toMatchObject({ unread: 1, mentions: 0 })
   })
 })
+
+describe("unread counts start at the history floor (since_join)", () => {
+  const bumpFor = (host: ReturnType<typeof newGroup>, user: string) =>
+    host.outbox.filter((item) => item.kind === "inbox.bump" && item.target?.name === user).at(-1)?.payload as { unread?: number } | undefined
+  it("a member added to a since_join group does not count the history before the join", () => {
+    const host = newGroup()
+    expect(host.run(session(ALICE, "Alice"), "conversation.settings.set", { history_visible: "since_join" }, "s")).toMatchObject({ ok: true })
+    for (let i = 0; i < 3; i++) host.run(session(BOB, "Bob"), "message.send", { client_msg_id: `h${i}`, parts: [text(`h${i}`)] }, `h${i}`)
+    host.run(session(ALICE, "Alice"), "participants.add", { participant: human(CAROL, "Carol") }, "add")
+    expect(bumpFor(host, CAROL)?.unread ?? 0).toBe(0)
+    host.run(session(BOB, "Bob"), "message.send", { client_msg_id: "after", parts: [text("after")] }, "after")
+    expect(bumpFor(host, CAROL)).toMatchObject({ unread: 1 })
+  })
+})

@@ -205,6 +205,26 @@
       "scope": "cloud:read",
       "class": "read"
     },
+    "cloud.domain.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.domain.verify": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.firewall.create": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.firewall.get": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.firewall.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
     "cloud.machine.connect": {
       "scope": "cloud:write",
       "class": "mutation"
@@ -253,9 +273,29 @@
       "scope": "cloud:read",
       "class": "read"
     },
+    "cloud.network.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
     "cloud.plan.get": {
       "scope": "cloud:read",
       "class": "read"
+    },
+    "cloud.publication.create": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.publication.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.publication.update": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.publication.verify": {
+      "scope": "cloud:write",
+      "class": "mutation"
     },
     "cloud.rescue.open": {
       "scope": "cloud:write",
@@ -274,6 +314,18 @@
       "class": "read"
     },
     "cloud.snapshot.restore": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.tunnel.attach": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.tunnel.detach": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.tunnel.rotate_key": {
       "scope": "cloud:write",
       "class": "mutation"
     },
@@ -1588,7 +1640,9 @@
     "client.metadata.update",
     "client.sizing.release",
     "client.sizing.set",
+    "cloud.firewall.delete",
     "cloud.machine.delete",
+    "cloud.publication.delete",
     "cloud.snapshot.delete",
     "domain.release",
     "firewall.delete",

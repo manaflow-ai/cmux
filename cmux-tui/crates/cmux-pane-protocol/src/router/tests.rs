@@ -9,7 +9,7 @@ fn router() -> Arc<Router> {
     let router = Router::new(SigningKey::from_seed(&[1; 32]), catalog());
     for (app_id, credential, grants) in [
         ("cmux.git", None, vec!["git:read".to_owned()]),
-        ("com.example.hello", Some("secret".to_owned()), vec!["com.example.hello:use".to_owned()]),
+        ("com.example.hello", Some("secret".to_owned()), vec!["hello:read".to_owned()]),
         ("octo.diff_tools", Some("octo".to_owned()), vec!["git:read".to_owned()]),
         ("cmux.agent", None, vec!["git:read".to_owned()]),
     ] {
@@ -65,7 +65,7 @@ fn admits_a_first_party_provider_and_finds_it() {
 #[test]
 fn refuses_ops_and_namespaces_outside_the_app() {
     let router = router();
-    let say = || op("com.example.hello.greet.say", "read", "com.example.hello:use");
+    let say = || op("com.example.hello.greet.say", "read", "hello:read");
     let cases = [
         hello(
             "com.example.hello",
@@ -101,7 +101,7 @@ fn refuses_ops_and_namespaces_outside_the_app() {
 #[test]
 fn self_started_needs_its_credential_and_spawned_needs_its_app_id() {
     let router = router();
-    let say = op("com.example.hello.greet.say", "read", "com.example.hello:use");
+    let say = op("com.example.hello.greet.say", "read", "hello:read");
     let request = hello("com.example.hello", &["com.example.hello"], vec![say]);
     assert!(router.admit(1, &Admission::SelfStarted, request.clone()).is_err());
     assert!(
