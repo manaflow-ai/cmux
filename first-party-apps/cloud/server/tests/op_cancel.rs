@@ -10,9 +10,9 @@ mod edge_common;
 mod serve_common;
 
 use attach_common::{FakeSpawner, FakeTransport, attach};
+use cmux_cloud::CloudError;
 use cmux_cloud::fs::{Cancel, DaemonFiles, DialTarget};
 use cmux_cloud::ports::Edge;
-use cmux_cloud::CloudError;
 use edge_common::{FakeTransfer, FakeTunnel};
 use serde_json::{Value, json};
 use serve_common::Host;
@@ -108,13 +108,19 @@ fn a_cancelled_file_op_answers_once_with_op_cancelled_and_stops() {
 fn cancelling_an_unknown_or_finished_op_gets_no_reply() {
     let (mut host, _release, _) = host();
     cancel(&host, "nobody");
-    assert!(results(&mut host, "nobody", Duration::from_millis(300)).is_empty(), "unknown: no reply");
+    assert!(
+        results(&mut host, "nobody", Duration::from_millis(300)).is_empty(),
+        "unknown: no reply"
+    );
     stat(&host, "fast", "/fast");
     let fast = results(&mut host, "fast", Duration::from_secs(2));
     assert_eq!(fast.len(), 1);
     assert_eq!(fast[0]["ok"], true);
     cancel(&host, "fast");
-    assert!(results(&mut host, "fast", Duration::from_millis(300)).is_empty(), "finished: no reply");
+    assert!(
+        results(&mut host, "fast", Duration::from_millis(300)).is_empty(),
+        "finished: no reply"
+    );
 }
 
 #[test]
