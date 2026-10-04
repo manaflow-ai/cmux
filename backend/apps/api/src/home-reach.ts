@@ -1,5 +1,6 @@
 import { conversation as homeConversation } from "@cmux/home-core"
 import type { Principal } from "@cmux/ownership"
+import { HOME_REACH_MAX_TARGETS } from "./domains/team-members.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
 import { CHIEF_AGENT_CLASS } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
@@ -32,8 +33,8 @@ import type { Env } from "./env.ts"
  * refusal by setting, so the caller cannot tell whether an account exists.
  */
 
-/** Group size cap (section 4.1); more targets than this are never resolved. */
-export const MAX_TARGETS = 64
+/** Group size cap (section 4.1); more targets than this are never resolved (TeamDO checks it too). */
+const MAX_TARGETS = HOME_REACH_MAX_TARGETS
 const MAX_ID = 64
 
 interface TeamReachStub {
