@@ -144,6 +144,14 @@ describe("cloud ops through the Worker", { timeout: 60_000 }, () => {
     await op(t, "cloud.machine.delete", { machine: id })
     const gone = await wait((f) => f.t === "event" && f.event === "cloud.machine.removed")
     expect(gone.data).toEqual({ machine: id, revision: String(gone.seq) })
+    // P3-8: internal ops never show the ledger key or provider error text to subscribers.
+    const internal = frames.filter((f) => f.t === "event" && f.op === "cloud.driver_result")
+    expect(internal.length).toBeGreaterThan(0)
+    for (const f of internal) expect(f.params).toEqual({})
+    // P3-7: ops go through /v1/ops, never the socket.
+    ws.send(JSON.stringify({ t: "op", op: "cloud.machine.rename", params: { machine: id, name: "via socket" }, idempotency_key: "sock-1" }))
+    const refused = await wait((f) => f.t === "error")
+    expect(refused).toMatchObject({ code: "validation.invalid", message: "send ops through /v1/ops" })
     expect(Number(gone.seq)).toBeGreaterThan(Number(up.seq))
     ws.close()
   })
