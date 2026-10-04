@@ -1,6 +1,6 @@
 # cmux next: remote conversations on a paired server (relay analysis)
 
-Status: revision 13 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
+Status: revision 14 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
 5 P2), with the coordinator's decisions D-A and D-B of 2026-10-04. No code yet; the review agent
 re-checks this revision before any code. Decisions D1 and D2 of 2026-10-04: the MacBook opens the daemon
 conversations of a paired Mac mini over lane 12's `cmux link` overlay; the server is a
@@ -113,7 +113,7 @@ kinds for owned conversations leave it (section 8). Nothing reaches the remote w
 - Owned conversation: `remote_<install>` is a participant and the stamp's `user_id` is the server
   owner. The gate checks this for list, snapshot, history, typing and ops.
 
-## 6. Remote prompts to agents (D-A no waiver; D-E to D-J; rev 13)
+## 6. Remote prompts to agents (D-A no waiver; D-E to D-J; rev 14)
 
 A `message.send` from a remote principal into a conversation with an agent starts a
 **remote-origin prompt chain**. Every rule fails closed: when any part of the gate is missing,
@@ -131,7 +131,9 @@ crashed, slow or unsure, the tool does not run.
    cursors and non-owned conversations) and contains no deny path (for another agent: its session's
    workspace root, under the same rules). Reads without an approval are allowed only there. The
    deny list is a second layer: `state/`, `*.token`, `.claude/`, `.env*`, `~/.ssh`, the
-   `MUX_AGENT_TOKEN_FILE` path, the pairing record and install keys always ask approval.
+   `MUX_AGENT_TOKEN_FILE` path, the pairing record and install keys always ask approval, and the
+   acpmux home (its config and the WebSocket dashboard token) is never approvable for reads or
+   writes in a remote chain.
    **Memory files (P2-3, D-M decided: reads ask).** In a remote chain, reads of the Chief's memory
    files (`LOG.txt`, `TREE/`) ask the human with a presence proof, because they can hold
    non-owned conversation content and local tool output. Follow-up: a memory projection in the
@@ -236,6 +238,8 @@ crashed, slow or unsure, the tool does not run.
      refuses the chain if any tool is not in its classified table (P2-R: this catches version drift and tools such as
      `ListMcpResources` and `ReadMcpResource`). Every MCP call (cmux screen reads, terminal and
      workspace state included) asks the human, except a reviewed list of read tools.
+   - from the real pinned Claude Bash tool, `mux agents spawn` and a raw acpmux connect are
+     refused, also after `setsid`, `nohup ... &` and a double fork (rule 12b OS boundary).
    - acpmux's `claude_stdio` (Claude stream-json) is the adapter, pinned with Claude; its handling of
      document blocks, slash commands and `@` is probed (rule 10). `fs/read_text_file` from an ACP
      adapter would bypass `handle_permission`; this is acceptable with `claude_stdio`, and the tests
@@ -323,21 +327,38 @@ crashed, slow or unsure, the tool does not run.
     - **Export and import (P2-b):** the taint is part of `SessionMeta`, so `MUX_EXPORT`/`MUX_IMPORT`
       (`hub/transfer.rs`, `native::restore`) keep it; until that ships, `MUX_EXPORT` of a tainted
       session is refused.
-    - **Children by process group (rev 13 P2).** No request field names a parent, so acpmux finds
-      the caller from its peer credentials (`LOCAL_PEERPID`, then `getpgid`) and compares it with
-      the process group of every tainted session (`agent.rs` spawns each with `process_group(0)`).
-      For a request from inside a tainted group: a new session is tainted and gets the clean spec
-      (rule 4); a peer-forwarded `session/new` (`_meta.acpmux.peer`, today forwarded before any
-      check in `server/requests.rs`) is refused; its prompts are remote; `permission_respond`, a
-      `_acpmux/tag` of `mux.parent`, and policy, mode or default changes are refused. The Agent
-      tool's in-process subagents share the parent's taint.
+    - **OS boundary first (rev 14 P1; DECISION D-R pending with the coordinator).** Claude Code
+      2.1.289 starts its Bash shell with `detached: true` (`setsid()`), so every Bash command runs in
+      a new session and process group, and a peer check on the group alone fails on the default
+      path. The primary control is therefore an inherited sandbox:
+      - the inline settings turn on the Claude Bash sandbox (Seatbelt on macOS) for every
+        remote-chain session; `dangerouslyDisableSandbox` and unsandboxed commands are refused;
+      - the sandbox denies Unix-socket connects to the acpmux and daemon sockets and denies loopback
+        network (which also blocks acpmux's WebSocket dashboard port);
+      - a remote chain can start a child **only** through a daemon MCP tool that sets the taint and
+        the clean spec explicitly (the `mux agents spawn` CLI and raw acpmux connects are not a path
+        for it).
+    - **Peer check, second layer (rev 13 P2, rev 14).** acpmux finds the caller from its peer
+      credentials (`LOCAL_PEERPID`) and walks the ppid chain (`sysctl KERN_PROC_PID`, `e_ppid`),
+      matching the pgid or the sid of any tainted session (`agent.rs` spawns each with
+      `process_group(0)`); the set of tainted groups is kept current across respawns. A lookup
+      failure, or a peer pid that already exited, fails closed (refused). For a request from inside
+      a tainted chain: a new session is tainted and gets the clean spec (rule 4); a peer-forwarded
+      `session/new` (`_meta.acpmux.peer`) is refused; its prompts are remote; `permission_respond`,
+      a `_acpmux/tag` of `mux.parent`, and policy, mode or default changes are refused; `spawnAgent`
+      and `promptAgent` that name an existing local session are refused.
+    - **Parent record (rev 14 P2-1).** acpmux stores `tainted_parent` in `SessionMeta` from the
+      taint decision and exposes it in `SessionSummary`; the mux host routes child events only on
+      it (never on the `mux.parent` tag, which is refused from a tainted caller), and `spawnAgent`
+      keeps the created session when the tag is refused, so no orphan untainted session is left.
     - **Child events never prompt the Chief (rev 13 P1).** Code fact: `mux/host/src/agents.ts`
       `spawnAgent` tags every child `mux.parent = "mux"` (the Chief) whatever session spawned it,
       and `host.ts` `childFinished` and `onPermission` send `childFinishedPrompt` and
       `childPermissionPrompt` as plain text prompts into the local Chief. For a tainted child: the
       mux host records the real spawning session; the child's events go only to its tainted
-      parent, through the daemon socket, as rule 10 `document` blocks (or are dropped and written
-      only to the remote log). They never prompt the local Chief.
+      parent through the daemon (not through the mux host's own acpmux connection), as rule 10
+      `document` blocks, or are dropped and written only to the remote log. They never prompt the
+      local Chief.
     - **Global settings through an approved call:** an approved Bash call could try to change
       global acpmux defaults over RPC; the process-group check refuses that from inside a tainted
       group.
@@ -432,6 +453,13 @@ Tests for this section (the acpmux owner adds fake-model probes on a Testbox):
   `agentSessionId` is still tainted.
 - an unknown block type sent through `steer_now` into a tainted session is refused.
 - the clean spec fixes mode, effort and model; `meta.modes` values do not reach the spawn.
+- through the REAL Bash tool of a remote chain: `mux agents spawn` is refused, a raw connect to the
+  acpmux socket or its loopback WebSocket port fails, also after `setsid`, `nohup &` and a double
+  fork (the gate-5 probe of rule 5 runs the same cases); `dangerouslyDisableSandbox` is refused.
+- a child spawned through the daemon MCP tool is tainted; its finish reaches the parent through the
+  daemon; no Chief prompt and no orphan untainted session; `tainted_parent` is in `SessionSummary`.
+- from a tainted caller, `spawnAgent` and `promptAgent` that name an existing local session are
+  refused; a peer pid that already exited is refused; a failed ppid lookup is refused.
 - the remote projection arrives as the first stdin prompt (not on argv), and an earlier remote
   message with a fake delimiter in it stays inside its block.
 - remote text in a `document` block with `</resource>`, a fake `[mux-event]` line, `@/etc/hosts`
