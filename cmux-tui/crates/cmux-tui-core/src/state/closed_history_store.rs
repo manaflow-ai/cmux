@@ -349,13 +349,13 @@ impl Closing {
         for change in &patch.changes {
             match change {
                 ResourceChange::TombstoneWorkspace { workspace_id } => {
-                    closing.workspaces.push(workspace_id.as_str().to_string())
+                    closing.workspaces.push(workspace_id.as_str().to_string());
                 }
                 ResourceChange::TombstoneScreen { screen_id } => {
-                    closing.screens.push(screen_id.as_str().to_string())
+                    closing.screens.push(screen_id.as_str().to_string());
                 }
                 ResourceChange::TombstoneTab { tab_id, .. } => {
-                    closing.tabs.push(tab_id.as_str().to_string())
+                    closing.tabs.push(tab_id.as_str().to_string());
                 }
                 _ => {}
             }
