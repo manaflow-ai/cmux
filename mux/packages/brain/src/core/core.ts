@@ -41,6 +41,16 @@ import { compareCodePoints as compare, plain } from "./text.ts";
 
 /** The timer key of the one-shot outbox retry. */
 export const OUTBOX_TIMER = "outbox";
+/** The timer key of the session-list retry. */
+export const SESSIONS_TIMER = "sessions";
+/** Retry backoff of a failed session list or a rejected prompt: 1 s, doubling to 30 s. */
+export const RETRY_INITIAL_MS = 1_000;
+export const RETRY_MAX_MS = 30_000;
+
+/** The delay of retry `attempt` (1-based). */
+export function retryDelay(attempt: number): number {
+  return Math.min(RETRY_INITIAL_MS * 2 ** Math.min(attempt - 1, 30), RETRY_MAX_MS);
+}
 
 export type Port = "daemon" | "acpmux";
 
@@ -81,7 +91,8 @@ export type Input =
   | { kind: "permission_pending"; session_id: string; permission_id: string; request: Record<string, unknown> }
   /**
    * The answer to `fetch_sessions`. `failed`: the request failed (sessions is
-   * empty); pending permissions stay for the next list or acpmux connect.
+   * empty); pending permissions wait for the retry (`arm_timer sessions`,
+   * 1 s doubling to 30 s), a waiting change of their session, or the next connect.
    */
   | { kind: "sessions"; sessions: SessionSummary[]; failed?: boolean }
   /** The answer to `fetch_child_events` (an empty list when the request failed). */
@@ -159,6 +170,8 @@ export class Core {
   private readonly pendingChildren = new Map<string, SessionSummary>();
   /** Later `session_changed` inputs of a child with a pending finish, in order (replayed after it). */
   private readonly heldChanges = new Map<string, SessionSummary[]>();
+  /** Failed session lists in a row (the retry backoff). */
+  private sessionsFailures = 0;
   /** Permission requests from sessions not known as children yet, waiting for `sessions`. */
   private pendingPermissions: { sessionId: string; permissionId: string; request: Record<string, unknown> }[] = [];
   private inbox: InboxItem[] = [];
@@ -213,6 +226,9 @@ export class Core {
           this.applyMuxEvent(input.event);
         break;
       case "session_changed":
+        // A pending permission's session now waits: list again at once.
+        if (input.session.status === "waiting" && this.pendingPermissions.some((p) => p.sessionId === input.session.sessionId))
+          this.emit({ kind: "fetch_sessions" });
         this.sessionChanged(input.session);
         break;
       case "permission_pending":
@@ -220,8 +236,16 @@ export class Core {
         break;
       case "sessions":
         if (input.failed === true) {
-          if (this.pendingPermissions.length > 0) this.log("session list failed; pending permissions wait for the next one");
-        } else this.sessions(input.sessions);
+          if (this.pendingPermissions.length > 0) {
+            this.sessionsFailures += 1;
+            const delay = retryDelay(this.sessionsFailures);
+            this.log(`session list failed; retrying in ${delay} ms`);
+            this.emit({ kind: "arm_timer", key: SESSIONS_TIMER, at: this.now + delay });
+          }
+        } else {
+          this.sessionsFailures = 0;
+          this.sessions(input.sessions);
+        }
         break;
       case "child_events": {
         const session = this.pendingChildren.get(input.session_id);
@@ -240,6 +264,8 @@ export class Core {
         if (input.key === OUTBOX_TIMER) {
           this.outboxTimerAt = undefined;
           this.flushOutbox();
+        } else if (input.key === SESSIONS_TIMER) {
+          if (this.pendingPermissions.length > 0 && this.acpmuxUp) this.emit({ kind: "fetch_sessions" });
         }
         break;
       case "disconnected":

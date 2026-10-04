@@ -1271,8 +1271,10 @@ function childCases(): CorpusCase[] {
     // Another session's change does not fetch; the pending session's waiting change does.
     c.step({ kind: "session_changed", session: session("s_x", "other", "waiting", { tags: {} }) }, []);
     const writer = session("s_w", "writer", "waiting");
-    c.step({ kind: "session_changed", session: writer }, ["fetch_sessions"]);
-    c.step({ kind: "sessions", sessions: [writer] }, ["persist", "conversation_op", "prompt"]);
+    // (The change also registers the child with its waiting card.)
+    c.step({ kind: "session_changed", session: writer }, ["persist", "fetch_sessions", "conversation_op"]);
+    // (The work card's send is still in flight, so the waiting edit queues behind it.)
+    c.step({ kind: "sessions", sessions: [writer] }, ["persist", "prompt"]);
     // Answered: the armed retry finds nothing pending.
     c.step({ kind: "timer", key: "sessions" }, [], undefined, 2_000);
     cases.push(c.end());
