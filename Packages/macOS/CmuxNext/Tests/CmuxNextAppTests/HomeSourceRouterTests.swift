@@ -1,4 +1,4 @@
-import CmuxHomeCore
+@testable import CmuxHomeCore
 import CmuxNextDaemon
 import Foundation
 import Synchronization
@@ -143,6 +143,48 @@ nonisolated final class FakeLocalHomeSource: HomeSource {
         cloud.handle(.subscriptionState(CloudSubscriptionState(scope: "conversation", conversation: dm, state: "live")))
         #expect(await daemon.wait { $0.filter { if case .op = $0 { true } else { false } }.count > failed })
         #expect(Set(daemon.opRequests.map(\.idempotencyKey)) == ["cmk_r"])
+    }
+
+    /// An account switch with an unconfirmed cloud intent: the store drops
+    /// it, and the first good reply for the new account resends nothing of
+    /// the old one (no invite and no message under the wrong identity).
+    @MainActor @Test func anAccountSwitchNeverResendsThePreviousAccountsIntents() async throws {
+        let opened = "conv_dm_01J0000000000000000000000B"
+        let theirs = "conv_dm_01J0000000000000000000000F"
+        let (router, _, daemon, cloud) = await router()
+        daemon.script.withLock { $0.op = { _ in throw F.unavailable() } }
+        let store = HomeStore(source: router)
+        store.start()
+        for await shown in Observations({ store.isOnline && store.rows.count == 2 }) where shown { break }
+        let keyA = IdempotencyKey("cmk_a")
+        await #expect(throws: HomeSendState.pendingResend) {
+            try await store.perform(.startConversation(contacts: [.email("x@y.com")], firstMessage: [.text("hello")]), key: keyA)
+        }
+        // The immediate resend fails too: the intent waits for the next recovery.
+        #expect(await until { store.log.entries.first { $0.intent.key == keyA }?.state == .unconfirmed })
+        let switched = daemon.opRequests.count
+        daemon.script.withLock { script in
+            script.entries = [F.entry(theirs)]
+            script.heads = [theirs: F.head(theirs, participants: [F.participant("user_stack-other", "Other"), F.participant("user_bob", "Bob")])]
+            script.op = { _ in CloudConversationOpResult(conversation: F.head(opened, rev: 1, lastSeq: 0)) }
+        }
+        let other = CloudIdentity(stackUserID: "stack-other", displayName: "Other", localID: F.localMe)
+        cloud.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: other)
+        for await shown in Observations({ store.rows.contains { $0.id.rawValue == theirs } }) where shown { break }
+        _ = try await store.perform(.invite(contact: .email("z@y.com")), key: IdempotencyKey("cmk_b"))
+        #expect(await until { !store.log.entries.contains { $0.state == .sending } })
+        let sent = daemon.opRequests.dropFirst(switched).map(\.idempotencyKey)
+        #expect(!sent.contains { $0.hasPrefix("cmk_a") }, "sent under the new account: \(sent)")
+        #expect(!store.log.entries.contains { $0.intent.key == keyA })
+    }
+
+    /// Yields until `condition` holds; the suite's time limit bounds it.
+    @MainActor func until(_ condition: () -> Bool) async -> Bool {
+        for _ in 0..<100_000 {
+            if condition() { return true }
+            await Task.yield()
+        }
+        return condition()
     }
 
     /// A cloud conversation opened before the merged inbox loads (a deep
