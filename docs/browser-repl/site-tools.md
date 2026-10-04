@@ -213,6 +213,11 @@ the file back to verify.
 Rule for writes (reference B's confirmation taxonomy, [9] edits others can see):
 a write first opens the file's editor and reads its Share button. If it
 says "Private to only me", nobody else sees the edit and it runs at once.
+The label is read only from the editor's own Share button (the one
+element with its id, in the editor's header) and the labels inside it,
+which must agree; a sharing label anywhere else in the page counts for
+nothing, and a second, different one in the button makes the sharing
+unknown.
 Otherwise, including when the sharing cannot be read, the write returns a
 draft with the file, its title, the sharing text and the change, and runs
 only on `method(draftId, { confirm: true })`. Either way the write reloads

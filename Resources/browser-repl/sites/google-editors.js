@@ -155,18 +155,43 @@
         const now = await editors.sharing(page);
         if (now !== expected) throw new S.SiteError("sharing_changed", `${name}: the file's sharing is now "${now || "unknown"}", not "${expected || "unknown"}" as ${when}; nothing was changed. Make a new ${when === "previewed" ? "draft and show it to the user again" : "call"}`);
       },
-      // The Share button's description: "Share. Private to only me" and the like.
-      // The button renders a moment after the editor; wait for it.
+      // The Share button's description: "Share. Private to only me" and the
+      // like, or "" when it is unknown. It decides whether an edit runs at
+      // once, so it is read only from the editor's own Share button: the one
+      // element with its id in the document, inside the editor's title bar
+      // (the id sits on an unlabeled wrapper, the label on the button in
+      // it), through locators (the agent's isolated world). Every sharing
+      // label there must agree; another label anywhere else in the page
+      // counts for nothing, and two that disagree make it unknown. The
+      // button renders a moment after the editor; wait for it.
       async sharing(page) {
-        const label = await t.waitIn(page, () => {
-          // The first element whose label describes sharing (the id sits on an unlabeled wrapper).
-          for (const b of document.querySelectorAll("#docs-titlebar-share-client-button, #docs-titlebar-share-client-button *, [aria-label^='Share'], [data-tooltip^='Share']")) {
-            const label = (b.getAttribute("aria-label") || b.getAttribute("data-tooltip") || "").trim();
-            if (/^Share\. /.test(label)) return label;
+        const SHARE_LABEL = /^Share\. /;
+        const read = async () => {
+          if ((await page.locator("#docs-titlebar-share-client-button").count()) !== 1) return null;
+          // In the editor's header (the title bar, or the header around it).
+          const button = page.locator(":is(#docs-titlebar, #docs-header) #docs-titlebar-share-client-button").first();
+          if (!(await button.count())) return null;
+          const labelOf = async (l) => ((await l.getAttribute("aria-label", { timeout: 2000 })) || (await l.getAttribute("data-tooltip", { timeout: 2000 })) || "").trim();
+          const labels = new Set();
+          const own = await labelOf(button);
+          if (SHARE_LABEL.test(own)) labels.add(own);
+          const inner = button.locator("[aria-label^='Share'], [data-tooltip^='Share']");
+          const n = await inner.count();
+          if (n > 8) return "";
+          for (let i = 0; i < n; i++) {
+            const label = await labelOf(inner.nth(i));
+            if (SHARE_LABEL.test(label)) labels.add(label);
           }
-          return null;
-        }, undefined, { timeout: 15000, what: "the Share button" }).catch(() => "");
-        return label || "";
+          if (!labels.size) return null;
+          return labels.size === 1 ? [...labels][0] : "";
+        };
+        const deadline = t.now() + 15000;
+        for (;;) {
+          const label = await read().catch(() => null);
+          if (label !== null) return label;
+          if (t.now() >= deadline) return "";
+          await t.sleep(150);
+        }
       },
       isPrivate: (label) => /private to only me/i.test(label),
       // Offsets of `find` in `text` as the editors' Find and replace
