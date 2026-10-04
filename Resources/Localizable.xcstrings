@@ -235793,7 +235793,7 @@
       "ar": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "جارٍ تحميل خطة أجهزة Cloud…"
         }
       },
       "bs": {
@@ -235811,19 +235811,19 @@
       "de": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Dein Cloud-Maschinenplan wird geladen…"
         }
       },
       "es": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Cargando tu plan de máquinas Cloud…"
         }
       },
       "fr": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Chargement de votre forfait de machines Cloud…"
         }
       },
       "it": {
@@ -235835,7 +235835,7 @@
       "ja": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Cloud マシンプランを読み込んでいます…"
         }
       },
       "km": {
@@ -235847,7 +235847,7 @@
       "ko": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Cloud 머신 요금제를 불러오는 중…"
         }
       },
       "nb": {
@@ -235895,13 +235895,13 @@
       "zh-Hans": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "正在加载您的 Cloud 机器套餐…"
         }
       },
       "zh-Hant": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "正在載入您的 Cloud 機器方案…"
         }
       }
     }
@@ -235918,7 +235918,7 @@
       "ar": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "إعادة المحاولة"
         }
       },
       "bs": {
@@ -235936,19 +235936,19 @@
       "de": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Erneut versuchen"
         }
       },
       "es": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Reintentar"
         }
       },
       "fr": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Réessayer"
         }
       },
       "it": {
@@ -235960,7 +235960,7 @@
       "ja": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "再試行"
         }
       },
       "km": {
@@ -235972,7 +235972,7 @@
       "ko": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "다시 시도"
         }
       },
       "nb": {
@@ -236020,13 +236020,13 @@
       "zh-Hans": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "重试"
         }
       },
       "zh-Hant": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "重試"
         }
       }
     }
@@ -236043,7 +236043,7 @@
       "ar": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "لا تزال تفاصيل خطة Cloud قيد التحميل. أعد المحاولة بعد لحظة."
         }
       },
       "bs": {
@@ -236061,19 +236061,19 @@
       "de": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Die Cloud-Planangaben werden noch geladen. Versuche es gleich erneut."
         }
       },
       "es": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Los detalles del plan de Cloud todavía se están cargando. Vuelve a intentarlo en un momento."
         }
       },
       "fr": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Les détails du forfait Cloud se chargent encore. Réessayez dans un instant."
         }
       },
       "it": {
@@ -236085,7 +236085,7 @@
       "ja": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Cloud プランの詳細を読み込んでいます。しばらくしてから再試行してください。"
         }
       },
       "km": {
@@ -236097,7 +236097,7 @@
       "ko": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Cloud 요금제 세부 정보를 아직 불러오는 중입니다. 잠시 후 다시 시도하세요."
         }
       },
       "nb": {
@@ -236145,13 +236145,13 @@
       "zh-Hans": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Cloud 套餐详情仍在加载。请稍后重试。"
         }
       },
       "zh-Hant": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Cloud 方案詳細資料仍在載入中。請稍後重試。"
         }
       }
     }
