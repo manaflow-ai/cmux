@@ -141,7 +141,8 @@ async function sha256Hex(value: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function stackHeaders(env: AuthEnv, accessToken: string): Record<string, string> {
+/** Headers for Stack's client API. Exported for tests. */
+export function stackHeaders(env: AuthEnv, accessToken: string): Record<string, string> {
   return {
     "x-stack-access-type": "client",
     "x-stack-project-id": env.STACK_PROJECT_ID ?? "",
