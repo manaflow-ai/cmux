@@ -1530,6 +1530,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             let capture = attachment.drag?.capture
             if let capture {
                 guard await capture.openPasteboardWindow() else {
+                    if !BrowserReplPasteboardRedirect.shared.install() {
+                        throw Self.error("unsupported", "This macOS has no drag pasteboard lookup cmux can redirect, so a drag that would write the system's drag pasteboard is refused; the drag did not move")
+                    }
+                    if capture.isFinished {
+                        throw Self.error("stale", "The drag ended before it moved (the tab's drag state was reset); press the mouse button again")
+                    }
                     throw Self.error("timeout", "Another tab's automated drag did not release the drag pasteboard within 5 s; the drag did not move")
                 }
             }
