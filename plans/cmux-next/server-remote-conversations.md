@@ -1,6 +1,6 @@
 # cmux next: remote conversations on a paired server (relay analysis)
 
-Status: revision 14 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
+Status: revision 15 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
 5 P2), with the coordinator's decisions D-A and D-B of 2026-10-04. No code yet; the review agent
 re-checks this revision before any code. Decisions D1 and D2 of 2026-10-04: the MacBook opens the daemon
 conversations of a paired Mac mini over lane 12's `cmux link` overlay; the server is a
@@ -113,7 +113,7 @@ kinds for owned conversations leave it (section 8). Nothing reaches the remote w
 - Owned conversation: `remote_<install>` is a participant and the stamp's `user_id` is the server
   owner. The gate checks this for list, snapshot, history, typing and ops.
 
-## 6. Remote prompts to agents (D-A no waiver; D-E to D-J; rev 14)
+## 6. Remote prompts to agents (D-A no waiver; D-E to D-J; rev 15)
 
 A `message.send` from a remote principal into a conversation with an agent starts a
 **remote-origin prompt chain**. Every rule fails closed: when any part of the gate is missing,
@@ -160,9 +160,10 @@ crashed, slow or unsure, the tool does not run.
    archives that install's remote-chain sessions for good, so a re-paired device starts from the
    remote projection only. Its configuration is built from scratch (rule 4): pinned `claude`, empty extra argv,
    policy `daemon`, no copied modes, config options or models. Cancel and revocation kill its
-   process group through the agent host. Known gap: a child that an approved tool starts with
-   `setsid` leaves the group and can survive; the approval text says "an approved shell call can
-   create work that persists".
+   process group through the agent host. Known gap: a child that an approved Bash call starts with
+   `setsid` leaves the group and can survive cancel; it stays inside the Bash sandbox (12b), and
+   the approval text says "an approved shell call runs in the sandbox and can create work that
+   persists".
 4. **Clean configuration (acpmux design 1, 5; P2-L, P3-I).** A remote-chain session starts with
    `--setting-sources ""`, `--settings` and `--mcp-config` passed as **inline JSON** (never as
    files a same-uid tool could rewrite), and `--strict-mcp-config`. The settings carry only:
@@ -239,7 +240,10 @@ crashed, slow or unsure, the tool does not run.
      `ListMcpResources` and `ReadMcpResource`). Every MCP call (cmux screen reads, terminal and
      workspace state included) asks the human, except a reviewed list of read tools.
    - from the real pinned Claude Bash tool, `mux agents spawn` and a raw acpmux connect are
-     refused, also after `setsid`, `nohup ... &` and a double fork (rule 12b OS boundary).
+     refused, also after `setsid`, `nohup ... &` and a double fork (rule 12b OS boundary), and the
+     macOS service escapes fail: `open -a`, `osascript`, `launchctl submit`.
+   - the sandbox keys of rule 12b are honored as written, `autoAllowBashIfSandboxed: false` makes a
+     sandboxed Bash call reach the permission step, and the canary fails closed when Seatbelt is off.
    - acpmux's `claude_stdio` (Claude stream-json) is the adapter, pinned with Claude; its handling of
      document blocks, slash commands and `@` is probed (rule 10). `fs/read_text_file` from an ACP
      adapter would bypass `handle_permission`; this is acceptable with `claude_stdio`, and the tests
@@ -299,8 +303,9 @@ crashed, slow or unsure, the tool does not run.
 12. **Approvals.** Each approval shows the exact command or call and its arguments, one approval
     per call. The card marks Bash commands that contain command substitution, `eval`, decoding
     (`base64 -d`, `xxd -r` and similar) or a pipe into a shell, because the visible text can hide the
-    real target (for example `cat $(echo ... | base64 -d)`). The text says that an approved shell call runs with the owner's full trust and can
-    create work that persists. Each approval needs a presence proof (lane 15: the presence key with
+    real target (for example `cat $(echo ... | base64 -d)`). The text says that an approved shell call runs as the owner inside the Bash sandbox
+    (no local sockets, no network, writes only to the scratch folder) and can create work that
+    persists there; an approved Edit or Write runs outside the sandbox with the owner's rights. Each approval needs a presence proof (lane 15: the presence key with
     Touch ID, or a second device). Approvals go through the cloud (lane 15), never over the link.
     **A LAN-only server (no cloud) denies every remote side effect;** reads inside the read root
     still work.
@@ -330,15 +335,46 @@ crashed, slow or unsure, the tool does not run.
     - **OS boundary first (rev 14 P1; DECISION D-R pending with the coordinator).** Claude Code
       2.1.289 starts its Bash shell with `detached: true` (`setsid()`), so every Bash command runs in
       a new session and process group, and a peer check on the group alone fails on the default
-      path. The primary control is therefore an inherited sandbox:
-      - the inline settings turn on the Claude Bash sandbox (Seatbelt on macOS) for every
-        remote-chain session; `dangerouslyDisableSandbox` and unsandboxed commands are refused;
-      - the sandbox denies Unix-socket connects to the acpmux and daemon sockets and denies loopback
-        network (which also blocks acpmux's WebSocket dashboard port);
-      - a remote chain can start a child **only** through a daemon MCP tool that sets the taint and
-        the clean spec explicitly (the `mux agents spawn` CLI and raw acpmux connects are not a path
-        for it).
-    - **Peer check, second layer (rev 13 P2, rev 14).** acpmux finds the caller from its peer
+      path. The primary control is therefore an inherited sandbox. **Coverage:** the sandbox covers
+      only Bash and its children; the Claude process itself (Read, Edit, Write, WebFetch,
+      WebSearch), stdio MCP servers and hooks run outside it, so the rest of this section still
+      guards those. Exact inline keys (facts from the rev 14 review, to be confirmed by the rule 5
+      probe on 2.1.289):
+      - `sandbox.enabled: true`, `sandbox.autoAllowBashIfSandboxed: false` (its default is true,
+        which would let sandboxed Bash skip the permission step), `sandbox.allowUnsandboxedCommands:
+        false`, `sandbox.excludedCommands: []`;
+      - `sandbox.network.allowUnixSockets: []`, `sandbox.network.allowAllUnixSockets: false`,
+        `sandbox.network.allowLocalBinding: false`, `sandbox.network.allowedDomains: []`; Claude has
+        no "deny socket" key and Seatbelt checks a socket connect as network-outbound, so the empty
+        allowlists are the control (a file deny on the socket path would do nothing); this also
+        blocks loopback and acpmux's WebSocket dashboard port;
+      - writes: the sandbox write area is a separate **scratch folder**, not the working folder (the
+        read root); no extra `allowWrite`, and an `allowWrite` deny on the read root, so approved
+        Bash cannot write `LOG.txt` or `TREE/`;
+      - the daemon refuses any Bash `rawInput` with `dangerouslyDisableSandbox: true`, and refuses
+        every sandbox network-domain approval in a remote chain (a name such as `localtest.me`
+        resolves to 127.0.0.1);
+      - the managed-settings check (rule 5) refuses any managed `sandbox.*` key outside a reviewed
+        list (managed arrays merge with the inline ones);
+      - **fail closed:** if Seatbelt is unavailable, Claude may run Bash unsandboxed with only a
+        warning, so at every spawn and respawn the agent host runs a canary inside the sandbox: a
+        Unix-socket connect and a loopback connect must fail, or the chain is refused.
+    - **Children only through the daemon spawn tool.** A remote chain starts a child only through a
+      daemon MCP tool. Its inputs are only the prompt text and a workspace from a reviewed list;
+      harness, argv, mode, policy, model, env, tools and a free cwd are refused. The parent comes
+      from the authenticated caller (the MCP server's peer credentials mapped to the session), never
+      from a parameter. The prompt goes in as a rule 10 `document` block. Each spawn asks the human
+      with a presence proof, with a depth limit (proposal 2) and a count limit (proposal 4 per chain).
+      The child gets the same clean spec and sandbox keys and is tainted. The `mux agents spawn` CLI
+      and raw acpmux connects are not a path for a remote chain (the sandbox blocks them).
+    - **No persistence by Edit or Write.** Edit and Write run outside the sandbox, so in a remote
+      chain these paths are never approvable: `~/Library/LaunchAgents`, `~/Library/LaunchDaemons`,
+      shell rc and profile files (`.zshrc`, `.zprofile`, `.bashrc`, `.bash_profile`, `.profile`),
+      `.git/hooks`, `~/.config/cmux/cmux.json` (actions), cron and `at` files, and the acpmux and
+      daemon configuration.
+    - **Peer check, second layer (rev 13 P2, rev 14).** It cannot see a process that was reparented
+      to pid 1 (after `setsid` plus exit, or a double fork): such a process looks local, so those
+      cases are covered by the sandbox only. acpmux finds the caller from its peer
       credentials (`LOCAL_PEERPID`) and walks the ppid chain (`sysctl KERN_PROC_PID`, `e_ppid`),
       matching the pgid or the sid of any tainted session (`agent.rs` spawns each with
       `process_group(0)`); the set of tainted groups is kept current across respawns. A lookup
@@ -359,9 +395,8 @@ crashed, slow or unsure, the tool does not run.
       parent through the daemon (not through the mux host's own acpmux connection), as rule 10
       `document` blocks, or are dropped and written only to the remote log. They never prompt the
       local Chief.
-    - **Global settings through an approved call:** an approved Bash call could try to change
-      global acpmux defaults over RPC; the process-group check refuses that from inside a tainted
-      group.
+    - **Global settings through an approved call:** an approved Bash call cannot reach acpmux's
+      RPC (the sandbox blocks the socket and loopback); the peer check is the second layer.
     - **Notifications:** `notifyCommand` receives the model-controlled title in `ACPMUX_TEXT`; it
       is passed as data (environment), never through a shell string, and the notify command must
       not interpret it.
@@ -460,6 +495,13 @@ Tests for this section (the acpmux owner adds fake-model probes on a Testbox):
   daemon; no Chief prompt and no orphan untainted session; `tainted_parent` is in `SessionSummary`.
 - from a tainted caller, `spawnAgent` and `promptAgent` that name an existing local session are
   refused; a peer pid that already exited is refused; a failed ppid lookup is refused.
+- a plain sandboxed `ls` reaches the daemon (no auto-allow); a Bash call with
+  `dangerouslyDisableSandbox: true` is refused; a sandbox domain approval for `localtest.me` is
+  refused; the spawn canary refuses the chain when a Unix-socket or loopback connect succeeds.
+- approved Bash cannot write in the read root; an Edit of `~/Library/LaunchAgents/x.plist`,
+  `.zshrc`, `.git/hooks/pre-commit` or `cmux.json` is refused in a remote chain.
+- the daemon spawn tool refuses harness, argv, mode, policy, model, env, tools and a free cwd;
+  its parent comes from the caller, not a parameter; the depth and count limits hold.
 - the remote projection arrives as the first stdin prompt (not on argv), and an earlier remote
   message with a fake delimiter in it stays inside its block.
 - remote text in a `document` block with `</resource>`, a fake `[mux-event]` line, `@/etc/hosts`
