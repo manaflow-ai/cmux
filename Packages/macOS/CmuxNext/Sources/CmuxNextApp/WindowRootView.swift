@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextHistory
 import CmuxNextSidebar
 import CmuxNextTerminal
 import Observation
@@ -143,6 +144,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     }
     /// A click on the toggle (tests).
     func pressSidebarToggle() { toolbarBand.toggle() }
+    /// A history button's frame in window coordinates (R69).
+    func historyButtonFrame(_ direction: LocationTrailDirection) -> CGRect? { nil }
+    /// A click on a history button (tests).
+    func pressHistoryButton(_ direction: LocationTrailDirection) {}
 
     /// The badge's frame in window coordinates while it shows.
     var titlebarBadgeFrame: CGRect? {

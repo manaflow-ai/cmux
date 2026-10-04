@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextHistory
 import Observation
 
 /// The toolbar band in the window's top row, right of the traffic lights
@@ -81,4 +82,11 @@ final class TitlebarBandButton: NSButton {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override var mouseDownCanMoveWindow: Bool { false }
+}
+
+/// The right-click / long-press list of a Back or Forward button (R69).
+enum TitlebarHistoryMenu {
+    static func make(_ items: [LocationTrailListItem], choose: @escaping (Int) -> Void) -> NSMenu {
+        NSMenu()
+    }
 }
