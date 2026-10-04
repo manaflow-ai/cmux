@@ -266,6 +266,11 @@ def stage_update(app, label):
     s = wait(lambda: staged(app), 900, 2)
     log = "\n".join(app.status().get("log", []))
     record(f"{label}: update downloaded, verified and staged", bool(s), f"detected {s.get('detected_version') if s else None}")
+    if s is not None and "card" in s:
+        card = s.get("card") or {}
+        record(f"{label}: the R114 card shows the staged update", card.get("kind") == "ready", json.dumps(card))
+    elif s is not None:
+        record(f"{label}: the R114 card shows the staged update", "PENDING", "this build predates the card")
     return s, log
 
 
@@ -332,6 +337,7 @@ def main():
             relaunched = wait(lambda: bundle_build(path) == to_item["build"] and app.status().get("build") == to_item["build"], 300, 2)
             record("click path: one click installed and Sparkle relaunched", bool(relaunched), f"bundle {bundle_build(path)}")
 
+        record("an agent session and its running turn survive the update", "PENDING", "needs a nightly with agent hosts and an offline test agent")
         record("rollback refused when the store schema is newer", "PENDING", "cmux update rollback is not built yet")
     finally:
         try:
