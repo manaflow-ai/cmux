@@ -954,6 +954,7 @@ pub fn codex_compactor_config(user: Option<&str>) -> Result<String, String> {
     }
     let isolation: toml::Table = r#"
 project_doc_max_bytes = 0
+suppress_unstable_features_warning = true
 
 [history]
 persistence = "none"
@@ -965,6 +966,7 @@ memories = false
 hooks = false
 multi_agent = false
 code_mode = false
+code_mode_host = false
 skip_host_skill_discovery = true
 
 [skills]
@@ -996,17 +998,67 @@ pub fn prepare_codex_homes(paths: &Paths, user_home: &Path) -> Result<(), String
     let config = codex_compactor_config(user.as_deref())?;
     private_dir(&paths.compactor_codex)
         .map_err(|e| format!("creating {}: {e}", paths.compactor_codex.display()))?;
+    let id = chief_installation_id(&paths.compactor_codex)
+        .map_err(|e| format!("the compactor's codex installation id: {e}"))?;
     for k in 0..optchat_core::JOBS {
         let dir = codex_slot_home(&paths.compactor_codex, k);
         let made = private_dir(&dir)
             .and_then(|()| wipe_codex_home(&dir))
             .and_then(|()| {
                 crate::session_dir::write_if_changed(&dir.join("config.toml"), config.as_bytes())
+            })
+            .and_then(|()| {
+                crate::session_dir::write_if_changed(&dir.join("installation_id"), id.as_bytes())
             });
         made.map_err(|e| format!("preparing {}: {e}", dir.display()))?;
         link_auth(&dir, user_home).map_err(|e| format!("preparing {}: {e}", dir.display()))?;
     }
     Ok(())
+}
+
+/// The installation id every codex compactor slot sends: the subrouter
+/// keeps one installation id on one account, and OpenAI's prompt cache is
+/// per account, so slots with their own ids never read each other's prefix
+/// (checked live 2026-10-04: 0 of 31.5k tokens with two ids, 30,464 with
+/// one). Kept in `<base>/installation_id`, made once (a version 4 UUID, as
+/// codex makes its own).
+pub fn chief_installation_id(base: &Path) -> io::Result<String> {
+    let path = base.join("installation_id");
+    if let Ok(text) = std::fs::read_to_string(&path) {
+        let id = text.trim();
+        if is_uuid(id) {
+            return Ok(id.to_owned());
+        }
+    }
+    let mut bytes = [0u8; 16];
+    {
+        use std::io::Read;
+        std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    let id = format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    );
+    crate::session_dir::write_if_changed(&path, id.as_bytes())?;
+    Ok(id)
+}
+
+fn is_uuid(text: &str) -> bool {
+    text.len() == 36
+        && text.char_indices().all(|(i, c)| {
+            if matches!(i, 8 | 13 | 18 | 23) {
+                c == '-'
+            } else {
+                c.is_ascii_hexdigit()
+            }
+        })
 }
 
 /// Points `<dir>/auth.json` at the user's auth.json, or removes it when the
@@ -1029,11 +1081,12 @@ fn link_auth(dir: &Path, user_home: &Path) -> io::Result<()> {
 }
 
 /// Files of a compactor `CODEX_HOME` that hold no chat text and survive
-/// `wipe_codex_home`: its configuration, the link to the user's sign-in
-/// and codex's model catalog cache.
-pub const CODEX_KEPT_FILES: [&str; 4] = [
+/// `wipe_codex_home`: its configuration, the link to the user's sign-in,
+/// the Chief's installation id and codex's model catalog cache.
+pub const CODEX_KEPT_FILES: [&str; 5] = [
     "config.toml",
     "auth.json",
+    "installation_id",
     "models_cache.json",
     "version.json",
 ];
