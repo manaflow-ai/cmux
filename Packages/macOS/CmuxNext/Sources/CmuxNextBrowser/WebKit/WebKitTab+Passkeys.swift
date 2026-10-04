@@ -10,7 +10,10 @@ extension WebKitTab {
     var passkeyAuthorization: WebKitPasskeyAuthorization { engine?.passkeyAuthorization ?? .shared }
 
     func installPasskeyAuthorization(into controller: WKUserContentController) {
-        // stub (red)
+        guard passkeyAuthorization.state == .notDetermined else { return }
+        controller.addUserScript(WKUserScript(source: WebKitPasskeyScript.source, injectionTime: .atDocumentStart,
+                                              forMainFrameOnly: false, in: .page))
+        controller.addScriptMessageHandler(WeakPasskeyReplyHandler(self), contentWorld: .page, name: WebKitPasskeyScript.messageHandlerName)
     }
 
     func passkeyAuthorizationMessage(frameOrigin: WKSecurityOrigin, isMainFrame: Bool) async -> String {
@@ -27,7 +30,7 @@ extension WebKitTab {
 /// When a page's WebAuthn call may raise the authorization prompt.
 nonisolated enum WebKitPasskeyIntent {
     static func mayAsk(sameOriginAsMainFrame: Bool, recentUserInput: Bool, agentDriven: Bool) -> Bool {
-        false  // stub (red)
+        sameOriginAsMainFrame && recentUserInput && !agentDriven
     }
 }
 

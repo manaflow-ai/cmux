@@ -36,7 +36,17 @@ public final class WebKitPasskeyAuthorization {
 
     /// The state after asking when it is still undetermined; concurrent
     /// callers share the one system prompt.
-    public func requestIfNeeded() async -> State { backend.state }  // stub (red)
+    public func requestIfNeeded() async -> State {
+        let current = backend.state
+        guard current == .notDetermined else { return current }
+        if let pending { return await pending.value }
+        let backend = backend
+        let task = Task { @MainActor in await backend.request() }
+        pending = task
+        let result = await task.value
+        pending = nil
+        return result
+    }
 
     /// AuthenticationServices.
     final class SystemBackend: Backend {
@@ -70,5 +80,22 @@ public final class WebKitPasskeyAuthorization {
 nonisolated enum WebKitPasskeyScript {
     static let messageHandlerName = "cmuxPasskeyAuthorization"
 
-    static let source = ""  // stub (red)
+    static let source = #"""
+    (() => {
+      const credentials = navigator.credentials;
+      const handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.cmuxPasskeyAuthorization;
+      if (!credentials || !handler || credentials.__cmuxPasskeyWrapped) return;
+      const original = { create: credentials.create.bind(credentials), get: credentials.get.bind(credentials) };
+      let asked = null;
+      const unwrap = () => { credentials.create = original.create; credentials.get = original.get; };
+      const wrap = (name) => function (options) {
+        if (!options || !options.publicKey) return original[name](options);
+        if (!asked) asked = handler.postMessage({ kind: name }).catch(() => 'error');
+        return asked.then(() => { unwrap(); return original[name](options); });
+      };
+      Object.defineProperty(credentials, '__cmuxPasskeyWrapped', { value: true });
+      credentials.create = wrap('create');
+      credentials.get = wrap('get');
+    })();
+    """#
 }
