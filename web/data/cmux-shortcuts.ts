@@ -515,6 +515,21 @@ export const shortcutCategories: ShortcutCategory[] = [
     shortcuts: [
       { id: "openBrowser", combos: [["⌘", "⇧", "L"]], description: { en: "Open browser", ja: "ブラウザを開く" } },
       { id: "focusBrowserAddressBar", combos: [["⌘", "L"]], description: { en: "Focus address bar", ja: "アドレスバーにフォーカス" } },
+      {
+        id: "omnibar.openInBackgroundTab",
+        combos: [["⌘", "↩"]],
+        description: { en: "Open the address in a new background tab", ja: "アドレスを新しいバックグラウンドタブで開く" },
+        note: {
+          en: "while the address bar has focus; the typed URL or search opens next to the page in its browser profile. Option-Return also opens a new foreground tab, Shift-Return a new window",
+          ja: "アドレスバーにフォーカスがあるとき。入力した URL または検索を、同じブラウザプロファイルの新しいタブで開きます。Option-Return でも新しい前面タブ、Shift-Return で新しいウインドウで開きます",
+        },
+      },
+      {
+        id: "omnibar.openInForegroundTab",
+        combos: [["⌘", "⇧", "↩"]],
+        description: { en: "Open the address in a new tab", ja: "アドレスを新しいタブで開く" },
+        note: { en: "while the address bar has focus; elsewhere the chord toggles pane zoom", ja: "アドレスバーにフォーカスがあるとき。それ以外ではペインのズームを切り替えます" },
+      },
       { id: "browserBack", combos: [["⌘", "["]], description: { en: "Back", ja: "戻る" } },
       { id: "browserForward", combos: [["⌘", "]"]], description: { en: "Forward", ja: "進む" } },
       {

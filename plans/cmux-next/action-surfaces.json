@@ -9348,6 +9348,63 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "liveInput",
+      "cli_name" : "action omnibar-open-in-background-tab",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "\r",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "omnibar.openInBackgroundTab",
+      "mcp" : "liveInput",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Address in New Background Tab",
+      "title_key" : "action.omnibar.openInBackgroundTab",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action omnibar-open-in-foreground-tab",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "\r",
+        "modifiers" : [
+          "shift",
+          "cmd"
+        ]
+      },
+      "id" : "omnibar.openInForegroundTab",
+      "mcp" : "liveInput",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Address in New Tab",
+      "title_key" : "action.omnibar.openInForegroundTab",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "stepAdjust",
       "cli_name" : "browser zoom-in",
       "context_menu" : "stepAdjust",

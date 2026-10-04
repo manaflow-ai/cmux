@@ -162,6 +162,8 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.browserZoomOut`
 - `shortcuts.bindings.browserZoomReset`
 - `shortcuts.bindings.focusBrowserAddressBar`
+- `shortcuts.bindings.omnibar.openInBackgroundTab`
+- `shortcuts.bindings.omnibar.openInForegroundTab`
 - `shortcuts.bindings.openBrowser`
 - `shortcuts.bindings.showBrowserJavaScriptConsole`
 - `shortcuts.bindings.splitBrowserDown`

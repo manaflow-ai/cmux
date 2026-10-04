@@ -91,6 +91,50 @@ final class BrowserPageRequests: BrowserTabDelegate {
         }
     }
 
+    /// Routes `chrome`'s modified omnibar commits to ``openFromOmnibar``.
+    func routeOmnibarOpens(of chrome: BrowserChromeView, page: any BrowserTab) {
+        chrome.onOpenURL = { [weak self, weak page] url, disposition in
+            guard let page else { return }
+            self?.openFromOmnibar(url, disposition, page: page)
+        }
+    }
+
+    /// The omnibar's modified commit (Cmd-Return, Shift-Cmd-Return,
+    /// Option-Return, Shift-Return, a modified suggestion click) takes the
+    /// same path as the page's own links: the opener's pane, engine and
+    /// browser profile. Shift-Return opens a new window with a new
+    /// workspace that holds the tab (cmux windows hold workspaces).
+    func openFromOmnibar(_ url: URL, _ disposition: OmnibarDisposition, page: any BrowserTab) {
+        switch disposition {
+        case .currentTab: page.load(url)
+        case .newBackgroundTab: browserTab(page, didRequest: .openURL(url, .backgroundTab))
+        case .newForegroundTab: browserTab(page, didRequest: .openURL(url, .foregroundTab))
+        case .newWindow: openInNewWindow(url, opener: page)
+        }
+    }
+
+    /// `url` in a new window whose new workspace holds one browser tab on
+    /// the opener's engine and browser profile. An incognito opener, or one
+    /// on another machine, opens a foreground tab next to it instead: the
+    /// new workspace would leave its profile or its machine.
+    private func openInNewWindow(_ url: URL, opener page: any BrowserTab) {
+        guard let services, let key = services.cache.key(of: page), let tab = services.cache.tabModel(key) else { return }
+        let browserTabs = services.cache.browserTabs!
+        let daemon = services.machines.daemon(forTab: tab)
+        guard browserTabs.isAvailable(), daemon === services.activeDaemon, !browserTabs.isIncognitoTab(key) else {
+            return browserTab(page, didRequest: .openURL(url, .foregroundTab))
+        }
+        let engine = BrowserEngineResolver.tag(for: page.engineKind).rawValue
+        let choice = Self.choice(adopting: nil, inherited: engine, browserTabs: browserTabs)
+        let profile = services.browserProfiles.profileID(ofTab: tab)
+        let address = url.absoluteString
+        WorkspaceHandlers.createAndShow(services: services, newWindow: true) { connection, terminal in
+            guard let pane = terminal.pane else { return }
+            _ = try await browserTabs.open(choice, in: pane, url: address, profile: profile)
+            if let surface = terminal.surface { try await connection.closeTab(surface) }
+        }
+    }
+
     /// A sized popup opens in a floating panel over the window that shows
     /// its opener (else the active window); it is never a daemon tab.
     private func openPopup(_ child: any BrowserTab, request: BrowserPopupRequest, openerKey: String, pane: PaneModel) {

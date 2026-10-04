@@ -226,6 +226,15 @@ public final class AddressBarView: NSView {
         window?.makeFirstResponder(field)
     }
 
+    /// Return with a disposition while the field is editing (the
+    /// `omnibar.openIn…Tab` actions, Cmd-Return): commits the highlighted
+    /// row or the typed text to `disposition`, as the field's own Return
+    /// does. Returns false when the field is not editing.
+    @discardableResult
+    public func commit(_ disposition: OmnibarDisposition) -> Bool {
+        controller.send(.key(.enter(disposition)))
+    }
+
     /// The search engine inside `suggestionEngine` changed.
     public func searchEngineDidChange() {
         controller.send(.searchEngineChanged)

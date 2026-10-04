@@ -19,6 +19,15 @@ extension AppActions {
         for (id, command) in commands where command != .focusAddressBar {
             registry.bind(ActionID(rawValue: id), isEnabled: { chrome() != nil }, invoke: { chrome($0)?.perform(command) })
         }
+        // Cmd-Return / Shift-Cmd-Return in the address bar: the typed URL or
+        // search opens in a new tab (Chrome, Safari) through the tab's
+        // `onOpenURL` (`BrowserPageRequests.openFromOmnibar`).
+        let omnibarOpens: [(ActionID, OmnibarDisposition)] = [
+            ("omnibar.openInBackgroundTab", .newBackgroundTab), ("omnibar.openInForegroundTab", .newForegroundTab),
+        ]
+        for (id, disposition) in omnibarOpens {
+            registry.bind(id, isEnabled: { chrome()?.addressBar.isEditing == true }, invoke: { chrome($0)?.addressBar.commit(disposition) })
+        }
         // Cmd-L goes through the window's focus coordinator, which also takes
         // key back from a focused Chromium page window.
         registry.bind("focusBrowserAddressBar", isEnabled: { chrome() != nil }, invoke: { invocation in

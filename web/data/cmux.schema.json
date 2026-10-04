@@ -2227,6 +2227,8 @@
               "toggleFileEditorWordWrap",
               "openBrowser",
               "focusBrowserAddressBar",
+              "omnibar.openInBackgroundTab",
+              "omnibar.openInForegroundTab",
               "browserBack",
               "browserForward",
               "browserReload",
