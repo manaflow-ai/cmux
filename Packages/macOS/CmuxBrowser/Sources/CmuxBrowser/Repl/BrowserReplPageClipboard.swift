@@ -70,6 +70,7 @@ public struct BrowserReplPageClipboard {
     @discardableResult
     public func install(
         on webView: WKWebView,
+        refusing: (@MainActor (_ frame: WKFrameInfo) -> String?)? = nil,
         onWrite: @escaping @MainActor (_ webView: WKWebView, _ items: [[String: Any]]) -> Bool
     ) -> Bool {
         let off = Self.disableAsyncClipboardAPI(in: webView.configuration.preferences)

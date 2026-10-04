@@ -84,3 +84,46 @@ struct BrowserReplClipboardFocusTests {
         #expect(error?.code == "blocked", "keys could reach the blocked frame its parent focused: \(String(describing: error))")
     }
 }
+
+/// A frame the domain policy blocks can still run in a tab a session
+/// created (it loaded before the policy was tightened). Its page script
+/// must not put data on the tab's clipboard, which `clipboard.read` hands to
+/// the agent: the tab's clipboard takes a page's write only from a frame the
+/// creating session's policy allows.
+@MainActor
+@Suite("Page clipboard writes by frame", .serialized)
+struct BrowserReplPageClipboardFrameTests {
+    @Test("A blocked frame's page-script write is refused; an allowed frame's lands")
+    func blockedFrameWritesAreRefused() async throws {
+        let shim = try BrowserReplPasteboardRedirectTests.PageScripts.shim()
+        var policy = BrowserReplDomainPolicy()
+        policy.prohibited = [try BrowserReplDomainPattern.parse("cmux-test://blocked.test", title: "t")]
+        let blockedPolicy = policy
+        var routed: [String] = []
+        let page = try await FramePage.load(configure: { configuration in
+            let probe = WKWebView(frame: .zero, configuration: configuration)
+            BrowserReplPageClipboard(shim: shim).install(
+                on: probe,
+                refusing: { info in blockedPolicy.blockReason(document: BrowserReplFrameDocument(info: info)) },
+                onWrite: { _, items in
+                    for item in items {
+                        if let data = (item["base64"] as? String).flatMap({ Data(base64Encoded: $0) }) {
+                            routed.append(String(decoding: data, as: UTF8.self))
+                        }
+                    }
+                    return true
+                }
+            )
+        })
+        let write = """
+        try { await navigator.clipboard.writeText(text); return "ok"; } catch (e) { return "rejected " + e.name; }
+        """
+        let blocked = try #require(page.frame(host: "blocked.test"))
+        let allowed = try #require(page.frame(path: "/child"))
+        let fromBlocked = try await page.webView.callAsyncJavaScript(write, arguments: ["text": "from the blocked frame"], in: blocked.info, contentWorld: .page) as? String
+        let fromAllowed = try await page.webView.callAsyncJavaScript(write, arguments: ["text": "from the allowed frame"], in: allowed.info, contentWorld: .page) as? String
+        #expect(fromBlocked?.hasPrefix("rejected") == true, "the blocked frame's write was taken: \(String(describing: fromBlocked))")
+        #expect(fromAllowed == "ok")
+        #expect(routed == ["from the allowed frame"])
+    }
+}
