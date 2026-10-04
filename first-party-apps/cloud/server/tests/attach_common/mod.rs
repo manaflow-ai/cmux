@@ -21,6 +21,9 @@ pub enum Script {
     Ready,
     /// Exits with this code before it is ready.
     ExitEarly(i32),
+    /// Prints nothing until [`FakeSpawner::ready`]; sends its tag on the
+    /// channel once spawned.
+    Hold(std::sync::mpsc::Sender<LinkTag>),
 }
 
 #[derive(Default)]
@@ -42,6 +45,16 @@ impl FakeSpawner {
 
     pub fn spawns(&self) -> usize {
         self.log().commands.len()
+    }
+
+    /// The last link process of `machine` prints its ready line.
+    pub fn ready(&self, machine: &str) {
+        let log = self.log();
+        let index = log.tags.iter().rposition(|t| t.machine == machine).expect("spawned");
+        let tag = log.tags[index].clone();
+        let ready =
+            serde_json::json!({ "event": "connection-snapshot", "local_socket": socket_for(&tag) });
+        log.senders[index].send(LinkProcessEvent::Line { tag, line: ready.to_string() }).unwrap();
     }
 
     /// The last link process of `machine` exits with `code`.
@@ -98,6 +111,9 @@ impl LinkSpawner for FakeSpawner {
                 events
                     .send(LinkProcessEvent::Exited { tag: tag.clone(), code: Some(code) })
                     .unwrap();
+            }
+            Script::Hold(spawned) => {
+                let _ = spawned.send(tag.clone());
             }
         }
         Ok(Box::new(FakeProcess { tag, log: Arc::clone(&self.0) }))

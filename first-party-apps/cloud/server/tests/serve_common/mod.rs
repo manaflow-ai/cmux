@@ -123,8 +123,13 @@ impl Host {
     /// The next line that is not a relay request; relay requests are
     /// answered from the fixtures on the way. `None` after [`WAIT`].
     pub fn next(&mut self) -> Option<Value> {
+        self.next_within(WAIT)
+    }
+
+    /// [`Host::next`] with its own bound on the wait.
+    pub fn next_within(&mut self, wait: Duration) -> Option<Value> {
         loop {
-            let line = match self.output.recv_timeout(WAIT) {
+            let line = match self.output.recv_timeout(wait) {
                 Ok(line) => line,
                 Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => return None,
             };
