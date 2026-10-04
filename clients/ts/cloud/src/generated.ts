@@ -1634,17 +1634,19 @@ export interface CloudOps {
       readonly cursor?: string
     }
   }
-  /** Choose who can find you by email or phone and who may start a DM with you. */
+  /** Choose who can find you by email or phone, who may start a DM with you, and whether a message request also sends an email. */
   readonly "home.settings.set": {
     readonly params: {
       readonly discoverable_by_email?: boolean
       readonly discoverable_by_phone?: boolean
       readonly allow_dm_from?: "anyone" | "teams" | "contacts"
+      readonly email_requests?: boolean
     }
     readonly result: {
       readonly discoverable_by_email: boolean
       readonly discoverable_by_phone: boolean
       readonly allow_dm_from: "anyone" | "teams" | "contacts"
+      readonly email_requests: boolean
     }
   }
   /** Enroll the calling install's machine as a host in the team directory. */

@@ -10,6 +10,11 @@ export interface HomeSettings {
   readonly discoverable_by_email: boolean
   readonly discoverable_by_phone: boolean
   readonly allow_dm_from: AllowDmFrom
+  /**
+   * R2 (section 16.9): a message request from an unrelated user also sends an email. Stored
+   * now; read once message requests (16.4) exist.
+   */
+  readonly email_requests: boolean
 }
 
 /**
@@ -18,24 +23,28 @@ export interface HomeSettings {
  * `anyone`, which allows the base reach rule (a shared team or a connection)
  * without narrowing it.
  */
-export const DEFAULT_HOME_SETTINGS: HomeSettings = { discoverable_by_email: false, discoverable_by_phone: false, allow_dm_from: "anyone" }
+export const DEFAULT_HOME_SETTINGS: HomeSettings = { discoverable_by_email: false, discoverable_by_phone: false, allow_dm_from: "anyone", email_requests: true }
 
 export type HomeSettingsResult = { readonly ok: true; readonly settings: HomeSettings } | { readonly ok: false; readonly code: "invalid_settings" }
 
-/** `home.settings.set {discoverable_by_email?, discoverable_by_phone?, allow_dm_from?}`: a partial update; at least one field. */
+/** Stored settings with defaults for fields added later (a value written before `email_requests` existed). */
+export const homeSettingsOf = (current: Partial<HomeSettings> | undefined): HomeSettings => ({ ...DEFAULT_HOME_SETTINGS, ...current })
+
+/** `home.settings.set {discoverable_by_email?, discoverable_by_phone?, allow_dm_from?, email_requests?}`: a partial update; at least one field. */
 export const reduceHomeSettings = (current: HomeSettings | undefined, params: unknown): HomeSettingsResult => {
-  const base = current ?? DEFAULT_HOME_SETTINGS
+  const base = homeSettingsOf(current)
   if (typeof params !== "object" || params === null) return { ok: false, code: "invalid_settings" }
-  const { discoverable_by_email: email, discoverable_by_phone: phone, allow_dm_from: allow } = params as Record<string, unknown>
-  if (email === undefined && phone === undefined && allow === undefined) return { ok: false, code: "invalid_settings" }
-  if ((email !== undefined && typeof email !== "boolean") || (phone !== undefined && typeof phone !== "boolean")) return { ok: false, code: "invalid_settings" }
+  const { discoverable_by_email: email, discoverable_by_phone: phone, allow_dm_from: allow, email_requests: requests } = params as Record<string, unknown>
+  if (email === undefined && phone === undefined && allow === undefined && requests === undefined) return { ok: false, code: "invalid_settings" }
+  if ([email, phone, requests].some((flag) => flag !== undefined && typeof flag !== "boolean")) return { ok: false, code: "invalid_settings" }
   if (allow !== undefined && !ALLOW_DM_FROM.includes(allow as AllowDmFrom)) return { ok: false, code: "invalid_settings" }
   return {
     ok: true,
     settings: {
       discoverable_by_email: (email as boolean | undefined) ?? base.discoverable_by_email,
       discoverable_by_phone: (phone as boolean | undefined) ?? base.discoverable_by_phone,
-      allow_dm_from: (allow as AllowDmFrom | undefined) ?? base.allow_dm_from
+      allow_dm_from: (allow as AllowDmFrom | undefined) ?? base.allow_dm_from,
+      email_requests: (requests as boolean | undefined) ?? base.email_requests
     }
   }
 }
