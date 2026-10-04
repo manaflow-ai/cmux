@@ -1,6 +1,7 @@
 import type { Domain } from "@cmux/ownership"
 import { HostEnroll, HostRemove, type Host, type TeamMember } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
+import { hostByInstall, hostDelete, hostOf, hostUpsert, memberOf, memberUpsert, roleOf, TABLE_HOST, TABLE_MEMBER, teamIndexItem, type LegacyTeamMaps } from "./team-members.ts"
 import { appendAudit, type AuditState } from "./team-audit.ts"
 import { reduceDomainClaim, reduceDomainLost, reduceDomainRechecked, reduceDomainReleased, reduceDomainVerified, type DomainState } from "./team-domains.ts"
 import { reduceActivated, reduceConnectionCreate, reduceConnectionDisable, reduceSecretSet, type SsoState } from "./team-sso.ts"
@@ -11,10 +12,11 @@ import { reduceRunsSynced, type RunSyncState } from "./team-run-sync.ts"
 import { reduceAccountAllocated, reduceCaInstalled, reduceCertsRevoked, type TeamSshState } from "./team-ssh.ts"
 import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
 
-export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, RunSyncState, DomainState, SsoState, TeamSshState {
+export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, RunSyncState, DomainState, SsoState, TeamSshState, LegacyTeamMaps {
   readonly team: { readonly id: string; readonly kind: "personal" | "stack"; readonly display_name: string } | null
-  readonly members: Readonly<Record<string, typeof TeamMember.Type>>
-  readonly hosts: Readonly<Record<string, typeof Host.Type>>
+  /** Members and hosts are rows (team-members.ts); the head keeps their counts. */
+  readonly member_count?: number
+  readonly host_count?: number
   /** Installs of removed servers whose UserDO revocation is not confirmed yet (TeamDO retries; server.md 6.5). */
   readonly server_revocations?: Readonly<Record<string, ServerRevocation>>
 }
@@ -38,16 +40,16 @@ const HTTP_ONLY_OPS: ReadonlySet<string> = new Set([
 ])
 
 export const teamDomain: Domain<TeamState> = {
-  initial: () => ({ team: null, members: {}, hosts: {} }),
+  initial: () => ({ team: null, member_count: 0, host_count: 0 }),
 
-  authorize: (state, op, _params, principal) => {
+  authorize: (state, op, _params, principal, rows) => {
     // HTTP-only ops (external effects; a secret in params): refused before the ledger, which would
     // otherwise keep an unsalted hash of the params (review P2). They run through the Worker's route.
     if (HTTP_ONLY_OPS.has(op)) return { code: "validation.invalid", message: `${op} runs through POST /v1/ops only` }
     // TeamDO's own ops (alarm work); admit allows a system principal only for internal ops.
     if (principal.kind === "system") return admit("cloud:TeamDO", op, principal, () => undefined, Date.now())
     if (op !== "team.ensure_personal") {
-      if (!principal.user || !state.members[principal.user]) return { code: "auth.forbidden", message: "not a member of this team" }
+      if (!memberOf(state, rows, principal.user)) return { code: "auth.forbidden", message: "not a member of this team" }
     }
     // The grant lives in UserDO. The Worker asks UserDO on every install call
     // (revocation and grant) and passes the grant's classes; none means refuse.
@@ -57,21 +59,42 @@ export const teamDomain: Domain<TeamState> = {
   reduce: (state, op, params, ctx) => {
     const p = ctx.principal
     switch (op) {
+      case "team.rows_migrate": {
+        // (f) An old head's members and hosts move to rows in one commit; the maps leave the head.
+        if (p.kind !== "system") return reject("auth.forbidden", "internal op")
+        if (state.members === undefined && state.hosts === undefined) return { ok: true, state, value: null, changed: false }
+        const members = Object.values(state.members ?? {})
+        const hosts = Object.values(state.hosts ?? {})
+        const { members: _m, hosts: _h, ...rest } = state
+        // Counts add only the map entries that have no row yet (a head may hold both after a rollback).
+        const newMembers = members.filter((m) => !ctx.rows?.get(TABLE_MEMBER, m.user)).length
+        const newHosts = hosts.filter((h) => !ctx.rows?.get(TABLE_HOST, h.id)).length
+        return {
+          ok: true,
+          state: { ...rest, member_count: (state.member_count ?? 0) + newMembers, host_count: (state.host_count ?? 0) + newHosts },
+          writes: [...members.map(memberUpsert), ...hosts.flatMap(hostUpsert)],
+          ...(state.team ? { outbox: members.map((m) => teamIndexItem(state.team!, m.user, m.role, ctx.tx)) } : {}),
+          value: { members: members.length, hosts: hosts.length }
+        }
+      }
       case "team.ensure_personal": {
         if (!p.user || !p.team) return reject("auth.forbidden", "needs a user session")
         if (state.team && state.team.id !== p.team) return reject("auth.forbidden", "not this team")
         const name = p.display_name ?? "Personal"
         const member: typeof TeamMember.Type = { user: p.user, role: "owner", display_name: name }
         const team = { id: p.team, kind: "personal" as const, display_name: name }
-        const same = JSON.stringify(state.team) === JSON.stringify(team) && JSON.stringify(state.members[p.user]) === JSON.stringify(member)
+        const prior = memberOf(state, ctx.rows, p.user)
+        const same = JSON.stringify(state.team) === JSON.stringify(team) && JSON.stringify(prior) === JSON.stringify(member)
         if (same) return { ok: true, state, value: team, changed: false }
         return {
           ok: true,
-          state: { ...state, team, members: { ...state.members, [p.user]: member } },
+          state: { ...state, team, member_count: (state.member_count ?? 0) + (prior ? 0 : 1) },
+          writes: [memberUpsert(member)],
           value: team,
           outbox: [
             { kind: "team.upsert", entity: team.id, payload: team },
-            { kind: "membership.upsert", entity: `${team.id}:${p.user}`, payload: { team: team.id, ...member } }
+            { kind: "membership.upsert", entity: `${team.id}:${p.user}`, payload: { team: team.id, ...member } },
+            teamIndexItem(team, p.user, member.role, ctx.tx)
           ]
         }
       }
@@ -80,13 +103,14 @@ export const teamDomain: Domain<TeamState> = {
         const d = decodeParams<typeof HostEnroll.params.Type>(HostEnroll, params)
         if (!d.ok) return d
         if (!p.install || !p.user) return reject("auth.forbidden", "host.enroll needs an install token")
-        const existing = Object.values(state.hosts).find((h) => h.enrolled_by === p.install)
+        const existing = hostByInstall(state, ctx.rows, p.install)
         const id = existing?.id ?? ctx.newId("host")
         const host: typeof Host.Type = { id, name: d.value.name, platform: d.value.platform, owner_user: p.user, enrolled_by: p.install, enrolled_at: existing?.enrolled_at ?? ctx.now }
         if (existing && JSON.stringify(existing) === JSON.stringify(host)) return { ok: true, state, value: host, changed: false }
         return {
           ok: true,
-          state: { ...state, hosts: { ...state.hosts, [id]: host } },
+          state: { ...state, host_count: (state.host_count ?? 0) + (existing ? 0 : 1) },
+          writes: hostUpsert(host),
           value: host,
           outbox: [{ kind: "host.upsert", entity: id, payload: { ...host, team: state.team.id } }]
         }
@@ -94,14 +118,14 @@ export const teamDomain: Domain<TeamState> = {
       case "host.remove": {
         const d = decodeParams<typeof HostRemove.params.Type>(HostRemove, params)
         if (!d.ok) return d
-        const host = state.hosts[d.value.host]
+        const host = hostOf(state, ctx.rows, d.value.host)
         if (!host) return reject("selector.not_found", "host not found")
-        const role = p.user ? state.members[p.user]?.role : undefined
+        const role = roleOf(state, ctx.rows, p.user)
         if (host.owner_user !== p.user && role !== "owner" && role !== "admin") return reject("auth.forbidden", "only the host owner or a team admin may remove it")
-        const { [host.id]: _gone, ...rest } = state.hosts
         return {
           ok: true,
-          state: { ...state, hosts: rest },
+          state: { ...withoutLegacyHost(state, host.id), host_count: Math.max(0, (state.host_count ?? 1) - 1) },
+          writes: hostDelete(host),
           value: { host: host.id },
           outbox: [{ kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id } }]
         }
@@ -133,7 +157,7 @@ export const teamDomain: Domain<TeamState> = {
       case "domain.claim": {
         if (!state.team) return reject("validation.invalid", "team not initialized")
         if (p.kind === "agent" || p.agent) return reject("auth.forbidden", "agents cannot claim domains")
-        const role = p.user ? state.members[p.user]?.role : undefined
+        const role = roleOf(state, ctx.rows, p.user)
         if (role !== "owner" && role !== "admin") return reject("auth.forbidden", "only team owners and admins may claim domains")
         return withAudit(reduceDomainClaim(state, params, ctx), state.team.id, ctx, op)
       }
@@ -141,7 +165,7 @@ export const teamDomain: Domain<TeamState> = {
       case "sso.connection.disable": {
         if (!state.team) return reject("validation.invalid", "team not initialized")
         if (p.kind === "agent" || p.agent) return reject("auth.forbidden", "agents cannot change SSO connections")
-        const role = p.user ? state.members[p.user]?.role : undefined
+        const role = roleOf(state, ctx.rows, p.user)
         if (role !== "owner" && role !== "admin") return reject("auth.forbidden", "only team owners and admins may change SSO connections")
         return withAudit(op === "sso.connection.create" ? reduceConnectionCreate(state, params, ctx) : reduceConnectionDisable(state, params, ctx), state.team.id, ctx, op)
       }
@@ -155,7 +179,7 @@ export const teamDomain: Domain<TeamState> = {
       case "team_vm.ssh_certs_revoked":
       case "team_vm.ssh_account_allocated": {
         if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
-        if (op === "team_vm.ssh_account_allocated") return reduceAccountAllocated(state, params)
+        if (op === "team_vm.ssh_account_allocated") return reduceAccountAllocated(state, params, (u) => memberOf(state, ctx.rows, u))
         return op === "team_vm.ssh_ca_installed" ? reduceCaInstalled(state, state.team.id, params, ctx) : reduceCertsRevoked(state, state.team.id, params, ctx)
       }
       case "sso.signed_in": {
@@ -183,7 +207,7 @@ export const teamDomain: Domain<TeamState> = {
       case "team.integration.release_lock": {
         if (!state.team) return reject("validation.invalid", "team not initialized")
         if (p.kind === "agent" || p.agent) return reject("auth.forbidden", "agents cannot release integration locks")
-        const role = p.user ? state.members[p.user]?.role : undefined
+        const role = roleOf(state, ctx.rows, p.user)
         if (role !== "owner" && role !== "admin") return reject("auth.forbidden", "only team owners and admins may release an integration lock")
         return withAudit(reduceReleaseLock(state, params, ctx), state.team.id, ctx, op)
       }
@@ -202,7 +226,7 @@ export const teamDomain: Domain<TeamState> = {
         if (!state.team) return reject("validation.invalid", "team not initialized")
         // Muxes change policy only through an approval flow (identity spec 4a), which does not exist yet.
         if (p.kind === "agent" || p.agent) return reject("auth.forbidden", "agents cannot change team policy or enrollment")
-        const role = p.user ? state.members[p.user]?.role : undefined
+        const role = roleOf(state, ctx.rows, p.user)
         if (role !== "owner" && role !== "admin") return reject("auth.forbidden", "only team owners and admins may change team policy or enrollment")
         if (op === "team.policy.update" || op === "team.policy.rollback") {
           const r = op === "team.policy.update" ? reducePolicyUpdate(state, params, ctx) : reducePolicyRollback(state, params, ctx)
@@ -232,7 +256,7 @@ export const teamDomain: Domain<TeamState> = {
       }
       case "team.device.release": {
         if (!state.team) return reject("validation.invalid", "team not initialized")
-        const role = p.user ? state.members[p.user]?.role : undefined
+        const role = roleOf(state, ctx.rows, p.user)
         return withAudit(reduceDeviceRelease(state, params, ctx, role === "owner" || role === "admin"), state.team.id, ctx, op)
       }
       default:
@@ -252,4 +276,11 @@ const withAudit = (r: Audited<TeamState>, team: string, ctx: import("@cmux/owner
   }
   const a = appendAudit(r.state, team, ctx, op, r.audit.summary, r.audit.detail)
   return { ok: true as const, state: a.state, value: r.value, outbox: [a.outbox] }
+}
+
+/** The head without a legacy host entry (a head before team.rows_migrate). */
+const withoutLegacyHost = <S extends LegacyTeamMaps>(state: S, id: string): S => {
+  if (!state.hosts?.[id]) return state
+  const { [id]: _gone, ...hosts } = state.hosts
+  return { ...state, hosts }
 }

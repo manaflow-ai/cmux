@@ -1,4 +1,5 @@
 @testable import CmuxNextPages
+import Foundation
 import Testing
 
 /// The one per-page CSP (decided 2026-10-04): strict by default; only first-party pages widen it,
@@ -32,5 +33,17 @@ import Testing
         #expect(csp.header.hasSuffix("connect-src wss://ok"))
         #expect(!csp.header.contains("'unsafe-eval'"))
         #expect(!csp.header.contains("frame-src"))
+    }
+
+    @Test func modulesAreJavaScriptAndAPageMayNameItsEntry() {
+        #expect(PageSchemeHandler.mimeType(forExtension: "mjs") == "text/javascript")
+        #expect(PageSchemeHandler.mimeType(forExtension: "js") == "text/javascript")
+        #expect(PageSchemeHandler.mimeType(forExtension: "wasm") == "application/wasm")
+        let diff = PageDescriptor(id: "cmux.diff", resource: "webviews-app", namespaces: [], entry: "diff.html")
+        let root = URL(fileURLWithPath: "/tmp/webviews-app")
+        #expect(PageSchemeHandler.fileURL(for: URL(string: "cmux-page://cmux.diff/")!, page: diff, root: root)?.lastPathComponent == "diff.html")
+        #expect(PageSchemeHandler.fileURL(for: URL(string: "cmux-page://cmux.diff/chunks/diffSurface.mjs")!, page: diff, root: root)?.path
+            == "/tmp/webviews-app/chunks/diffSurface.mjs")
+        #expect(PageDescriptor(id: "cmux.diff", resource: "x", namespaces: [], entry: "../evil.html").entry == "index.html")
     }
 }

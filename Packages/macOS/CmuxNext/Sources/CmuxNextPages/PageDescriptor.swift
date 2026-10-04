@@ -27,10 +27,13 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     public let confirmedOps: [String: PageConfirmation.Kind]
     /// The page's Content Security Policy (``PageCSP``); strict unless a first-party page widens it.
     public let csp: PageCSP
+    /// The file `cmux-page://<id>/` serves (default `index.html`): a page whose root is a shared
+    /// build (the diff viewer in the one webviews-app build) names its own entry html.
+    public let entry: String
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
                 actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
-                confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict) {
+                confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html") {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
@@ -41,6 +44,8 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.confirmedOps = confirmedOps
         // Only a first-party page may widen its policy (PageID); any other id gets the strict one.
         self.csp = PageID.isFirstParty(id) ? csp : .strict
+        // One file name inside the root, never a path.
+        self.entry = entry.isEmpty || entry.contains("/") || entry.hasPrefix(".") ? "index.html" : entry
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).

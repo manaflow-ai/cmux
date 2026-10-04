@@ -1214,7 +1214,7 @@ interface CmuxGlobal {
       /** `team.device.report_status` (mutation, scope `team:write`): Report what this install applied (policy version, MDM key names, conflicts). Send when it changes; the latest report replaces the previous one. */
       report_status: CmuxOp<{ policy_version: number; app_version: string; mdm_keys: Array<string>; conflicts: Array<string>; expected_revision?: string }, Cmux.MutationResult<Cmux.DeviceStatus>>
     }
-    /** `team.directory` (read, scope `team:read`): Read a team's directory: members and enrolled hosts (U2). */
+    /** `team.directory` (read, scope `team:read`): Read a team's directory: the first 200 members and hosts (U2). Page larger teams with team.members.list and team.hosts.list. */
     directory: CmuxOp<{ team?: Cmux.TeamId }, { team: Cmux.TeamId; members: Array<Cmux.TeamMember>; hosts: Array<Cmux.Host>; revision: string }>
     enrollment_token: {
       /** `team.enrollment_token.create` (mutation, scope `team:write`): Create a device enrollment token (owners and admins). The caller generates the token, sends only its SHA-256, and shows the token once. */
@@ -1222,9 +1222,17 @@ interface CmuxGlobal {
       /** `team.enrollment_token.list` (read, scope `team:read`): List enrollment tokens and managed devices (owners and admins). */
       list: CmuxOp<Record<string, never>, { team: Cmux.TeamId; tokens: Array<Cmux.EnrollmentToken>; devices: Array<Cmux.ManagedDevice>; revision: string }>
     }
+    hosts: {
+      /** `team.hosts.list` (read, scope `team:read`): Page a team's enrolled hosts by host id (keyset: pass next_cursor as cursor). */
+      list: CmuxOp<{ team?: Cmux.TeamId; cursor?: string; limit?: number }, { team: Cmux.TeamId; hosts: Array<Cmux.Host>; host_count: unknown; next_cursor: string | null; revision: string }>
+    }
     integration: {
       /** `team.integration.release_lock` (mutation, scope `team:write`): Release the SSO or MDM lock on the team's integration policy (owners and admins; audited). The team policy then applies again. */
       release_lock: CmuxOp<{ reason?: string; expected_revision?: string }, Cmux.MutationResult<{ released: "sso" | "mdm" }>>
+    }
+    members: {
+      /** `team.members.list` (read, scope `team:read`): Page a team's members by user id (keyset: pass next_cursor as cursor), optionally one role. */
+      list: CmuxOp<{ team?: Cmux.TeamId; cursor?: string; limit?: number; role?: "owner" | "admin" | "member" }, { team: Cmux.TeamId; members: Array<Cmux.TeamMember>; member_count: unknown; next_cursor: string | null; revision: string }>
     }
     policy: {
       /** `team.policy.get` (read, scope `team:read`): Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */

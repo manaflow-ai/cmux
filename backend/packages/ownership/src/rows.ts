@@ -79,6 +79,13 @@ export class SqlRows implements RowReader {
       .map((r) => ({ key: r.k, n: r.n === null ? null : Number(r.n), row: JSON.parse(r.json) as T }))
   }
 
+  /** Rows of an unordered table after `afterKey` in key order (keyset paging), at most `limit` (1000 max). */
+  scanFrom<T>(tbl: string, afterKey: string | undefined, limit: number): Array<StoredRow<T>> {
+    return this.sql
+      .exec<{ k: string; n: number | null; json: string }>(`SELECT k, n, json FROM ${this.table} WHERE tbl = ? AND k > ? ORDER BY k LIMIT ?`, tbl, afterKey ?? "", Math.max(0, Math.min(limit, 1000)))
+      .map((r) => ({ key: r.k, n: r.n === null ? null : Number(r.n), row: JSON.parse(r.json) as T }))
+  }
+
   /** Called by the engine inside its commit transaction. */
   apply(writes: ReadonlyArray<RowWrite>): void {
     for (const w of writes) {
