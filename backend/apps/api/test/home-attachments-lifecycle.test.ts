@@ -340,7 +340,25 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
     expect(await objects(g.id)).toBe(0)
     // The ninth failure leaves one attempt; the tenth dead-letters the drop.
     await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_drops SET attempts = 9, next_attempt_at = ?", Date.now() - 1))
-    await wake(stub)
+    // The dead-letter line is an error-level event with ids only (no free-text error).
+    const logged = await runInDurableObject(stub, async (i, state) => {
+      const lines: Array<string> = []
+      const error = console.error
+      console.error = (...a: Array<unknown>) => void lines.push(String(a[0]))
+      try {
+        await quiesce(i, state)
+        await i.alarm()
+      } finally {
+        console.error = error
+      }
+      return lines.flatMap((l) => { try { return [JSON.parse(l) as Record<string, unknown>] } catch { return [] } })
+    })
+    const deadLines = logged.filter((l) => l.event === "attachment.drop.dead_letter")
+    expect(deadLines.length).toBeGreaterThan(0)
+    for (const l of deadLines) {
+      expect(l).toMatchObject({ object_key: expect.any(String), quota_user: alice.user })
+      expect(l).not.toHaveProperty("error")
+    }
     const dead = await drops(stub)
     expect(dead.filter((d) => d.dead === 1)).toHaveLength(dead.length)
     expect(dead.every((d) => d.attempts === 10)).toBe(true)
