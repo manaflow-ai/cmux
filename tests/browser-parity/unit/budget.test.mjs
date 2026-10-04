@@ -10,6 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadRuntime, createNodeHost } from "../lib/dev-driver.mjs";
+import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
 
 const ns = loadRuntime();
 const { shape, render, diffLines, condense, Snapshot, PRINT_BUDGET } = ns.snapshot;
@@ -116,7 +117,7 @@ test("diff: stays near-linear on huge trees", () => {
 });
 
 test("repl output: a call over its cap prints the head and spills everything to a file", async () => {
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "cap-"));
+  const workDir = makeTestDir("cap-");
   const printed = [];
   const host = createNodeHost({ workDir, sessionId: `cap-${process.pid}`, print: (level, t) => printed.push(t) });
   const gate = ns.replHost.createOutputGate(host, { maxOutput: 5000 });
@@ -145,11 +146,11 @@ test("repl output: a call over its cap prints the head and spills everything to 
   for (let i = 0; i < 100; i++) open.print("log", line(i));
   open.finish();
   assert.equal(printed.length, 100);
-  fs.rmSync(workDir, { recursive: true, force: true });
+  removeTestDir(workDir);
 });
 
 test("repl output: no limit (0) still spills past a hard ceiling instead of printing everything", () => {
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "cap-"));
+  const workDir = makeTestDir("cap-");
   let printedChars = 0;
   const notes = [];
   const host = createNodeHost({
@@ -173,7 +174,7 @@ test("repl output: no limit (0) still spills past a hard ceiling instead of prin
     assert.ok(full, `maxOutput ${maxOutput}: ${notes.join(" | ")}`);
     assert.equal(fs.statSync(full[1]).size, 600 * 10000);
   }
-  fs.rmSync(workDir, { recursive: true, force: true });
+  removeTestDir(workDir);
 });
 
 test("frames: a frame that never answers is left out and marked, and the rest of the page reads", async () => {

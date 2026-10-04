@@ -95,6 +95,8 @@ for (const mode of ["ax", "legacy"]) {
     await c.close();
   }
 }
+// Only the directory made above, never the temporary directory itself.
+if (path.dirname(fs.realpathSync(uploadDir)) !== fs.realpathSync(os.tmpdir())) throw new Error(`refusing to remove ${uploadDir}`);
 fs.rmSync(uploadDir, { recursive: true, force: true });
 fs.writeFileSync(output, JSON.stringify(out));
 if (approvals.length) fs.writeFileSync(path.join(here, "results/.cache/reference-b-approvals.json"), JSON.stringify(approvals, null, 1));

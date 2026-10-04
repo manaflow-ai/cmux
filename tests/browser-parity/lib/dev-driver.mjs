@@ -19,6 +19,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { createBoundary } from "./native-boundary.mjs";
 import { siteOf } from "./public-suffix.mjs";
+import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "./test-dirs.mjs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -1220,10 +1221,26 @@ export function createFsOp({ workDir, tmpdir, readable = new Set() }) {
   };
 }
 
+// Session temporary directories this process made (createNodeHost). A test
+// that does not remove its own leaves it until the process exits, when they
+// go; only directories made here are ever removed (test-dirs.mjs).
+const hostTemporaryDirectories = new Set();
+process.on("exit", () => {
+  for (const dir of hostTemporaryDirectories) {
+    try {
+      removeTestDir(dir);
+    } catch {}
+  }
+});
+
 // Host capabilities the app provides natively (driver-protocol.md, "Native
 // host contract").
 export function createNodeHost({ workDir, sessionId = "dev", print, readable = new Set() }) {
-  const tmpdir = fs.realpathSync(os.tmpdir());
+  // As the app: the session's own private temporary directory,
+  // <tmp>/cmux-browser-repl/<session>-<random>-tmp, mode 0700.
+  const safeID = String(sessionId).slice(0, 64).replace(/[^A-Za-z0-9_-]/g, "_");
+  const tmpdir = makeTestDir(`${safeID}-`, { parent: path.join(os.tmpdir(), "cmux-browser-repl"), mode: 0o700 });
+  hostTemporaryDirectories.add(tmpdir);
   return {
     workDir,
     sessionId,
@@ -1301,11 +1318,12 @@ export function createDevRepl({ host, driver }) {
 // uncaught error.
 export async function runDevCells(cells, { workDir } = {}) {
   const ns = loadRuntime();
-  const dir = fs.realpathSync(workDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "cmux-repl-")));
+  const dir = fs.realpathSync(workDir ?? makeTestDir("cmux-repl-"));
   const browser = await createDevBrowser();
   const named = new Map();
   const readable = new Set();
   const outputs = [];
+  const hosts = [];
   try {
     for (const cell of cells) {
       const lines = [];
@@ -1316,6 +1334,7 @@ export async function runDevCells(cells, { workDir } = {}) {
         driver.on("download.finished", (p) => p.path && readable.add(fs.realpathSync(p.path)));
         let current = print;
         const host = createNodeHost({ workDir: dir, sessionId: cell.session || `oneshot-${outputs.length + 1}`, print: (l, t) => current(l, t), readable });
+        hosts.push(host);
         entry = { driver, repl: createDevRepl({ host, driver }), setPrint: (p) => (current = p) };
         if (cell.session) named.set(cell.session, entry);
       }
@@ -1330,7 +1349,10 @@ export async function runDevCells(cells, { workDir } = {}) {
     }
   } finally {
     await browser.close();
-    if (!workDir) fs.rmSync(dir, { recursive: true, force: true });
+    if (!workDir) removeTestDir(dir);
+    // As the app at session close: a session's temporary directory goes
+    // only when nothing is left in it.
+    for (const host of hosts) removeTestDirIfEmpty(host.tmpdir);
   }
   return outputs;
 }

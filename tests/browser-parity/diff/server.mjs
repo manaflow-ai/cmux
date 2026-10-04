@@ -15,6 +15,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixturesDir = path.join(here, "fixtures");
@@ -71,12 +72,12 @@ function websocketEcho(req, socket) {
 }
 
 function selfSignedCert() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "brepl-diff-tls-"));
+  const dir = makeTestDir("brepl-diff-tls-");
   const key = path.join(dir, "key.pem");
   const cert = path.join(dir, "cert.pem");
   execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=localhost", "-keyout", key, "-out", cert], { stdio: "ignore" });
   const out = { key: fs.readFileSync(key), cert: fs.readFileSync(cert) };
-  fs.rmSync(dir, { recursive: true, force: true });
+  removeTestDir(dir);
   return out;
 }
 

@@ -9,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadRuntime, createDevBrowser, createNodeHost, createDevRepl } from "../lib/dev-driver.mjs";
 import { answer, createState, COOKIES, MOCK_HOSTS } from "./mock-sites.mjs";
+import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const authFillSource = () => fs.readFileSync(path.join(here, "../../../Resources/browser-repl/sites/auth-fill.js"), "utf8");
@@ -54,7 +55,7 @@ export async function createSitesEnv({ signedIn = true, authResponder } = {}) {
       await seed.close();
     },
   });
-  const workDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmux-sites-")));
+  const workDir = makeTestDir("cmux-sites-");
   const sessions = new Map();
 
   // The REPL's native fetch: mock hosts only, redirects followed, the
@@ -136,7 +137,7 @@ export async function createSitesEnv({ signedIn = true, authResponder } = {}) {
     async close() {
       for (const s of sessions.values()) await s.close().catch(() => {});
       await browser.close();
-      fs.rmSync(workDir, { recursive: true, force: true });
+      removeTestDir(workDir);
     },
   };
 }

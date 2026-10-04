@@ -293,8 +293,10 @@ rest. Measurements: [performance.md](performance.md).
   4,000,000 characters, past which the call spills as below), under both
   harness limits above so the REPL, not the harness, picks what is cut.
   Past the cap, the call's whole output goes to
-  `<tmp>/cmux-browser-repl/<session>/output-N.txt` under the session's own
-  `os.tmpdir()` (kept after the session ends): the first 80% prints,
+  `output-N.txt` in the session's own `os.tmpdir()`
+  (`<tmp>/cmux-browser-repl/<session>-<random>-tmp`, mode 0700, where its
+  images, exports and recordings go too; kept after the session ends,
+  removed only when empty): the first 80% prints,
   then `# output continues in <path>`, and at the end of the call its last
   lines and `# output truncated: X of Y characters shown; full output:
   <path>`. The file is written as output arrives, so a call that times out

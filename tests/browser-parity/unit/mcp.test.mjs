@@ -13,6 +13,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
+import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
 
 const CLI = process.env.PARITY_CMUX_CLI;
 const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489", "hex").toString("base64");
@@ -48,7 +49,7 @@ function fakeSocket(file, calls) {
 }
 
 test("repl mcp: handshake, tools/list and each tool over the REPL socket methods", { skip: !CLI && "set PARITY_CMUX_CLI" }, async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mcp-"));
+  const dir = makeTestDir("cmux-mcp-");
   const socket = path.join(dir, "s.sock");
   const calls = [];
   const server = await fakeSocket(socket, calls);
@@ -129,7 +130,7 @@ test("repl mcp: handshake, tools/list and each tool over the REPL socket methods
     child.stdin.end();
     await new Promise((r) => child.once("exit", r));
     server.close();
-    fs.rmSync(dir, { recursive: true, force: true });
+    removeTestDir(dir);
   }
 });
 
@@ -166,7 +167,7 @@ function startServer(args, env) {
 }
 
 test("repl mcp: without --session each server process gets its own session", { skip: !CLI && "set PARITY_CMUX_CLI" }, async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mcp-"));
+  const dir = makeTestDir("cmux-mcp-");
   const socket = path.join(dir, "s.sock");
   const calls = [];
   const server = await fakeSocket(socket, calls);
@@ -196,6 +197,6 @@ test("repl mcp: without --session each server process gets its own session", { s
   } finally {
     await Promise.all(servers.map((s) => s.stop()));
     server.close();
-    fs.rmSync(dir, { recursive: true, force: true });
+    removeTestDir(dir);
   }
 });

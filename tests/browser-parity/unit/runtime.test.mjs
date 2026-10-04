@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadRuntime, runDevRepl, createFsOp } from "../lib/dev-driver.mjs";
 import { startFixtureServers } from "../lib/fixture-server.mjs";
+import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
 
 const ns = loadRuntime();
 const { shape, interactiveOnly, render, diffLines, textChanges, Snapshot } = ns.snapshot;
@@ -413,7 +414,7 @@ test("url: the JavaScriptCore fallback matches WHATWG URL for common cases", () 
 });
 
 test("fs sandbox: the session directory and the temp directory only", () => {
-  const work = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmux-repl-unit-")));
+  const work = makeTestDir("cmux-repl-unit-");
   try {
     const op = createFsOp({ workDir: work, tmpdir: os.tmpdir() });
     op("writeFile", { path: path.join(work, "a.txt"), base64: Buffer.from("x").toString("base64") });
@@ -424,12 +425,12 @@ test("fs sandbox: the session directory and the temp directory only", () => {
     fs.symlinkSync("/etc", path.join(work, "link"));
     assert.throws(() => op("readFile", { path: path.join(work, "link/hosts") }), (e) => e.code === "EACCES");
   } finally {
-    fs.rmSync(work, { recursive: true, force: true });
+    removeTestDir(work);
   }
 });
 
 test("fs sandbox: rm, rename and lstat act on a link itself; copy and rename keep the destination on failure", () => {
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmux-repl-unit-")));
+  const base = makeTestDir("cmux-repl-unit-");
   const work = path.join(base, "work");
   const outside = path.join(base, "outside");
   fs.mkdirSync(work);
@@ -476,7 +477,7 @@ test("fs sandbox: rm, rename and lstat act on a link itself; copy and rename kee
     op("copyFile", { from: "unreadable.txt", to: "dest.txt" });
     assert.equal(text(at("dest.txt")), "new");
   } finally {
-    fs.rmSync(base, { recursive: true, force: true });
+    removeTestDir(base);
   }
 });
 

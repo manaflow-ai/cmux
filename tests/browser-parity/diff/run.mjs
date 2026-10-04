@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { startDiffServer } from "./server.mjs";
 import { referenceACli, referenceBRuntime } from "../lib/references.mjs";
 import { MARK, REFERENCES, loadCases, dialectSource, expand, prelude, readResults, writeResults, allVerdicts, normalizeStrings } from "./lib.mjs";
+import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CASE_TIMEOUT_MS = Number(process.env.DIFF_CASE_TIMEOUT_MS ?? 150_000);
@@ -96,7 +97,7 @@ async function cmuxRepl(code, { session } = {}) {
 async function devBackend() {
   const dev = await import("../lib/dev-driver.mjs");
   const ns = dev.loadRuntime();
-  const workDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "brepl-diff-")));
+  const workDir = makeTestDir("brepl-diff-");
   const browser = await dev.createDevBrowser();
   const readable = new Set();
   const sessions = new Map();
@@ -136,7 +137,7 @@ async function devBackend() {
     async close() {
       for (const name of [...sessions.keys()]) await this.reset(name);
       await browser.close();
-      fs.rmSync(workDir, { recursive: true, force: true });
+      removeTestDir(workDir);
     },
   };
 }

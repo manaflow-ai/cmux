@@ -300,7 +300,8 @@
       }
     };
     const spill = () => {
-      const dir = `${host.tmpdir}/cmux-browser-repl/${String(host.sessionId || "session").replace(/[^\w.-]/g, "_")}`;
+      // The session's own temporary directory (private, mode 0700).
+      const dir = host.tmpdir;
       try {
         host.fsOp("mkdir", { path: dir, recursive: true });
       } catch {}

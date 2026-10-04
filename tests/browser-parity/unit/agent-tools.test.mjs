@@ -15,6 +15,7 @@ import zlib from "node:zlib";
 import { loadRuntime, createDevBrowser, createNodeHost, createDevRepl } from "../lib/dev-driver.mjs";
 import { startFixtureServers } from "../lib/fixture-server.mjs";
 import { siteOf } from "../lib/public-suffix.mjs";
+import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
 
 const ns = loadRuntime();
 const T = ns.agentTools;
@@ -122,13 +123,13 @@ test("buildApng: valid chunks, frame count, sequence numbers; other sizes skippe
 });
 
 // One REPL session on the dev driver, with the app's output cap.
-async function withRepl(fn, { maxOutput, setupContext } = {}) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmux-repl-bu-")));
+async function withRepl(fn, { maxOutput, setupContext, readable } = {}) {
+  const dir = makeTestDir("cmux-repl-bu-");
   const sessionId = `bu-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
   const browser = await createDevBrowser({ setupContext });
   const driver = browser.driver();
   const lines = [];
-  const host = createNodeHost({ workDir: dir, sessionId, print: (level, text) => lines.push(text) });
+  const host = createNodeHost({ workDir: dir, sessionId, print: (level, text) => lines.push(text), readable });
   const repl = createDevRepl({ host, driver });
   const outputs = [];
   const run = async (code) => {
@@ -138,14 +139,14 @@ async function withRepl(fn, { maxOutput, setupContext } = {}) {
     outputs.push(out);
     return out;
   };
-  const sessionTmp = path.join(fs.realpathSync(os.tmpdir()), "cmux-browser-repl", sessionId);
+  const sessionTmp = host.tmpdir;
   try {
     await fn({ run, dir, sessionTmp, outputs });
   } finally {
     repl.dispose();
     await browser.close();
-    fs.rmSync(dir, { recursive: true, force: true });
-    fs.rmSync(sessionTmp, { recursive: true, force: true });
+    removeTestDir(dir);
+    removeTestDir(sessionTmp);
   }
 }
 
@@ -156,7 +157,7 @@ async function withRepl(fn, { maxOutput, setupContext } = {}) {
 // directory inside another (18-print).
 test("files a session writes go straight into its private temporary directory", async () => {
   const servers = await startFixtureServers();
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmux-repl-tmp-")));
+  const dir = makeTestDir("cmux-repl-tmp-");
   const browser = await createDevBrowser();
   const lines = [];
   const host = createNodeHost({ workDir: dir, sessionId: `tmp-${process.pid}`, print: (level, text) => lines.push(text) });
@@ -183,11 +184,8 @@ test("files a session writes go straight into its private temporary directory", 
     repl.dispose();
     await browser.close();
     await servers.close();
-    fs.rmSync(dir, { recursive: true, force: true });
-    // Only ever the session's own directory, never the system's temporary
-    // directory itself (which a host without a private one would name).
-    const own = path.join(fs.realpathSync(os.tmpdir()), "cmux-browser-repl") + path.sep;
-    if (host.tmpdir.startsWith(own)) fs.rmSync(host.tmpdir, { recursive: true, force: true });
+    removeTestDir(dir);
+    removeTestDir(host.tmpdir);
   }
 });
 
@@ -201,7 +199,7 @@ test("secrets: a registered value never appears in output, errors, page reads or
   const { primary, peer } = servers.origins;
   const KEY = "Zx9-secret-VALUE-77";
   const PW = "pw with spaces&<x>";
-  const secretsDir = fs.mkdtempSync(path.join(os.tmpdir(), "bu-secrets-"));
+  const secretsDir = makeTestDir("bu-secrets-");
   const secretsFile = path.join(secretsDir, "secrets.json");
   fs.writeFileSync(secretsFile, JSON.stringify({ localhost: { apikey: KEY, pw: PW } }));
   const forms = [KEY, PW, encodeURIComponent(KEY), encodeURIComponent(PW), encodeURIComponent(PW).replace(/%20/g, "+"), "pw with spaces&amp;&lt;x&gt;"];
@@ -271,9 +269,9 @@ test("secrets: a registered value never appears in output, errors, page reads or
         texts.forEach((t, i) => assert.ok(!t.includes(form), `output ${i} contains ${JSON.stringify(form)}`));
         for (const f of files) assert.ok(!fs.readFileSync(f).toString("latin1").includes(form), `${f} contains ${JSON.stringify(form)}`);
       }
-    }, { maxOutput: 6000 });
+    }, { maxOutput: 6000, readable: new Set([fs.realpathSync(secretsFile)]) });
   } finally {
-    fs.rmSync(secretsDir, { recursive: true, force: true });
+    removeTestDir(secretsDir);
     await servers.close();
   }
 });
@@ -429,7 +427,7 @@ test("cookie calls name the page's tab, so the driver uses that tab's store", as
   const browser = await createDevBrowser();
   const servers = await startFixtureServers();
   const { primary } = servers.origins;
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmux-repl-cookie-")));
+  const dir = makeTestDir("cmux-repl-cookie-");
   const driver = browser.driver();
   const calls = [];
   const call = driver.call.bind(driver);
@@ -458,7 +456,7 @@ test("cookie calls name the page's tab, so the driver uses that tab's store", as
     repl.dispose();
     await browser.close();
     await servers.close();
-    fs.rmSync(dir, { recursive: true, force: true });
+    removeTestDir(dir);
   }
 });
 
@@ -471,7 +469,7 @@ test("storage state reads and writes localStorage only in the page's own data st
   const browser = await createDevBrowser();
   const servers = await startFixtureServers();
   const { primary } = servers.origins;
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmux-repl-store-")));
+  const dir = makeTestDir("cmux-repl-store-");
   const driver = browser.driver();
   let otherId = null;
   let recording = false;
@@ -513,7 +511,7 @@ test("storage state reads and writes localStorage only in the page's own data st
     repl.dispose();
     await browser.close();
     await servers.close();
-    fs.rmSync(dir, { recursive: true, force: true });
+    removeTestDir(dir);
   }
 });
 
@@ -523,7 +521,7 @@ test("a closed page's context still reads and adds cookies", async () => {
   const browser = await createDevBrowser();
   const servers = await startFixtureServers();
   const { primary } = servers.origins;
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmux-repl-cookie-closed-")));
+  const dir = makeTestDir("cmux-repl-cookie-closed-");
   const repl = createDevRepl({ host: createNodeHost({ workDir: dir, sessionId: `cookie-closed-${process.pid}`, print: () => {} }), driver: browser.driver() });
   try {
     const r = await repl.evaluate(`
@@ -539,7 +537,7 @@ test("a closed page's context still reads and adds cookies", async () => {
     repl.dispose();
     await browser.close();
     await servers.close();
-    fs.rmSync(dir, { recursive: true, force: true });
+    removeTestDir(dir);
   }
 });
 

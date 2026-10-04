@@ -1204,7 +1204,7 @@
       // animated PNG of the run.
       record(options = {}) {
         if (recorder) throw new Error(`session.record: already recording to ${recorder.dir}; call stop() on it first`);
-        const dir = options.dir ? path.resolve(String(options.dir)) : path.join(host.tmpdir, "cmux-browser-repl", String(host.sessionId || "session").replace(/[^\w.-]/g, "_"), `record-${++recordCount}`);
+        const dir = options.dir ? path.resolve(String(options.dir)) : path.join(host.tmpdir, `record-${++recordCount}`);
         fs.mkdirSync(dir, { recursive: true });
         const r = { dir, trace: path.join(dir, "trace.jsonl"), screenshots: options.screenshots !== false, frames: 0, frameFiles: [], actions: 0, busy: false };
         fs.writeFileSync(r.trace, "");

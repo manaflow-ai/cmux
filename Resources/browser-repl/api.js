@@ -423,7 +423,8 @@
     let n = 0;
     const target = (options, ext) => {
       if (options.path) return path.resolve(String(options.path));
-      const dir = path.join(host.tmpdir, "cmux-browser-repl", String(host.sessionId || "session").replace(/[^\w.-]/g, "_"));
+      // The session's own temporary directory (private, mode 0700).
+      const dir = host.tmpdir;
       fs.mkdirSync(dir, { recursive: true });
       return path.join(dir, `export-${++n}${ext}`);
     };
@@ -498,7 +499,8 @@
     }
 
     function imageLine(image) {
-      const dir = path.join(host.tmpdir, "cmux-browser-repl", String(host.sessionId || "session").replace(/[^\w.-]/g, "_"));
+      // The session's own temporary directory (private, mode 0700).
+      const dir = host.tmpdir;
       fs.mkdirSync(dir, { recursive: true });
       const file = path.join(dir, `image-${++state.images}.${image.type === "jpeg" ? "jpg" : "png"}`);
       fs.writeFileSync(file, image.buffer);

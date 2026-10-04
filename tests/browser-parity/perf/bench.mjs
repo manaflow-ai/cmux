@@ -26,6 +26,7 @@ import { startFixtureServers } from "../lib/fixture-server.mjs";
 import { createDevBrowser, createNodeHost, createDevRepl, loadRuntime } from "../lib/dev-driver.mjs";
 import { tokens, TOKENIZER } from "./tokens.mjs";
 import { referenceACli } from "../lib/references.mjs";
+import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MARK = "@@PERF@@";
@@ -185,7 +186,7 @@ function runProcess(cmd, argv, { input, env, timeoutMs = 600_000 } = {}) {
 async function cmuxDevBackend() {
   const ns = loadRuntime();
   const browser = await createDevBrowser({ viewport: { width: 1280, height: 800 } });
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "perf-cmux-"));
+  const workDir = makeTestDir("perf-cmux-");
   const session = () => {
     const lines = [];
     const driver = browser.driver();
@@ -242,7 +243,7 @@ async function cmuxDevBackend() {
     },
     close: async () => {
       await browser.close();
-      fs.rmSync(workDir, { recursive: true, force: true });
+      removeTestDir(workDir);
     },
   };
 }
