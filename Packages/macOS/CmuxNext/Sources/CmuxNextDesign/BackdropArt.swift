@@ -5,7 +5,7 @@ public struct BackdropFocalAnchor: Equatable, Sendable {
     public let x: Double
     public let y: Double
 
-    public init(x: Double, y: Double) {
+    public nonisolated init(x: Double, y: Double) {
         self.x = min(max(x.isFinite ? x : 0.5, 0), 1)
         self.y = min(max(y.isFinite ? y : 0.5, 0), 1)
     }
@@ -20,7 +20,7 @@ public struct BackdropQuietZone: Equatable, Sendable {
     public let width: Double
     public let height: Double
 
-    public init(x: Double, y: Double, width: Double, height: Double) {
+    public nonisolated init(x: Double, y: Double, width: Double, height: Double) {
         let originX = min(max(x.isFinite ? x : 0, 0), 1)
         let originY = min(max(y.isFinite ? y : 0, 0), 1)
         self.x = originX
@@ -42,13 +42,13 @@ public struct BackdropPaletteColor: Equatable, Hashable, Sendable {
     public let green: UInt8
     public let blue: UInt8
 
-    public init(red: UInt8, green: UInt8, blue: UInt8) {
+    public nonisolated init(red: UInt8, green: UInt8, blue: UInt8) {
         self.red = red
         self.green = green
         self.blue = blue
     }
 
-    public var hex: String { String(format: "#%02X%02X%02X", red, green, blue) }
+    public nonisolated var hex: String { String(format: "#%02X%02X%02X", red, green, blue) }
 }
 
 /// Layout hints authored with each bundled artwork.
@@ -58,7 +58,7 @@ public struct BackdropArtMetadata: Equatable, Sendable {
     public let dominantPalette: [BackdropPaletteColor]
     public let quietZone: BackdropQuietZone
 
-    public init(focalAnchor: BackdropFocalAnchor, tone: BackdropArtTone,
+    public nonisolated init(focalAnchor: BackdropFocalAnchor, tone: BackdropArtTone,
                 dominantPalette: [BackdropPaletteColor], quietZone: BackdropQuietZone) {
         self.focalAnchor = focalAnchor
         self.tone = tone
@@ -69,7 +69,7 @@ public struct BackdropArtMetadata: Equatable, Sendable {
     /// Returns the normalized aspect-fill crop, keeping the focal anchor visible.
     /// The anchor's y coordinate is measured from the top, while Core Animation's
     /// `contentsRect` uses a bottom-left origin.
-    public func cropRect(forViewSize viewSize: CGSize, imageSize: CGSize) -> CGRect {
+    public nonisolated func cropRect(forViewSize viewSize: CGSize, imageSize: CGSize) -> CGRect {
         guard viewSize.width > 0, viewSize.height > 0, imageSize.width > 0, imageSize.height > 0 else {
             return CGRect(x: 0, y: 0, width: 1, height: 1)
         }
@@ -95,7 +95,7 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     case sunflowers = "met-sunflowers-436524"
 
     /// The authored layout and tonal hints used by the backdrop renderer.
-    public var metadata: BackdropArtMetadata {
+    public nonisolated var metadata: BackdropArtMetadata {
         switch self {
         case .wheatField:
             return BackdropArtMetadata(
