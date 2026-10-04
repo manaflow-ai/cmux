@@ -26,6 +26,27 @@ final class LocationTrailService {
     var now: () -> Date = Date.init
     /// Called after every trail change (the history page, the palette).
     var onChange: (() -> Void)?
+    /// More listeners (each window's titlebar Back / Forward buttons): token to handler.
+    private var observers: [Int: () -> Void] = [:]
+    private var nextObserver = 0
+
+    /// Adds a listener for every trail change (also scope changes: re-read `canNavigate`); returns
+    /// the token for ``removeObserver(_:)``.
+    @discardableResult
+    func addObserver(_ handler: @escaping () -> Void) -> Int {
+        nextObserver += 1
+        observers[nextObserver] = handler
+        return nextObserver
+    }
+
+    func removeObserver(_ token: Int) {
+        observers[token] = nil
+    }
+
+    private func notify() {
+        onChange?()
+        for handler in observers.values { handler() }
+    }
 
     init(services: AppServices) {
         self.services = services
@@ -166,7 +187,7 @@ final class LocationTrailService {
     // MARK: Persistence
 
     private func changed() {
-        onChange?()
+        notify()
         guard loaded else { return }
         saveTimer.schedule(after: .seconds(1)) { @MainActor [weak self] in self?.save() }
     }
@@ -189,7 +210,7 @@ final class LocationTrailService {
             for entry in trail.entries { merged.record(entry.location, at: entry.enteredAt) }
             trail = merged
         }
-        onChange?()
+        notify()
     }
 
     private func save() {
