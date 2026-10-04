@@ -117,3 +117,27 @@ fn the_client_error_table_is_the_backend_catalog() {
         );
     }
 }
+
+/// `cloud.machine.link_token` mints the dial credential for `cmux link`
+/// (install principals only, never MCP or a visible CLI verb). The Cloud app
+/// never consumes it, and `cloud.machine.connect_info` carries no token.
+#[test]
+fn the_link_token_is_its_own_op_that_the_app_does_not_consume() {
+    let backend = backend_ops();
+    assert!(backend.contains_key("cloud.machine.link_token"), "a cloud.machine.link_token row");
+    let op = &backend["cloud.machine.link_token"];
+    assert_eq!(op["class"], "mutation");
+    assert_eq!(op["idempotency"], "required");
+    assert_eq!(op["principals"], serde_json::json!(["install"]));
+    assert_eq!(op["mcp"]["expose"], "never");
+    assert_eq!(op["cli"]["visible"], false);
+    for code in ["cloud.machine.not_found", "cloud.machine.not_bound", "auth.forbidden"] {
+        assert!(op["errors"].as_array().expect("errors").iter().any(|e| e == code), "{code}");
+    }
+    let manifest = json(&app_dir().join("cmux-app.v2.json"));
+    let consumed = manifest["consumes"]["ops"].as_array().expect("consumes.ops");
+    assert!(!consumed.iter().any(|o| o == "cloud.machine.link_token"));
+    assert!(cmux_cloud::ops::canonical_name("cloud.machine.link_token").is_none(), "not served");
+    let info = backend["cloud.machine.connect_info"]["output_json_schema"].to_string();
+    assert!(!info.contains("link_token"), "connect_info carries no token");
+}
