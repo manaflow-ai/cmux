@@ -22,7 +22,15 @@ pub(crate) const ALLOWED_COMMANDS: &[(&str, &[&str])] = &[
     ("identify", &[]),
     (
         "set-client-info",
-        &["name", "capabilities", "user_id", "display_name", "device_kind", "device_name", "device_id"],
+        &[
+            "name",
+            "capabilities",
+            "user_id",
+            "display_name",
+            "device_kind",
+            "device_name",
+            "device_id",
+        ],
     ),
     ("subscribe", &[]),
     ("conversation-list", &[]),
@@ -130,7 +138,11 @@ fn check_capabilities(value: &Value) -> Result<(), Denial> {
     if valid { Ok(()) } else { Err(Denial::Capability) }
 }
 
-fn check_fields(object: &Map<String, Value>, allowed: &[&str], denial: Denial) -> Result<(), Denial> {
+fn check_fields(
+    object: &Map<String, Value>,
+    allowed: &[&str],
+    denial: Denial,
+) -> Result<(), Denial> {
     for key in object.keys() {
         if COMMAND_PARAMS.contains(&key.as_str()) {
             return Err(Denial::CommandParam);

@@ -6,8 +6,8 @@
 
 use cmux_conversation::{Op, Participant, ParticipantKind};
 
-use super::super::conversations::commit_op;
 use super::super::Mux;
+use super::super::conversations::commit_op;
 use crate::conversation_store::LOCAL_USER;
 use crate::remote_relay_state::remote_participant;
 

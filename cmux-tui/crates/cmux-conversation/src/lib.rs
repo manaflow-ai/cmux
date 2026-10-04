@@ -28,8 +28,8 @@ pub use search::{
     snippet_of, sort_hits, validate_search,
 };
 pub use types::{
-    AgentClass, Change, ConversationHead, Message, Op, Origin, Part, PartRef, Participant, ParticipantKind,
-    Reaction, ReactionKind, Summary, Tapback, TextRun, WorkStatus,
+    AgentClass, Change, ConversationHead, Message, Op, Origin, Part, PartRef, Participant,
+    ParticipantKind, Reaction, ReactionKind, Summary, Tapback, TextRun, WorkStatus,
 };
 
 /// `Summary.owner` for conversations owned by a local daemon.

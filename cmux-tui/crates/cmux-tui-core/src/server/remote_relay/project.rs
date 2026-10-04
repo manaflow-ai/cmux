@@ -85,7 +85,9 @@ fn participant(participant: &Participant) -> RemoteParticipant {
 
 fn part(part: &Part) -> Option<RemotePart> {
     match part {
-        Part::Text { text, runs } => Some(RemotePart::Text { text: text.clone(), runs: runs.clone() }),
+        Part::Text { text, runs } => {
+            Some(RemotePart::Text { text: text.clone(), runs: runs.clone() })
+        }
         Part::Work { .. } => None,
     }
 }

@@ -93,7 +93,9 @@ pub(in crate::server) fn snapshot(
         return Err(denied());
     }
     let messages: Vec<_> = messages.iter().map(project::message).collect();
-    Ok(json!({"conversation": project::summary(&summary, &caller.participant), "messages": messages}))
+    Ok(
+        json!({"conversation": project::summary(&summary, &caller.participant), "messages": messages}),
+    )
 }
 
 pub(in crate::server) fn history(
