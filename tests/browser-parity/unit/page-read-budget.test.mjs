@@ -110,3 +110,24 @@ test("snapshot: DOM read beside the walk (visible-box checks, aria-owns, labels)
     await servers.close();
   }
 });
+
+test("composer text: a composer past the page-read budget is refused before its text leaves the page", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<div id="c" contenteditable="true"></div><textarea id="t"></textarea>';
+          document.getElementById("c").textContent = "A".repeat(5000000);
+          document.getElementById("t").value = "B".repeat(5000000);
+        });`);
+      for (const sel of ["#c", "#t"]) {
+        const r = await run(`let err = null; try { await page.locator(${JSON.stringify(sel)})._read("composerText", null, {}, "composer text"); } catch (e) { err = String(e.message); } console.log("@@" + JSON.stringify(err));`);
+        assert.match(JSON.parse(r.value) || "", /more than 2,000,000 characters/, `${sel}: the composer text was read whole`);
+        assert.ok(largestRead(r.log) < 100000, `${sel}: the page agent returned ${largestRead(r.log)} characters`);
+      }
+    });
+  } finally {
+    await servers.close();
+  }
+});
