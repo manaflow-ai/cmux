@@ -131,3 +131,35 @@ test("composer text: a composer past the page-read budget is refused before its 
     await servers.close();
   }
 });
+
+test("dropdownOptions and extract: page-controlled lists stop at the page-read budget with a note", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<select id="s"></select><div id="items"></div><div id="bigs"></div>';
+          const s = document.getElementById("s");
+          for (let i = 0; i < 3; i++) s.appendChild(new Option(String(i).repeat(1000000), "v" + i));
+          const items = document.getElementById("items");
+          for (let i = 0; i < 20000; i++) items.appendChild(document.createElement("span")).className = "item";
+          const bigs = document.getElementById("bigs");
+          for (let i = 0; i < 5; i++) bigs.appendChild(document.createElement("p")).textContent = "C".repeat(1000000);
+        });`);
+      const drop = await run(`const o = await page.dropdownOptions("#s"); console.log("@@" + JSON.stringify(o.reduce((n, x) => n + x.label.length, 0)));`);
+      assert.ok(Number(drop.value) <= READ_SIZE + 10, `dropdownOptions returned ${drop.value} characters of labels`);
+      assert.ok(largestRead(drop.log) < READ_SIZE + 100000, `the page agent returned ${largestRead(drop.log)} characters`);
+      assert.match(drop.output, /# page\.dropdownOptions: the page is too large to read whole: it stopped after 2,000,000 characters/);
+
+      const handles = await run(`const before = (await page.mainFrame()._agent("stats")).handles; await page.extract([".item"], { limit: 5 }); console.log("@@" + ((await page.mainFrame()._agent("stats")).handles - before));`);
+      assert.ok(Number(handles.value) < 100, `extract kept ${handles.value} element handles for a list limited to 5`);
+
+      const text = await run(`const e = await page.extract(["#bigs p"]); console.log("@@" + JSON.stringify(e.reduce((n, x) => n + (x ? x.length : 0), 0)));`);
+      assert.ok(Number(text.value) <= READ_SIZE + 10, `extract returned ${text.value} characters`);
+      assert.ok(largestRead(text.log) < READ_SIZE + 100000, `the page agent returned ${largestRead(text.log)} characters`);
+      assert.match(text.output, /# page\.extract: the page is too large to read whole: it stopped after 2,000,000 characters/);
+    });
+  } finally {
+    await servers.close();
+  }
+});
