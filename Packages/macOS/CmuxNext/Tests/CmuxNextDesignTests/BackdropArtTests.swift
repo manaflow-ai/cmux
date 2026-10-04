@@ -20,7 +20,14 @@ struct BackdropArtTests {
         try Data([0x01]).write(to: directory.appendingPathComponent("a-wallpaper.png"))
         let catalog = BackdropCatalog(systemDirectory: directory, fileManager: .default, systemLimit: 1)
         #expect(catalog.choices.count == BackdropArt.allCases.count + 1)
-        #expect(catalog.choices.dropFirst().first == .system(path: directory.appendingPathComponent("a-wallpaper.png").path))
+        let firstSystem = try #require(catalog.choices.dropFirst(BackdropArt.allCases.count).first)
+        guard case .system(let actualPath) = firstSystem else {
+            Issue.record("The first system wallpaper choice was not a system path")
+            return
+        }
+        let actualURL = URL(fileURLWithPath: actualPath).resolvingSymlinksInPath()
+        let expectedURL = directory.appendingPathComponent("a-wallpaper.png").resolvingSymlinksInPath()
+        #expect(actualURL == expectedURL)
     }
 
     @Test func tuningClampsAndPreservesUnchangedAxes() {

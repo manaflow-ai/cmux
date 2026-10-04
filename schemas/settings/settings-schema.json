@@ -381,9 +381,9 @@
     },
     {
       "accepts" : [
-        0.1,
+        0.10000000000000001,
         1,
-        0.55
+        0.55000000000000004
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -409,13 +409,13 @@
       ],
       "range" : {
         "max" : 1,
-        "min" : 0.1,
-        "placeholder" : 0.1,
-        "step" : 0.05,
+        "min" : 0.10000000000000001,
+        "placeholder" : 0.10000000000000001,
+        "step" : 0.050000000000000003,
         "unit" : "fraction"
       },
       "refuses" : [
-        -0.9,
+        -0.90000000000000002,
         2,
         "1"
       ],
@@ -2345,155 +2345,6 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
-      "default" : 0,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.appearanceTuning",
-        "text" : "Appearance Tuning"
-      },
-      "help" : {
-        "key" : "settings.appearance.glassTransparency.help",
-        "text" : "How much of the desktop or wallpaper shows through the glass."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.glassTransparency",
-      "keywords" : [
-        "glass",
-        "transparency",
-        "alpha",
-        "clear"
-      ],
-      "kind" : "number",
-      "path" : [
-        "appearance",
-        "glassTransparency"
-      ],
-      "range" : {
-        "max" : 1,
-        "min" : 0,
-        "placeholder" : 0,
-        "step" : 0.05,
-        "unit" : "fraction"
-      },
-      "refuses" : [
-        -1,
-        2,
-        "1"
-      ],
-      "section" : "appearance",
-      "title" : {
-        "key" : "settings.appearance.glassTransparency",
-        "text" : "Glass Transparency"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        0,
-        1,
-        0.5
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "default" : 0.5,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.appearanceTuning",
-        "text" : "Appearance Tuning"
-      },
-      "help" : {
-        "key" : "settings.appearance.hue.help",
-        "text" : "Shift the tint color around the hue wheel."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.hue",
-      "keywords" : [
-        "tint",
-        "color",
-        "colour"
-      ],
-      "kind" : "number",
-      "path" : [
-        "appearance",
-        "hue"
-      ],
-      "range" : {
-        "max" : 1,
-        "min" : 0,
-        "placeholder" : 0.5,
-        "step" : 0.05,
-        "unit" : "fraction"
-      },
-      "refuses" : [
-        -1,
-        2,
-        "1"
-      ],
-      "section" : "appearance",
-      "title" : {
-        "key" : "settings.appearance.hue",
-        "text" : "Hue"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        0,
-        2,
-        1
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "default" : 1,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.appearanceTuning",
-        "text" : "Appearance Tuning"
-      },
-      "help" : {
-        "key" : "settings.appearance.saturation.help",
-        "text" : "Increase or reduce the tint color intensity."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.saturation",
-      "keywords" : [
-        "tint",
-        "color",
-        "colour",
-        "intensity"
-      ],
-      "kind" : "number",
-      "path" : [
-        "appearance",
-        "saturation"
-      ],
-      "range" : {
-        "max" : 2,
-        "min" : 0,
-        "placeholder" : 1,
-        "step" : 0.05,
-        "unit" : "fraction"
-      },
-      "refuses" : [
-        -2,
-        4,
-        "1"
-      ],
-      "section" : "appearance",
-      "title" : {
-        "key" : "settings.appearance.saturation",
-        "text" : "Saturation"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        0,
-        1,
-        0.5
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
       "default" : null,
       "default_label" : {
         "key" : "settings.default.ghosttyConfig",
@@ -2525,7 +2376,7 @@
         "max" : 1,
         "min" : 0,
         "placeholder" : 1,
-        "step" : 0.05,
+        "step" : 0.050000000000000003,
         "unit" : "fraction"
       },
       "refuses" : [
@@ -2615,6 +2466,155 @@
       "title" : {
         "key" : "settings.appearance.backgroundBlur",
         "text" : "Material"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.appearanceTuning",
+        "text" : "Appearance Tuning"
+      },
+      "help" : {
+        "key" : "settings.appearance.glassTransparency.help",
+        "text" : "How much of the desktop or wallpaper shows through the glass."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.glassTransparency",
+      "keywords" : [
+        "glass",
+        "transparency",
+        "alpha",
+        "clear"
+      ],
+      "kind" : "number",
+      "path" : [
+        "appearance",
+        "glassTransparency"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.050000000000000003,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.glassTransparency",
+        "text" : "Glass Transparency"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : 0.5,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.appearanceTuning",
+        "text" : "Appearance Tuning"
+      },
+      "help" : {
+        "key" : "settings.appearance.hue.help",
+        "text" : "Shift the tint color around the hue wheel."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.hue",
+      "keywords" : [
+        "tint",
+        "color",
+        "colour"
+      ],
+      "kind" : "number",
+      "path" : [
+        "appearance",
+        "hue"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0.5,
+        "step" : 0.050000000000000003,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.hue",
+        "text" : "Hue"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        2,
+        1
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.appearanceTuning",
+        "text" : "Appearance Tuning"
+      },
+      "help" : {
+        "key" : "settings.appearance.saturation.help",
+        "text" : "Increase or reduce the tint color intensity."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.saturation",
+      "keywords" : [
+        "tint",
+        "color",
+        "colour",
+        "intensity"
+      ],
+      "kind" : "number",
+      "path" : [
+        "appearance",
+        "saturation"
+      ],
+      "range" : {
+        "max" : 2,
+        "min" : 0,
+        "placeholder" : 1,
+        "step" : 0.050000000000000003,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -2,
+        4,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.saturation",
+        "text" : "Saturation"
       },
       "validation" : "portable"
     },
@@ -3619,7 +3619,7 @@
         "max" : 1.5,
         "min" : 0.5,
         "placeholder" : 0.5,
-        "step" : 0.05,
+        "step" : 0.050000000000000003,
         "unit" : "fraction"
       },
       "refuses" : [
@@ -4028,13 +4028,13 @@
     },
     {
       "accepts" : [
-        0.1,
-        0.9,
+        0.10000000000000001,
+        0.90000000000000002,
         0.5
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
-      "default" : 0.3333333333333333,
+      "default" : 0.33333333333333331,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -4059,15 +4059,15 @@
         "topBandMaxShare"
       ],
       "range" : {
-        "max" : 0.9,
-        "min" : 0.1,
-        "placeholder" : 0.1,
-        "step" : 0.05,
+        "max" : 0.90000000000000002,
+        "min" : 0.10000000000000001,
+        "placeholder" : 0.10000000000000001,
+        "step" : 0.050000000000000003,
         "unit" : "fraction"
       },
       "refuses" : [
-        -0.9,
-        1.9,
+        -0.90000000000000002,
+        1.8999999999999999,
         "1"
       ],
       "section" : "appearance",
@@ -4079,8 +4079,8 @@
     },
     {
       "accepts" : [
-        0.1,
-        0.9,
+        0.10000000000000001,
+        0.90000000000000002,
         0.5
       ],
       "agent_refusal" : null,
@@ -4110,15 +4110,15 @@
         "bottomBandMaxShare"
       ],
       "range" : {
-        "max" : 0.9,
-        "min" : 0.1,
-        "placeholder" : 0.1,
-        "step" : 0.05,
+        "max" : 0.90000000000000002,
+        "min" : 0.10000000000000001,
+        "placeholder" : 0.10000000000000001,
+        "step" : 0.050000000000000003,
         "unit" : "fraction"
       },
       "refuses" : [
-        -0.9,
-        1.9,
+        -0.90000000000000002,
+        1.8999999999999999,
         "1"
       ],
       "section" : "appearance",
@@ -5542,7 +5542,7 @@
     },
     {
       "accepts" : [
-        0.3,
+        0.29999999999999999,
         30,
         15.15
       ],
@@ -5568,14 +5568,14 @@
       ],
       "range" : {
         "max" : 30,
-        "min" : 0.3,
-        "placeholder" : 0.3,
+        "min" : 0.29999999999999999,
+        "placeholder" : 0.29999999999999999,
         "step" : 0.5,
         "unit" : "seconds"
       },
       "refuses" : [
-        -29.4,
-        59.7,
+        -29.399999999999999,
+        59.700000000000003,
         "1"
       ],
       "section" : "notifications",
@@ -5837,7 +5837,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "ae6264b3b682ce65e360ba0abed0b740824081c0a2b12cb8845c4d6a1519cf38",
+  "schema_hash" : "8d709c8552542129a519a38e4ea95ddbb8b9ba490ba7f72f344d79db6d44fbcd",
   "sections" : [
     {
       "id" : "general",
