@@ -3,6 +3,7 @@ import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
 import { conversation as homeConversation, invites } from "@cmux/home-core"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
+import { memberUpsert, TABLE_MEMBER } from "../src/domains/team-members.ts"
 import { userIdFor } from "../src/domains/user.ts"
 import { conversationMutate } from "../src/home-routes.ts"
 import { recordingEnv } from "./reach-recorder.ts"
@@ -47,16 +48,16 @@ const signIn = async (sub: string, name: string): Promise<Person> => {
 }
 /** Seeds `member` into `owner`'s team (TeamDO knows personal teams only; team invites are not built yet). */
 const joinTeam = async (owner: Person, member: Person) => {
-  // Members are rows ((f)): the member row goes in directly.
-  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(owner.team)), async (_instance, state: DurableObjectState) => {
-    state.storage.sql.exec("INSERT OR REPLACE INTO own_rows (tbl, k, n, json) VALUES ('member', ?, NULL, ?)", member.user, JSON.stringify({ user: member.user, role: "member", display_name: member.name }))
+  // Members are rows ((f)): the member row goes in through the engine's row store.
+  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(owner.team)), async (instance) => {
+    instance.boundEngine.rows.apply([memberUpsert({ user: member.user, role: "member", display_name: member.name })])
   })
 }
 /** Removes `member` from `owner`'s team (a departure from the team). */
 const leaveTeam = async (owner: Person, member: Person) => {
-  // Members are rows ((f)): the member row goes.
-  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(owner.team)), async (_instance, state: DurableObjectState) => {
-    state.storage.sql.exec("DELETE FROM own_rows WHERE tbl = 'member' AND k = ?", member.user)
+  // Members are rows ((f)): the member row goes, through the engine's row store.
+  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(owner.team)), async (instance) => {
+    instance.boundEngine.rows.apply([{ table: TABLE_MEMBER, op: "delete", key: member.user }])
   })
 }
 const send = (p: Person, conversation: string, text: string) => {
