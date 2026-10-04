@@ -78,7 +78,10 @@ fn a_writable_stamp_or_folder_is_refused() {
     assert!(!trusted_stamp(&tree.stamp(), &tree.base, tree.owner()), "group/world-writable stamp");
     tree.write_stamp("cmux-vm inputs=abc md 2026\n", 0o644);
     fs::set_permissions(tree.base.join("etc/cmux"), fs::Permissions::from_mode(0o777)).unwrap();
-    assert!(!trusted_stamp(&tree.stamp(), &tree.base, tree.owner()), "a writable folder lets anyone swap it");
+    assert!(
+        !trusted_stamp(&tree.stamp(), &tree.base, tree.owner()),
+        "a writable folder lets anyone swap it"
+    );
 }
 
 #[test]
