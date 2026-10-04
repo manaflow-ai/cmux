@@ -25469,6 +25469,13 @@
               ]
             }
           },
+          "email_requests": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -25511,6 +25518,13 @@
                     "contacts"
                   ]
                 }
+              },
+              "email_requests": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
               }
             }
           }
@@ -25545,7 +25559,7 @@
         "expose": "never",
         "group": "home"
       },
-      "docs": "Choose who can find you by email or phone and who may start a DM with you.",
+      "docs": "Choose who can find you by email or phone, who may start a DM with you, and whether a message request also sends an email.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -25563,6 +25577,9 @@
               "teams",
               "contacts"
             ]
+          },
+          "email_requests": {
+            "type": "boolean"
           }
         },
         "additionalProperties": true,
@@ -25584,12 +25601,16 @@
               "teams",
               "contacts"
             ]
+          },
+          "email_requests": {
+            "type": "boolean"
           }
         },
         "required": [
           "discoverable_by_email",
           "discoverable_by_phone",
-          "allow_dm_from"
+          "allow_dm_from",
+          "email_requests"
         ],
         "additionalProperties": true,
         "$defs": {}

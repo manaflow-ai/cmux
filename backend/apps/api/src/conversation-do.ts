@@ -1,4 +1,4 @@
-import type { Domain, EventFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
+import { tablesFor, type Domain, type EventFrame, type OwnerEngine, type OwnerFrame, type Principal } from "@cmux/ownership"
 import { conversation, invites } from "@cmux/home-core"
 
 /** An invite still waiting for its recipient (pending, or waiting for approval). */
@@ -190,6 +190,40 @@ export class ConversationDO extends OwnerDO<Head> {
       kind: state.kind === "dm" ? "dm" : "group",
       ...(state.kind === "group" && state.title ? { title: state.title } : {})
     }
+  }
+
+  /**
+   * Worker only (home-reach.ts): whether `actor` is a current participant, checked before the
+   * Worker spends RPCs on reach facts for an op on this conversation. Never creates storage.
+   */
+  async homeIsParticipant(entity: string, actor: string): Promise<boolean> {
+    const state = this.existingState(entity)
+    return Boolean(state?.participants.some((p) => p.id === actor && p.left_at === undefined))
+  }
+
+  /**
+   * Worker only (home-reach.ts): the reach facts this DM gives `adder` about `target`. `peer` is
+   * the target's name while both are current human participants; `consented` holds when the
+   * pair gave consent (16.8): both have sent a message here, or the DM came from an invite one of
+   * them sent and the other accepted (16.4). Authorship comes from the `msgkey` rows, keyed
+   * `<author>:<client_msg_id>`, so the check is an index range read, not a history scan.
+   */
+  async homeDmLink(entity: string, adder: string, target: string): Promise<{ peer: string | null; consented: boolean } | null> {
+    const state = this.existingState(entity)
+    if (!state || state.kind !== "dm") return null
+    const current = (id: string) => state.participants.find((p) => p.id === id && p.kind === "human" && p.left_at === undefined)
+    if (!current(adder)) return null
+    const peer = current(target)
+    if (!peer) return { peer: null, consented: false }
+    const rows = tablesFor().rows
+    const authored = (who: string) =>
+      this.sqlStore.exec<{ one: number }>(`SELECT 1 AS one FROM ${rows} WHERE tbl = ? AND k >= ? AND k < ? LIMIT 1`, conversation.TABLE_MSGKEY, `${who}:`, `${who};`).length > 0
+    const pair = new Set([adder, target])
+    const invited = () =>
+      [...(state.invites ?? []), ...this.boundEngine!.rows.scan<conversation.Invite>(conversation.TABLE_INV, 1000).map((r) => r.row)].some(
+        (i) => i.status === "accepted" && i.accepted_by !== undefined && i.invited_by !== i.accepted_by && pair.has(i.invited_by) && pair.has(i.accepted_by)
+      )
+    return { peer: peer.display_name, consented: (authored(adder) && authored(target)) || invited() }
   }
 
   /** State of an object that already serves this conversation; never creates storage for unknown ids. */

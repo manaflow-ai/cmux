@@ -112,7 +112,7 @@ describe("Home human reach", { timeout: 60_000 }, () => {
     const carol = await signIn("reach-set-carol", "Carol")
     const dave = await signIn("reach-set-dave", "Dave")
     const set = await op(carol.token, "home.settings.set", { allow_dm_from: "teams" })
-    expect(set.value).toEqual({ discoverable_by_email: false, discoverable_by_phone: false, allow_dm_from: "teams" })
+    expect(set.value).toEqual({ discoverable_by_email: false, discoverable_by_phone: false, allow_dm_from: "teams", email_requests: true })
     const stranger = await op(dave.token, "dm.open", { peer: carol.user })
     expect(stranger.error.code).toBe("not_reachable")
     const unknown = await op(dave.token, "dm.open", { peer: "user_00000000000000000000" })

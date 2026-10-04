@@ -3,7 +3,7 @@ import { conversation as homeConversation, invites } from "@cmux/home-core"
 import type { OpFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import type { SubmitResult } from "./owner-do.ts"
-import { humanTargets, resolveHumanReach } from "./home-reach.ts"
+import { humanTargets, isParticipant, resolveHumanReach } from "./home-reach.ts"
 
 /**
  * Worker side of the Home ops (home-messaging.md section 4.1). Clients name a conversation in
@@ -192,7 +192,10 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
       const { conversation, ...rest } = params as { conversation?: unknown }
       if (typeof conversation !== "string") return reject(key, "validation.invalid", `${frame.op} needs a conversation`)
       const added = (rest as { participant?: { id?: unknown } }).participant
-      const who = frame.op === "participants.add" ? await withReach(env, await withOwnedAgents(env, principal), [added?.id]) : principal
+      // Reach facts only for a current participant: anyone else is refused by the owner without
+      // RPCs to other owners, and cannot probe a target's setting through any conversation id.
+      const member = frame.op === "participants.add" && (await isParticipant(env, conversation, actorOf(principal)))
+      const who = frame.op === "participants.add" ? (member ? await withReach(env, await withOwnedAgents(env, principal), [added?.id]) : await withOwnedAgents(env, principal)) : principal
       return conversationStub(env, conversation).submit(conversation, who, { ...frame, params: rest })
     }
   }

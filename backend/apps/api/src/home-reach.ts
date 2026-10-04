@@ -13,7 +13,8 @@ import type { Env } from "./env.ts"
  *   team) and the target's personal team. A user's other teams need a membership index in
  *   UserDO (section 16.7, not built), so only those teams are checked.
  * - connected: until relationships exist (16.7), a DM between the two where both are current
- *   participants, found through the caller's inbox `peer` index and read from that DM's owner.
+ *   participants and both gave consent (16.8: both sent a message, or one accepted the other's
+ *   invite), found through the caller's inbox `peer` index and asked of that DM's owner.
  * - allow_dm_from: the target's UserDO, asked only when one of the links above exists, so an
  *   unknown id never reaches another user's object.
  * - blocked: not resolved; the pair state (16.6) does not exist yet.
@@ -33,18 +34,19 @@ interface UserReachStub {
   readInbox(entity: string, principal: Principal, op: string, params: Record<string, unknown>): Promise<{ ok: boolean; value?: { conversation?: string | null } }>
   homeAllowDmFrom(entity: string): Promise<homeConversation.AllowDmFrom>
 }
-interface ConversationReadStub {
-  readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<{ ok: boolean; value?: { state?: homeConversation.ConversationHead | null } }>
+interface ConversationReachStub {
+  homeDmLink(entity: string, adder: string, target: string): Promise<{ peer: string | null; consented: boolean } | null>
+  homeIsParticipant(entity: string, actor: string): Promise<boolean>
 }
 
 const teamStub = (env: Env, team: string) => env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as TeamReachStub
 const userStub = (env: Env, user: string) => env.USER_DO.get(env.USER_DO.idFromName(user)) as unknown as UserReachStub
-const conversationStub = (env: Env, id: string) => env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)) as unknown as ConversationReadStub
+const conversationStub = (env: Env, id: string) => env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)) as unknown as ConversationReachStub
 
 export interface ReachResolution {
   /** The caller with `home_reach` set (unchanged for callers that are not a signed-in human). */
   readonly principal: Principal
-  /** Target user id -> the caller's existing DM with them (the caller is a current participant). */
+  /** Target user id -> the caller's existing DM with them (both are current participants). */
   readonly dms: ReadonlyMap<string, string>
 }
 
@@ -52,17 +54,22 @@ export interface ReachResolution {
 export const humanTargets = (caller: string, ids: ReadonlyArray<unknown>): Array<string> =>
   [...new Set(ids.filter((id): id is string => typeof id === "string" && id.startsWith("user_") && id.length <= MAX_ID && id !== caller))].slice(0, MAX_TARGETS)
 
-/** The caller's DM with `target`, when the caller is a current participant, and whether the target is one too. */
+/**
+ * The caller's DM with `target`: `peer` is set while both are current participants (only then is
+ * the DM reused by dm.open), and `consented` when the pair gave consent (16.8), which alone makes
+ * them connected. A DM opened through team reach that the target never answered is no contact.
+ */
 const existingDm = async (env: Env, principal: Principal, adder: string, target: string) => {
   const found = await userStub(env, adder).readInbox(adder, principal, "inbox.dm_peer", { peer: target })
   const id = found.ok ? found.value?.conversation : null
   if (!id) return null
-  const snap = await conversationStub(env, id).readOp(id, principal, "conversation.snapshot", { tail: 0 })
-  const state = snap.ok ? snap.value?.state : null
-  if (!state || state.kind !== "dm") return null
-  const peer = state.participants.find((p) => p.id === target && p.kind === "human" && p.left_at === undefined)
-  return { id, peer: peer ? { display_name: peer.display_name } : null }
+  const link = await conversationStub(env, id).homeDmLink(id, adder, target)
+  return link ? { id, ...link } : null
 }
+
+/** Whether the caller is a current participant of `conversation` (participants.add resolves reach only then). */
+export const isParticipant = async (env: Env, conversation: string, actor: string | null): Promise<boolean> =>
+  actor !== null && (await conversationStub(env, conversation).homeIsParticipant(conversation, actor))
 
 /** Resolves the reach facts for `targets` (already filtered by `humanTargets`). */
 export const resolveHumanReach = async (env: Env, principal: Principal, targets: ReadonlyArray<string>): Promise<ReachResolution> => {
@@ -80,15 +87,16 @@ export const resolveHumanReach = async (env: Env, principal: Principal, targets:
   for (const hit of [...ownShared.flat(), ...theirShared.flat()]) if (!teamNames.has(hit.user)) teamNames.set(hit.user, hit.display_name)
   const linked = targets.flatMap((target, i) => {
     const dm = dms[i]
-    const name = teamNames.get(target) ?? dm?.peer?.display_name
-    return name === undefined ? [] : [{ target, name, shared_team: teamNames.has(target), connected: dm?.peer != null }]
+    const connected = dm?.peer != null && dm.consented
+    const name = teamNames.get(target) ?? (connected ? dm.peer! : undefined)
+    return name === undefined ? [] : [{ target, name, shared_team: teamNames.has(target), connected }]
   })
   const settings = await Promise.all(linked.map((l) => userStub(env, l.target).homeAllowDmFrom(l.target)))
   const home_reach = linked.map((l, i) => ({ user: l.target, display_name: l.name, shared_team: l.shared_team, connected: l.connected, allow_dm_from: settings[i]! }))
   const existing = new Map<string, string>()
   targets.forEach((target, i) => {
     const dm = dms[i]
-    if (dm) existing.set(target, dm.id)
+    if (dm?.peer != null) existing.set(target, dm.id)
   })
   return { principal: { ...principal, home_reach }, dms: existing }
 }

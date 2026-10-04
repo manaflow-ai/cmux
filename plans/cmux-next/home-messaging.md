@@ -511,6 +511,12 @@ addee are connected or share an org where the adder's role may add people, read 
 UserDO projection (eventually consistent; a block takes effect at the pair owner at once and in
 projections within one drain).
 
+Built so far (2026-10-03, branch feat-cmux-next-home-reach): until pair state exists, "connected"
+means a DM where both are current participants and both gave consent (both sent a message there,
+or one accepted the other's one-to-one invite). The setting is still named `allow_dm_from:
+anyone|teams|contacts` (section 4.2) and gained `email_requests` (R2, default on, stored only);
+whether it becomes `allow_requests_from: anyone|teams|nobody` is an open decision.
+
 ### 16.8 Migration from today
 
 `memberships.role` today is owner, admin or member; add `guest` and `billing` (expand

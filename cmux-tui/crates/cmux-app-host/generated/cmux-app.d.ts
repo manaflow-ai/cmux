@@ -518,8 +518,8 @@ interface CmuxGlobal {
     /** `home.search` (read, scope `home:read`): Search Home messages in conversations you are a current human participant of (newest first, with a short Top section). */
     search: CmuxOp<{ q: string; conversation?: Cmux.ConversationId; author?: Cmux.ParticipantId; kind?: Cmux.ConversationKind; before?: Cmux.Timestamp; cursor?: string; limit?: number }, { hits: Array<{ conversation: Cmux.ConversationId; title: string | null; seq: number; message_id: string; author: Cmux.ParticipantId; created_at: Cmux.Timestamp; snippet: string; ranges: Array<{ start: number; length: number }> }>; cursor?: string }>
     settings: {
-      /** `home.settings.set` (mutation, scope `home:write`): Choose who can find you by email or phone and who may start a DM with you. */
-      set: CmuxOp<{ discoverable_by_email?: boolean; discoverable_by_phone?: boolean; allow_dm_from?: "anyone" | "teams" | "contacts"; expected_revision?: string }, Cmux.MutationResult<{ discoverable_by_email: boolean; discoverable_by_phone: boolean; allow_dm_from: "anyone" | "teams" | "contacts" }>>
+      /** `home.settings.set` (mutation, scope `home:write`): Choose who can find you by email or phone, who may start a DM with you, and whether a message request also sends an email. */
+      set: CmuxOp<{ discoverable_by_email?: boolean; discoverable_by_phone?: boolean; allow_dm_from?: "anyone" | "teams" | "contacts"; email_requests?: boolean; expected_revision?: string }, Cmux.MutationResult<{ discoverable_by_email: boolean; discoverable_by_phone: boolean; allow_dm_from: "anyone" | "teams" | "contacts"; email_requests: boolean }>>
     }
   }
   inbox: {
