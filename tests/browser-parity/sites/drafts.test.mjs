@@ -160,27 +160,23 @@ test("gmail.send reply: a new message in the thread after the preview fails the 
 });
 
 test("linkedin.post and x.post: the draft pins the signed-in account; another account at confirmation fails and posts nothing", async () => {
-  const xTwid = (value) => `
-    const xTab = await tabs.open("https://x.com/robots.txt", { background: true });
-    await xTab.evaluate((v) => { document.cookie = "twid=" + v + "; domain=.x.com; path=/; secure"; }, ${JSON.stringify(value)});
-    await xTab.close();
-  `;
   try {
     await run(`
       const lD = await sites.linkedin.post("Pinned post.");
       const xD2 = await sites.x.post("Pinned post.");`);
     env.state.linkedinViewer = "mallory";
-    await run(xTwid("u%3D2002"));
+    // X's session cookie now authenticates another account.
+    env.state.xAccount = "mallory";
     const li = env.state.linkedinPosts.length;
     const xp = env.state.xPosts.length;
     assert.match(await s.error("sites.linkedin.post(lD.id, { confirm: true })"), /account_changed|mallory/);
-    assert.match(await s.error("sites.x.post(xD2.id, { confirm: true })"), /account_changed|2002/);
+    assert.match(await s.error("sites.x.post(xD2.id, { confirm: true })"), /account_changed|mallory/);
     assert.equal(env.state.linkedinPosts.length, li);
     assert.equal(env.state.xPosts.length, xp);
     assert.equal((await s.value("lD.preview")).account, "ada-lovelace");
-    assert.equal((await s.value("xD2.preview")).account, "1001");
+    assert.equal((await s.value("xD2.preview")).account, "ada");
   } finally {
     env.state.linkedinViewer = null;
-    await run(xTwid("u%3D1001"));
+    env.state.xAccount = null;
   }
 });

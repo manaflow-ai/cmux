@@ -171,7 +171,11 @@ function replaceIn(file, find, repl) {
   return n;
 }
 
-const shell = (file, body) => `<!doctype html><html><head><meta charset="utf-8"><title>${esc(file.title)} - Google ${file.kind === "spreadsheets" ? "Sheets" : file.kind === "document" ? "Docs" : "Slides"}</title></head><body>${file.trashed ? '<div role="alert">File is in trash</div>' : ""}
+// As live, the editor's header names the Google account it is signed in
+// as (account: a ListAccounts row, passed by the docs.google.com mock).
+const accountButton = (account) => (account ? `<a role="button" aria-label="Google Account: ${esc(account[2])} (${esc(account[3])})" href="https://accounts.google.com/SignOutOptions"></a>` : "");
+const shell = (file, body, account) => `<!doctype html><html><head><meta charset="utf-8"><title>${esc(file.title)} - Google ${file.kind === "spreadsheets" ? "Sheets" : file.kind === "document" ? "Docs" : "Slides"}</title></head><body>${file.trashed ? '<div role="alert">File is in trash</div>' : ""}
+<div id="docs-header">${accountButton(account)}</div>
 <div id="docs-titlebar"><input class="docs-title-input" value="${esc(file.title)}" aria-label="Rename">
 <div id="share-slot"></div><div role="button" aria-label="Share screen">Present</div>
 <div id="docs-file-menu" role="menuitem">File</div><div id="docs-edit-menu" role="menuitem">Edit</div></div>
@@ -220,7 +224,7 @@ document.getElementById("docs-edit-menu").addEventListener("click", () => {
 });
 </script></body></html>`;
 
-function sheetEditor(file) {
+function sheetEditor(file, account) {
   return shell(
     file,
     `<div id="docs-save-indicator-badge"><span id="save-badge">Saved to Drive</span></div><div id="waffle-grid-container"><input id="t-name-box" aria-label="Name Box" value="A1"><div class="cell-input" contenteditable="true" tabindex="0"></div></div>
@@ -264,6 +268,7 @@ cell.addEventListener("keydown", (e) => {
 });
 cell.addEventListener("keydown", (e) => { if (e.key === "Delete" || e.key === "Backspace") { saving(); post("clear", { range }); } });
 </script>`,
+    account,
   );
 }
 
@@ -297,11 +302,11 @@ export function createEditors() {
       // A collaborator shares the file right after an editor page loaded
       // (its Share button still shows the old label).
       if (file.shareAfterEditorLoad && !internal.skipShare) {
-        const page = handle(req, url, body, { skipShare: true });
+        const page = handle(req, url, body, { ...internal, skipShare: true });
         (file.shared = true), (file.shareAfterEditorLoad = false);
         return page;
       }
-      if (file.kind === "spreadsheets") return { html: sheetEditor(file) };
+      if (file.kind === "spreadsheets") return { html: sheetEditor(file, internal.account) };
       if (file.kind === "document")
         return {
           html: shell(
@@ -317,6 +322,7 @@ document.querySelector(".kix-appview-editor").addEventListener("input", (e) => {
   timer = setTimeout(() => { post("append", { text: typed }); typed = ""; }, 200);
 });
 </script>`,
+            internal.account,
           ),
         };
       return {
@@ -344,6 +350,7 @@ nw.addEventListener("keydown", (e) => {
   if (e.key.length === 1 && !e.metaKey) { e.preventDefault(); notes += e.key; }
 });
 </script>`,
+            internal.account,
         ),
       };
     }

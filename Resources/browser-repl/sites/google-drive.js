@@ -154,13 +154,16 @@
           if (!g.FORMATS[ref.kind]) throw new S.SiteError("invalid", `${name}: expected a Google Docs, Sheets or Slides URL`);
           return ed.inEditor(name, ref, async (page) => {
             const label = await ed.sharing(page);
-            if (created.has(ref.id) && ed.isPrivate(label)) return trashIn(page, ref, () => ed.recheckSharing(name, page, label, "when the trash started"));
+            // The account the editor is signed in as: the draft shows it,
+            // and the trash runs only in an editor signed in as it.
+            const account = await g.pageAccount(t, name, page);
+            if (created.has(ref.id) && ed.isPrivate(label)) return trashIn(page, ref, () => ed.recheckSharing(name, page, label, "when the trash started", account));
             const title = await page.evaluate(() => { const i = document.querySelector(".docs-title-input"); return i ? i.value : null; });
             return t.write("googleDrive", "trash", { draft: true }, undefined, () => ({
               category: "[1] delete data",
-              summary: `Move Google file ${ref.id}${title ? ` ("${title}")` : ""} to the trash`,
-              preview: { file: input, title, sharing: label || "unknown" },
-              run: () => ed.inEditor(name, ref, (p) => trashIn(p, ref, () => ed.recheckSharing(name, p, label, "previewed"))),
+              summary: `Move Google file ${ref.id}${title ? ` ("${title}")` : ""} to the trash as ${account}`,
+              preview: { file: input, title, sharing: label || "unknown", account },
+              run: () => ed.inEditor(name, ref, (p) => trashIn(p, ref, () => ed.recheckSharing(name, p, label, "previewed", account))),
             }));
           });
         },

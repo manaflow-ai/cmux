@@ -383,9 +383,27 @@
   // frame's Markdown in place. <mark> is random per call and made in this
   // world, which page script cannot read, so page text cannot spell a
   // placeholder (the host also turns the page's own NULs into U+FFFD).
+  // The read stops at the page-read budget the host passes on (A.budget:
+  // nodes, characters, time) and at `maxFrames` iframes; `report` and
+  // `framesCut` say where it stopped.
   function markdownOfFrame(opts) {
     const A = globalThis[Symbol.for("cmux.browserRepl.agent")];
+    const B = A.budget({ maxNodes: opts.maxNodes, maxSize: opts.maxSize });
+    const maxFrames = opts.maxFrames >= 0 ? opts.maxFrames : 100;
+    let framesCut = false;
     const frames = [];
+    // Page text and attribute values, charged to the budget.
+    const text = (v) => (B.truncated || !v ? "" : B.fit(String(v)));
+    // The nodes of a child list, each charged; none once the budget is spent.
+    const take = (list) => {
+      const out = [];
+      for (let i = 0; i < list.length && B.spend(1); i++) out.push(list[i]);
+      return out;
+    };
+    const append = (out, list) => {
+      for (const x of list) out.push(x);
+      return out;
+    };
     const words = new Uint32Array(4);
     if (globalThis.crypto && crypto.getRandomValues) crypto.getRandomValues(words);
     else for (let i = 0; i < words.length; i++) words[i] = Math.floor(Math.random() * 0x100000000);
@@ -421,19 +439,26 @@
     const kids = (el) => {
       const out = [];
       for (const c of ownKids(el)) {
-        if (c.nodeType === 1 && !SKIP.has(tag(c)) && style(c).display === "contents") out.push(...kids(c));
+        if (c.nodeType === 1 && !SKIP.has(tag(c)) && style(c).display === "contents") append(out, kids(c));
         else out.push(c);
       }
       return out;
     };
     const ownKids = (el) => {
-      if (el.shadowRoot) return [...el.shadowRoot.childNodes];
+      if (el.shadowRoot) return take(el.shadowRoot.childNodes);
       if (tag(el) === "SLOT") {
         const assigned = el.assignedNodes({ flatten: true });
-        return assigned.length ? assigned : [...el.childNodes];
+        return take(assigned.length ? assigned : el.childNodes);
       }
-      if (tag(el) === "DETAILS" && !el.open) return [...el.children].filter((c) => tag(c) === "SUMMARY");
-      return [...el.childNodes];
+      if (tag(el) === "DETAILS" && !el.open) return take(el.children).filter((c) => tag(c) === "SUMMARY");
+      return take(el.childNodes);
+    };
+    // A <pre>'s text, read node by node within the budget.
+    const textOf = (el) => {
+      let out = "";
+      const walker = document.createTreeWalker(el, 4 /* NodeFilter.SHOW_TEXT */);
+      for (let n = walker.nextNode(); n && B.spend(1); n = walker.nextNode()) out += text(n.data);
+      return out;
     };
     const sub = (el, ctx) => {
       const cs = style(el);
@@ -455,20 +480,19 @@
     };
     const fieldValue = (el) => {
       const t = tag(el);
-      if (t === "SELECT") return [...el.selectedOptions].map((o) => o.label || o.text).join(", ");
-      if (t === "TEXTAREA") return el.value;
+      if (t === "SELECT") return take(el.selectedOptions).map((o) => text(o.label || o.text)).join(", ");
+      if (t === "TEXTAREA") return text(el.value);
       if (t === "INPUT") {
         const type = (el.type || "text").toLowerCase();
         if (type === "password" || type === "hidden" || type === "file") return "";
         if (type === "checkbox" || type === "radio") return el.checked ? "[x]" : "[ ]";
-        if (type === "submit" || type === "button" || type === "reset") return el.value;
-        return el.value;
+        return text(el.value);
       }
       return "";
     };
 
     function inline(node, ctx) {
-      if (node.nodeType === 3) return ctx.hidden ? "" : collapse(node.data);
+      if (node.nodeType === 3) return ctx.hidden ? "" : collapse(text(node.data));
       if (node.nodeType !== 1 || skipped(node, ctx)) return "";
       ctx = sub(node, ctx);
       const t = tag(node);
@@ -476,8 +500,8 @@
       if (t === "IFRAME" || t === "FRAME") return "";
       if (t === "IMG") {
         if (ctx.hidden) return "";
-        const alt = collapse(node.getAttribute("alt") || "").trim();
-        if (opts.images && node.getAttribute("src")) return `![${esc(alt)}](${absURL(node.getAttribute("src"))})`;
+        const alt = collapse(text(node.getAttribute("alt"))).trim();
+        if (opts.images && node.getAttribute("src")) return `![${esc(alt)}](${text(absURL(node.getAttribute("src")))})`;
         return "";
       }
       if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT") {
@@ -492,14 +516,14 @@
         // An icon link is named by its label, its SVG title or its image's alt.
         const svgTitle = node.querySelector("svg title");
         const img = node.querySelector("img[alt]");
-        const label = collapse(node.getAttribute("aria-label") || (svgTitle && svgTitle.textContent) || (img && img.getAttribute("alt")) || node.getAttribute("title") || "").trim();
-        if (label && !/^(javascript:|#$)/i.test(node.getAttribute("href").trim())) return `[${esc(label)}](${absURL(node.getAttribute("href"))})`;
+        const label = collapse(text(node.getAttribute("aria-label") || (svgTitle && svgTitle.textContent) || (img && img.getAttribute("alt")) || node.getAttribute("title"))).trim();
+        if (label && !/^(javascript:|#$)/i.test(node.getAttribute("href").trim())) return `[${esc(label)}](${text(absURL(node.getAttribute("href")))})`;
       }
       if (!trimmed) return inner && /\s/.test(inner) ? " " : "";
       const pad = (s) => (/^\s/.test(inner) ? " " : "") + s + (/\s$/.test(inner) ? " " : "");
       if (t === "A") {
         const href = node.getAttribute("href");
-        if (opts.links && href && !/^(javascript:|#$)/i.test(href.trim())) return pad(`[${trimmed.replace(/\n+/g, " ")}](${absURL(href)})`);
+        if (opts.links && href && !/^(javascript:|#$)/i.test(href.trim())) return pad(`[${trimmed.replace(/\n+/g, " ")}](${text(absURL(href))})`);
         return inner;
       }
       if (t === "STRONG" || t === "B") return pad(`**${trimmed}**`);
@@ -521,7 +545,7 @@
       };
       for (const c of kids(node)) {
         if (c.nodeType === 3) {
-          run += ctx.hidden ? "" : collapse(c.data);
+          run += ctx.hidden ? "" : collapse(text(c.data));
           continue;
         }
         if (c.nodeType !== 1 || skipped(c, ctx)) continue;
@@ -530,7 +554,7 @@
           continue;
         }
         end();
-        out.push(...block(c, sub(c, ctx)));
+        append(out, block(c, sub(c, ctx)));
       }
       end();
       return out;
@@ -544,20 +568,29 @@
         const parts = tag(li) === "LI" ? blocks(li, sub(li, ctx)) : block(li, sub(li, ctx));
         if (!parts.length) continue;
         const marker = ordered ? `${n++}. ` : "- ";
-        const text = parts.join("\n").split("\n");
-        lines.push(marker + text[0], ...text.slice(1).map((l) => " ".repeat(marker.length) + l));
+        const itemLines = parts.join("\n").split("\n");
+        // Each nesting level indents every line again: charged, so deep
+        // nesting cannot multiply the text past the budget.
+        if (!B.charge(marker.length * itemLines.length)) break;
+        lines.push(marker + itemLines[0]);
+        for (let i = 1; i < itemLines.length; i++) lines.push(" ".repeat(marker.length) + itemLines[i]);
       }
       return lines.length ? [lines.join("\n")] : [];
     }
     function table(el, ctx) {
-      const rows = [...el.rows].filter((r) => !skipped(r, ctx));
+      const rows = take(el.rows).filter((r) => !skipped(r, ctx));
       const layout = !rows.length || el.querySelector("table") || el.getAttribute("role") === "presentation" || rows.every((r) => r.cells.length <= 1);
       if (layout) return blocks(el, ctx);
-      const width = Math.max(...rows.map((r) => r.cells.length));
+      const cells = rows.map((r) => take(r.cells));
+      let width = 0;
+      for (const c of cells) width = Math.max(width, c.length);
       const cell = (c) => tidy(inline(c, sub(c, ctx))).replace(/\n/g, " ").replace(/\|/g, "\\|");
-      const line = (r) => "| " + [...r.cells].map(cell).concat(Array(width - r.cells.length).fill("")).join(" | ") + " |";
+      // Short rows are padded to the widest: charged, so one wide row
+      // cannot multiply every other row past the budget.
+      const line = (i) => (B.charge(3 * (width - cells[i].length)) ? "| " + cells[i].map(cell).concat(Array(width - cells[i].length).fill("")).join(" | ") + " |" : "");
       const caption = el.caption ? tidy(inline(el.caption, ctx)) : "";
-      const lines = [line(rows[0]), "|" + " --- |".repeat(width), ...rows.slice(1).map(line)];
+      const lines = [line(0), B.charge(6 * width) ? "|" + " --- |".repeat(width) : ""];
+      for (let i = 1; i < rows.length && !B.truncated; i++) lines.push(line(i));
       return caption ? [caption, lines.join("\n")] : [lines.join("\n")];
     }
     function block(el, ctx) {
@@ -567,16 +600,21 @@
         const text = tidy(inline(el, ctx)).replace(/\n/g, " ");
         return text ? ["#".repeat(Number(h[1])) + " " + text] : [];
       }
-      if (t === "PRE") return ctx.hidden ? [] : ["```\n" + el.textContent.replace(/\n$/, "") + "\n```"];
+      if (t === "PRE") return ctx.hidden ? [] : ["```\n" + textOf(el).replace(/\n$/, "") + "\n```"];
       if (t === "UL" || t === "OL") return list(el, ctx);
       if (t === "TABLE") return table(el, ctx);
       if (t === "HR") return ["---"];
       if (t === "BLOCKQUOTE") {
         const inner = blocks(el, ctx);
-        return inner.length ? [inner.join("\n\n").split("\n").map((l) => "> " + l).join("\n")] : [];
+        const quoted = inner.join("\n\n").split("\n");
+        return inner.length && B.charge(2 * quoted.length) ? [quoted.map((l) => "> " + l).join("\n")] : [];
       }
       if (t === "IFRAME" || t === "FRAME") {
         if (ctx.hidden) return [];
+        if (frames.length >= maxFrames) {
+          framesCut = true;
+          return [];
+        }
         frames.push(A.handleFor(el));
         return [`\u0000F${mark}:${frames.length - 1}\u0000`];
       }
@@ -590,15 +628,29 @@
     let rootEl = document.body || document.documentElement;
     let main = false;
     if (opts.main) {
-      const visible = (e) => e && style(e).display !== "none" && (e.innerText || "").trim().length > 0;
-      const mainEl = [...document.querySelectorAll("main, [role=main]")].find(visible);
-      const articles = [...document.querySelectorAll("article, [role=article]")].filter(visible);
+      // Whether the element shows any text: its text nodes, within the
+      // budget, up to the first one that is shown.
+      const showsText = (e) => {
+        if (typeof e.checkVisibility !== "function") return (e.innerText || "").trim().length > 0;
+        const walker = document.createTreeWalker(e, 4 /* NodeFilter.SHOW_TEXT */);
+        for (let n = walker.nextNode(); n && B.spend(1); n = walker.nextNode()) {
+          if (n.data.trim() && n.parentElement && n.parentElement.checkVisibility({ visibilityProperty: true })) return true;
+        }
+        return false;
+      };
+      const visible = (e) => e && style(e).display !== "none" && showsText(e);
+      const mainEl = take(document.querySelectorAll("main, [role=main]")).find(visible);
+      // Only whether exactly one article shows text matters.
+      const articles = [];
+      for (const a of take(document.querySelectorAll("article, [role=article]"))) {
+        if (visible(a) && articles.push(a) > 1) break;
+      }
       if (mainEl) rootEl = mainEl;
       else if (articles.length === 1) rootEl = articles[0];
       else main = true;
     }
     const out = rootEl ? blocks(rootEl, { hidden: false, main }) : [];
-    return { blocks: out, frames, mark };
+    return { blocks: out, frames, mark, report: B.report(), framesCut };
   }
 
   // Structured data by selectors (Playwright syntax: CSS, text=, role=, ...;
@@ -606,15 +658,28 @@
   // (attribute; href and src resolve to absolute URLs), "@attr" or "." (the
   // scope itself), ["spec"] (every match), or an object: { $: "selector", ...fields }
   // is one object per match, an object without $ is one nested object.
+  // Matches and values are read within the page-read budget (A.budget):
+  // each list keeps at most `limit` matches, every value read is charged,
+  // and past the budget the rest reads as null; `report` says where it
+  // stopped.
   function extractInFrame(schema, opts) {
     const A = globalThis[Symbol.for("cmux.browserRepl.agent")];
+    const B = A.budget();
     const limit = opts.limit || 1000;
-    const all = (sel, scope) => A.queryAll(sel, scope && scope !== document ? A.handleFor(scope) : undefined).map((h) => A.element(h));
+    const all = (sel, scope, max) => A.queryAll(sel, scope && scope !== document ? A.handleFor(scope) : undefined, max).map((h) => A.element(h));
+    const value = (v) => (v === null || v === undefined || B.truncated ? null : B.fit(String(v)));
     const text = (el) => {
       const t = (el.tagName || "").toUpperCase();
-      if (t === "INPUT" || t === "TEXTAREA") return el.value;
-      if (t === "SELECT") return [...el.selectedOptions].map((o) => o.label || o.text).join(", ");
-      return (el.innerText !== undefined ? el.innerText : el.textContent || "").replace(/[\s ]+/g, " ").trim();
+      if (t === "INPUT" || t === "TEXTAREA") return value(el.value);
+      if (t === "SELECT") {
+        const picked = [];
+        for (const o of el.selectedOptions) {
+          if (!B.spend(1)) break;
+          picked.push(value(o.label || o.text));
+        }
+        return picked.join(", ");
+      }
+      return value((el.innerText !== undefined ? el.innerText : el.textContent || "").replace(/[\s ]+/g, " ").trim());
     };
     const split = (spec) => {
       const m = /^(.*?)@([A-Za-z_][\w:.-]*)$/.exec(spec);
@@ -622,16 +687,25 @@
       return [spec.trim(), null];
     };
     const read = (el, attr) => {
-      if (!el) return null;
+      if (!el || !B.spend(1)) return null;
       if (!attr) return text(el);
-      if ((attr === "href" || attr === "src") && typeof el[attr] === "string" && el[attr]) return el[attr];
-      return el.getAttribute(attr);
+      if ((attr === "href" || attr === "src") && typeof el[attr] === "string" && el[attr]) return value(el[attr]);
+      return value(el.getAttribute(attr));
+    };
+    // One item per match while the budget lasts.
+    const each = (els, fn) => {
+      const out = [];
+      for (const e of els) {
+        if (B.truncated) break;
+        out.push(fn(e));
+      }
+      return out;
     };
     const leaf = (spec, scope, many) => {
       const [sel, attr] = split(spec);
       if (!sel || sel === ".") return many ? [read(scope, attr)] : read(scope, attr);
-      const els = all(sel, scope);
-      return many ? els.slice(0, limit).map((e) => read(e, attr)) : read(els[0], attr);
+      if (!many) return read(all(sel, scope, 1)[0], attr);
+      return each(all(sel, scope, limit), (e) => read(e, attr));
     };
     const run = (spec, scope) => {
       if (typeof spec === "string") return leaf(spec, scope, false);
@@ -646,15 +720,16 @@
       // survives drivers whose JSON does not keep it (the app's).
       if (spec && typeof spec === "object" && Array.isArray(spec.__cmuxPairs)) {
         const entries = spec.__cmuxPairs;
-        const each = entries.find(([k]) => k === "$");
+        const perMatch = entries.find(([k]) => k === "$");
         const fields = (s) => ({ __cmuxPairs: entries.filter(([k]) => k !== "$").map(([k, v]) => [k, run(v, s)]) });
-        if (each && typeof each[1] === "string") return all(each[1], scope).slice(0, limit).map(fields);
+        if (perMatch && typeof perMatch[1] === "string") return each(all(perMatch[1], scope, limit), fields);
         return fields(scope);
       }
       throw new Error(`page.extract: expected a selector string, [spec] or an object, got ${JSON.stringify(spec)}`);
     };
     const scope = opts.scope ? A.element(opts.scope) : document;
-    return run(schema, scope);
+    const result = run(schema, scope);
+    return { value: result, report: B.report() };
   }
 
   // Text matches with context, like grep over what the page renders.
@@ -728,12 +803,22 @@
     return { total, matches };
   }
 
+  // Options are read within the page-read budget (A.budget): each option
+  // and its label and value are charged; `report` says where it stopped.
   function dropdownInFrame(handle) {
     const A = globalThis[Symbol.for("cmux.browserRepl.agent")];
+    const B = A.budget();
     const el = A.element(handle);
     const clean = (s) => (s || "").replace(/[\s ]+/g, " ").trim();
+    const fit = (s) => (s === null || s === undefined ? s : B.fit(String(s)));
     if (el.tagName && el.tagName.toUpperCase() === "SELECT") {
-      return { kind: "select", multiple: el.multiple, options: [...el.options].map((o, index) => ({ index, label: o.label || clean(o.text), value: o.value, selected: o.selected, disabled: o.disabled })) };
+      const options = [];
+      const all = el.options;
+      for (let index = 0; index < all.length && B.spend(1); index++) {
+        const o = all[index];
+        options.push({ index, label: fit(o.label || clean(o.text)), value: fit(o.value), selected: o.selected, disabled: o.disabled });
+      }
+      return { kind: "select", multiple: el.multiple, options, report: B.report() };
     }
     const rootNode = el.getRootNode();
     const byId = (id) => (rootNode.getElementById ? rootNode.getElementById(id) : document.getElementById(id));
@@ -747,20 +832,21 @@
       if (!popup) popup = el.querySelector("[role=listbox], [role=menu], [role=tree]");
     }
     if (!popup) return { kind: "none", options: [] };
-    const items = [...popup.querySelectorAll("[role=option], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox], [role=treeitem], [role=radio]")]
-      .filter((o) => !(typeof o.checkVisibility === "function") || o.checkVisibility({ visibilityProperty: true }));
-    return {
-      kind: "aria",
-      multiple: popup.getAttribute("aria-multiselectable") === "true",
-      options: items.map((o, index) => ({
-        index,
-        label: clean(o.getAttribute("aria-label") || o.innerText || o.textContent),
-        value: o.getAttribute("data-value") || o.getAttribute("value") || null,
+    const found = popup.querySelectorAll("[role=option], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox], [role=treeitem], [role=radio]");
+    const options = [];
+    for (let i = 0; i < found.length && B.spend(1); i++) {
+      const o = found[i];
+      if (typeof o.checkVisibility === "function" && !o.checkVisibility({ visibilityProperty: true })) continue;
+      options.push({
+        index: options.length,
+        label: fit(clean(o.getAttribute("aria-label") || o.innerText || o.textContent)),
+        value: fit(o.getAttribute("data-value") || o.getAttribute("value") || null),
         selected: o.getAttribute("aria-selected") === "true" || o.getAttribute("aria-checked") === "true",
         disabled: o.getAttribute("aria-disabled") === "true",
         handle: A.handleFor(o),
-      })),
-    };
+      });
+    }
+    return { kind: "aria", multiple: popup.getAttribute("aria-multiselectable") === "true", options, report: B.report() };
   }
 
   function scrollInfoInFrame(handle) {
@@ -1343,8 +1429,39 @@
 
   const P = core.Page.prototype;
 
+  // A page read cut at the page-read budget returns what it read; this
+  // line says so in the call's output.
+  function printCut(page, title, report, rest) {
+    try {
+      page._session.host.print("warn", `# ${title}: ${core.readCutNote("it", report)}; ${rest}`);
+    } catch {}
+  }
+
+  // The page-read budget of one page.markdown(), over all its frames
+  // (page-agent.js readBudget: the snapshot's nodes and characters), and
+  // at most MARKDOWN_FRAMES iframes. Frames are read one after another, so
+  // each gets what the frames before it left and the page's frame count
+  // sets no number of calls in flight.
+  const MARKDOWN_FRAMES = 100;
+  const READ_NODES = 250000;
+  const READ_SIZE = 2000000;
+  // `maxSize` lowers the characters (tabs.content splits its budget).
+  function markdownBudget(maxSize) {
+    const size = maxSize > 0 ? Math.min(READ_SIZE, Math.floor(maxSize)) : READ_SIZE;
+    return { left: READ_NODES, sizeLeft: size, size, frames: MARKDOWN_FRAMES, cut: null };
+  }
+  function noteCut(budget, cut) {
+    if (!budget.cut) budget.cut = cut;
+  }
+
   async function frameMarkdown(page, frame, opts, depth, budget) {
-    const r = await agentCall(frame, markdownOfFrame, opts);
+    const r = await agentCall(frame, markdownOfFrame, { ...opts, maxNodes: Math.max(1, budget.left), maxSize: Math.max(1, budget.sizeLeft), maxFrames: budget.frames });
+    const report = r.report || {};
+    budget.left -= Math.max(0, Number(report.visited) || 0);
+    budget.sizeLeft -= Math.max(0, Number(report.size) || 0);
+    budget.frames -= r.frames.length;
+    if (report.truncated) noteCut(budget, { truncated: report.truncated, maxNodes: READ_NODES, maxSize: budget.size });
+    if (r.framesCut) noteCut(budget, { truncated: "frames", frames: MARKDOWN_FRAMES });
     const text = r.blocks.join("\n\n");
     // Page text keeps no NUL, so only the agent's placeholders have one.
     const pageText = (s) => s.replace(/\u0000/g, "\uFFFD");
@@ -1358,7 +1475,16 @@
       children = [];
       for (const h of r.frames) children.push(await frame._contentFrame(h).catch(() => null));
     }
-    const parts = await Promise.all(children.map((child) => (child && depth < 6 && budget.frames-- > 0 ? frameMarkdown(page, child, { ...opts, main: false }, depth + 1, budget).catch(() => "") : "")));
+    const parts = [];
+    for (const child of children) {
+      // Frames nested deeper than six are left out, as before the budget.
+      if (!child || depth >= 6 || budget.left < 1 || budget.sizeLeft < 1) {
+        if (child && depth < 6) noteCut(budget, { truncated: budget.left < 1 ? "nodes" : "size", maxNodes: READ_NODES, maxSize: budget.size });
+        parts.push("");
+        continue;
+      }
+      parts.push(await frameMarkdown(page, child, { ...opts, main: false }, depth + 1, budget).catch(() => ""));
+    }
     const placeholder = new RegExp(`\u0000F${String(r.mark).replace(/[^0-9a-z]/g, "")}:(\\d+)\u0000`, "g");
     let out = "";
     let last = 0;
@@ -1380,7 +1506,10 @@
     if (options === null || typeof options !== "object") throw new Error(`page.markdown: options: expected an object, got ${JSON.stringify(options)}`);
     const opts = { main: !!options.main, links: options.links !== false, images: !!options.images };
     await this._syncInfo().catch(() => {});
-    const full = (await frameMarkdown(this, this._mainFrame, opts, 0, { frames: 100 })) + "\n";
+    const budget = markdownBudget(options._maxSize);
+    let full = (await frameMarkdown(this, this._mainFrame, opts, 0, budget)) + "\n";
+    // A page past the page-read budget ends with a note where it stopped.
+    if (budget.cut) full += `\n<!-- ${core.readCutNote("Markdown", budget.cut)}; the rest of the page is not shown -->\n`;
     const start = options.start || 0;
     const max = options.maxChars === undefined ? Infinity : options.maxChars;
     if (!Number.isInteger(start) || start < 0) throw new Error(`page.markdown: start: expected a non-negative integer, got ${JSON.stringify(options.start)}`);
@@ -1434,7 +1563,9 @@
       if (v && typeof v === "object") return { __cmuxPairs: Object.entries(v).map(([k, x]) => [k, pair(x)]) };
       return v;
     };
-    return unpair(await agentCall(frame, extractInFrame, pair(schema), { scope, limit: options.limit }));
+    const r = await agentCall(frame, extractInFrame, pair(schema), { scope, limit: options.limit });
+    if (r.report && r.report.truncated) printCut(this, "page.extract", r.report, "the values after it are null or left out");
+    return unpair(r.value);
   };
 
   // Text matches with surrounding context and the ref of the element each is
@@ -1534,6 +1665,7 @@
       if (o.handle) row.ref = await this._refForHandle(r.frame, o.handle).catch(() => null);
       out.push(row);
     }
+    if (d.report && d.report.truncated) printCut(this, "page.dropdownOptions", d.report, "the options after it are not listed");
     return out;
   };
 

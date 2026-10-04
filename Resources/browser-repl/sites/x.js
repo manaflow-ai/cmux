@@ -73,13 +73,30 @@
     };
   }
 
-  // Runs in an x.com page: the signed-in user's id from X's twid cookie
-  // (u=<id>), which X's web client reads too; null when signed out.
-  function signedInUser() {
-    const m = /(?:^|;\s*)twid=([^;]*)/.exec(document.cookie);
-    if (!m) return null;
-    const id = /u=(\d+)/.exec(decodeURIComponent(m[1]));
-    return id ? id[1] : null;
+  // The bearer token X's web client sends with its own API calls. It is
+  // public (it ships in X's web app script) and names the web app, not a
+  // user: the user is the one X's HttpOnly session cookie authenticates.
+  const WEB_BEARER = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
+
+  // Runs in an x.com page: the screen name of the account X authenticates
+  // this browser as, from the account settings endpoint X's web client
+  // calls (the session cookie, the bearer token and the ct0 CSRF value);
+  // null when X does not answer with one. Not the twid cookie, which names
+  // a user id but which any page script, another session's too, can write.
+  async function authenticatedUser(arg) {
+    const csrf = /(?:^|;\s*)ct0=([^;]+)/.exec(document.cookie);
+    if (!csrf) return null;
+    try {
+      const r = await fetch("/i/api/1.1/account/settings.json", {
+        credentials: "include",
+        headers: { authorization: "Bearer " + arg.bearer, "x-csrf-token": decodeURIComponent(csrf[1]), "x-twitter-auth-type": "OAuth2Session", "x-twitter-active-user": "yes" },
+      });
+      if (!r.ok) return null;
+      const body = await r.json();
+      return body && typeof body.screen_name === "string" && /^\w{1,15}$/.test(body.screen_name) ? body.screen_name : null;
+    } catch (e) {
+      return null;
+    }
   }
 
   S.register(
@@ -138,25 +155,30 @@
             const spec = typeof p === "string" ? { text: p } : p || {};
             if (typeof spec.text !== "string" || !spec.text.trim()) throw new S.SiteError("invalid", "x.post: expected the post text");
             const replyTo = spec.replyTo ? statusId(spec.replyTo) : null;
-            // The draft pins the signed-in account (its user id); X switches
-            // accounts in the shared profile, so another session can.
-            const account = await t.inOrigin(ORIGIN, signedInUser);
-            if (!account) throw new S.SiteError("not_signed_in", "x.post: the cmux browser is not signed in to X (no signed-in user id); open https://x.com with tabs.open() and ask the user to sign in");
+            // The draft pins the account X authenticates (its screen name);
+            // X switches accounts in the shared profile, so another session
+            // can.
+            const account = await t.inOrigin(ORIGIN, authenticatedUser, { bearer: WEB_BEARER });
+            if (!account) throw new S.SiteError("account_unknown", "x.post: X did not say which X account the cmux browser is signed in as; nothing was drafted. If it is signed out, open https://x.com with tabs.open() and ask the user to sign in");
             return {
               category: "[9] representational communication (public post)",
-              summary: replyTo ? `Reply on X to post ${replyTo} as user ${account}` : `Publish a post on X as user ${account}`,
+              summary: replyTo ? `Reply on X to post ${replyTo} as @${account}` : `Publish a post on X as @${account}`,
               preview: { account, text: spec.text, replyTo },
               run: () =>
                 t.withTab(`${ORIGIN}/intent/post?text=${encodeURIComponent(spec.text)}${replyTo ? `&in_reply_to=${replyTo}` : ""}`, async (page) => {
                   t.assertSignedIn("x.post", page, SIGN_IN);
                   const button = page.locator('[data-testid="tweetButton"]');
                   await button.first().waitFor({ timeout: 30000 });
-                  const now = await page.evaluate(signedInUser);
-                  if (now !== account) throw new S.SiteError("account_changed", `x.post: the signed-in X user is now ${now || "nobody"}, not ${account} as drafted; nothing was posted`);
                   const box = page.locator('[data-testid="tweetTextarea_0"]').first();
                   // The whole text, not its start: a page script or another
                   // session could keep the drafted opening and add to it.
                   if (!(await box.count()) || !(await t.composerHolds(box, spec.text))) throw new S.SiteError("compose_mismatch", "x.post: the composer did not receive the drafted text, or holds more than it; nothing was posted");
+                  // The account X authenticates, read again from this page
+                  // right before Post: another session can switch accounts
+                  // while the composer loads.
+                  const now = await page.evaluate(authenticatedUser, { bearer: WEB_BEARER });
+                  if (!now) throw new S.SiteError("account_unknown", `x.post: X did not say which account the composer is signed in as; nothing was posted`);
+                  if (now.toLowerCase() !== String(account).toLowerCase()) throw new S.SiteError("account_changed", `x.post: X is now signed in as @${now}, not @${account} as drafted; nothing was posted. Make a new draft and show it to the user again`);
                   await button.first().click();
                   await t.waitIn(page, () => !document.querySelector('[data-testid="tweetButton"]') || /Your post was sent|Your reply was sent/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "x", timeout: 30000, what: "X to publish the post" });
                   return { status: "posted", replyTo };

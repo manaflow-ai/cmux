@@ -106,7 +106,7 @@ test("editing a shared doc or deck is a draft until confirmed", async () => {
   try {
     const d = await s.value(`sites.googleDocs.replace(${JSON.stringify(DOC)}, "Plan", "Plan B")`);
     assert.equal(d.status, "draft");
-    assert.deepEqual(d.preview, { file: DOC, title: "Plan", find: "Plan", replace: "Plan B", matches: 1, at: [0], sharing: "Share. Anyone with the link can view." });
+    assert.deepEqual(d.preview, { file: DOC, title: "Plan", find: "Plan", replace: "Plan B", matches: 1, at: [0], sharing: "Share. Anyone with the link can view.", account: "ada@example.com" });
     assert.equal(files.get("1docPRIVATE000000000000000000000x").blocks[0].text, "Plan");
   } finally {
     env.state.editors.files.get("1docPRIVATE000000000000000000000x").shared = false;

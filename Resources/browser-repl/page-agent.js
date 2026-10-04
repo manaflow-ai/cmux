@@ -70,19 +70,30 @@
         if (!labelIndex) return read.call(this);
         // A hidden input has no labels (null), as the native getter says.
         if (name === "HTMLInputElement" && (this.type || "").toLowerCase() === "hidden") return null;
-        return labelIndex(this);
+        const found = labelIndex(this);
+        return found === null ? read.call(this) : found;
       },
     });
   }
+  // Building it reads every <label> of the tree, which the page sets the
+  // number of, so each one is charged to the read's budget (the snapshot's,
+  // else a page-read budget of its own). An index the budget cut short
+  // answers null, and that control's labels come from the native getter.
+  let labelBudget = null;
   function createLabelIndex() {
     const byRoot = new Map();
     return (el) => {
       const root = el.getRootNode();
       let map = byRoot.get(root);
-      if (!map) {
+      if (map === undefined) {
         map = new Map();
+        const b = labelBudget || (labelBudget = readBudget());
         const labels = root.querySelectorAll ? root.querySelectorAll("label") : [];
         for (const label of labels) {
+          if (!spend(b, 1)) {
+            map = null;
+            break;
+          }
           const control = label.control;
           if (!control) continue;
           if (!map.has(control)) map.set(control, []);
@@ -90,7 +101,7 @@
         }
         byRoot.set(root, map);
       }
-      return map.get(el) || [];
+      return map === null ? null : map.get(el) || [];
     };
   }
   // Runs `fn` with the label index, Playwright's aria caches and a computed
@@ -99,6 +110,7 @@
   function withReadCaches(fn) {
     if (labelIndex) return fn();
     labelIndex = createLabelIndex();
+    labelBudget = null;
     styleCache = new Map();
     if (ariaCaches) ariaCaches.begin();
     try {
@@ -106,6 +118,7 @@
     } finally {
       if (ariaCaches) ariaCaches.end();
       labelIndex = null;
+      labelBudget = null;
       styleCache = null;
     }
   }
@@ -527,7 +540,9 @@
   // Whether the element or something inside it has a non-empty box that is
   // not clipped away (screen-reader-only text uses `clip` or `clip-path`).
   const clippedAway = (style) => !!style && ((style.clip && style.clip !== "auto") || (style.clipPath && style.clipPath !== "none"));
-  function hasVisibleBox(el) {
+  // Each node it looks at inside is charged to the snapshot's budget; past
+  // it the element counts as showing nothing (the snapshot stops there).
+  function hasVisibleBox(el, ctx) {
     const r = el.getBoundingClientRect();
     if (r.width >= 1 && r.height >= 1) return true;
     // A zero-size box that clips its overflow shows none of its content.
@@ -536,6 +551,7 @@
     const range = document.createRange();
     const inside = (node) => {
       for (let n = node.firstChild; n; n = n.nextSibling) {
+        if (!spend(ctx, 1)) return false;
         if (n.nodeType === 3) {
           if (!n.nodeValue.trim()) continue;
           range.selectNodeContents(n);
@@ -659,6 +675,34 @@
   // it, never raise it.
   const MAX_SIZE = 2000000;
   const NODE_SIZE = 32;
+  // The page-read budget: every read that sends page-controlled values to
+  // the host (the snapshot walk and what it reads beside it, Markdown,
+  // extraction, drop-down options, composer text) reads at most MAX_NODES
+  // nodes and returns at most MAX_SIZE characters, for MAX_WALK_MS; past
+  // any of them it stops and says why (`truncated`: "nodes", "size" or
+  // "time"), and the host prints a note. A caller can lower a bound, never
+  // raise it. `spend`, `chargeSize` and `fit` charge it.
+  function readBudget(opts) {
+    const o = opts || {};
+    const nodes = Math.min(MAX_NODES, o.maxNodes > 0 ? Math.floor(o.maxNodes) : MAX_NODES);
+    const size = Math.min(MAX_SIZE, o.maxSize > 0 ? Math.floor(o.maxSize) : MAX_SIZE);
+    return { left: nodes, sizeLeft: size, nodes, size, deadline: now() + MAX_WALK_MS, ticks: 0, truncated: undefined };
+  }
+  // The budget for page functions the runtime runs in this world
+  // (agent-tools.js): A.budget(opts).
+  function budget(opts) {
+    const b = readBudget(opts);
+    return {
+      spend: (count) => spend(b, count === undefined ? 1 : count),
+      charge: (count) => chargeSize(b, count),
+      fit: (s) => fit(b, s),
+      get truncated() {
+        return b.truncated;
+      },
+      // What the host needs for its note and for the budget it passes on.
+      report: () => ({ visited: b.nodes - b.left, size: b.size - b.sizeLeft, maxNodes: b.nodes, maxSize: b.size, truncated: b.truncated }),
+    };
+  }
   // Reading the clock every node costs; every 256th is enough.
   function spend(ctx, count) {
     if (ctx.truncated) return false;
@@ -720,10 +764,15 @@
         for (let child = el.shadowRoot.firstChild; child && !ctx.truncated; child = child.nextSibling) visitNode(child, out, ctx, visible, ariaHidden, skipText);
       }
     }
-    for (const id of (el.getAttribute("aria-owns") || "").split(/\s+/).filter(Boolean)) {
-      if (ctx.truncated) break;
-      const owned = el.ownerDocument.getElementById(id);
-      if (owned && owned !== el) visitNode(owned, out, ctx, visible, ariaHidden, skipText);
+    // Each id in aria-owns is charged, also one that names a node already
+    // read: the page sets how many there are.
+    const owns = el.getAttribute("aria-owns");
+    if (owns) {
+      const ids = /\S+/g;
+      for (let m = ids.exec(owns); m && spend(ctx, 1); m = ids.exec(owns)) {
+        const owned = el.ownerDocument.getElementById(m[0]);
+        if (owned && owned !== el) visitNode(owned, out, ctx, visible, ariaHidden, skipText);
+      }
     }
     if (visible && !skipText && !ctx.truncated) out.push(fit(ctx, pseudoText(el, "::after")));
   }
@@ -848,7 +897,7 @@
     }
     // A link or button with an empty box shows nothing unless some content
     // inside it has a box (Wikipedia's zero-width "Jump up" backlinks).
-    if ((role === "link" || role === "button") && visible && !ctx.showHidden && !hasVisibleBox(el)) return;
+    if ((role === "link" || role === "button") && visible && !ctx.showHidden && !hasVisibleBox(el, ctx)) return;
     const node = { role };
     chargeSize(ctx, NODE_SIZE);
     if (name) node.name = fit(ctx, name);
@@ -961,7 +1010,7 @@
     pruneHandles();
     const root = opts.root ? element(opts.root) : document.body || document.documentElement;
     if (!root || !root.isConnected) throw agentError("stale", "The snapshot root was removed from the page");
-    const ctx = {
+    const ctx = Object.assign(readBudget(opts), {
       showHidden: !!opts.showHidden,
       focus: deepActiveElement(document),
       visited: new Set(),
@@ -973,22 +1022,17 @@
       screen: { left: 0, top: 0, right: global.innerWidth, bottom: global.innerHeight },
       allOptions: !!opts.options,
       offscreen: 0,
-      left: Math.min(MAX_NODES, opts.maxNodes > 0 ? Math.floor(opts.maxNodes) : MAX_NODES),
-      sizeLeft: Math.min(MAX_SIZE, opts.maxSize > 0 ? Math.floor(opts.maxSize) : MAX_SIZE),
       countLeft: 0,
       offscreenMore: false,
-      deadline: started + MAX_WALK_MS,
-      ticks: 0,
-      truncated: undefined,
-    };
-    const budget = ctx.left;
-    ctx.countLeft = budget;
-    const sizeBudget = ctx.sizeLeft;
+    });
+    ctx.countLeft = ctx.nodes;
+    // The label index charges this snapshot's budget.
+    labelBudget = ctx;
     const out = [];
     if (spend(ctx, 1)) visitElement(root, out, ctx, false, false);
     const nodes = normalizeChildren(out);
     // `ms` is the traversal time in this frame, for perf measurements.
-    return { nodes, max: refCounter, doc: docToken, offscreen: ctx.offscreen, offscreenMore: ctx.offscreenMore || undefined, ms: now() - started, visited: budget - ctx.left, size: sizeBudget - ctx.sizeLeft, truncated: ctx.truncated };
+    return { nodes, max: refCounter, doc: docToken, offscreen: ctx.offscreen, offscreenMore: ctx.offscreenMore || undefined, ms: now() - started, visited: ctx.nodes - ctx.left, size: ctx.size - ctx.sizeLeft, truncated: ctx.truncated };
   }
 
   // Table sizes, for leak checks (tests/browser-parity/perf).
@@ -1090,11 +1134,15 @@
     return hops;
   }
 
-  function queryAll(selector, scopeHandle) {
+  // Handles of the matches, the first `limit` when given: a handle is kept
+  // in this world's table until its element goes, so a read that wants a
+  // few of a page-sized match list keeps only those.
+  function queryAll(selector, scopeHandle, limit) {
     const inj = requireInjected();
     const root = scopeHandle ? element(scopeHandle) : document;
     const parsed = inj.parseSelector(selector);
-    return withReadCaches(() => inj.querySelectorAll(parsed, root)).map(handleFor);
+    const found = withReadCaches(() => inj.querySelectorAll(parsed, root));
+    return (Number.isInteger(limit) && limit >= 0 ? found.slice(0, limit) : found).map(handleFor);
   }
 
   function describe(id) {
@@ -1308,24 +1356,40 @@
   const BLOCK_TAGS = new Set(["address", "article", "aside", "blockquote", "br", "dd", "div", "dl", "dt", "figcaption", "figure",
     "footer", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main", "nav", "ol", "p", "pre", "section", "table", "td",
     "th", "tr", "ul"]);
+  // The text is read within the page-read budget and never cut: a cut text
+  // could not be compared whole, so past the budget the read fails in the
+  // page and nothing crosses to the host.
   function composerText(el, exclude) {
+    const b = readBudget();
+    const tooLarge = () => {
+      if (b.truncated === "nodes") return agentError("invalid", "The composer holds too many nodes to compare");
+      if (b.truncated === "time") return agentError("invalid", "The composer took too long to read to compare");
+      return agentError("invalid", `The composer holds more than ${String(MAX_SIZE).replace(/\B(?=(\d{3})+(?!\d))/g, ",")} characters, more than cmux compares with a draft`);
+    };
+    const add = (s) => {
+      if (!chargeSize(b, s.length)) throw tooLarge();
+      out += s;
+    };
     const tag = tagOf(el);
-    if (tag === "textarea" || tag === "input") return el.value;
+    if (tag === "textarea" || tag === "input") {
+      const value = el.value;
+      if (!chargeSize(b, value.length)) throw tooLarge();
+      return value;
+    }
     let out = "";
-    let left = MAX_NODES;
     const walk = (node) => {
       for (let n = node.firstChild; n; n = n.nextSibling) {
-        if (--left < 0) throw agentError("invalid", "The composer holds too many nodes to compare");
-        if (n.nodeType === 3) out += n.nodeValue;
+        if (!spend(b, 1)) throw tooLarge();
+        if (n.nodeType === 3) add(n.nodeValue);
         else if (n.nodeType === 1) {
           if (exclude && n.matches(exclude)) {
-            out += " ";
+            add(" ");
             continue;
           }
           const block = BLOCK_TAGS.has(tagOf(n));
-          if (block) out += " ";
+          if (block) add(" ");
           walk(n);
-          if (block) out += " ";
+          if (block) add(" ");
         }
       }
     };
@@ -1522,6 +1586,7 @@
     ownerPoint,
     annotate,
     clearAnnotations,
+    budget,
     injected,
   };
   Object.defineProperty(global, KEY, { value: agent, enumerable: false, configurable: true, writable: false });

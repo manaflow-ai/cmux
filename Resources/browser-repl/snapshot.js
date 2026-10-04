@@ -1095,8 +1095,8 @@
     const trailer = options.viewport ? [`# ${options._offscreenMore ? "at least " : ""}${commas(options._offscreen || 0)} interactive elements outside the viewport are not shown; snapshot() shows the whole page`] : [];
     const budget = nodeBudget(options);
     if (budget.truncated) {
-      const why = budget.truncated === "time" ? "after 8 s of reading" : budget.truncated === "size" ? `after ${commas(budget.sizeTotal)} characters` : `after ${commas(budget.total)} nodes`;
-      trailer.push(`# the page is too large to read whole: the snapshot stopped ${why}; the rest of the page is not shown. Snapshot a part of it (snapshot(ref) or snapshot(locator)) to read further`);
+      const note = core.readCutNote("the snapshot", { truncated: budget.truncated, maxNodes: budget.total, maxSize: budget.sizeTotal });
+      trailer.push(`# ${note}; the rest of the page is not shown. Snapshot a part of it (snapshot(ref) or snapshot(locator)) to read further`);
     }
     body.push(...trailer);
     return { header, body, nodes, full, trailer };

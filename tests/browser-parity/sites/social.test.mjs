@@ -40,7 +40,7 @@ test("x.user, timeline, search and tweet read profile and post cards with counts
 
 test("x.post: a reply draft; the confirmed draft posts through the Web Intent composer", async () => {
   const d = await s.value('sites.x.post({ text: "Agreed.", replyTo: "https://x.com/grace/status/111" })');
-  assert.deepEqual(d.preview, { account: "1001", text: "Agreed.", replyTo: "111" });
+  assert.deepEqual(d.preview, { account: "ada", text: "Agreed.", replyTo: "111" });
   assert.equal(env.state.xPosts.length, 0);
   assert.deepEqual(await s.value(`sites.x.post(${JSON.stringify(d.id)}, { confirm: true })`), { status: "posted", replyTo: "111" });
   assert.deepEqual(env.state.xPosts, [{ text: "Agreed.", in_reply_to: "111" }]);
