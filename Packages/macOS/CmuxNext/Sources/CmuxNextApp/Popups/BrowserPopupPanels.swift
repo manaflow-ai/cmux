@@ -160,16 +160,4 @@ final class BrowserPopupPanels {
         }
         panel.setFrame(frame, display: true)
     }
-
-    // MARK: Keys
-
-    /// Cmd-W closes the popup that has the keyboard (its panel, or its
-    /// Chromium page window) instead of the opener's tab.
-    func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        guard let panel = panel(containing: window) else { return false }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags == .command, event.charactersIgnoringModifiers?.lowercased() == "w" else { return false }
-        close(panel.page)
-        return true
-    }
 }

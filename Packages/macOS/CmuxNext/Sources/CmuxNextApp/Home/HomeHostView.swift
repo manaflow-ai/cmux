@@ -70,3 +70,20 @@ final class HomeHostView: NSView {
     /// view would leave it the responder after it forwards to the box.
     var focusTarget: NSView { transcript.primaryInput }
 }
+
+/// Home's primary input is its message box (R65, spec app-screens.md 3):
+/// a printable key typed while Home has the keyboard but no text view of
+/// it does (a click on a bubble left the transcript focused) moves the
+/// keyboard to the box and types the key there.
+extension HomeHostView: PrimaryInputTarget {
+    var acceptsRedirectedTyping: Bool {
+        guard let responder = window?.firstResponder as? NSView else { return true }
+        return !(responder is NSText || responder is NSTextField)
+    }
+
+    func beginTyping(with event: NSEvent) {
+        let box = transcript.primaryInput
+        guard let window, window.makeFirstResponder(box) else { return }
+        box.keyDown(with: event)
+    }
+}
