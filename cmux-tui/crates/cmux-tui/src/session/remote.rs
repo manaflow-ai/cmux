@@ -1579,6 +1579,12 @@ struct ExitedSurfaceState {
     handles: HashMap<SurfaceId, Weak<RemoteSurface>>,
 }
 
+#[path = "remote_disconnect.rs"]
+mod disconnect;
+#[cfg(test)]
+#[path = "remote_shutdown_tests.rs"]
+mod shutdown_tests;
+
 #[derive(Default)]
 enum DisconnectState {
     #[default]
@@ -1593,7 +1599,7 @@ pub struct RemoteSession {
     /// The first terminal state wins. Local shutdown is kept separate from a
     /// reader failure so closing our own transport does not report a fake
     /// remote diagnostic.
-    disconnect_state: Mutex<DisconnectState>,
+    disconnect_state: disconnect::DisconnectCell,
     pending: Mutex<PendingRemoteRequests>,
     next_id: AtomicU64,
     attach_progress: AtomicU64,
@@ -1963,7 +1969,7 @@ impl RemoteSession {
             .map_err(|error| anyhow::anyhow!("cannot start remote interactive writer: {error}"))?;
         let session = Arc::new(RemoteSession {
             interactive_writer,
-            disconnect_state: Mutex::new(DisconnectState::default()),
+            disconnect_state: disconnect::DisconnectCell::default(),
             pending: Mutex::new(PendingRemoteRequests::default()),
             next_id: AtomicU64::new(1),
             attach_progress: AtomicU64::new(0),
@@ -2512,6 +2518,7 @@ impl RemoteSession {
                     *state = DisconnectState::ExpectedRemoteShutdown;
                 }
                 drop(state);
+                self.disconnect_state.notify();
                 // Wake every request that was already admitted before the
                 // daemon announced its shutdown. The synthetic response is
                 // classified with the expected-remote state, so callers get
@@ -2907,6 +2914,12 @@ impl RemoteSession {
                 Some("ambiguous") => Some(ClearHistoryDelivery::Ambiguous),
                 _ => None,
             };
+            if disconnect::is_shutdown_pending_refusal(code.as_deref(), error) {
+                self.disconnect_state.wait_while_active(disconnect::SHUTDOWN_PENDING_GRACE);
+                if let Some(shutdown) = self.request_shutdown_error() {
+                    return Err(shutdown.into());
+                }
+            }
             Err(RemoteRequestError::Rejected { error: error.to_string(), code, delivery }.into())
         }
     }
@@ -3161,6 +3174,7 @@ impl RemoteSession {
             };
         }
         drop(state);
+        self.disconnect_state.notify();
         self.begin_shutdown();
         self.interactive_writer.close();
     }
@@ -4094,7 +4108,7 @@ fn test_session_with_writer(
 ) -> Arc<RemoteSession> {
     Arc::new(RemoteSession {
         interactive_writer: InteractiveWriter::spawn(writer, Arc::new(NoopTransportAbort)).unwrap(),
-        disconnect_state: Mutex::new(DisconnectState::default()),
+        disconnect_state: disconnect::DisconnectCell::default(),
         pending: Mutex::new(PendingRemoteRequests::default()),
         next_id: AtomicU64::new(1),
         attach_progress: AtomicU64::new(0),
@@ -5240,7 +5254,7 @@ mod tests {
         assert_eq!(request["bytes"], "eA==");
     }
 
-    struct CloseTrackingWriter {
+    pub(super) struct CloseTrackingWriter {
         closed: Arc<AtomicBool>,
     }
 
@@ -5473,7 +5487,7 @@ mod tests {
     ) -> Arc<RemoteSession> {
         Arc::new(RemoteSession {
             interactive_writer: InteractiveWriter::spawn(writer, abort).unwrap(),
-            disconnect_state: Mutex::new(DisconnectState::default()),
+            disconnect_state: disconnect::DisconnectCell::default(),
             pending: Mutex::new(PendingRemoteRequests::default()),
             next_id: AtomicU64::new(1),
             attach_progress: AtomicU64::new(0),
@@ -5617,7 +5631,7 @@ mod tests {
         }
     }
 
-    fn test_session(writer: Box<dyn RemoteMessageWriter>) -> Arc<RemoteSession> {
+    pub(super) fn test_session(writer: Box<dyn RemoteMessageWriter>) -> Arc<RemoteSession> {
         test_session_with_provider_context(writer, HashSet::new(), None)
     }
 
@@ -5734,7 +5748,7 @@ mod tests {
         }
     }
 
-    struct SilentWriter;
+    pub(super) struct SilentWriter;
 
     impl RemoteMessageWriter for SilentWriter {
         fn send(&mut self, _message: &str) -> io::Result<()> {
@@ -6686,145 +6700,6 @@ mod tests {
         session.disconnect_transport_with_reason(Some("peer reset".into()));
 
         assert_eq!(session.transport_disconnect_reason(), None);
-    }
-
-    #[test]
-    fn daemon_shutdown_event_marks_the_following_eof_as_expected() {
-        let session = test_session(Box::new(CloseTrackingWriter {
-            closed: Arc::new(AtomicBool::new(false)),
-        }));
-
-        session.handle_line(json!({
-            "event": cmux_tui_core::server::DAEMON_SHUTDOWN_EVENT,
-        }));
-        session.disconnect_transport_with_reason(Some("the daemon closed the connection".into()));
-
-        assert!(session.daemon_shutdown_requested());
-        assert_eq!(session.transport_disconnect_reason(), None);
-        assert!(matches!(
-            session
-                .request(json!({"cmd": "identify"}))
-                .unwrap_err()
-                .downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::DaemonShutdown)
-        ));
-    }
-
-    /// The daemon refuses requests while its shutdown handoff is reserved,
-    /// and announces the shutdown to other clients only after the requester
-    /// acknowledged it. A request refused in that window must end as
-    /// DaemonShutdown once the announcement follows, not as an error that
-    /// makes the client exit with status 1 (the session_shutdown flake).
-    #[test]
-    fn a_request_refused_during_a_pending_shutdown_ends_as_daemon_shutdown() {
-        let session = test_session(Box::new(SilentWriter));
-        let request_session = session.clone();
-        let worker = std::thread::spawn(move || {
-            request_session.request_with_deadline(
-                json!({"cmd": "identify"}),
-                RequestDeadline::Fixed(Duration::from_secs(5)),
-            )
-        });
-        let deadline = Instant::now() + Duration::from_secs(1);
-        let id = loop {
-            if let Some(id) = session.pending.lock().unwrap().requests.keys().next().copied() {
-                break id;
-            }
-            assert!(Instant::now() < deadline, "request did not become pending");
-            std::thread::yield_now();
-        };
-        session.handle_line(json!({
-            "id": id,
-            "ok": false,
-            "error": "daemon shutdown is in progress; request was not executed",
-            "error_code": cmux_tui_core::server::DAEMON_SHUTDOWN_PENDING_CODE,
-        }));
-        std::thread::sleep(Duration::from_millis(50));
-        session.handle_line(json!({
-            "event": cmux_tui_core::server::DAEMON_SHUTDOWN_EVENT,
-        }));
-
-        let error = worker
-            .join()
-            .expect("request worker panicked")
-            .expect_err("a refused request unexpectedly succeeded");
-        assert!(
-            matches!(
-                error.downcast_ref::<RemoteRequestError>(),
-                Some(RemoteRequestError::DaemonShutdown)
-            ),
-            "{error:#}"
-        );
-    }
-
-    /// A shutdown the daemon cancels (the requester's acknowledgement failed)
-    /// sends no announcement: the refusal then stays a plain rejection.
-    #[test]
-    fn a_request_refused_during_a_cancelled_shutdown_stays_rejected() {
-        let session = test_session(Box::new(SilentWriter));
-        let request_session = session.clone();
-        let worker = std::thread::spawn(move || {
-            request_session.request_with_deadline(
-                json!({"cmd": "identify"}),
-                RequestDeadline::Fixed(Duration::from_secs(30)),
-            )
-        });
-        let deadline = Instant::now() + Duration::from_secs(1);
-        let id = loop {
-            if let Some(id) = session.pending.lock().unwrap().requests.keys().next().copied() {
-                break id;
-            }
-            assert!(Instant::now() < deadline, "request did not become pending");
-            std::thread::yield_now();
-        };
-        session.handle_line(json!({
-            "id": id,
-            "ok": false,
-            "error": "daemon shutdown is in progress; request was not executed",
-            "error_code": cmux_tui_core::server::DAEMON_SHUTDOWN_PENDING_CODE,
-        }));
-
-        let error = worker
-            .join()
-            .expect("request worker panicked")
-            .expect_err("a refused request unexpectedly succeeded");
-        assert_eq!(
-            error.downcast_ref::<RemoteRequestError>().and_then(RemoteRequestError::rejection_code),
-            Some(cmux_tui_core::server::DAEMON_SHUTDOWN_PENDING_CODE),
-            "{error:#}"
-        );
-    }
-
-    #[test]
-    fn daemon_shutdown_event_cancels_an_inflight_request_as_expected() {
-        let session = test_session(Box::new(SilentWriter));
-        let request_session = session.clone();
-        let worker = std::thread::spawn(move || {
-            request_session.request_with_deadline(
-                json!({"cmd": "identify"}),
-                RequestDeadline::Fixed(Duration::from_secs(2)),
-            )
-        });
-
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while session.pending.lock().unwrap().is_empty() {
-            assert!(Instant::now() < deadline, "request did not become pending");
-            std::thread::yield_now();
-        }
-        session.handle_line(json!({
-            "event": cmux_tui_core::server::DAEMON_SHUTDOWN_EVENT,
-        }));
-
-        let error = worker
-            .join()
-            .expect("request worker panicked")
-            .expect_err("in-flight request unexpectedly succeeded");
-        assert!(matches!(
-            error.downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::DaemonShutdown)
-        ));
-        assert!(session.shutdown.load(Ordering::Acquire));
-        assert!(session.pending.lock().unwrap().is_empty());
     }
 
     #[test]
