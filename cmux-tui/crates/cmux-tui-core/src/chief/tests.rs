@@ -433,7 +433,9 @@ fn the_apps_home_chief_conversation_is_the_chiefs_default_with_no_second_convers
     assert_eq!(all[0].title, "Chief");
     w.send(&chief_conversation, "m1", "hi");
     wait_until("the reply", || {
-        w.messages(&chief_conversation).iter().any(|m| m.author == AGENT_MUX && text_of(m) == "echo: hi")
+        w.messages(&chief_conversation)
+            .iter()
+            .any(|m| m.author == AGENT_MUX && text_of(m) == "echo: hi")
     });
     chief.stop();
 }
