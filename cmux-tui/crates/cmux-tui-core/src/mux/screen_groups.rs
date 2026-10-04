@@ -957,7 +957,7 @@ impl Mux {
                 icon: member.icon.clone(),
                 ..ScreenSpec::default()
             };
-            let spawn = crate::TerminalSpawnOptions::new(member.cwd.clone(), Vec::new());
+            let spawn = TerminalSpawnOptions::new(member.cwd.clone(), Vec::new());
             let (_, screen) = self.new_screen_with_spec(Some(workspace), spawn, None, spec)?;
             created.push(screen);
         }
@@ -986,7 +986,7 @@ impl Mux {
     pub fn new_screen_with_spec(
         self: &Arc<Self>,
         workspace: Option<WorkspaceId>,
-        spawn: crate::TerminalSpawnOptions,
+        spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
         spec: ScreenSpec,
     ) -> anyhow::Result<(Arc<Surface>, ScreenId)> {

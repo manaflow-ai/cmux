@@ -52,7 +52,14 @@ fn tree(mux: &Mux) -> Value {
 }
 
 fn new_screen(mux: &Arc<Mux>, workspace: WorkspaceId) -> ScreenId {
-    mux.new_screen_with_spec(Some(workspace), crate::TerminalSpawnOptions::new(None, Vec::new()), None, ScreenSpec::default()).unwrap().1
+    mux.new_screen_with_spec(
+        Some(workspace),
+        TerminalSpawnOptions::new(None, Vec::new()),
+        None,
+        ScreenSpec::default(),
+    )
+    .unwrap()
+    .1
 }
 
 #[test]
@@ -263,7 +270,7 @@ fn cmux_next_new_screen_with_spec_applies_name_metadata_position_and_directory()
     let (_, screen) = mux
         .new_screen_with_spec(
             Some(workspace),
-            crate::TerminalSpawnOptions::new(Some(dir.display().to_string()), Vec::new()),
+            TerminalSpawnOptions::new(Some(dir.display().to_string()), Vec::new()),
             None,
             spec,
         )
