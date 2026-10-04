@@ -269,6 +269,14 @@ impl<C: ControlPlane> Server<C> {
         self.projection.take_events()
     }
 
+    /// Link events for the host lines (`cloud.link.changed`) since the
+    /// last call, in order.
+    pub fn take_link_events(&mut self) -> Vec<crate::connector::iface::CarrierEvent> {
+        let supervisor = self.attach.supervisor_mut();
+        supervisor.pump();
+        supervisor.take_events()
+    }
+
     /// Runs one request.
     pub fn handle(&mut self, request: &Request) -> Result<Value, CloudError> {
         let name = canonical_name(&request.op).ok_or_else(|| {
