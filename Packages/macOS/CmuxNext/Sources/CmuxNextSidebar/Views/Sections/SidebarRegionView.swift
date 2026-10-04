@@ -29,12 +29,18 @@ final class SidebarRegionView: NSView {
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
     /// The view of an app section (`SectionContent.app`), from the sidebar's provider.
     var appView: ((LayoutSection) -> NSView?)?
-    private var appViews: [LayoutSectionID: NSView] = [:]
+    private(set) var appViews: [LayoutSectionID: NSView] = [:]
 
     private(set) var layoutResult = SidebarRegionLayout.empty
-    private var content: Content?
-    private var itemViews: [LayoutItemID: SidebarItemRowView] = [:]
-    private var headerViews: [LayoutSectionID: SidebarSectionHeaderView] = [:]
+    private(set) var content: Content?
+    private(set) var itemViews: [LayoutItemID: SidebarItemRowView] = [:]
+    private(set) var headerViews: [LayoutSectionID: SidebarSectionHeaderView] = [:]
+    /// The drag in progress (R77) and the order the region shows while it
+    /// runs and until its card has landed.
+    var reorder: SidebarRegionDrag?
+    var reorderSections: [LayoutSection]?
+    private var width: CGFloat = 0
+    private var animatesFrames = false
     private var cardLayers: [CALayer] = []
     /// Section lines (lines looks), or under `appearance.borders = none`
     /// the tonal step: every other section a shade lighter.
@@ -57,13 +63,42 @@ final class SidebarRegionView: NSView {
 
     /// Height the content needs at `width`.
     func update(_ content: Content, width: CGFloat) {
-        let result = SidebarRegionLayout.make(sections: content.sections, width: width, look: content.look,
-                                              collapsed: content.collapsed, metrics: content.metrics,
-                                              labelWidths: Self.labelWidths(content), appHeights: content.appHeights)
+        let shown = displayed(content)
+        let result = Self.layout(shown, width: width)
         guard content != self.content || result != layoutResult else { return }
         self.content = content
+        self.width = width
         layoutResult = result
-        apply(content)
+        apply(shown)
+    }
+
+    /// Lays out the shown order again; animated, every row springs to its frame.
+    func relayout(animated: Bool) {
+        guard let content else { return }
+        let shown = displayed(content)
+        layoutResult = Self.layout(shown, width: width)
+        guard animated else { return apply(shown) }
+        Motion.animate(.move) {
+            self.animatesFrames = true
+            self.apply(shown)
+            self.animatesFrames = false
+        }
+    }
+
+    private func displayed(_ content: Content) -> Content {
+        var shown = content
+        if let reorderSections { shown.sections = reorderSections }
+        return shown
+    }
+
+    private static func layout(_ content: Content, width: CGFloat) -> SidebarRegionLayout {
+        SidebarRegionLayout.make(sections: content.sections, width: width, look: content.look,
+                                 collapsed: content.collapsed, metrics: content.metrics,
+                                 labelWidths: labelWidths(content), appHeights: content.appHeights)
+    }
+
+    private func place(_ view: NSView, _ frame: CGRect) {
+        if animatesFrames { view.animator().frame = frame } else { view.frame = frame }
     }
 
     /// Icon + label width of every item of an inline section.
@@ -91,13 +126,13 @@ final class SidebarRegionView: NSView {
                 liveHeaders.insert(id)
                 let view = headerViews[id] ?? makeHeader(id)
                 view.configure(title: section.title ?? "", collapsed: content.collapsed.contains(id))
-                view.frame = row.frame
+                place(view, row.frame)
             case let .app(id):
                 guard let section = sections[id], let view = appViews[id] ?? appView?(section) else { continue }
                 liveApps.insert(id)
                 if view.superview !== self { addSubview(view) }
                 appViews[id] = view
-                view.frame = row.frame
+                place(view, row.frame)
             case let .item(id, sectionID), let .tile(id, sectionID), let .chip(id, sectionID):
                 guard let section = sections[sectionID], let item = section.items.first(where: { $0.id == id }) else { continue }
                 liveItems.insert(id)
@@ -108,7 +143,7 @@ final class SidebarRegionView: NSView {
                 default: section.look == .builtIn ? .builtIn : .list
                 }
                 view.configure(content.infos[id] ?? .fallback(for: item.ref), style: style)
-                view.frame = row.frame
+                place(view, row.frame)
             }
         }
         for (id, view) in itemViews where !liveItems.contains(id) {
@@ -160,6 +195,8 @@ final class SidebarRegionView: NSView {
             }
         }
         view.onAccessory = { [weak self] in self?.onAccessory?(id) }
+        view.onDragged = { [weak self] start, event in self?.dragMoved(.item(id), from: start, event) ?? false }
+        view.onDragEnded = { [weak self] in self?.finishDrag() }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)
@@ -172,6 +209,8 @@ final class SidebarRegionView: NSView {
     private func makeHeader(_ id: LayoutSectionID) -> SidebarSectionHeaderView {
         let view = SidebarSectionHeaderView()
         view.onPress = { [weak self] in self?.onToggleSection?(id) }
+        view.onDragged = { [weak self] start, event in self?.dragMoved(.section(id), from: start, event) ?? false }
+        view.onDragEnded = { [weak self] in self?.finishDrag() }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutSection(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)
