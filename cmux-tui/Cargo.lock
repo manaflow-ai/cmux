@@ -970,6 +970,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-server"
+version = "0.1.0"
+dependencies = [
+ "cmux-server-core",
+ "flate2",
+ "getrandom 0.3.4",
+ "libc",
+ "reqwest",
+ "ring",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tar",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-server-core"
 version = "0.1.0"
 dependencies = [
@@ -1058,6 +1076,8 @@ dependencies = [
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-server",
+ "cmux-server-core",
  "cmux-tui-cdp",
  "cmux-tui-core",
  "cmux-tui-machine-agent-protocol",
@@ -1888,6 +1908,16 @@ dependencies = [
  "libc",
  "thiserror 1.0.69",
  "winapi",
+]
+
+[[package]]
+name = "filetime"
+version = "0.2.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
+dependencies = [
+ "cfg-if",
+ "libc",
 ]
 
 [[package]]
@@ -4843,6 +4873,7 @@ checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
 dependencies = [
  "base64",
  "bytes",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "http",
@@ -5648,6 +5679,16 @@ name = "tagptr"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
+
+[[package]]
+name = "tar"
+version = "0.4.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
+dependencies = [
+ "filetime",
+ "libc",
+]
 
 [[package]]
 name = "tempfile"

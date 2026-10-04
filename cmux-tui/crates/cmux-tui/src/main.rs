@@ -1417,7 +1417,7 @@ fn rewrite_server_start(args: &mut Vec<String>) {
             }
             "-h" | "--help" => return,
             scope
-                if cli::canonical_scope(scope) == "server"
+                if cli::is_lifecycle_scope(scope)
                     && args.get(index + 1).map(String::as_str) == Some("start") =>
             {
                 let start_args = &args[index + 2..];
