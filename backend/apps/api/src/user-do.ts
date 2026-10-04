@@ -163,10 +163,9 @@ export class UserDO extends OwnerDO<UserState> {
   /** Home push decides from each delivered `inbox.bump` in the same storage batch (home-push-drain.ts decideHomePush). */
   protected override afterOp(principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>, params?: unknown) {
     super.afterOp(principal, op, frames, params)
-    const engine = this.existing()
-    if (op === "inbox.bump" && principal.kind === "system") {
-      if (engine) decideHomePush(this.homePush, engine.stream.slice("user:".length), frames, params)
-    } else this.closeRevoked(op, frames)
+    this.closeRevoked(op, frames)
+    const engine = op === "inbox.bump" && principal.kind === "system" ? this.existing() : undefined
+    if (engine) decideHomePush(this.homePush, engine.stream.slice("user:".length), frames, params)
   }
 
   /** Sends due Home pushes (home-push-drain.ts); tests call it with an explicit time. */
