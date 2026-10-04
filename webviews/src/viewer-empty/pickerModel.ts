@@ -22,7 +22,7 @@ export function pickerRows(
   recent: ReadonlySet<string>,
 ): PickerRow[] {
   const rows = entries
-    .filter((entry) => entry.kind === "dir" || (mode === "file" && isMarkdownName(entry.name)))
+    .filter((entry) => entry.kind === "dir" || mode === "anyFile" || (mode === "file" && isMarkdownName(entry.name)))
     .filter((entry) => query.startsWith(".") || !entry.name.startsWith("."))
     .map((entry) => ({ ...entry, recent: recent.has(entry.path) }));
   rows.sort(
@@ -39,7 +39,7 @@ export function recentPathSet(paths: readonly string[], mode: PickerMode): Set<s
   const set = new Set<string>();
   for (const path of paths) {
     set.add(path);
-    if (mode === "file") set.add(parentPath(path) ?? path);
+    if (mode !== "folder") set.add(parentPath(path) ?? path);
   }
   return set;
 }
