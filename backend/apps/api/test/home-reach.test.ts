@@ -92,6 +92,16 @@ const becomeContacts = async (inviter: Person, invitee: Person, email: string) =
 }
 
 describe("Home human reach", { timeout: 60_000 }, () => {
+  it("TeamDO homeCoMembers resolves at most 64 targets: a longer list gets no answer", async () => {
+    const ann = await signIn("reach-cap-ann", "Ann")
+    const ben = await signIn("reach-cap-ben", "Ben")
+    await joinTeam(ann, ben)
+    const team = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(ann.team)) as unknown as { homeCoMembers(e: string, a: string, t: ReadonlyArray<string>): Promise<Array<{ user: string }>> }
+    const filler = (n: number) => Array.from({ length: n }, (_, i) => `user_${String(i).padStart(20, "0")}`)
+    expect((await team.homeCoMembers(ann.team, ann.user, [ben.user, ...filler(63)])).map((m) => m.user)).toEqual([ben.user])
+    expect(await team.homeCoMembers(ann.team, ann.user, [ben.user, ...filler(64)])).toEqual([])
+  })
+
   it("dm.open by user id between two users who share a team; the peer's name comes from the team", async () => {
     const alice = await signIn("reach-dm-alice", "Alice")
     const bob = await signIn("reach-dm-bob", "Bob")
