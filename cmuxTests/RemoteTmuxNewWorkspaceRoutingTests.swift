@@ -22,75 +22,60 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct RemoteTmuxNewWorkspaceRoutingTests {
-    private static let sshOverrideKey = "CMUX_REMOTE_TMUX_SSH_FOR_TESTING"
     private let host = RemoteTmuxHost(destination: "user@local-escape-hatch")
-
-    /// Sets the ssh stub for the caller's whole scope; the returned closure
-    /// restores the previous value and belongs in the FIRST `defer`, so it
-    /// runs after every later-registered teardown (detach included).
-    private func pinStubSSH(_ stub: String) -> () -> Void {
-        let prior = ProcessInfo.processInfo.environment[Self.sshOverrideKey]
-        setenv(Self.sshOverrideKey, stub, 1)
-        return {
-            if let prior {
-                setenv(Self.sshOverrideKey, prior, 1)
-            } else {
-                unsetenv(Self.sshOverrideKey)
-            }
-        }
-    }
 
     private func mirrorSelectedSession(
         controller: RemoteTmuxController,
         into manager: TabManager
     ) throws -> Workspace {
-        _ = controller.transport(for: host)
-        controller.cacheConnection(RemoteTmuxControlConnection(host: host, sessionName: "esc"))
-        #expect(try controller.mirrorSession(host: host, sessionName: "esc", into: manager))
-        let workspace = try #require(manager.tabs.first { $0.isRemoteTmuxMirror })
-        manager.selectWorkspace(workspace)
-        return workspace
+        try RemoteTmuxRoutingFixture.mirrorSelectedSession(
+            controller: controller, host: host, sessionName: "esc", into: manager
+        )
     }
 
     /// The visibility predicate flips with the ACTIVE workspace, not the window:
     /// a mirror tab shows the item, a local tab in the same manager hides it.
-    @Test func menuVisibilityFollowsTheActiveWorkspace() throws {
-        let restoreSSH = pinStubSSH("/usr/bin/false")
-        defer { restoreSSH() }
-        let controller = RemoteTmuxController()
-        let manager = TabManager()
-        let localWorkspace = try #require(manager.selectedWorkspace)
-        #expect(!controller.wouldNewWorkspaceSpawnRemote(in: manager))
+    @Test func menuVisibilityFollowsTheActiveWorkspace() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH("/usr/bin/false")
+            defer { restoreSSH() }
+            let controller = RemoteTmuxController()
+            let manager = TabManager()
+            let localWorkspace = try #require(manager.selectedWorkspace)
+            #expect(!controller.wouldNewWorkspaceSpawnRemote(in: manager))
 
-        let mirrorWorkspace = try mirrorSelectedSession(controller: controller, into: manager)
-        defer { controller.detach(host: host, sessionName: "esc") }
-        #expect(manager.selectedTab?.id == mirrorWorkspace.id)
-        #expect(controller.wouldNewWorkspaceSpawnRemote(in: manager))
+            let mirrorWorkspace = try mirrorSelectedSession(controller: controller, into: manager)
+            defer { controller.detach(host: host, sessionName: "esc") }
+            #expect(manager.selectedTab?.id == mirrorWorkspace.id)
+            #expect(controller.wouldNewWorkspaceSpawnRemote(in: manager))
 
-        manager.selectWorkspace(localWorkspace)
-        #expect(!controller.wouldNewWorkspaceSpawnRemote(in: manager))
+            manager.selectWorkspace(localWorkspace)
+            #expect(!controller.wouldNewWorkspaceSpawnRemote(in: manager))
+        }
     }
 
     /// A mirror detached while its workspace stays open and selected flips the
     /// predicate with no selection change. The menu cannot see that through
     /// selection, so the controller's mirror-set revision has to move too.
-    @Test func detachingTheSelectedMirrorChangesTheMirrorSetRevision() throws {
-        let restoreSSH = pinStubSSH("/usr/bin/false")
-        defer { restoreSSH() }
-        let controller = RemoteTmuxController()
-        let manager = TabManager()
-        let before = controller.mirrorSet.value
+    @Test func detachingTheSelectedMirrorChangesTheMirrorSetRevision() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH("/usr/bin/false")
+            defer { restoreSSH() }
+            let controller = RemoteTmuxController()
+            let manager = TabManager()
+            let before = controller.mirrorSet.value
 
-        let mirrorWorkspace = try mirrorSelectedSession(controller: controller, into: manager)
-        defer { controller.detach(host: host, sessionName: "esc") }
-        let mirrored = controller.mirrorSet.value
-        #expect(mirrored != before)
-        #expect(controller.wouldNewWorkspaceSpawnRemote(in: manager))
+            let mirrorWorkspace = try mirrorSelectedSession(controller: controller, into: manager)
+            defer { controller.detach(host: host, sessionName: "esc") }
+            let mirrored = controller.mirrorSet.value
+            #expect(mirrored != before)
+            #expect(controller.wouldNewWorkspaceSpawnRemote(in: manager))
 
-        controller.detachMirrorWorkspaceKeptOpenLocally(workspaceId: mirrorWorkspace.id)
-        #expect(manager.selectedTab?.id == mirrorWorkspace.id)
-        #expect(!controller.wouldNewWorkspaceSpawnRemote(in: manager))
-        #expect(controller.mirrorSet.value != mirrored)
+            controller.detachMirrorWorkspaceKeptOpenLocally(workspaceId: mirrorWorkspace.id)
+            #expect(manager.selectedTab?.id == mirrorWorkspace.id)
+            #expect(!controller.wouldNewWorkspaceSpawnRemote(in: manager))
+            #expect(controller.mirrorSet.value != mirrored)
+        }
     }
 
     /// The alert shows tmux's or ssh's own last line, never a whole stderr.
@@ -115,23 +100,13 @@ struct RemoteTmuxNewWorkspaceRoutingTests {
             _ = NSApplication.shared
             let appDelegate = try #require(AppDelegate.shared)
             let controller = appDelegate.remoteTmuxController
-            let restoreSSH = pinStubSSH("/usr/bin/false")
+            let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH("/usr/bin/false")
             defer { restoreSSH() }
             let manager = TabManager()
             let mirrorWorkspace = try mirrorSelectedSession(controller: controller, into: manager)
-            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-            let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
-                styleMask: [.titled, .closable],
-                backing: .buffered,
-                defer: false
+            let (windowId, window) = RemoteTmuxRoutingFixture.registerWindowedContext(
+                appDelegate: appDelegate, manager: manager
             )
-            window.isReleasedWhenClosed = false
-            window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
-            manager.window = window
-            // A registered context resolves its window from the context itself, and naming
-            // the NSWindow by identifier is not enough any more, so attach it.
-            appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }?.window = window
             defer {
                 window.close()
                 manager.window = nil

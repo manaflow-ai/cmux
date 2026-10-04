@@ -15,30 +15,14 @@ import Testing
 /// SSH never leaves the process: every test pins
 /// `CMUX_REMOTE_TMUX_SSH_FOR_TESTING` to a stub for its WHOLE body — including
 /// the deferred `detach`, whose last-mirror teardown spawns `ssh -O exit` — and
-/// awaits `newSessionRoutingTask` before any teardown can evict the cached stub
+/// waits for the routed request before any teardown can evict the cached stub
 /// transport. Tests that suspend hold `AppContextSerialGate` so another suite's
 /// env/AppDelegate use cannot interleave at an await.
 @MainActor
 @Suite(.serialized)
 struct RemoteTmuxNewWorkspaceHostRoutingTests {
-    private static let sshOverrideKey = "CMUX_REMOTE_TMUX_SSH_FOR_TESTING"
     private let hostA = RemoteTmuxHost(destination: "user@host-routing-alpha")
     private let hostB = RemoteTmuxHost(destination: "user@host-routing-beta")
-
-    /// Sets the ssh stub for the caller's whole scope; the returned closure
-    /// restores the previous value and is meant for the FIRST `defer`, so it
-    /// runs after every later-registered teardown (detach included).
-    private func pinStubSSH(_ stub: String) -> () -> Void {
-        let prior = ProcessInfo.processInfo.environment[Self.sshOverrideKey]
-        setenv(Self.sshOverrideKey, stub, 1)
-        return {
-            if let prior {
-                setenv(Self.sshOverrideKey, prior, 1)
-            } else {
-                unsetenv(Self.sshOverrideKey)
-            }
-        }
-    }
 
     /// Writes an executable stub that records its arguments (the ssh framing +
     /// tmux command) to `argvLog` and reports a created session named
@@ -83,7 +67,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         let argvLog = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-create-kill-argv-\(UUID().uuidString).log").path
         let stub = try makeCreateThenKillStub(sessionName: sessionName, killExit: killExit, argvLog: argvLog)
-        let restoreSSH = pinStubSSH(stub)
+        let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH(stub)
         defer {
             restoreSSH()
             try? FileManager.default.removeItem(atPath: stub)
@@ -91,7 +75,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         }
         let controller = RemoteTmuxController()
         let manager = TabManager()
-        _ = try mirrorSelectedSession(controller: controller, host: hostA, sessionName: "dev", into: manager)
+        _ = try RemoteTmuxRoutingFixture.mirrorSelectedSession(controller: controller, host: hostA, sessionName: "dev", into: manager)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer {
             controller.detach(host: hostA, sessionName: "dev")
@@ -103,7 +87,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         let tabsBefore = manager.tabs.count
 
         #expect(controller.handleNewWorkspaceRequested(in: manager))
-        await controller.newSessionRoutingTask?.value
+        await controller.waitForNewSessionRoutingForTesting()
 
         let argv = (try? String(contentsOfFile: argvLog, encoding: .utf8)) ?? ""
         return (failures, argv, manager.tabs.count - tabsBefore)
@@ -161,42 +145,6 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         #expect(removed.message != left.message)
     }
 
-    private func mirrorSelectedSession(
-        controller: RemoteTmuxController,
-        host: RemoteTmuxHost,
-        sessionName: String,
-        into manager: TabManager
-    ) throws -> Workspace {
-        _ = controller.transport(for: host)
-        controller.cacheConnection(RemoteTmuxControlConnection(host: host, sessionName: sessionName))
-        #expect(try controller.mirrorSession(host: host, sessionName: sessionName, into: manager))
-        let workspace = try #require(manager.tabs.first { $0.isRemoteTmuxMirror })
-        manager.selectWorkspace(workspace)
-        return workspace
-    }
-
-    /// Registers `manager` as a main-window context with a resolvable window
-    /// (the shape `performNewWorkspaceAction`'s preferred-context path needs).
-    private func registerWindowedContext(
-        appDelegate: AppDelegate,
-        manager: TabManager
-    ) -> (windowId: UUID, window: NSWindow) {
-        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
-        manager.window = window
-        // A registered context resolves its window from the context itself, and naming
-        // the NSWindow by identifier is not enough any more, so attach it.
-        appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }?.window = window
-        return (windowId, window)
-    }
-
     // MARK: - newSessionHost truth table
 
     @Test func noActiveTabCreatesLocalWorkspace() {
@@ -248,12 +196,12 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
 
     @Test func handlerClaimsRequestOnlyWhenActiveWorkspaceIsMirror() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
-            let restoreSSH = pinStubSSH("/usr/bin/false")
+            let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH("/usr/bin/false")
             defer { restoreSSH() }
             let controller = RemoteTmuxController()
             let manager = TabManager()
             let localWorkspace = try #require(manager.selectedWorkspace)
-            let mirrorWorkspace = try mirrorSelectedSession(
+            let mirrorWorkspace = try RemoteTmuxRoutingFixture.mirrorSelectedSession(
                 controller: controller, host: hostA, sessionName: "dev", into: manager
             )
             defer {
@@ -264,7 +212,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             #expect(controller.handleNewWorkspaceRequested(in: manager))
             // Drain the routed request against the cached stub transport before
             // the deferred detach can evict it.
-            await controller.newSessionRoutingTask?.value
+            await controller.waitForNewSessionRoutingForTesting()
 
             manager.selectWorkspace(localWorkspace)
             #expect(!controller.handleNewWorkspaceRequested(in: manager))
@@ -281,7 +229,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             let argvLog = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-new-session-argv-\(UUID().uuidString).log").path
             let stub = try makeNewSessionSuccessStub(sessionName: "brand-new", argvLog: argvLog)
-            let restoreSSH = pinStubSSH(stub)
+            let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH(stub)
             defer {
                 restoreSSH()
                 try? FileManager.default.removeItem(atPath: stub)
@@ -289,7 +237,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             }
             let controller = RemoteTmuxController()
             let manager = TabManager()
-            _ = try mirrorSelectedSession(
+            _ = try RemoteTmuxRoutingFixture.mirrorSelectedSession(
                 controller: controller, host: hostA, sessionName: "dev", into: manager
             )
             // The mirror the handler creates attaches to the reported name;
@@ -304,7 +252,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             }
 
             #expect(controller.handleNewWorkspaceRequested(in: manager))
-            await controller.newSessionRoutingTask?.value
+            await controller.waitForNewSessionRoutingForTesting()
 
             let recordedArgv = (try? String(contentsOfFile: argvLog, encoding: .utf8)) ?? ""
             // RemoteTmuxHost.tmuxRemoteCommand single-quotes every word of the remote
@@ -323,7 +271,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             _ = NSApplication.shared
             let appDelegate = try #require(AppDelegate.shared)
             let stub = try makeNewSessionSuccessStub(sessionName: "unstolen", argvLog: "/dev/null")
-            let restoreSSH = pinStubSSH(stub)
+            let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH(stub)
             defer {
                 restoreSSH()
                 try? FileManager.default.removeItem(atPath: stub)
@@ -331,7 +279,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             let controller = RemoteTmuxController()
             let manager = TabManager()
             let localWorkspace = try #require(manager.selectedWorkspace)
-            _ = try mirrorSelectedSession(
+            _ = try RemoteTmuxRoutingFixture.mirrorSelectedSession(
                 controller: controller, host: hostA, sessionName: "dev", into: manager
             )
             controller.cacheConnection(RemoteTmuxControlConnection(host: hostA, sessionName: "unstolen"))
@@ -346,7 +294,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             #expect(controller.handleNewWorkspaceRequested(in: manager))
             // The user moves on before the round trip completes.
             manager.selectWorkspace(localWorkspace)
-            await controller.newSessionRoutingTask?.value
+            await controller.waitForNewSessionRoutingForTesting()
 
             let created = try #require(manager.tabs.first { $0.title == "unstolen" })
             #expect(created.isRemoteTmuxMirror)
@@ -362,14 +310,14 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             _ = NSApplication.shared
             let appDelegate = try #require(AppDelegate.shared)
             let stub = try makeNewSessionSuccessStub(sessionName: "orphaned", argvLog: "/dev/null")
-            let restoreSSH = pinStubSSH(stub)
+            let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH(stub)
             defer {
                 restoreSSH()
                 try? FileManager.default.removeItem(atPath: stub)
             }
             let controller = RemoteTmuxController()
             let manager = TabManager()
-            _ = try mirrorSelectedSession(
+            _ = try RemoteTmuxRoutingFixture.mirrorSelectedSession(
                 controller: controller, host: hostA, sessionName: "dev", into: manager
             )
             controller.cacheConnection(RemoteTmuxControlConnection(host: hostA, sessionName: "orphaned"))
@@ -383,7 +331,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             #expect(controller.handleNewWorkspaceRequested(in: manager))
             // The window goes away before the round trip completes.
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-            await controller.newSessionRoutingTask?.value
+            await controller.waitForNewSessionRoutingForTesting()
 
             #expect(!manager.tabs.contains { $0.title == "orphaned" })
             #expect(controller.sessionMirror(host: hostA, sessionName: "orphaned") == nil)
@@ -397,7 +345,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             _ = NSApplication.shared
             let appDelegate = try #require(AppDelegate.shared)
             let controller = appDelegate.remoteTmuxController
-            let restoreSSH = pinStubSSH("/usr/bin/false")
+            let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH("/usr/bin/false")
             defer { restoreSSH() }
             let manager = TabManager()
             let localWorkspace = try #require(manager.selectedWorkspace)
@@ -406,11 +354,11 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             controller.reportNewSessionFailure = { host, failure, _ in
                 reportedFailures.append((host: host, failure: failure))
             }
-            let mirrorWorkspace = try mirrorSelectedSession(
+            let mirrorWorkspace = try RemoteTmuxRoutingFixture.mirrorSelectedSession(
                 controller: controller, host: hostA, sessionName: "dev", into: manager
             )
 
-            let (windowId, window) = registerWindowedContext(appDelegate: appDelegate, manager: manager)
+            let (windowId, window) = RemoteTmuxRoutingFixture.registerWindowedContext(appDelegate: appDelegate, manager: manager)
             defer {
                 controller.reportNewSessionFailure = previousReport
                 window.close()
@@ -428,7 +376,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             #expect(manager.selectedTab?.id == mirrorWorkspace.id)
             let tabsBefore = manager.tabs.map(\.id)
             #expect(appDelegate.performNewWorkspaceAction(tabManager: manager, debugSource: "test.remoteMirror"))
-            await controller.newSessionRoutingTask?.value
+            await controller.waitForNewSessionRoutingForTesting()
             #expect(manager.tabs.map(\.id) == tabsBefore)
             #expect(reportedFailures.count == 1)
             #expect(reportedFailures.first?.host == hostA)
