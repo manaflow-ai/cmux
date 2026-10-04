@@ -5,7 +5,7 @@
 @MainActor
 public final class BrowserReplPendingPrompt<Answer: Sendable> {
     private var continuation: CheckedContinuation<Answer, Never>?
-    private var ended = false
+    private var answer: Answer?
     private let onEnd: @MainActor () -> Void
 
     /// - Parameter onEnd: takes the prompt down; called once, when it ends.
@@ -14,10 +14,12 @@ public final class BrowserReplPendingPrompt<Answer: Sendable> {
     }
 
     /// Whether the prompt has ended.
-    public var isEnded: Bool { ended }
+    public var isEnded: Bool { answer != nil }
 
-    /// Waits for the prompt's answer, `expired` after `timeout` on `clock`.
-    /// Seam: today's wait.
+    /// Waits for the prompt's answer: the user's (``finish(_:)``),
+    /// `expired` after `timeout` on `clock`, or `cancelled` as soon as the
+    /// waiting task is cancelled (at once when it already is). Either way
+    /// the prompt is taken down.
     public func wait<C: Clock>(
         timeout: Duration,
         clock: C = ContinuousClock(),
@@ -30,16 +32,24 @@ public final class BrowserReplPendingPrompt<Answer: Sendable> {
             self?.finish(expired)
         }
         defer { timer.cancel() }
-        return await withCheckedContinuation { continuation in
-            if ended { return }
-            self.continuation = continuation
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if answer == nil, Task.isCancelled { finish(cancelled) }
+                if let answer {
+                    continuation.resume(returning: answer)
+                    return
+                }
+                self.continuation = continuation
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.finish(cancelled) }
         }
     }
 
     /// Ends the prompt with `answer`; later calls do nothing.
     public func finish(_ answer: Answer) {
-        guard !ended else { return }
-        ended = true
+        guard self.answer == nil else { return }
+        self.answer = answer
         onEnd()
         continuation?.resume(returning: answer)
         continuation = nil

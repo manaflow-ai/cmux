@@ -412,10 +412,19 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             }
             try await frameGate.authorize(frame, in: panel.webView)
             let workspaceTitle = allBrowserPanels().first { $0.panel.id == panel.id }?.workspace.title ?? ""
+            let sessionID = self.sessionID
+            let tabAttachment = attachment(panel)
+            let webView = panel.webView
             return await BrowserReplCredentialRequest.run(
-                webView: panel.webView, frameInfo: frame.info, params: params,
+                webView: webView, frameInfo: frame.info, params: params,
                 fillSource: bundle.readResource("sites/auth-fill.js"),
-                requester: (tab: Self.title(panel), workspace: workspaceTitle)
+                requester: (tab: Self.title(panel), workspace: workspaceTitle),
+                stillAllowed: { [weak self, weak panel] in
+                    // The session still runs and drives this tab, which still
+                    // shows the web view the sheet was asked for.
+                    guard let self, let panel, !self.lock.withLock({ self.isDetached }) else { return false }
+                    return panel.webView === webView && tabAttachment.sessionIDs.contains(sessionID)
+                }
             )
         default:
             throw Self.error("unsupported", "Unsupported driver method \(method)")

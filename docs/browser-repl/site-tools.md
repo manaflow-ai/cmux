@@ -276,7 +276,11 @@ but the page's scripts, and code the agent runs in the page, can read a
 filled field. Under a domain policy the driver refuses the request
 (`blocked`) when the tab's page, or the frame that holds the fields (by
 WebKit's record of it and by the document it shows when the request
-arrives), is on a domain the policy blocks.
+arrives), is on a domain the policy blocks. The sheet lasts only as long as
+the call that asked: when that call is cancelled (its cell is cancelled or
+times out, the session is reset, closes or idles out), the sheet goes away
+with what was typed in it and the request ends `cancelled`, and after Fill
+nothing is filled unless the session still runs and drives the tab.
 
 ## Decisions for the user
 
