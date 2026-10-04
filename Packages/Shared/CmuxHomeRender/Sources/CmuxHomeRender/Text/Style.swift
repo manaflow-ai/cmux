@@ -44,6 +44,10 @@ enum Style {
 /// right edge and grow the text column in proportion.
 struct Metrics: Hashable, Sendable {
     var width: CGFloat
+    /// The host's text scale (`HomeController.textScale`).
+    var zoom: CGFloat = 1
+
+    var leftEdge: CGFloat { Style.leftEdge }
 
     var rightEdge: CGFloat { width - Style.rightInset }
     var centerX: CGFloat { width / 2 - 0.1 }
