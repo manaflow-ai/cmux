@@ -47,12 +47,19 @@ export class TeamVmRegistry {
   counts(): RegistryCounts {
     const one = (q: string) => this.sql.exec<{ n: number }>(q)[0]?.n ?? 0
     return {
-      teams: one(`SELECT COUNT(*) AS n FROM tvm_registry_team`),
+      // Teams with a live team VM (a team whose create never confirmed is registered but not counted).
+      teams: one(`SELECT COUNT(DISTINCT team) AS n FROM tvm_registry_vm WHERE deleted_at IS NULL`),
       created: one(`SELECT COUNT(*) AS n FROM tvm_registry_vm WHERE origin = 'created'`),
       backfilled: one(`SELECT COUNT(*) AS n FROM tvm_registry_vm WHERE origin = 'backfilled'`),
       deleted: one(`SELECT COUNT(*) AS n FROM tvm_registry_vm WHERE deleted_at IS NOT NULL`),
       live: one(`SELECT COUNT(*) AS n FROM tvm_registry_vm WHERE deleted_at IS NULL`)
     }
+  }
+
+  /** Test only: forget everything (stands for a registry that never saw older ledger rows). */
+  clear(): void {
+    this.sql.exec(`DELETE FROM tvm_registry_vm`)
+    this.sql.exec(`DELETE FROM tvm_registry_team`)
   }
 
   /** Provider ids any team's ledger holds (live or deleted). */

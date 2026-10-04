@@ -16,7 +16,7 @@ export interface TeamVmDriver {
   /** Deletes the VM with this provider id; a VM already gone counts as deleted. Callers pass ledger ids only. */
   deleteVm(id: string): Promise<void>
   /** One page of the provider account's VMs (report-only callers; never used to adopt or delete). */
-  listPage(limit: number, offset: number): Promise<{ readonly vms: ReadonlyArray<{ readonly id: string; readonly slug: string | null }>; readonly total: number }>
+  listPage(limit: number, offset: number): Promise<{ readonly vms: ReadonlyArray<{ readonly id: string; readonly slug: string | null }>; readonly size: number; readonly total: number | null }>
 }
 
 export class DriverError extends Error {
@@ -134,8 +134,10 @@ export class FreestyleDriver implements TeamVmDriver {
   async listPage(limit: number, offset: number) {
     const got = await this.call("GET", `/v5/vms?limit=${limit}&offset=${offset}`)
     if (got.status !== 200 || !Array.isArray(got.json.vms)) this.fail(got.status, got.json, "list VMs")
-    const vms = (got.json.vms as Array<Record<string, unknown>>).filter((v) => nonEmpty(v.id)).map((v) => ({ id: v.id as string, slug: typeof v.slug === "string" ? v.slug : null }))
-    return { vms, total: typeof got.json.totalCount === "number" ? got.json.totalCount : vms.length }
+    const raw = got.json.vms as Array<Record<string, unknown>>
+    const vms = raw.filter((v) => nonEmpty(v.id)).map((v) => ({ id: v.id as string, slug: typeof v.slug === "string" ? v.slug : null }))
+    // `size` is the raw page length (paging stops on a short page); a missing totalCount is unknown.
+    return { vms, size: raw.length, total: typeof got.json.totalCount === "number" ? got.json.totalCount : null }
   }
 }
 
@@ -204,7 +206,7 @@ export class FakeDriver implements TeamVmDriver {
     this.maybeFail()
     const vms = this.sql.exec<{ id: string; slug: string }>(`SELECT id, slug FROM fake_vm ORDER BY slug LIMIT ? OFFSET ?`, limit, offset)
     const total = this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM fake_vm`)[0]!.n
-    return { vms, total }
+    return { vms, size: vms.length, total }
   }
 }
 
