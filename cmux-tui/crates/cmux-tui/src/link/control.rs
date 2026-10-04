@@ -1,6 +1,7 @@
 //! The running link: its local socket (verified callers only) and its
 //! overlay listener (paired peers only).
 
+use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
 use std::os::fd::AsRawFd;
@@ -44,7 +45,7 @@ pub(super) trait OverlayListener: Send + 'static {
     type Stream: AsyncRead + AsyncWrite + Unpin + Send + 'static;
     fn accept(
         &mut self,
-    ) -> impl std::future::Future<Output = Option<(Self::Stream, [u8; 32], SocketAddr)>> + Send;
+    ) -> impl Future<Output = Option<(Self::Stream, [u8; 32], SocketAddr)>> + Send;
 }
 
 /// Serve the local socket until it fails. Each caller must be this user and

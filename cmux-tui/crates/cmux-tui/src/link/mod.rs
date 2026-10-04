@@ -118,7 +118,7 @@ fn run_show(flags: &Flags) -> anyhow::Result<()> {
 
 fn run_show_state(state: &LinkState) -> anyhow::Result<()> {
     let config = state.config()?;
-    let public_key = state::public_key(&state.private_key()?);
+    let public_key = state::public_key(&*state.private_key()?);
     let live = registration::read_live(&state.registration_dir());
     print_json(&json!({
         "install": config.install,

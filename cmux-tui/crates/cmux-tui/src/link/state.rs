@@ -43,6 +43,7 @@ impl LinkState {
         Ok(Self { dir })
     }
 
+    #[cfg(target_os = "macos")]
     pub(super) fn dir(&self) -> &Path {
         &self.dir
     }
