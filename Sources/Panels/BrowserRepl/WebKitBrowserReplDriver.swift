@@ -150,6 +150,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     private var currentPolicy: BrowserReplDomainPolicy { lock.withLock { domainPolicy } }
 
+    /// The session's working and temporary directories (canonical), the
+    /// only ones its tabs may show local files from. Only the native
+    /// session sets them, through `setFileRoots`.
+    private var fileRoots: [String] = []
+
+    func setFileRoots(_ roots: [String]) {
+        lock.withLock { fileRoots = roots }
+    }
+
+    private var currentFileRoots: [String] { lock.withLock { fileRoots } }
+
     /// The session's own input: a dialog, file chooser or window the page
     /// opens while it handles one goes to the session. A page-world
     /// `frame.evaluate` holds that window for at most a second, and
@@ -328,6 +339,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 }
             }
             try checkPagePolicy(method: method, params: params)
+            try await checkLocalDocumentOrigin(method: method, params: params)
             let guardsInput = Self.isGuardedInput(method) && currentPolicy.isActive && tabToPrepare != nil
             if !guardsInput { try await checkFramePolicy(method: method, params: params) }
             let value: Any? = try await withAgentGestureClipboardQuarantine(
@@ -488,6 +500,13 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// and a navigation to a blocked URL.
     @MainActor
     private func checkPagePolicy(method: String, params: [String: Any]) throws {
+        // A local file outside the session's directories (a user's tab, or
+        // one a hibernated tab would load again), whatever the policy.
+        if Self.isGuarded(method), let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
+           let panel = try? reachablePanel(id),
+           let reason = BrowserReplFileSandbox.localPageRefusal(url: Self.url(panel), documentOrigin: nil, roots: currentFileRoots) {
+            throw Self.error("blocked", reason)
+        }
         let policy = currentPolicy
         guard policy.isActive else { return }
         if method == "tab.navigate" || method == "tabs.open", let url = params["url"] as? String,
@@ -500,6 +519,25 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let url = Self.url(panel)
         guard !url.isEmpty, let reason = policy.blockReason(url) else { return }
         throw Self.error("blocked", "the tab shows \(url), which the domain policy blocks: \(reason); navigate it to an allowed page")
+    }
+
+    /// Refuses a read or input on a tab the session did not create whose
+    /// page is a document of a local file's origin under another URL (an
+    /// `about:blank` or `data:` page a file page wrote): which file made it
+    /// cannot be told (``BrowserReplFileSandbox/localPageRefusal(url:documentOrigin:roots:)``).
+    @MainActor
+    private func checkLocalDocumentOrigin(method: String, params: [String: Any]) async throws {
+        guard Self.isGuarded(method), let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
+              let panel = try? reachablePanel(id),
+              BrowserReplTabAttachments.shared.attachment(for: id)?.creatorSessionID != sessionID else { return }
+        let url = Self.url(panel)
+        // A web page has its own origin; a file page is judged by its path.
+        guard !["http", "https", "file"].contains(URL(string: url)?.scheme?.lowercased() ?? "") else { return }
+        guard let main = await BrowserReplFrameTree.frames(of: panel.webView).first?.info else { return }
+        let origin = BrowserReplFrameDocument(info: main).origin
+        if let reason = BrowserReplFileSandbox.localPageRefusal(url: url, documentOrigin: origin, roots: currentFileRoots) {
+            throw Self.error("blocked", reason)
+        }
     }
 
     /// After a navigation of a tab the user owns: a page the policy blocks is

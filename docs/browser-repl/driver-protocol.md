@@ -354,7 +354,12 @@ native (`BrowserReplBoundary` in the session, and the driver):
   with read access to its directory, so a page could otherwise read files
   the session's `fs` cannot; cmux's internal schemes and `javascript:` are
   refused too. A string without a scheme that looks like a path (`/`, `~`,
-  `.`) is refused.
+  `.`) is refused. The same rule refuses the session's reads and input
+  (the calls a blocked page refuses, `blocked`) on any tab that shows a
+  local file outside those directories, such as a user's tab opened on
+  one before the session reached it, and on a tab the session did not
+  create whose page is a document of a local file's origin under another
+  URL (an `about:blank` or `data:` page a file page wrote).
 - Domain policy: the session refuses `tab.navigate`/`tabs.open` to a blocked
   URL (`blocked`; a `blob:` URL is judged by the origin in it, and one of
   an opaque origin, `blob:null/...`, is blocked) and `session.configure`

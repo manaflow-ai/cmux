@@ -50,6 +50,11 @@ public protocol BrowserReplDriver: AnyObject, Sendable {
     /// whose page is blocked. The session calls this, never JavaScript.
     func setDomainPolicy(_ policy: BrowserReplDomainPolicy)
 
+    /// The session's working and temporary directories changed (canonical
+    /// paths): the only directories its tabs may show or load local files
+    /// from. The session calls this, never JavaScript.
+    func setFileRoots(_ roots: [String])
+
     /// The secrets other sessions typed into tabs (``BrowserReplTypedSecrets``),
     /// as a store that masks them, or `nil` when there are none. This
     /// session does not hold them, so its own store would not mask them: the
@@ -61,6 +66,8 @@ public protocol BrowserReplDriver: AnyObject, Sendable {
 
 extension BrowserReplDriver {
     public func setDomainPolicy(_ policy: BrowserReplDomainPolicy) {}
+
+    public func setFileRoots(_ roots: [String]) {}
 
     public func typedSecretRedaction() -> BrowserReplSecretStore? { nil }
 }

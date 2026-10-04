@@ -173,8 +173,25 @@ public struct BrowserReplFileSandbox: Sendable {
     }
 
     /// Why a session may not read or act on a tab that shows `url`, or nil.
+    ///
+    /// A local file outside `roots` (the session's working and temporary
+    /// directories), by the rule ``navigationRefusal(_:roots:)`` applies to
+    /// the session's own navigations, is refused: the tab may be a user's
+    /// that shows a file the session's `fs` cannot read, and the browser let
+    /// its page read that file's directory. So is any other document of a
+    /// local file's origin (`documentOrigin` `file://`: an `about:blank` or
+    /// `data:` document a file page wrote), whose maker cannot be told; the
+    /// caller passes `documentOrigin` only for tabs the session did not
+    /// create, whose file pages no session check stood before.
     public static func localPageRefusal(url: String, documentOrigin: String?, roots: [String]) -> String? {
-        nil
+        if URL(string: url)?.scheme?.lowercased() == "file" {
+            guard let reason = navigationRefusal(url, roots: roots) else { return nil }
+            return "the tab shows the local file \(url), which a REPL session may not read: \(reason)"
+        }
+        if documentOrigin?.lowercased() == "file://" {
+            return "the tab shows \(url.isEmpty ? "a document" : url) of a local file's origin, which a REPL session may not read; open files inside the session's directories with tabs.open"
+        }
+        return nil
     }
 
     /// `root` and, for a root under `/private`, the same path through the
