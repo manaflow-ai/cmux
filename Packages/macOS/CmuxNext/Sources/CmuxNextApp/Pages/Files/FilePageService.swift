@@ -16,6 +16,8 @@ import Foundation
 final class FilePageService: InternalPageProvider {
     private struct Tab {
         var file: URL?
+        /// The user opened the document (not an agent or a script): it is granted and writable.
+        var userChose = true
         var page: PageWebView?
         var provider: FilePageProvider?
         var host: FilePageTabHost?
@@ -26,7 +28,7 @@ final class FilePageService: InternalPageProvider {
     private let clock: any Clock<Duration>
     private let images: any RemoteImageFetching
     private var tabs: [String: Tab] = [:]
-    private(set) lazy var look = FilePageLook(kind: kind, services: services)
+    private(set) lazy var look = FilePageLook(kind: kind, settings: { [unowned services] in services.settings })
     /// Tabs whose pages are saving their last edits after the tab closed.
     private(set) var flushing: [Task<Void, Never>] = []
 
@@ -61,10 +63,10 @@ final class FilePageService: InternalPageProvider {
     /// Opens `file` in a tab after `pane`'s selected tab, or selects the tab of `pane`'s window that
     /// already shows it. A user run (`focus`) selects and focuses it.
     @discardableResult
-    func open(_ file: URL, in pane: PaneController, focus: Bool) -> String {
+    func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true) -> String {
         let real = file.standardizedFileURL.resolvingSymlinksInPath()
-        services.viewers.recents.record(real, as: kind.recents)
-        return show(in: pane, focus: focus, Tab(file: real)) { [unowned self] key in self.file(key) == real }
+        if userChose { services.viewers.recents.record(real, as: kind.recents) }
+        return show(in: pane, focus: focus, Tab(file: real, userChose: userChose)) { [unowned self] key in self.file(key) == real }
     }
 
     /// Opens (or selects) the window's empty tab of this page.
@@ -108,16 +110,27 @@ final class FilePageService: InternalPageProvider {
     // MARK: Host services for the tabs
 
     /// Every terminal folder of every window (diff-host.md: the workspace roots).
-    var roots: FileWorkspaceRoots {
-        var folders: [String] = []
-        for window in services.windows.controllers {
-            for pane in window.content?.panes.values.map({ $0 }) ?? [] {
-                for tab in pane.pane.tabs where tab.kind == .pty {
-                    if let cwd = tab.cwd, !cwd.isEmpty { folders.append(cwd) }
-                }
-            }
-        }
-        return FileWorkspaceRoots(folders: folders)
+    var roots: FileWorkspaceRoots { Self.userChosenRoots(services) }
+
+    /// Folders the user chose as roots (the `files.roots` setting); never home, `/` or a folder the
+    /// host infers (a terminal's working directory).
+    static func userChosenRoots(_ services: AppServices) -> FileWorkspaceRoots {
+        let folders = services.settings?.fileRoot["files"]?["roots"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        return FileWorkspaceRoots(folders: folders.map { ($0 as NSString).expandingTildeInPath })
+    }
+
+    /// The "Open <path>?" sheet for links outside a granted folder: one at a time, after a real
+    /// user gesture on a file page.
+    private(set) lazy var openConfirmation = FileOpenConfirmation()
+
+    fileprivate func isRecent(_ path: String) -> Bool {
+        let recents = services.viewers.recents
+        return recents.paths(.markdown).contains(path) || recents.paths(.file).contains(path)
+    }
+
+    fileprivate func confirmOpen(_ url: URL, userGesture: Bool, from key: String) async -> Bool {
+        let page = tabs[key]?.page
+        return await openConfirmation.confirm(url, userGesture: userGesture, gestureEvent: page?.lastUserEventUptime, anchor: page)
     }
 
     fileprivate func recents() -> JSONValue {
@@ -153,7 +166,8 @@ final class FilePageService: InternalPageProvider {
         guard var tab = tabs[key] else { return NSView() }
         let host = FilePageTabHost(service: self, key: key)
         let libraries = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:))
-        let provider = FilePageProvider(kind: kind, file: tab.file, host: host, clock: clock, libraries: libraries, images: images)
+        let provider = FilePageProvider(kind: kind, file: tab.file, userChose: tab.userChose, host: host, clock: clock,
+                                        libraries: libraries, images: images)
         let native = AppPageNativeProvider(services: services, page: kind.descriptor)
         let routes = [PageRoute(prefix: kind.namespace + ".", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = PageWebView(descriptor: kind.descriptor, routes: routes, options: Self.engineOptions, surface: kind.surface,
@@ -243,10 +257,14 @@ final class FilePageTabHost: FilePageHosting {
     func chooseFile(start: URL?) async -> URL? { await service?.chooseFile(start: start, for: key) }
     func look() -> JSONValue { service?.look.current() ?? .object([:]) }
     func listenLook(_ onLook: @escaping @MainActor (JSONValue) -> Void) -> () -> Void { service?.look.listen(onLook) ?? {} }
-    func setPreference(key: String, value: JSONValue) async throws { try await service?.look.setPreference(key: key, value: value) }
+    func setPreference(key: String, value: JSONValue, by writer: SettingWriter) async throws {
+        try await service?.look.setPreference(key: key, value: value, by: writer)
+    }
     func opened(_ url: URL) { service?.opened(url, in: key) }
     func openExternal(_ url: URL) { service?.openExternal(url, from: key) }
     func openFile(_ url: URL) { service?.openFile(url, from: key) }
+    func isRecent(_ path: String) -> Bool { service?.isRecent(path) ?? false }
+    func confirmOpen(_ url: URL, userGesture: Bool) async -> Bool { await service?.confirmOpen(url, userGesture: userGesture, from: key) ?? false }
 }
 
 extension FilePageService {

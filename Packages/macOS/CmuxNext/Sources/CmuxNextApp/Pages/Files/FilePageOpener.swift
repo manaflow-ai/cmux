@@ -27,13 +27,19 @@ final class FilePageOpener: FileOpening {
     }
 
     func open(_ file: URL, in pane: PaneController?) -> String? {
+        open(file, in: pane, userChose: true)
+    }
+
+    /// `userChose` false for an agent's or a script's open (`cmux file open`): the document shows,
+    /// and is writable only inside a root the user chose.
+    func open(_ file: URL, in pane: PaneController?, userChose: Bool) -> String? {
         guard let url = AgentPaneFileOpen.resolve(file.path) else { return FilePageStrings.notAFile }
         guard let pane = pane ?? services.windows.active?.focusedPane else { return FilePageStrings.noPane }
         switch Self.kind(for: url) {
         case .markdown?:
-            services.markdownPages.open(url, in: pane, focus: true)
+            services.markdownPages.open(url, in: pane, focus: true, userChose: userChose)
         case .editor?:
-            services.editorPages.open(url, in: pane, focus: true)
+            services.editorPages.open(url, in: pane, focus: true, userChose: userChose)
         case nil:
             guard AgentPaneFileOpen.showsInTab(url) else { return FilePageStrings.notAFile }
             pane.newBrowserTab(url: url)

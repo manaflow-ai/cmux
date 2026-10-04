@@ -11,7 +11,8 @@ import Observation
 /// once, before the file watcher reloads.
 final class FilePageLook {
     private let kind: FilePageKind
-    private unowned let services: AppServices
+    private let settings: () -> SettingsController?
+    private let fixedConfigDirectory: URL?
     private var listeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var themeCSS = ""
     private var themeWatcher: ConfigFileWatcher?
@@ -24,24 +25,26 @@ final class FilePageLook {
     private var pending: [[String]: JSONValue] = [:]
     private var lastSent: JSONValue = .object([:])
 
-    init(kind: FilePageKind, services: AppServices) {
+    /// `configDirectory`: where `<section>/theme.css` lives; nil uses the settings file's folder.
+    init(kind: FilePageKind, settings: @escaping () -> SettingsController?, configDirectory: URL? = nil) {
         self.kind = kind
-        self.services = services
+        self.settings = settings
+        fixedConfigDirectory = configDirectory
     }
 
     /// `markdown.remoteImages` (default true; coordinator decision for S6).
     var remoteImages: Bool {
-        services.settings?.fileRoot["markdown"]?["remoteImages"]?.boolValue ?? true
+        settings()?.fileRoot["markdown"]?["remoteImages"]?.boolValue ?? true
     }
 
-    private var configDirectory: URL? { services.settings?.file.url.deletingLastPathComponent() }
+    private var configDirectory: URL? { fixedConfigDirectory ?? settings()?.file.url.deletingLastPathComponent() }
 
     /// The look now (the page config carries it).
     func current() -> JSONValue {
         start()
         var look: [String: JSONValue] = ["settings": section(), "themeCSS": .string(themeCSS)]
         if kind == .editor {
-            look["syntaxTheme"] = services.settings?.fileRoot["appearance"]?["syntaxTheme"] ?? .null
+            look["syntaxTheme"] = settings()?.fileRoot["appearance"]?["syntaxTheme"] ?? .null
             look["screenReader"] = .bool(NSWorkspace.shared.isVoiceOverEnabled)
             if let languages { look["languages"] = languages }
         }
@@ -58,7 +61,7 @@ final class FilePageLook {
 
     /// The settings section with pending writes applied.
     private func section() -> JSONValue {
-        var value = services.settings?.fileRoot[kind.section] ?? .object([:])
+        var value = settings()?.fileRoot[kind.section] ?? .object([:])
         if value.objectValue == nil { value = .object([:]) }
         for (path, written) in pending {
             let stored = Self.value(at: Array(path.dropFirst()), in: value)
@@ -68,19 +71,15 @@ final class FilePageLook {
         return value
     }
 
-    /// Writes `editor.minimap.enabled` (a validated key) to the settings store.
-    func setPreference(key: String, value: JSONValue) async throws {
-        guard let settings = services.settings else { throw SettingsDiffPrefs.Unavailable() }
+    /// Writes one validated `<section>.<key>` through the one settings write path
+    /// (`SettingsController.setSetting(at:to:by:)`): a key the schema does not list is refused, a
+    /// user-only key needs `.user` (a call backed by a real gesture). Never a raw file write.
+    func setPreference(key: String, value: JSONValue, by writer: SettingWriter) async throws {
+        guard let settings = settings() else { throw SettingsDiffPrefs.Unavailable() }
         let path = key.split(separator: ".").map(String.init)
+        try await settings.setSetting(at: path, to: value == .null ? nil : value, by: writer)
         pending[path] = value
         publish()
-        if SettingsSchema.descriptor(for: path) != nil {
-            try await settings.setSetting(at: path, to: value == .null ? nil : value, by: .caller("page"))
-        } else if value == .null {
-            try await settings.file.remove(path)
-        } else {
-            try await settings.file.set(value, at: path)
-        }
     }
 
     // MARK: Watching
@@ -88,8 +87,9 @@ final class FilePageLook {
     private func start() {
         guard settingsTask == nil else { return }
         let section = kind.section
-        settingsTask = Task { [weak self, services] in
-            for await _ in Observations({ (services.settings?.fileRoot[section], services.settings?.fileRoot["appearance"]?["syntaxTheme"]) }) {
+        let settings = settings
+        settingsTask = Task { [weak self] in
+            for await _ in Observations({ (settings()?.fileRoot[section], settings()?.fileRoot["appearance"]?["syntaxTheme"]) }) {
                 self?.publish()
             }
         }

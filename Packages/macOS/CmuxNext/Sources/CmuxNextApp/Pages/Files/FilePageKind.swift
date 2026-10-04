@@ -95,6 +95,15 @@ nonisolated enum FilePageStrings {
         String(localized: "filePages.notAFile", defaultValue: "That file cannot be opened.", table: "FilePages", bundle: .module)
     }
 
+    static func openOutsideTitle(_ path: String) -> String {
+        String(format: String(localized: "filePages.openOutside.title", defaultValue: "Open “%@”?", table: "FilePages", bundle: .module), path)
+    }
+
+    static var openOutsideDetail: String {
+        String(localized: "filePages.openOutside.detail", defaultValue: "A link in this page points outside the folder of the file you opened.",
+               table: "FilePages", bundle: .module)
+    }
+
     static var noPane: String {
         String(localized: "filePages.noPane", defaultValue: "No pane is open to show the file.", table: "FilePages", bundle: .module)
     }

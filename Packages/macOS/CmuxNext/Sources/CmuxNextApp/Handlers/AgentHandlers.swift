@@ -225,7 +225,9 @@ enum AgentHandlers {
             guard path.hasPrefix("/") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
             guard let url = AgentPaneFileOpen.resolve(path) else { throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path)) }
             guard let pane = context.paneController(invocation) else { return }
-            if let reason = context.services.viewers.fileOpener.open(url, in: pane) { throw ActionFailure(message: reason) }
+            let opener = context.services.viewers.fileOpener
+            let reason = (opener as? FilePageOpener)?.open(url, in: pane, userChose: invocation.origin == .user) ?? opener.open(url, in: pane)
+            if let reason { throw ActionFailure(message: reason) }
             return
         }
         let opening: AgentPaneFileOpening

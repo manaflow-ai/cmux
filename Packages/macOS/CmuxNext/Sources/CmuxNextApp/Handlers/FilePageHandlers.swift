@@ -33,8 +33,9 @@ enum FilePageHandlers {
             _ = try page(.editor, context, invocation)
             let look = services.editorPages.look
             let current = look.current()["settings"]?["wordWrap"]?.stringValue ?? "off"
+            let writer = SettingWriter(invocation.origin)
             registry.track(Task { @MainActor in
-                try? await look.setPreference(key: "editor.wordWrap", value: .string(current == "off" ? "on" : "off"))
+                try? await look.setPreference(key: "editor.wordWrap", value: .string(current == "off" ? "on" : "off"), by: writer)
                 return nil
             })
         })

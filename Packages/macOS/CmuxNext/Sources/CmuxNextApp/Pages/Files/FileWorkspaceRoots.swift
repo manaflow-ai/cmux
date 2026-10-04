@@ -1,26 +1,20 @@
 import Foundation
 
-/// The folders whose files a page may save (diff-host.md: files outside every workspace root are
-/// read only). A root is a terminal folder's git top level, else the folder itself; never home
-/// itself or `/`, which would make every file writable.
+/// The folders whose files a page may save besides the documents the user granted (coordinator
+/// rule: only folders the USER chose, the `files.roots` setting). Nothing is inferred: no
+/// terminal working directory, no repository top level, never home itself or `/`, which would
+/// make every file writable.
 nonisolated struct FileWorkspaceRoots: Sendable, Equatable {
-    /// Real paths, in the order first seen, without duplicates.
+    /// Real paths, in the order given, without duplicates.
     let paths: [String]
 
     init(folders: [String], home: String = NSHomeDirectory()) {
         let excluded: Set<String> = ["/", Self.real(home)]
         var seen: Set<String> = []
-        var paths: [String] = []
-        for folder in folders where !folder.isEmpty {
-            let real = Self.real(folder)
-            let root = Self.repositoryRoot(containing: real, stopAt: excluded) ?? real
-            guard !excluded.contains(root), seen.insert(root).inserted else { continue }
-            paths.append(root)
-        }
-        self.paths = paths
+        paths = folders.filter { !$0.isEmpty }.map(Self.real).filter { !excluded.contains($0) && seen.insert($0).inserted }
     }
 
-    /// Whether some root contains `path` (a real path, or one whose folder resolves).
+    /// Whether some root contains `path` (links resolved first).
     func contains(_ path: String) -> Bool {
         let real = Self.real(path)
         return paths.contains { real == $0 || real.hasPrefix($0 + "/") }
@@ -28,17 +22,5 @@ nonisolated struct FileWorkspaceRoots: Sendable, Equatable {
 
     static func real(_ path: String) -> String {
         URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
-    }
-
-    /// The nearest folder at or above `path` with a `.git` entry, below the excluded folders.
-    private static func repositoryRoot(containing path: String, stopAt excluded: Set<String>) -> String? {
-        var candidate = URL(fileURLWithPath: path, isDirectory: true)
-        while !excluded.contains(candidate.path) {
-            if FileManager.default.fileExists(atPath: candidate.appending(path: ".git").path) { return candidate.path }
-            let parent = candidate.deletingLastPathComponent()
-            if parent.path == candidate.path { return nil }
-            candidate = parent
-        }
-        return nil
     }
 }

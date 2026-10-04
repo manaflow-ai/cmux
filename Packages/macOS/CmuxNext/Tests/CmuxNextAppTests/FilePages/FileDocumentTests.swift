@@ -124,21 +124,22 @@ import Testing
         #expect(try String(contentsOf: url, encoding: .utf8) == "v3")
     }
 
-    /// Files outside every workspace root are read only; a root is a terminal folder's git top
-    /// level (else the folder), never home itself or `/`.
-    @Test func workspaceRootsAreTheTerminalFoldersRepositories() throws {
+    /// Roots are exactly the folders given (the user's choices): no repository top level is
+    /// inferred, and home and `/` are never roots.
+    @Test func rootsAreTheChosenFoldersAndNeverHome() throws {
         let home = try Self.folder()
         let repo = home.appending(path: "repo", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: repo.appending(path: ".git"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: repo.appending(path: "src/deep"), withIntermediateDirectories: true)
         let loose = home.appending(path: "notes", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: loose, withIntermediateDirectories: true)
-        let roots = FileWorkspaceRoots(folders: [repo.appending(path: "src/deep").path, loose.path, home.path, "/"], home: home.path)
-        #expect(roots.paths == [repo.path, loose.path])
-        #expect(roots.contains(repo.appending(path: "src/a.ts").path))
+        let deep = repo.appending(path: "src/deep").path
+        let roots = FileWorkspaceRoots(folders: [deep, loose.path, home.path, "/", deep], home: home.path)
+        #expect(roots.paths == [deep, loose.path])
+        #expect(roots.contains(repo.appending(path: "src/deep/a.ts").path))
+        #expect(!roots.contains(repo.appending(path: "src/a.ts").path), "the repository is not inferred")
         #expect(roots.contains(loose.appending(path: "todo.md").path))
         #expect(!roots.contains(home.appending(path: "other/a.ts").path))
-        #expect(!roots.contains(repo.path + "-sibling/a.ts"))
-        #expect(!FileWorkspaceRoots(folders: [], home: home.path).contains(repo.appending(path: "a").path))
+        #expect(!roots.contains(loose.path + "-sibling/a.ts"))
     }
 }

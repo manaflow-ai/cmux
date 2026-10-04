@@ -17,14 +17,19 @@ protocol FilePageHosting: AnyObject {
     /// `{settings?, themeCSS?, syntaxTheme?, languages?, screenReader?}`.
     func look() -> JSONValue
     func listenLook(_ onLook: @escaping @MainActor (JSONValue) -> Void) -> () -> Void
-    /// Writes one `<section>.<key>` setting (PAGE-PREFS).
-    func setPreference(key: String, value: JSONValue) async throws
+    /// Writes one `<section>.<key>` setting (PAGE-PREFS) as `writer`.
+    func setPreference(key: String, value: JSONValue, by writer: SettingWriter) async throws
     /// The tab now shows `url` (its title follows the file).
     func opened(_ url: URL)
     /// http(s) in a cmux browser tab; mailto: and tel: through the system handler.
     func openExternal(_ url: URL)
     /// Another file, through the file routing (its own page tab).
     func openFile(_ url: URL)
+    /// Whether `path` (canonical) is a recents entry the user opened.
+    func isRecent(_ path: String) -> Bool
+    /// The native "Open <path>?" sheet for a link outside every granted document's folder: shown
+    /// only after a real user gesture, one at a time; false when refused or not shown.
+    func confirmOpen(_ url: URL, userGesture: Bool) async -> Bool
 }
 
 /// One file page tab's `cmux.markdown.*` or `cmux.editor.*` namespace (diff-host.md S6 "Markdown
@@ -36,23 +41,39 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     let kind: FilePageKind
     private(set) var file: URL?
     /// Strong: the tab host holds its service weakly, so no cycle.
-    private var host: (any FilePageHosting)?
+    private(set) var host: (any FilePageHosting)?
     private let clock: any Clock<Duration>
-    private let libraries: URL?
-    private let images: any RemoteImageFetching
+    let libraries: URL?
+    let images: any RemoteImageFetching
     private var watch: FileChangeWatch?
     private var changeListeners: [UUID: (JSONValue) -> Void] = [:]
     /// The folder of the open file the current asset token serves, and the token.
-    private var assetToken = UUID().uuidString.lowercased()
+    private(set) var assetToken = UUID().uuidString.lowercased()
+    /// Canonical paths the user granted this tab: its document, chooseFile results, approved
+    /// links. The page opens only these (and recents); their folders bound links that open
+    /// without asking, and they are writable (the user chose them).
+    private(set) var granted: Set<String> = []
+    /// Markdown files `resolveLinks` found inside a granted document's folder: the page may open
+    /// them in place (following a link it showed).
+    private var linked: Set<String> = []
+    /// Documents this tab has shown (it may reopen them, its own back and forward).
+    private var shown: Set<String> = []
     private(set) var isClosed = false
 
     static let preferenceValueLimit = 2048
     static let listLimit = 50
 
-    init(kind: FilePageKind, file: URL?, host: any FilePageHosting, clock: any Clock<Duration> = ContinuousClock(),
+    /// `userChose`: the user opened the tab's document (Open File..., the picker, a click), so it
+    /// is granted and writable; a document an agent or script opened is the page's to show, and
+    /// writable only inside a root the user chose.
+    init(kind: FilePageKind, file: URL?, userChose: Bool = true, host: any FilePageHosting, clock: any Clock<Duration> = ContinuousClock(),
          libraries: URL?, images: any RemoteImageFetching) {
         self.kind = kind
-        self.file = file?.standardizedFileURL.resolvingSymlinksInPath()
+        self.file = file.map(Self.canonical)
+        if let file = self.file {
+            shown.insert(file.path)
+            if userChose { granted.insert(file.path) }
+        }
         self.host = host
         self.clock = clock
         self.libraries = libraries
@@ -75,15 +96,17 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case kind.op("save"):
             return try await save(params)
         case kind.op("setPreference"):
-            try await setPreference(params, host: host)
+            try await setPreference(params, host: host, userGesture: context.userGesture)
             return .object([:])
         case kind.op("recents"):
             return host.recents()
         case kind.op("chooseFile"):
             let start = params["start"]?.stringValue.flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0, isDirectory: true) : nil }
-            return await host.chooseFile(start: start).map { ["path": .string($0.path)] } ?? .null
+            guard let chosen = await host.chooseFile(start: start) else { return .null }
+            granted.insert(Self.canonical(chosen).path)
+            return ["path": .string(chosen.path)]
         case kind.op("openLink"):
-            try openLink(params, host: host)
+            try await openLink(params, host: host, userGesture: context.userGesture)
             return .object([:])
         case kind.op("resolveLinks") where kind == .markdown:
             return try resolveLinks(params, host: host)
@@ -119,7 +142,29 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         return URL(fileURLWithPath: path).standardizedFileURL
     }
 
-    private func inWorkspace(_ url: URL) -> Bool { host?.roots.contains(url.path) ?? false }
+    /// Writable: a document the user granted, or a file inside a folder the user chose as a root.
+    private func inWorkspace(_ url: URL) -> Bool {
+        let path = Self.canonical(url).path
+        return granted.contains(path) || (host?.roots.contains(path) ?? false)
+    }
+
+    /// Links resolved, `.` and `..` removed: the path every grant check compares.
+    nonisolated static func canonical(_ url: URL) -> URL { url.standardizedFileURL.resolvingSymlinksInPath() }
+
+    /// Whether `url` (canonical) is inside the folder of a granted document.
+    private func inGrantedFolder(_ url: URL) -> Bool {
+        granted.contains { document in
+            let folder = URL(fileURLWithPath: document).deletingLastPathComponent().path
+            return url.path.hasPrefix(folder == "/" ? "/" : folder + "/")
+        }
+    }
+
+    /// `open` takes only a granted path: the tab's document, a chooseFile result, an approved
+    /// link, a recents entry, or a markdown file `resolveLinks` found in a granted folder.
+    private func mayOpen(_ url: URL) -> Bool {
+        let path = url.path
+        return granted.contains(path) || shown.contains(path) || linked.contains(path) || (host?.isRecent(path) ?? false)
+    }
 
     private func snapshot(_ url: URL) async throws -> FileSnapshot {
         do {
@@ -135,9 +180,14 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
 
     /// `cmux.<page>.open {path}`: the tab's file from now on (empty state, a followed link).
     func open(_ url: URL) async throws -> JSONValue {
+        // The grant comes first, so a refused path says nothing about the file.
+        guard mayOpen(Self.canonical(url)) else { throw PageError(code: kind.op("forbidden"), message: url.path) }
         guard kind.accepts(url) else { throw PageError(code: kind.op("not_markdown"), message: url.path) }
         let opened = try await snapshot(url)
         guard !isClosed else { throw PageError.closed }
+        // A link the page followed in place is shown, not granted: writable only in a root.
+        if granted.contains(opened.url.path) || host?.isRecent(opened.url.path) == true { granted.insert(opened.url.path) }
+        shown.insert(opened.url.path)
         if opened.url != file {
             file = opened.url
             assetToken = UUID().uuidString.lowercased()
@@ -238,16 +288,21 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     // MARK: Preferences
 
     /// `cmux.<page>.setPreference {key, value}`: one `<section>.<dotted key>` (PAGE-PREFS).
-    private func setPreference(_ params: JSONValue, host: any FilePageHosting) async throws {
+    private func setPreference(_ params: JSONValue, host: any FilePageHosting, userGesture: Bool) async throws {
         guard let key = params["key"]?.stringValue, Self.isPreferenceKey(key, section: kind.section) else {
             throw PageError.invalidParams("key must be a \(kind.section).* setting")
         }
         let value = params["value"] ?? .null
         guard value.compactText.utf8.count <= Self.preferenceValueLimit else { throw PageError.invalidParams("value is too large") }
-        try await host.setPreference(key: key, value: value)
+        // The user's own write only for a call backed by a real gesture; else the page's.
+        try await host.setPreference(key: key, value: value, by: userGesture ? .user : .caller("page"))
     }
 
+    /// Keys only the host (or the user in Settings) writes, never a page.
+    nonisolated static let hostOnlyKeys: Set<String> = ["markdown.remoteImages", "files.roots"]
+
     nonisolated static func isPreferenceKey(_ key: String, section: String) -> Bool {
+        guard !hostOnlyKeys.contains(key), !hostOnlyKeys.contains(where: { key.hasPrefix($0 + ".") }) else { return false }
         let parts = key.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count >= 2, parts.count <= 6, parts[0] == section, key.count <= 96 else { return false }
         return parts.dropFirst().allSatisfy { part in
@@ -258,11 +313,17 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
 
     // MARK: Links
 
-    private func openLink(_ params: JSONValue, host: any FilePageHosting) throws {
+    private func openLink(_ params: JSONValue, host: any FilePageHosting, userGesture: Bool) async throws {
         guard let href = params["href"]?.stringValue else { throw PageError.invalidParams("href is required") }
         if kind == .markdown, params["kind"]?.stringValue == "file" {
-            let target = try path(params["target"])
+            let target = Self.canonical(try path(params["target"]))
             guard FileManager.default.fileExists(atPath: target.path) else { throw PageError(code: kind.op("not_found"), message: target.path) }
+            // Inside a granted document's folder (links resolved): opens. Anything else asks,
+            // naming the resolved path; a refused or unshown sheet refuses the link.
+            if !inGrantedFolder(target) {
+                guard await host.confirmOpen(target, userGesture: userGesture) else { throw PageError.cancelled }
+                granted.insert(target.path)
+            }
             return host.openFile(target)
         }
         guard let url = URL(string: href), let scheme = url.scheme?.lowercased(),
@@ -301,6 +362,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
                 continue
             }
             let kind = isDirectory.boolValue ? "directory" : FilePageKind.isMarkdown(real) ? "markdown" : "file"
+            if kind == "markdown", inGrantedFolder(real) { linked.insert(real.path) }
             links[relative] = ["exists": true, "path": .string(real.path), "kind": .string(kind)]
         }
         return ["links": .object(links)]
@@ -312,8 +374,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         guard !prefix.hasPrefix("/"), !prefix.split(separator: "/").contains("..") else { return ["entries": []] }
         let folderPart = prefix.lastIndex(of: "/").map { String(prefix[...$0]) } ?? ""
         let start = String(prefix.dropFirst(folderPart.count)).lowercased()
-        let root = base.deletingLastPathComponent()
-        let directory = folderPart.isEmpty ? root : root.appending(path: folderPart, directoryHint: .isDirectory).standardizedFileURL
+        // Symlinks resolved before the folder check: a link in the folder may point anywhere.
+        let root = Self.canonical(base.deletingLastPathComponent())
+        let directory = folderPart.isEmpty ? root : Self.canonical(root.appending(path: folderPart, directoryHint: .isDirectory))
         guard directory.path == root.path || directory.path.hasPrefix(root.path + "/") else { return ["entries": []] }
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
         let entries = names
@@ -327,56 +390,6 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             .prefix(Self.listLimit)
             .map { JSONValue.string(folderPart + $0.0 + ($0.1 ? "/" : "")) }
         return ["entries": .array(Array(entries))]
-    }
-
-    // MARK: Resources (markdown)
-
-    nonisolated static let localImageTypes: [String: String] = [
-        "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp",
-        "svg": "image/svg+xml", "avif": "image/avif", "ico": "image/x-icon", "bmp": "image/bmp",
-    ]
-    nonisolated static let localImageLimit = 50 * 1024 * 1024
-    /// `__lib/<name>`: the classic viewer's bundles, concatenated in load order.
-    nonisolated static let libraryFiles: [String: [String]] = ["mermaid.js": ["mermaid.min.js"], "vega.js": ["vega.min.js", "vega-lite.min.js"]]
-
-    func resource(for request: PageResourceRequest) async -> PageResource? {
-        guard kind == .markdown, !isClosed else { return nil }
-        switch request.prefix {
-        case MarkdownPageResource.asset:
-            guard let file, request.path.count >= 2, request.path[0] == assetToken else { return nil }
-            let folder = file.deletingLastPathComponent()
-            return await Self.localImage(folder: folder, relative: request.path.dropFirst().joined(separator: "/"))
-        case MarkdownPageResource.library:
-            guard let libraries, request.path.count == 1, let names = Self.libraryFiles[request.path[0]] else { return nil }
-            return await Self.library(names.map { libraries.appending(path: $0) })
-        case MarkdownPageResource.remoteImage:
-            guard host?.remoteImages == true, request.path.count == 1, let url = RemoteImagePolicy.decode(request.path[0]),
-                  RemoteImagePolicy.allows(url) else { return nil }
-            return await images.fetch(url)
-        default:
-            return nil
-        }
-    }
-
-    @concurrent private static func localImage(folder: URL, relative: String) async -> PageResource? {
-        let real = folder.appending(path: relative).standardizedFileURL.resolvingSymlinksInPath()
-        let base = folder.resolvingSymlinksInPath().path
-        guard real.path.hasPrefix(base + "/"), let type = localImageTypes[real.pathExtension.lowercased()],
-              let values = try? real.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-              values.isRegularFile == true, (values.fileSize ?? 0) <= localImageLimit,
-              // concurrency-allow: @concurrent, off the main actor
-              let data = try? Data(contentsOf: real) else { return nil }
-        return PageResource(data: data, mimeType: type)
-    }
-
-    @concurrent private static func library(_ files: [URL]) async -> PageResource? {
-        var parts: [Data] = []
-        for file in files {
-            // concurrency-allow: @concurrent, off the main actor
-            guard let data = try? Data(contentsOf: file) else { return nil }
-            parts.append(data)
-        }
-        return PageResource(data: Data(parts.joined(separator: Data("\n;\n".utf8))), mimeType: "text/javascript; charset=utf-8")
     }
 
     // MARK: Teardown
