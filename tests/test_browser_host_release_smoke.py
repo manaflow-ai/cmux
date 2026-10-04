@@ -116,10 +116,15 @@ class ReleaseHelperTest(unittest.TestCase):
                 self.assertEqual((member.mode, member.mtime), (0o755, 0))
             done = self.helper("entries", "https://example.invalid/r", "0.1.0", *paths)
             self.assertEqual(done.returncode, 0, done.stderr)
-            got = json.loads(done.stdout)
-            self.assertEqual(sorted(e["target"] for e in got), ["aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"])
+            doc = json.loads(done.stdout)
+            # Channel manifest schema 2 (decision MANIFEST-ARCH, 2026-10-04): every entry
+            # names its arch and target, required, so no reader picks one by an ignored field.
+            self.assertEqual(doc["schema"], 2)
+            got = doc["packages"]
+            self.assertEqual(sorted((e["arch"], e["target"]) for e in got),
+                             [("aarch64", "aarch64-unknown-linux-gnu"), ("x86_64", "x86_64-unknown-linux-gnu")])
             for e in got:
-                self.assertEqual(set(e) - {"target"}, {"name", "version", "url", "sha256", "size", "roles"})
+                self.assertEqual(set(e), {"name", "version", "url", "sha256", "size", "roles", "arch", "target"})
                 self.assertEqual(len(e["sha256"]), 64)
             self.assertNotEqual(self.helper("entries", "https://x", "0.1.0", paths[0]).returncode, 0,
                                 "one target alone must be refused")
