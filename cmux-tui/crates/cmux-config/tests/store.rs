@@ -222,6 +222,10 @@ fn published_domains_validate_domain_kinds() {
             .any(|d| d.kind == DiagnosticKind::InvalidValue && d.path == "appearance.theme")
     );
     assert_eq!(published.state.revision(), 1, "the new diagnostic is visible");
+    // The snapshot carries the published domains so pages can offer them.
+    let snapshot = published.state.snapshot().to_json();
+    assert_eq!(snapshot["domains"]["themes"], json!(["Nord"]));
+    assert_eq!(snapshot["domains"]["sounds"], json!(null));
     assert_eq!(
         apply(&published.state, set("appearance.theme", json!("Dracula"))).unwrap_err().code(),
         "invalid_params"

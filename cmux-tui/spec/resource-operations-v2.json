@@ -15213,7 +15213,7 @@
         "fields": {},
         "extra": false,
         "constraints": [
-          "Answers {revision, schema_hash, effective, file, managed, policy, diagnostics}."
+          "Answers {revision, schema_hash, effective, file, managed, policy, diagnostics, domains}; domains holds the themes, font_families and sounds the hosting app published (null when never published)."
         ]
       },
       "result": {

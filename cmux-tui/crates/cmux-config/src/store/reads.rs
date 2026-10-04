@@ -6,6 +6,7 @@ use serde_json::{Map, Value, json};
 
 use super::{State, Target};
 use crate::diagnostics::Diagnostic;
+use crate::domains::Domains;
 use crate::guard::managed_key_for_path;
 use crate::keypath::dotted;
 use crate::managed::{ManagedSource, Policy};
@@ -22,10 +23,13 @@ pub struct Snapshot {
     pub managed: BTreeMap<String, ManagedSource>,
     pub policy: Policy,
     pub diagnostics: Vec<Diagnostic>,
+    /// The value domains the hosting app published (theme names, font
+    /// families, sound names); `null` for a domain never published.
+    pub domains: Domains,
 }
 
 impl Snapshot {
-    /// `{revision, schema_hash, effective, file, managed, policy, diagnostics}`.
+    /// `{revision, schema_hash, effective, file, managed, policy, diagnostics, domains}`.
     pub fn to_json(&self) -> Value {
         json!({
             "revision": self.revision,
@@ -35,6 +39,7 @@ impl Snapshot {
             "managed": managed_json(&self.managed),
             "policy": self.policy.to_json(false),
             "diagnostics": self.diagnostics,
+            "domains": serde_json::to_value(&self.domains).unwrap_or(Value::Null),
         })
     }
 }
@@ -113,6 +118,7 @@ impl State {
             managed: self.effective.managed_keys.clone(),
             policy: self.effective.policy.clone(),
             diagnostics: self.effective.diagnostics.clone(),
+            domains: self.domains.clone(),
         }
     }
 
