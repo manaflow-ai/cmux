@@ -60,7 +60,10 @@ fn first_column_rows(mux: &Mux) -> Vec<(SplitId, u16)> {
 }
 
 fn stored_screen(root: &Path, session: &str) -> RegistryScreen {
-    let registry = WorkspaceRegistry::open(root, session).unwrap();
+    stored_screen_in(&WorkspaceRegistry::open(root, session).unwrap())
+}
+
+fn stored_screen_in(registry: &WorkspaceRegistry) -> RegistryScreen {
     let topology = registry.resource_topology_snapshot().unwrap();
     topology.screens.into_iter().find(|screen| screen.public_id == restore_screen_id(1)).unwrap()
 }
@@ -127,10 +130,11 @@ fn identity(root: &Path, session: &str, id: &SplitPublicId) -> Option<(String, b
 }
 
 /// One column with two rows is stored as a plain split tree (what a build
-/// without `rows-v1` reads) and restored as columns mode with one column. Its
-/// id and width survive the restart and stay when a second column joins it.
+/// without `rows-v1` reads) and restored as columns mode with one column that
+/// fills the screen width. Its id survives the restart and stays when a
+/// second column joins it.
 #[test]
-fn a_lone_column_of_rows_keeps_its_id_and_width_when_a_second_column_joins() {
+fn a_lone_column_of_rows_keeps_its_id_when_a_second_column_joins() {
     let (root, session) = seed("lone", |screen| {
         let RegistryLayoutNode::Split { first, .. } = &screen.layout else { unreachable!() };
         let RegistryLayoutNode::Split { first: column, second: three, .. } = &**first else {
@@ -160,7 +164,7 @@ fn a_lone_column_of_rows_keeps_its_id_and_width_when_a_second_column_joins() {
     let screen = stored_screen(&root, &session);
     assert_eq!(screen.viewport.columns.len(), 1, "the lone column is overlaid from its rows");
     assert_eq!(screen.viewport.columns[0].id, restore_split_id(3));
-    assert_eq!(screen.viewport.columns[0].width, 0.7);
+    assert_eq!(screen.viewport.columns[0].width, 1.0);
     assert_eq!(screen.viewport.columns[0].rows, vec![row(9, 1000), row(1, 500)]);
 
     let mux = open_restart_mux(&root, &session);
@@ -170,7 +174,7 @@ fn a_lone_column_of_rows_keeps_its_id_and_width_when_a_second_column_joins() {
         assert!(screen.layout_column_projection_is_consistent());
         (screen.layout_columns[0].id, screen.layout_columns[0].root.first_visible_pane())
     });
-    assert_eq!(first_column(&mux), (restore_split_id(3), 0.7));
+    assert_eq!(first_column(&mux), (restore_split_id(3), 1.0));
     assert_eq!(first_column_rows(&mux).len(), 2);
     let created = mux.new_pane_right(pane, 0.5, Some((38, 22))).unwrap();
     mux.with_state(|state| {
@@ -179,7 +183,7 @@ fn a_lone_column_of_rows_keeps_its_id_and_width_when_a_second_column_joins() {
         assert_eq!(screen.layout_columns[0].id, lone_id, "a second column keeps the column id");
         assert_eq!(screen.layout_columns[0].rows.len(), 2);
     });
-    assert_eq!(first_column(&mux), (restore_split_id(3), 0.7));
+    assert_eq!(first_column(&mux), (restore_split_id(3), 1.0));
     drop(created);
     mux.shutdown();
     drop(mux);
@@ -187,16 +191,17 @@ fn a_lone_column_of_rows_keeps_its_id_and_width_when_a_second_column_joins() {
     let screen = stored_screen(&root, &session);
     assert_eq!(screen.viewport.columns.len(), 2);
     assert_eq!(screen.viewport.columns[0].id, restore_split_id(3));
-    assert_eq!(screen.viewport.columns[0].width, 0.7);
+    assert_eq!(screen.viewport.columns[0].width, 1.0);
     assert_eq!(identity(&root, &session, &restore_split_id(3)), Some(("split".into(), true)));
     std::fs::remove_dir_all(root).unwrap();
 }
 
-/// Closing the second column leaves one column of rows. That column keeps
-/// its id and width across a restart and when a new column joins it again:
-/// its split identity comes back to life, it is never replaced.
+/// Closing the second column leaves one column of rows, which fills the
+/// screen width again. That column keeps its id across a restart and when a
+/// new column joins it again: its parked split identity comes back to life,
+/// it is never replaced.
 #[test]
-fn a_column_of_rows_left_alone_keeps_its_id_and_width() {
+fn a_column_of_rows_left_alone_keeps_its_id_and_fills_the_width() {
     let (root, session) = seed("alone", |screen| {
         screen.viewport.columns[0].rows = vec![row(9, 700), row(1, 300)];
     });
@@ -210,7 +215,11 @@ fn a_column_of_rows_left_alone_keeps_its_id_and_width() {
         let screen = &state.workspaces[0].screens[0];
         assert!(screen.has_lone_row_column(), "{:?}", screen.layout_columns);
     });
-    assert_eq!(first_column(&mux), (restore_split_id(3), 0.8), "the lone column keeps both");
+    assert_eq!(
+        first_column(&mux),
+        (restore_split_id(3), 1.0),
+        "the lone column keeps its id and fills the width"
+    );
     mux.shutdown();
     drop(mux);
 
@@ -218,16 +227,16 @@ fn a_column_of_rows_left_alone_keeps_its_id_and_width() {
     assert_eq!(screen.viewport.columns.len(), 1);
     assert_eq!(
         (screen.viewport.columns[0].id.clone(), screen.viewport.columns[0].width),
-        (restore_split_id(3), 0.8)
+        (restore_split_id(3), 1.0)
     );
     let mux = open_restart_mux(&root, &session);
-    assert_eq!(first_column(&mux), (restore_split_id(3), 0.8));
+    assert_eq!(first_column(&mux), (restore_split_id(3), 1.0));
     let first = mux.with_state(|state| {
         state.workspaces[0].screens[0].layout_columns[0].root.first_visible_pane()
     });
     let created = mux.new_pane_right(first, 0.5, Some((38, 22))).unwrap();
     mux.with_state(|state| assert_eq!(state.workspaces[0].screens[0].layout_columns.len(), 2));
-    assert_eq!(first_column(&mux), (restore_split_id(3), 0.8));
+    assert_eq!(first_column(&mux), (restore_split_id(3), 1.0));
     drop(created);
     mux.shutdown();
     drop(mux);
@@ -262,5 +271,77 @@ fn the_first_row_id_is_a_registered_split_identity() {
     assert_eq!(rows.len(), 2);
     assert_eq!(identity(&root, &session, &rows[0].id), Some(("split".into(), false)));
     assert_eq!(identity(&root, &session, &rows[1].id), Some(("split".into(), true)));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// R4b: a column id that was truly closed never comes back, even when side
+/// table records that a build without `rows-v1` left behind still name it.
+#[test]
+fn a_truly_closed_column_id_is_never_revived() {
+    let (root, session) = seed("closed", |_| {});
+    let mut registry = WorkspaceRegistry::open(&root, &session).unwrap();
+    let original = stored_screen_in(&registry);
+    let mut tree = original.clone();
+    tree.viewport = RegistryViewport::default();
+    let commit = |registry: &mut WorkspaceRegistry, key: &str, screen: RegistryScreen| {
+        registry.commit_resource_patch(
+            &WorkspaceMutation::new(key.to_string(), "test").unwrap(),
+            "test.screen",
+            &serde_json::json!({"key": key}),
+            None,
+            None,
+            &ResourcePatch { changes: vec![ResourceChange::UpsertScreen(screen)] },
+            &serde_json::json!({}),
+            &serde_json::json!([]),
+        )
+    };
+    commit(&mut registry, "close-columns", tree).unwrap();
+    assert_eq!(
+        registry.split_identity(restore_split_id(3).as_str()).unwrap(),
+        Some(("split".into(), false))
+    );
+    registry
+        .execute_sql_for_test(&format!(
+            "INSERT INTO resource_screen_rows(
+               screen_id, column_id, position, row_id, height_permille
+             ) VALUES('{screen}', '{column}', 0, '{one}', 700),
+                     ('{screen}', '{column}', 1, '{two}', 300)",
+            screen = restore_screen_id(1),
+            column = restore_split_id(3),
+            one = restore_split_id(9),
+            two = restore_split_id(1),
+        ))
+        .unwrap();
+    let error = commit(&mut registry, "reopen-column", original).unwrap_err();
+    assert!(format!("{error:#}").contains("cannot be reused"), "{error:#}");
+    assert_eq!(
+        registry.split_identity(restore_split_id(3).as_str()).unwrap(),
+        Some(("split".into(), false))
+    );
+    drop(registry);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A one-time repair at open registers the side-table ids that a build
+/// before row identities wrote without a ledger row, as parked identities.
+#[test]
+fn open_registers_side_table_ids_without_an_identity() {
+    let (root, session) = seed("repair", |screen| {
+        screen.viewport.columns[0].rows = vec![row(9, 700), row(1, 300)];
+    });
+    let registry = WorkspaceRegistry::open(&root, &session).unwrap();
+    registry
+        .execute_sql_for_test(&format!(
+            "DELETE FROM resource_identities WHERE public_id = '{}'",
+            restore_split_id(9)
+        ))
+        .unwrap();
+    assert_eq!(registry.split_identity(restore_split_id(9).as_str()).unwrap(), None);
+    drop(registry);
+    assert_eq!(identity(&root, &session, &restore_split_id(9)), Some(("split".into(), false)));
+    let mux = open_restart_mux(&root, &session);
+    assert_eq!(first_column_rows(&mux).len(), 2, "the repaired rows still load");
+    mux.shutdown();
+    drop(mux);
     std::fs::remove_dir_all(root).unwrap();
 }

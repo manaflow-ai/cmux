@@ -172,4 +172,9 @@ impl WorkspaceRegistry {
     pub(crate) fn split_identity(&self, public_id: &str) -> anyhow::Result<Option<(String, bool)>> {
         identity_state(&self.connection, public_id)
     }
+
+    /// Runs `sql` on the registry, to stage records that another build wrote.
+    pub(crate) fn execute_sql_for_test(&self, sql: &str) -> anyhow::Result<()> {
+        Ok(self.connection.execute_batch(sql)?)
+    }
 }
