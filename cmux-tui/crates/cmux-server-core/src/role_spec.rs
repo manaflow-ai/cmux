@@ -264,10 +264,20 @@ mod tests {
         assert_eq!(spec.restart, RestartPolicy::Always);
         assert_eq!(spec.ready, Readiness::Started);
         assert_eq!(spec.stop_grace, DEFAULT_STOP_GRACE);
-        assert!(!spec.run_as_root);
-        let root = parse(json!({"r": {"program": "x", "runAsRoot": true}}));
-        assert!(root.roles[0].run_as_root);
-        assert_eq!(parse(json!({"r": {"program": "x", "runAsRoot": 1}})).invalid.len(), 1);
+    }
+
+    /// v1 rule: roles never run as root. `runAsRoot` (any value) is refused
+    /// at load with a clear reason; a role that needs root is a system
+    /// service, not a role.
+    #[test]
+    fn run_as_root_is_refused_at_load() {
+        for value in [json!(true), json!(false), json!(1)] {
+            let set = parse(json!({"r": {"program": "x", "runAsRoot": value}}));
+            assert!(set.roles.is_empty(), "{value}: {:?}", set.roles);
+            assert_eq!(set.invalid.len(), 1);
+            assert!(set.invalid[0].reason.contains("runAsRoot"), "{}", set.invalid[0].reason);
+            assert!(set.invalid[0].reason.contains("never run as root"), "{}", set.invalid[0].reason);
+        }
     }
 
     #[test]
