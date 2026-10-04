@@ -13,15 +13,23 @@
 //!   something for it, so nothing polls.
 //! - Bytes move only as [`Frame`]s (`data`, `credit`, `end`), never as
 //!   method calls. [`SendWindow`] and [`ReceiveWindow`] are the one credit
-//!   and offset rule.
-//! - The session host assigns every channel id (terminals, host channels,
-//!   connector links). Implementations never mint ids or open tokens.
+//!   and offset rule. One exception, in-process connectors only: a link
+//!   whose bytes move on a carrier socket says so with
+//!   [`DataPlane::Socket`] and then carries only its `end` as a frame.
+//! - Each channel ends exactly once. A [`HostLink::close`] is answered by
+//!   the link's `end`; after [`ByteTerminal::close`] no `end` follows (the
+//!   session host already ended the terminal; [`check_closed`]).
+//! - The session host assigns every wire channel id (terminals, host
+//!   channels, connector links). Implementations never mint wire ids or
+//!   open tokens; an in-process connector names its links
+//!   ([`HostLink::channel`]).
 //! - A kind outside `options.kinds` is [`BackendError::Denied`] (default deny).
 //!
 //! The JSON source of truth is
 //! `cmux-tui/crates/cmux-app-host/interfaces/cmux.terminal.{backend,connector}/1.json`.
 
 mod backend;
+mod conformance;
 mod connector;
 mod credit;
 mod error;
@@ -34,7 +42,10 @@ pub use backend::{
     BACKEND_INTERFACE, BackendCapabilities, ByteTerminal, Close, Grid, MAX_EXIT_MESSAGE,
     OpenRequest, ResumeRequest, Resumed, Signal, TerminalBackend,
 };
-pub use connector::{CONNECTOR_INTERFACE, ConnectRequest, HostLink, TerminalConnector};
+pub use conformance::check_closed;
+pub use connector::{
+    CONNECTOR_INTERFACE, ConnectRequest, ConnectorEvent, DataPlane, HostLink, TerminalConnector,
+};
 pub use credit::{ReceiveWindow, SendWindow};
 pub use error::{BackendError, HostKeyRefusal};
 pub use frames::{
