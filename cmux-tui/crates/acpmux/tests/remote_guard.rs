@@ -315,14 +315,25 @@ async fn web_modes_policies_and_rules_are_allow_lists() {
     let hub = hub();
     let cwd = std::fs::canonicalize(&d.real).unwrap().to_string_lossy().into_owned();
     let mut local = Client::new(&hub, Origin::Local);
-    let id = local.call("session/new", new_session(&cwd, json!({})))
-        .await["result"]["sessionId"].as_str().unwrap().to_owned();
+    let id = local.call("session/new", new_session(&cwd, json!({}))).await["result"]["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let refused = [
         ("session/set_mode", json!({"sessionId": id, "modeId": "totally-invented-mode"})),
         ("session/set_mode", json!({"sessionId": id})),
-        ("session/set_config_option", json!({"sessionId": id, "configId": "mode", "value": "invented"})),
-        ("session/set_config_option", json!({"sessionId": id, "configId": "approval_policy", "value": "on-request"})),
-        ("session/set_config_option", json!({"sessionId": id, "configId": "invented_option", "value": "x"})),
+        (
+            "session/set_config_option",
+            json!({"sessionId": id, "configId": "mode", "value": "invented"}),
+        ),
+        (
+            "session/set_config_option",
+            json!({"sessionId": id, "configId": "approval_policy", "value": "on-request"}),
+        ),
+        (
+            "session/set_config_option",
+            json!({"sessionId": id, "configId": "invented_option", "value": "x"}),
+        ),
         ("_acpmux/set_policy", json!({"sessionId": id, "policy": "accept-edits"})),
         ("_acpmux/set_policy", json!({"sessionId": id, "policy": "invented"})),
         ("session/new", new_session(&cwd, json!({"policy": "invented"}))),
@@ -345,9 +356,15 @@ async fn web_modes_policies_and_rules_are_allow_lists() {
     }
     for (m, p) in [
         ("session/set_mode", json!({"sessionId": id, "modeId": "default"})),
-        ("session/set_config_option", json!({"sessionId": id, "configId": "mode", "value": "plan"})),
+        (
+            "session/set_config_option",
+            json!({"sessionId": id, "configId": "mode", "value": "plan"}),
+        ),
         ("session/set_config_option", json!({"sessionId": id, "configId": "model", "value": "m2"})),
-        ("_acpmux/set_rules", json!({"sessionId": id, "rules": {"autoDeny": ["rm"], "ask": ["execute"], "default": "deny"}})),
+        (
+            "_acpmux/set_rules",
+            json!({"sessionId": id, "rules": {"autoDeny": ["rm"], "ask": ["execute"], "default": "deny"}}),
+        ),
         ("_acpmux/set_rules", json!({"sessionId": id, "rules": null})),
         ("_acpmux/set_policy", json!({"sessionId": id, "policy": "ask"})),
     ] {
