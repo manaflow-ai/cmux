@@ -46,7 +46,12 @@ describe("human reach decision", () => {
     expect(reachDecision(reach(BOB, { shared_team: true }))).toEqual({ ok: true, display_name: "Bob" })
     expect(reachDecision(reach(BOB, { connected: true }))).toEqual({ ok: true, display_name: "Bob" })
     expect(reachDecision(reach(BOB, { shared_team: true, allow_requests_from: "teams" }))).toMatchObject({ ok: true })
-    expect(reachDecision(reach(BOB, { connected: true, allow_requests_from: "teams" }))).toEqual(refused)
+    // A connected contact may add the target under every value except nobody (16.3), also with no shared team.
+    expect(reachDecision(reach(BOB, { connected: true, allow_requests_from: "teams" }))).toEqual({ ok: true, display_name: "Bob" })
+    expect(reachDecision(reach(BOB, { connected: true, shared_team: false, allow_requests_from: "anyone" }))).toEqual({ ok: true, display_name: "Bob" })
+    expect(reachDecision(reach(BOB, { connected: true, allow_requests_from: "nobody" }))).toEqual(refused)
+    // teams without a shared team or a connection: refused.
+    expect(reachDecision(reach(BOB, { allow_requests_from: "teams" }))).toEqual(refused)
     // nobody: no new reach, whatever the links.
     expect(reachDecision(reach(BOB, { shared_team: true, connected: true, allow_requests_from: "nobody" }))).toEqual(refused)
     // Interim (16.10): "anyone" without a link is still refused until message requests exist.
@@ -72,7 +77,7 @@ describe("conversation Domain with Worker-resolved reach", () => {
   })
 
   it("a stranger, an unknown account and a refusal by setting get the same answer", () => {
-    const facts = [reach(CAROL, { connected: true, allow_requests_from: "teams" })]
+    const facts = [reach(CAROL, { connected: true, allow_requests_from: "nobody" })]
     expect(host().run(session(ALICE, "Alice", facts), "conversation.create", group([human(ALICE), human(CAROL)]), "c1")).toMatchObject({ ok: false, code: NOT_REACHABLE })
     expect(host().run(session(ALICE, "Alice", facts), "conversation.create", group([human(ALICE), human("user_nobody")]), "c2")).toMatchObject({ ok: false, code: NOT_REACHABLE })
     expect(host().run(session(ALICE, "Alice", []), "conversation.create", group([human(ALICE), human(BOB)]), "c3")).toMatchObject({ ok: false, code: NOT_REACHABLE })

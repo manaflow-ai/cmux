@@ -110,7 +110,7 @@ describe("Home human reach", { timeout: 60_000 }, () => {
     expect(back.value.conversation.id).toBe(id)
   })
 
-  it("a stranger is refused; with allow_requests_from=teams a contact is refused too; an unknown account gets the same answer", async () => {
+  it("a stranger is refused; with allow_requests_from=teams a contact with no shared team still reaches her; nobody refuses the contact; an unknown account gets the same answer", async () => {
     const carol = await signIn("reach-set-carol", "Carol")
     const dave = await signIn("reach-set-dave", "Dave")
     const set = await op(carol.token, "home.settings.set", { allow_requests_from: "teams" })
@@ -121,15 +121,19 @@ describe("Home human reach", { timeout: 60_000 }, () => {
     expect(stranger.error.code).toBe("not_reachable")
     const unknown = await op(dave.token, "dm.open", { peer: "user_00000000000000000000" })
     expect(unknown.error).toEqual(stranger.error)
-    // Dave and Carol get a DM through an email invite (a contact), but Carol accepts DMs from teams only.
+    // Dave and Carol get a DM through an email invite (a contact); they share no team.
     await becomeContacts(dave, carol, "reach-set-carol@example.com")
     const group = await op(dave.token, "conversation.create", { title: "Plans", participants: [human(dave, "Dave")] })
     const conversation = group.value.conversation.id as string
-    const added = await op(dave.token, "participants.add", { conversation, participant: human(carol) })
-    expect(added.error.code).toBe("not_reachable")
-    // With allow_requests_from=anyone the contact may add her.
-    expect((await op(carol.token, "home.settings.set", { allow_requests_from: "anyone" })).value.allow_requests_from).toBe("anyone")
+    // nobody: the contact is refused like a stranger.
+    expect((await op(carol.token, "home.settings.set", { allow_requests_from: "nobody" })).value.allow_requests_from).toBe("nobody")
+    expect((await op(dave.token, "participants.add", { conversation, participant: human(carol) })).error?.code).toBe("not_reachable")
+    // teams (16.3): a connected contact reaches her under every value except nobody, with no shared team.
+    expect((await op(carol.token, "home.settings.set", { allow_requests_from: "teams" })).value.allow_requests_from).toBe("teams")
     expect((await op(dave.token, "participants.add", { conversation, participant: human(carol) })).error).toBeUndefined()
+    // A stranger to Carol is still refused under teams.
+    const ellen = await signIn("reach-set-ellen", "Ellen")
+    expect((await op(ellen.token, "dm.open", { peer: carol.user })).error?.code).toBe("not_reachable")
   })
 
   it("a group with two humans, and participants.add of a team member, a contact and a stranger", async () => {
@@ -273,6 +277,25 @@ describe("a chief adds humans under its owner's reach (CHIEF-DONE autonomy rule)
     expect((await chief.submit("participants.add", { conversation, participant: human(bea) })).error?.code).toBe("not_reachable")
     await joinTeam(abe, bea)
     expect((await chief.submit("participants.add", { conversation, participant: human(bea) })).error).toBeUndefined()
+  })
+
+  it("under nobody a connected contact keeps the existing DM, but a new group add and a chief dm.open are refused", async () => {
+    const eli = await signIn("reach-chief-eli", "Eli")
+    const fay = await signIn("reach-chief-fay", "Fay")
+    // A connected pair with no shared team: an accepted email invite.
+    const dm = await becomeContacts(eli, fay, "reach-chief-fay@example.com")
+    expect((await op(fay.token, "home.settings.set", { allow_requests_from: "nobody" })).value.allow_requests_from).toBe("nobody")
+    // The existing DM is reused as is.
+    expect((await op(eli.token, "dm.open", { peer: fay.user })).value.conversation.id).toBe(dm)
+    const chief = await chiefOf(eli, "chief-eli")
+    const conversation = (await op(eli.token, "conversation.create", { title: "Work", participants: [human(eli, "Eli"), chief.participant] })).value.conversation.id as string
+    expect((await op(eli.token, "participants.add", { conversation, participant: human(fay) })).error?.code).toBe("not_reachable")
+    expect((await chief.submit("participants.add", { conversation, participant: human(fay) })).error?.code).toBe("not_reachable")
+    // A chief never opens a DM (DMs are between humans): refused for every target, so it learns nothing.
+    expect((await chief.submit("dm.open", { peer: fay.user })).error?.code).toBe("forbidden")
+    // Under teams the chief adds its owner's contact.
+    expect((await op(fay.token, "home.settings.set", { allow_requests_from: "teams" })).value.allow_requests_from).toBe("teams")
+    expect((await chief.submit("participants.add", { conversation, participant: human(fay) })).error).toBeUndefined()
   })
 
   it("an agent that is not one of the claimed owner's chiefs gets no reach, also not for a departed human", async () => {
