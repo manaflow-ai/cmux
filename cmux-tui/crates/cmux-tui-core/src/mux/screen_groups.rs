@@ -994,7 +994,7 @@ impl Mux {
             crate::workspace_registry::validate_presentation_color(color)?;
         }
         if let Some(icon) = &spec.icon {
-            self.workspace_registry.lock().unwrap().require_icon_asset(icon)?;
+            self.with_icon_registry(|registry| registry.require_icon_asset(icon))?;
         }
         let surface = self.new_screen_named(workspace, spec.name.clone(), cwd, size)?;
         let screen = self
