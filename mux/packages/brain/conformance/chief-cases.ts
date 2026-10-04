@@ -1192,6 +1192,34 @@ function childCases(): CorpusCase[] {
   }
 
   {
+    const c = new CaseBuilder("children: on acpmux connect a permission prompt whose turn is running is kept (not resent), so its reply still posts", {
+      defaultConversation: "conv_a",
+      muxSessionId: MUX_SESSION,
+      prompts: { "perm:s_w:p1": { conversation: "conv_a", text: "[mux-event] child writer asks", order: 1 } },
+    });
+    c.step({ kind: "daemon_connected", conversation: summary("conv_a") }, []);
+    // The mux answered the permission during its turn, so the child no longer waits; the turn still runs.
+    c.step(
+      {
+        kind: "acpmux_connected",
+        session_id: MUX_SESSION,
+        sessions: [session("s_w", "writer", "running")],
+        events: [ev(1, "user_message", { promptId: "perm:s_w:p1" }), ev(2, "turn_started"), chunk(3, "allowed it")],
+      },
+      ["persist", "typing", "list_conversations"],
+      (e) => {
+        c.check(!e.some((x) => x.kind === "prompt"), "the running prompt is not resent");
+        c.check(c.persisted(e).prompts["perm:s_w:p1"] !== undefined, "the running prompt is kept");
+      },
+    );
+    c.step(mux(ev(4, "turn_end")), ["persist", "conversation_op", "typing"], (e) => {
+      const op = c.get(e, "conversation_op");
+      c.check(op.conversation === "conv_a" && op.op.kind === "message.send" && op.op.parts[0].type === "text" && op.op.parts[0].text === "allowed it", "the reply posts");
+    });
+    cases.push(c.end((s) => c.check(s.prompts["perm:s_w:p1"] === undefined && s.answered.includes("perm:s_w:p1"), "answered")));
+  }
+
+  {
     const c = new CaseBuilder("children: on acpmux connect an outstanding permission prompt whose session is not waiting is dropped, not resent", {
       defaultConversation: "conv_a",
       muxSessionId: MUX_SESSION,
