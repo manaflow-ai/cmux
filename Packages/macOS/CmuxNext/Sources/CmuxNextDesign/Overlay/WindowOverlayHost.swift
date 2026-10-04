@@ -65,6 +65,8 @@ public final class WindowOverlayHost {
     var keyObserver: (any NSObjectProtocol)?
     /// Called when an occluder changed (the window layer re-masks its pages).
     public var onOccludersChange: (() -> Void)?
+    /// Carries `agentCursorLayer` (made on first use; `WindowOverlayHost+AgentCursor`).
+    var agentCursorCarrier: AgentCursorCarrierView?
 
     private static var hosts: [ObjectIdentifier: WindowOverlayHost] = [:]
     private static var app: WindowOverlayHost?
@@ -163,6 +165,7 @@ public final class WindowOverlayHost {
         if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
         keyObserver = nil
         stopObservingWindow()
+        removeAgentCursor()
         if let window {
             if panel.parent === window { window.removeChildWindow(panel) }
             Self.hosts[ObjectIdentifier(window)] = nil
@@ -190,6 +193,7 @@ public final class WindowOverlayHost {
             panel.orderOut(nil)
             stopObservingWindow()
         }
+        placeAgentCursor()
         onPanelChange?()
     }
 
@@ -256,6 +260,7 @@ public final class WindowOverlayHost {
         if panel.frame != window.frame { panel.setFrame(window.frame, display: false) }
         handles.forEach(layout)
         updateMouseRouting()
+        placeAgentCursor()
     }
 
     private func syncAppPanel() {
@@ -265,6 +270,7 @@ public final class WindowOverlayHost {
             layoutAppPanel()
             panel.orderFrontRegardless()
         }
+        placeAgentCursor()
         onPanelChange?()
     }
 }

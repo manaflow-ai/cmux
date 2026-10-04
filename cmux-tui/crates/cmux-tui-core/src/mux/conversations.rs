@@ -76,6 +76,8 @@ impl Mux {
     /// Ends `client`'s binding when its connection ends.
     pub(crate) fn unbind_conversation_principal(&self, client: u64) {
         self.conversations.bindings.lock().unwrap().remove(&client);
+        // Safety: a removal never grants access, so a poisoned peers lock
+        // still drops the record.
         self.conversations
             .remote
             .peers

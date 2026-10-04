@@ -10,10 +10,11 @@
     "typecheck": "tsc -p .",
     "test": "vitest run",
     "catalog:export": "bun scripts/export-catalog.ts",
-    "catalog:check": "bun scripts/export-catalog.ts --check && bun scripts/export-cloud-vectors.ts --check",
+    "catalog:check": "bun scripts/export-catalog.ts --check && bun scripts/export-cloud-vectors.ts --check && bun scripts/export-link-token-vectors.ts --check",
     "catalog:vectors": "bun scripts/export-cloud-vectors.ts",
     "catalog:client": "bun scripts/export-client.ts",
-    "catalog:client:check": "bun scripts/export-client.ts --check"
+    "catalog:client:check": "bun scripts/export-client.ts --check",
+    "catalog:link-vectors": "bun scripts/export-link-token-vectors.ts"
   },
   "dependencies": {
     "effect": "4.0.0-rc.117"

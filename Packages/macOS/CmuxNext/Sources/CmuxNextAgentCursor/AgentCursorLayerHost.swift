@@ -20,6 +20,11 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
         self.color = color
     }
 
+    /// Sessions with a cursor layer, sorted (diagnostics).
+    public var sessions: [String] {
+        cursors.keys.sorted()
+    }
+
     /// The cursor layer of a session (tests and diagnostics).
     public func cursorLayer(for session: String) -> AgentCursorLayer? {
         cursors[session]
