@@ -13,6 +13,35 @@
   move only by force-cancel plus rerun; GitHub cannot rerun one job until its
   whole run finishes.
 
+## Merge-gate rollout
+
+`merge-gate` is a required-in-practice check for `gh-merge-green` after the
+workflow reaches the base branch. The checked-in helper detects whether
+`.github/workflows/merge-gate.yml` exists on that branch and keeps requiring
+`ci-status` until it does, so the rollout cannot deadlock merges.
+
+Roll out the change in this order:
+
+1. Land the merge-gate workflow, evaluator, and tests on `main`. Until that
+   happens, `scripts/gh-merge-green` falls back to the existing `ci-status`
+   check; do not edit or bypass the helper to work around that transition.
+2. After the workflow is live on `main`, use a same-repository pull request or
+   a new push to produce a gate run. Wait for a **successful `merge-gate` check
+   on the exact current head SHA**. A missing, queued, stale, or successful
+   check for another SHA is not rollout evidence.
+3. Once the workflow is on the base branch, the helper automatically switches
+   from `ci-status` to `merge-gate`. It still checks the other
+   required-in-practice jobs and the current head.
+4. For a red-`main` fix, use the `--main-fix` evidence path after the gate is
+   live: it records the exact-head merge-gate result and validates the required
+   Release, Debug, Swift, and matching main-failure evidence before merging.
+   This is the controlled path for future red-main fixes; it is not a bypass.
+
+The merge-gate evaluator checks GitHub metadata from trusted `main` code and
+never checks out or executes pull-request code. Keep the rollout order above in
+PR descriptions and handoffs so a helper update cannot land ahead of its
+workflow.
+
 Every CI/CD job picks its runner from a repository variable instead of a
 hardcoded label. Changing a runner type is a single repository-variable update
 that takes effect on the next workflow run.
