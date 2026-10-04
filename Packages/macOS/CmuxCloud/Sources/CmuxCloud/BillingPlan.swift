@@ -80,13 +80,25 @@ public struct BillingPlanClient: Sendable {
             throw URLError(.badServerResponse)
         }
         let decoded = try JSONDecoder().decode(Response.self, from: data)
-        return BillingPlanDetails(isPro: decoded.isPro, canManageBilling: decoded.billingManagement == "stripe")
+        // The default endpoint returns both personal and active-team plans.
+        // A paid team grants Cloud access even when the personal subscription
+        // is free, which is the normal path for team-owned machines.
+        let paidPlanIDs = ["go", "pro", "max", "team", "founders"]
+        let isPro = decoded.isPro == true
+            || paidPlanIDs.contains(decoded.planId?.lowercased() ?? "")
+            || paidPlanIDs.contains(decoded.teamPlanId?.lowercased() ?? "")
+        let canManageBilling = decoded.billingManagement == "stripe"
+            || decoded.teamBillingManagement == "stripe"
+        return BillingPlanDetails(isPro: isPro, canManageBilling: canManageBilling)
     }
 
     private let session: URLSession
 
     private struct Response: Decodable {
-        let isPro: Bool
+        let isPro: Bool?
+        let planId: String?
         let billingManagement: String?
+        let teamPlanId: String?
+        let teamBillingManagement: String?
     }
 }
