@@ -19,8 +19,8 @@ mod stream;
 pub use contract::{CLOUD_OP_KINDS, OpRequest, Target, valid_conversation_id};
 pub use error::CloudError;
 pub use service::{
-    CloudBackend, CloudConversations, CloudWire, ConnectError, EventSink, HttpReply,
-    RequestPermit, ServiceOptions, TransportError, WireRecv,
+    CloudBackend, CloudConversations, CloudWire, ConnectError, EventSink, HttpReply, RequestPermit,
+    ServiceOptions, TransportError, WireRecv,
 };
 pub use session::SessionParams;
 pub use stream::CloudEvent;
