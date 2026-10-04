@@ -39,7 +39,10 @@ fn reading_the_pipe_is_bounded() {
 
 fn keyed(signed_build: bool) -> AppTrust {
     let trust = AppTrust { signed_build, ..AppTrust::default() };
-    trust.install_key.set(FrontendKey::parse(&format!("cmuxik1 inst_a {KEY_HEX}")).unwrap()).unwrap();
+    trust
+        .install_key
+        .set(FrontendKey::parse(&format!("cmuxik1 inst_a {KEY_HEX}")).unwrap())
+        .unwrap();
     trust
 }
 

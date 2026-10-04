@@ -118,7 +118,10 @@ pub(crate) struct AppTrust {
 
 impl Default for AppTrust {
     fn default() -> Self {
-        Self { install_key: OnceLock::new(), signed_build: cmux_link::app_caller::signed_app_build() }
+        Self {
+            install_key: OnceLock::new(),
+            signed_build: cmux_link::app_caller::signed_app_build(),
+        }
     }
 }
 
@@ -128,7 +131,8 @@ impl AppTrust {
     /// Security framework calls; the caller holds no lock.
     pub(super) fn signature_proves(&self, token: Option<PeerToken>) -> bool {
         self.signed_build
-            && token.is_some_and(|token| cmux_link::app_caller::verify_containing_app(&token).is_ok())
+            && token
+                .is_some_and(|token| cmux_link::app_caller::verify_containing_app(&token).is_ok())
     }
 
     /// Prover B, step 2: checks `proof` for `claimed_id` over this

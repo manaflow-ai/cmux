@@ -302,11 +302,9 @@ pub(super) fn try_handle(
             return Some(true);
         }
         Command::Logs { app, follow } => Ok(supervisor.logs(client, &app, follow)),
-        Command::ProviderRegister { families } => supervisor.register_provider(
-            client,
-            claim_for(mux, client),
-            families,
-        ),
+        Command::ProviderRegister { families } => {
+            supervisor.register_provider(client, claim_for(mux, client), families)
+        }
         Command::ProviderResult { request_id, ok, body } => {
             supervisor.provider_result(client, request_id, ok, body)
         }

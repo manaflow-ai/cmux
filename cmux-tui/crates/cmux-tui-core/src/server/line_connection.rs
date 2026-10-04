@@ -105,7 +105,10 @@ pub(super) fn serve_line_connection(
             None => {
                 let peer = || {
                     let stream = reader.get_ref();
-                    client_hello::Peer { key: stream.peer_process_key(), token: stream.peer_token() }
+                    client_hello::Peer {
+                        key: stream.peer_process_key(),
+                        token: stream.peer_token(),
+                    }
                 };
                 match hello.observe(&mux, client, &line, peer) {
                     Some(reply) => writer.send_control(&reply).is_ok(),
