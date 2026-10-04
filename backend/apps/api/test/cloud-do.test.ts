@@ -5,7 +5,7 @@ import { CloudMachine, CloudPlan } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 import type { SubmitResult } from "../src/owner-do.ts"
 import { DriverError } from "../src/team-vm-driver.ts"
-import { GuardedCloudDriver, providerName, type RawCloudDriver } from "../src/cloud-driver.ts"
+import { ENV_PREFIX, GuardedCloudDriver, providerName, type RawCloudDriver } from "../src/cloud-driver.ts"
 import { STUB_PLAN } from "../src/domains/cloud-plan.ts"
 import { personalTeamIdFor } from "../src/domains/user.ts"
 import { fireAlarm } from "./setup/alarm.ts"
@@ -69,8 +69,8 @@ describe("CloudDO provider-call ledger", { timeout: 60_000 }, () => {
     expect(again.value.machine.id).toBe(first.value.machine.id)
     const c = await stub.fakeControl({})
     expect(c.creates).toBe(1)
-    expect(c.vms.map((v) => v.name)).toEqual([providerName("cmuxnp-test-", first.value.machine.id)])
-    expect(c.vms[0]!.name).toBe(`cmuxnp-test-${first.value.machine.id.replace("_", "-")}`)
+    expect(c.vms.map((v) => v.name)).toEqual([providerName("cmuxnp-test-cld-", first.value.machine.id)])
+    expect(c.vms[0]!.name).toBe(`cmuxnp-test-cld-${first.value.machine.id.replace("_", "-")}`)
     expect(c.pending).toBe(0)
   })
 
@@ -115,7 +115,7 @@ describe("CloudDO provider-call ledger", { timeout: 60_000 }, () => {
     expect(await stub.readOp(team, alice, "cloud.machine.get", { machine: m.id })).toMatchObject({ ok: false, code: "cloud.machine.not_found" })
     // The VM was already gone at the provider (deleted out of band): the delete still succeeds.
     const gone = (await create(stub, team, alice)).value.machine
-    await stub.fakeControl({ delete_vm: providerName("cmuxnp-test-", gone.id) })
+    await stub.fakeControl({ delete_vm: providerName("cmuxnp-test-cld-", gone.id) })
     expect(reply(await stub.submit(team, alice, frame("cloud.machine.delete", { machine: gone.id })))).toMatchObject({ t: "result", value: { deleted: true } })
     expect(await stub.readOp(team, alice, "cloud.machine.list", {})).toMatchObject({ ok: true, value: { machines: [] } })
   })
@@ -221,7 +221,7 @@ describe("Cloud plan allowlist (P1-1)", { timeout: 60_000 }, () => {
     for (const e of ["production", "local", "preview", ""]) expect(planFor(e, "team_a", new Set(["team_a"]))).toBeNull()
     expect(planFor("development", "team_b", new Set(["team_a"]))).toBeNull()
     expect(planFor("development", "team_a", new Set())).toBeNull()
-    const base = { CLOUD_NAME_PREFIX: "cmuxnp-dev-", CLOUD_FREESTYLE_API_KEY: "k", CLOUD_FREESTYLE_SNAPSHOT: "cmuxnp-dev-vmimg-1" }
+    const base = { CLOUD_NAME_PREFIX: "cmuxnp-dev-cld-", CLOUD_FREESTYLE_API_KEY: "k", CLOUD_FREESTYLE_SNAPSHOT: "cmuxnp-dev-vmimg-1" }
     expect([...cloudConfig({ ENVIRONMENT: "development", ...base, CLOUD_ALLOWED_TEAMS: " team_a, team_b ,," } as never).allowedTeams]).toEqual(["team_a", "team_b"])
     expect(cloudConfig({ ENVIRONMENT: "development", ...base } as never).allowedTeams.size).toBe(0)
     // An unknown environment gets no provider either.
@@ -242,15 +242,39 @@ describe("cloud driver prefix guard", () => {
 
   it("refuses any provider call on a name without this environment's prefix", async () => {
     const { calls, raw } = counting()
-    const driver = new GuardedCloudDriver(raw, "cmuxnp-test-")
+    const driver = new GuardedCloudDriver(raw, "cmuxnp-test-cld-")
     const tag = { team: "team_00000000000000000001", machine: "vm_00000000000000000001" }
-    for (const name of ["cmux-vm-00000000000000000001", "cmuxnp-dev-vm-00000000000000000001", "cmuxnp-test-", "cmuxnp-test-../x"]) {
+    for (const name of [
+      "cmux-vm-00000000000000000001",
+      "cmuxnp-test-vm-00000000000000000001",
+      "cmuxnp-test-tvm-vm-00000000000000000001",
+      "cmuxnp-dev-cld-vm-00000000000000000001",
+      "cmuxnp-test-cld-",
+      "cmuxnp-test-cld-../x",
+      "cmuxnp-test-cld-vm-0000000000000000001",
+      "cmuxnp-test-cld-vm-000000000000000000011",
+      "cmuxnp-test-cld-vm-0000000000000000000A",
+      "cmuxnp-test-cld-vmimg-fake"
+    ]) {
       await expect(driver.ensure(name, tag)).rejects.toBeInstanceOf(DriverError)
       await expect(driver.remove(name, tag)).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
     }
     expect(calls).toEqual([])
-    await driver.ensure("cmuxnp-test-vm-00000000000000000001", tag)
-    expect(calls).toEqual(["find:cmuxnp-test-vm-00000000000000000001", "create:cmuxnp-test-vm-00000000000000000001"])
+    await driver.ensure("cmuxnp-test-cld-vm-00000000000000000001", tag)
+    expect(calls).toEqual(["find:cmuxnp-test-cld-vm-00000000000000000001", "create:cmuxnp-test-cld-vm-00000000000000000001"])
+  })
+
+  it("refuses a team VM lane name and a bare env name with the development prefix, and a prefix without a lane (FREESTYLE-NAMES)", async () => {
+    const { calls, raw } = counting()
+    const driver = new GuardedCloudDriver(raw, "cmuxnp-dev-cld-")
+    const tag = { team: "team_00000000000000000001", machine: "vm_00000000000000000001" }
+    for (const name of ["cmuxnp-dev-tvm-team-00000000000000000001-e1", "cmuxnp-dev-tvm-vm-00000000000000000001", "cmuxnp-dev-vm-00000000000000000001", "cmuxnp-dev-vmimg-vm-00000000000000000001"]) {
+      await expect(driver.ensure(name, tag)).rejects.toMatchObject({ code: "cloud.provider.refused" })
+    }
+    expect(calls).toEqual([])
+    expect(() => new GuardedCloudDriver(raw, "cmuxnp-dev-")).toThrow()
+    expect(() => new GuardedCloudDriver(raw, "cmuxnp-dev-tvm-")).toThrow()
+    expect(ENV_PREFIX).toEqual({ development: "cmuxnp-dev-cld-", staging: "cmuxnp-stg-cld-", production: "cmuxnp-prod-cld-", test: "cmuxnp-test-cld-" })
   })
 
   it("never adopts or deletes a VM under our name that another team or machine owns", async () => {
@@ -263,9 +287,9 @@ describe("cloud driver prefix guard", () => {
         throw new Error("must not delete")
       }
     }
-    const driver = new GuardedCloudDriver(raw, "cmuxnp-test-")
+    const driver = new GuardedCloudDriver(raw, "cmuxnp-test-cld-")
     const tag = { team: "team_00000000000000000001", machine: "vm_00000000000000000001" }
-    await expect(driver.ensure("cmuxnp-test-vm-00000000000000000001", tag)).rejects.toMatchObject({ final: true })
-    await expect(driver.remove("cmuxnp-test-vm-00000000000000000001", tag)).rejects.toMatchObject({ final: true })
+    await expect(driver.ensure("cmuxnp-test-cld-vm-00000000000000000001", tag)).rejects.toMatchObject({ final: true })
+    await expect(driver.remove("cmuxnp-test-cld-vm-00000000000000000001", tag)).rejects.toMatchObject({ final: true })
   })
 })
