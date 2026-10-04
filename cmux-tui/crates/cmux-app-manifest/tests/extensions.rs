@@ -40,6 +40,7 @@ fn every_scope_in_the_grammar_has_a_class() {
         ("mcp:expose", ScopeClass::Restricted, false),
         ("clipboard:write", ScopeClass::Restricted, false),
         ("coderouter:keys", ScopeClass::Restricted, false),
+        ("terminal:backend", ScopeClass::Elevated, false),
         ("process:spawn:sr", ScopeClass::Restricted, true),
         ("op:coderouter.accounts.usage", ScopeClass::Sensitive, true),
     ];
@@ -230,14 +231,51 @@ fn a_server_implements_an_interface_through_the_top_level_server() {
 
 #[test]
 fn terminal_backends_are_a_known_interface_and_a_restricted_scope() {
-    assert_eq!(scope_info("terminal:backend").map(|i| i.class), Some(ScopeClass::Restricted));
+    assert_eq!(scope_info("terminal:backend").map(|i| i.class), Some(ScopeClass::Elevated));
     let third = manifest(json!({ "id": "octo/x", "repository": "https://github.com/octo/x",
         "server": { "kind": "js", "instances": "user", "hosts": ["local"] },
         "implements": { "cmux.terminal.backend/1": { "server": true, "options": { "kinds": ["octo-vm"] } } },
-        "scopes": { "terminal:backend": "Run your Octo Cloud terminals." } }));
-    assert_eq!(codes(&validate_manifest(&third)), vec![("scope.restricted", Severity::Warning)]);
+        "optionalScopes": { "terminal:backend": "Run your Octo Cloud terminals." } }));
+    assert!(validate_manifest(&third).is_empty(), "{:?}", validate_manifest(&third));
+    let mut required = third.clone();
+    required["scopes"] = json!({ "terminal:backend": "Run your Octo Cloud terminals." });
+    assert!(
+        codes(&validate_manifest(&required)).contains(&("scope.elevatedOptional", Severity::Error))
+    );
     let mut no_kinds = third;
     no_kinds["implements"] =
         json!({ "cmux.terminal.connector/1": { "server": true, "options": {} } });
     assert!(codes(&validate_manifest(&no_kinds)).contains(&("interface.options", Severity::Error)));
+}
+
+#[test]
+fn third_party_servers_are_js_external_or_signed_native_artifacts() {
+    let base = json!({ "id": "octo/ssh", "repository": "https://github.com/octo/ssh" });
+    let with = |server: Value| {
+        let mut m = manifest(base.clone());
+        m["server"] = server;
+        codes(&validate_manifest(&m))
+    };
+    let artifact = json!({ "url": "https://example.com/ssh-darwin-arm64", "sha256": "a".repeat(64), "signature": "c2lnbmF0dXJlLWJ5dGVz" });
+    assert_eq!(
+        with(
+            json!({ "kind": "native", "artifacts": { "darwin-arm64": artifact }, "instances": "user", "hosts": ["local"] })
+        ),
+        vec![("tier.nativeReview", Severity::Warning)]
+    );
+    assert!(
+        with(json!({ "kind": "external", "instances": "user", "hosts": ["local"] })).is_empty()
+    );
+    assert!(
+        with(json!({ "kind": "external", "instances": "user", "hosts": ["team-vm"] }))
+            .iter()
+            .any(|(c, _)| *c == "schema")
+    );
+    assert!(with(json!({ "kind": "js", "binaries": { "linux-x64": "x" }, "instances": "user", "hosts": ["local"] }))
+        .iter()
+        .any(|(c, _)| *c == "schema"));
+    let mut first =
+        manifest(json!({ "id": "cmux/x", "repository": "https://github.com/manaflow-ai/cmux" }));
+    first["server"] = json!({ "kind": "native", "artifacts": { "linux-x64": artifact }, "instances": "user", "hosts": ["local"] });
+    assert_eq!(codes(&validate_manifest(&first)), vec![("tier.native", Severity::Error)]);
 }
