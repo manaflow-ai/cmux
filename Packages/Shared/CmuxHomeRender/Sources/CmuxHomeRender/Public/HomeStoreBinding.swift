@@ -39,8 +39,11 @@ public final class HomeStoreBinding {
         observe()
     }
 
-    /// Stops forwarding (the conversation closed).
+    /// Stops forwarding (the conversation closed) and closes the
+    /// conversation on the store, pairing the host's `HomeStore.open`.
     public func stop() {
+        guard !stopped else { return }
+        store.close(controller.conversation)
         stopped = true
         controller.onIntent = { _ in }
         controller.onNeedsOlder = {}
