@@ -31,7 +31,7 @@ enum WorkspaceStructureHandlers {
             guard let anchor = context.services.iconPicker.anchor(workspace: workspace.id) else {
                 throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen)
             }
-            context.services.iconPicker.pick(current: workspace.icon, at: anchor) { result in
+            context.services.iconPicker.pick(current: workspace.icon, target: "workspace:\(workspace.id)", at: anchor) { result in
                 switch result {
                 case .set(let icon) where WorkspaceIconValue.isValid(icon): try? setIcon(.set(icon), workspace: workspace, key: key, context)
                 case .clear: try? setIcon(.clear, workspace: workspace, key: key, context)

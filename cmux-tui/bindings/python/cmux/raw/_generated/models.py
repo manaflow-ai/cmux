@@ -98,6 +98,10 @@ class PaneDirection(str, Enum):
     UP = 'up'
     DOWN = 'down'
 
+class PaneKind(str, Enum):
+    PTY = 'pty'
+    BROWSER = 'browser'
+
 class RenderGraphicFormat(str, Enum):
     RGB = 'rgb'
     RGBA = 'rgba'
@@ -2691,8 +2695,10 @@ class NewPaneRightRequest:
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
+    kind: Union[PaneKind, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
 
 
@@ -3332,8 +3338,10 @@ class SplitRequest:
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
+    kind: Union[PaneKind, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4239,6 +4247,7 @@ __all__ = [
     'NotificationLevel',
     'NotificationSource',
     'PaneDirection',
+    'PaneKind',
     'RenderGraphicFormat',
     'RenderUnderline',
     'ServerStatsWriterPhase',

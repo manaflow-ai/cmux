@@ -28,6 +28,8 @@ extension SettingsSchema {
         "tabs.plusButton",
         "navigation.historyScope",
         "sidebar.minimalMode",
+        "sidebar.side",
+        "sidebar.spacesPosition",
         "tabs.newTabKind",
         "newTerminal.opensWorkspace",
         "palette.scopes.tabs.prefix",
