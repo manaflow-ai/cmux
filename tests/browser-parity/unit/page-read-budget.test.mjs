@@ -253,3 +253,43 @@ test("tabs.content: text and HTML stop at the node budget, not after serializing
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+// A name reads text the walk may never visit (a hidden aria-labelledby
+// target, a hidden label) and the name computation reads it whole and
+// recursively: those reads count against the snapshot's node budget, and
+// nesting deeper than the stack cannot fail the snapshot.
+test("snapshot: names and values read within the budget, and deep nesting is cut with a ref instead of failing", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});`);
+      const pages = {
+        labelledby: `document.body.innerHTML = '<button aria-labelledby="h">B</button><div id="h" style="display:none"></div>'; const h = document.getElementById("h"); for (let i = 0; i < 5000; i++) h.appendChild(document.createElement("span")).textContent = "w";`,
+        label: `document.body.innerHTML = '<input id="a"><label for="a" style="display:none" id="l"></label>'; const l = document.getElementById("l"); for (let i = 0; i < 5000; i++) l.appendChild(document.createElement("span")).textContent = "w";`,
+      };
+      for (const [name, setup] of Object.entries(pages)) {
+        const r = await run(`await page.evaluate(() => { ${setup} }); const s = await snapshot({ maxChars: Infinity, _maxNodes: 1000 }); console.log("@@" + JSON.stringify(s.tree.split("\\n").slice(-1)[0]));`);
+        assert.match(JSON.parse(r.value), /^# the page is too large to read whole: the snapshot stopped after 1,000 nodes/, `${name}: the name read past the snapshot's budget without saying so`);
+      }
+      // Buttons nested 20,000 deep (each one's name is its content), and
+      // elements nested as deep read with showHidden (the walk itself).
+      for (const [tags, opts] of [[["div", "button"], {}], [["div", "span"], { showHidden: true }]]) {
+        const deep = await run(`await page.evaluate((tags) => {
+            document.body.innerHTML = '<button>First</button><div id="root"></div><button>Last</button>';
+            let e = document.getElementById("root");
+            for (let i = 0; i < 20000; i++) e = e.appendChild(document.createElement(tags[i % 2]));
+            e.textContent = "deepest";
+          }, ${JSON.stringify(tags)});
+          let out;
+          try { out = String(await snapshot({ maxChars: Infinity, ...${JSON.stringify(opts)} })); } catch (e) { out = "error: " + e.message; }
+          console.log("@@" + JSON.stringify({ error: /^error:/.test(out) ? out.slice(0, 300) : null, last: /button "Last"/.test(out), cut: /\\[ref=e\\d+\\] \\[not read: nested deeper than 1000 elements; snapshot this ref to read it\\]/.test(out) }));`);
+        const r = JSON.parse(deep.value);
+        assert.equal(r.error, null, tags.join());
+        assert.ok(r.last, `${tags}: the snapshot lost the page after the nested part`);
+        if (opts.showHidden) assert.ok(r.cut, `${tags}: no note where the nesting was cut`);
+      }
+    });
+  } finally {
+    await servers.close();
+  }
+});
