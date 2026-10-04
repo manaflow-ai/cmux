@@ -130,6 +130,13 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         didSet { if oldValue != showsTitlebarBadge { needsLayout = true } }
     }
 
+    /// The static sidebar toggle (R68), nil until it is built.
+    var sidebarToggleButton: NSButton? { nil }
+    /// The toggle's frame in window coordinates.
+    var sidebarToggleFrame: CGRect? { nil }
+    /// A click on the toggle (tests).
+    func pressSidebarToggle() {}
+
     /// The badge's frame in window coordinates while it shows.
     var titlebarBadgeFrame: CGRect? {
         guard let badge = titlebarBadge, !badge.isHidden else { return nil }
