@@ -205,7 +205,15 @@
       "scope": "cloud:read",
       "class": "read"
     },
+    "cloud.machine.connect": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
     "cloud.machine.create": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.disconnect": {
       "scope": "cloud:write",
       "class": "mutation"
     },
@@ -244,6 +252,10 @@
     "cloud.plan.get": {
       "scope": "cloud:read",
       "class": "read"
+    },
+    "cloud.rescue.open": {
+      "scope": "cloud:write",
+      "class": "mutation"
     },
     "cloud.snapshot.create": {
       "scope": "cloud:write",
