@@ -348,6 +348,18 @@ mod tests {
         }
     }
 
+    /// P8 3b-2: kind `app` is a self-declared label. A local connection that
+    /// declares it but proved nothing (no install-key hello, no app code
+    /// signature) never acts with origin user.
+    #[test]
+    fn a_self_declared_app_kind_never_reaches_origin_user() {
+        let mux = Mux::new_for_test("apps-origin-self-declared", SurfaceOptions::default());
+        let (app, app_out) = connection(&mux, Some("app"), false);
+        for request in [install("user"), grant("user")] {
+            assert_eq!(error_code(&mux, app, &app_out, request).as_deref(), FORBIDDEN);
+        }
+    }
+
     #[test]
     fn other_origins_pass_from_any_local_connection() {
         let mux = Mux::new_for_test("apps-origin-other", SurfaceOptions::default());
