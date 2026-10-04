@@ -5256,7 +5256,7 @@ mod tests {
     }
 
     pub(super) struct CloseTrackingWriter {
-        closed: Arc<AtomicBool>,
+        pub(super) closed: Arc<AtomicBool>,
     }
 
     impl RemoteMessageWriter for CloseTrackingWriter {

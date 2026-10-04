@@ -9,7 +9,7 @@ pub(super) struct PtyChild {
     pub(super) output_drain: Option<std::thread::JoinHandle<()>>,
     /// The last [`PTY_OUTPUT_TAIL_BYTES`] the child wrote (stdout and stderr
     /// share the PTY), for failure messages.
-    pub(super) output_tail: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<u8>>>,
+    pub(super) output_tail: std::sync::Arc<std::sync::Mutex<VecDeque<u8>>>,
 }
 
 /// How much of a PTY child's output a failure message shows.
@@ -25,8 +25,7 @@ impl PtyChild {
     pub(super) fn start_with_env(args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> Self {
         let spawned = spawn_pty_child(args, env);
         let mut master = spawned.master.try_clone_reader().unwrap();
-        let output_tail =
-            std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
+        let output_tail = std::sync::Arc::new(std::sync::Mutex::new(VecDeque::new()));
         let tail = output_tail.clone();
         let output_drain = std::thread::spawn(move || {
             let mut buffer = [0; 8192];
