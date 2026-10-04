@@ -1,5 +1,6 @@
 export { apply, isSend, targetMessageId } from "./apply.ts"
 export { BUDGET_WINDOW, checkAgentBudget, checkAgentStreak, MAX_AGENT_TURNS, MIN_AGENT_GAP_MS } from "./budget.ts"
+export { consentMarkerWrites, hasConsentMarker, TABLE_CONSENT, withConsentMarkers } from "./consent.ts"
 export { checkTyping, create, summary, type CreateRequest, type CreateResult } from "./create.ts"
 export {
   actorOf,
