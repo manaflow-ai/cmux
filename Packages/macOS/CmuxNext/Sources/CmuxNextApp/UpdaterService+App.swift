@@ -54,7 +54,8 @@ extension UpdaterService {
         let preferences = UpdatePreferences(
             installOnQuit: updates.installOnQuit,
             notify: UpdateNotifyMode(rawValue: updates.notify.rawValue) ?? .card,
-            quietHours: updates.quietHours.map { UpdateQuietHours(start: $0.start, end: $0.end) })
+            quietHours: updates.quietHours.map { UpdateQuietHours(start: $0.start, end: $0.end) },
+            keepPreviousVersions: updates.keepPreviousVersions)
         if self.preferences != preferences { self.preferences = preferences }
         configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,
                   downloadAutomatically: updates.downloadAutomatically)

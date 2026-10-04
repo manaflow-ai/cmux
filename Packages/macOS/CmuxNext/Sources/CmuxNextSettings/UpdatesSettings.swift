@@ -15,8 +15,8 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     public var notify: UpdatesNotifySetting = .card
     /// Hours in which a ready update shows no card; nil is off.
     public var quietHours: QuietHours?
-    /// Previous builds kept for rollback (red-test stub).
-    public var keepPreviousVersions = 0
+    /// Previous builds kept for rollback (`cmux update rollback`).
+    public var keepPreviousVersions = 1
     public static let keepPreviousVersionsRange: ClosedRange<Double> = 0...5
 
     public init() {}
@@ -37,6 +37,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
         if let value = reader.bool("downloadAutomatically") { settings.downloadAutomatically = value }
         if let value = reader.bool("installOnQuit") { settings.installOnQuit = value }
         if let value = reader.choice("notify", UpdatesNotifySetting.self) { settings.notify = value }
+        if let value = reader.number("keepPreviousVersions", range: keepPreviousVersionsRange) { settings.keepPreviousVersions = Int(value) }
         diagnostics = reader.diagnostics
         settings.quietHours = quietHours(root, diagnostics: &diagnostics)
         return settings

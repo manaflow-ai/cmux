@@ -7,7 +7,7 @@ import Security
 /// store the daemon has. The swap itself and `cmux update rollback` land
 /// with the cmux-tui `store.schemas` op.
 extension UpdaterService {
-    /// Previous versions this app keeps (`updates.keepPreviousVersions`, 1 for now).
+    /// Previous versions this app keeps (`updates.keepPreviousVersions`).
     public var keptVersions: KeptVersionStore {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let root = support.appending(path: "cmux-next/\(identity.bundleIdentifier ?? "cmux")/versions", directoryHint: .isDirectory)

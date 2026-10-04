@@ -47,6 +47,15 @@ extension SettingsSchema {
                 keywords: ["update", "notify", "card", "badge", "silent"]
             ),
             SettingDescriptor(
+                UpdatesSettings.keepPreviousVersionsPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.updates.keepPreviousVersions", "Keep Previous Versions"),
+                help: SettingsText.keyed("settings.updates.keepPreviousVersions.help",
+                                        "Earlier builds kept so you can roll back. Uses almost no disk until files change."),
+                kind: .number(SettingNumber(UpdatesSettings.keepPreviousVersionsRange, step: 1, unit: .count)),
+                default: .number(Double(defaults.keepPreviousVersions)),
+                keywords: ["update", "rollback", "previous", "downgrade"]
+            ),
+            SettingDescriptor(
                 UpdatesSettings.quietHoursPath, section: .general, group: group,
                 title: SettingsText.keyed("settings.updates.quietHours", "Quiet Hours"),
                 help: SettingsText.keyed("settings.updates.quietHours.help", "No update card between these times."),
