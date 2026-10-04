@@ -208,7 +208,12 @@ impl Host {
             profile: profile.to_owned(),
         };
         let driver = self.engines.driver(&engine, sink, &context)?;
-        let capabilities = driver.capabilities().into_iter().map(str::to_owned).collect();
+        let mut capabilities: Vec<String> =
+            driver.capabilities().into_iter().map(str::to_owned).collect();
+        // The gate types `input.insertText { secret }` for every engine.
+        if !capabilities.iter().any(|c| c == "secret.insert") {
+            capabilities.push("secret.insert".into());
+        }
         let gate = Arc::new(
             Gate::new(driver, Grants { raw_cdp }).with_tab_secrets(self.tab_secrets.clone()),
         );
