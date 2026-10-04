@@ -825,6 +825,8 @@ impl Hub {
                             tokio::spawn(end_pooled(p));
                         }
                     },
+                    std::time::Duration::from_secs(3600),
+                    || {},
                 )
                 .await;
                 hub.pool.reaper.store(false, Ordering::SeqCst);

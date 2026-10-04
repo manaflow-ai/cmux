@@ -6,6 +6,7 @@ use crate::agent_host::HostRecord;
 use crate::clock::Clock;
 use std::future::Future;
 use std::sync::{Arc, Mutex as StdMutex};
+use std::time::Duration;
 use tokio::sync::Notify;
 
 /// `killpg` on the harness group of a pooled host (park and resume).
@@ -48,6 +49,8 @@ pub(crate) async fn run_reaper<T>(
     stopped: impl Future<Output = ()>,
     mut clock: impl FnMut() -> Option<Arc<dyn Clock>>,
     mut expired: impl FnMut(Vec<T>),
+    _tick: Duration,
+    mut _on_tick: impl FnMut(),
 ) {
     tokio::pin!(stopped);
     loop {
@@ -80,7 +83,7 @@ mod tests {
     use super::super::policy::{Origin, PoolKey, Role};
     use super::*;
     use crate::clock::ManualClock;
-    use std::time::Duration;
+    use std::collections::HashMap;
     use tokio::sync::{mpsc, oneshot};
 
     fn key(h: &str) -> PoolKey {
@@ -125,6 +128,8 @@ mod tests {
                 },
                 || Some(clock2.clone() as Arc<dyn Clock>),
                 |v| v.into_iter().for_each(|t| out_tx.send(t).unwrap()),
+                Duration::from_secs(3600),
+                || {},
             )
             .await;
         });
@@ -143,8 +148,63 @@ mod tests {
         settle().await;
         assert_eq!(out_rx.try_recv().ok(), Some("codex#1"));
         assert!(pool.lock().unwrap().is_empty());
-        // The reaper stops when told to (hub.shutdown or stop_pool).
-        stop_tx.send(()).unwrap();
+        // An empty pool keeps no timer: the reaper has ended by itself.
+        tokio::time::timeout(Duration::from_secs(5), reaper).await.unwrap().unwrap();
+        drop(stop_tx);
+    }
+
+    #[tokio::test]
+    async fn the_rss_tick_evicts_the_oldest_entry_over_the_cap_and_ends_with_an_empty_pool() {
+        const MB: u64 = 1024 * 1024;
+        let pool = Arc::new(StdMutex::new(Pool::<&'static str>::new(Duration::from_secs(600))));
+        let wake = Arc::new(Notify::new());
+        let clock = ManualClock::new();
+        // The fake RSS source: what `ps` would report for each entry now.
+        let rss: Arc<StdMutex<HashMap<&'static str, u64>>> =
+            Arc::new(StdMutex::new(HashMap::from([("a", 400 * MB), ("b", 300 * MB)])));
+        {
+            let mut p = pool.lock().unwrap();
+            let g = p.want(Role::LastUsed, key("a"), Duration::ZERO).start.unwrap();
+            assert!(p.complete(&key("a"), g, "a", Duration::from_secs(1)).is_none());
+            let g = p.want(Role::Hinted, key("b"), Duration::ZERO).start.unwrap();
+            assert!(p.complete(&key("b"), g, "b", Duration::from_secs(2)).is_none());
+        }
+        let (evicted_tx, mut evicted_rx) = mpsc::unbounded_channel();
+        let (pool2, wake2, clock2, rss2) = (pool.clone(), wake.clone(), clock.clone(), rss.clone());
+        let reaper = tokio::spawn(async move {
+            let tick_pool = pool2.clone();
+            run_reaper(
+                &pool2,
+                &wake2,
+                std::future::pending::<()>(),
+                || Some(clock2.clone() as Arc<dyn Clock>),
+                |_| {},
+                Duration::from_secs(60),
+                move || {
+                    let rss = rss2.lock().unwrap().clone();
+                    let out = tick_pool.lock().unwrap().enforce_cap(1024 * MB, |t| rss[t]);
+                    out.into_iter().for_each(|t| evicted_tx.send(t).unwrap());
+                },
+            )
+            .await;
+        });
+        settle().await;
+        clock.advance(Duration::from_secs(30));
+        settle().await;
+        // An entry grows while idle (opencode does): 1300 MB in all.
+        rss.lock().unwrap().insert("a", 1000 * MB);
+        clock.advance(Duration::from_secs(29));
+        settle().await;
+        assert!(evicted_rx.try_recv().is_err(), "no check before the tick");
+        clock.advance(Duration::from_secs(1));
+        settle().await;
+        assert_eq!(evicted_rx.try_recv().ok(), Some("a"), "the oldest entry goes at the tick");
+        assert!(evicted_rx.try_recv().is_err(), "300 MB is under the cap");
+        rss.lock().unwrap().insert("b", 2000 * MB);
+        clock.advance(Duration::from_secs(60));
+        settle().await;
+        assert_eq!(evicted_rx.try_recv().ok(), Some("b"));
+        // Nothing left: the reaper ends, so an empty pool keeps no timer.
         tokio::time::timeout(Duration::from_secs(5), reaper).await.unwrap().unwrap();
     }
 
