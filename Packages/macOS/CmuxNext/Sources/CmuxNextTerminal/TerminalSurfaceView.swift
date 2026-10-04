@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextTerminalGeometry
-import GhosttyKit
+import GhosttyNextKit
 import os
 import QuartzCore
 
@@ -218,49 +218,54 @@ public final class TerminalSurfaceView: NSView {
         }
     }
 
-    /// Resizes the mirror to the grid the PTY owner announced. Call only
-    /// when every earlier output chunk has been parsed (``TerminalSession``
-    /// drains the lane first), so the reflow happens at the same point in the
-    /// byte stream as the owner's.
+    /// Locks the mirror to the grid the PTY owner announced. The lock runs
+    /// on the output lane (`ghostty_surface_set_grid` is an output
+    /// function), so it lands after every chunk queued before it: the reflow
+    /// happens at the same point in the byte stream as the owner's.
     func applyAnnouncedGrid(_ grid: TerminalGridSize) {
         geometry.announce(grid)
+        lockAnnouncedGrid()
         updateSurfaceSize()
     }
 
-    /// Sizes the surface and reports the view's grid when it changed.
+    /// The generation of the last grid lock sent to this surface; Ghostty
+    /// refuses an older one. A fresh surface starts again at 1.
+    private var gridGeneration: UInt64 = 0
+    private var lockedGrid: TerminalGridSize?
+
+    private func lockAnnouncedGrid() {
+        guard let grid = geometry.gridToRender, grid != lockedGrid,
+              let columns = UInt16(exactly: grid.columns), let rows = UInt16(exactly: grid.rows),
+              let lane else { return }
+        gridGeneration += 1
+        lockedGrid = grid
+        let generation = gridGeneration
+        lane.perform { surface in
+            _ = ghostty_surface_set_grid(surface, columns, rows, generation)
+        }
+    }
+
+    /// Sizes the surface to the view and reports the view's grid when it
+    /// changed.
     ///
-    /// Before any announcement the surface fits the view and Ghostty decides
-    /// the grid. After one, the surface renders exactly the announced grid
-    /// (`ghostty_surface_set_grid_size`, ghostty.h:1464) and the view's grid
-    /// is computed from the cell and padding sizes Ghostty resolved, without
-    /// resizing the terminal. The report reaches the owner; the surface
-    /// follows when the owner announces the grid it applied.
+    /// The view's pixel size always goes to `ghostty_surface_set_size`, and
+    /// `ghostty_surface_size` reports how many cells fit. Before any
+    /// announcement that is also the terminal grid. After one, the terminal
+    /// grid is locked to the announced grid (`ghostty_surface_set_grid`):
+    /// a larger view draws padding, a smaller one crops, and the report still
+    /// says what would fit. The owner decides; the surface follows its
+    /// announcement.
     func updateSurfaceSize(forceReport: Bool = false) {
         guard let surface else { return }
         let pixels = convertToBacking(bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
-        let desired: TerminalGridSize
-        let metrics: TerminalGridMetrics
-        if let grid = geometry.gridToRender,
-           let columns = UInt16(exactly: grid.columns), let rows = UInt16(exactly: grid.rows) {
-            var resolved = ghostty_surface_size_s()
-            guard ghostty_surface_set_grid_size(surface, columns, rows, &resolved),
-                  let resolvedMetrics = TerminalGridMetrics(
-                      resolving: grid, widthPixels: Int(resolved.width_px), heightPixels: Int(resolved.height_px),
-                      cellWidth: Int(resolved.cell_width_px), cellHeight: Int(resolved.cell_height_px))
-            else { return }
-            publish(size: resolved)
-            metrics = resolvedMetrics
-            desired = metrics.grid(fittingWidth: Int(pixels.width), height: Int(pixels.height))
-        } else {
-            ghostty_surface_set_size(surface, UInt32(pixels.width), UInt32(pixels.height))
-            let size = ghostty_surface_size(surface)
-            publish(size: size)
-            guard size.columns > 0, size.rows > 0 else { return }
-            desired = TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
-            metrics = TerminalGridMetrics(cellWidth: Int(size.cell_width_px), cellHeight: Int(size.cell_height_px),
+        ghostty_surface_set_size(surface, UInt32(pixels.width), UInt32(pixels.height))
+        let size = ghostty_surface_size(surface)
+        publish(size: size)
+        guard size.columns > 0, size.rows > 0 else { return }
+        let desired = TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
+        let metrics = TerminalGridMetrics(cellWidth: Int(size.cell_width_px), cellHeight: Int(size.cell_height_px),
                                           paddingWidth: 0, paddingHeight: 0)
-        }
         guard let report = geometry.viewSized(desired, force: forceReport) else { return }
         let cells = metrics.cellPixels(of: report)
         session?.surfaceDidReport(grid: report, pixelWidth: cells.width, pixelHeight: cells.height)
@@ -268,7 +273,7 @@ public final class TerminalSurfaceView: NSView {
 
     private func publish(size: ghostty_surface_size_s) {
         guard let model = session?.model else { return }
-        let grid = TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
+        let grid = geometry.gridToRender ?? TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
         if model.grid != grid { model.grid = grid }
         let cell = CGSize(width: Int(size.cell_width_px), height: Int(size.cell_height_px))
         if model.cellPixelSize != cell { model.cellPixelSize = cell }
@@ -286,9 +291,12 @@ public final class TerminalSurfaceView: NSView {
         return pixels * 4 * 3 + cells * 64
     }
 
-    /// The grid the surface renders now.
+    /// The grid the surface renders now: the locked grid, or what fits the
+    /// view before a lock.
     var currentGrid: TerminalGridSize? {
         guard let surface else { return nil }
+        let grid = ghostty_surface_grid(surface)
+        if grid.locked { return TerminalGridSize(columns: Int(grid.columns), rows: Int(grid.rows)) }
         let size = ghostty_surface_size(surface)
         return TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
     }

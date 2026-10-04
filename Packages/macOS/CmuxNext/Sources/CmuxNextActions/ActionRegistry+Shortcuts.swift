@@ -86,15 +86,6 @@ extension ActionRegistry {
         return groups.values.filter { $0.count > 1 }.sorted { $0[0].rawValue < $1[0].rawValue }
     }
 
-    struct ShortcutIndex {
-        var byShortcut: [Shortcut: [ActionID]] = [:]
-        var digitFamilies: [Shortcut: [ActionID]] = [:]
-        /// Chords by first key, then second key.
-        var chords: [Shortcut: [Shortcut: [ActionID]]] = [:]
-        /// Numbered-family chords by first key, then the second key's `1`.
-        var chordDigitFamilies: [Shortcut: [Shortcut: [ActionID]]] = [:]
-    }
-
     func currentShortcutIndex() -> ShortcutIndex {
         if let shortcutIndex { return shortcutIndex }
         var index = ShortcutIndex()

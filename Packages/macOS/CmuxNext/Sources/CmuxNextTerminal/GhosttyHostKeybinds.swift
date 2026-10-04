@@ -1,6 +1,6 @@
 public import AppKit
 import Carbon.HIToolbox
-import GhosttyKit
+import GhosttyNextKit
 
 /// Ghostty keybinds for window, tab and split actions (`goto_split:left`,
 /// `new_split:right`, ...) as chords the app can match without a terminal.

@@ -129,8 +129,9 @@ fn a_trailing_dot_does_not_escape_prohibited_domains() {
     assert!(policy.navigation_refusal("https://sub.evil.com./").is_none(), "no wildcard");
 }
 
-/// The same rule as the app's AgentURLPolicy (CmuxNextBrowser/Core). The
-/// app's tests are to read the same file, so the two copies cannot drift.
+/// The same rule as the app's AgentURLPolicy (CmuxNextBrowser/Core) and the
+/// shim's AgentRefusesURL (CEFShim/src/agent_url_policy.h). Their tests read
+/// the same file, so the three copies cannot drift.
 #[test]
 fn browser_pages_follow_the_shared_agent_url_vectors() {
     let doc: serde_json::Value =

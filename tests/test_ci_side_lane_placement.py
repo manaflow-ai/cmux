@@ -143,7 +143,9 @@ class CmuxNextWiring(unittest.TestCase):
                                  triggering_actor=triggering_actor,
                                  event={"pull_request": {"head": {"repo": {"full_name": head}}}})
         outputs = {} if fallback_jobs is None else {"fallback_jobs": fallback_jobs}
-        context["needs"] = {self.PLACEMENT: {"outputs": outputs}}
+        # path_route (#17164) gates every Mac job; these cases are native changes.
+        context["needs"] = {"path_route": {"outputs": {"native": "true", "macos": "true"}},
+                            self.PLACEMENT: {"outputs": outputs}}
         return context
 
     def test_every_mac_job_reads_the_placement(self):
@@ -196,9 +198,12 @@ class CmuxNextWiring(unittest.TestCase):
         owned_off["vars"]["CI_PR_POOL_OWNED"] = "0"
         dispatch_elsewhere = self.context()
         dispatch_elsewhere["github"].update(event_name="workflow_dispatch", ref="refs/heads/main")
+        no_mac_work = self.context()
+        no_mac_work["needs"]["path_route"]["outputs"].update(native="false", macos="false")
         for why, context in {"fork": self.context(fork=True), "attempt 2": self.context("2"),
                              "attempt 3": self.context("3"), "another owner": other_owner,
-                             "owned pools off": owned_off, "dispatch off feat-cmux-next": dispatch_elsewhere}.items():
+                             "owned pools off": owned_off, "dispatch off feat-cmux-next": dispatch_elsewhere,
+                             "no Mac work on the path route": no_mac_work}.items():
             self.assertFalse(evaluate(gate, context), why)
         # Wherever a Mac job may take an owned label the placement runs, so its marker can upload:
         # every context above that skips it routes every Mac job to the fallback.

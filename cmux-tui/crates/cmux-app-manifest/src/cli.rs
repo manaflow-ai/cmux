@@ -17,22 +17,47 @@ pub const CLI_RESERVED: &str = include_str!("../../cmux-app-host/schema/v2/cli-r
 /// 64 characters and prefix them (`mcp__cmux__`), so 48 leaves room.
 pub const MCP_TOOL_NAME_MAX: usize = 48;
 
-fn reserved() -> &'static HashSet<String> {
-    static NAMES: OnceLock<HashSet<String>> = OnceLock::new();
-    NAMES.get_or_init(|| {
+struct Reserved {
+    names: HashSet<String>,
+    first_party: BTreeMap<String, String>,
+}
+
+fn reserved() -> &'static Reserved {
+    static TABLE: OnceLock<Reserved> = OnceLock::new();
+    TABLE.get_or_init(|| {
         let table: Value = serde_json::from_str(CLI_RESERVED).expect("cli-reserved.json is JSON");
-        table["names"]
+        let names = table["names"]
             .as_array()
             .expect("cli-reserved.json has names")
             .iter()
             .map(|n| n.as_str().expect("reserved names are strings").to_owned())
-            .collect()
+            .collect();
+        let first_party = table["firstParty"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(word, app)| {
+                (word.clone(), app.as_str().expect("firstParty maps to app ids").to_owned())
+            })
+            .collect();
+        Reserved { names, first_party }
     })
 }
 
 /// True when `name` is a built-in or reserved top-level CLI word.
 pub fn is_reserved_cli_name(name: &str) -> bool {
-    reserved().contains(name)
+    reserved().names.contains(name)
+}
+
+/// The first-party app id that may claim the reserved word `name` as its
+/// `cli.name` (for example `cloud` -> `cmux/cloud`), if any.
+pub fn first_party_cli_owner(name: &str) -> Option<&'static str> {
+    reserved().first_party.get(name).map(String::as_str)
+}
+
+/// Every reserved word a first-party app may claim, with that app's id.
+pub fn first_party_cli_names() -> impl Iterator<Item = (&'static str, &'static str)> {
+    reserved().first_party.iter().map(|(word, app)| (word.as_str(), app.as_str()))
 }
 
 /// The MCP tool name of an op: its full name with `.` and `-` as `_`.
@@ -47,12 +72,15 @@ pub fn is_mcp_tool(op: &Value) -> bool {
 }
 
 pub(crate) fn check_manifest(m: &Value) -> Vec<Issue> {
+    let id = m["id"].as_str().unwrap_or_default();
     match m.pointer("/cli/name").and_then(Value::as_str) {
-        Some(name) if is_reserved_cli_name(name) => vec![Issue::error(
-            "/cli/name",
-            "cli.nameReserved",
-            format!("{name} is a built-in or reserved cmux command; use another cli.name"),
-        )],
+        Some(name) if is_reserved_cli_name(name) && first_party_cli_owner(name) != Some(id) => {
+            vec![Issue::error(
+                "/cli/name",
+                "cli.nameReserved",
+                format!("{name} is a built-in or reserved cmux command; use another cli.name"),
+            )]
+        }
         _ => Vec::new(),
     }
 }

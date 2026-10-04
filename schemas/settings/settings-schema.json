@@ -45,6 +45,74 @@
     },
     {
       "accepts" : [
+        "workspace",
+        "window",
+        "surface"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.navigation.historyScope.workspace",
+            "text" : "Workspace"
+          },
+          "value" : "workspace"
+        },
+        {
+          "title" : {
+            "key" : "settings.navigation.historyScope.window",
+            "text" : "Window"
+          },
+          "value" : "window"
+        },
+        {
+          "title" : {
+            "key" : "settings.navigation.historyScope.surface",
+            "text" : "Focused Page"
+          },
+          "value" : "surface"
+        }
+      ],
+      "default" : "workspace",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.history",
+        "text" : "History"
+      },
+      "help" : {
+        "key" : "settings.navigation.historyScope.help",
+        "text" : "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "navigation.historyScope",
+      "keywords" : [
+        "history",
+        "back",
+        "forward",
+        "navigation",
+        "location",
+        "scope"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "navigation",
+        "historyScope"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.navigation.historyScope",
+        "text" : "Back and Forward"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "minimal",
         "standard"
       ],
@@ -6856,7 +6924,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "05105855c31f7f93fcf88986e2342c08663583d9a4f77c9b6f51423d7da574c9",
+  "schema_hash" : "b03fe6ca592a979537afa10afd0ee1a4258087636643405eef30272c790dd69c",
   "sections" : [
     {
       "id" : "general",

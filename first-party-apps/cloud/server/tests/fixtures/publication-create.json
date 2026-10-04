@@ -1,0 +1,26 @@
+{
+  "$comment": "Shape recorded from web/app/api/vm/publications/route.ts POST (201) (no customer data).",
+  "request": {
+    "method": "POST",
+    "path": "/api/vm/publications"
+  },
+  "status": 201,
+  "body": {
+    "publication": {
+      "id": "00000000-0000-4000-8000-000000000003",
+      "hostname": "brisk-test-label.cmux.sh",
+      "url": "https://brisk-test-label.cmux.sh",
+      "domainKind": "generated",
+      "vmId": "vm-alpha01",
+      "port": 5173,
+      "publicPort": 443,
+      "targetPort": 5173,
+      "protocol": "https",
+      "accessMode": "personal",
+      "teamId": null,
+      "state": "active",
+      "routingRevision": 1,
+      "verification": null
+    }
+  }
+}
