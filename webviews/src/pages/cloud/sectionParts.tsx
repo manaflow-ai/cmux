@@ -1,5 +1,5 @@
 // Small parts the detail sections share: the "Not available yet" note, a number field that submits on
-// plain Return, labels for the Cloud API's open state strings, and byte sizes.
+// plain Return, and byte sizes.
 import { useState, type KeyboardEvent, type ReactNode } from "react";
 import type { Strings } from "../shared/i18n";
 import { SECTION_OPS, type DetailSection, type MachineDetail } from "./detail";
@@ -82,25 +82,6 @@ export function PortField({
       </button>
     </span>
   );
-}
-
-const STATE_LABELS: Record<string, string> = {
-  active: L.stateActive,
-  verified: L.domainVerified,
-  pending: L.domainPending,
-  failed: L.domainFailed,
-  not_required: L.stateNotRequired,
-  missing: L.stateMissing,
-};
-
-/**
- * A label for a verification, certificate or publication state. The Cloud API sends open strings;
- * a state the page does not know shows as sent.
- */
-export function stateLabel(state: string | null | undefined, t: (key: string) => string): string {
-  if (!state) return "";
-  const key = STATE_LABELS[state];
-  return key ? t(key) : state;
 }
 
 export function formatBytes(bytes: number, strings: Strings): string {

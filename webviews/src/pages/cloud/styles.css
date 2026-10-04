@@ -85,6 +85,51 @@ select {
   overflow-wrap: anywhere;
 }
 
+/* The classic migration banner and a plan refusal: one row, text then actions. */
+.cloud-migration,
+.cloud-plan-notice {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 10px 18px 0;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--cloud-separator);
+  color: var(--cloud-text);
+}
+
+.cloud-create-sheet .cloud-plan-notice {
+  margin: 12px 0 0;
+}
+
+.cloud-plan-notice {
+  border-color: color-mix(in srgb, var(--cloud-warn) 60%, transparent);
+}
+
+.cloud-migration-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--cloud-text-2);
+}
+
+.cloud-migration-title {
+  color: var(--cloud-text);
+  font-weight: 600;
+}
+
+.cloud-classic-badge {
+  color: var(--cloud-text-2);
+}
+
+.cloud-classic-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
 .cloud-error {
   display: flex;
   gap: 12px;
@@ -250,7 +295,9 @@ select {
   background: var(--cloud-ok);
 }
 
-.cloud-status-dot.status-provisioning {
+.cloud-status-dot.status-provisioning,
+.cloud-status-dot.status-starting,
+.cloud-status-dot.status-pausing {
   background: var(--cloud-warn);
 }
 
@@ -515,10 +562,6 @@ select {
   padding: 0;
 }
 
-.cloud-billing-button {
-  margin-top: 10px;
-}
-
 .cloud-sheet-backdrop {
   position: fixed;
   inset: 0;
@@ -608,19 +651,6 @@ select {
   * {
     scroll-behavior: auto !important;
   }
-}
-
-/* Domains: the DNS records to add, one per line. */
-.cloud-dns {
-  display: grid;
-  gap: 2px;
-  flex-basis: 100%;
-  padding: 2px 0 4px;
-}
-
-.cloud-dns-record {
-  overflow-wrap: anywhere;
-  color: var(--cloud-text-2);
 }
 
 /* Files: path bar, entries, preview and editor. */

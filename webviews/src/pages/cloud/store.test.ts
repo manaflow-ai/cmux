@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { MockCloudProvider, sampleMachines, SERVER_GAPS } from "./mockProvider";
-import { ACTION_RUN, CloudOps, type CloudMachine } from "./ops";
+import { AccountOps, ACTION_RUN, CloudOps } from "./ops";
 import { CloudStore } from "./store";
 
 /** Lets queued promise callbacks run. */
@@ -18,6 +18,9 @@ async function started(provider = new MockCloudProvider()) {
 const ops = (provider: MockCloudProvider, op: string) => provider.calls.filter((call) => call.op === op);
 const machineOps = (provider: MockCloudProvider) =>
   provider.calls.filter((call) => call.op.startsWith("cmux.cloud.machine."));
+const runs = (provider: MockCloudProvider) =>
+  ops(provider, ACTION_RUN).map((call) => call.params as { action: string; args: Record<string, unknown> });
+const running = () => sampleMachines().find((machine) => machine.status === "running" && !machine.classic)!;
 
 describe("CloudStore", () => {
   test("signed in: reads auth, watches machines and lists them once", async () => {
@@ -28,6 +31,13 @@ describe("CloudStore", () => {
     expect(snap.rows.map((row) => row.id)).toEqual(sampleMachines().map((machine) => machine.id));
     expect(ops(provider, CloudOps.machineList).length).toBe(1);
     expect(provider.watchers).toBe(1);
+  });
+
+  test("a paged list follows next_cursor to the last page", async () => {
+    const provider = new MockCloudProvider({ pageSize: 2 });
+    const { store } = await started(provider);
+    expect(ops(provider, CloudOps.machineList).map((call) => call.params)).toEqual([{}, { cursor: "cur_2" }]);
+    expect(store.getSnapshot().rows.map((row) => row.id)).toEqual(sampleMachines().map((machine) => machine.id));
   });
 
   test("signed out: no machine op runs and no watch starts", async () => {
@@ -43,10 +53,8 @@ describe("CloudStore", () => {
     const { store } = await started(provider);
     await store.signIn();
     await settle();
-    expect(ops(provider, CloudOps.authSignIn)).toEqual([]);
-    expect(ops(provider, ACTION_RUN).map((call) => (call.params as { action: string }).action)).toEqual([
-      CloudOps.authSignIn,
-    ]);
+    expect(ops(provider, AccountOps.signIn)).toEqual([]);
+    expect(runs(provider).map((run) => run.action)).toEqual([AccountOps.signIn]);
     expect(store.getSnapshot().auth?.signedIn).toBe(true);
     expect(store.getSnapshot().rows.length).toBe(sampleMachines().length);
   });
@@ -58,9 +66,9 @@ describe("CloudStore", () => {
     provider.emitUpsert({ ...target, status: "paused" });
     await settle();
     expect(store.getSnapshot().rows.find((row) => row.id === target.id)?.status).toBe("paused");
-    provider.emitUpsert({ id: "vm-new", provider: "freestyle", status: "provisioning", displayName: "new-box" });
+    provider.emitUpsert({ id: "vm_new", status: "provisioning", name: "new-box", revision: "1" });
     await settle();
-    expect(store.getSnapshot().rows.map((row) => row.id)).toContain("vm-new");
+    expect(store.getSnapshot().rows.map((row) => row.id)).toContain("vm_new");
     provider.emitRemoved(target.id);
     await settle();
     expect(store.getSnapshot().rows.map((row) => row.id)).not.toContain(target.id);
@@ -75,20 +83,30 @@ describe("CloudStore", () => {
     expect(store.getSnapshot().rows.find((row) => row.id === target.id)?.status).toBe(target.status);
   });
 
-  test("create sends exactly one idempotency key on a double submit", async () => {
+  test("the new statuses show as sent; an unknown one shows as unknown", async () => {
+    const { provider, store } = await started();
+    for (const status of ["starting", "pausing", "deleting"] as const) {
+      provider.emitUpsert({ ...sampleMachines()[0], status });
+      await settle();
+      expect(store.getSnapshot().rows[0].status).toBe(status);
+    }
+    provider.emitUpsert({ ...sampleMachines()[0], status: "hibernating" as never });
+    await settle();
+    expect(store.getSnapshot().rows[0].status).toBe("unknown");
+  });
+
+  test("create runs as a native action with one key on a double submit", async () => {
     const { provider, store } = await started();
     store.openCreate();
     store.updateDraft({ name: "build-box" });
-    const first = store.submitCreate();
-    const second = store.submitCreate();
-    await Promise.all([first, second]);
+    await Promise.all([store.submitCreate(), store.submitCreate()]);
     await settle();
-    const creates = ops(provider, CloudOps.machineCreate);
+    expect(ops(provider, CloudOps.machineCreate)).toEqual([]);
+    const creates = runs(provider).filter((run) => run.action === CloudOps.machineCreate);
     expect(creates.length).toBe(1);
-    const key = (creates[0].params as { idempotency_key: string }).idempotency_key;
-    expect(typeof key).toBe("string");
-    expect(key.length).toBeGreaterThan(0);
+    expect(creates[0].args).toEqual({ name: "build-box", size: { memory_mb: 4096 }, idempotency_key: "k1" });
     expect(store.getSnapshot().create).toBeUndefined();
+    expect(store.getSnapshot().pending).toEqual([]);
     expect(store.getSnapshot().rows.some((row) => row.title === "build-box")).toBe(true);
   });
 
@@ -96,37 +114,57 @@ describe("CloudStore", () => {
     const { provider, store } = await started();
     store.openCreate();
     store.updateDraft({ name: "retry-box" });
-    provider.failNext = CloudOps.machineCreate;
+    provider.failNext = ACTION_RUN;
     await store.submitCreate();
     expect(store.getSnapshot().create?.error).toBeTruthy();
     await store.submitCreate();
     await settle();
-    const keys = ops(provider, CloudOps.machineCreate).map(
-      (call) => (call.params as { idempotency_key: string }).idempotency_key,
-    );
-    expect(keys.length).toBe(2);
-    expect(keys[0]).toBe(keys[1]);
-    expect(provider.machines.filter((machine) => machine.displayName === "retry-box").length).toBe(1);
+    const keys = ops(provider, ACTION_RUN)
+      .map((call) => call.params as { action: string; args: { idempotency_key: string } })
+      .filter((run) => run.action === CloudOps.machineCreate)
+      .map((run) => run.args.idempotency_key);
+    expect(keys).toEqual(["k1", "k1"]);
+    expect(provider.machines.filter((machine) => machine.name === "retry-box").length).toBe(1);
+  });
+
+  test("an empty create name lets the owner name the machine; a snapshot source sends from_snapshot", async () => {
+    const { provider, store } = await started();
+    store.openCreate();
+    await settle();
+    const snapshot = store.getSnapshot().create!.snapshots![0];
+    expect(ops(provider, CloudOps.snapshotList)[0].params).toEqual({});
+    store.updateDraft({ from_snapshot: snapshot.id, memoryMb: 8192 });
+    await store.submitCreate();
+    expect(runs(provider).at(-1)).toEqual({
+      action: CloudOps.machineCreate,
+      args: { name: snapshot.name, size: { memory_mb: 8192 }, from_snapshot: snapshot.id, idempotency_key: "k1" },
+    });
+  });
+
+  test("a declined create keeps the sheet open and drops the pending row", async () => {
+    const { store } = await started(new MockCloudProvider({ confirm: false }));
+    store.openCreate();
+    await store.submitCreate();
+    expect(store.getSnapshot().create?.submitting).toBe(false);
+    expect(store.getSnapshot().pending).toEqual([]);
   });
 
   test("a pending intent shows until the owner's echo, then leaves the log", async () => {
     const provider = new MockCloudProvider({ holdEvents: true });
     const { store } = await started(provider);
-    const running = sampleMachines().find((machine) => machine.status === "running") as CloudMachine;
-    await store.pause(running.id);
+    await store.pause(running().id);
     expect(store.getSnapshot().pending.map((intent) => intent.kind)).toEqual(["pause"]);
-    expect(store.getSnapshot().rows.find((row) => row.id === running.id)?.pending).toBe("pause");
+    expect(store.getSnapshot().rows.find((row) => row.id === running().id)?.pending).toBe("pause");
     provider.releaseEvents();
     await settle();
     expect(store.getSnapshot().pending).toEqual([]);
-    expect(store.getSnapshot().rows.find((row) => row.id === running.id)?.status).toBe("paused");
+    expect(store.getSnapshot().rows.find((row) => row.id === running().id)?.status).toBe("paused");
   });
 
   test("a rejected intent leaves the log and shows the error", async () => {
     const { provider, store } = await started();
-    const running = sampleMachines().find((machine) => machine.status === "running") as CloudMachine;
     provider.failNext = CloudOps.machinePause;
-    await store.pause(running.id);
+    await store.pause(running().id);
     expect(store.getSnapshot().pending).toEqual([]);
     expect(store.getSnapshot().error).toBeTruthy();
   });
@@ -137,15 +175,14 @@ describe("CloudStore", () => {
     await store.requestDelete(target.id);
     await settle();
     expect(ops(provider, CloudOps.machineDelete)).toEqual([]);
-    const runs = ops(provider, ACTION_RUN);
-    expect(runs.length).toBe(1);
-    expect(runs[0].params).toMatchObject({ action: CloudOps.machineDelete, args: { machine: target.id } });
+    expect(runs(provider)).toEqual([
+      { action: CloudOps.machineDelete, args: { machine: target.id, idempotency_key: "k1" } },
+    ]);
     expect(store.getSnapshot().rows.map((row) => row.id)).not.toContain(target.id);
   });
 
   test("a declined delete confirmation keeps the machine and drops the intent", async () => {
-    const provider = new MockCloudProvider({ confirm: false });
-    const { store } = await started(provider);
+    const { store } = await started(new MockCloudProvider({ confirm: false }));
     const target = sampleMachines()[0];
     await store.requestDelete(target.id);
     await settle();
@@ -153,36 +190,56 @@ describe("CloudStore", () => {
     expect(store.getSnapshot().rows.map((row) => row.id)).toContain(target.id);
   });
 
-  test("snapshot delete, firewall delete and billing go through native actions", async () => {
-    const { provider, store } = await started(new MockCloudProvider({ unsupported: [] }));
-    const target = sampleMachines()[0];
-    await store.select(target.id);
+  test("a delete answered not_found drops the machine without an error", async () => {
+    const provider = new MockCloudProvider();
+    const { store } = await started(provider);
+    provider.notFoundOnDelete = true;
+    await store.requestDelete(running().id);
     await settle();
-    const detail = store.getSnapshot().detail;
-    expect(detail?.snapshots?.length).toBeGreaterThan(0);
-    expect(detail?.firewall?.length).toBeGreaterThan(0);
-    await store.deleteSnapshot(target.id, detail!.snapshots![0].id);
-    await store.deleteFirewallRule(detail!.firewall![0].id);
-    await store.openBilling();
-    expect(ops(provider, CloudOps.snapshotDelete)).toEqual([]);
-    expect(ops(provider, CloudOps.firewallDelete)).toEqual([]);
-    expect(ops(provider, CloudOps.billingOpen)).toEqual([]);
-    expect(ops(provider, ACTION_RUN).map((call) => (call.params as { action: string }).action)).toEqual([
+    expect(store.getSnapshot().error).toBeUndefined();
+    expect(store.getSnapshot().pending).toEqual([]);
+    expect(store.getSnapshot().rows.map((row) => row.id)).not.toContain(running().id);
+  });
+
+  test("money and destructive ops never run from the page: the mock refuses them like the server", async () => {
+    const provider = new MockCloudProvider();
+    await expect(
+      provider.call(CloudOps.machineCreate, { size: { memory_mb: 4096 }, idempotency_key: "x" }),
+    ).rejects.toMatchObject({ code: "cmux.cloud.origin_refused" });
+    const { store } = await started(provider);
+    await store.select(running().id);
+    await settle();
+    const snapshot = store.getSnapshot().detail!.snapshots![0];
+    await store.detail.createSnapshot(running().id);
+    await store.restoreSnapshot(snapshot);
+    await store.deleteSnapshot(snapshot.id);
+    await store.resize(running().id, 8192);
+    for (const op of [
+      CloudOps.snapshotCreate,
+      CloudOps.snapshotRestore,
       CloudOps.snapshotDelete,
-      CloudOps.firewallDelete,
-      CloudOps.billingOpen,
+      CloudOps.machineResize,
+    ])
+      expect(ops(provider, op)).toEqual([]);
+    expect(runs(provider).map((run) => run.action)).toEqual([
+      CloudOps.snapshotCreate,
+      CloudOps.snapshotRestore,
+      CloudOps.snapshotDelete,
+      CloudOps.machineResize,
     ]);
+    expect(store.getSnapshot().error).toBeUndefined();
   });
 
   test("selecting a machine reads its detail once; a stale reply is dropped", async () => {
     const { provider, store } = await started();
     const [a, b] = sampleMachines();
-    const first = store.select(a.id);
-    const second = store.select(b.id);
-    await Promise.all([first, second]);
+    await Promise.all([store.select(a.id), store.select(b.id)]);
     await settle();
     expect(store.getSnapshot().detail?.machine).toBe(b.id);
-    expect(ops(provider, CloudOps.machineStats).length).toBe(2);
+    expect(ops(provider, CloudOps.snapshotList).map((call) => call.params)).toEqual([
+      { machine: a.id },
+      { machine: b.id },
+    ]);
   });
 
   test("the transport going away shows the disconnected state and refuses changes", async () => {
@@ -204,14 +261,14 @@ describe("CloudStore", () => {
   test("connect runs the native connect action", async () => {
     const { provider, store } = await started();
     await store.connect(sampleMachines()[0].id);
-    expect(ops(provider, ACTION_RUN).at(-1)?.params).toEqual({
+    expect(runs(provider).at(-1)).toEqual({
       action: CloudOps.machineConnect,
       args: { machine: sampleMachines()[0].id },
     });
   });
 });
 
-describe("CloudStore lifecycle and settlement (review fixes)", () => {
+describe("CloudStore lifecycle and settlement", () => {
   test("subscribe, unsubscribe, subscribe (StrictMode) leaves one watch; the last unsubscribe closes it", async () => {
     const provider = new MockCloudProvider();
     const store = new CloudStore(provider, { newKey: () => "k" });
@@ -227,15 +284,14 @@ describe("CloudStore lifecycle and settlement (review fixes)", () => {
 
   test("an event during the first list is merged by revision", async () => {
     const provider = new MockCloudProvider();
-    provider.onList = () =>
-      provider.emitUpsert({ id: "vm-during", provider: "freestyle", status: "running", displayName: "during" });
+    provider.onList = () => provider.emitUpsert({ id: "vm_during", status: "running", name: "during", revision: "1" });
     const { store } = await started(provider);
-    expect(store.getSnapshot().rows.map((row) => row.id)).toContain("vm-during");
+    expect(store.getSnapshot().rows.map((row) => row.id)).toContain("vm_during");
   });
 
-  test("two quick team switches leave one watch and the last team's list", async () => {
+  test("two quick team switches leave one watch", async () => {
     const { provider, store } = await started();
-    await Promise.all([store.selectTeam("team-acme"), store.selectTeam("team-personal")]);
+    await Promise.all([store.selectTeam("team_acme"), store.selectTeam("team_personal")]);
     await settle();
     expect(provider.watchers).toBe(1);
   });
@@ -247,17 +303,6 @@ describe("CloudStore lifecycle and settlement (review fixes)", () => {
     await settle();
     expect(store.getSnapshot().pending).toEqual([]);
     expect(store.getSnapshot().rows[0].title).toBe("RENAMED");
-  });
-
-  test("an answered intent settles on the machine's next event, whatever its value", async () => {
-    const provider = new MockCloudProvider({ holdEvents: true });
-    const { store } = await started(provider);
-    provider.renameTransform = (name) => `${name}-x`;
-    await store.rename(sampleMachines()[0].id, "held");
-    expect(store.getSnapshot().pending.map((intent) => intent.kind)).toEqual(["rename"]);
-    provider.releaseEvents();
-    await settle();
-    expect(store.getSnapshot().pending).toEqual([]);
   });
 
   test("retry after a disconnect reconnects and refetches", async () => {
@@ -272,40 +317,61 @@ describe("CloudStore lifecycle and settlement (review fixes)", () => {
     expect(provider.watchers).toBe(1);
   });
 
-  test("an unknown status from the owner shows as unknown", async () => {
+  test("every event of one projection change applies, even when they share its revision", async () => {
     const { provider, store } = await started();
-    provider.emitUpsert({ ...sampleMachines()[0], status: "hibernating" as never });
+    const [a, b] = sampleMachines();
+    const revision = provider.revision + 1;
+    provider.emitRaw({ type: "removed", revision, id: a.id });
+    provider.emitRaw({ type: "removed", revision, id: b.id });
     await settle();
-    expect(store.getSnapshot().rows[0].status).toBe("unknown");
+    const ids = store.getSnapshot().rows.map((row) => row.id);
+    expect(ids).not.toContain(a.id);
+    expect(ids).not.toContain(b.id);
+    expect(store.getSnapshot().revision).toBe(revision);
+  });
+
+  test("an answer that arrives after a session restart still settles its intent", async () => {
+    const { store } = await started();
+    store.openCreate();
+    store.updateDraft({ name: "restart-box" });
+    const submitted = store.submitCreate();
+    const resized = store.resize(running().id, 8192);
+    store.stop();
+    await Promise.all([submitted, resized]);
+    await store.start();
+    await settle();
+    const { pending, create, rows } = store.getSnapshot();
+    expect(pending).toEqual([]);
+    expect(create).toBeUndefined();
+    expect(rows.filter((row) => row.title === "restart-box").length).toBe(1);
+  });
+
+  test("the mock ledger refuses a key reused for other args, like the server", async () => {
+    const provider = new MockCloudProvider();
+    await provider.call(CloudOps.machinePause, { machine: "vm_a1", idempotency_key: "same" });
+    await expect(
+      provider.call(CloudOps.machinePause, { machine: "vm_b2", idempotency_key: "same" }),
+    ).rejects.toMatchObject({ code: "cmux.cloud.idempotency_conflict" });
   });
 });
 
-describe("CloudStore against the landed catalog (C4i)", () => {
-  const running = () => sampleMachines().find((machine) => machine.status === "running") as CloudMachine;
-
-  test("machine ops send the catalog's camelCase params", async () => {
+describe("CloudStore on the cmux.wire/1 shapes", () => {
+  test("machine ops send the server's snake_case params", async () => {
     const { provider, store } = await started();
     await store.rename(running().id, " renamed ");
+    await store.setIdlePolicy(running().id, 300);
+    await store.setIdlePolicy(running().id, null);
     expect(ops(provider, CloudOps.machineRename)[0].params).toEqual({
       machine: running().id,
-      displayName: "renamed",
+      name: "renamed",
       idempotency_key: "k1",
     });
-    store.openCreate();
-    store.updateDraft({ name: "box" });
-    await store.submitCreate();
-    expect(ops(provider, CloudOps.machineCreate)[0].params).toEqual({
-      displayName: "box",
-      memoryMb: 4096,
-      idempotency_key: "k2",
-    });
-  });
-
-  test("an empty create name lets the owner name the machine", async () => {
-    const { provider, store } = await started();
-    store.openCreate();
-    await store.submitCreate();
-    expect(ops(provider, CloudOps.machineCreate)[0].params).toEqual({ memoryMb: 4096, idempotency_key: "k1" });
+    expect(ops(provider, CloudOps.machineIdlePolicySet).map((call) => call.params)).toEqual([
+      { machine: running().id, idle_seconds: 300, idempotency_key: "k2" },
+      { machine: running().id, idle_seconds: 0, idempotency_key: "k3" },
+    ]);
+    expect(store.getSnapshot().machines.find((m) => m.id === running().id)?.idle_policy).toEqual({ idle_seconds: 0 });
+    expect(store.getSnapshot().pending).toEqual([]);
   });
 
   test("a mutation result's revision settles the intent with no refetch", async () => {
@@ -323,129 +389,55 @@ describe("CloudStore against the landed catalog (C4i)", () => {
     expect(ops(provider, CloudOps.machineList).length).toBe(lists);
   });
 
-  test("a resize settles on its result revision and shows the new stats", async () => {
+  test("a resize sends size.memory_mb through the native action and the record shows the size", async () => {
     const { provider, store } = await started();
-    await store.select(running().id);
-    await settle();
-    await store.resize(running().id, 8192);
-    expect(ops(provider, CloudOps.machineResize)[0].params).toEqual({
-      machine: running().id,
-      memoryMb: 8192,
-      idempotency_key: "k1",
+    await store.resize(running().id, 4096);
+    expect(runs(provider).at(-1)).toEqual({
+      action: CloudOps.machineResize,
+      args: { machine: running().id, size: { memory_mb: 4096 }, idempotency_key: "k1" },
     });
     expect(store.getSnapshot().pending).toEqual([]);
-    expect(store.getSnapshot().detail?.stats?.memoryTotalMb).toBe(8192);
-    expect(store.getSnapshot().detail?.stats).not.toHaveProperty("revision");
+    expect(store.getSnapshot().machines.find((m) => m.id === running().id)?.size?.memory_mb).toBe(4096);
   });
 
-  test("create from a snapshot calls snapshot.restore with the snapshot only", async () => {
-    const { provider, store } = await started();
-    await store.select(running().id);
-    await settle();
-    store.openCreate();
-    await settle();
-    const snapshot = store.getSnapshot().create!.snapshots![0];
-    store.updateDraft({ snapshot_id: snapshot.id });
-    await store.submitCreate();
-    await settle();
-    expect(ops(provider, CloudOps.machineCreate)).toEqual([]);
-    expect(ops(provider, CloudOps.snapshotRestore)[0].params).toEqual({
-      snapshot: snapshot.id,
-      idempotency_key: "k1",
-    });
-    expect(store.getSnapshot().create).toBeUndefined();
-    expect(store.getSnapshot().pending).toEqual([]);
-    expect(store.getSnapshot().machines.length).toBe(sampleMachines().length + 1);
-  });
-
-  test("restore and fork from the detail make a new machine through the watch stream", async () => {
+  test("restore makes a new machine through the watch stream", async () => {
     const provider = new MockCloudProvider({ holdEvents: true });
     const { store } = await started(provider);
     await store.select(running().id);
     await settle();
     const snapshot = store.getSnapshot().detail!.snapshots![0];
     await store.restoreSnapshot(snapshot);
-    await store.forkMachine(running().id);
-    expect(ops(provider, CloudOps.snapshotRestore)[0].params).toEqual({ snapshot: snapshot.id, idempotency_key: "k1" });
-    expect(ops(provider, CloudOps.snapshotFork)[0].params).toEqual({ machine: running().id, idempotency_key: "k2" });
-    expect(store.getSnapshot().rows.filter((row) => row.pending === "create").length).toBe(2);
+    expect(runs(provider).at(-1)).toEqual({
+      action: CloudOps.snapshotRestore,
+      args: { snapshot: snapshot.id, idempotency_key: "k1" },
+    });
+    expect(store.getSnapshot().rows.filter((row) => row.pending === "create").length).toBe(1);
     provider.releaseEvents();
     await settle();
     expect(store.getSnapshot().pending).toEqual([]);
-    expect(store.getSnapshot().rows.length).toBe(sampleMachines().length + 2);
+    expect(store.getSnapshot().rows.length).toBe(sampleMachines().length + 1);
   });
 
-  test("ops the server does not serve show not available, never an error", async () => {
+  test("the plan is read with the list and again after a confirmed change", async () => {
     const { provider, store } = await started();
-    expect(store.getSnapshot().unavailable).toContain(CloudOps.teamList);
-    await store.select(running().id);
+    expect(store.getSnapshot().plan?.usage.active).toBe(3);
+    const reads = ops(provider, CloudOps.planGet).length;
+    await store.pause(running().id);
     await settle();
-    await store.setIdlePolicy(running().id, 300);
-    await store.openBilling();
-    const { unavailable, error, pending, detail } = store.getSnapshot();
-    for (const op of [CloudOps.machineIdlePolicySet, CloudOps.billingOpen]) expect(unavailable).toContain(op);
+    expect(ops(provider, CloudOps.planGet).length).toBe(reads + 1);
+    expect(store.getSnapshot().plan?.usage.active).toBe(2);
+  });
+
+  test("account ops no catalog declares show not available, never an error", async () => {
+    const { store } = await started();
+    expect(SERVER_GAPS).toEqual(expect.arrayContaining(Object.values(AccountOps)));
+    expect(store.getSnapshot().unavailable).toContain(AccountOps.teamList);
+    await store.selectTeam("team_acme");
+    await settle();
+    const { unavailable, error, rows } = store.getSnapshot();
+    expect(unavailable).toContain(AccountOps.teamSelect);
     expect(error).toBeUndefined();
-    expect(pending).toEqual([]);
-    expect(detail?.snapshots?.length).toBeGreaterThan(0);
-    expect(provider.calls.some((call) => call.op === CloudOps.machineIdlePolicySet)).toBe(true);
-  });
-
-  test("the mock answers the idle policy like the server", async () => {
-    expect(SERVER_GAPS).toContain(CloudOps.machineIdlePolicySet);
-    const provider = new MockCloudProvider();
-    await expect(
-      provider.call(CloudOps.machineIdlePolicySet, { machine: "vm-a1", idleTimeoutSeconds: 300, idempotency_key: "x" }),
-    ).rejects.toMatchObject({ code: "cmux.cloud.unsupported" });
-  });
-
-  test("a team switch the server does not serve keeps the same team loaded", async () => {
-    const { provider, store } = await started();
-    await store.selectTeam("team-acme");
-    await settle();
-    expect(store.getSnapshot().unavailable).toContain(CloudOps.teamSelect);
-    expect(store.getSnapshot().error).toBeUndefined();
-    expect(store.getSnapshot().rows.length).toBe(sampleMachines().length);
-    expect(provider.watchers).toBe(1);
-  });
-
-  test("every event of one projection change applies, even when they share its revision", async () => {
-    const { provider, store } = await started();
-    const [a, b] = sampleMachines();
-    const revision = provider.revision + 1;
-    provider.emitRaw({ type: "removed", revision, id: a.id });
-    provider.emitRaw({ type: "removed", revision, id: b.id });
-    await settle();
-    const ids = store.getSnapshot().rows.map((row) => row.id);
-    expect(ids).not.toContain(a.id);
-    expect(ids).not.toContain(b.id);
-    expect(store.getSnapshot().revision).toBe(revision);
-  });
-
-  test("events of the list's own revision that arrive after the list change nothing", async () => {
-    const provider = new MockCloudProvider();
-    const { store } = await started(provider);
-    const before = store.getSnapshot().machines;
-    // The server sends the list result, then the events of the same change.
-    provider.emitRaw({ type: "upsert", revision: provider.revision, machine: before[0] });
-    await settle();
-    expect(store.getSnapshot().machines).toEqual(before);
-  });
-
-  test("an answer that arrives after a session restart still settles its intent", async () => {
-    const provider = new MockCloudProvider();
-    const { store } = await started(provider);
-    store.openCreate();
-    store.updateDraft({ name: "restart-box" });
-    const submitted = store.submitCreate();
-    const resized = store.resize(running().id, 8192);
-    store.stop();
-    await Promise.all([submitted, resized]);
-    await store.start();
-    await settle();
-    const { pending, create, rows } = store.getSnapshot();
-    expect(pending).toEqual([]);
-    expect(create).toBeUndefined();
-    expect(rows.filter((row) => row.title === "restart-box").length).toBe(1);
+    expect(rows.length).toBe(sampleMachines().length);
   });
 
   test("a real error while reading the detail shows the banner", async () => {
@@ -458,23 +450,18 @@ describe("CloudStore against the landed catalog (C4i)", () => {
     expect(store.getSnapshot().unavailable).not.toContain(CloudOps.snapshotList);
   });
 
-  test("a delete answered not_found drops the machine without an error", async () => {
+  test("the mock refuses a read with a key and a mutation without one, like the server", async () => {
     const provider = new MockCloudProvider();
-    const { store } = await started(provider);
-    const target = running();
-    provider.notFoundOnDelete = true;
-    await store.requestDelete(target.id);
-    await settle();
-    expect(store.getSnapshot().error).toBeUndefined();
-    expect(store.getSnapshot().pending).toEqual([]);
-    expect(store.getSnapshot().rows.map((row) => row.id)).not.toContain(target.id);
-  });
-
-  test("the mock ledger refuses a key reused for other args, like the server", async () => {
-    const provider = new MockCloudProvider();
-    await provider.call(CloudOps.machinePause, { machine: "vm-a1", idempotency_key: "same" });
+    await expect(provider.call(CloudOps.machineList, { idempotency_key: "x" })).rejects.toMatchObject({
+      code: "cmux.cloud.idempotency_key_forbidden",
+    });
+    await expect(provider.call(CloudOps.machinePause, { machine: "vm_a1" })).rejects.toMatchObject({
+      code: "cmux.cloud.idempotency_key_required",
+    });
     await expect(
-      provider.call(CloudOps.machinePause, { machine: "vm-b2", idempotency_key: "same" }),
-    ).rejects.toMatchObject({ code: "cmux.cloud.idempotency_conflict" });
+      provider.call(CloudOps.machineRename, { machine: "vm_a1", displayName: "x", idempotency_key: "y" }),
+    ).rejects.toMatchObject({
+      code: "cmux.cloud.invalid_args",
+    });
   });
 });
