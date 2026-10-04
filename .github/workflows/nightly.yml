@@ -1722,10 +1722,18 @@ jobs:
             # Unpublished dogfood builds must work without GitHub release URLs.
             bundle_args+=(--bundle-assets)
           fi
+          # cmux-next bundles the Rust CLI (#16174), which has no classic
+          # `remote-daemon-status` command, so nightly-next checks the manifest
+          # and daemon bytes but skips the bundled-CLI query.
+          if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
+            echo "nightly-next: skipping --verify-cli (Rust CLI has no remote-daemon-status)"
+          else
+            bundle_args+=(--verify-cli)
+          fi
           python3 scripts/verify_remote_daemon_release.py \
             --manifest "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
             --assets-dir remote-daemon-assets \
-            --app "$CHANNEL_APP_PATH" --embed --verify-cli "${bundle_args[@]}"
+            --app "$CHANNEL_APP_PATH" --embed "${bundle_args[@]}"
 
       - name: Import signing cert
         env:
@@ -1824,10 +1832,18 @@ jobs:
           if [[ "$BUNDLE_REMOTE_DAEMON_ASSETS" == "true" ]]; then
             bundle_args+=(--require-bundled-assets)
           fi
+          # cmux-next bundles the Rust CLI (#16174), which has no classic
+          # `remote-daemon-status` command, so nightly-next checks the manifest
+          # and daemon bytes but skips the bundled-CLI query.
+          if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
+            echo "nightly-next: skipping --verify-cli (Rust CLI has no remote-daemon-status)"
+          else
+            bundle_args+=(--verify-cli)
+          fi
           python3 scripts/verify_remote_daemon_release.py \
             --manifest "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
             --assets-dir remote-daemon-assets \
-            --app "$CHANNEL_APP_PATH" --verify-cli "${bundle_args[@]}"
+            --app "$CHANNEL_APP_PATH" "${bundle_args[@]}"
 
       - name: Smoke launch signed app before notarization
         run: |
