@@ -60,16 +60,19 @@ pub(crate) fn list<C: ControlPlane>(
     machine: &str,
     path: &GuestPath,
 ) -> Result<Vec<Entry>, CloudError> {
-        todo!("C5 red: not built yet")
-    }
+    let at = route(machine, "dir", path);
+    let listing: Listing = decode_answer(&at, ctx.call("GET", at.clone(), None)?)?;
+    Ok(listing.entries)
+}
 
 pub(crate) fn stat<C: ControlPlane>(
     ctx: &mut Ctx<'_, C>,
     machine: &str,
     path: &GuestPath,
 ) -> Result<Entry, CloudError> {
-        todo!("C5 red: not built yet")
-    }
+    let at = route(machine, "stat", path);
+    decode_answer(&at, ctx.call("GET", at.clone(), None)?)
+}
 
 /// Reads a whole file of at most [`MAX_READ_BYTES`]. A stat comes first, so
 /// a large file is refused before its bytes cross the relay; the answer is
@@ -79,8 +82,28 @@ pub(crate) fn read<C: ControlPlane>(
     machine: &str,
     path: &GuestPath,
 ) -> Result<Vec<u8>, CloudError> {
-        todo!("C5 red: not built yet")
+    let entry = stat(ctx, machine, path)?;
+    if entry.kind == "directory" {
+        return Err(CloudError::invalid(format!("{} is a directory", path.as_str())));
     }
+    if let Some(size) = entry.size.filter(|s| *s > MAX_READ_BYTES as u64) {
+        return Err(too_large(path.as_str(), size, MAX_READ_BYTES));
+    }
+    let at = route(machine, "read", path);
+    let contents: Contents = decode_answer(&at, ctx.call("GET", at.clone(), None)?)?;
+    // Refuse an oversized answer before decoding it (4 base64 chars = 3 bytes).
+    let estimate = contents.data_base64.len() / 4 * 3;
+    if estimate > MAX_READ_BYTES + 2 {
+        return Err(too_large(path.as_str(), estimate as u64, MAX_READ_BYTES));
+    }
+    let bytes = STANDARD
+        .decode(contents.data_base64.as_bytes())
+        .map_err(|e| CloudError::new(codes::BAD_RESPONSE, format!("{at}: {e}")))?;
+    if bytes.len() > MAX_READ_BYTES {
+        return Err(too_large(path.as_str(), bytes.len() as u64, MAX_READ_BYTES));
+    }
+    Ok(bytes)
+}
 
 /// Writes a whole file (the Cloud API writes it atomically). There is no
 /// revision on the route, so a base revision cannot be checked.
@@ -91,24 +114,35 @@ pub(crate) fn write<C: ControlPlane>(
     bytes: &[u8],
     mode: Option<u32>,
 ) -> Result<(), CloudError> {
-        todo!("C5 red: not built yet")
+    if bytes.len() > MAX_WRITE_BYTES {
+        return Err(too_large("the data", bytes.len() as u64, MAX_WRITE_BYTES));
     }
+    let mut body = json!({ "path": path.as_str(), "dataBase64": STANDARD.encode(bytes) });
+    if let Some(mode) = mode {
+        body["mode"] = json!(mode);
+    }
+    ctx.call("POST", format!("/api/vm/{machine}/fs/write"), Some(body))?;
+    Ok(())
+}
 
 pub(crate) fn mkdir<C: ControlPlane>(
     ctx: &mut Ctx<'_, C>,
     machine: &str,
     path: &GuestPath,
 ) -> Result<(), CloudError> {
-        todo!("C5 red: not built yet")
-    }
+    let body = json!({ "path": path.as_str() });
+    ctx.call("POST", format!("/api/vm/{machine}/fs/mkdir"), Some(body))?;
+    Ok(())
+}
 
 pub(crate) fn remove<C: ControlPlane>(
     ctx: &mut Ctx<'_, C>,
     machine: &str,
     path: &GuestPath,
 ) -> Result<(), CloudError> {
-        todo!("C5 red: not built yet")
-    }
+    ctx.call("DELETE", route(machine, "remove", path), None)?;
+    Ok(())
+}
 
 /// The catalog ops `cloud.fs.list|stat|read|write|mkdir|remove`.
 pub(crate) fn run<C: ControlPlane>(
@@ -116,8 +150,43 @@ pub(crate) fn run<C: ControlPlane>(
     name: &str,
     raw: &Value,
 ) -> Result<Value, CloudError> {
-        todo!("C5 red: not built yet")
+    let allowed: &[&str] = match name {
+        "cloud.fs.write" => &["machine", "path", "dataBase64", "mode", "baseRevision"],
+        _ => &["machine", "path"],
+    };
+    let map = args::object(raw, allowed)?;
+    let machine = args::id(map, "machine")?;
+    let path = guest_arg(map, "path")?;
+    match name {
+        "cloud.fs.list" => {
+            Ok(json!({ "path": path.as_str(), "entries": list(ctx, machine, &path)? }))
+        }
+        "cloud.fs.stat" => {
+            let mut entry = stat(ctx, machine, &path)?;
+            entry.path.get_or_insert_with(|| path.as_str().to_owned());
+            Ok(json!(entry))
+        }
+        "cloud.fs.read" => {
+            let bytes = read(ctx, machine, &path)?;
+            Ok(json!({ "path": path.as_str(), "dataBase64": STANDARD.encode(&bytes),
+                "size": bytes.len() }))
+        }
+        "cloud.fs.write" => {
+            let (bytes, mode) = write_args(map)?;
+            write(ctx, machine, &path, &bytes, mode)?;
+            Ok(json!({ "ok": true, "path": path.as_str(), "size": bytes.len() }))
+        }
+        "cloud.fs.mkdir" => {
+            mkdir(ctx, machine, &path)?;
+            Ok(json!({ "ok": true, "path": path.as_str() }))
+        }
+        "cloud.fs.remove" => {
+            remove(ctx, machine, &path)?;
+            Ok(json!({ "ok": true, "path": path.as_str() }))
+        }
+        _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
     }
+}
 
 fn write_args(map: &Map<String, Value>) -> Result<(Vec<u8>, Option<u32>), CloudError> {
     if map.get("baseRevision").is_some_and(|v| !v.is_null()) {
