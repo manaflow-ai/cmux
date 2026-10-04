@@ -26,21 +26,12 @@ extension TerminalSession {
         guard let lane = surfaceView.lane else { return false }
         switch phase {
         case .ready:
+            // ghostty-next applies this surface's palette, default colors and
+            // cursor defaults to the restored terminal itself (local policy,
+            // GhosttyNextKit 68ac618db), keeping the program's overrides.
             lane.restoreSnapshot(data, phase: GHOSTTY_SURFACE_SNAPSHOT_READY)
-            // The restored terminal carries the owner's default palette and
-            // colors (ghostty-next keeps the snapshot's colors and applies
-            // only this surface's limits). This surface's config owns the
-            // defaults: re-apply it once the restore ran, which keeps the
-            // program's OSC overrides (`changeConfig` changes defaults only).
-            // The renderer can draw one frame in the owner's palette before
-            // this lands (known flash; the fix belongs in ghostty-next's
-            // restore, which applies only local limits today).
             await lane.drained()
-            guard lane.lastReadyRestored else { return false }
-            if let surface = surfaceView.surface, let config = theme?.config ?? GhosttyRuntime.shared.config {
-                ghostty_surface_update_config(surface, config)
-            }
-            return true
+            return lane.lastReadyRestored
         case .history:
             await lane.waitForCapacity()
             surfaceView.lane?.restoreSnapshot(data, phase: GHOSTTY_SURFACE_SNAPSHOT_HISTORY)
