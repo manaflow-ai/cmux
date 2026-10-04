@@ -289,7 +289,9 @@ fn two_turns_and_two_nodes_through_local_acp() {
     for i in 0..1_300 {
         chat.append(
             Kind::Note,
-            &format!("note {i:04}: the build cache for project {i} lives in /srv/cache/{i} on host b{i}"),
+            &format!(
+                "note {i:04}: the build cache for project {i} lives in /srv/cache/{i} on host b{i}"
+            ),
         )
         .unwrap();
     }
@@ -369,7 +371,11 @@ fn two_turns_and_two_nodes_through_local_acp() {
         chat.append(Kind::User, &text).unwrap();
         let (blocks, system_prompt, preset) = if claude {
             let layout = cached_layout(&system, &view, &text, true);
-            (layout.blocks, Some(layout.system), Some(turn_preset.clone()))
+            (
+                layout.blocks,
+                Some(layout.system),
+                Some(turn_preset.clone()),
+            )
         } else {
             (turn_blocks(&view, std::slice::from_ref(&text)), None, None)
         };
@@ -402,7 +408,10 @@ fn two_turns_and_two_nodes_through_local_acp() {
         );
         assert_eq!(outcome.error, None);
         assert!(
-            outcome.reply.unwrap_or_default().contains(&format!("ok{n}")),
+            outcome
+                .reply
+                .unwrap_or_default()
+                .contains(&format!("ok{n}")),
             "turn {n} answered"
         );
         assert!(chat.wait_idle(None, Some(Duration::from_secs(120))));
@@ -443,10 +452,7 @@ fn two_turns_and_two_nodes_through_local_acp() {
         };
         let started = std::time::Instant::now();
         let line = run_node(&compactor, &request);
-        println!(
-            "node {k}: {line:?} in {} ms",
-            started.elapsed().as_millis()
-        );
+        println!("node {k}: {line:?} in {} ms", started.elapsed().as_millis());
         assert!(line.is_ok(), "{line:?}");
     }
     // The turn sessions' Claude Code transcripts (claude-sr keeps them in the
