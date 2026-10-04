@@ -63,6 +63,39 @@ struct BrowserReplFetchRedirectTests {
         #expect(headers["accept"] == "application/json", "\(headers)")
     }
 
+    /// A request body past 64 MiB (the response body limit) is refused before
+    /// it is decoded or sent.
+    @Test("A request body past 64 MiB fails before anything is sent")
+    func oversizedRequestBodyIsRefused() async throws {
+        let requests = BrowserReplResponseCounter()
+        let server = try BrowserReplTestHTTPServer { _, _, _ in
+            requests.increment()
+            return (200, [:], Data())
+        }
+        try await server.start()
+        defer { server.stop() }
+        let driver = HeldCookiesDriver()
+        driver.releaseAll()
+        let fetcher = BrowserReplFetcher(driver: driver)
+        defer { fetcher.invalidate() }
+
+        let request: [String: Any] = [
+            "url": "http://127.0.0.1:\(server.port)/upload",
+            "method": "POST",
+            "headers": [] as [[String]],
+            "bodyBase64": Data(count: (64 << 20) + 1).base64EncodedString(),
+            "credentials": "omit",
+        ]
+        let result = await fetcher.fetch(requestJSON: JSONSerialization.browserReplString(request) ?? "{}")
+        guard case .failure(let error) = result else {
+            Issue.record("a 64 MiB + 1 byte request body was sent")
+            return
+        }
+        #expect(error.code == "invalid", "\(error)")
+        #expect(error.message.contains("64 MiB"), "\(error.message)")
+        #expect(requests.count == 0)
+    }
+
     /// Foundation itself drops `Authorization` on every redirect, so only
     /// the custom headers show that a same-origin hop keeps them.
     @Test("A redirect within the origin keeps the request's custom headers")

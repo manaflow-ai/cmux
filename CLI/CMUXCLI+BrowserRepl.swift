@@ -18,11 +18,13 @@ extension CMUXCLI {
                     print(jsonString(payload))
                 } else {
                     let everyWorkspace = params["all_workspaces"] as? Bool == true
+                    // Fields come from whoever made the session (a cwd can
+                    // hold escape sequences): they print visibly, as output does.
                     for session in payload["sessions"] as? [[String: Any]] ?? [] {
-                        let name = session["session"] as? String ?? ""
+                        let name = Self.browserReplTerminalText(session["session"] as? String ?? "")
                         let idle = session["idle_seconds"] as? Int ?? 0
-                        let cwd = session["cwd"] as? String ?? ""
-                        let workspace = session["workspace_id"] as? String ?? ""
+                        let cwd = Self.browserReplTerminalText(session["cwd"] as? String ?? "")
+                        let workspace = Self.browserReplTerminalText(session["workspace_id"] as? String ?? "")
                         print(everyWorkspace ? "\(name)\t\(workspace)\t\(idle)s\t\(cwd)" : "\(name)\t\(idle)s\t\(cwd)")
                     }
                 }
@@ -107,9 +109,22 @@ extension CMUXCLI {
                 _ = try? client.sendV2(method: "browser.repl.reset", params: Self.browserReplWorkspaceScope(of: callParams).merging(["session": session]) { _, new in new })
             }
         }
+        // Lines are bounded like `--eval -` and MCP input: a terminal in raw
+        // mode delivers a line of any length, so a longer one is refused and
+        // skipped to its newline, never buffered whole or sent.
+        var reader = BrowserReplMCPLineReader(maximumLineBytes: Self.maximumEncodedTextBytes)
         while true {
             FileHandle.standardError.write(Data("> ".utf8))
-            guard let line = readLine(strippingNewline: true) else { break }
+            guard let next = reader.nextLine() else { break }
+            guard case .text(var line) = next else {
+                let message = String(
+                    localized: "cli.browser.repl.error.inputTooLarge",
+                    defaultValue: "REPL input is too large"
+                )
+                FileHandle.standardError.write(Data((message + "\n").utf8))
+                continue
+            }
+            if line.hasSuffix("\r") { line.removeLast() }
             if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
             var params = callParams
             params["code"] = line
@@ -313,11 +328,15 @@ extension CMUXCLI {
     }
 
     /// Whether the app refuses `path` as a REPL fs root: `/`, the home
-    /// directory or a directory containing it (`BrowserReplFileSandbox.rootRejection`).
+    /// directory or a directory containing it (`BrowserReplFileSandbox.rootRejection`),
+    /// and the temporary directory (or a parent of it), which holds the
+    /// sessions' private storage (`BrowserReplSession.rootRejection`).
     private static func browserReplCwdIsTooBroad(_ path: String) -> Bool {
         let canonical = (path as NSString).resolvingSymlinksInPath
-        let home = (NSHomeDirectory() as NSString).resolvingSymlinksInPath
-        return canonical == "/" || canonical == home || home.hasPrefix(canonical + "/")
+        let contains = { (other: String) in canonical == other || other.hasPrefix(canonical == "/" ? "/" : canonical + "/") }
+        return canonical == "/"
+            || contains((NSHomeDirectory() as NSString).resolvingSymlinksInPath)
+            || contains((NSTemporaryDirectory() as NSString).resolvingSymlinksInPath)
     }
 
     /// Sends one cell and prints its output, then `[ok | Nms]` or `[error | Nms]`.
@@ -500,6 +519,9 @@ extension CMUXCLI {
 /// Reads newline-delimited lines from a file descriptor (stdin by default)
 /// with a byte cap: a line past the cap is reported as ``Line/tooLong`` and
 /// the rest of it is read and dropped, so memory stays bounded by the cap.
+/// Each byte is searched for a newline once, so a long line arriving in
+/// small reads (a terminal hands over about a kilobyte at a time) costs
+/// time linear in its length.
 struct BrowserReplMCPLineReader {
     enum Line {
         case text(String)
@@ -508,7 +530,11 @@ struct BrowserReplMCPLineReader {
 
     let maximumLineBytes: Int
     private let fileDescriptor: Int32
-    private var pending = Data()
+    private var pending: [UInt8] = []
+    /// How many bytes at the start of `pending` hold no newline.
+    private var searched = 0
+    /// Whether the current line passed the cap; its bytes are dropped.
+    private var discarding = false
     private var chunk = [UInt8](repeating: 0, count: 1 << 16)
     private var atEnd = false
 
@@ -520,23 +546,41 @@ struct BrowserReplMCPLineReader {
     /// The next line without its newline, `.tooLong` for one past the cap,
     /// or `nil` at end of input.
     mutating func nextLine() -> Line? {
-        var discarding = false
         while true {
-            if let newline = pending.firstIndex(of: 0x0A) {
-                let line = pending[pending.startIndex..<newline]
-                pending.removeSubrange(pending.startIndex...newline)
-                if discarding || line.count > maximumLineBytes { return .tooLong }
-                return .text(String(decoding: line, as: UTF8.self))
+            let from = searched
+            let newline: Int? = pending.withUnsafeBufferPointer { buffer in
+                guard from < buffer.count, let base = buffer.baseAddress,
+                      let hit = memchr(base + from, 0x0A, buffer.count - from) else { return nil }
+                return base.distance(to: hit.assumingMemoryBound(to: UInt8.self))
             }
+            if let newline {
+                let tooLong = discarding || newline > maximumLineBytes
+                let text = tooLong ? nil : String(decoding: pending[..<newline], as: UTF8.self)
+                pending.removeSubrange(...newline)
+                searched = 0
+                discarding = false
+                return text.map(Line.text) ?? .tooLong
+            }
+            searched = pending.count
             if pending.count > maximumLineBytes {
                 // Past the cap with no newline yet: keep none of it.
                 pending.removeAll(keepingCapacity: true)
+                searched = 0
                 discarding = true
             }
             if atEnd {
-                if discarding { return .tooLong }
+                if discarding {
+                    // The rest of the long line ended with the input.
+                    discarding = false
+                    pending.removeAll()
+                    searched = 0
+                    return .tooLong
+                }
                 guard !pending.isEmpty else { return nil }
-                defer { pending.removeAll() }
+                defer {
+                    pending.removeAll()
+                    searched = 0
+                }
                 return .text(String(decoding: pending, as: UTF8.self))
             }
             let descriptor = fileDescriptor

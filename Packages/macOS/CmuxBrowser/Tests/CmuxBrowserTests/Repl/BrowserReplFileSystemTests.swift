@@ -512,6 +512,105 @@ struct BrowserReplFileSystemSpecialFileTests {
         #expect(!FileManager.default.fileExists(atPath: scratch.root + "/d.bin"))
     }
 
+    /// Empty files, directories, renames and removals write no bytes, but
+    /// each changes the file system: a session makes at most 100,000 such
+    /// changes, so a loop of them cannot exhaust the volume's entries.
+    @Test("Entry changes (empty writes, mkdir, rename, rm) count against the session's budget")
+    func entryChangesAreBudgeted() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let fs = makeFileSystem(scratch, budget: BrowserReplWriteBudget())
+        #expect(fs.perform("writeFile", arguments: ["path": "a", "base64": ""]).failureCode == "ok")
+        var renamed = 1
+        var refused: String?
+        // Renames add no entry, so the loop leaves the scratch tree small.
+        while renamed <= 100_000 {
+            let (from, to) = renamed % 2 == 1 ? ("a", "b") : ("b", "a")
+            let code = fs.perform("rename", arguments: ["from": from, "to": to]).failureCode
+            if code != "ok" {
+                refused = code
+                break
+            }
+            renamed += 1
+        }
+        #expect(refused == "EDQUOT", "\(renamed) changes were made without a limit")
+        #expect(renamed <= 100_000)
+        for (op, arguments) in [
+            ("writeFile", ["path": "c", "base64": ""] as [String: Any]),
+            ("mkdir", ["path": "d"]),
+            ("rm", ["path": renamed % 2 == 1 ? "a" : "b"]),
+        ] {
+            #expect(fs.perform(op, arguments: arguments).failureCode == "EDQUOT", "\(op) was not counted")
+        }
+        #expect(!FileManager.default.fileExists(atPath: scratch.root + "/c"))
+        #expect(!FileManager.default.fileExists(atPath: scratch.root + "/d"))
+    }
+
+    /// `readdir` and `rm -r` run on the session's thread; on a large tree a
+    /// cell that timed out (or a session that closed) must not wait for the
+    /// whole traversal.
+    @Test("A cancelled readdir or recursive rm of a large directory stops")
+    func cancelledTraversalStops() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let big = scratch.root + "/big"
+        try FileManager.default.createDirectory(atPath: big + "/nested", withIntermediateDirectories: true)
+        for index in 0..<3000 {
+            #expect(FileManager.default.createFile(atPath: big + "/f\(index)", contents: nil))
+        }
+        let fs = makeFileSystem(scratch, budget: BrowserReplWriteBudget(), isCancelled: { true })
+
+        #expect(fs.perform("readdir", arguments: ["path": "big"]).failureCode == "ECANCELED")
+        #expect(fs.perform("rm", arguments: ["path": "big", "recursive": true]).failureCode == "ECANCELED")
+        #expect(FileManager.default.fileExists(atPath: big))
+        // Small ones still finish: the check is between chunks of entries.
+        try FileManager.default.createDirectory(atPath: scratch.root + "/small/inner", withIntermediateDirectories: true)
+        #expect(fs.perform("readdir", arguments: ["path": "small"]).failureCode == "ok")
+    }
+
+    /// A root that does not exist yet is opened (and made, by `mkdir -p`)
+    /// only when an operation first needs it. Another session whose root is
+    /// above it can move a link it holds into the place of the root's
+    /// parent before then; the root must not be made or opened through it.
+    @Test("A missing root whose parent became a link is neither made nor opened through it")
+    func missingRootThroughSwappedParentIsRefused() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let fs = BrowserReplFileSystem(
+            sandbox: BrowserReplFileSandbox(root: scratch.root + "/a/b"),
+            temporaryDirectory: scratch.base + "/tmp"
+        )
+        // The link another session moved into place (fs.rename keeps a link a link).
+        try FileManager.default.createSymbolicLink(atPath: scratch.root + "/a", withDestinationPath: scratch.outside)
+
+        let made = fs.perform("mkdir", arguments: ["path": ".", "recursive": true])
+        let wrote = fs.perform("writeFile", arguments: ["path": "x.txt", "base64": Data("x".utf8).base64EncodedString()])
+        let read = fs.perform("readFile", arguments: ["path": "../secret.txt"])
+
+        #expect(made.failureCode == "EACCES", "\(made)")
+        #expect(wrote.failureCode != "ok")
+        #expect(read.failureCode != "ok")
+        #expect(!FileManager.default.fileExists(atPath: scratch.outside + "/b"))
+    }
+
+    @Test("A root that exists is held from a walk that follows no link, also when a parent is a link by then")
+    func existingRootThroughSwappedParentIsRefused() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        try FileManager.default.createDirectory(atPath: scratch.outside + "/b", withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: scratch.root + "/a/b", withIntermediateDirectories: true)
+        let sandbox = BrowserReplFileSandbox(root: scratch.root + "/a/b")
+        // Swapped after the path was resolved, before the fs opens it.
+        try FileManager.default.removeItem(atPath: scratch.root + "/a")
+        try FileManager.default.createSymbolicLink(atPath: scratch.root + "/a", withDestinationPath: scratch.outside)
+        let fs = BrowserReplFileSystem(sandbox: sandbox, temporaryDirectory: scratch.base + "/tmp")
+
+        let wrote = fs.perform("writeFile", arguments: ["path": "x.txt", "base64": Data("x".utf8).base64EncodedString()])
+
+        #expect(wrote.failureCode == "EACCES", "\(wrote)")
+        #expect(!FileManager.default.fileExists(atPath: scratch.outside + "/b/x.txt"))
+    }
+
     @Test("A cancelled copy or write stops between chunks and a copy leaves no file")
     func cancelledCopyStops() throws {
         let scratch = try Scratch()

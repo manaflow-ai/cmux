@@ -160,7 +160,7 @@ struct BrowserReplSessionResourceTests {
     private func makeSession(_ driver: any BrowserReplDriver) -> BrowserReplSession {
         BrowserReplSession(
             id: "resources-\(UUID().uuidString)",
-            cwd: FileManager.default.temporaryDirectory.path,
+            cwd: browserReplTestWorkingDirectory,
             bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "resources.js", source: resourceRuntime)], agentScripts: []),
             driver: driver
         )
@@ -175,7 +175,7 @@ struct BrowserReplSessionResourceTests {
         let cap = 100
         let session = BrowserReplSession(
             id: "timers-\(UUID().uuidString)",
-            cwd: FileManager.default.temporaryDirectory.path,
+            cwd: browserReplTestWorkingDirectory,
             bundle: try browserReplRepositoryBundle(),
             driver: HeldCookiesDriver(),
             maxPendingTimers: cap
@@ -241,6 +241,74 @@ struct BrowserReplSessionResourceTests {
         let spilled = try String(contentsOfFile: path, encoding: .utf8)
         #expect(spilled.hasSuffix("last\n"))
         #expect(lines.contains { $0.text.hasPrefix("# output continues in ") })
+    }
+
+    /// Output that reaches the native print past what the session keeps in
+    /// memory goes to a spill file, but the runtime's output gate is not the
+    /// only way there (the runtime's own error reports, a script holding the
+    /// host): the spill stops at 64 MiB per cell and counts against the
+    /// session's fs budget, so a script cannot fill the disk through it.
+    @Test("Native output past the spill ceiling is dropped instead of written")
+    func nativeSpillIsBounded() async throws {
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-spill-\(UUID().uuidString)").path
+        try FileManager.default.createDirectory(atPath: scratch + "/work", withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scratch) }
+        let session = BrowserReplSession(
+            id: "spill-\(UUID().uuidString)",
+            cwd: scratch + "/work",
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "resources.js", source: resourceRuntime)], agentScripts: []),
+            driver: HeldCookiesDriver(),
+            temporaryDirectory: scratch
+        )
+        defer { session.close() }
+
+        // 112 MiB straight to the native host: 16 MiB kept, the rest spilled.
+        let result = await browserReplWithDeadline(seconds: 180) {
+            await session.evaluate(code: """
+            const line = "x".repeat(1 << 20);
+            for (let i = 0; i < 112; i++) native.print("log", line);
+            native.print("log", "last");
+            """, timeout: .seconds(170))
+        }
+        let lines = try #require(result?.lines)
+        let continues = try #require(lines.first { $0.text.hasPrefix("# output continues in ") }?.text)
+        let path = String(continues.dropFirst("# output continues in ".count))
+        let size = try #require(try FileManager.default.attributesOfItem(atPath: path)[.size] as? NSNumber).intValue
+        #expect(size <= 64 << 20, "the spill file grew to \(size) bytes")
+        #expect(lines.contains { $0.text.contains("dropped") }, "\(lines.suffix(3).map(\.text))")
+    }
+
+    /// A page controls its events (console messages, errors, requests),
+    /// and they queue for the session's thread while it is busy. They are
+    /// bounded where they arrive, by count and bytes, not only once they
+    /// wait for the callback budget, so a page cannot fill memory with them.
+    @Test("Page events queued for a busy session are bounded by bytes where they arrive")
+    func queuedPageEventsAreBounded() async throws {
+        let driver = RecordingReplDriver()
+        let runtime = resourceRuntime + #"""
+        globalThis.__cmuxHostOnEvent = (name, payload) => { globalThis.eventCount = (globalThis.eventCount || 0) + 1; };
+        """#
+        let session = BrowserReplSession(
+            id: "events-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "events.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer { session.close() }
+        // The first cell makes the context and attaches the driver's events.
+        #expect(await session.evaluate(code: "globalThis.eventCount = 0;").error == nil)
+
+        let busy = DispatchSemaphore(value: 0)
+        #expect(session.thread.perform { busy.wait() })
+        let payload = "\"" + String(repeating: "x", count: 1 << 20) + "\""
+        for _ in 0..<100 { driver.emit("console", payload) }
+        busy.signal()
+
+        let result = await session.evaluate(code: "console.log(globalThis.eventCount);")
+        let texts = result.lines.map(\.text)
+        let delivered = Int(texts.last ?? "") ?? -1
+        #expect(delivered >= 1 && delivered <= 64, "\(delivered) of 100 one-MiB events were queued: \(texts)")
+        #expect(texts.contains { $0.contains("page events were dropped") }, "\(texts)")
     }
 
     @Test("A cell that times out cancels the fetches it started")

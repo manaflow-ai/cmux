@@ -72,7 +72,7 @@ struct BrowserReplSessionTests {
     ) -> BrowserReplSession {
         BrowserReplSession(
             id: "test-\(UUID().uuidString)",
-            cwd: cwd ?? FileManager.default.temporaryDirectory.path,
+            cwd: cwd ?? browserReplTestWorkingDirectory,
             bundle: BrowserReplRuntimeBundle(
                 replScripts: [.init(name: "stub.js", source: stubRuntime)],
                 agentScripts: []
@@ -201,6 +201,49 @@ struct BrowserReplSessionTests {
         let next = await session.evaluate(code: "console.log('ran');")
         #expect(next.error == nil)
         #expect(next.lines == [BrowserReplOutputLine(level: "log", text: "ran")])
+    }
+
+    /// Every session's private directories (its own cwd when it was started
+    /// without one, its `os.tmpdir()` with spilled output and captures) and
+    /// the browser's downloads are under the app's temporary directory. A
+    /// session rooted at that directory, or at one of those, would reach
+    /// other sessions' files through fs, so it is refused; a session still
+    /// works in its own directories.
+    @Test("A cwd that is or holds the REPL's private storage, or is inside another session's directory, is refused")
+    func workingDirectoryOverPrivateStorageIsRefused() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-session-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base.appendingPathComponent("cmux-downloads"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let root = BrowserReplFileSandbox.canonicalize(base.path)
+        func make(_ id: String, cwd: String?) -> BrowserReplSession {
+            BrowserReplSession(
+                id: id,
+                cwd: cwd,
+                bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "stub.js", source: stubRuntime)], agentScripts: []),
+                driver: RecordingReplDriver(),
+                temporaryDirectory: root
+            )
+        }
+        let other = make("other", cwd: nil)
+        defer { other.close() }
+        let otherTemporary = await other.evaluate(code: "console.log(native.tmpdir);").lines.first?.text ?? "?"
+
+        for cwd in [root, root + "/", root + "/cmux-browser-repl", other.cwd, otherTemporary, otherTemporary + "/sub", root + "/cmux-downloads"] {
+            let session = make("probe", cwd: cwd)
+            defer { session.close() }
+            let refused = await session.evaluate(code: "console.log('ran');")
+            #expect(refused.lines.isEmpty, "\(cwd)")
+            #expect(refused.error?.contains("refusing to use") == true, "\(cwd): \(refused.error ?? "ran")")
+        }
+
+        // Its own directories are fine, also when it moves into them.
+        let own = make("own", cwd: nil)
+        defer { own.close() }
+        #expect(await own.evaluate(code: "console.log('ran');").error == nil)
+        let ownTemporary = await own.evaluate(code: "console.log(native.tmpdir);").lines.first?.text ?? "?"
+        #expect(await own.evaluate(code: "console.log('ran');", cwd: ownTemporary).error == nil)
+        let moved = await own.evaluate(code: "console.log('ran');", cwd: root)
+        #expect(moved.error?.contains("refusing to use") == true, "\(moved.error ?? "ran")")
     }
 
     @Test("A session created with / as its working directory refuses to evaluate")
@@ -404,7 +447,7 @@ struct BrowserReplSessionTests {
     func missingExecutionLimitRefusesCells() async throws {
         let session = BrowserReplSession(
             id: "unguarded",
-            cwd: FileManager.default.temporaryDirectory.path,
+            cwd: browserReplTestWorkingDirectory,
             bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "stub.js", source: stubRuntime)], agentScripts: []),
             driver: RecordingReplDriver(),
             executionTimeLimitSupported: false

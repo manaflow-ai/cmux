@@ -92,6 +92,14 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// fs calls go there whatever happens to its path.
     private let privateTemporaryDescriptor: BrowserReplDescriptor?
     private let homeDirectory: String
+    /// Where sessions keep private files under the app's temporary
+    /// directory (`cmux-browser-repl`) and where the browser puts downloads
+    /// (`cmux-downloads`, see `BrowserPanel.tempDir`): a working directory
+    /// that is, holds or is inside one of them is refused, except the
+    /// session's own directories.
+    private let privateStorageRoots: [String]
+    /// What the session's fs, and its output spill files, may still write.
+    private let writeBudget: BrowserReplWriteBudget
 
     // JS-thread state.
     private var context: JSContext?
@@ -120,11 +128,25 @@ public final class BrowserReplSession: @unchecked Sendable {
 
     private enum HeldCallback {
         case timer(Int)
-        case event(name: String, payload: String)
+        /// `reserved`: what the event holds of the queued-event budget.
+        case event(name: String, payload: String, reserved: Int)
     }
 
     /// The most page events held back at once; past it the oldest go.
     static let maxHeldEvents = 10_000
+
+    /// The most page events queued for the session's thread or held back
+    /// at once, and the most bytes they hold; an event past either is
+    /// dropped where it arrives, before it is queued.
+    static let maxQueuedEvents = 10_000
+    static let maxQueuedEventBytes = 64 << 20
+
+    /// Page events queued or held, their bytes, and those dropped where
+    /// they arrived since the last cell's notice; guarded by `eventLock`.
+    private let eventLock = NSLock()
+    private var queuedEvents = 0
+    private var queuedEventBytes = 0
+    private var eventsDroppedOnArrival = 0
 
     /// One evaluation's result. It is finished exactly once: by the JS
     /// thread when the cell settles, or from outside it by the timeout or
@@ -132,7 +154,9 @@ public final class BrowserReplSession: @unchecked Sendable {
     ///
     /// Past `maxRetainedOutputBytes` of output, whatever reaches the native
     /// print (the runtime's own gate stops well before that), the rest goes
-    /// to `<tmpdir>/output-<id>.txt` instead of memory.
+    /// to `<tmpdir>/output-<id>.txt` instead of memory, at most
+    /// `maxSpilledOutputBytes` of it and only while the session's fs budget
+    /// lasts; output past that is dropped.
     private final class EvalState: @unchecked Sendable {
         let id: Int
         let start = ContinuousClock.now
@@ -148,14 +172,24 @@ public final class BrowserReplSession: @unchecked Sendable {
         private var spillPath: String?
         private var retainedBytes = 0
         private var spilledBytes = 0
+        /// Bytes written to the spill file.
+        private var writtenBytes = 0
         private var spill: FileHandle?
         private var spilling = false
+        /// What spill writes take from: the session's fs budget.
+        private let spillBudget: BrowserReplWriteBudget
 
         /// - Parameter spillDirectory: The session's temporary directory,
         ///   held open (nil when it could not be made: output past the
         ///   ceiling is then dropped), with its path when it was made.
-        init(id: Int, spillDirectory: (path: String, descriptor: BrowserReplDescriptor?), continuation: CheckedContinuation<BrowserReplEvalResult, Never>) {
+        init(
+            id: Int,
+            spillDirectory: (path: String, descriptor: BrowserReplDescriptor?),
+            spillBudget: BrowserReplWriteBudget,
+            continuation: CheckedContinuation<BrowserReplEvalResult, Never>
+        ) {
             self.id = id
+            self.spillBudget = spillBudget
             self.spillDirectory = spillDirectory.descriptor
             self.spillDirectoryPath = spillDirectory.path
             self.spillName = "output-\(id).txt"
@@ -206,7 +240,21 @@ public final class BrowserReplSession: @unchecked Sendable {
                     ))
                 }
                 spilledBytes += size
-                try? spill?.write(contentsOf: Data((line.text + "\n").utf8))
+                guard let file = spill else { return }
+                // Past the ceiling, or the session's fs budget, the rest is
+                // dropped: the spill file never fills the disk.
+                guard writtenBytes + size <= BrowserReplSession.maxSpilledOutputBytes,
+                      (try? spillBudget.take(size, syscall: "write", display: spillName, callBytes: 0)) != nil else {
+                    try? file.close()
+                    spill = nil
+                    lines.append(BrowserReplOutputLine(
+                        level: "info",
+                        text: "# output past \(writtenBytes) bytes in \(spillPath ?? spillName) was dropped: a cell spills at most \(BrowserReplSession.maxSpilledOutputBytes >> 20) MiB, within the session's fs budget"
+                    ))
+                    return
+                }
+                writtenBytes += size
+                try? file.write(contentsOf: Data((line.text + "\n").utf8))
             }
         }
 
@@ -216,7 +264,8 @@ public final class BrowserReplSession: @unchecked Sendable {
             try? spill?.close()
             spill = nil
             let total = retainedBytes + spilledBytes
-            let destination = spillPath.map { "full output: \($0)" } ?? "the rest was dropped"
+            let complete = writtenBytes == spilledBytes
+            let destination = spillPath.map { complete ? "full output: \($0)" : "its first \(writtenBytes) bytes past that: \($0)" } ?? "the rest was dropped"
             return BrowserReplOutputLine(
                 level: "info",
                 text: "# output truncated: \(retainedBytes) of \(total) bytes shown; \(destination)"
@@ -290,6 +339,10 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// The most output, in UTF-8 bytes, one evaluation keeps in memory; the
     /// rest goes to a file in the session's temporary directory.
     static let maxRetainedOutputBytes = 16 << 20
+
+    /// The most output, in UTF-8 bytes, one evaluation writes to its spill
+    /// file; the rest is dropped.
+    static let maxSpilledOutputBytes = 64 << 20
 
     /// A tracked task, and the evaluation that was running when it started.
     private struct InFlightWork {
@@ -385,6 +438,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             ownedWorkingDirectory = resolvedCwd
         }
         (privateTemporaryDirectory, privateTemporaryDescriptor) = Self.makeSessionDirectory(id: id, temporaryRoot: temporaryRoot, suffix: "-tmp")
+        privateStorageRoots = ["cmux-browser-repl", "cmux-downloads"].map { (temporaryRoot == "/" ? "" : temporaryRoot) + "/" + $0 }
         self.id = id
         self.workingDirectory = resolvedCwd
         self.homeDirectory = homeDirectory ?? NSHomeDirectory()
@@ -396,12 +450,14 @@ public final class BrowserReplSession: @unchecked Sendable {
         let watchdog = BrowserReplWatchdog(callbackTimeLimit: callbackTimeLimit, supported: executionTimeLimitSupported)
         self.watchdog = watchdog
         self.fetcher = BrowserReplFetcher(driver: driver)
+        let writeBudget = BrowserReplWriteBudget()
+        self.writeBudget = writeBudget
         self.fileSystem = BrowserReplFileSystem(
             sandbox: BrowserReplFileSandbox(root: resolvedCwd),
             temporaryDirectory: privateTemporaryDirectory,
             rootDescriptor: cwdDescriptor,
             temporaryDescriptor: privateTemporaryDescriptor,
-            writeBudget: BrowserReplWriteBudget(),
+            writeBudget: writeBudget,
             // A cell's timeout and close() ask the watchdog to stop the
             // running script; a long fs write or copy stops with it.
             isCancelled: { watchdog.isTerminationRequested }
@@ -518,7 +574,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             var refusal: String?
             if closed {
                 refusal = "Error: REPL session '\(id)' is closed"
-            } else if let reason = BrowserReplFileSandbox.rootRejection(cwd ?? workingDirectory, homeDirectory: homeDirectory) {
+            } else if let reason = rootRejection(cwd ?? workingDirectory) {
                 refusal = "Error: \(reason)"
             }
             if let refusal {
@@ -531,6 +587,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             let state = EvalState(
                 id: nextEvalID,
                 spillDirectory: (privateTemporaryDirectory, privateTemporaryDescriptor),
+                spillBudget: writeBudget,
                 continuation: continuation
             )
             currentEval = state
@@ -553,6 +610,26 @@ public final class BrowserReplSession: @unchecked Sendable {
                 self?.timeOut(state, after: timeout)
             })
         }
+    }
+
+    /// Why `root` cannot be this session's working directory, or nil: `/`,
+    /// the home directory and its parents
+    /// (``BrowserReplFileSandbox/rootRejection(_:homeDirectory:)``), and a
+    /// directory that is, holds or is inside the sessions' private storage
+    /// or the browser's downloads, which fs would reach (another session's
+    /// spilled output, captures and downloads), unless it is one of this
+    /// session's own directories.
+    private func rootRejection(_ root: String) -> String? {
+        if let reason = BrowserReplFileSandbox.rootRejection(root, homeDirectory: homeDirectory) { return reason }
+        let canonical = BrowserReplFileSandbox.canonicalize(BrowserReplFileSandbox.lexicallyNormalized(root))
+        let own = [ownedWorkingDirectory, privateTemporaryDirectory].compactMap { $0 }
+        if own.contains(where: { canonical == $0 || canonical.hasPrefix($0 + "/") }) { return nil }
+        let prefix = canonical == "/" ? "/" : canonical + "/"
+        for storage in privateStorageRoots where canonical == storage || storage.hasPrefix(prefix) || canonical.hasPrefix(storage + "/") {
+            return "refusing to use '\(root)' as the REPL working directory: fs would reach \(storage), where browser REPL sessions keep their private files and the browser its downloads. "
+                + "cd to a project or scratch directory (for example cd \"$(mktemp -d)\") and run the command again"
+        }
+        return nil
     }
 
     /// Stops timers, cancels in-flight driver calls and fetches, detaches
@@ -853,7 +930,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         if case .event = callback {
             if heldEventCount >= Self.maxHeldEvents,
                let oldest = heldCallbacks.firstIndex(where: { if case .event = $0 { true } else { false } }) {
-                heldCallbacks.remove(at: oldest)
+                if case .event(_, _, let reserved) = heldCallbacks.remove(at: oldest) { releaseEvent(reserved) }
                 heldEventCount -= 1
                 eventsDropped += 1
             }
@@ -884,6 +961,7 @@ public final class BrowserReplSession: @unchecked Sendable {
     private func releaseOneHeldCallback() {
         guard !heldCallbacks.isEmpty else { return }
         guard let context, !isClosedNow, let entryPoints else {
+            for case .event(_, _, let reserved) in heldCallbacks { releaseEvent(reserved) }
             heldCallbacks.removeAll()
             heldEventCount = 0
             return
@@ -898,8 +976,9 @@ public final class BrowserReplSession: @unchecked Sendable {
             if let handler = entryPoints.onTimer {
                 enter(context, firedTimer: id) { _ = handler.call(withArguments: [id]) }
             }
-        case .event(let name, let payload):
+        case .event(let name, let payload, let reserved):
             heldEventCount -= 1
+            releaseEvent(reserved)
             if let handler = entryPoints.onEvent {
                 enter(context) { _ = handler.call(withArguments: [name, payload]) }
             }
@@ -943,8 +1022,15 @@ public final class BrowserReplSession: @unchecked Sendable {
         if callbacksHeld > 0 {
             lines.append("cmux browser repl: \(callbacksHeld) timer or event callbacks between cells waited, because callbacks outside a cell may use at most 10% of the session's JavaScript time (and \(limit) at once); those still waiting run during this cell")
         }
+        let droppedOnArrival = eventLock.withLock {
+            defer { eventsDroppedOnArrival = 0 }
+            return eventsDroppedOnArrival
+        }
         if eventsDropped > 0 {
             lines.append("cmux browser repl: \(eventsDropped) page events were dropped because \(Self.maxHeldEvents) were already waiting")
+        }
+        if droppedOnArrival > 0 {
+            lines.append("cmux browser repl: \(droppedOnArrival) page events were dropped because \(Self.maxQueuedEvents) events or \(Self.maxQueuedEventBytes >> 20) MiB of them were already waiting for the session's thread")
         }
         callbacksStopped = 0
         callbacksHeld = 0
@@ -1194,7 +1280,13 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
         let fetch: @convention(block) (JSValue?, JSValue?) -> Void = { [weak self] callID, request in
             guard let self, let callID = callID?.toInt32() else { return }
-            if let refusal = self.startOrQueueFetch(callID: Int(callID), requestJSON: request?.toString() ?? "{}") {
+            let requestJSON = request?.toString() ?? "{}"
+            // An oversized body is refused before it waits in the queue.
+            if let refusal = BrowserReplFetcher.oversizedRequest(requestJSON) {
+                self.resolveCall(Int(callID), .failure(refusal))
+                return
+            }
+            if let refusal = self.startOrQueueFetch(callID: Int(callID), requestJSON: requestJSON) {
                 self.resolveCall(Int(callID), .failure(refusal))
             }
         }
@@ -1345,22 +1437,55 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
     }
 
+    /// Queues a page event for the session's thread. Past
+    /// `maxQueuedEvents` events or `maxQueuedEventBytes` bytes queued or
+    /// held, it is dropped here, before anything holds it, and the next
+    /// cell says so; a finished download still becomes readable.
     private func deliverEvent(name: String, payloadJSON: String) {
-        thread.perform { [weak self] in
-            guard let self else { return }
-            if name == "download.finished",
-               let path = JSONSerialization.browserReplObject(payloadJSON)["path"] as? String {
-                self.fileSystem.sandbox.allowReading(path)
+        let reserved = name.utf8.count + payloadJSON.utf8.count
+        let admitted: Bool = eventLock.withLock {
+            guard queuedEvents < Self.maxQueuedEvents, queuedEventBytes + reserved <= Self.maxQueuedEventBytes else {
+                eventsDroppedOnArrival += 1
+                return false
             }
-            guard let context = self.context, !self.isClosedNow, let handler = self.entryPoints?.onEvent else { return }
+            queuedEvents += 1
+            queuedEventBytes += reserved
+            return true
+        }
+        let downloadPath = name == "download.finished"
+            ? JSONSerialization.browserReplObject(payloadJSON)["path"] as? String
+            : nil
+        guard admitted else {
+            if let downloadPath {
+                thread.perform { [weak self] in self?.fileSystem.sandbox.allowReading(downloadPath) }
+            }
+            return
+        }
+        let queued = thread.perform { [weak self] in
+            guard let self else { return }
+            if let downloadPath { self.fileSystem.sandbox.allowReading(downloadPath) }
+            guard let context = self.context, !self.isClosedNow, let handler = self.entryPoints?.onEvent else {
+                self.releaseEvent(reserved)
+                return
+            }
             // An event masking would grow past the limit arrives without its payload.
             let payload = (try? self.boundary.redactJSON(payloadJSON))
                 ?? (JSONSerialization.browserReplString(["withheld": BrowserReplSecretStore.limitMessage(payloadJSON.utf8.count)]) ?? "{}")
             if self.mustHoldCallback {
-                self.hold(.event(name: name, payload: payload))
+                self.hold(.event(name: name, payload: payload, reserved: reserved))
                 return
             }
+            self.releaseEvent(reserved)
             self.enter(context) { _ = handler.call(withArguments: [name, payload]) }
+        }
+        if !queued { releaseEvent(reserved) }
+    }
+
+    /// An event left the queue (delivered or dropped): its budget is free.
+    private func releaseEvent(_ reserved: Int) {
+        eventLock.withLock {
+            queuedEvents -= 1
+            queuedEventBytes -= reserved
         }
     }
 }

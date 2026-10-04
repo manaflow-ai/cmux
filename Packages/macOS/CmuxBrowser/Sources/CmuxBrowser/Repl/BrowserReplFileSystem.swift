@@ -148,6 +148,9 @@ public struct BrowserReplFileSystem: Sendable {
             guard let name = location.name else { throw Self.isDirectoryError }
             let append = arguments["append"] as? Bool == true
             // Refused before the file is opened, so an existing file is kept.
+            // A new file is an entry change; writing or appending to one
+            // that is there (an output spill file, line by line) is not.
+            if (try? location.status()) == nil { try writeBudget.takeEntryChange(syscall: "write", display: display) }
             try writeBudget.take(data.count, syscall: "write", display: display)
             // Truncated only once it is known to be a regular file.
             let flags = O_WRONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK | O_NOCTTY | (append ? O_APPEND : 0)
@@ -171,6 +174,7 @@ public struct BrowserReplFileSystem: Sendable {
                 if recursive { return NSNull() }
                 throw BrowserReplFileSystemError(code: "EEXIST", message: "EEXIST: file already exists, mkdir '\(display)'")
             }
+            try writeBudget.takeEntryChange(syscall: "mkdir", display: display)
             if mkdirat(location.directory.fd, name, 0o777) != 0 {
                 let number = errno
                 if number == EEXIST, recursive, (try? location.status())?.isDirectory == true { return NSNull() }
@@ -180,7 +184,7 @@ public struct BrowserReplFileSystem: Sendable {
         case "readdir":
             let display = try raw("path")
             let directory = try openDirectory(try locate(.read), display: display)
-            return try Self.entries(of: directory).map { entry -> [String: Any] in
+            return try Self.entries(of: directory, display: display, isCancelled: isCancelled).map { entry -> [String: Any] in
                 ["name": entry.name, "type": entry.type]
             }
         case "stat":
@@ -194,6 +198,7 @@ public struct BrowserReplFileSystem: Sendable {
                 throw BrowserReplFileSystemError(code: "EACCES", message: "EACCES: refusing to remove the REPL working directory")
             }
             let force = arguments["force"] as? Bool ?? false
+            try writeBudget.takeEntryChange(syscall: "rm", display: display)
             let status: FileStatus
             do {
                 status = try location.status(display: display, syscall: "rm")
@@ -202,7 +207,7 @@ public struct BrowserReplFileSystem: Sendable {
             }
             if status.isDirectory {
                 if arguments["recursive"] as? Bool == true {
-                    try Self.removeTree(in: location.directory, name: name, display: display)
+                    try Self.removeTree(in: location.directory, name: name, display: display, isCancelled: isCancelled)
                 } else if unlinkat(location.directory.fd, name, AT_REMOVEDIR) != 0 {
                     throw Self.posixError(errno, syscall: "rm", display: display)
                 }
@@ -221,6 +226,7 @@ public struct BrowserReplFileSystem: Sendable {
             guard let fromName = from.name, let toName = to.name, !isRoot(from), !isRoot(to) else {
                 throw BrowserReplFileSystemError(code: "EACCES", message: "EACCES: refusing to move or replace the REPL working directory")
             }
+            try writeBudget.takeEntryChange(syscall: "rename", display: "\(try raw("from"))' -> '\(try raw("to"))")
             guard renameat(from.directory.fd, fromName, to.directory.fd, toName) == 0 else {
                 throw Self.posixError(errno, syscall: "rename", display: "\(try raw("from"))' -> '\(try raw("to"))")
             }
@@ -231,6 +237,7 @@ public struct BrowserReplFileSystem: Sendable {
             let (source, size) = try openFile(try locate(.read, key: "from"), display: fromDisplay, syscall: "copyfile")
             let destination = try locate(.write, key: "to")
             guard let name = destination.name else { throw Self.isDirectoryError }
+            if (try? destination.status()) == nil { try writeBudget.takeEntryChange(syscall: "copyfile", display: pair) }
             try writeBudget.take(size, syscall: "copyfile", display: pair)
             // Copy next to the destination, then swap it in, so a failed copy
             // leaves an existing destination untouched.
@@ -355,18 +362,25 @@ public struct BrowserReplFileSystem: Sendable {
 
     /// The root's directory: the one held open since the fs first opened
     /// it, so renaming the root's path away, or putting a link or another
-    /// directory in its place, changes nothing for this fs.
+    /// directory in its place, changes nothing for this fs. It is opened,
+    /// and with `creating` (only `mkdir -p` creates a working directory that
+    /// does not exist yet) made, by a walk from `/` that follows no link,
+    /// so a parent another session swapped for a link since the root was
+    /// resolved is never followed.
     private func openRoot(_ index: Int, creating: Bool) throws -> BrowserReplDescriptor {
         let root = roots[index]
         if let held = rootDirectories.descriptor(at: index, for: root) { return held }
-        var descriptor = BrowserReplRootDirectories.open(root)
-        if descriptor < 0, errno == ENOENT, creating {
-            // The root itself is outside the sandbox's reach; only `mkdir -p`
-            // creates a working directory that does not exist yet.
-            try? FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true)
-            descriptor = BrowserReplRootDirectories.open(root)
+        let descriptor = BrowserReplRootDirectories.open(root, creating: creating)
+        guard descriptor >= 0 else {
+            let number = errno
+            if number == ELOOP {
+                throw BrowserReplFileSystemError(
+                    code: "EACCES",
+                    message: "EACCES: permission denied, the REPL working directory '\(root)' is now reached through a symbolic link, which fs never follows out of it; run the command again from the directory itself"
+                )
+            }
+            throw Self.posixError(number, syscall: "open", display: root)
         }
-        guard descriptor >= 0 else { throw Self.posixError(errno, syscall: "open", display: root) }
         return rootDirectories.hold(BrowserReplDescriptor(descriptor), at: index, for: root)
     }
 
@@ -426,6 +440,7 @@ public struct BrowserReplFileSystem: Sendable {
                 guard number == ENOENT else { throw Self.posixError(number, syscall: "open", display: display) }
                 if isLast { return Location(directory: directory, name: component) }
                 guard creatingDirectories else { throw Self.posixError(ENOENT, syscall: "open", display: display) }
+                try writeBudget.takeEntryChange(syscall: "mkdir", display: display)
                 if mkdirat(directory.fd, component, 0o777) != 0, errno != EEXIST {
                     throw Self.posixError(errno, syscall: "mkdir", display: display)
                 }
@@ -628,9 +643,18 @@ public struct BrowserReplFileSystem: Sendable {
         return BrowserReplDescriptor(descriptor)
     }
 
+    /// How many entries `readdir` and `rm -r` handle between checks for
+    /// cancellation.
+    static let entriesPerCancellationCheck = 1024
+
     /// The entries of an open directory, by name, with their types (a link
-    /// is a `symlink`).
-    static func entries(of directory: BrowserReplDescriptor) throws -> [(name: String, type: String)] {
+    /// is a `symlink`). Stops with `ECANCELED` when `isCancelled` says so,
+    /// checked every ``entriesPerCancellationCheck`` entries.
+    static func entries(
+        of directory: BrowserReplDescriptor,
+        display: String = "",
+        isCancelled: () -> Bool = { false }
+    ) throws -> [(name: String, type: String)] {
         let copy = dup(directory.fd)
         guard copy >= 0, let stream = fdopendir(copy) else {
             let number = errno
@@ -641,6 +665,9 @@ public struct BrowserReplFileSystem: Sendable {
         rewinddir(stream)
         var result: [(name: String, type: String)] = []
         while let entry = readdir(stream) {
+            if !result.isEmpty, result.count % entriesPerCancellationCheck == 0, isCancelled() {
+                throw cancelledError(syscall: "scandir", display: display)
+            }
             let name = withUnsafeBytes(of: entry.pointee.d_name) { raw in
                 String(decoding: raw.prefix(Int(entry.pointee.d_namlen)), as: UTF8.self)
             }
@@ -662,8 +689,21 @@ public struct BrowserReplFileSystem: Sendable {
     /// Removes directory `name` in `parent` and everything in it, following
     /// no link. Holds at most two directories open: it descends by name
     /// from `parent` with `O_NOFOLLOW` at each step, so a deep tree cannot
-    /// use up descriptors.
-    private static func removeTree(in parent: BrowserReplDescriptor, name: String, display: String) throws {
+    /// use up descriptors. Stops with `ECANCELED` when `isCancelled` says
+    /// so, checked every ``entriesPerCancellationCheck`` entries.
+    private static func removeTree(
+        in parent: BrowserReplDescriptor,
+        name: String,
+        display: String,
+        isCancelled: () -> Bool
+    ) throws {
+        var handled = 0
+        func count() throws {
+            handled += 1
+            if handled % entriesPerCancellationCheck == 0, isCancelled() {
+                throw cancelledError(syscall: "rm", display: display)
+            }
+        }
         func open(_ path: ArraySlice<String>) throws -> BrowserReplDescriptor {
             var current = parent
             for component in path {
@@ -677,7 +717,8 @@ public struct BrowserReplFileSystem: Sendable {
         while let last = path.last {
             let directory = try open(path[...])
             var subdirectory: String?
-            for entry in try entries(of: directory) {
+            for entry in try entries(of: directory, display: display, isCancelled: isCancelled) {
+                try count()
                 if entry.type == "directory" {
                     subdirectory = subdirectory ?? entry.name
                 } else if unlinkat(directory.fd, entry.name, 0) != 0, errno != ENOENT {
@@ -747,23 +788,51 @@ public struct BrowserReplFileSystem: Sendable {
 }
 
 /// What a session's fs may still write: at most `perCall` bytes in one
-/// `writeFile` or `copyFile`, and `perSession` in all over the session's
-/// life, so agent code cannot fill the disk. Shared by the fs copies of one
-/// session.
+/// `writeFile` or `copyFile`, `perSession` in all over the session's life,
+/// and `perSessionEntryChanges` changes to entries (a file created by a
+/// write or copy, also an empty one, a directory made, an entry renamed or
+/// removed), so agent code can fill neither the disk nor its entries.
+/// Shared by the fs copies of one session.
 final class BrowserReplWriteBudget: @unchecked Sendable {
     /// The most one `writeFile` (also an append) or `copyFile` writes, 256 MiB.
     static let maximumBytesPerCall = 256 << 20
     /// The most a session's fs writes over its life, 2 GiB.
     static let maximumBytesPerSession = 2 << 30
+    /// The most entry changes a session's fs makes over its life.
+    static let maximumEntryChangesPerSession = 100_000
 
     let perCall: Int
     let perSession: Int
+    let perSessionEntryChanges: Int
     private let lock = NSLock()
     private var written = 0
+    private var entryChanges = 0
 
-    init(perCall: Int = BrowserReplWriteBudget.maximumBytesPerCall, perSession: Int = BrowserReplWriteBudget.maximumBytesPerSession) {
+    init(
+        perCall: Int = BrowserReplWriteBudget.maximumBytesPerCall,
+        perSession: Int = BrowserReplWriteBudget.maximumBytesPerSession,
+        perSessionEntryChanges: Int = BrowserReplWriteBudget.maximumEntryChangesPerSession
+    ) {
         self.perCall = perCall
         self.perSession = perSession
+        self.perSessionEntryChanges = perSessionEntryChanges
+    }
+
+    /// Takes one entry change (a file created, a directory made,
+    /// an entry renamed or removed) from the budget, or throws `EDQUOT`
+    /// when the session made its limit of them.
+    func takeEntryChange(syscall: String, display: String) throws {
+        let taken: Bool = lock.withLock {
+            guard entryChanges < perSessionEntryChanges else { return false }
+            entryChanges += 1
+            return true
+        }
+        guard taken else {
+            throw BrowserReplFileSystemError(
+                code: "EDQUOT",
+                message: "EDQUOT: the REPL session has made its limit of \(perSessionEntryChanges) file changes (files created, directories made, entries renamed or removed), \(syscall) '\(display)'; reset the session (cmux browser repl reset NAME) to make more"
+            )
+        }
     }
 
     /// Takes `count` bytes from the budget, or throws `EFBIG` when the call
@@ -840,10 +909,42 @@ final class BrowserReplRootDirectories: @unchecked Sendable {
         }
     }
 
-    /// Opens the directory at `path` (canonical: no link on the way), not
-    /// following a link in its place.
-    static func open(_ path: String) -> Int32 {
-        Darwin.open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+    /// Opens the directory at `path` (absolute and canonical: no link on
+    /// the way when it was resolved) by a walk from `/`, one component at a
+    /// time with `openat` and `O_NOFOLLOW`, so a link put in place of any
+    /// component since then is never followed. With `creating`, missing
+    /// directories are made on the way (`mkdirat`).
+    /// - Returns: The descriptor, or -1 with `errno` set: `ELOOP` when a
+    ///   component is a link.
+    static func open(_ path: String, creating: Bool = false) -> Int32 {
+        let flags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        var current = Darwin.open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard current >= 0 else { return -1 }
+        for component in path.split(separator: "/").map(String.init) {
+            var next = openat(current, component, flags)
+            if next < 0, errno == ENOENT, creating {
+                if mkdirat(current, component, 0o777) != 0, errno != EEXIST {
+                    let number = errno
+                    close(current)
+                    errno = number
+                    return -1
+                }
+                next = openat(current, component, flags)
+            }
+            guard next >= 0 else {
+                var number = errno
+                var info = stat()
+                if fstatat(current, component, &info, AT_SYMLINK_NOFOLLOW) == 0, (info.st_mode & S_IFMT) == S_IFLNK {
+                    number = ELOOP
+                }
+                close(current)
+                errno = number
+                return -1
+            }
+            close(current)
+            current = next
+        }
+        return current
     }
 
     /// Root `index`'s held directory, when one is held for `path`.

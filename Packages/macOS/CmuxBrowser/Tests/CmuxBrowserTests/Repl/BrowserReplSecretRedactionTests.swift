@@ -12,7 +12,7 @@ struct BrowserReplSecretRedactionTests {
     /// RFC 6238's test key, base32.
     private static let totpSeed = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
 
-    private func makeSession(_ driver: any BrowserReplDriver, cwd: String = FileManager.default.temporaryDirectory.path) -> BrowserReplSession? {
+    private func makeSession(_ driver: any BrowserReplDriver, cwd: String = browserReplTestWorkingDirectory) -> BrowserReplSession? {
         guard let bundle = try? browserReplRepositoryBundle() else { return nil }
         return BrowserReplSession(id: "redaction-\(UUID().uuidString)", cwd: cwd, bundle: bundle, driver: driver)
     }
@@ -102,6 +102,50 @@ struct BrowserReplSecretRedactionTests {
         #expect(result?.error == nil, "\(result?.error ?? "")")
         #expect(!output.contains(spelled(Self.value)), "\(output)")
         #expect(output.contains("masked true true 255 128"), "\(output)")
+    }
+
+    /// Deleting, clearing or replacing a secret stops it from being typed,
+    /// but a value the session held stays masked for the session's life: the
+    /// agent never saw it, and the file it was loaded from is still there.
+    @Test("A deleted, cleared or replaced secret's value stays masked in files read back, output and captures")
+    func retiredSecretValuesStayMasked() async throws {
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-retired-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        let values = ["v4lue-deleted-1", "v4lue-cleared-2", "v4lue-replaced-3"]
+        try Data(#"{"example.com":{"gone":"\#(values[0])","later":"\#(values[1])","swapped":"\#(values[2])"}}"#.utf8)
+            .write(to: work.appendingPathComponent("secrets.json"))
+        let driver = ScriptedPageDriver()
+        let session = try #require(makeSession(driver, cwd: work.path))
+        defer { session.close() }
+        let result = await run(session, """
+        const fs = await import("node:fs");
+        secrets.load("./secrets.json");
+        secrets.delete("gone");
+        secrets.set("swapped", "another-value-4", { domains: ["example.com"] });
+        const afterDelete = fs.readFileSync("./secrets.json", "utf8");
+        secrets.clear();
+        const afterClear = fs.readFileSync("./secrets.json", "utf8");
+        console.log(afterDelete.split("").join(" "));
+        console.log(afterClear.split("").join(" "));
+        console.log("masked", afterClear.includes("<secret:gone>"), afterClear.includes("<secret:later>"), afterClear.includes("<secret:swapped>"));
+        console.log(afterClear);
+        console.log(secrets.list().length, secrets.has("gone"));
+        await page.goto("https://example.com/login");
+        await page.screenshot().catch(() => {});
+        """)
+        let output = result?.lines.map(\.text).joined(separator: "\n") ?? ""
+        #expect(result?.error == nil, "\(result?.error ?? "")")
+        for value in values {
+            #expect(!output.contains(spelled(value)), "\(value) was shown after its secret went: \(output)")
+            #expect(!output.contains(value), "\(value) was shown after its secret went: \(output)")
+        }
+        #expect(output.contains("masked true true true"), "\(output)")
+        // Gone for typing and listing.
+        #expect(output.contains("0 false"), "\(output)")
+        let masks = driver.params("tab.screenshot").first?["secretMasks"] as? [[String: Any]] ?? []
+        let maskedValues = Set(masks.compactMap { $0["value"] as? String })
+        #expect(maskedValues.isSuperset(of: values), "\(maskedValues)")
     }
 
     /// Session A typed a secret into a tab; session B (`tabs.use`) does not

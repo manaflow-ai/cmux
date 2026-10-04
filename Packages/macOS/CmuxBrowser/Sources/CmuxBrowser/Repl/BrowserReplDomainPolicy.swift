@@ -234,7 +234,7 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
         return named == domain || named.hasSuffix("." + domain) || domain.hasSuffix("." + named)
     }
 
-    private static func glob(_ pattern: String, matches text: String) -> Bool {
+    static func glob(_ pattern: String, matches text: String) -> Bool {
         let escaped = NSRegularExpression.escapedPattern(for: pattern).replacingOccurrences(of: "\\*", with: ".*")
         return text.range(of: "^" + escaped + "$", options: .regularExpression) != nil
     }
@@ -446,29 +446,31 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
     }
 
     static func filters(_ pattern: BrowserReplDomainPattern) -> [String] {
+        let host: String
+        if pattern.host == "*" {
+            host = "[^/@:]+"
+        } else if pattern.host.hasPrefix("*.") {
+            host = "([^/@:]*\\.)?" + escape(String(pattern.host.dropFirst(2))) + "\\.?"
+        } else if pattern.host.split(separator: ".").count == 2 {
+            // A root domain also covers www (`hostMatches`).
+            host = "(www\\.)?" + escape(pattern.host) + "\\.?"
+        } else {
+            host = escape(pattern.host) + "\\.?"
+        }
+        // `blob:` URLs carry their origin: `blob:https://host/<id>`.
+        func head(_ scheme: String) -> String { "^(blob:)?" + scheme + "://([^/@]*@)?" + host }
         let schemes = pattern.scheme.map { scheme in
             [scheme.map { $0 == "*" ? "[a-z0-9+.-]*" : escape(String($0)) }.joined()]
         } ?? ["https?", "wss?"]
-        return schemes.flatMap { scheme -> [String] in
-            let host: String
-            if pattern.host == "*" {
-                host = "[^/@:]+"
-            } else if pattern.host.hasPrefix("*.") {
-                host = "([^/@:]*\\.)?" + escape(String(pattern.host.dropFirst(2))) + "\\.?"
-            } else {
-                host = escape(pattern.host) + "\\.?"
-            }
-            // `blob:` URLs carry their origin: `blob:https://host/<id>`.
-            let head = "^(blob:)?" + scheme + "://([^/@]*@)?" + host
-            guard let port = pattern.port else { return [head + "(:[0-9]+)?/"] }
-            var out = [head + ":" + port + "/"]
-            let schemeText = pattern.scheme
-            if (port == "443" && (schemeText == nil || schemeText!.hasPrefix("https") || schemeText == "*"))
-                || (port == "80" && (schemeText == nil || schemeText!.hasPrefix("http") || schemeText == "*")) {
-                out.append(head + "/")
-            }
-            return out
+        guard let port = pattern.port else { return schemes.map { head($0) + "(:[0-9]+)?/" } }
+        // A URL without a port has its scheme's default one (`matches`), so
+        // the portless form is admitted only under the schemes whose default
+        // is this port and that the pattern's scheme names.
+        let defaultSchemes = ["443": ["https", "wss"], "80": ["http", "ws"]][port] ?? []
+        let portless = defaultSchemes.filter { scheme in
+            pattern.scheme.map { BrowserReplDomainPattern.glob($0, matches: scheme) } ?? true
         }
+        return schemes.map { head($0) + ":" + port + "/" } + portless.map { head($0) + "/" }
     }
 }
 

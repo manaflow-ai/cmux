@@ -177,6 +177,31 @@ test("repl output: no limit (0) still spills past a hard ceiling instead of prin
   removeTestDir(workDir);
 });
 
+test("repl output: the runtime's own error reports go through the call's output gate", async () => {
+  const workDir = makeTestDir("cap-");
+  let printedChars = 0;
+  const notes = [];
+  const host = createNodeHost({
+    workDir,
+    sessionId: `report-${process.pid}`,
+    print: (level, t) => {
+      printedChars += t.length + 1;
+      if (t.startsWith("# output")) notes.push(t);
+    },
+  });
+  const driver = { call: async () => null, on: () => () => {}, capabilities: () => [] };
+  const repl = ns.replHost.createBrowserRepl({ host, driver });
+  // The gate is the call's from the moment evaluate() starts; an event
+  // listener's error reported meanwhile is output of that call.
+  const running = repl.evaluate("await 0", { maxOutput: 5000 });
+  repl.session.reportError("e".repeat(50000));
+  const r = await running;
+  assert.ok(r.ok, r.error);
+  assert.ok(printedChars <= 5000 + 400, `printed ${printedChars} characters past a 5,000 cap`);
+  assert.ok(notes.some((t) => /full output: \S+/.test(t)), notes.join(" | "));
+  removeTestDir(workDir);
+});
+
 test("frames: a frame that never answers is left out and marked, and the rest of the page reads", async () => {
   const host = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (t) => clearTimeout(t) };
   const hung = { p: "f1", _detached: false, _agent: () => new Promise(() => {}) };

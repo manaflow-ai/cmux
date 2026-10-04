@@ -13,7 +13,7 @@ struct BrowserReplSecretFormsTests {
     private func makeSession() throws -> BrowserReplSession {
         BrowserReplSession(
             id: "forms-\(UUID().uuidString)",
-            cwd: FileManager.default.temporaryDirectory.path,
+            cwd: browserReplTestWorkingDirectory,
             bundle: try browserReplRepositoryBundle(),
             driver: ScriptedPageDriver()
         )

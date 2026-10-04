@@ -172,7 +172,7 @@ struct BrowserReplBoundaryTests {
     private func makeSession(_ driver: ScriptedPageDriver) throws -> BrowserReplSession {
         BrowserReplSession(
             id: "boundary-\(UUID().uuidString)",
-            cwd: FileManager.default.temporaryDirectory.path,
+            cwd: browserReplTestWorkingDirectory,
             bundle: try browserReplRepositoryBundle(),
             driver: driver
         )
