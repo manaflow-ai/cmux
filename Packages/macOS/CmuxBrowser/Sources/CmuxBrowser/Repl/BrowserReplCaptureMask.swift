@@ -211,7 +211,9 @@ public struct BrowserReplCaptureMask {
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
       for (let n = walker.currentNode; n; n = walker.nextNode()) {
         if (n.nodeType === 3) {
-          if (n.parentElement && has(n.data)) hits.add(n.parentElement);
+          // A shadow root's own text renders in its host.
+          const owner = n.parentElement || (n.parentNode && n.parentNode.host) || null;
+          if (owner && has(n.data)) hits.add(owner);
           continue;
         }
         if ((n instanceof HTMLInputElement && n.type !== "password") || n instanceof HTMLTextAreaElement) {
