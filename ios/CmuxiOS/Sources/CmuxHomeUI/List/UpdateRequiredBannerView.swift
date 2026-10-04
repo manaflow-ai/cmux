@@ -1,14 +1,12 @@
 import CmuxiOSDesign
 import UIKit
 
-/// The list header shown while the team refuses this app version. It names
+/// The card shown (in Home's banner header) while the team refuses this app version. It names
 /// the team's minimum version and says what stops working until the user
 /// updates (notifications and replies need the install token the owner
 /// refuses), so the refusal never reads as a generic error.
 @MainActor
-final class UpdateRequiredBannerView: UICollectionReusableView {
-    static let elementKind = "home.update-required-banner"
-
+final class UpdateRequiredBannerView: UIView {
     private let titleLabel = UILabel()
     private let bodyLabel = UILabel()
 

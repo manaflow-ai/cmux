@@ -64,6 +64,9 @@ public actor InstallIdentity {
         if current == stackUser {
             current = nil
             records.setLastUser(nil)
+            // The refusal was the signed-out team's policy; the next account's
+            // first mint decides again.
+            if updateRequired != nil { await setUpdateRequired(nil) }
         }
     }
 

@@ -93,6 +93,12 @@ final class RootViewController: UIViewController {
             let index = ProcessInfo.processInfo.environment["CMUX_IOS_OPEN_SEARCH_HIT"].flatMap { Int($0) } ?? 0
             home.debugOpenSearchHit(query: query, index: index)
         }
+        if ProcessInfo.processInfo.environment["CMUX_IOS_PREVIEW_OFFLINE"] == "1",
+           let mock = store.source as? MockHomeSource {
+            // DEV preview (simulator screenshots): the mock owner drops its
+            // connection, so the offline banner shows (with any other banner).
+            Task { await mock.setOnline(false) }
+        }
         if ProcessInfo.processInfo.environment["CMUX_IOS_TERMINAL_PREVIEW"] == "1" {
             let terminal = DevTerminal.make()
             navigation.pushViewController(terminal, animated: false)

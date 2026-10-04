@@ -77,7 +77,7 @@ fi
 
 # SIM_GALLERY_ONLY=clientver: Home's update-required banner (the team's
 # minimum version refuses this app, enterprise P17), light, dark, Japanese,
-# and the variant without a named version.
+# the variant without a named version, and with the offline banner below it.
 if [[ "${SIM_GALLERY_ONLY:-}" == clientver ]]; then
   for appearance in light dark; do
     xcrun simctl ui "$udid" appearance "$appearance"
@@ -92,6 +92,11 @@ if [[ "${SIM_GALLERY_ONLY:-}" == clientver ]]; then
   SIMCTL_CHILD_CMUX_IOS_HOME_PREVIEW=1 SIMCTL_CHILD_CMUX_IOS_PREVIEW_UPDATE_REQUIRED= \
     xcrun simctl launch --terminate-running-process "$udid" "$bundle" >/dev/null
   settle 6; shot "clientver-noversion"
+  # Both banners in the one header: update required above offline.
+  SIMCTL_CHILD_CMUX_IOS_HOME_PREVIEW=1 SIMCTL_CHILD_CMUX_IOS_PREVIEW_UPDATE_REQUIRED=2.4.0 \
+    SIMCTL_CHILD_CMUX_IOS_PREVIEW_OFFLINE=1 \
+    xcrun simctl launch --terminate-running-process "$udid" "$bundle" >/dev/null
+  settle 6; shot "clientver-offline"
   xcrun simctl terminate "$udid" "$bundle" >/dev/null 2>&1 || true
   ls -1 "$out"; exit 0
 fi
