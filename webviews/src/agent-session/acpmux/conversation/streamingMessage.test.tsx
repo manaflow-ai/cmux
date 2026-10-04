@@ -17,6 +17,8 @@ const keys = [
   "customElements",
   "Node",
   "MutationObserver",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 const saved = Object.fromEntries(keys.map((key) => [key, globals[key]]));
@@ -29,6 +31,8 @@ Object.assign(globals, {
   customElements: dom.window.customElements,
   Node: dom.window.Node,
   MutationObserver: dom.window.MutationObserver,
+  requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
+  cancelAnimationFrame: (handle: number) => clearTimeout(handle),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 // Code cards render @pierre/diffs, which reaches for DOM classes by their global names.
