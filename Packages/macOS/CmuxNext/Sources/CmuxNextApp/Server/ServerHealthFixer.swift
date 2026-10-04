@@ -14,11 +14,14 @@ struct ServerHealthFixer {
     let run: Run
     /// Shared with Stop Serving, so a revert never overtakes an apply.
     var gate: ServerFixGate = .shared
+    let ledger: ServerFixLedger
+
+    static var cancelled: String { "" }
 
     /// The App's fixer: the helper of this build.
     static let helper = ServerHealthFixer(run: { (fix: ServerFix, revert: Bool) async throws(ServerHelperClient.Failure) in
         try await ServerHelperClient.run(fix, revert: revert)
-    })
+    }, ledger: .standard)
 
     /// The Fix button for a check this app fixes itself: app text, never the
     /// server's title (the click runs the allowlist, not the server's words).

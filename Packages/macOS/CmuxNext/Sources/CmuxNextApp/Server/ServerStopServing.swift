@@ -48,6 +48,7 @@ struct ServerStopServing {
     var helper: ServerServiceRegistration?
     var revert: @MainActor (ServerFix) async throws(ServerHelperClient.Failure) -> Void
     var gate: ServerFixGate = .shared
+    let ledger: ServerFixLedger
 
     static func app() -> ServerStopServing {
         ServerStopServing(
@@ -55,7 +56,7 @@ struct ServerStopServing {
             helper: ServerHelperClient.isBundled ? .daemon(plistName: ServerHelperConstants().plistName) : nil,
             revert: { (fix: ServerFix) async throws(ServerHelperClient.Failure) in
                 try await ServerHelperClient.run(fix, revert: true)
-            })
+            }, ledger: .standard)
     }
 
     func run() async throws(Failure) {

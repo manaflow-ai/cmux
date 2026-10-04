@@ -12,12 +12,14 @@ import Testing
     final class FakeHelper {
         var calls: [(ServerFix, Bool)] = []
         var failures: [ServerFix: ServerHelperClient.Failure] = [:]
+        let ledger = ServerFixLedger(url: FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-fix-ledger-\(UUID().uuidString)/ledger.json"))
 
         var fixer: ServerHealthFixer {
-            ServerHealthFixer { (fix: ServerFix, revert: Bool) async throws(ServerHelperClient.Failure) in
+            ServerHealthFixer(run: { (fix: ServerFix, revert: Bool) async throws(ServerHelperClient.Failure) in
                 self.calls.append((fix, revert))
                 if let failure = self.failures[fix] { throw failure }
-            }
+            }, gate: ServerFixGate(), ledger: ledger)
         }
     }
 
@@ -38,6 +40,7 @@ import Testing
         #expect(await eventually { model.pending.isEmpty })
         #expect(helper.calls.map(\.0) == [.systemSleepOffOnAC, .diskSleepOffOnAC, .wakeOnNetworkOn])
         #expect(helper.calls.allSatisfy { !$0.1 }, "a fix applies, never reverts")
+        #expect(await helper.ledger.load() == .fixes([.systemSleepOffOnAC, .diskSleepOffOnAC, .wakeOnNetworkOn]))
         #expect(model.lastReject == nil)
         #expect(await eventually { harness.statusReads() > reads })
     }
@@ -69,6 +72,9 @@ import Testing
         #expect(helper.calls.map(\.0) == [.systemSleepOffOnAC, .diskSleepOffOnAC])
         #expect(model.lastReject?.contains("pmset exited 1") == true)
         #expect(model.lastReject == ServerHealthFixer.reject(for: .refused("pmset exited 1")))
+        // Recorded before each call: the refused one too (Stop Serving reverts it;
+        // the helper answers "nothing to revert" when it changed nothing).
+        #expect(await helper.ledger.load() == .fixes([.systemSleepOffOnAC, .diskSleepOffOnAC]))
         #expect(await eventually { harness.statusReads() > reads }, "a refusal reads the status again too")
     }
 

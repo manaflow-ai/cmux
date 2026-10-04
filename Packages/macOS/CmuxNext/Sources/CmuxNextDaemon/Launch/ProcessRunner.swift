@@ -75,14 +75,19 @@ public enum ProcessRunner {
 }
 
 /// `Process` is not Sendable; it is only touched from the group tasks above.
-private final class ProcessBox: @unchecked Sendable {
+final class ProcessBox: @unchecked Sendable {
     let process: Process
-    init(_ process: Process) { self.process = process }
+    private let signal: @Sendable (pid_t, Int32) -> Void
+
+    init(_ process: Process, signal: @escaping @Sendable (pid_t, Int32) -> Void = { _ = Darwin.kill($0, $1) }) {
+        self.process = process
+        self.signal = signal
+    }
 
     /// SIGKILL to this child only; never before launch (pid 0 would be our group).
     func kill() {
         let pid = process.processIdentifier
         guard pid > 0, process.isRunning else { return }
-        Darwin.kill(pid, SIGKILL)
+        signal(pid, SIGKILL)
     }
 }
