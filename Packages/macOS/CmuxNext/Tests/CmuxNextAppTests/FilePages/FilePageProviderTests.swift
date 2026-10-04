@@ -64,8 +64,8 @@ struct FilePageProviderTests {
     static func world(_ kind: FilePageKind, file name: String? = "README.md", text: String = "# Title\n\n![x](img/a.png)\n")
         throws -> (FilePageProvider, Host, URL, Images) {
         let folder = try FileDocumentTests.folder()
-        try FileManager.default.createDirectory(at: folder.appending(path: ".git"), withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: folder.appending(path: "img"), withIntermediateDirectories: true)
+        try FileDocumentTests.makeDirectory(folder.appending(path: ".git"))
+        try FileDocumentTests.makeDirectory(folder.appending(path: "img"))
         try Data([0x89, 0x50]).write(to: folder.appending(path: "img/a.png"))
         try Data("secret".utf8).write(to: folder.appending(path: "img/notes.txt"))
         try Data("# Other\n".utf8).write(to: folder.appending(path: "other.md"))
@@ -75,7 +75,7 @@ struct FilePageProviderTests {
         let host = Host(roots: FileWorkspaceRoots(folders: [folder.path], home: "/nonexistent-home"))
         let images = Images()
         let libraries = folder.appending(path: "libs", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: libraries, withIntermediateDirectories: true)
+        try FileDocumentTests.makeDirectory(libraries)
         for (name, text) in [("mermaid.min.js", "M"), ("vega.min.js", "V"), ("vega-lite.min.js", "L")] {
             try Data(text.utf8).write(to: libraries.appending(path: name))
         }

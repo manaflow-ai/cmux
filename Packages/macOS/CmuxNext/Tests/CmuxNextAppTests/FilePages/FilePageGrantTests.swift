@@ -22,7 +22,7 @@ struct FilePageGrantTests {
     static func world() throws -> (FilePageProvider, Host, project: URL, key: URL) {
         let (provider, host, project, _) = try FilePageProviderTests.world(.markdown)
         let home = try FileDocumentTests.folder()
-        try FileManager.default.createDirectory(at: home.appending(path: ".ssh"), withIntermediateDirectories: true)
+        try FileDocumentTests.makeDirectory(home.appending(path: ".ssh"))
         let key = home.appending(path: ".ssh/id_rsa")
         try Data("PRIVATE KEY".utf8).write(to: key)
         try FileManager.default.createSymbolicLink(at: project.appending(path: "ssh"), withDestinationURL: home.appending(path: ".ssh"))
@@ -141,7 +141,7 @@ struct FilePageGrantTests {
     @Test func rootsAreOnlyFoldersTheUserChose() throws {
         let home = try FileDocumentTests.folder()
         let chosen = home.appending(path: "project", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: chosen, withIntermediateDirectories: true)
+        try FileDocumentTests.makeDirectory(chosen)
         let roots = FileWorkspaceRoots(folders: [home.path, chosen.path], home: home.path)
         #expect(roots.paths == [chosen.path])
         #expect(!roots.contains(home.appending(path: "notes.md").path))

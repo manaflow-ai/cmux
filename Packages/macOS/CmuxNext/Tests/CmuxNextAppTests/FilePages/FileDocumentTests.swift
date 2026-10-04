@@ -8,8 +8,25 @@ import Testing
 @Suite struct FileDocumentTests {
     static func folder() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appending(path: "cmux-file-pages-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        try makeDirectory(url)
         return url.resolvingSymlinksInPath()
+    }
+
+    /// Creates `url` and any missing parents with mode 0755 set explicitly. The process umask is
+    /// shared by every test in the run: ControlSocketServer sets it to 0177 around its bind, and a
+    /// folder made in that window would have no search bit (mode 0600), so files could not be
+    /// created in it (the parallel run's "You don't have permission to save the file").
+    static func makeDirectory(_ url: URL) throws {
+        var missing: [URL] = []
+        var candidate = url.standardizedFileURL
+        while !FileManager.default.fileExists(atPath: candidate.path) {
+            missing.append(candidate)
+            candidate = candidate.deletingLastPathComponent()
+        }
+        for folder in missing.reversed() {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+        }
     }
 
     static func write(_ bytes: [UInt8], _ name: String, in folder: URL) throws -> URL {
@@ -129,10 +146,10 @@ import Testing
     @Test func rootsAreTheChosenFoldersAndNeverHome() throws {
         let home = try Self.folder()
         let repo = home.appending(path: "repo", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: repo.appending(path: ".git"), withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: repo.appending(path: "src/deep"), withIntermediateDirectories: true)
+        try FileDocumentTests.makeDirectory(repo.appending(path: ".git"))
+        try FileDocumentTests.makeDirectory(repo.appending(path: "src/deep"))
         let loose = home.appending(path: "notes", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: loose, withIntermediateDirectories: true)
+        try FileDocumentTests.makeDirectory(loose)
         let deep = repo.appending(path: "src/deep").path
         let roots = FileWorkspaceRoots(folders: [deep, loose.path, home.path, "/", deep], home: home.path)
         #expect(roots.paths == [deep, loose.path])
