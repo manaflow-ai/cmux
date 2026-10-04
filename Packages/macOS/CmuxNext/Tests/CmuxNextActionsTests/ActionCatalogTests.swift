@@ -127,7 +127,7 @@ import Testing
         #expect(browserHistory.requires.contains(.browserFocused))
         #expect(byID["newCloudMachine"]?.defaultShortcut != Shortcut("y", modifiers: [.command]))
 
-        for id in [
+        for id: ActionID in [
             "switchRightSidebarToFiles", "switchRightSidebarToFind", "switchRightSidebarToSessions",
             "switchRightSidebarToFeed", "switchRightSidebarToDock", "switchRightSidebarToMachines",
         ] {

@@ -13,7 +13,7 @@ readonly TEST_FILTER="ActionCatalogTests/browserHistoryOwnsCmdYAndRightSidebarHa
 on_failure() {
     local status=$?
     printf 'hotkey-history: failed at line %s (exit %s).\n' "${1:-unknown}" "$status" >&2
-    printf 'Fix: rerun this helper from the exact pushed checkout on an enrolled fleet macOS worker.\n' >&2
+    printf 'Fix: inspect and correct the reported compile or test diagnostic, push the fix, then rerun this helper at that exact head on the fleet.\n' >&2
     printf 'Repair: %s\n' "$REPAIR_URL" >&2
     exit "$status"
 }
