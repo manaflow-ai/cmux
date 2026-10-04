@@ -215,6 +215,7 @@ impl VmHost for Gate {
             Err(mut error) => {
                 error.message = self.mask(&error.message);
                 error.error_name = error.error_name.map(|name| self.mask(&name));
+                error.data = error.data.map(|data| self.mask_value(&data));
                 Err(error)
             }
         }

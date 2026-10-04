@@ -165,3 +165,26 @@ describe("streaming code", () => {
     view.root.unmount();
   });
 });
+
+/// Soft reveal (acp-streaming.md "Reveal animation"): text revealed in the last moment fades in,
+/// in spans the compositor animates; older text merges back into plain text.
+describe("soft reveal", () => {
+  test("the newest revealed characters sit in fading spans at the end, and the text reads the same", () => {
+    const view = mount();
+    view.render(<RevealedMarkdown text="Hi" streaming />);
+    const more = "Hi there, this reply keeps arriving in one burst of many words.";
+    view.render(<RevealedMarkdown text={more} streaming />);
+    step(6);
+    const fresh = [...view.host.querySelectorAll(".cv-fresh")];
+    expect(fresh.length).toBeGreaterThan(0);
+    expect(fresh.length).toBeLessThanOrEqual(24);
+    const shown = view.host.textContent ?? "";
+    expect(more.startsWith(shown)).toBe(true);
+    expect(shown.endsWith(fresh.map((node) => node.textContent).join(""))).toBe(true);
+    // Once the reveal settles and the fades have run, no span is left.
+    step(200);
+    expect(view.host.querySelectorAll(".cv-fresh")).toHaveLength(0);
+    expect(view.host.textContent).toBe(more);
+    view.root.unmount();
+  });
+});
