@@ -4423,3 +4423,37 @@ test("renderer grants are redacted and one-use", () => {
   assert.equal(grant.take(), "renderer-secret");
   assert.throws(() => grant.take(), /already consumed/);
 });
+
+test("viewport columns decode and re-encode their sticky flag", async () => {
+  const column = (id: string, pane: string, sticky?: unknown) => ({
+    column_id: `split_${id.repeat(32)}`,
+    width: 0.5,
+    root: { kind: "leaf", pane_id: `pane_${pane.repeat(32)}`, tab_ids: [] },
+    ...(sticky !== undefined ? { sticky } : {}),
+  });
+  const document = (sticky: unknown) => ({
+    version: 1,
+    screen_id: String(SCREEN),
+    active_pane_id: String(PANE),
+    zoomed_pane_id: null,
+    root: {
+      kind: "viewport",
+      base_width: 0.5,
+      columns: [column("d", "a", sticky), column("e", "f", null)],
+    },
+  });
+  let next: unknown = document({ edge: "top", mode: "docked" });
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "screen.layout.export") current.ok(request, next);
+  });
+  const client = new Client({ transport });
+  const screen = client.session(SESSION).workspace(WORKSPACE).screen(SCREEN);
+  const layout = await screen.exportLayout();
+  assert.equal(layout.root.kind, "viewport");
+  if (layout.root.kind !== "viewport") return;
+  assert.deepEqual(layout.root.columns[0]?.sticky, { edge: "top", mode: "docked" });
+  assert.equal(layout.root.columns[1]?.sticky, undefined);
+  next = document({ edge: "diagonal", mode: "docked" });
+  await assert.rejects(() => screen.exportLayout(), /invalid value/);
+  client.close();
+});

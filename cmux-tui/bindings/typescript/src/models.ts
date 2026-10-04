@@ -477,10 +477,17 @@ export interface LayoutStack {
   readonly expandedPaneId: PaneId;
 }
 
+export interface LayoutColumnSticky {
+  readonly edge: "left" | "right" | "top" | "bottom";
+  readonly mode: "docked" | "overlay";
+}
+
 export interface LayoutColumn {
   readonly columnId: SplitId;
   readonly width: number;
   readonly root: LayoutNode;
+  /** The column's sticky flag (sticky-columns-v1); absent while it scrolls. */
+  readonly sticky?: LayoutColumnSticky;
 }
 
 export interface LayoutViewport {

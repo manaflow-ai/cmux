@@ -77,6 +77,7 @@ from .models import (
     FrontendProjectionSnapshot,
     JsonObject,
     LayoutColumn,
+    LayoutColumnSticky,
     LayoutDocument,
     LayoutLeaf,
     LayoutNode,
@@ -560,6 +561,20 @@ def _size(value: Any) -> Size:
     )
 
 
+def _layout_column_sticky(value: Any) -> Optional[LayoutColumnSticky]:
+    """An omitted or null flag reads as None (the column scrolls)."""
+    if value is None:
+        return None
+    sticky = _mapping(value, "layout column sticky")
+    _strict_object(sticky, ("edge", "mode"), "layout column sticky")
+    edge, mode = sticky.get("edge"), sticky.get("mode")
+    if edge not in ("left", "right", "top", "bottom"):
+        raise ProtocolError(f"layout column sticky edge {edge!r} is not known")
+    if mode not in ("docked", "overlay"):
+        raise ProtocolError(f"layout column sticky mode {mode!r} is not known")
+    return LayoutColumnSticky(edge, mode)
+
+
 def _layout_node(value: Any) -> LayoutNode:
     payload = _mapping(value, "layout node")
     kind = _required_string(payload, "kind")
@@ -642,7 +657,7 @@ def _layout_node(value: Any) -> LayoutNode:
             column = _mapping(value, "layout column")
             _strict_object(
                 column,
-                ("column_id", "width", "root"),
+                ("column_id", "width", "root", "sticky"),
                 "layout column",
             )
             width = _required_number(column, "width")
@@ -655,6 +670,7 @@ def _layout_node(value: Any) -> LayoutNode:
                     _required_id(column, ("column_id",), SplitId),
                     width,
                     _layout_node(column.get("root")),
+                    _layout_column_sticky(column.get("sticky")),
                 )
             )
         base_width = _required_number(payload, "base_width")

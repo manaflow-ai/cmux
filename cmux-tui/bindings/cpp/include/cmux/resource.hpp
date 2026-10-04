@@ -720,10 +720,19 @@ struct LayoutStack {
     PaneId expanded_pane_id;
 };
 
+/// A pinned column's `edge` ("left", "right", "top" or "bottom") and
+/// `mode` ("docked" or "overlay").
+struct LayoutColumnSticky {
+    std::string edge;
+    std::string mode;
+};
+
 struct LayoutColumn {
     SplitId column_id;
     double width = 1.0;
     std::shared_ptr<const LayoutNode> root;
+    /// The column's sticky flag (sticky-columns-v1); empty while it scrolls.
+    std::optional<LayoutColumnSticky> sticky;
 };
 
 struct LayoutViewport {
