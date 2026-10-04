@@ -29,6 +29,11 @@ public final class AgentCursorStack {
         _ = session
         return CGColor(gray: 0.96, alpha: 1)
     }
+
+    /// The session's cursor fill (red stand-in).
+    nonisolated public static func sessionColor(_ session: String) -> CGColor {
+        neutralColor(session)
+    }
 }
 
 /// Holds the visibility resolver once it exists (a9's App adapter); answers
