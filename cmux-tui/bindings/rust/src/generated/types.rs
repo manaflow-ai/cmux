@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2.
+// cmux-tui mux protocol 12, IR 5ee15763144447b83fb22c953d1aa0f93a951ddf053da47f194cccc773ef3a16.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -478,6 +478,8 @@ pub struct IdentifyResult {
     pub session: String,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub settings_schema_hash: Option<String>,
     pub terminal_revision: u64,
     pub version: String,
     pub workspace_revision: u64,

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2. */
+/* cmux-tui mux protocol 12, IR 5ee15763144447b83fb22c953d1aa0f93a951ddf053da47f194cccc773ef3a16. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2" as const;
+export const SDK_IR_SHA256 = "5ee15763144447b83fb22c953d1aa0f93a951ddf053da47f194cccc773ef3a16" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2925,6 +2925,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "settings-changed": {
+    "since": 12,
+    "capability": "settings-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
   "size-state": {
     "since": 12,
     "capability": "shared-sizing-v1",
@@ -4610,6 +4618,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "session_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "settings_schema_hash": {
+        "capability": "settings-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -20839,6 +20857,55 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "settings-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "settings-changed"
+        }
+      },
+      "keys": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "origin": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "user",
+            "cli",
+            "mcp",
+            "script",
+            "remote",
+            "app",
+            "file"
+          ]
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },
