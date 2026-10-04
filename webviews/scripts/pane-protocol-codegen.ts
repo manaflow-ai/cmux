@@ -5,8 +5,8 @@
 //   bun scripts/pane-protocol-codegen.ts --check    # exit 1 if the committed output drifted
 //   bun scripts/pane-protocol-codegen.ts --ir ../cmux-tui/spec/pane-protocol.json
 //
-// The default IR is the committed seed copy. Point --ir at cmux-tui/spec/pane-protocol.json
-// once the Rust emit-ir lands there, then make that the default.
+// The default IR is the committed copy of the Rust emit-ir output. Point --ir at
+// cmux-tui/spec/pane-protocol.json once it lands there, then make that the default.
 
 import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -25,7 +25,7 @@ if (irIndex !== -1 && !args[irIndex + 1]) {
   process.exit(2);
 }
 const irPath = path.resolve(
-  irIndex === -1 ? path.join(webviewsRoot, "src/protocol/ir/pane-protocol.seed.json") : args[irIndex + 1],
+  irIndex === -1 ? path.join(webviewsRoot, "src/protocol/ir/pane-protocol.json") : args[irIndex + 1],
 );
 const source = path.relative(repoRoot, irPath).split(path.sep).join("/");
 

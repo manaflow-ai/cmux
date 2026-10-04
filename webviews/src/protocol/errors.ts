@@ -18,6 +18,17 @@ export const ProtocolErrorCode = {
   creditExceeded: "cmux.protocol.credit_exceeded",
   streamAborted: "cmux.protocol.stream_aborted",
   authRefused: "cmux.protocol.auth_refused",
+  /** The token expired mid-session; reconnect with a refreshed token. Retryable. */
+  tokenExpired: "cmux.protocol.token_expired",
+  /** The token or its scopes do not allow the op. */
+  forbidden: "cmux.protocol.forbidden",
+  /** The provider is overloaded. Retryable. */
+  busy: "cmux.protocol.busy",
+  /** A malformed envelope or frame (bad id range, missing field, bad JSON). */
+  badMessage: "cmux.protocol.bad_message",
+  /** The router was asked to carry a data-plane op; talk to the provider directly. */
+  notRouted: "cmux.protocol.not_routed",
+  tooLarge: "cmux.protocol.too_large",
 } as const;
 
 export interface ValidationIssue {

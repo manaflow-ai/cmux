@@ -2,7 +2,7 @@
 // the IR, returns file contents. scripts/pane-protocol-codegen.ts writes or checks them.
 
 import { IrError, parseIr, type Ir, type JsonSchema } from "./ir";
-import { refName, renderType, ValidatorBuilder } from "./schema";
+import { docComment, refName, renderType, ValidatorBuilder } from "./schema";
 
 export interface GenerateOptions {
   /** Shown in the header; keep it repo-relative so --check output is stable across checkouts. */
@@ -50,8 +50,10 @@ function splitName(name: string, namespaces: string[], kind: "op" | "event"): Sp
   if (rest.some((part) => !/^[a-z][a-z0-9_]*$/.test(part))) {
     throw new IrError(`${kind} ${name}: segments after the namespace must be lower_snake_case`);
   }
-  if (kind === "op" && rest.length !== 2) throw new IrError(`op ${name} must be <namespace>.<family>.<verb>`);
-  if (kind === "event" && rest.length < 2) throw new IrError(`event ${name} must be <namespace>.<family>.<event>`);
+  // A verb may nest (`cmux.router.token.refresh`); the client nests the same way.
+  if (rest.length < 2) {
+    throw new IrError(`${kind} ${name} must be <namespace>.<family>.<${kind === "op" ? "verb" : "event"}>`);
+  }
   return { namespace: ns, family: rest[0], member: rest.slice(1).join(".") };
 }
 
@@ -75,6 +77,8 @@ interface Resolved {
     result: string;
     kind: string;
     scope: string;
+    owner: string;
+    aliases: string[];
     errors: string[];
   }>;
   events: Array<{ name: string; split: SplitName; data: string; scope: string }>;
@@ -92,6 +96,8 @@ function resolve(ir: Ir): Resolved {
       result: typeRef(op.result, `${base}Result`, ir, inline, `op ${op.name} result`),
       kind: op.kind,
       scope: op.scope,
+      owner: op.owner,
+      aliases: op.aliases,
       errors: op.errors,
     };
   });
@@ -112,11 +118,18 @@ function generateTypes(resolved: Resolved): string {
   const types = resolved.ir.types;
   const blocks = allTypes(resolved).map(([name, schema]) => {
     const rendered = renderType(schema, types, `types.${name}`);
-    return rendered.startsWith("{\n") && !rendered.includes("} &")
-      ? `export interface ${name} ${rendered}`
-      : `export type ${name} = ${rendered};`;
+    const declaration =
+      rendered.startsWith("{\n") && !rendered.includes("} &")
+        ? `export interface ${name} ${rendered}`
+        : `export type ${name} = ${rendered};`;
+    return docComment(schema, "") + declaration;
   });
   return `${blocks.join("\n\n")}\n`;
+}
+
+/** Validator table rows for every op name and alias. */
+function withAliases(resolved: Resolved, pick: (op: Resolved["ops"][number]) => string): Array<[string, string]> {
+  return resolved.ops.flatMap((op) => [op.name, ...op.aliases].map((name): [string, string] => [name, pick(op)]));
 }
 
 function generateValidators(resolved: Resolved): string {
@@ -162,8 +175,8 @@ function generateValidators(resolved: Resolved): string {
   lines.push(...builder.constants, ...(builder.constants.length > 0 ? [""] : []));
   lines.push(functions.join("\n\n"), "", publics.join("\n\n"), "");
   lines.push(
-    `const PARAMS = ${table(resolved.ops.map((op) => [op.name, op.params]))};`,
-    `const RESULTS = ${table(resolved.ops.map((op) => [op.name, op.result]))};`,
+    `const PARAMS = ${table(withAliases(resolved, (op) => op.params))};`,
+    `const RESULTS = ${table(withAliases(resolved, (op) => op.result))};`,
     `const EVENTS = ${table(resolved.events.map((event) => [event.name, event.data]))};`,
     "",
     `/** Incoming-value validators for Session; null means the IR has no such op or event. */`,
@@ -209,7 +222,7 @@ function generateClient(resolved: Resolved): string {
   const opMap: string[] = [];
   const eventMap: string[] = [];
   for (const op of resolved.ops) {
-    const path = [...op.split.namespace.split("."), camel(op.split.family), camel(op.split.member)];
+    const path = [...op.split.namespace.split("."), camel(op.split.family), ...op.split.member.split(".").map(camel)];
     const errors = op.errors.length > 0 ? op.errors.join(", ") : "none declared";
     insert(
       tree,
@@ -240,12 +253,9 @@ function generateClient(resolved: Resolved): string {
   }
   const ops = resolved.ops.map(
     (op) =>
-      `  { name: ${JSON.stringify(op.name)}, kind: ${JSON.stringify(op.kind)}, scope: ${JSON.stringify(op.scope)}, errors: ${JSON.stringify(op.errors)} },`,
+      `  { name: ${JSON.stringify(op.name)}, owner: ${JSON.stringify(op.owner)}, kind: ${JSON.stringify(op.kind)}, scope: ${JSON.stringify(op.scope)}, aliases: ${JSON.stringify(op.aliases)}, errors: ${JSON.stringify(op.errors)} },`,
   );
-  const interfaces = resolved.ir.interfaces.map(
-    (iface) =>
-      `  { name: ${JSON.stringify(iface.name)}, ops: ${JSON.stringify(iface.ops)}, events: ${JSON.stringify(iface.events)} },`,
-  );
+  const interfaces = resolved.ir.interfaces.map((iface) => `  ${JSON.stringify(iface)},`);
   return [
     `import type { CallOptions, Session, SubscribeOptions, Subscription } from "../session";`,
     `import type * as T from "./types";`,
