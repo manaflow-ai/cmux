@@ -49,6 +49,7 @@ fn each_push_uses_a_fresh_key_and_sends_only_its_public_half() {
     let mut rig = rig(FIXTURES);
     rig.server.handle(&push(&local, "p-1")).expect("first push");
     rig.server.handle(&push(&local, "p-2")).expect("second push");
+    rig.server.wait_transfers();
     let log = rig.transfer.log();
     assert_eq!(log.public_keys.len(), 2);
     assert_ne!(log.public_keys[0], log.public_keys[1], "a new key per transfer");
@@ -156,8 +157,12 @@ fn a_failed_transfer_is_a_typed_error_and_endpoint_answers_are_checked() {
     let local = scratch_file("fail");
     let mut rig = rig(FIXTURES);
     rig.transfer.log().fail_with = Some("scp failed: connection closed".into());
-    let err = rig.server.handle(&push(&local, "p-1")).unwrap_err();
-    assert_eq!(err.code, "cmux.cloud.transfer_failed");
+    let started = rig.server.handle(&push(&local, "p-1")).expect("the transfer starts");
+    rig.server.wait_transfers();
+    let ended = rig.server.take_transfer_events();
+    assert_eq!(ended.len(), 1);
+    assert_eq!(ended[0].transfer, started["transfer"].as_str().unwrap());
+    assert_eq!(ended[0].outcome.as_ref().map_err(|e| e.code), Err("cmux.cloud.transfer_failed"));
     let mut bad = common::FakeControlPlane::fixture_body("scp-endpoint");
     bad["hostPublicKey"] = json!("ssh-rsa AAAAB3NzaC1yc2E");
     rig.server.control_plane_mut().respond("POST", "/api/vm/vm-alpha01/scp-endpoint", 200, bad);
@@ -244,9 +249,14 @@ fn a_pull_lands_in_a_hidden_name_and_is_published_without_overwrite() {
             .count()
     };
     rig.transfer.log().fail_with = Some("scp failed".into());
-    assert_eq!(rig.server.handle(&pull("u-1")).unwrap_err().code, "cmux.cloud.transfer_failed");
+    rig.server.handle(&pull("u-1")).expect("the pull starts");
+    rig.server.wait_transfers();
+    let failed = rig.server.take_transfer_events();
+    assert_eq!(failed[0].outcome.as_ref().map_err(|e| e.code), Err("cmux.cloud.transfer_failed"));
     assert!(!target.exists() && leftovers(&dir) == 0, "a failed pull leaves nothing");
     rig.server.handle(&pull("u-2")).expect("the retry runs");
+    rig.server.wait_transfers();
+    assert_eq!(rig.server.take_transfer_events()[0].outcome, Ok(42));
     assert_eq!(std::fs::read(&target).unwrap(), b"pulled");
     assert_eq!(leftovers(&dir), 0);
     let landed = rig.transfer.log().jobs.last().unwrap().local.clone();
