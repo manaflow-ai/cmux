@@ -438,4 +438,51 @@ describe("CloudStore against the landed catalog (C4i)", () => {
     await settle();
     expect(store.getSnapshot().machines).toEqual(before);
   });
+
+  test("an answer that arrives after a session restart still settles its intent", async () => {
+    const provider = new MockCloudProvider();
+    const { store } = await started(provider);
+    store.openCreate();
+    store.updateDraft({ name: "restart-box" });
+    const submitted = store.submitCreate();
+    const resized = store.resize(running().id, 8192);
+    store.stop();
+    await Promise.all([submitted, resized]);
+    await store.start();
+    await settle();
+    const { pending, create, rows } = store.getSnapshot();
+    expect(pending).toEqual([]);
+    expect(create).toBeUndefined();
+    expect(rows.filter((row) => row.title === "restart-box").length).toBe(1);
+  });
+
+  test("a real error while reading the detail shows the banner", async () => {
+    const provider = new MockCloudProvider();
+    const { store } = await started(provider);
+    provider.failNext = CloudOps.snapshotList;
+    await store.select(running().id);
+    await settle();
+    expect(store.getSnapshot().error).toBeTruthy();
+    expect(store.getSnapshot().unavailable).not.toContain(CloudOps.snapshotList);
+  });
+
+  test("a delete answered not_found drops the machine without an error", async () => {
+    const provider = new MockCloudProvider();
+    const { store } = await started(provider);
+    const target = running();
+    provider.notFoundOnDelete = true;
+    await store.requestDelete(target.id);
+    await settle();
+    expect(store.getSnapshot().error).toBeUndefined();
+    expect(store.getSnapshot().pending).toEqual([]);
+    expect(store.getSnapshot().rows.map((row) => row.id)).not.toContain(target.id);
+  });
+
+  test("the mock ledger refuses a key reused for other args, like the server", async () => {
+    const provider = new MockCloudProvider();
+    await provider.call(CloudOps.machinePause, { machine: "vm-a1", idempotency_key: "same" });
+    await expect(
+      provider.call(CloudOps.machinePause, { machine: "vm-b2", idempotency_key: "same" }),
+    ).rejects.toMatchObject({ code: "cmux.cloud.idempotency_conflict" });
+  });
 });
