@@ -11,7 +11,7 @@ import type { Env } from "./env.ts"
 import { CLOSE_RETRY_MS, flushInstallCloses, markAgentClosing, markInstallClosing, nextCloseAt, registerSocketOwner } from "./socket-registry.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
-import { HOME_RATE_LIMITS, HOME_RATE_WINDOW_MS, homeRateDecision, isHomeRateOp, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
+import { HOME_RATE_WINDOW_MS, homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
 
 /** Inbox entries a list scans at most (p99 2,000 conversations per user, design section 6). */
 const INBOX_SCAN_LIMIT = 10_000
@@ -228,22 +228,13 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /**
-   * RPC from the Worker before an op that resolves human reach (home-rate.ts): takes one attempt
-   * from `actor`'s hourly budget for `op`, or answers how long to wait. Attempts live in a
-   * private table, never in events; rows older than the window are pruned on every call.
+   * RPC from the Worker before an op that resolves human reach: one attempt from `actor`'s
+   * hourly budget for `op` (home-rate.ts homeRateTakeSql).
    */
   async homeRateTake(entity: string, actor: string, op: HomeRateOp): Promise<HomeRateGate> {
     const bound = this.boundEntity()
-    if ((bound !== null && bound !== entity) || !isHomeRateOp(op) || typeof actor !== "string" || actor.length === 0 || actor.length > 128) return { ok: false, retry_after_ms: HOME_RATE_WINDOW_MS }
-    const sql = this.sqlStore
-    sql.exec(`CREATE TABLE IF NOT EXISTS home_rate (actor TEXT NOT NULL, op TEXT NOT NULL, at INTEGER NOT NULL)`)
-    sql.exec(`CREATE INDEX IF NOT EXISTS home_rate_by_actor ON home_rate (actor, op, at)`)
-    const now = Date.now()
-    sql.exec(`DELETE FROM home_rate WHERE at <= ?`, now - HOME_RATE_WINDOW_MS)
-    const times = sql.exec<{ at: number }>(`SELECT at FROM home_rate WHERE actor = ? AND op = ?`, actor, op).map((r) => Number(r.at))
-    const gate = homeRateDecision(times, now, HOME_RATE_LIMITS[op])
-    if (gate.ok) sql.exec(`INSERT INTO home_rate (actor, op, at) VALUES (?, ?, ?)`, actor, op, now)
-    return gate
+    if (bound !== null && bound !== entity) return { ok: false, retry_after_ms: HOME_RATE_WINDOW_MS }
+    return homeRateTakeSql(this.sqlStore, actor, op, Date.now())
   }
 
   /**

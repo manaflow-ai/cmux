@@ -46,17 +46,16 @@ const signIn = async (sub: string, name: string): Promise<Person> => {
 }
 /** Seeds `member` into `owner`'s team (TeamDO knows personal teams only; team invites are not built yet). */
 const joinTeam = async (owner: Person, member: Person) => {
-  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(owner.team)), async (instance) => {
-    const engine = instance.boundEngine
-    engine.state = { ...engine.currentState, members: { ...engine.currentState.members, [member.user]: { user: member.user, role: "member", display_name: member.name } } }
+  // Members are rows ((f)): the member row goes in directly.
+  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(owner.team)), async (_instance, state: DurableObjectState) => {
+    state.storage.sql.exec("INSERT OR REPLACE INTO own_rows (tbl, k, n, json) VALUES ('member', ?, NULL, ?)", member.user, JSON.stringify({ user: member.user, role: "member", display_name: member.name }))
   })
 }
 /** Removes `member` from `owner`'s team (a departure from the team). */
 const leaveTeam = async (owner: Person, member: Person) => {
-  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(owner.team)), async (instance) => {
-    const engine = instance.boundEngine
-    const { [member.user]: _gone, ...members } = engine.currentState.members
-    engine.state = { ...engine.currentState, members }
+  // Members are rows ((f)): the member row goes.
+  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(owner.team)), async (_instance, state: DurableObjectState) => {
+    state.storage.sql.exec("DELETE FROM own_rows WHERE tbl = 'member' AND k = ?", member.user)
   })
 }
 const send = (p: Person, conversation: string, text: string) => {
