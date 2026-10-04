@@ -707,8 +707,7 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
                     &mut stream,
                     &mut reporter,
                     wire.as_mut(),
-                    session.generation,
-                    account,
+                    &session,
                     &mut backoff,
                 )
             }
@@ -758,15 +757,15 @@ fn pump(
     stream: &mut StreamState,
     reporter: &mut StateReporter<'_>,
     wire: &mut dyn CloudWire,
-    generation: u64,
-    account: Option<&str>,
+    session: &CloudSession,
     backoff: &mut Duration,
 ) -> Ended {
+    let account = session.account.as_deref();
     loop {
         if inner.retire(target) {
             return Ended::Retired;
         }
-        if inner.generation() != generation {
+        if inner.generation() != session.generation {
             return Ended::Reconnect;
         }
         // Announces `expiring` once per lease while a socket is open.

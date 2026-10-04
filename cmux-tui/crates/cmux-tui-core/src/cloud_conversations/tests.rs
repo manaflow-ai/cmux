@@ -760,7 +760,7 @@ fn a_later_subscriber_is_told_the_shared_sockets_current_state() {
     // The socket is shared and already live: a second client must not be
     // told `connecting` with no event to follow.
     assert_eq!(
-        service.subscribe(2, target.clone()).unwrap(),
+        service.subscribe(2, target).unwrap(),
         json!({"state": "live", "conversation": CONV})
     );
     assert_eq!(backend.connected().len(), 1, "the socket is shared");
