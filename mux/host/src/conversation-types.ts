@@ -11,6 +11,14 @@ export interface Participant {
   display_name: string;
   agent_class?: "mux" | "agent";
   acp_session?: string;
+  /** The person a `remote_<install>` device belongs to (`user_local`). */
+  person?: ParticipantId;
+}
+
+/** Where a message came from; absent for local messages. */
+export interface Origin {
+  kind: "remote";
+  install: string;
 }
 
 export interface PartRef {
@@ -54,6 +62,7 @@ export interface Message {
   edited_at?: string;
   retracted_at?: string;
   reactions: Reaction[];
+  origin?: Origin;
 }
 
 export interface Summary {

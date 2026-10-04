@@ -11,6 +11,7 @@ export const cloudCases = (c: Corpus): void => {
   c.create("create group: roles, settings, state", { ...group, participants: [human(ALICE, "Alice"), human(BOB, "Bob"), agent(CHIEF, ALICE)] }, "commit")
   c.create("create group: untitled is allowed", { ...group, title: "", participants: [human(ALICE)] }, "commit")
   c.create("create group: addresses join only by invite", { ...group, participants: [human(ALICE), address(ADDRESS)] }, "invalid_participant")
+  c.create("create group: a paired device never joins a cloud head", { ...group, participants: [human(ALICE), { ...human("remote_inst_1"), person: ALICE } as never] }, "invalid_participant")
   c.create("create group: custom settings", { ...group, participants: [human(ALICE)], settings: { wake_policy: "mentions", history_visible: "since_join" } }, "commit")
   c.create("create group: bad settings", { ...group, participants: [human(ALICE)], settings: { wake_policy: "loud" as never } }, "invalid_settings")
   const dm = { actor: ALICE, title: "", now: NOW, kind: "dm" as const }
