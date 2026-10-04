@@ -18,7 +18,7 @@ out=$(run) && fail "ran outside a fleet step"
 grep -q 'cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh' <<<"$out" || fail "refusal does not name the fleet command: $out"
 [[ ! -e "$TMP/calls" ]] || fail "cargo ran outside a fleet step"
 ARGS=(all 'cmux_link::')
-run CMUX_CI_STEP_KEY=k umask >/dev/null || fail "fleet step refused"
+(umask 077; run CMUX_CI_STEP_KEY=k) >/dev/null || fail "fleet step refused"
 grep -q '^0022 .*/.build/cmux-tui-rust-target fmt --all --check$' "$TMP/calls" || fail "fmt: $(cat "$TMP/calls")"
 grep -q '^0022 .*/.build/cmux-tui-rust-target clippy --workspace --all-targets --locked -- -D warnings$' "$TMP/calls" || fail "clippy: $(cat "$TMP/calls")"
 grep -q '^0022 .*/.build/cmux-tui-rust-target test --workspace --locked cmux_link::$' "$TMP/calls" || fail "test: $(cat "$TMP/calls")"
