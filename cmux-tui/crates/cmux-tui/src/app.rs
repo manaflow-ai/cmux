@@ -31419,7 +31419,7 @@ mod tests {
                 let settled = matches!(event, AppEvent::SessionMutationSettled { .. });
                 assert!(app.handle(event).is_ok());
                 settled
-            })
+            });
         };
 
         app.activate_menu(MenuAction::SetSizeMode {
