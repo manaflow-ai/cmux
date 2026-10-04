@@ -719,3 +719,36 @@ test("snapshot: the page walk stops at its node budget with a note, and frames p
     await server.close();
   }
 });
+
+// Page text reaches the caller's terminal. Escape sequences and other C0,
+// C1 and DEL controls a page puts in its text, title, option labels, URLs or
+// error messages print as visible escapes (`\u001b`), never raw, whichever
+// path prints them: console.log, the auto-printed value, a snapshot, page
+// tools, or an error. Newlines and tabs stay.
+test("printing: control characters from the page never reach the output raw", async () => {
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  try {
+    const hostile = "A\u001b]0;pwned\u0007B\u001b[2JC\u009b31mD\u0090dcs\u009cE\u007fF\rG\u0000H";
+    const out = await runDevRepl(`
+await page.goto(${JSON.stringify(primary)} + "/index.html?controls");
+await page.evaluate((t) => {
+  document.title = t;
+  document.body.innerHTML = '<p id="p"></p><select aria-label="Pick"><option></option></select><a id="a" href="#">link</a>';
+  document.getElementById("p").textContent = t;
+  document.querySelector("option").textContent = t;
+  document.getElementById("a").href = "https://example.com/" + encodeURIComponent(t) + "#" + t;
+}, ${JSON.stringify(hostile)});
+console.log(await page.textContent("#p"));
+console.log([await page.title()]);
+console.log(await snapshot({ urls: true }));
+console.log(await page.evaluate(() => ({ text: document.title })));
+await page.evaluate((t) => { throw new Error(t); }, ${JSON.stringify(hostile)});`);
+    const raw = out.match(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/gu) || [];
+    assert.deepEqual(raw, [], `raw controls in output:\n${JSON.stringify(out)}`);
+    assert.match(out, /A\\u001b\]0;pwned\\u0007B/, out);
+    assert.match(out, /Uncaught .*A\\u001b/, out);
+  } finally {
+    await servers.close();
+  }
+});
