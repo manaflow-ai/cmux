@@ -949,8 +949,7 @@
     const read = () => frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, viewport: !!options.viewport, options: !!options.options, base: page._refMaxFor(frame), maxNodes, maxSize });
     const r = await limit(() => ((called = clock()), inner ? withDeadline(page, read(), options._frameTimeout) : read()));
     budget.left -= Math.min(maxNodes, Math.max(0, Number(r.visited) || 0));
-    // A page agent that does not report its size is charged its whole share.
-    budget.sizeLeft -= Math.min(maxSize, r.size === undefined ? maxSize : Math.max(0, Number(r.size) || 0));
+    budget.sizeLeft -= Math.min(maxSize, Math.max(0, Number(r.size) || 0));
     if (r.truncated && !budget.truncated) budget.truncated = r.truncated;
     // Where the time goes, for tests/browser-parity/perf: in-page traversal
     // and the whole agent call (traversal plus transport).
