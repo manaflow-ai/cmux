@@ -9,6 +9,7 @@
 
 mod adoption;
 mod handoff;
+mod launchers;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 mod hosts;
 mod lifecycle;
@@ -253,6 +254,8 @@ pub struct Hub {
     /// Turns a shutdown with `endAgents` settled as cancelled: their prompt
     /// futures must not write a second result when the agent ends.
     pub(super) settled_by_shutdown: StdMutex<std::collections::HashSet<String>>,
+    /// `npx -y PACKAGE` launches resolved to their bin: (npx, package) to path.
+    pub(super) launchers: StdMutex<HashMap<(String, String), String>>,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -314,6 +317,7 @@ impl Hub {
             end_agents_on_shutdown: AtomicBool::new(false),
             keep_on_shutdown: StdMutex::new(Default::default()),
             settled_by_shutdown: StdMutex::new(Default::default()),
+            launchers: StdMutex::new(HashMap::new()),
         });
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {

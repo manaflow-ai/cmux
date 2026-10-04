@@ -745,6 +745,9 @@ impl Hub {
             handles.push(tokio::spawn(async move {
                 // Probes spawn agents: wait for the login environment.
                 hub.wait_startup().await;
+                // Resolved here, once, so neither this probe nor a later
+                // session spawn launches through npx.
+                hub.resolve_launcher(&profile.argv).await;
                 match tokio::time::timeout(
                     std::time::Duration::from_secs(60),
                     hub.probe_one(&name, &profile),
@@ -772,7 +775,9 @@ impl Hub {
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
         let tap: crate::agent::Tap = Arc::new(|_, _, _| true);
         let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"));
-        let child = crate::agent::ChildAgent::spawn(name, profile, &cwd, tx, tap).await?;
+        let mut resolved = profile.clone();
+        resolved.argv = self.resolved_launcher_argv(resolved.argv);
+        let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;
         // Drain anything the agent sends so its writer never blocks.
         let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
         let result = tokio::time::timeout(std::time::Duration::from_secs(50), async {
