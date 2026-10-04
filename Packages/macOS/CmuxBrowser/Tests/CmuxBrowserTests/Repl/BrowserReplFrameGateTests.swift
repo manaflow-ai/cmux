@@ -118,6 +118,72 @@ struct BrowserReplFrameGateTests {
         #expect(await Self.error { try unrelated.checkCapture(in: page.webView, frames: page.frames) } == nil)
     }
 
+    /// A blocked frame (an ad or tracker iframe under `allowedDomains`) must
+    /// not refuse every capture of the tab: the capture blanks that frame's
+    /// box and shows the rest of the page.
+    @Test func aScreenshotBlanksABlockedFrameAndShowsTheRest() async throws {
+        let page = try await FramePage.load()
+        let blocked = try #require(page.frame(host: "blocked.test"))
+        let allowed = try #require(page.frame(path: "/child"))
+        _ = try await page.run("document.body.style.background = 'rgb(255, 0, 0)'; return true", in: blocked)
+        _ = try await page.run("document.body.style.background = 'rgb(0, 255, 0)'; return true", in: allowed)
+        let gate = Self.gate()
+        let image = try await gate.coverBlockedFrames(in: page.webView, frames: { await BrowserReplFrame.readTree(of: page.webView) }) {
+            (try await FramePage.viewportImage(of: page.webView), CGRect(x: 0, y: 0, width: 400, height: 300))
+        }
+        let blockedPixel = try #require(FramePage.pixel(image, x: 250, y: 50))
+        #expect(!(blockedPixel.red > 0.8 && blockedPixel.green < 0.2), "the blocked frame's content is in the capture")
+        let allowedPixel = try #require(FramePage.pixel(image, x: 60, y: 50))
+        #expect(allowedPixel.green > 0.8 && allowedPixel.red < 0.2, "the allowed frame was blanked too")
+    }
+
+    /// Blanking a box hides a frame only when nothing draws its content
+    /// elsewhere; a reflection does, so the capture is refused.
+    @Test func aScreenshotOfABlockedFrameDrawnOutsideItsBoxIsRefused() async throws {
+        let page = try await FramePage.load()
+        _ = try await page.run("document.getElementById('b').style.webkitBoxReflect = 'below 0px'; return true", in: page.main)
+        let gate = Self.gate()
+        let error = await Self.error {
+            try await gate.coverBlockedFrames(in: page.webView, frames: { await BrowserReplFrame.readTree(of: page.webView) }) {
+                (try await FramePage.viewportImage(of: page.webView), CGRect(x: 0, y: 0, width: 400, height: 300))
+            }
+        }
+        #expect(error?.code == "blocked", "a capture of a reflected blocked frame was allowed")
+    }
+
+    /// A file chooser is answered with files only when its own frame is
+    /// allowed; another frame of the tab that shows a blocked page does not
+    /// matter.
+    @Test func aFileChooserIsJudgedByItsOwnFrame() async throws {
+        let page = try await FramePage.load()
+        let gate = Self.gate()
+        let blocked = try #require(page.frame(host: "blocked.test")?.info)
+        let allowed = try #require(page.frame(path: "/child")?.info)
+        #expect(await Self.error { try await gate.checkFileChooser(frame: allowed, in: page.webView, frames: page.frames) } == nil,
+                "a chooser in an allowed frame was refused because another frame is blocked")
+        let error = await Self.error { try await gate.checkFileChooser(frame: blocked, in: page.webView, frames: page.frames) }
+        #expect(error?.code == "blocked", "files were given to a chooser in a blocked frame")
+    }
+
+    /// `window.frames` leaves out frames in shadow trees, so a child's index
+    /// in WebKit's frame tree is not its index there. A blocked frame in a
+    /// shadow tree must still refuse a point over it.
+    @Test func pointerInputOverABlockedFrameInAShadowTreeIsRefused() async throws {
+        let html = """
+            <iframe id=a src="cmux-test://allowed.test/child" style="position:absolute;left:10px;top:10px;width:100px;height:80px;border:0"></iframe>
+            <div id=host></div>
+            <script>
+            const root = document.getElementById('host').attachShadow({ mode: 'closed' });
+            root.innerHTML = '<iframe src="cmux-test://blocked.test/x" style="position:absolute;left:200px;top:10px;width:100px;height:80px;border:0"></iframe>';
+            </script>
+            <iframe id=c src="cmux-test://allowed.test/other" style="position:absolute;left:10px;top:150px;width:100px;height:80px;border:0"></iframe>
+            """
+        let page = try await FramePage.load(html: html) { frames in frames.count >= 4 && frames.allSatisfy { !$0.url.isEmpty } }
+        let gate = Self.gate()
+        let over = await Self.error { try await gate.checkPointer(at: [CGPoint(x: 250, y: 50)], in: page.webView, frames: page.frames) }
+        #expect(over?.code == "blocked", "a point over a blocked frame in a shadow tree was allowed")
+    }
+
     /// In a tab the session created the policy's content rules stop a
     /// blocked frame from loading; the empty frame left behind is the
     /// parent's and does not refuse the tab.
@@ -248,6 +314,30 @@ struct FramePage {
             try await Task.sleep(for: .milliseconds(50))
         }
         throw BrowserReplDriverError(code: "timeout", message: "the test page did not settle")
+    }
+
+    /// The viewport as an image of one pixel per CSS pixel.
+    static func viewportImage(of webView: WKWebView) async throws -> CGImage {
+        let configuration = WKSnapshotConfiguration()
+        configuration.afterScreenUpdates = true
+        configuration.snapshotWidth = NSNumber(value: Double(webView.bounds.width))
+        let image = try await webView.takeSnapshot(configuration: configuration)
+        var rect = CGRect(origin: .zero, size: image.size)
+        guard let cgImage = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) else {
+            throw BrowserReplDriverError(code: "invalid", message: "the snapshot had no bitmap")
+        }
+        return cgImage
+    }
+
+    /// The color at CSS pixel (`x`, `y`) from the top-left of `image`, which
+    /// shows a 400-point-wide viewport.
+    static func pixel(_ image: CGImage, x: Int, y: Int) -> (red: CGFloat, green: CGFloat, blue: CGFloat)? {
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        let scale = CGFloat(bitmap.pixelsWide) / 400
+        guard let color = bitmap.colorAt(x: Int(CGFloat(x) * scale), y: Int(CGFloat(y) * scale))?.usingColorSpace(.deviceRGB) else {
+            return nil
+        }
+        return (color.redComponent, color.greenComponent, color.blueComponent)
     }
 
     /// Runs `source` in `frame`'s page world without the gate.
