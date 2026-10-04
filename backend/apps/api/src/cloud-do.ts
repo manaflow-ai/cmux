@@ -3,7 +3,7 @@ import { CloudMachineList } from "@cmux/protocol"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { DriverError } from "./team-vm-driver.ts"
-import { cloudConfig, cloudDriver, type GuardedCloudDriver } from "./cloud-driver.ts"
+import { cloudConfig, cloudDriver, cloudProviderReady, type GuardedCloudDriver } from "./cloud-driver.ts"
 import { collectSuspects, OrphanSweep } from "./cloud-sweep.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { decodeParams } from "./domains/common.ts"
@@ -268,10 +268,16 @@ export class CloudDO extends OwnerDO<CloudState> {
   }
 
   protected override nextWakeAt(state: CloudState, _now: number): number | null {
-    const times = [...Object.values(state.pending).map((p) => p.due_at), ...Object.values(state.watch ?? {}).map((w) => w.due_at)]
+    // Pending calls resolve even without a provider (they fail final), so they always count.
+    const times = Object.values(state.pending).map((p) => p.due_at)
     const prune = this.pruneAt(state)
     if (prune !== null) times.push(prune)
-    if (this.hasRows()) times.push(this.sweep.dueAt() ?? Date.now())
+    // The cancelled-create lookups and the sweep need the provider: with none (key, prefix or image
+    // removed), their overdue times would re-fire the alarm at once, forever (third review P2-1).
+    if (cloudProviderReady(this.env)) {
+      times.push(...Object.values(state.watch ?? {}).map((w) => w.due_at))
+      if (this.hasRows()) times.push(this.sweep.dueAt() ?? Date.now())
+    }
     return times.length ? Math.min(...times) : null
   }
 
