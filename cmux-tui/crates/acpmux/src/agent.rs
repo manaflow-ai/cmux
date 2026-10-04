@@ -702,6 +702,22 @@ impl ChildAgent {
                     return Ok(Attached::Incompatible { min, max, host_build });
                 }
             };
+        let (agent, responses) =
+            Self::from_link(name, link, &adopted, resume_after, awaiting, inbound, tap);
+        Ok(Attached::Ready(agent, adopted, responses))
+    }
+
+    /// The agent over an owner connection that is already open; starts its
+    /// reader.
+    pub(crate) fn from_link(
+        name: &str,
+        link: Arc<crate::agent_host::link::Link>,
+        adopted: &crate::agent_host::link::Adopted,
+        resume_after: u64,
+        awaiting: Vec<Id>,
+        inbound: mpsc::Sender<Inbound>,
+        tap: Tap,
+    ) -> (Arc<Self>, Vec<Response>) {
         // Never reuse an id the harness may still answer.
         let (stdin_tx, _unused) = mpsc::channel::<String>(1);
         // Answers to requests a previous controller sent may be among the
@@ -734,7 +750,7 @@ impl ChildAgent {
             }),
         });
         agent.start_reader(link);
-        Ok(Attached::Ready(agent, adopted, responses))
+        (agent, responses)
     }
 
     /// Read `link`'s entries: log each, act on it, then acknowledge it.

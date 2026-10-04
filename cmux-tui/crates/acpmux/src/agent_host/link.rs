@@ -298,3 +298,40 @@ impl Link {
         self.closed.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
+
+/// A link with no host behind it, for tests: the test reads the frames the
+/// link writes and feeds it host entries.
+#[cfg(test)]
+pub(crate) struct TestWire {
+    frames: mpsc::Receiver<ControllerFrame>,
+    pub entries: mpsc::Sender<(u64, Entry)>,
+}
+
+#[cfg(test)]
+impl TestWire {
+    /// The link and its wire. Nothing is written until `write_all`.
+    pub(crate) fn link(record: HostRecord) -> (Link, TestWire) {
+        let (tx, frames) = mpsc::channel(1024);
+        let (entries, entries_rx) = mpsc::channel(4096);
+        let link = Link {
+            tx,
+            queries: Arc::default(),
+            next_query: std::sync::atomic::AtomicU64::new(1),
+            record,
+            entries: Mutex::new(entries_rx),
+            detach_ack: Mutex::new(None),
+            closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        (link, TestWire { frames, entries })
+    }
+
+    /// Write every frame queued so far; returns them.
+    pub(crate) fn write_all(&mut self) -> Vec<ControllerFrame> {
+        let mut out = Vec::new();
+        while let Ok(frame) = self.frames.try_recv() {
+            out.push(frame);
+        }
+        out
+    }
+}
+
