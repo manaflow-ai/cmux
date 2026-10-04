@@ -10,7 +10,7 @@ public struct TabStripHoverState: Equatable, Sendable {
 extension TabStripView {
     public var hoverState: TabStripHoverState {
         TabStripHoverState(
-            buttonsRevealed: buttonGroup.isRevealed,
+            buttonsRevealed: buttonsReveal.isRevealed,
             hoveredTab: hoveredID?.rawValue,
             closeShown: displayed.compactMap { cells[$0.id]?.closeButtonRect != nil ? $0.id.rawValue : nil }
         )

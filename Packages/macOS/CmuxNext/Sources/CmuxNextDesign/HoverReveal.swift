@@ -80,9 +80,12 @@ public final class HoverReveal {
 
     /// - Parameter tracking: `.activeAlways` for window chrome (hover shows
     ///   in a background window too), `.activeInKeyWindow` for sheets.
-    public init(region: NSView, tracking: NSTrackingArea.Options = .activeAlways) {
+    /// - Parameter tracksPointer: False for a region that already tracks
+    ///   the pointer itself (the tab strip) and reports it through
+    ///   `setPointerInside`; focus and window tracking still apply.
+    public init(region: NSView, tracking: NSTrackingArea.Options = .activeAlways, tracksPointer: Bool = true) {
         self.region = region
-        probe = HoverRevealProbe(tracking: tracking)
+        probe = HoverRevealProbe(tracking: tracking, tracksPointer: tracksPointer)
         let key = ObjectIdentifier(region)
         if let other = Self.regionOwners[key]?.value, other !== self {
             Self.conflict("region already has a HoverReveal")
@@ -200,11 +203,13 @@ public final class HoverReveal {
 private final class HoverRevealProbe: NSView {
     weak var owner: HoverReveal?
     private let trackingOptions: NSTrackingArea.Options
+    private let tracksPointer: Bool
     private var focusObservation: NSKeyValueObservation?
     private var closeObserver: (any NSObjectProtocol)?
 
-    init(tracking: NSTrackingArea.Options) {
+    init(tracking: NSTrackingArea.Options, tracksPointer: Bool) {
         trackingOptions = tracking
+        self.tracksPointer = tracksPointer
         super.init(frame: .zero)
         setAccessibilityElement(false)
     }
@@ -221,6 +226,7 @@ private final class HoverRevealProbe: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
+        guard tracksPointer else { return }
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, trackingOptions],
                                        owner: self))
     }
@@ -252,6 +258,6 @@ private final class HoverRevealProbe: NSView {
         // A pointer already over the region when it joins the window reveals
         // at once, before any click (no mouseEntered arrives for it).
         let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-        if bounds.contains(point) { owner?.setPointerInside(true) }
+        if tracksPointer, bounds.contains(point) { owner?.setPointerInside(true) }
     }
 }
