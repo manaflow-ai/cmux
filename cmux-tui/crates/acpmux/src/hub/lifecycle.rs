@@ -353,10 +353,16 @@ impl Hub {
                 Some(child) if child.is_alive().await => return Ok(child),
                 // The host ended meanwhile: start a fresh agent below.
                 _ if !Self::host_record_live(&session.id) => {}
+                // Live but unreachable even after a reconnect: end it (nonce
+                // proof) and start a fresh agent, so the session never locks.
                 _ => {
-                    return Err(RpcError::internal(
-                        "this session's agent host is still running but cannot be reached; close the session to end it",
-                    ));
+                    self.end_unadopted_host(session).await;
+                    if Self::host_record_live(&session.id) {
+                        return Err(RpcError::internal(
+                            "this session's agent host is still running, cannot be reached and did not end; close the session to end it",
+                        ));
+                    }
+                    self.append(session, "mux", "host_unreachable_ended", json!({}));
                 }
             }
         }

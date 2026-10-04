@@ -22,16 +22,17 @@ impl HostLauncher {
     }
 }
 
-/// Start a host for `spec` and return its record once the harness runs.
+/// Start a host for `spec` and return its record once the harness runs, or
+/// fail with [`HostTimeout`] after [`BOOTSTRAP_BUDGET`].
 pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostRecord> {
-    spawn_within(launcher, spec, std::time::Duration::MAX).await
+    spawn_within(launcher, spec, BOOTSTRAP_BUDGET).await
 }
 
 /// [`spawn`] with the bootstrap deadline given by the caller.
 pub async fn spawn_within(
     launcher: &HostLauncher,
     spec: &SpawnSpec,
-    _budget: std::time::Duration,
+    budget: std::time::Duration,
 ) -> Result<HostRecord> {
     let mut cmd = tokio::process::Command::new(&launcher.exe);
     cmd.args(&launcher.prefix)
@@ -53,13 +54,22 @@ pub async fn spawn_within(
     let mut child = cmd.spawn().with_context(|| format!("start {}", launcher.exe.display()))?;
     let mut stdin = child.stdin.take().context("host stdin")?;
     let mut stdout = child.stdout.take().context("host stdout")?;
-    write_frame(&mut stdin, spec).await?;
-    let reply: Option<BootstrapReply> = read_frame(&mut stdout).await?;
+    // A host that never reports ready must not hold the session's spawn.
+    let bootstrap = within("start", budget, async {
+        write_frame(&mut stdin, spec).await?;
+        read_frame::<_, BootstrapReply>(&mut stdout).await
+    })
+    .await;
+    if bootstrap.is_err() {
+        // Not ready in time: it is still this process's child, so end it.
+        let _ = child.start_kill();
+    }
     // The host is not this process's child for long: reap it in the
     // background so it never lingers as a zombie of the controller.
     tokio::spawn(async move {
         let _ = child.wait().await;
     });
+    let reply = bootstrap??;
     match reply {
         Some(BootstrapReply::Ready { record }) => Ok(record),
         Some(BootstrapReply::SpawnFailed { message }) => Err(anyhow!(message)),
@@ -263,18 +273,25 @@ impl Link {
         Ok(())
     }
 
-    /// The translator's state inside the host.
+    /// The translator's state inside the host, or [`HostTimeout`] after
+    /// [`QUERY_BUDGET`].
     pub async fn query(&self) -> Result<QueryReply> {
-        self.query_within(std::time::Duration::MAX).await
+        self.query_within(QUERY_BUDGET).await
     }
 
     /// [`Link::query`] with the deadline given by the caller.
-    pub async fn query_within(&self, _budget: std::time::Duration) -> Result<QueryReply> {
+    pub async fn query_within(&self, budget: std::time::Duration) -> Result<QueryReply> {
         let id = self.next_query.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.queries.lock().unwrap().insert(id, tx);
         self.send(ControllerFrame::Query { id }).await?;
-        rx.await.map_err(|_| anyhow!("agent host closed before it answered"))
+        match within("query", budget, rx).await {
+            Ok(reply) => reply.map_err(|_| anyhow!("agent host closed before it answered")),
+            Err(timeout) => {
+                self.queries.lock().unwrap().remove(&id);
+                Err(timeout.into())
+            }
+        }
     }
 
     pub fn is_closed(&self) -> bool {
