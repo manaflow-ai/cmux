@@ -1307,3 +1307,41 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
         );
     }
 }
+
+#[test]
+fn native_pane_apps_install_and_list_but_never_spawn_a_host() {
+    // A v2-only package (no cmux-app.json) whose only implementation is a
+    // native pane and that has no runtime.main, like first-party Home.
+    let root = temp_dir();
+    let app = root.0.join("bundled/native");
+    std::fs::create_dir_all(&app).unwrap();
+    let manifest = json!({
+        "manifestVersion": 2, "id": "cmux/native", "name": "Native", "version": "1.0.0",
+        "description": "d", "engines": { "cmux": "^2.0" },
+        "repository": "https://github.com/manaflow-ai/cmux",
+        "implements": { "cmux.pane/1": { "native": "home", "title": "Native" } }
+    });
+    std::fs::write(app.join("cmux-app.v2.json"), manifest.to_string()).unwrap();
+    let f = fixture_with(&["cmux/native"], Duration::from_secs(60), root);
+    let entry = app_entry(&f.supervisor.list(), "cmux/native");
+    assert_eq!(
+        (entry["installed"].clone(), entry["source"].clone()),
+        (json!(true), json!("default"))
+    );
+    let refused =
+        f.supervisor.mount(CLIENT, "n1", "cmux/native", "cmux.pane/1", json!({})).unwrap_err();
+    assert_eq!(refused.code, "apps.interface");
+    let (tx, rx) = channel();
+    f.supervisor.run(
+        run_request("cmux/native", "native.open", None, Origin::User, None),
+        Box::new(move |r| tx.send(r).unwrap()),
+    );
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap_err().code,
+        "apps.op.unknown"
+    );
+    assert!(
+        f.events.try_iter().all(|e| e["event"] != "apps-host"),
+        "a native-pane app never starts a host"
+    );
+}
