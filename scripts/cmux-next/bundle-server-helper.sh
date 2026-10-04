@@ -45,6 +45,9 @@
 # cmux-server-helper (the file name) in both places. The plists are resources
 # sealed by the app signature; they carry no signature of their own.
 set -euo pipefail
+# ASCII collation in every locale: the bundle-id regex below must not accept
+# non-ASCII letters through a locale's character classes or ranges.
+export LC_ALL=C
 
 # Writes or removes both plists for the app at $1 from its bundle id.
 # $2 = "build" (the Xcode phase): a Release build is built as com.cmuxterm.app and

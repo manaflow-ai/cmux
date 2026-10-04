@@ -10,7 +10,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{HOST_RUN_ARGS, UnitError};
+use super::{UnitError, host_run_argv_with_mode};
 use crate::layout::{LAUNCHD_LABEL, Layout, ServiceKind};
 use crate::pg::valid_os_user;
 use crate::platform::{InstallMode, Platform};
@@ -73,17 +73,14 @@ fn document(root: BTreeMap<&'static str, Value>) -> Result<String, UnitError> {
     Ok(out)
 }
 
-/// `<program> host run --mode <mode>`.
 fn program_arguments(program: &str, mode: InstallMode) -> Value {
-    let mode = match mode {
-        InstallMode::User => "user",
-        InstallMode::System => "system",
-    };
-    let mut args = vec![Value::Str(program.to_owned())];
-    args.extend(HOST_RUN_ARGS.iter().map(|s| Value::Str((*s).to_owned())));
-    args.push(Value::Str("--mode".to_owned()));
-    args.push(Value::Str(mode.to_owned()));
-    Value::Array(args)
+    Value::Array(host_run_argv_with_mode(program, mode).into_iter().map(Value::Str).collect())
+}
+
+/// KeepAlive `{SuccessfulExit: false}`: restart only after a failure, so a
+/// clean exit (the host was disabled) stays down.
+fn restart_on_failure() -> Value {
+    Value::Dict(BTreeMap::from([("SuccessfulExit", Value::Bool(false))]))
 }
 
 /// The headless agent and the daemon: label `com.cmux.server`, the store
@@ -97,9 +94,9 @@ fn headless_plist(layout: &Layout, user: Option<&str>) -> Result<String, UnitErr
         root.insert("UserName", Value::Str(user.to_owned()));
     }
     root.insert("RunAtLoad", Value::Bool(true));
-    root.insert("KeepAlive", Value::Bool(true));
+    root.insert("KeepAlive", restart_on_failure());
     root.insert("ProcessType", Value::Str("Standard".to_owned()));
-    root.insert("ThrottleInterval", Value::Int(2));
+    root.insert("ThrottleInterval", Value::Int(10));
     root.insert("StandardOutPath", Value::Str(log.clone()));
     root.insert("StandardErrorPath", Value::Str(log));
     document(root)
@@ -169,7 +166,7 @@ pub fn app_service_agent_plist(layout: &Layout, bundle_id: &str) -> Result<Strin
     );
     root.insert("ProgramArguments", program_arguments(APP_BUNDLE_PROGRAM, InstallMode::User));
     root.insert("RunAtLoad", Value::Bool(true));
-    root.insert("KeepAlive", Value::Dict(BTreeMap::from([("SuccessfulExit", Value::Bool(false))])));
+    root.insert("KeepAlive", restart_on_failure());
     root.insert("ThrottleInterval", Value::Int(10));
     root.insert("ProcessType", Value::Str("Standard".to_owned()));
     document(root)
