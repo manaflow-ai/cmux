@@ -420,6 +420,61 @@ test("cookie calls name the page's tab, so the driver uses that tab's store", as
   }
 });
 
+// localStorage lives in a tab's data store too: storageState and
+// setStorageState read and write it only through tabs in the page's own
+// store, and restore an origin no such tab shows in a new tab of that store.
+// The dev driver has one store, so this test reports the other tab as a
+// private tab's store.
+test("storage state reads and writes localStorage only in the page's own data store", async () => {
+  const browser = await createDevBrowser();
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmux-repl-store-")));
+  const driver = browser.driver();
+  let otherId = null;
+  let recording = false;
+  const storageCalls = [];
+  const opened = [];
+  const call = driver.call.bind(driver);
+  const storeOf = (targetId, store) => (otherId && targetId === otherId ? "private" : store);
+  driver.call = async (method, params) => {
+    if (recording && method === "frame.evaluate" && /localStorage/.test(String(params && params.source))) storageCalls.push(params.targetId);
+    if (recording && method === "tabs.open") opened.push({ ...params });
+    const result = await call(method, params);
+    if (method === "tabs.list") return result.map((t) => ({ ...t, dataStore: storeOf(t.targetId, t.dataStore) }));
+    if (method === "tabs.dataStore") return { dataStore: storeOf(params && params.targetId, result.dataStore) };
+    return result;
+  };
+  const repl = createDevRepl({ host: createNodeHost({ workDir: dir, sessionId: `store-${process.pid}`, print: () => {} }), driver });
+  try {
+    let r = await repl.evaluate(`
+      globalThis.other = await tabs.open(${JSON.stringify(primary)} + "/agent-tools.html");
+      await other.evaluate(() => localStorage.setItem("k", "private"));
+      globalThis.own = await tabs.open();
+      [own._targetId, other._targetId]
+    `);
+    assert.equal(r.ok, true, r.error);
+    const [ownId, other] = r.value;
+    otherId = other;
+    recording = true;
+    r = await repl.evaluate(`
+      const state = await own.context().storageState({ all: true });
+      const restored = await own.context().setStorageState({ origins: [{ origin: ${JSON.stringify(primary)}, localStorage: [{ name: "k", value: "own" }] }] });
+      [state.origins, restored.origins]
+    `);
+    assert.equal(r.ok, true, r.error);
+    assert.deepEqual(r.value, [[], 1], "the private tab's localStorage stayed out of the state");
+    assert.deepEqual(storageCalls.filter((id) => id === otherId), [], "no localStorage call went to the private tab");
+    assert.ok(storageCalls.some((id) => id !== otherId && id !== ownId), "the origin was restored in a new tab");
+    assert.deepEqual(opened.map((p) => p.dataStore), ["default"], "the new tab opened in the page's store");
+  } finally {
+    repl.dispose();
+    await browser.close();
+    await servers.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("cookies.clear: the driver clears the target tab's site, never a named one or the whole profile", async () => {
   const servers = await startFixtureServers();
   const { primary, peer } = servers.origins;
