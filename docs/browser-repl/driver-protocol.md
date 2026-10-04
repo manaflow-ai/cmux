@@ -223,7 +223,14 @@ fails naming that element and style instead of sending input that could
 reach another element or frame. Before the input, and again after the
 pointer moves there, each parent frame must have the `<iframe>` itself at
 the point; an element over it fails the check (`<div> intercepts pointer
-events`), as in the target's own frame. `locator.boundingBox()` and element
+events`), as in the target's own frame. A click checks both once more
+right before each press (the move before it, or the press before a
+second one, runs page handlers that can put another element or frame at
+the point) and fails sending no press when either changed (`no press was
+sent: …`). The runtime makes that check, so the driver round trip between
+it and the press stays open: a page that moves another frame under the
+point within it gets the press, which only a check in the web content
+process at the press would close. `locator.boundingBox()` and element
 screenshots in such a frame fail the same way. The runtime no longer calls
 `frame.ownerBox`.
 
