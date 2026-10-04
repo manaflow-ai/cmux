@@ -410,6 +410,8 @@ impl Surface {
     /// byte-backend terminal: output comes from the channel, input and
     /// resize go to the app, and the end is the channel's end. Parsing,
     /// journal, snapshots and attach are the same as for a PTY child.
+    /// Unix only, like `terminal_backend`.
+    #[cfg(unix)]
     pub(crate) fn spawn_backend(
         id: SurfaceId,
         opts: SurfaceOptions,
