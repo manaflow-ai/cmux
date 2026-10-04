@@ -34,20 +34,26 @@ Before P8 every connection is refused.
 
 ## Hello and capability
 
-- The Swift app has no separate hello. Each (re)connect pipelines `identify`, `set-client-info
-  {name, kind, capabilities}`, `subscribe`. `set-client-info` gains `role` (`client` default,
-  `page_relay`); its result (today `{}`) gains `connection_id` (backward compatible: Swift
-  ignores extra fields). P8's client.hello must carry both (coordinator told P8).
-- The role is settable only by the first `set-client-info` and is fixed for the connection life;
-  a later role change is refused. `set-client-info` with role page_relay is refused after any
-  request other than `identify` on that connection.
-- A page_relay connection sends no `subscribe`; it is valid without one, and `subscribe` on
-  page_relay is refused.
-- Residual risk: a Swift bug that forwards a page call before `set-client-info` would run it
-  with the client role. Swift test: the relay forwards nothing until set-client-info succeeded.
-- Capability `origin-claim-v1` = the `origin` envelope field + the page_relay role + the issue
-  operation. Clients send `origin` / open page_relay only when it is advertised; otherwise the
-  relay behaves as today and logs that page calls are not narrowed.
+One handshake for origin and P8 (coordinator decision 2026-10-04):
+- `{"cmd":"client-hello","role":"main"|"page_relay"}` must be the FIRST line of a local
+  connection. `role` is required; a missing or unknown role fails closed (`client_hello.bad_request`).
+  Any other line first closes the hello window: a later client-hello is refused.
+- Result data: `connection_id` (the daemon client id, as a string); `nonce` when an install key
+  exists (P8 step 2).
+- Step 1 (origin window, this lane): role + connection_id. Errors `client_hello.local_only`,
+  `client_hello.unavailable`, `client_hello.refused`, `client_hello.bad_request`.
+- Step 2 (P8 lead, later, same command): install_id + proof =
+  HMAC-SHA256(key, "cmux-frontend-hello-v1" || 0x00 || install_id || 0x00 || nonce).
+- `set-client-info` stays a label only and never sets the role.
+- A connection with no client-hello is the legacy client role: never user, never page_relay.
+- verified_app (P8) = role main declared on that connection AND (install-key proof OR prover A).
+- A page_relay connection sends client-hello, then page calls; no subscribe (valid without it;
+  subscribe on page_relay is refused).
+- Same-peer key for origin.confirmation.issue: the proven install_id when present, else the
+  audit-token pid + pidversion. Never pid alone.
+- Capability `origin-claim-v1` = client-hello step 1 + the `origin` envelope field + the issue
+  operation. Clients use them only when it is advertised; otherwise the relay behaves as today
+  and logs that page calls are not narrowed.
 
 ## Red tests (first commit)
 
@@ -58,10 +64,13 @@ Before P8 every connection is refused.
 - apps.install/uninstall/enable refused with the A2 error before P8.
 - request with no origin on a client connection behaves as today.
 - origin-claim-v1 advertised.
-- page_relay with no subscribe is served; subscribe on page_relay refused; role change refused;
-  set-client-info result carries connection_id.
+- client-hello: role required (missing/unknown -> bad_request); refused when not the first line;
+  returns connection_id; second client-hello refused.
+- no client-hello: never page_relay, never user (legacy client role).
+- page_relay with no subscribe is served; subscribe on page_relay refused.
+- issue with a relay connection of a different peer (pid+pidversion differ) -> refused.
 
 ## Swift side (React UIs lead)
 
-PageCallContext defaults to page; DaemonPageRelay opens the page_relay connection and adds the
+PageCallContext defaults to page; DaemonPageRelay opens the page_relay connection with client-hello as line 1 and adds the
 token only for natively confirmed calls; Swift test that every relay request carries `origin`.
