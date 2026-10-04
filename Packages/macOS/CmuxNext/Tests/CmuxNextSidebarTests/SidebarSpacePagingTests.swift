@@ -94,6 +94,9 @@ import Testing
         let list = view.scrollView
         #expect(page.superview === list.superview)
         #expect(page.frame == list.frame)
+        // Live run: the page was not flipped, so its rows sat at the bottom.
+        let rows = try #require(paging.neighbor?.list)
+        #expect(page.isFlipped && rows.frame.minY == 0, "the next space's rows start at the top")
         let siblings = list.superview?.subviews ?? []
         #expect((siblings.firstIndex(of: page) ?? -1) > (siblings.firstIndex(of: list) ?? Int.max))
     }
