@@ -23,12 +23,16 @@ const fetchOnce = (url) => new Promise((resolve, reject) => {
   const id = nextCall++; pending.set(id, { resolve, reject });
   __cmuxNative.fetch(id, JSON.stringify({ url }));
 });
+const driverOnce = (method) => new Promise((resolve, reject) => {
+  const id = nextCall++; pending.set(id, { resolve, reject });
+  __cmuxNative.driverCall(id, method, "{}");
+});
 const sleep = (ms) => new Promise((r) => { const id = nextTimer++; timers.set(id, r); __cmuxNative.setTimer(id, ms, false); });
 const console = { log: (...a) => __cmuxNative.print("log", a.map(String).join(" ")) };
 const AsyncFunction = (async () => {}).constructor;
 globalThis.__cmuxFormatError = (e) => `${e.name}: ${e.message}`;
 globalThis.__cmuxReplEval = (code) =>
-  new AsyncFunction("console", "fetchOnce", "sleep", "native", code)(console, fetchOnce, sleep, __cmuxNative);
+  new AsyncFunction("console", "fetchOnce", "driverOnce", "sleep", "native", code)(console, fetchOnce, driverOnce, sleep, __cmuxNative);
 """#
 
 /// Holds every `cookies.get` (the fetcher's first step for a cookie-bearing
@@ -113,6 +117,28 @@ final class HeldCookiesDriver: BrowserReplDriver, @unchecked Sendable {
             return Array(held.values)
         }
         for continuation in pending { continuation.resume() }
+    }
+
+    func attach(eventSink: @escaping BrowserReplDriverEventSink) {}
+    func detach() {}
+}
+
+/// Passes calls to `inner` and counts the finished ones in `completed`.
+final class BrowserReplCountingDriver: BrowserReplDriver, @unchecked Sendable {
+    private let inner: any BrowserReplDriver
+    private let completed: BrowserReplResponseCounter
+
+    init(_ inner: any BrowserReplDriver, completed: BrowserReplResponseCounter) {
+        self.inner = inner
+        self.completed = completed
+    }
+
+    var capabilities: [String] { inner.capabilities }
+
+    func call(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
+        let result = await inner.call(method: method, paramsJSON: paramsJSON)
+        completed.increment()
+        return result
     }
 
     func attach(eventSink: @escaping BrowserReplDriverEventSink) {}
@@ -265,6 +291,58 @@ struct BrowserReplSessionResourceTests {
         #expect(arrivals.count == 40)
         for (index, responses) in arrivals.enumerated() where index >= 16 {
             #expect(responses >= index - 15, "fetch \(index + 1) started after \(responses) responses: \(arrivals)")
+        }
+    }
+
+    @Test("A cell that times out cancels the driver calls it started")
+    func timeoutCancelsTheCellsDriverCalls() async {
+        let driver = HeldCookiesDriver()
+        let session = makeSession(driver)
+        defer {
+            session.close()
+            driver.releaseAll()
+        }
+
+        let result = await session.evaluate(
+            code: "driverOnce('cookies.get'); await new Promise(() => {});",
+            timeout: .milliseconds(100)
+        )
+        #expect(result.error?.contains("timed out") == true)
+
+        // The call is still held by the driver; the timeout cancels it, not close().
+        let cancelled = await browserReplWithDeadline(seconds: 10) { await driver.waitForCancellation() }
+        #expect(cancelled != nil, "the timed-out cell's driver call kept running")
+        #expect(!session.isClosed)
+    }
+
+    @Test("A session runs at most 256 driver calls at once; the rest start as earlier ones finish")
+    func driverCallConcurrencyIsBounded() async {
+        let completed = BrowserReplResponseCounter()
+        let held = HeldCookiesDriver(responses: { completed.count })
+        let session = makeSession(BrowserReplCountingDriver(held, completed: completed))
+        defer {
+            session.close()
+            held.releaseAll()
+        }
+
+        let evaluation = Task {
+            await session.evaluate(code: """
+            const all = await Promise.all(Array.from({ length: 300 }, () => driverOnce("cookies.get")));
+            console.log(all.length);
+            """, timeout: .seconds(60))
+        }
+        let started = await browserReplWithDeadline(seconds: 30) { await held.waitForEntries(256) }
+        #expect(started != nil)
+        held.releaseAll()
+        let result = await browserReplWithDeadline(seconds: 60) { await evaluation.value }
+
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(result?.lines.map(\.text) == ["300"])
+        // The 257th call starts only after one has finished, the 258th after two, and so on.
+        let arrivals = held.responsesAtEntry
+        #expect(arrivals.count == 300)
+        for (index, finished) in arrivals.enumerated() where index >= 256 {
+            #expect(finished >= index - 255, "driver call \(index + 1) started after \(finished) finished")
         }
     }
 
