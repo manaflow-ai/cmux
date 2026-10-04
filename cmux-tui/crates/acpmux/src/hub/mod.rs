@@ -20,6 +20,8 @@ mod shutdown;
 mod spawn;
 mod stream;
 mod tap;
+#[cfg(test)]
+mod tap_tests;
 pub use lifecycle::{NewRequest, profile_takes_model_at_spawn};
 pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
