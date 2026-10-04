@@ -64,3 +64,7 @@ pub(super) fn new_screen(
     let terminal_id = mux.resource_terminal_host_identity(&surface).map(|id| id.terminal_id);
     Ok(json!({ "surface": surface.id, "screen": screen, "terminal_id": terminal_id }))
 }
+
+#[cfg(all(test, unix))]
+#[path = "new_screen_tests.rs"]
+mod tests;
