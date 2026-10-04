@@ -97,7 +97,11 @@ fn only_the_emitting_session_forwards_its_input() {
     own(input(&event));
     other(input(&event));
     assert_eq!(next_input(&rx), Some(event));
-    assert_eq!(rx.recv_timeout(Duration::from_millis(200)).ok(), None, "one frame for three deliveries");
+    assert_eq!(
+        rx.recv_timeout(Duration::from_millis(200)).ok(),
+        None,
+        "one frame for three deliveries"
+    );
     assert_eq!(seen.lock().unwrap_or_else(PoisonError::into_inner).len(), 3);
 }
 
@@ -106,7 +110,10 @@ fn other_events_stay_on_the_session_sink() {
     let (driver, rx, _app) = link();
     let (sink, seen) = recorder();
     let tee = tee_inputs(sink, &driver, "s1");
-    tee(DriverEvent { name: "tab.navigated".into(), payload: json!({"targetId": "t", "session_id": "s1"}) });
+    tee(DriverEvent {
+        name: "tab.navigated".into(),
+        payload: json!({"targetId": "t", "session_id": "s1"}),
+    });
     tee(DriverEvent { name: "automation.inputs".into(), payload: valid_events()[0].clone() });
     assert_eq!(rx.recv_timeout(Duration::from_millis(200)).ok(), None);
     assert_eq!(seen.lock().unwrap_or_else(PoisonError::into_inner).len(), 2);
@@ -115,7 +122,8 @@ fn other_events_stay_on_the_session_sink() {
 #[test]
 fn a_closed_link_drops_the_frame_and_keeps_the_sink() {
     let (driver, _rx, app) = link();
-    drop(app);
+    // The reader thread holds a clone of the app's end: shut the socket down.
+    app.shutdown(std::net::Shutdown::Both).expect("shut down the app end");
     let deadline = std::time::Instant::now() + Duration::from_secs(2);
     while driver.closed_reason().is_none() && std::time::Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(10));
