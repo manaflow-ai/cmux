@@ -197,6 +197,13 @@ impl<C: ControlPlane> Server<C> {
         if key.len() > 128 {
             return Err(CloudError::invalid("an idempotency key has at most 128 characters"));
         }
+        if crate::link::ops::live_state_op(name) {
+            // The answer is live link state: a replay of an old carrier would
+            // name a dead socket. These ops are idempotent by themselves
+            // (one carrier per machine), so they run every time.
+            let upstream = upstream_key(name, &args, key);
+            return self.run(name, &args, request.origin, Some(&upstream));
+        }
         if let Some(done) = self.ledger.replay(key, name, &args)? {
             return Ok(done);
         }

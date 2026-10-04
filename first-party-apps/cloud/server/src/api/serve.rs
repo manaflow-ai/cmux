@@ -43,6 +43,10 @@ pub fn serve<R: BufRead, W: Write>(relay: HostRelay<R, W>) -> io::Result<()> {
             }
             server.control_plane_mut().send(&line)?;
         }
+        // Carrier changes (up, down, revoked) that arrived by now.
+        for line in crate::link::ops::take_event_lines(&mut server) {
+            server.control_plane_mut().send(&line)?;
+        }
     }
     Ok(())
 }

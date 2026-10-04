@@ -108,7 +108,14 @@ impl LinkSpawner for ProcessSpawner {
                 // stdout closed: the process is ending. Take it out of the shared
                 // slot before the wait, so `terminate` never blocks on the lock.
                 let taken = reaper.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
-                let code = taken.and_then(|mut c| c.wait().ok()).and_then(|status| status.code());
+                // A link that closed stdout is useless (no more events): end
+                // it, so no link keeps running unseen.
+                let code = taken
+                    .and_then(|mut c| {
+                        let _ = c.kill();
+                        c.wait().ok()
+                    })
+                    .and_then(|status| status.code());
                 let _ = events.send(LinkProcessEvent::Exited { tag, code });
             },
         )?;
