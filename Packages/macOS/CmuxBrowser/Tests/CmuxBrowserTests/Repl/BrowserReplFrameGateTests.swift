@@ -213,7 +213,7 @@ struct BrowserReplFrameGateTests {
         // The page's web process runs no other script for 25 s, so the
         // gate's probes of any frame in it do not answer (as when a
         // navigation replaces the document and WebKit drops the completion).
-        page.webView.evaluateJavaScript("{ const end = Date.now() + 25000; while (Date.now() < end) {} }", completionHandler: nil)
+        Self.startBusyLoop(in: page.webView, seconds: 25)
         let gate = Self.gate()
         let blocked = try #require(page.frame(host: "blocked.test"))
         let webView = SendableBox(page.webView)
@@ -234,6 +234,12 @@ struct BrowserReplFrameGateTests {
     }
 
     // MARK: Support
+
+    /// Starts a loop of `seconds` in `webView`'s page before this returns
+    /// (the request is sent now; nothing waits for its answer).
+    static func startBusyLoop(in webView: WKWebView, seconds: Int) {
+        webView.evaluateJavaScript("{ const end = Date.now() + \(seconds * 1000); while (Date.now() < end) {} }", completionHandler: nil)
+    }
 
     static let world = WKContentWorld.world(name: "cmux-frame-gate-tests")
 
