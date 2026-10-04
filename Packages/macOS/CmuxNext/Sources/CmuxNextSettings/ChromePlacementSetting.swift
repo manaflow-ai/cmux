@@ -6,10 +6,19 @@ public import CmuxNextDesign
 public nonisolated enum ChromePlacementSetting {
     public static let sidebarSidePath = ["sidebar", "side"]
     public static let spacesPositionPath = ["sidebar", "spacesPosition"]
+    public static let tabBarPositionPath = ["tabs", "barPosition"]
+
+    /// The title bar the window uses: `window.titlebar`, except standard
+    /// while tab bars sit at the bottom (the traffic lights then need a row
+    /// that is not content).
+    public static func effectiveTitlebar(_ snapshot: CmuxConfigSnapshot) -> TitlebarStyle {
+        snapshot.tabBarPosition == .bottom ? .standard : snapshot.titlebar
+    }
 
     static func parse(_ root: JSONValue, into snapshot: inout CmuxConfigSnapshot) {
         snapshot.sidebarSide = choice(root, sidebarSidePath, fallback: .left, &snapshot.diagnostics)
         snapshot.spacesPosition = choice(root, spacesPositionPath, fallback: .bottom, &snapshot.diagnostics)
+        snapshot.tabBarPosition = choice(root, tabBarPositionPath, fallback: .top, &snapshot.diagnostics)
     }
 
     private static func choice<Value: RawRepresentable & CaseIterable>(
@@ -37,6 +46,19 @@ public nonisolated enum ChromePlacementSetting {
                           keywords: ["sidebar", "side", "left", "right", "position", "edge", "layout"])
     }
 
+    static func tabBarPositionDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(tabBarPositionPath, section: .general, group: group,
+                          title: SettingsText.keyed("settings.tabs.barPosition", "Tab Bar Position"),
+                          help: SettingsText.keyed("settings.tabs.barPosition.help",
+                                                   "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane."),
+                          kind: .choice([
+                              SettingChoice(TabBarPosition.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
+                              SettingChoice(TabBarPosition.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
+                          ]),
+                          default: .string(TabBarPosition.top.rawValue),
+                          keywords: ["tab bar", "tabs", "strip", "top", "bottom", "position", "layout", "pane"])
+    }
+
     static func spacesPositionDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(spacesPositionPath, section: .appearance, group: group,
                           title: SettingsText.keyed("settings.sidebar.spacesPosition", "Spaces Position"),
@@ -56,5 +78,6 @@ extension SettingsApplier {
     public static func applyPlacement(_ snapshot: CmuxConfigSnapshot, to design: DesignSettings) {
         if design.sidebarSide != snapshot.sidebarSide { design.sidebarSide = snapshot.sidebarSide }
         if design.spacesPosition != snapshot.spacesPosition { design.spacesPosition = snapshot.spacesPosition }
+        if design.tabBarPosition != snapshot.tabBarPosition { design.tabBarPosition = snapshot.tabBarPosition }
     }
 }
