@@ -1258,10 +1258,34 @@ function childCases(): CorpusCase[] {
   }
 
   {
+    const c = new CaseBuilder("children: failed session lists retry with backoff (1 s, 2 s); a waiting change of the pending session fetches at once");
+    boot(c);
+    c.step({ kind: "permission_pending", session_id: "s_w", permission_id: "p1", request: {} }, ["fetch_sessions"]);
+    c.step({ kind: "sessions", sessions: [], failed: true } as unknown as Input, ["arm_timer"], (e) =>
+      c.check(c.get(e, "arm_timer").at === c.now + 1_000, "first retry in 1 s"),
+    );
+    c.step({ kind: "timer", key: "sessions" }, ["fetch_sessions"], undefined, 1_000);
+    c.step({ kind: "sessions", sessions: [], failed: true } as unknown as Input, ["arm_timer"], (e) =>
+      c.check(c.get(e, "arm_timer").at === c.now + 2_000, "second retry in 2 s"),
+    );
+    // Another session's change does not fetch; the pending session's waiting change does.
+    c.step({ kind: "session_changed", session: session("s_x", "other", "waiting", { tags: {} }) }, []);
+    const writer = session("s_w", "writer", "waiting");
+    c.step({ kind: "session_changed", session: writer }, ["fetch_sessions"]);
+    c.step({ kind: "sessions", sessions: [writer] }, ["persist", "conversation_op", "prompt"]);
+    // Answered: the armed retry finds nothing pending.
+    c.step({ kind: "timer", key: "sessions" }, [], undefined, 2_000);
+    cases.push(c.end());
+  }
+
+  {
     const c = new CaseBuilder("children: a pending permission survives a failed sessions fetch and an acpmux reconnect, then is answered");
     boot(c);
     c.step({ kind: "permission_pending", session_id: "s_w", permission_id: "p1", request: {} }, ["fetch_sessions"]);
-    c.step({ kind: "sessions", sessions: [], failed: true } as unknown as Input, []);
+    c.step({ kind: "sessions", sessions: [], failed: true } as unknown as Input, ["arm_timer"], (e) =>
+      c.check(c.get(e, "arm_timer").key === "sessions" && c.get(e, "arm_timer").at === c.now + 1_000, "retry in 1 s"),
+    );
+    c.step({ kind: "timer", key: "sessions" }, ["fetch_sessions"], undefined, 1_000);
     const writer = session("s_w", "writer", "waiting");
     c.step({ kind: "sessions", sessions: [writer] }, ["persist", "conversation_op", "prompt"], (e) =>
       c.check(c.get(e, "prompt").prompt_id === "perm:s_w:p1", "answered after the retry"),
