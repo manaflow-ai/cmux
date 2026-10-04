@@ -93,6 +93,9 @@ const handlePresenceKey = async (request: Request, env: Env): Promise<Response> 
   return Response.json({ ok: true, value: reply.value })
 }
 
+/** The projection compare's cron expression (wrangler.jsonc staging and development triggers). */
+const PROJECTION_COMPARE_CRON = "*/15 * * * *"
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
@@ -140,9 +143,11 @@ export default {
     if (providerHook) return handleProviderHook(request, env, providerHook[1] as "github" | "slack" | "linear")
     return apiHandler(request)
   },
-  // Cron (wrangler triggers): the feed text sweep (feed-sweep.ts).
+  // Cron (wrangler triggers): the feed text sweep (feed-sweep.ts), and every 15 minutes the
+  // Postgres/MySQL projection compare while the MySQL shadow runs (projection-compare-cron.ts).
   // Awaited, not waitUntil: the run gets the cron limit, and a throw shows as a failed run.
-  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+  async scheduled(controller: ScheduledController, env: Env): Promise<void> {
+    if (controller.cron === PROJECTION_COMPARE_CRON) return (await import("./projection-compare-cron.ts")).compareFromEnv(env)
     const report = await sweepFeedText(sweepDeps(env))
     console.log(JSON.stringify({ msg: "feed.sweep", ...report }))
   }

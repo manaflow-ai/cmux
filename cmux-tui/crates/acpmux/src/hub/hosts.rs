@@ -213,6 +213,7 @@ impl Hub {
             }
         };
         *session.child.lock().await = Some(child.clone());
+        self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {
             let hub = self.clone();
             let s = session.clone();

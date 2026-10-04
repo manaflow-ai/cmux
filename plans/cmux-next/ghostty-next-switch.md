@@ -175,113 +175,190 @@ Both declare `options.kinds`: an array of localId strings, 1 to 16, unique
 (for example `cloud-vm`, `ssh`). The daemon refuses `connect` or `open` for
 a kind that the manifest does not declare (default deny).
 
-### 3.3 Rust traits (cmux-tui-core, module `terminal_backend`)
+### 3.3 Rust traits (crate `cmux-terminal-iface`; daemon side in cmux-tui-core `terminal_backend`)
 
-One registry maps namespaced ids (`local-pty`, `app:<app id>/<id>`) to a
-connector or a backend.
+Decided 2026-10-04 (terminal interfaces daemon lead, coordinator approved).
+The types and traits live in the small crate
+`cmux-tui/crates/cmux-terminal-iface` (dependency: serde only), so app
+servers outside the cmux-tui workspace (`first-party-apps/cloud/server`,
+`samples/apps/ssh-terminal`) take it by path and delete their mirrors.
+cmux-tui-core re-exports it as `terminal_backend` and adds the host-only
+parts: the manifest declaration, the link registry, the open-token check
+and the JSON-lines wire form.
+
+Rules:
+
+1. Synchronous and non-blocking. No method waits; outbound items are pulled
+   with `take_frames()`. The daemon has no async runtime (std threads, JSON
+   lines per app server). The caller drains when its transport has data, so
+   nothing polls.
+2. Bytes move only as frames: `data {channel, offset, bytes}`,
+   `credit {channel, direction: in|out, bytes}`, one `end {channel, exit|lost}`.
+   `SendWindow` and `ReceiveWindow` are the one credit and continuity rule
+   (gap, overlap or data past the credit ends the channel with `lost`).
+   There is no `write` method and no output event, and no filesystem socket
+   path crosses an app boundary.
+3. The session host assigns every channel id: terminal ids (`open
+   {terminal, ...}`, `resume {terminal, ...}`), host channel ids
+   (`connection.channel.open`) and connector link ids
+   (`cmux.terminal.connector.open`).
+4. Default deny: a kind outside `options.kinds` is `denied`; an open token
+   minted for an op outside `options.openOps` is `denied`.
 
 ```rust
-pub trait TerminalBackend: Send + Sync + 'static {          // cmux.terminal.backend/1
-    fn id(&self) -> &BackendId;
-    fn kinds(&self) -> &[LocalId];                           // options.kinds; others refused. LocalId: ^[a-z][a-zA-Z0-9-]{0,63}$
+pub enum FrameBody { Data { offset: u64, bytes: Vec<u8> }, Credit { direction: Direction, bytes: u32 }, End(End) }
+pub struct Frame { pub channel: String, pub body: FrameBody }  // the stream bridge adds the host id
+pub enum End { Exit(ExitStatus), Lost(Lost) }
+
+pub trait TerminalBackend: Send {                 // cmux.terminal.backend/1
+    fn id(&self) -> &BackendId;                   // local-pty | app:<app>/<kind>
+    fn kinds(&self) -> &[LocalId];
     fn capabilities(&self) -> BackendCapabilities;
-    async fn open(&self, req: OpenRequest) -> Result<Box<dyn ByteTerminal>, BackendError>;
-    async fn resume(&self, token: &ResumeToken) -> Result<Box<dyn ByteTerminal>, BackendError>;
+    fn open(&mut self, req: OpenRequest) -> Result<Box<dyn ByteTerminal>, BackendError>;
+    fn resume(&mut self, req: ResumeRequest) -> Result<Resumed, BackendError>;
 }
-
-pub trait ByteTerminal: Send {
-    fn events(&mut self) -> BoxStream<'static, ByteEvent>;
-    async fn write(&self, seq: u64, input: Bytes) -> Result<(), BackendError>; // seq orders chunks; bounded queue = backpressure
-    async fn resize(&self, grid: Grid) -> Result<(), BackendError>;            // cols, rows, cell px
-    async fn signal(&self, signal: Signal) -> Result<(), BackendError>;         // capability `signals`
-    async fn close(&self, how: Close) -> Result<(), BackendError>;
-    fn resume_token(&self) -> Option<ResumeToken>;                             // capability `resume`
+pub trait ByteTerminal: Send {                    // one terminal = one channel
+    fn window_bytes(&self) -> u32;
+    fn push(&mut self, frame: FrameBody) -> Result<(), BackendError>; // input data, out credit
+    fn take_frames(&mut self) -> Vec<FrameBody>;                      // output data, in credit, end
+    fn resize(&mut self, grid: Grid) -> Result<(), BackendError>;
+    fn signal(&mut self, signal: Signal) -> Result<(), BackendError>;
+    fn close(&mut self, how: Close) -> Result<(), BackendError>;
+    fn resume_token(&self) -> Option<ResumeToken>;
 }
-
-pub enum ByteEvent {
-    /// `offset` is the stream offset after this chunk (running byte total
-    /// since open). The session host checks continuity: a gap or overlap
-    /// is `Lost`, never silently spliced. A resumed terminal continues the
-    /// same offsets.
-    Output { offset: u64, bytes: Bytes },
-    Exit(ExitStatus),
-    Lost { reason: String, retryable: bool },
-}
-
-pub struct ExitStatus {
-    pub code: Option<i32>,      // exit code, when the far end sent one
-    pub signal: Option<String>, // signal name without "SIG" ("INT", "KILL"), SSH exit-signal or POSIX
-    pub core_dumped: bool,
-    pub message: Option<String>, // bounded (4 KiB) far-end text, shown, never parsed
-}
-
-pub enum BackendError {
-    Unsupported,
-    Unavailable { reason: String, retryable: bool },
-    /// Typed host-key refusal: the host shows its accept sheet from these
-    /// fields, never by parsing text. Nothing reached the far shell.
-    HostKey { decision: HostKeyRefusal /* Unknown | Changed */, fingerprint: String /* "SHA256:…" */ },
-    Denied { reason: String },  // a handle was revoked or a check failed
-    Invalid { reason: String },
-}
-
-pub struct BackendCapabilities {
-    pub resize: bool, pub signals: bool, pub exit_status: bool, pub resume: bool,
-    pub cwd_reports: bool, pub max_write_bytes: u32,
-    /// True only when the far end answers terminal queries itself (DA, DSR,
-    /// OSC color queries). Then the local session host parses but does not
-    /// reply, or the far end would get two answers. A plain shell over SSH
-    /// or a PTY is false: the session host answers.
-    pub answers_queries: bool,
-}
-```
-
-```rust
-pub trait TerminalConnector: Send + Sync + 'static {        // cmux.terminal.connector/1
+pub trait TerminalConnector: Send {               // cmux.terminal.connector/1
     fn id(&self) -> &BackendId;
     fn kinds(&self) -> &[LocalId];
-    async fn connect(&self, req: ConnectRequest) -> Result<Box<dyn HostLink>, BackendError>;
+    fn connect(&mut self, req: ConnectRequest) -> Result<Box<dyn HostLink>, BackendError>;
 }
-
-pub trait HostLink: Send {
-    // Viewer protocol of the far session host: snapshot_ready / history /
-    // bytes / digest frames, size state, terminal list changes.
-    fn frames(&mut self) -> BoxStream<'static, ViewerFrame>;
-    async fn send(&self, msg: ViewerMessage) -> Result<(), BackendError>; // input, viewport, presence, focus
+pub trait HostLink: Send {                        // viewer protocol, relayed, not parsed
+    fn window_bytes(&self) -> u32;
+    fn push(&mut self, frame: FrameBody) -> Result<(), BackendError>;
+    fn take_frames(&mut self) -> Vec<FrameBody>;
+    fn close(&mut self) -> Result<(), BackendError>;
+}
+pub trait HostChannels: Send {                    // host side of connection.channel.* (ssh)
+    fn open(&mut self, req: ChannelOpenRequest) -> Result<ChannelOpen, BackendError>;
+    fn resize(&mut self, channel: &str, cols: u16, rows: u16) -> Result<(), BackendError>;
+    fn signal(&mut self, channel: &str, signal: Signal) -> Result<(), BackendError>;
+    fn close(&mut self, channel: &str) -> Result<(), BackendError>;
+    fn push(&mut self, channel: &str, frame: FrameBody) -> Result<(), BackendError>;
+    fn take_frames(&mut self) -> Vec<Frame>;
 }
 ```
 
-- `OpenRequest`: kind, terminal id, command (argv or default shell), cwd,
-  env (allowlist), initial grid, `connection` handle, actor.
-  `ConnectRequest`: kind, `connection` handle, actor.
-- `BackendCapabilities`: `resize`, `signals`, `exit_status`, `resume`,
-  `cwd_reports`, `max_write_bytes`.
-- Snapshots: a backend never needs a VT parser; the local session host owns
-  snapshots and journal. A connector serves GHOSTSNP from the far host;
-  a version mismatch falls back to byte replay as `terminal-snapshot-v1`
-  does today. After a session host restart the journal holds `{id, resume
-  token}`; `resume` reattaches, or the terminal shows exited with the
-  reason.
-- Flow control: one bounded queue per direction. A full output queue stops
-  reading from the backend (backpressure), never drops bytes; viewers keep
-  their own credit and resync by snapshot (ghostty-next.md 2).
-- `local-pty` (today's `cmux-pty` spawn path) becomes the first backend, so
-  the trait is proven by the existing tests before any app backend exists.
-  The link to a remote cmux-tui becomes the first connector.
+`OpenRequest`: terminal (host id), kind, target, open_token, command, cwd,
+env (allowlist), grid, actor. `ResumeRequest`: terminal, resume_token,
+open_token. `ConnectRequest`: kind, target, open_token. `BackendError`:
+`Unsupported`, `Unavailable {reason, retryable}`, `HostKey {decision,
+fingerprint}`, `Denied {reason}`, `Invalid {reason}`. `BackendCapabilities`:
+`resize`, `signals`, `exit_status`, `resume`, `cwd_reports`,
+`max_write_bytes`, `answers_queries` (true only when the far end answers DA,
+DSR and OSC color queries itself; then the session host parses but does not
+reply).
 
-Data plane (2026-10-04, from the SSH sample): bytes never move as op
-calls. Every channel (a terminal's output and input, a host SSH channel, a
-connector link) carries ordered `data {channel, offset, bytes}`, `credit
-{channel, direction, bytes}` and one final `end {channel, exit? | lost?}`
-frames. The receiver grants credit; the sender never sends past it (a
-violation ends the channel with `lost {reason: "credit"}`). Windows start at
-`window_bytes` from the open answer (64 KiB to 1 MiB, default 256 KiB). The
-session host grants a backend output credit only while viewers and the
-journal keep up, and a backend grants host-channel credit only from that, so
-a slow viewer stops the far end instead of growing a buffer. In Rust the
-`events()` stream and `write` above map onto these frames in the app host
-bridge. The session host picks the terminal id (`open {terminal, ...}`); a
-kind outside `options.kinds` fails with `denied`.
+Open token flow (one check path; the app passes the token on, the host
+consumes it):
+
+1. A user gesture in a client sends `apps-run` of one of the app's catalog
+   ops with origin `user`. The supervisor stamps a fresh `open_token`
+   (bound to the app, single use, 60 s) into the op line to the server. The
+   client never holds it; runs from cli, mcp, script or remote get none.
+2. The server opens its carrier, then sends host op
+   `cmux.terminal.connector.open {kind, target, open_token}`.
+3. The host consumes the token (`Supervisor::consume_open_token`; any
+   attempt burns it), checks that the minted op is in `options.openOps`,
+   that the app implements the interface with its server and holds the
+   `terminal:backend` grant, and that the kind is declared. It assigns the
+   channel id, records `app:<app>/<kind>` plus target (one link per kind and
+   target), and answers `{channel, window_bytes}`.
+4. Frames flow on the server's stream. The host ends a link with
+   `host.event cmux.terminal.connector.close {channel}`; the app ends it
+   with its `end` frame; a server stop or exit ends every link of the app
+   with `lost`. A reconnect needs a new user run (v1: "disconnected, click
+   to connect" after a daemon restart; no link grant).
+
+Link relay (decided 2026-10-04): link bytes are the far session host's
+v12 protocol, and the local daemon does not parse them. Each open link gets
+one owner-only socket `<daemon state dir>/tl/<n>.sock` (directory 0700,
+socket 0600; a per-user temporary directory when the path is too long). The
+daemon checks the peer uid on accept. Its clients find it with
+`apps-terminal-links` and the `apps-terminal-link {channel, id, target,
+state, socket?, end?}` event, and open their normal daemon connection on it.
+The path never goes to an app. Limit for v1: one client per link (a v12
+stream has per-connection state). A second client is refused, and the link
+closes when its client leaves; each client (Mac, iOS) needs its own link,
+so its own user run. Two relay threads wait on the registry's condition
+variable: bytes become credit for the app only after the client has them,
+and client bytes go to the app only within its credit.
+
+Backend terminals (decided 2026-10-04, P1 to P3 and placement): the app
+calls `cmux.terminal.backend.open {kind, target, open_token}` -> `{terminal,
+window_bytes}` after a user run (same checks as the connector). The session
+host creates the terminal with no tab: its local runtime is a portable_pty
+`MasterPty`/`ChildKiller` over the terminal's channel
+(`terminal_backend/pty.rs`, spawned through `surface/spawn.rs`, the spawn
+path shared with PTY children), so parsing, journal, snapshots and attach
+are unchanged. An exit status ends the process (`TerminalEnd::ProcessEnded`);
+a lost channel is a host loss. Resize and close go to the app as host events.
+The terminal is a catalog-owned terminal with a public `term_…` id and
+zero views (spec/resource-api-v2.md: terminals work with zero views). The
+host broadcasts `apps-terminal {terminal, terminal_id, id, app, target,
+run_key}`; the client whose user run has that idempotency key gives it its
+first view with the existing public op `terminal.project` in its own
+focused workspace. That first projection also writes the terminal's durable
+record (destination workspace key, in-process identity) in the same commit
+(`mux/resource_content.rs`); later projections reuse it. A terminal that
+never had a view 60 s after its open is closed; one that had a view stays.
+`connection.channel.open` takes the terminal instead of a second token
+(P2). `resume` is a host op after a user run (P3); v1 answers unsupported.
+
+Lane note, v1 limits (accepted by the coordinator, 2026-10-04):
+1. A first view writes the record as launching in the topology commit and
+   as running in a second commit right after; a crash between them restores
+   as a failed launch (correct: a backend terminal does not survive a daemon
+   restart).
+2. "Had a view" means the terminal has a durable identity. The 60 s close is
+   tested for a terminal that still has its view; the case where its last
+   tab closed first is not tested, because a tab close may retire the
+   terminal (`close_content`).
+3. Until its first view, a backend terminal is not in `terminal.list` or
+   `terminal.get` (it has no durable record).
+4. `cmux.terminal.backend.resume` answers unsupported after its token check;
+   `cmux.terminal.channel.open` answers unavailable (no SSH transport); the
+   host sends no signal events; one client per link.
+5. No live end-to-end run yet with the real Cloud server or the Mac and iOS
+   clients for the relay, the backend runtime or `terminal.project`.
+
+Host-owned SSH transport (open decision, its own owner): `connection.channel.open`
+runs its checks in the daemon behind an `SshTransport` trait; production
+answers `unavailable {retryable: false}` until this is decided. Options:
+(a) `russh` in the daemon (pure Rust, async on tokio; the daemon core has no
+runtime, so it needs a small runtime thread), with host key pins in the
+daemon state dir and the user key reached through the credential relay
+(the Mac app signs with the Keychain key, so the key never leaves the
+Keychain; the signature request is bound to the session id the daemon's
+transport computed, so it is not a signing oracle for the app);
+(b) the system `ssh` binary as a child with `-o StrictHostKeyChecking=yes`
+and a per-handle known_hosts file, the daemon owning the PTY (no new crate;
+an agent socket from the Mac app for the key); (c) `libssh2` bindings (C
+dependency, sync API). Recommendation to check: (b) first for speed, (a)
+when headless servers need it without a Mac.
+
+Snapshots: a backend never needs a VT parser; the local session host owns
+snapshots and journal. A connector serves GHOSTSNP from the far host; a
+version mismatch falls back to byte replay as `terminal-snapshot-v1` does
+today. After a session host restart the journal holds `{id, resume token}`;
+`resume` reattaches, or the terminal shows exited with the reason.
+
+Backpressure: the session host grants a backend output credit only while
+viewers and the journal keep up, and a backend grants host-channel credit
+only from that, so a slow viewer stops the far end instead of growing a
+buffer. Relayed link bytes wait in the link registry, at most one window,
+because credit is granted only as the consumer takes them.
+
+`local-pty` (today's `cmux-pty` spawn path) becomes the first backend, and
+the link to a remote cmux-tui the first in-process connector.
 
 ### 3.4 App-provided backends and connectors (manifest v2)
 

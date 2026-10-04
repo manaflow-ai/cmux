@@ -459,6 +459,7 @@ impl Hub {
             .map_err(|e| RpcError::internal(e.to_string()))?
         };
         *session.child.lock().await = Some(child.clone());
+        self.wake_idle_reaper();
 
         // Start the inbound loop for this session once.
         if let Some(rx) = session.inbound_rx.lock().await.take() {
@@ -745,15 +746,30 @@ impl Hub {
             handles.push(tokio::spawn(async move {
                 // Probes spawn agents: wait for the login environment.
                 hub.wait_startup().await;
+                // Resolved here, once, so neither this probe nor a later
+                // session spawn launches through npx.
+                hub.resolve_launcher(&profile.argv).await;
                 match tokio::time::timeout(
                     std::time::Duration::from_secs(60),
                     hub.probe_one(&name, &profile),
                 )
                 .await
                 {
-                    Ok(Ok(n)) => tracing::info!(agent = %name, models = n, "model probe done"),
-                    Ok(Err(e)) => tracing::warn!(agent = %name, error = %e, "model probe failed"),
-                    Err(_) => tracing::warn!(agent = %name, "model probe timed out"),
+                    Ok(Ok(n)) => {
+                        tracing::info!(agent = %name, models = n, "model probe done");
+                        hub.probe_errors.lock().unwrap().remove(&name);
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!(agent = %name, error = %e, "model probe failed");
+                        hub.probe_errors.lock().unwrap().insert(name, format!("{e:#}"));
+                    }
+                    Err(_) => {
+                        tracing::warn!(agent = %name, "model probe timed out");
+                        hub.probe_errors
+                            .lock()
+                            .unwrap()
+                            .insert(name, "the model probe timed out after 60 s".into());
+                    }
                 }
             }));
         }
@@ -772,7 +788,9 @@ impl Hub {
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
         let tap: crate::agent::Tap = Arc::new(|_, _, _| true);
         let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"));
-        let child = crate::agent::ChildAgent::spawn(name, profile, &cwd, tx, tap).await?;
+        let mut resolved = profile.clone();
+        resolved.argv = self.resolved_launcher_argv(resolved.argv);
+        let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;
         // Drain anything the agent sends so its writer never blocks.
         let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
         let result = tokio::time::timeout(std::time::Duration::from_secs(50), async {
@@ -829,7 +847,11 @@ impl Hub {
                 name,
                 &self.refused_models.lock().unwrap(),
             );
-            out.push(json!({"harness": name, "kind": profile.kind, "isDefault": cfg.default_harness.as_deref() == Some(name), "models": models}));
+            let mut entry = json!({"harness": name, "kind": profile.kind, "isDefault": cfg.default_harness.as_deref() == Some(name), "models": models});
+            if let Some(reason) = self.probe_errors.lock().unwrap().get(name) {
+                entry["probeError"] = json!(reason);
+            }
+            out.push(entry);
         }
         json!({"harnesses": out})
     }
@@ -857,7 +879,12 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
     ) -> Result<Arc<ChildAgent>, RpcError> {
-        if let Some(child) = session.child.lock().await.as_ref()
+        // `ensure_child` publishes the child before `initialize` and
+        // `session/load` answer (the inbound loop needs it to answer the
+        // agent's own requests meanwhile). A live child is ready only while
+        // no start holds the spawn lock; otherwise wait for that start below.
+        if let Ok(_idle) = session.spawn_lock.try_lock()
+            && let Some(child) = session.child.lock().await.as_ref()
             && child.is_alive().await
         {
             return Ok(child.clone());

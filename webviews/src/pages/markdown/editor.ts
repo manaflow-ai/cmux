@@ -30,6 +30,7 @@ import {
   type LinkHost,
 } from "./linkEditing";
 import { findHeading } from "./links";
+import { LinkOverlays } from "./overlays";
 import {
   RAW_NODE,
   parseSourceMap,
@@ -60,7 +61,7 @@ export interface MarkdownEditorHost {
   links?: LinkHost;
 }
 
-export type EditorLabel = "frontmatter" | "html" | "definition" | "source" | "plainText";
+export type EditorLabel = "frontmatter" | "html" | "definition" | "source" | "plainText" | "document";
 
 /** One colored token of a code block, by offset into its text. */
 export interface CodeToken {
@@ -75,6 +76,8 @@ export interface MarkdownEditorOptions {
   readOnly?: boolean;
   /** Called for every document change the user made (not loads or editor normalization). */
   onUserEdit?(): void;
+  /** Where the link hover card and popover state goes (the page renders it: LinkOverlayHost). */
+  overlays?: LinkOverlays;
 }
 
 /** The languages a diagram node view renders. */
@@ -190,8 +193,12 @@ export class MarkdownEditor {
   private readOnly: boolean;
   private eol = "\n";
 
+  /** The link overlays' state; the page renders it with LinkOverlayHost. */
+  readonly overlays: LinkOverlays;
+
   constructor(private readonly options: MarkdownEditorOptions) {
     this.readOnly = options.readOnly ?? false;
+    this.overlays = options.overlays ?? new LinkOverlays();
   }
 
   async create(): Promise<void> {
@@ -213,7 +220,14 @@ export class MarkdownEditor {
         ctx.update(editorViewOptionsCtx, (options) => ({
           ...options,
           editable: () => !this.readOnly,
-          attributes: { class: "md-prose", spellcheck: "true" },
+          // The editable region's accessible name and kind (a multi-line text field).
+          attributes: {
+            class: "md-prose",
+            spellcheck: "true",
+            "aria-label": host.label("document"),
+            "aria-multiline": "true",
+            role: "textbox",
+          },
           nodeViews: nodeViews(host),
           // Cmd-click on a link or footnote follows it (the DOM click below); here it must not
           // also make ProseMirror select the clicked node, as a modifier click does.
@@ -238,7 +252,8 @@ export class MarkdownEditor {
       .use(activeBlockPlugin)
       .use(userEditPlugin(() => this.options.onUserEdit?.()))
       .use(codeHighlightPlugin(host));
-    if (host.links) editor.use(brokenLinkPlugin(host.links)).use(hoverCardPlugin(host.links, () => this.readOnly));
+    if (host.links)
+      editor.use(brokenLinkPlugin(host.links)).use(hoverCardPlugin(host.links, () => this.readOnly, this.overlays));
     await editor.create();
     this.editor = editor;
     editor.action((ctx) => {
@@ -326,7 +341,7 @@ export class MarkdownEditor {
     const view = this.view;
     const links = this.options.host.links;
     if (!view || !links || this.readOnly) return;
-    this.popover ??= new LinkPopover(view, links);
+    this.popover ??= new LinkPopover(view, links, this.overlays);
     this.popover.show();
   }
 

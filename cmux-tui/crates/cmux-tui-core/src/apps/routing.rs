@@ -143,6 +143,24 @@ impl OpRouter for MuxRouter {
             }
         });
     }
+
+    fn spawn_backend_terminal(
+        &self,
+        side: crate::terminal_backend::pty::BackendSide,
+    ) -> anyhow::Result<crate::mux::app_terminals::BackendTerminal> {
+        let mux = self.mux.upgrade().ok_or_else(|| anyhow::anyhow!("the daemon is stopping"))?;
+        mux.spawn_backend_terminal(side)
+    }
+
+    fn backend_terminal_viewed(&self, surface: crate::SurfaceId) -> bool {
+        self.mux.upgrade().is_some_and(|mux| mux.backend_terminal_viewed(surface))
+    }
+
+    fn close_backend_terminal(&self, surface: crate::SurfaceId) {
+        if let Some(mux) = self.mux.upgrade() {
+            mux.close_backend_terminal(surface);
+        }
+    }
 }
 
 /// The app streams a daemon event invalidates (`cmux.live` re-reads on them).
