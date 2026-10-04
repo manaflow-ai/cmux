@@ -75,11 +75,43 @@ public nonisolated enum AcpmuxPathPolicy {
         return resolved
     }
 
-    /// The canonical form of an absolute path that exists; nil otherwise.
+    /// The canonical form of an absolute path that exists, nil otherwise: `realpath` (symlinks and
+    /// `..` resolved), then each component in the filesystem's own spelling (APFS is case- and
+    /// normalization-insensitive and realpath keeps the typed spelling), then NFC. Off the main
+    /// actor (``check(_:roots:)``): it touches the disk.
     public static func canonical(_ path: String) -> String? {
         guard path.hasPrefix("/"), !path.utf8.contains(0), let resolved = realpath(path, nil) else { return nil }
-        defer { free(resolved) }
-        return String(cString: resolved)
+        let real = String(cString: resolved)
+        free(resolved)
+        var spelled = ""
+        for component in real.split(separator: "/", omittingEmptySubsequences: true) {
+            let typed = spelled + "/" + component
+            guard let stored = storedName(typed) else { return nil }
+            spelled += "/" + stored
+        }
+        return (spelled.isEmpty ? "/" : spelled).precomposedStringWithCanonicalMapping
+    }
+
+    /// The name the filesystem stores for the last component of `path` (`getattrlist`
+    /// `ATTR_CMN_NAME`, not following a final link: realpath already resolved them).
+    static func storedName(_ path: String) -> String? {
+        var request = attrlist()
+        request.bitmapcount = u_short(ATTR_BIT_MAP_COUNT)
+        request.commonattr = attrgroup_t(ATTR_CMN_NAME)
+        var buffer = [UInt8](repeating: 0, count: 4 + 8 + Int(NAME_MAX) * 3 + 1)
+        let status = buffer.withUnsafeMutableBytes { raw in
+            getattrlist(path, &request, raw.baseAddress, raw.count, UInt32(FSOPT_NOFOLLOW))
+        }
+        guard status == 0 else { return nil }
+        return buffer.withUnsafeBytes { raw -> String? in
+            // u_int32_t length, then attrreference_t {int32 offset (from the reference), u_int32 length}.
+            let reference = 4
+            let offset = Int(raw.loadUnaligned(fromByteOffset: reference, as: Int32.self))
+            let length = Int(raw.loadUnaligned(fromByteOffset: reference + 4, as: UInt32.self))
+            let start = reference + offset
+            guard length > 1, start >= 0, start + length <= raw.count else { return nil }
+            return String(decoding: raw[start..<(start + length - 1)], as: UTF8.self) // length counts the NUL
+        }
     }
 
     static func isDirectory(_ path: String) -> Bool {
