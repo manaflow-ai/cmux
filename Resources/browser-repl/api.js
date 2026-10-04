@@ -584,13 +584,16 @@
     // "same-origin" (only for the current tab's origin) or "omit" (none sent,
     // none stored). The native session checks the domain policy on every
     // redirect hop, caps the body at 64 MiB and masks secrets in text bodies.
-    async function fetchWithCookies(input, init = {}) {
-      const page = state.current && !state.current.isClosed() ? state.current : null;
+    // `bound` ({ page, origin }, site tools only) uses that tab's cookies and
+    // that origin instead of the current tab's; a closed tab fails.
+    async function fetchWithCookies(input, init = {}, bound = null) {
+      if (bound && (!bound.page || bound.page.isClosed())) throw new Error("fetch: the tab this request is bound to was closed");
+      const page = bound ? bound.page : state.current && !state.current.isClosed() ? state.current : null;
       const base = page && /^https?:/.test(page.url()) ? page.url() : undefined;
       const url = new core.URL(String(input && input.url ? input.url : input), base).href;
       const credentials = init.credentials === undefined ? "include" : init.credentials;
       if (!["include", "same-origin", "omit"].includes(credentials)) throw new TypeError(`fetch: credentials: expected "include", "same-origin" or "omit", got ${JSON.stringify(credentials)}`);
-      const origin = base ? new core.URL(base).origin : undefined;
+      const origin = bound ? bound.origin || undefined : base ? new core.URL(base).origin : undefined;
       if (session.agentTools) session.agentTools.checkURL("fetch", url);
       const headers = {};
       const src = init.headers || {};
@@ -733,7 +736,7 @@
       tabs,
       snapshot,
       screenshot,
-      fetch: fetchWithCookies,
+      fetch: (input, init) => fetchWithCookies(input, init),
       fs,
       path,
       os,
@@ -760,7 +763,20 @@
     if (ns.sites) {
       let sites = null;
       Object.defineProperty(globals, "sites", {
-        get: () => sites || (sites = ns.sites.createSites({ session, host, fetch: fetchWithCookies, fs, path, Buffer, URL: core.URL, currentPage, snapshot })),
+        get: () =>
+          sites ||
+          (sites = ns.sites.createSites({
+            session,
+            host,
+            fetch: (input, init) => fetchWithCookies(input, init),
+            fetchFrom: (page, origin) => (input, init) => fetchWithCookies(input, init, { page, origin }),
+            fs,
+            path,
+            Buffer,
+            URL: core.URL,
+            currentPage,
+            snapshot,
+          })),
         enumerable: true,
         configurable: true,
       });
