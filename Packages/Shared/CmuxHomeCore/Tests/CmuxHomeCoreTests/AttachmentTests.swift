@@ -410,6 +410,73 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         }
     }
 
+    /// Another device uploaded the same video first, with its own poster
+    /// and as `video/mp4`. The owner keeps the first record, so the send
+    /// carries the record's mime type and poster, not this device's.
+    @Test func existsWithADifferentPosterAdoptsTheOwnersRecord() async throws {
+        let (store, source) = try await started()
+        let root = try temporaryDirectory()
+        let movie = root.appendingPathComponent("clip.mov")
+        try await makeMovie(at: movie, width: 128, height: 64)
+        let video = try await store.prepareAttachment(fileURL: movie)
+        let localPoster = try #require(video.ref.poster)
+        let otherData = try makeJPEG(width: 16, height: 32, orientation: 1)
+        let otherURL = root.appendingPathComponent("other-poster.jpg")
+        try otherData.write(to: otherURL)
+        let other = AttachmentPoster(hash: sha256Hex(otherData), mimeType: "image/jpeg", byteCount: otherData.count)
+        #expect(other != localPoster)
+        var first = video.ref
+        first.mimeType = "video/mp4"
+        first.poster = other
+        _ = try await source.upload(AttachmentUpload(conversation: conversation, fileURL: video.fileURL, ref: first,
+                                                     posterURL: otherURL))
+
+        let key = IdempotencyKey("attach-exists-other-poster")
+        let before = store.transcript(for: conversation).count
+        try await store.send(conversation: conversation, text: "same clip", attachments: [video], key: key)
+        await waitUntil { store.transcript(for: self.conversation).last?.delivery == .committed }
+        var expected = video.ref
+        expected.mimeType = "video/mp4"
+        expected.poster = other
+        let parts: [MessagePart] = [.attachment(expected), .text("same clip")]
+        let rows = store.transcript(for: conversation)
+        #expect(rows.count == before + 1)
+        #expect(rows.last?.id == key)
+        #expect(rows.last?.delivery == .committed)
+        #expect(rows.last?.parts == parts)
+        #expect(store.log.isEmpty)
+        #expect(try await source.snapshot(of: conversation, tail: 1).messages.last?.parts == parts)
+        // The poster shown is the recorded one, not this device's frame.
+        let poster = try await store.fetchAttachment(expected, at: AttachmentLocation(conversation: conversation),
+                                                     variant: .poster)
+        #expect(sha256Hex(try Data(contentsOf: poster)) == other.hash)
+    }
+
+    /// The first upload of the video recorded no poster (extraction failed
+    /// there): the part must not claim one.
+    @Test func existsWithNoPosterSendsThePartWithoutAPoster() async throws {
+        let (store, source) = try await started()
+        let root = try temporaryDirectory()
+        let movie = root.appendingPathComponent("clip.mov")
+        try await makeMovie(at: movie, width: 64, height: 64)
+        let video = try await store.prepareAttachment(fileURL: movie)
+        #expect(video.ref.poster != nil)
+        var first = video.ref
+        first.poster = nil
+        _ = try await source.upload(AttachmentUpload(conversation: conversation, fileURL: video.fileURL, ref: first))
+
+        let key = IdempotencyKey("attach-exists-no-poster")
+        try await store.send(conversation: conversation, text: "", attachments: [video], key: key)
+        await waitUntil { store.transcript(for: self.conversation).last?.delivery == .committed }
+        let committed = try #require(store.transcript(for: conversation).last)
+        #expect(committed.id == key)
+        #expect(committed.parts == [.attachment(first)])
+        #expect(try await source.snapshot(of: conversation, tail: 1).messages.last?.parts == [.attachment(first)])
+        await #expect(throws: HomeRejection.invalid("no_poster")) {
+            try await store.fetchAttachment(first, at: AttachmentLocation(conversation: conversation), variant: .poster)
+        }
+    }
+
     @Test func fetchWithoutALocalCopyNamesTheMessagePart() async throws {
         let (store, source) = try await started()
         let (a, b) = try await twoAttachments(store)

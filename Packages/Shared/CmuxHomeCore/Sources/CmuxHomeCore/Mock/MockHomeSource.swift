@@ -40,8 +40,19 @@ public actor MockHomeSource: HomeSource {
     private var people: [ParticipantID: Participant] = [:]
     private var members: [ContactAddress: ParticipantID] = [:]
     private var nextID = 1
-    /// The blob store: bytes by content hash, with their mime type.
-    private var blobs: [String: (data: Data, mimeType: String)] = [:]
+    /// One attachment record: the first upload of a hash wins, so a later
+    /// upload of the same bytes gets this record's mime type and poster back.
+    private struct BlobRecord {
+        var data: Data
+        var mimeType: String
+        var poster: AttachmentPoster?
+    }
+
+    /// The attachment records, by content hash.
+    private var blobs: [String: BlobRecord] = [:]
+    /// Poster bytes by poster hash. A poster has no record of its own: it
+    /// belongs to its video's record.
+    private var posterBlobs: [String: Data] = [:]
     private var uploadsPaused = false
     private var pausedUploads: [CheckedContinuation<Void, Never>] = []
     private var failingUploads: Set<String> = []
@@ -153,7 +164,9 @@ public actor MockHomeSource: HomeSource {
 
     /// Stores the bytes under their hash (verified) and reports progress in
     /// four steps: 0.25 and 0.5, a pause while `setUploadsPaused(true)`, then
-    /// 0.75 and 1.
+    /// 0.75 and 1. Like the owner, the first upload of a hash wins: a hash
+    /// already recorded answers `exists` with the recorded mime type, byte
+    /// count and poster (or no poster), whatever this upload declared.
     public func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
         uploadCalls.append(file.ref.hash)
         if options.latency > .zero { try? await clock.sleep(for: options.latency) }
@@ -162,8 +175,12 @@ public actor MockHomeSource: HomeSource {
         file.progress(0.5)
         if uploadsPaused { await withCheckedContinuation { pausedUploads.append($0) } }
         if failingUploads.remove(file.ref.hash) != nil { throw HomeRejection.ownerUnreachable }
+        if let record = blobs[file.ref.hash] {
+            file.progress(1)
+            return Self.stored(file.ref, record)
+        }
         // The owner's order: the declared poster lands before the video.
-        if let meta = file.ref.poster, blobs[meta.hash] == nil {
+        if let meta = file.ref.poster, posterBlobs[meta.hash] == nil {
             guard file.ref.mimeType.hasPrefix("video/") else { throw HomeRejection.invalid("poster_refused") }
             guard let posterURL = file.posterURL else { throw HomeRejection.invalid("poster_missing") }
             let poster = try Data(contentsOf: posterURL)
@@ -171,16 +188,25 @@ public actor MockHomeSource: HomeSource {
                   poster.count == meta.byteCount, AttachmentMedia.sha256(of: poster) == meta.hash else {
                 throw HomeRejection.invalid("hash_mismatch")
             }
-            blobs[meta.hash] = (poster, meta.mimeType)
+            posterBlobs[meta.hash] = poster
         }
-        if blobs[file.ref.hash] == nil {
-            let data = try Data(contentsOf: file.fileURL)
-            guard AttachmentMedia.sha256(of: data) == file.ref.hash else { throw HomeRejection.invalid("hash_mismatch") }
-            blobs[file.ref.hash] = (data, file.ref.mimeType)
-        }
+        let data = try Data(contentsOf: file.fileURL)
+        guard AttachmentMedia.sha256(of: data) == file.ref.hash else { throw HomeRejection.invalid("hash_mismatch") }
+        let record = BlobRecord(data: data, mimeType: file.ref.mimeType.lowercased(), poster: file.ref.poster)
+        blobs[file.ref.hash] = record
         file.progress(0.75)
         file.progress(1)
-        return file.ref
+        return Self.stored(file.ref, record)
+    }
+
+    /// The ref an upload answers: the declared one with the record's mime
+    /// type, byte count and poster.
+    private static func stored(_ declared: AttachmentRef, _ record: BlobRecord) -> AttachmentRef {
+        var ref = declared
+        ref.mimeType = record.mimeType
+        ref.byteCount = record.data.count
+        ref.poster = record.poster
+        return ref
     }
 
     /// Writes the blob (or a JPEG thumbnail of it or of the video's poster, or
@@ -202,27 +228,29 @@ public actor MockHomeSource: HomeSource {
         case .thumbnail(let maxPixel):
             let target = fetchDirectory.appendingPathComponent("\(ref.hash)-thumb-\(maxPixel).jpg")
             if FileManager.default.fileExists(atPath: target.path) { return target }
-            let imageHash: String
+            // An image's own bytes, or a video's recorded poster.
+            let imageVariant: AttachmentVariant
             if blob.mimeType.hasPrefix("image/") {
-                imageHash = ref.hash
-            } else if let poster = ref.posterHash, blobs[poster] != nil {
-                imageHash = poster
+                imageVariant = .original
+            } else if blob.poster != nil {
+                imageVariant = .poster
             } else {
                 throw HomeRejection.invalid("no_thumbnail")
             }
-            let original = try await fetch(AttachmentRef(hash: imageHash, name: "", mimeType: blobs[imageHash]?.mimeType ?? "image/jpeg",
-                                                         byteCount: 0), at: location, variant: .original)
+            let original = try await fetch(ref, at: location, variant: imageVariant)
             let data = try AttachmentMedia.thumbnailJPEG(of: original, maxPixel: maxPixel)
             try Task.checkCancellation()
             try data.write(to: target, options: .atomic)
             return target
         case .poster:
-            guard let meta = ref.poster, let poster = blobs[meta.hash] else { throw HomeRejection.invalid("no_poster") }
+            // A part without a poster has none to fetch; otherwise the
+            // record's poster (the owner mints the URL from the record).
+            guard ref.poster != nil, let meta = blob.poster, let poster = posterBlobs[meta.hash] else { throw HomeRejection.invalid("no_poster") }
             let ext = UTType(mimeType: meta.mimeType)?.preferredFilenameExtension.map { ".\($0)" } ?? ""
             let target = fetchDirectory.appendingPathComponent("\(ref.hash)-poster\(ext)")
             if FileManager.default.fileExists(atPath: target.path) { return target }
             try Task.checkCancellation()
-            try poster.data.write(to: target, options: .atomic)
+            try poster.write(to: target, options: .atomic)
             return target
         }
     }
@@ -271,8 +299,14 @@ public actor MockHomeSource: HomeSource {
         case .sendMessage(let conversation, let parts):
             let text = parts.map(\.plainText).joined()
             guard !text.isEmpty, text.utf8.count <= 65_536 else { throw HomeRejection.invalid("invalid_parts") }
-            for case .attachment(let ref) in parts where blobs[ref.hash] == nil {
-                throw HomeRejection.invalid("attachment_not_uploaded")
+            // The owner's checkAttachments: a recorded hash, and the part's
+            // type, size and claimed poster equal to the record.
+            for case .attachment(let ref) in parts {
+                guard let record = blobs[ref.hash] else { throw HomeRejection.invalid("unknown_attachment") }
+                guard record.mimeType == ref.mimeType, record.data.count == ref.byteCount,
+                      ref.poster == nil || ref.poster == record.poster else {
+                    throw HomeRejection.invalid("attachment_mismatch")
+                }
             }
             let rev = try commitMessage(in: conversation, author: me.id, parts: parts, key: intent.key)
             return HomeOpResult(rev: rev, conversation: conversation)
