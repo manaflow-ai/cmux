@@ -452,7 +452,7 @@ impl Core {
             idempotency_key: key.clone(),
             rate_retried: false,
             not_before: None,
-            op: cmux_conversation::Op::MessageSend {
+            op: Op::MessageSend {
                 client_msg_id: key,
                 parts: vec![cmux_conversation::Part::Text {
                     text: format!("(turn failed: {error})"),
