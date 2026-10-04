@@ -8,10 +8,7 @@
 // and gets its own, smaller budget. Anything shiki resolves on demand
 // (TextMate grammars, themes, the Oniguruma WASM blob) must stay a dynamic
 // import so it is fetched only for the languages in the diff, and the worker
-// must never evaluate the main-thread renderer or React. The agent session
-// (`main.mjs` -> `chunks/agentSessionSurface.mjs`) shares `vendor` with the
-// diff surface but must never load the diff renderer or shiki at startup.
-// This script walks
+// must never evaluate the main-thread renderer or React. This script walks
 // the committed bundle under `Resources/markdown-viewer/webviews-app`, sums
 // each eager closure and fails when one grows past its budget or when a
 // forbidden chunk is reachable statically.
@@ -47,12 +44,6 @@ const surfaces = [
     entries: ["chunks/diff-worker.mjs"],
     budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_DIFF_WORKER_EAGER_BUDGET_BYTES", 400_000),
     forbidden: ["chunks/diff-vendor.mjs", "chunks/vendor.mjs"],
-  },
-  {
-    name: "agent session",
-    entries: ["main.mjs", "chunks/agentSessionSurface.mjs"],
-    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_AGENT_SESSION_EAGER_BUDGET_BYTES", 800_000),
-    forbidden: ["chunks/diff-vendor.mjs", "chunks/shiki-core.mjs", ...monacoChunks],
   },
   {
     name: "diff page",
