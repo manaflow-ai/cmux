@@ -167,6 +167,18 @@ export class FeedDO extends OwnerDO<FeedState> {
   }
 
   /**
+   * For Home push (UserDO): true while this user's Mac is active and the feed's
+   * `push_skip_when_mac_active` preference holds (default on). The same rule as feed pushes,
+   * so one presence source (the Mac's feed socket) quiets both. Only a Mac counts: a phone
+   * can be suspended without saying so, while a Mac says when it resigns, sleeps or locks.
+   */
+  async homePushQuiet(user: string): Promise<boolean> {
+    const state = this.boundEngine?.currentState
+    if (state?.user && state.user !== user) return false
+    return (state?.prefs.push_skip_when_mac_active ?? true) && this.macActive()
+  }
+
+  /**
    * Push delivery is an external effect after commit (feed.md 7.3): the
    * owner already recorded the decision (`feed.push_due`); this sends to the
    * user's devices (UserDO push targets) through APNs and drops tokens APNs

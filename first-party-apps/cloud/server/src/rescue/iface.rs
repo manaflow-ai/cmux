@@ -9,6 +9,8 @@
 //! backend part only: the rescue shell uses no `connection.channel.*` host
 //! ops), so both swap to the real crate the same way: delete this file and
 //! import the real types. Keep the names, and keep the two copies equal.
+//! The connector mirror ([`crate::connector::iface`]) re-exports the shared
+//! types from here (local ids, registry ids, errors, `open_token`).
 //!
 //! Differences from the real shape, on purpose:
 //! - Synchronous. The real traits are `async fn`; each method here maps 1:1.

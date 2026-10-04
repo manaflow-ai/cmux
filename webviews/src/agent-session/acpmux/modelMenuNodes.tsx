@@ -2,6 +2,7 @@
 // viewer's recents: the shared derived data, the keys both layouts handle the same way, and
 // the rows of the layered (cascade and drill) menus.
 import type React from "react";
+import { AgentMark } from "../shared/AgentMark";
 import type { Combo } from "./ComposerPickers";
 import { EffortTrack } from "./EffortTrack";
 import { t } from "./i18n";
@@ -231,10 +232,12 @@ export function menuNodes(
       return {
         key: "harness",
         label: data.harnessName,
+        icon: props.harness ? <AgentMark agent={props.harness} size={14} /> : undefined,
         detail: t("picker.harness"),
         children: data.harnesses.map((harness): MenuNode => ({
           key: `harness:${harness.id}`,
           label: harness.name,
+          icon: <AgentMark agent={harness.id} size={14} />,
           detail: harness.id === props.harness ? undefined : t("picker.newChat"),
           checked: harness.id === props.harness,
           run: () => {

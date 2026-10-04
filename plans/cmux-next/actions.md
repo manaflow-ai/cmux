@@ -39,7 +39,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `workspace`: 141
 - `pane`: 76
 - `screen`: 62
-- `tab`: 79
+- `tab`: 80
 - `terminal`: 36
 - `browser`: 113
 - `sidebar`: 56
@@ -49,9 +49,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `remote`: 7
 - `settings`: 64
 
-## Counts (771 actions)
+## Counts (772 actions)
 
-Palette 767, CLI verbs 440, right-click 427, MCP tools 386.
+Palette 768, CLI verbs 441, right-click 427, MCP tools 387.
 
 ## Menus
 
@@ -132,6 +132,8 @@ Palette 767, CLI verbs 440, right-click 427, MCP tools 386.
 **unimplemented** (8): `palette.openFilesPane`, `palette.openFindPane`, `palette.openVaultPane`, `palette.openCloudPane`, `toggleReactGrab`, `palette.browserToggleOmnibar`, `openDiffViewer`, `palette.openDirectoryDiffViewer`
 
 **secondaryEngine** (2): `openBrowser.webkit`, `browser.openInWebKit`
+
+**duplicateOfDefault** (1): `newTab.submit`
 
 ## Exemptions: mcp
 

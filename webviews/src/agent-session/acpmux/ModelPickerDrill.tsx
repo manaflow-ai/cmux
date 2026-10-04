@@ -1,5 +1,6 @@
 import type React from "react";
 import { useId, useLayoutEffect, useState } from "react";
+import { AgentMark } from "../shared/AgentMark";
 import { SearchIcon } from "./ComposerPickers";
 import { t } from "./i18n";
 import { MenuLevel, rowId } from "./MenuLevel";
@@ -55,6 +56,7 @@ export function ModelPickerDrill(props: ModelMenuProps) {
       ? data.harnesses.map((harness) => ({
           key: `harness:${harness.id}`,
           label: harness.name,
+          icon: <AgentMark agent={harness.id} size={14} />,
           detail: harness.id === props.harness ? undefined : t("picker.newChat"),
           section: t("picker.harness"),
           checked: harness.id === props.harness,

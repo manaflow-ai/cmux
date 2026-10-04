@@ -1,19 +1,21 @@
 import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
-import { inbox as homeInbox } from "@cmux/home-core"
+import { conversation as homeConversation, inbox as homeInbox, user as homeUser } from "@cmux/home-core"
 import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
 import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./auth.ts"
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
 import { admit } from "./domains/common.ts"
 import { chiefActive, grantFor, installActive, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmView } from "./domains/user-confirm.ts"
-import { chiefList } from "./domains/user-chief.ts"
+import { CHIEF_AGENT_CLASS, chiefList } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
+import { HomePushQueue } from "./home-push.ts"
+import { apnsHomePushSender, decideHomePush, drainHomePush, feedHomePushQuiet } from "./home-push-drain.ts"
 import { CLOSE_RETRY_MS, flushInstallCloses, markAgentClosing, markInstallClosing, nextCloseAt, registerSocketOwner } from "./socket-registry.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
-
-/** Inbox entries a list scans at most (p99 2,000 conversations per user, design section 6). */
-const INBOX_SCAN_LIMIT = 10_000
+import { readInboxOp } from "./user-inbox.ts"
+import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
+import { HOME_RATE_WINDOW_MS, homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
 
@@ -25,31 +27,31 @@ export type RedeemResult = ({ ok: true } & InstallClaims) | { ok: false; code: "
  * one-time challenges live outside the op protocol because they are
  * credentials, not shared entity state.
  */
-/** POST /v1/presence-key body. */
-export interface PresenceKeyBody {
-  readonly platform?: unknown
-  readonly jwk?: unknown
-  readonly signature?: unknown
-  readonly attestation?: unknown
-  readonly key_id?: unknown
-}
+export type { PresenceKeyBody } from "./user-presence-key.ts"
 
 export class UserDO extends OwnerDO<UserState> {
   /** UserDO is the revocation authority: it closes a revoked install's sockets itself (afterOp). */
   protected override checksInstallRevocation = false
   /** Second stream `inbox:<user>` (lane 15 E2): Home inbox entries, pins, mutes, archive. */
   private readonly inbox: SecondaryStream<homeInbox.InboxHead>
+  /** Home push queue (home-push.ts): one row per conversation, the dedupe for redelivered and coalesced bumps. */
+  private readonly homePush: HomePushQueue
+
+  /** Sends one Home alert (APNs, as FeedDO); tests replace it inside the object. */
+  protected homePushSender = apnsHomePushSender(this.env)
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env, makeUserDomain(appIdHashFor(env.IOS_APP_ID)), "user")
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
+    this.homePush = new HomePushQueue(this.sqlStore)
     this.inbox = new SecondaryStream(ctx, this.sqlStore, {
       prefix: "inbox",
       tablePrefix: "inbox_",
       // Params arrive as untrusted JSON; the inbox reducer validates them (validBump, userOp).
       domain: homeInbox.inboxDomain as Domain<homeInbox.InboxHead>,
       // Entries are unordered rows (n = null): snapshots carry the head; clients page with inbox.list.
-      engine: { rowMode: { snapshotTable: homeInbox.TABLE_ENTRY, snapshotTail: 0 } },
+      // The list order index is derived owner data: its writes never reach subscribers.
+      engine: { rowMode: { snapshotTable: homeInbox.TABLE_ENTRY, snapshotTail: 0 }, redact: { privateTables: homeInbox.INBOX_PRIVATE_TABLES } },
       owns: (op) => op.startsWith("inbox."),
       maySubscribe: (_head, principal, entity) => principal.user === entity
     }, (ws, a) => this.socketLive(ws, a))
@@ -94,7 +96,7 @@ export class UserDO extends OwnerDO<UserState> {
     const inbox = this.inbox.nextWakeAt()
     const pending = Object.keys(this.boundEngine?.currentState.ssh_revoke_pending ?? {}).length > 0 ? Math.max(Date.now(), this.sshRetryAt ?? 0) : null
     const closes = nextCloseAt(this.ctx.storage.sql, this.closeRetryAt)
-    const times = [inbox, pending, closes].filter((t): t is number => t !== null)
+    const times = [inbox, pending, closes, this.homePush.nextDueAt()].filter((t): t is number => t !== null)
     return times.length ? Math.min(...times) : null
   }
 
@@ -153,7 +155,46 @@ export class UserDO extends OwnerDO<UserState> {
    * when every team confirmed (S4). TeamDO's side is idempotent, so a retry after a crash is safe.
    */
   protected override async onWake(now: number): Promise<void> {
-    await this.flushCloses(now)
+    // Each step runs even when an earlier one throws; a failure is logged, then rethrown after all
+    // ran, so OwnerDO.alarm still backs off (no hot loop on past-due work) and still reschedules.
+    let failure: unknown
+    for (const [step, run] of [["closes", () => this.flushCloses(now)], ["home_push", () => this.drainHomePush(now)], ["krl", () => this.deliverKrlNotices(now)]] as const) {
+      try {
+        await run()
+      } catch (e) {
+        console.error(JSON.stringify({ msg: "user wake step failed", step, error: String(e).slice(0, 200) }))
+        failure ??= e
+      }
+    }
+    if (failure !== undefined) throw failure
+  }
+
+  /** Home push decides from each delivered `inbox.bump` in the same storage batch (home-push-drain.ts decideHomePush). */
+  protected override afterOp(principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>, params?: unknown) {
+    super.afterOp(principal, op, frames, params)
+    this.closeRevoked(op, frames)
+    const engine = op === "inbox.bump" && principal.kind === "system" ? this.existing() : undefined
+    if (engine) decideHomePush(this.homePush, engine.stream.slice("user:".length), frames, params)
+  }
+
+  /** Sends due Home pushes (home-push-drain.ts); tests call it with an explicit time. */
+  private async drainHomePush(now: number): Promise<void> {
+    const engine = this.existing()
+    if (!engine) return
+    const entity = engine.stream.slice("user:".length)
+    const inbox = this.inbox.open(entity)
+    await drainHomePush({
+      queue: this.homePush,
+      entity,
+      entry: (conversation) => inbox.rows.get<homeInbox.InboxEntry>(homeInbox.TABLE_ENTRY, conversation)?.row,
+      pushTargets: (e) => this.pushTargets(e),
+      quiet: (e) => feedHomePushQuiet(this.env, e),
+      send: (targets, message, at) => this.homePushSender(targets, message, at),
+      dropPushTarget: (e, token, reason) => this.dropPushTarget(e, token, reason)
+    }, now)
+  }
+
+  private async deliverKrlNotices(now: number): Promise<void> {
     const engine = this.existing()
     const pending = Object.entries(engine?.currentState.ssh_revoke_pending ?? {})
     if (pending.length === 0 || (this.sshRetryAt !== null && now < this.sshRetryAt)) return
@@ -202,18 +243,43 @@ export class UserDO extends OwnerDO<UserState> {
   async readInbox(entity: string, principal: Principal, op: string, params: Record<string, unknown>): Promise<ReadResult> {
     const refused = this.inboxRefusal(entity, principal, op)
     if (refused) return { ok: false, code: refused.code, message: refused.message }
+    return readInboxOp(this.inbox, entity, op, params, () => this.scheduleAlarm())
+  }
+
+  /**
+   * RPC for the Worker's reach check (home-reach.ts, home-messaging.md section 16): only the
+   * user's `allow_requests_from`, never the discovery flags. An object that never served this
+   * user answers the default without binding.
+   */
+  async homeAllowRequestsFrom(entity: string): Promise<homeConversation.AllowRequestsFrom> {
+    if (this.boundEntity() !== entity) return homeUser.DEFAULT_HOME_SETTINGS.allow_requests_from
+    return homeUser.homeSettingsOf(this.bind(entity).currentState.home_settings).allow_requests_from
+  }
+
+  /**
+   * RPC from the Worker before an op that resolves human reach: one attempt from `actor`'s
+   * hourly budget for `op` (home-rate.ts homeRateTakeSql).
+   */
+  async homeRateTake(entity: string, actor: string, op: HomeRateOp): Promise<HomeRateGate> {
+    const bound = this.boundEntity()
+    if (bound !== null && bound !== entity) return { ok: false, retry_after_ms: HOME_RATE_WINDOW_MS }
+    return homeRateTakeSql(this.sqlStore, actor, op, Date.now())
+  }
+
+  /**
+   * RPC for the Worker's reach check of a chief caller (CHIEF-DONE autonomy rule): when the
+   * caller's agent class is `mux` and `agent` is one of this user's active chiefs, the user's DM
+   * with each target from the inbox `peer` index (the chief acts under its owner's reach); null
+   * for any other class (an automation run that carries a chief's id), an unknown or archived
+   * chief, or an object that never served the user. Never creates storage.
+   */
+  async homeChiefDms(entity: string, agent: string, agentClass: string, targets: ReadonlyArray<string>): Promise<Array<string | null> | null> {
+    if (agentClass !== CHIEF_AGENT_CLASS) return null
+    if (this.boundEntity() !== entity) return null
+    const record = this.bind(entity).currentState.chiefs?.[agent]
+    if (!record || record.archived_at !== null || record.owner_user !== entity) return null
     const engine = this.inbox.open(entity)
-    if (op === "inbox.dm_peer") {
-      const peer = typeof params.peer === "string" ? params.peer : ""
-      return { ok: true, value: { conversation: homeInbox.dmPeer(engine.rows, peer) }, revision: String(engine.currentSeq) }
-    }
-    if (op === "inbox.list") {
-      const entries = engine.rows.scan<homeInbox.InboxEntry>(homeInbox.TABLE_ENTRY, INBOX_SCAN_LIMIT).map((r) => r.row)
-      const limit = typeof params.limit === "number" && params.limit > 0 ? Math.min(params.limit, 200) : 200
-      const query: homeInbox.InboxListQuery = { limit, include_archived: params.include_archived === true }
-      return { ok: true, value: { entries: homeInbox.listInbox(entries, query) }, revision: String(engine.currentSeq) }
-    }
-    return { ok: false, code: "validation.invalid", message: `unknown inbox read ${op}` }
+    return targets.map((target) => homeInbox.dmPeer(engine.rows, target))
   }
 
   /**
@@ -225,35 +291,9 @@ export class UserDO extends OwnerDO<UserState> {
    * `user.presence_key.register` commits (usable after 24 h; every device and the email are told).
    */
   async registerPresenceKey(entity: string, principal: Principal, body: PresenceKeyBody): Promise<SubmitResult | { error: { code: string; message: string } }> {
-    const refuse = (code: string, message: string) => ({ error: { code, message } })
-    if (principal.kind !== "install" || principal.agent || principal.user !== entity || !principal.install) return refuse("auth.forbidden", "an owner device install registers its own key")
-    const state = this.bind(entity).currentState
-    const inst = state.installs[principal.install]
-    if (!installActive(state, principal) || !inst) return refuse("auth.forbidden", "install revoked or unknown")
-    if ((body.platform !== "mac" && body.platform !== "ios") || inst.kind !== body.platform) return refuse("validation.invalid", "platform must be this install's kind (mac or ios)")
-    const jwk = body.jwk as { kty?: string; crv?: string; x?: string; y?: string } | undefined
-    if (!jwk || jwk.kty !== "EC" || jwk.crv !== "P-256" || typeof jwk.x !== "string" || typeof jwk.y !== "string") return refuse("validation.invalid", "jwk must be a P-256 public key")
-    const thumbprint = jwkThumbprint({ kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y })
-    let appAttest: AttestedKey | undefined
-    // Both platforms: the install key signs the registration, so a stolen bearer token alone cannot replace the key.
-    const message = `cmux-presence-key-v1\n${this.env.ENVIRONMENT}\n${entity}\n${inst.id}\n${thumbprint}`
-    if (typeof body.signature !== "string" || !(await verifyInstallSignature(inst.public_jwk, message, body.signature))) return refuse("auth.forbidden", "the install key did not sign this registration")
-    if (body.platform === "ios") {
-      if (!this.env.IOS_APP_ID) return refuse("presence_key.not_configured", "App Attest is not configured on this deployment")
-      if (typeof body.attestation !== "string" || typeof body.key_id !== "string") return refuse("validation.invalid", "attestation and key_id are required on iOS")
-      const r = verifyAttestation({
-        attestation: body.attestation,
-        keyId: body.key_id,
-        clientData: new TextEncoder().encode(thumbprint),
-        appId: this.env.IOS_APP_ID,
-        allowDevelopment: this.env.IOS_APP_ATTEST_DEVELOPMENT === "true",
-        now: Date.now()
-      })
-      if (!r.ok) return refuse("auth.forbidden", `attestation refused (${r.reason})`)
-      appAttest = r.key
-    }
-    const params = { install: inst.id, jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, platform: body.platform, ...(appAttest ? { app_attest: appAttest } : {}) }
-    return this.submitSystem("user.presence_key.register", params, `presence-key:${inst.id}:${thumbprint}`, `system:user:${entity}`)
+    const checked = await checkPresenceKey(this.env, entity, principal, () => this.bind(entity).currentState, body)
+    if ("error" in checked) return checked
+    return this.submitSystem("user.presence_key.register", checked.params, checked.key, `system:user:${entity}`)
   }
 
   /**
@@ -348,7 +388,7 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /** A revoked install loses its open sockets at once, not at token expiry. */
-  protected override afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>) {
+  private closeRevoked(op: string, frames: ReadonlyArray<OwnerFrame>) {
     const result = frames.find((f) => f.t === "result")
     // An archived chief's token stops at once: its sockets here and on every other owner close.
     if (op === "chief.archive" && result && result.t === "result") {
@@ -387,7 +427,7 @@ export class UserDO extends OwnerDO<UserState> {
     return row ? this.bind(row.entity) : undefined
   }
 
-  /** For FeedDO: the user's push targets whose install is still active (feed.md 7.3). */
+  /** For FeedDO and Home push: the user's push targets whose install is still active (feed.md 7.3). */
   async pushTargets(entity: string): Promise<ReadonlyArray<PushTarget>> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return []
@@ -395,7 +435,7 @@ export class UserDO extends OwnerDO<UserState> {
     return Object.values(state.push_targets ?? {}).filter((t) => state.installs[t.install]?.revoked_at === null)
   }
 
-  /** For FeedDO: APNs rejected this token (unregistered or bad); the owner drops it in its own op. */
+  /** For FeedDO and Home push: APNs rejected this token (unregistered or bad); the owner drops it in its own op. */
   async dropPushTarget(entity: string, token: string, reason: string): Promise<void> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return

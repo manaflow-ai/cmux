@@ -47,10 +47,13 @@ export function screenRows(
   const intent = classifyNewTabInput(text, mode, context.home ? { home: context.home } : {});
   if (intent.kind === "none" || intent.kind === "terminal") return [];
   const query = text.trim();
+  // Variants of one agent (`claude`, `claude-sr`) share a name; their id tells them apart.
+  const names = new Map<string, number>();
+  for (const agent of context.agents) names.set(agent.name, (names.get(agent.name) ?? 0) + 1);
   const agentRows: ScreenRow[] = orderedAgents(context.agents, context.lastAgent).map((agent) => ({
     type: "agent",
     harness: agent.id,
-    name: agent.name,
+    name: (names.get(agent.name) ?? 0) > 1 ? `${agent.name} (${agent.id})` : agent.name,
     text: query,
   }));
   const search: ScreenRow = { type: "search", text: query };

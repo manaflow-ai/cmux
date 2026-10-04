@@ -24,7 +24,9 @@ afterAll(() => Object.assign(globals, saved));
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { AGENT_MARKS, AgentMark, agentKey, agentMarkObserving, setAgentMarkStyle } = await import("./AgentMark");
+const { AgentMark, agentMarkObserving, setAgentMarkStyle } = await import("./AgentMark");
+const { agentKey } = await import("./agentKey");
+const { agentBrand, AGENT_BRAND_RESOLUTION_CASES, SUPPORTED_AGENTS } = await import("./agentBrand");
 const { agentDisplayName } = await import("../acpmux/agents");
 const { applyAgentTheme } = await import("./theme");
 const { agentPaneTheme, ghosttyDefault } = await import("../../../scripts/agent-pane/theme.mjs");
@@ -37,24 +39,22 @@ test("a harness id names its agent by its first word, so variants share a mark",
   expect(agentKey(undefined)).toBeUndefined();
 });
 
-test("an agent with a mark draws its paths; any other agent draws the generic glyph", async () => {
+test("an agent with a mark draws its brand's paths; any other agent draws the generic glyph", async () => {
   const root = createRoot(doc.getElementById("root")!);
-  AGENT_MARKS.test = { viewBox: "0 0 24 24", paths: ["M0 0h24v24H0z"], brand: "#123456", source: "test" };
   try {
-    await act(async () => root.render(createElement(AgentMark, { agent: "test-variant", size: 18, label: "Test" })));
+    await act(async () => root.render(createElement(AgentMark, { agent: "claude-sr", size: 18, label: "Claude" })));
     const svg = doc.querySelector("svg")!;
-    expect(svg.getAttribute("data-agent")).toBe("test");
-    expect(svg.getAttribute("fill")).toBe("#123456");
+    expect(svg.getAttribute("data-agent")).toBe("claude");
+    expect(svg.getAttribute("fill")).toBe("#D97757");
     expect(svg.getAttribute("width")).toBe("18");
     expect(svg.getAttribute("role")).toBe("img");
-    expect(svg.getAttribute("aria-label")).toBe("Test");
+    expect(svg.getAttribute("aria-label")).toBe("Claude");
     await act(async () => root.render(createElement(AgentMark, { agent: "unknown-agent" })));
     const generic = doc.querySelector("svg")!;
     expect(generic.classList.contains("agent-mark-generic")).toBe(true);
     expect(generic.getAttribute("aria-hidden")).toBe("true");
     expect(generic.getAttribute("role")).toBeNull();
   } finally {
-    delete AGENT_MARKS.test;
     await act(async () => root.unmount());
   }
 });
@@ -94,9 +94,9 @@ test("marks fill in their vendor's colors by default, per theme lightness: Mocha
   try {
     expect(fills()).toEqual([
       ["claude", "#D97757"],
-      ["codex", "#fff"],
+      ["openai", "#FFFFFF"],
       ["cursor", "#EDECEC"],
-      ["amp", "#F34E3F"],
+      ["amp", "#FFFFFF"],
     ]);
     // A live theme switch recolors the marks.
     await act(async () => {
@@ -105,9 +105,9 @@ test("marks fill in their vendor's colors by default, per theme lightness: Mocha
     });
     expect(fills()).toEqual([
       ["claude", "#D97757"],
-      ["codex", "#000"],
+      ["openai", "#000000"],
       ["cursor", "#26251E"],
-      ["amp", "#F34E3F"],
+      ["amp", "#000000"],
     ]);
   } finally {
     delete doc.documentElement.dataset.theme;
@@ -135,7 +135,7 @@ test("the mono style fills every mark white on Mocha and black on Latte", async 
       setAgentMarkStyle("brand");
       await settle();
     });
-    expect(fills().map(([, fill]) => fill)).toEqual(["#D97757", "#000", "#3186FF"]);
+    expect(fills().map(([, fill]) => fill)).toEqual(["#D97757", "#000000", "#3186FF"]);
     expect(doc.querySelectorAll("linearGradient").length).toBe(3);
     // onDark wins over the theme in mono too.
     await act(async () => root.render(createElement(AgentMark, { agent: "codex", onDark: true })));
@@ -143,7 +143,7 @@ test("the mono style fills every mark white on Mocha and black on Latte", async 
       setAgentMarkStyle("mono");
       await settle();
     });
-    expect(fills()).toEqual([["codex", "#fff"]]);
+    expect(fills()).toEqual([["openai", "#fff"]]);
   } finally {
     setAgentMarkStyle("brand");
     delete doc.documentElement.dataset.theme;
@@ -154,9 +154,9 @@ test("the mono style fills every mark white on Mocha and black on Latte", async 
 test("before any theme arrives marks assume the dark default; onDark overrides it for an inverted surface", async () => {
   const root = await renderMarks(["codex"]);
   try {
-    expect(fills()).toEqual([["codex", "#fff"]]);
+    expect(fills()).toEqual([["openai", "#FFFFFF"]]);
     await act(async () => root.render(createElement(AgentMark, { agent: "codex", onDark: false })));
-    expect(fills()).toEqual([["codex", "#000"]]);
+    expect(fills()).toEqual([["openai", "#000000"]]);
   } finally {
     await act(async () => root.unmount());
   }
@@ -243,13 +243,42 @@ test("the shared root observer detaches when the last mark unmounts and returns 
   await act(async () => again.unmount());
 });
 
-test("every registered mark has its own row in AGENT_MARKS.md naming its key and source", async () => {
-  const rows = (await Bun.file(new URL("./AGENT_MARKS.md", import.meta.url)).text())
-    .split("\n")
-    .filter((line) => line.startsWith("| `"));
-  for (const [key, spec] of Object.entries(AGENT_MARKS))
-    expect(rows.some((row) => row.split("|")[1]!.includes(`\`${key}\``) && row.includes(`\`${spec.source}\``))).toBe(
-      true,
-    );
-  expect(Object.keys(AGENT_MARKS).sort()).toEqual(["amp", "claude", "codex", "cursor", "gemini", "openai", "opencode"]);
+test("agent strings resolve to the same brands as the Swift catalog", () => {
+  for (const [input, brand] of AGENT_BRAND_RESOLUTION_CASES)
+    expect([input, agentBrand(input) ?? null]).toEqual([input, brand]);
+});
+
+test("every supported agent with a brand draws that brand's mark, the rest the generic glyph", async () => {
+  // R79: these must all have real marks.
+  for (const agent of ["claude", "codex", "chatgpt", "opencode", "pi", "hermes-agent", "dsh", "deepseek"])
+    expect([agent, agentBrand(agent) !== undefined]).toEqual([agent, true]);
+  const root = await renderMarks(SUPPORTED_AGENTS.map((agent) => agent.id));
+  try {
+    const drawn = [...doc.querySelectorAll("#root svg")].map((svg) => svg.getAttribute("data-agent"));
+    expect(drawn).toEqual(SUPPORTED_AGENTS.map((agent) => agent.brand));
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a tiled mark draws its tile in brand color only, and mono hides brand-only detail", async () => {
+  applyAgentTheme(mocha);
+  const root = await renderMarks(["kiro"]);
+  const svg = () => doc.querySelector("svg.agent-mark")!;
+  try {
+    expect(svg().querySelector("rect")?.getAttribute("fill")).toBe("#9046FF");
+    expect(svg().getAttribute("viewBox")).toBe("0 0 1200 1200");
+    expect(svg().querySelectorAll("path").length).toBe(2);
+    await act(async () => {
+      setAgentMarkStyle("mono");
+      await settle();
+    });
+    expect(svg().querySelector("rect")).toBeNull();
+    // The eyes are cut out of the ghost in mono; their brand-only path is not drawn.
+    expect(svg().querySelectorAll("path").length).toBe(1);
+  } finally {
+    setAgentMarkStyle("brand");
+    delete doc.documentElement.dataset.theme;
+    await act(async () => root.unmount());
+  }
 });

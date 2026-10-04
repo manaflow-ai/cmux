@@ -7,7 +7,9 @@ import Testing
 @Suite struct PageIDTests {
     @Test func everyShippedPageIsInTheFirstPartyTable() {
         #expect(PageID.isFirstParty(PageDescriptor.history.id))
-        for id in ["cmux.history", "cmux.apps", "cmux.settings", "cmux.cloud", "cmux.agent", "cmux.keybindings"] {
+        #expect(PageID.isFirstParty(PageDescriptor.diff.id) && PageID.isFirstParty(PageDescriptor.markdown.id))
+        for id in ["cmux.history", "cmux.apps", "cmux.settings", "cmux.cloud", "cmux.agent", "cmux.keybindings",
+                   "cmux.diff", "cmux.markdown"] {
             #expect(PageID.firstParty.contains(id))
         }
     }
@@ -20,7 +22,7 @@ import Testing
     }
 
     @Test func aManifestPageWithAFirstPartyIDIsRefused() {
-        for id in ["cmux.agent", "CMUX.Agent", "cmux.settings", "cmux.agentx", "cmux"] {
+        for id in ["cmux.agent", "CMUX.Agent", "cmux.settings", "cmux.agentx", "cmux", "cmux.diff", "CMUX.Markdown"] {
             #expect(throws: PageID.Refusal.reservedID(id)) {
                 try PageDescriptor.appPage(id: id, resource: "page", namespaces: [])
             }

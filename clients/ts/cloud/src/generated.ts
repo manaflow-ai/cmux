@@ -1144,7 +1144,7 @@ export interface CloudOps {
     }
     readonly result: HomeChief
   }
-  /** Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. */
+  /** Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms). */
   readonly "conversation.create": {
     readonly params: {
       readonly kind?: "group"
@@ -1634,17 +1634,19 @@ export interface CloudOps {
       readonly cursor?: string
     }
   }
-  /** Choose who can find you by email or phone and who may start a DM with you. */
+  /** Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email. */
   readonly "home.settings.set": {
     readonly params: {
       readonly discoverable_by_email?: boolean
       readonly discoverable_by_phone?: boolean
-      readonly allow_dm_from?: "anyone" | "teams" | "contacts"
+      readonly allow_requests_from?: "anyone" | "teams" | "nobody"
+      readonly email_requests?: boolean
     }
     readonly result: {
       readonly discoverable_by_email: boolean
       readonly discoverable_by_phone: boolean
-      readonly allow_dm_from: "anyone" | "teams" | "contacts"
+      readonly allow_requests_from: "anyone" | "teams" | "nobody"
+      readonly email_requests: boolean
     }
   }
   /** Enroll the calling install's machine as a host in the team directory. */
@@ -1686,9 +1688,11 @@ export interface CloudOps {
     readonly params: {
       readonly limit?: number
       readonly include_archived?: boolean
+      readonly cursor?: string
     }
     readonly result: {
       readonly entries: ReadonlyArray<HomeInboxEntry>
+      readonly next_cursor: string | null
       readonly revision: string
     }
   }
@@ -2003,7 +2007,7 @@ export interface CloudOps {
       }>
     }
   }
-  /** Add a user who shares a team or a conversation with you, or a chief its reachability allows (max 64). Anyone else needs invite.create. */
+  /** Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms). */
   readonly "participants.add": {
     readonly params: {
       readonly conversation: ConversationId

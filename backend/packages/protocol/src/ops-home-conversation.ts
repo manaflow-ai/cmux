@@ -46,8 +46,8 @@ export const ConversationCreate = def({
     settings: Schema.optionalKey(ConversationSettings)
   }),
   result: Schema.Struct({ conversation: ConversationSummary }),
-  errors: [...conversationErrors, "conversation_exists", "invalid_participant", "invalid_title"],
-  docs: "Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation.",
+  errors: [...conversationErrors, "conversation_exists", "invalid_participant", "invalid_title", "not_reachable", "home.rate_limited"],
+  docs: "Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms).",
   cli: cli("create"),
   mcp: { expose: "default", group: "home" }
 })
@@ -67,7 +67,7 @@ export const DmOpen = def({
     ])
   }),
   result: Schema.Struct({ conversation: ConversationSummary }),
-  errors: [...conversationErrors, "invalid_participant", "invite_limit"],
+  errors: [...conversationErrors, "invalid_participant", "invite_limit", "not_reachable"],
   docs: "Open the one-to-one conversation with a user or chief, or with an email or phone (which invites the address). Idempotent: an existing DM with the peer is returned.",
   cli: cli("dm"),
   mcp: { expose: "default", group: "home" }
@@ -189,8 +189,8 @@ export const ParticipantsAdd = def({
   principals: ["session", "install"],
   params: Schema.Struct({ ...conv, participant: ParticipantInput }),
   result: commit,
-  errors: [...conversationErrors, "duplicate_participant", "invalid_participant"],
-  docs: "Add a user who shares a team or a conversation with you, or a chief its reachability allows (max 64). Anyone else needs invite.create.",
+  errors: [...conversationErrors, "duplicate_participant", "invalid_participant", "not_reachable", "home.rate_limited"],
+  docs: "Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms).",
   cli: cli("add"),
   mcp: { expose: "opt_in", group: "home" }
 })

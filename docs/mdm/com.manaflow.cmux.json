@@ -1081,7 +1081,7 @@
       "type" : "boolean"
     },
     "tabs.newTabKind" : {
-      "default" : "same-kind",
+      "default" : "page",
       "description" : "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.",
       "enum" : [
         "same-kind",

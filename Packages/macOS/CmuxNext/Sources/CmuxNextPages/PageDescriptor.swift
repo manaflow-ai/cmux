@@ -30,10 +30,14 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// The file `cmux-page://<id>/` serves (default `index.html`): a page whose root is a shared
     /// build (the diff viewer in the one webviews-app build) names its own entry html.
     public let entry: String
+    /// First path components the page instance's ``PageDynamicResourceSource`` answers
+    /// (`__patch`); the scheme handler never serves a static file under one.
+    public let dynamicPrefixes: Set<String>
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
                 actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
-                confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html") {
+                confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
+                dynamicPrefixes: Set<String> = []) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
@@ -46,6 +50,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.csp = PageID.isFirstParty(id) ? csp : .strict
         // One file name inside the root, never a path.
         self.entry = entry.isEmpty || entry.contains("/") || entry.hasPrefix(".") ? "index.html" : entry
+        self.dynamicPrefixes = dynamicPrefixes
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).

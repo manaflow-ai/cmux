@@ -135,9 +135,10 @@ final class AgentTabStore {
     ///   - newTab: Shows the new tab page until it becomes a chat; the
     ///     handler gets the terminal or browser choices and shortcut edits.
     ///   - seed: What a new chat inherits (cwd, a draft); ignored with a session.
+    ///   - spare: A prewarmed page (``makeSpare(_:)``) the new tab page adopts.
     func open(in paneKey: String, of store: DaemonStore, after: String? = nil, session: String? = nil,
               seed: AgentPaneSeedSource? = nil,
-              newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil) -> String {
+              newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil) -> String {
         let key = LocalAgentTab.prefix + UUID().uuidString.lowercased()
         var tabs = tabsByPane[paneKey] ?? []
         if let after, let index = tabs.firstIndex(of: after) {
@@ -151,6 +152,12 @@ final class AgentTabStore {
         if session == nil { seeds[key] = seed }
         paneStores[paneKey] = store
         watch(store)
+        if let spare, let newTab {
+            standaloneViews.remove(spare)
+            wire(spare.model, key: key)
+            views[key] = spare
+            spare.adoptNewTab(newTab.page)
+        }
         return key
     }
 
@@ -222,9 +229,24 @@ final class AgentTabStore {
             seed: seeds.removeValue(forKey: key),
             newTab: newTabPages[key]?.page
         )
-        model.linkScheme = linkScheme
         model.sessionMustExist = linkedSessions.contains(key)
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
+        wire(model, key: key)
+        guard let view = makeView(model) else { return nil }
+        views[key] = view
+        return view
+    }
+
+    /// A prewarmed new tab page (NewTabSparePool): loaded, rendered and
+    /// connected before any tab exists; ``open(in:of:after:session:seed:newTab:spare:)`` adopts it.
+    func makeSpare(_ page: AgentPaneNewTab) -> AgentPaneView? {
+        guard let view = makeView(AgentPaneModel(host: host, newTab: page)) else { return nil }
+        standaloneViews.add(view)
+        return view
+    }
+
+    /// Tab `key`'s callbacks on its page's model.
+    private func wire(_ model: AgentPaneModel, key: String) {
         model.onSessionChange = { [weak self] session in
             self?.newTabPages[key]?.handler.becameChat()
             self?.sessions[key] = session
@@ -243,11 +265,15 @@ final class AgentTabStore {
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         // A local session's folder is read by the local session host; the page refuses cloud sessions.
         if let git { model.onGit = { request in try await git.read(request) } }
+    }
+
+    /// A pane view on this store's page and host, with the shared pushes.
+    private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
+        model.linkScheme = linkScheme
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value) else { return nil }
         view.customization = customization.current
         view.shortcuts = shortcuts
         view.previewFeatures = previewFeatures
-        views[key] = view
         customization.start()
         return view
     }
@@ -260,14 +286,8 @@ final class AgentTabStore {
     /// A new chat outside any pane (onboarding's first task), on the same
     /// daemon and page as the tabs. The caller owns it and closes it.
     func standaloneView(seed: AgentPaneSeed) -> AgentPaneView? {
-        let model = AgentPaneModel(host: host, seed: AgentPaneSeedSource(seed))
-        model.linkScheme = linkScheme
-        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value) else { return nil }
-        view.customization = customization.current
-        view.shortcuts = shortcuts
-        view.previewFeatures = previewFeatures
+        guard let view = makeView(AgentPaneModel(host: host, seed: AgentPaneSeedSource(seed))) else { return nil }
         standaloneViews.add(view)
-        customization.start()
         return view
     }
 

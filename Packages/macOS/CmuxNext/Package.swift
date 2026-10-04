@@ -618,6 +618,7 @@ let package = Package(
                 .process("HibernationActions.xcstrings"),
                 .process("HistoryActions.xcstrings"),
                 .process("LayoutActions.xcstrings"),
+                .process("NewTabActions.xcstrings"),
                 .process("Localizable.xcstrings"),
                 .process("PageInfoActions.xcstrings"),
                 .process("ProfileActions.xcstrings"),

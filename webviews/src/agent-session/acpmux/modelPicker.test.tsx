@@ -233,6 +233,9 @@ for (const layout of ["cascade", "drill"] as Layout[]) {
       if (layout === "cascade") await press(row("Claude Code")!);
       const codex = row("Codex")!;
       expect(codex.textContent).toContain("New chat");
+      // Each harness row wears its agent's brand mark (design/agent-icons); Codex wears OpenAI's.
+      expect(codex.querySelector(".acpmux-menu-icon svg")?.getAttribute("data-agent")).toBe("openai");
+      expect(row("Claude Code")!.querySelector(".acpmux-menu-icon svg")?.getAttribute("data-agent")).toBe("claude");
       await press(codex);
       expect(calls).toEqual(["harness codex"]);
       expect(menu()).toBeNull();

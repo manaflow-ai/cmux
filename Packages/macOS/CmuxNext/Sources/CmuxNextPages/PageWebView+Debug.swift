@@ -28,6 +28,14 @@ extension PageWebView {
         return value
     }
 
+    /// Clicks the first element that matches the CSS `selector` (live GUI proofs drive a page
+    /// control with no pointer). Returns whether an element matched.
+    public func debugClick(_ selector: String) async -> Bool {
+        let script = "const el = document.querySelector(selector); if (!el) { return false; } el.click(); return true;"
+        let clicked = try? await webView.callAsyncJavaScript(script, arguments: ["selector": selector], contentWorld: .page)
+        return clicked as? Bool == true
+    }
+
     /// Writes the page as WebKit rendered it to `url` as PNG.
     public func debugSnapshot(to url: URL) async -> Bool {
         keepRenderingWhenCovered()

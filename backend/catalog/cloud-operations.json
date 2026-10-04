@@ -13671,11 +13671,13 @@
         "auth.unauthenticated",
         "conversation_exists",
         "forbidden",
+        "home.rate_limited",
         "idempotency.conflict",
         "invalid_participant",
         "invalid_title",
         "kind_forbids",
         "not_participant",
+        "not_reachable",
         "owner.unreachable",
         "unknown_conversation",
         "validation.invalid"
@@ -13703,7 +13705,7 @@
         "expose": "default",
         "group": "home"
       },
-      "docs": "Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation.",
+      "docs": "Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -16260,6 +16262,7 @@
         "invite_limit",
         "kind_forbids",
         "not_participant",
+        "not_reachable",
         "owner.unreachable",
         "unknown_conversation",
         "validation.invalid"
@@ -26465,15 +26468,22 @@
               "name": "boolean"
             }
           },
-          "allow_dm_from": {
+          "allow_requests_from": {
             "required": false,
             "type": {
               "kind": "enum",
               "values": [
                 "anyone",
                 "teams",
-                "contacts"
+                "nobody"
               ]
+            }
+          },
+          "email_requests": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
             }
           },
           "expected_revision": {
@@ -26508,15 +26518,22 @@
                   "name": "boolean"
                 }
               },
-              "allow_dm_from": {
+              "allow_requests_from": {
                 "required": true,
                 "type": {
                   "kind": "enum",
                   "values": [
                     "anyone",
                     "teams",
-                    "contacts"
+                    "nobody"
                   ]
+                }
+              },
+              "email_requests": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
                 }
               }
             }
@@ -26552,7 +26569,7 @@
         "expose": "never",
         "group": "home"
       },
-      "docs": "Choose who can find you by email or phone and who may start a DM with you.",
+      "docs": "Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -26563,13 +26580,16 @@
           "discoverable_by_phone": {
             "type": "boolean"
           },
-          "allow_dm_from": {
+          "allow_requests_from": {
             "type": "string",
             "enum": [
               "anyone",
               "teams",
-              "contacts"
+              "nobody"
             ]
+          },
+          "email_requests": {
+            "type": "boolean"
           }
         },
         "additionalProperties": true,
@@ -26584,19 +26604,23 @@
           "discoverable_by_phone": {
             "type": "boolean"
           },
-          "allow_dm_from": {
+          "allow_requests_from": {
             "type": "string",
             "enum": [
               "anyone",
               "teams",
-              "contacts"
+              "nobody"
             ]
+          },
+          "email_requests": {
+            "type": "boolean"
           }
         },
         "required": [
           "discoverable_by_email",
           "discoverable_by_phone",
-          "allow_dm_from"
+          "allow_requests_from",
+          "email_requests"
         ],
         "additionalProperties": true,
         "$defs": {}
@@ -27281,6 +27305,14 @@
               "kind": "primitive",
               "name": "boolean"
             }
+          },
+          "cursor": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 256
+            }
           }
         },
         "extra": false
@@ -27295,6 +27327,16 @@
               "items": {
                 "kind": "ref",
                 "name": "HomeInboxEntry"
+              }
+            }
+          },
+          "next_cursor": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string"
               }
             }
           },
@@ -27346,6 +27388,10 @@
           },
           "include_archived": {
             "type": "boolean"
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 256
           }
         },
         "additionalProperties": true,
@@ -27360,12 +27406,23 @@
               "$ref": "#/$defs/HomeInboxEntry"
             }
           },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "revision": {
             "type": "string"
           }
         },
         "required": [
           "entries",
+          "next_cursor",
           "revision"
         ],
         "additionalProperties": true,
@@ -34266,10 +34323,12 @@
         "auth.unauthenticated",
         "duplicate_participant",
         "forbidden",
+        "home.rate_limited",
         "idempotency.conflict",
         "invalid_participant",
         "kind_forbids",
         "not_participant",
+        "not_reachable",
         "owner.unreachable",
         "unknown_conversation",
         "validation.invalid"
@@ -34297,7 +34356,7 @@
         "expose": "opt_in",
         "group": "home"
       },
-      "docs": "Add a user who shares a team or a conversation with you, or a chief its reachability allows (max 64). Anyone else needs invite.create.",
+      "docs": "Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",

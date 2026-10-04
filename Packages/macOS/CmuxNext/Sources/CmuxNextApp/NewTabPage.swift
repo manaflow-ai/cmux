@@ -122,6 +122,16 @@ enum NewTabPage {
         )
     }
 
+    /// What a prewarmed spare page loads with before Cmd-T adopts it
+    /// (NewTabSparePool): the design and remembered choices; no tab context.
+    static func sparePage(_ services: AppServices) -> AgentPaneNewTab {
+        AgentPaneNewTab(
+            kind: .agent, hotkeys: newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) },
+            layout: NewTabTunables.layout.value.pageLayout, mode: services.newTabChoices.mode,
+            lastAgent: services.newTabChoices.agent, home: NSHomeDirectory()
+        )
+    }
+
     /// Projects discovered off the main actor during app startup. The current
     /// session cwd still arrives immediately from the pane handshake.
     static func projects(_ services: AppServices) -> [String] { services.onboarding.projectFolders }
@@ -174,7 +184,10 @@ enum NewTabPage {
 extension PaneController {
     /// New Tab Page: an agent tab showing the new tab page, beside the
     /// selected tab, with that tab's kind selected and folder inherited.
+    /// Adopts the window's prewarmed spare page when it has one
+    /// (NewTabSparePool), else the page loads cold.
     func newTabPage() {
+        let start = ContinuousClock.now
         let selectedID = stripModel.selectedID?.rawValue
         let cwd = selectedTab?.cwd
         let page = NewTabPage.page(services, selected: selectedTab)
@@ -182,7 +195,15 @@ extension PaneController {
             if let self { NewTabPage.replace(key, with: request, cwd: request.cwd ?? cwd, in: self) }
         }
         let after = selectedID?.hasPrefix(LocalAgentTab.prefix) == true ? selectedID : nil
-        showAgentTab(services.agentTabs.open(in: paneKey, of: daemon.store, after: after, newTab: (page, handler)))
+        let spare = services.newTabSpares.take(for: view.window)
+        showAgentTab(services.agentTabs.open(in: paneKey, of: daemon.store, after: after, newTab: (page, handler), spare: spare))
+        // The adopted page is alive: show it this frame and give it the keyboard now, so the
+        // first key typed after the open reaches its field (fleet test: it went to the old responder).
+        if spare != nil, services.presentation.showNow(self) {
+            services.windowController(showing: self)?.focus.send(.focusPane(paneKey, source: .intent))
+        }
+        let (seconds, attoseconds) = (ContinuousClock.now - start).components
+        services.newTabSpares.record(.init(spare: spare != nil, milliseconds: Double(seconds) * 1_000 + Double(attoseconds) / 1e15))
     }
 
     /// Focus Location Bar: a browser tab's address bar; the field of a new tab
