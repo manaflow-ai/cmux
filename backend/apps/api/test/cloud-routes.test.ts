@@ -109,4 +109,36 @@ describe("cloud ops through the Worker", { timeout: 60_000 }, () => {
       expect([name, r.status, r.body.code]).toEqual([name, 503, "owner.unreachable"])
     }
   })
+
+  it("publishes cloud.machine.upsert and cloud.machine.removed on the cloud wire with revision = stream seq", async () => {
+    const { t, team } = await signedIn("cloud-route-3")
+    const created = await op(t, "cloud.machine.create", { name: "watched", size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } })
+    const res = await worker.fetch("https://api.test/v1/wire/cloud", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${t}` } })
+    expect(res.status).toBe(101)
+    const ws = res.webSocket!
+    const frames: Array<any> = []
+    ws.addEventListener("message", (e) => frames.push(JSON.parse(e.data as string)))
+    ws.accept()
+    ws.send(JSON.stringify({ t: "subscribe" }))
+    const wait = async (pred: (f: any) => boolean) => {
+      for (let i = 0; i < 200 && !frames.some(pred); i++) await new Promise((r) => setTimeout(r, 10))
+      return frames.find(pred)
+    }
+    const snap = await wait((f) => f.t === "snapshot")
+    expect(snap.stream).toBe(`cloud:${team}`)
+    expect(snap.state).toEqual({ team, rev: snap.seq, active: 1, saved: 0, changed: null })
+    // The last commit was the create's driver_result, which changes the ledger only.
+    const id = created.body.value.machine.id as string
+    const renamed = await op(t, "cloud.machine.rename", { machine: id, name: "watched 2" })
+    const up = await wait((f) => f.t === "event" && f.event === "cloud.machine.upsert")
+    expect(up.data.machine).toMatchObject({ id, name: "watched 2", revision: String(up.seq) })
+    expect(renamed.body.revision).toBe(String(up.seq))
+    // Private rows never leave the owner: the effects carry the head only.
+    expect(up.effects.writes).toEqual([])
+    await op(t, "cloud.machine.delete", { machine: id })
+    const gone = await wait((f) => f.t === "event" && f.event === "cloud.machine.removed")
+    expect(gone.data).toEqual({ machine: id, revision: String(gone.seq) })
+    expect(Number(gone.seq)).toBeGreaterThan(Number(up.seq))
+    ws.close()
+  })
 })

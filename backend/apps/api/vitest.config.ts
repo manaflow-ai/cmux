@@ -61,6 +61,9 @@ export default defineConfig({
           GOOGLE_RESTRICTED_SCOPES: "testing",
           // Team VMs use the in-object fake provider (team-vm-driver.ts).
           TEAM_VM_DRIVER: "fake",
+          // Cloud machines use the in-object fake provider under the test prefix (cloud-driver.ts).
+          CLOUD_DRIVER: "fake",
+          CLOUD_NAME_PREFIX: "cmuxnp-test-",
           GOOGLE_PUBSUB_TOPIC: "projects/cmux-integrations-dev/topics/gmail-push",
           GOOGLE_PUBSUB_AUDIENCE: "https://api.test/v1/hooks/google/pubsub",
           GOOGLE_PUBSUB_SERVICE_ACCOUNT: "gmail-push-invoker@cmux-integrations-dev.iam.gserviceaccount.com",
