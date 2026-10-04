@@ -1,6 +1,6 @@
 # cmux next: remote conversations on a paired server (relay analysis)
 
-Status: revision 8 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
+Status: revision 9 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
 5 P2), with the coordinator's decisions D-A and D-B of 2026-10-04. No code yet; the review agent
 re-checks this revision before any code. Decisions D1 and D2 of 2026-10-04: the MacBook opens the daemon
 conversations of a paired Mac mini over lane 12's `cmux link` overlay; the server is a
@@ -112,7 +112,7 @@ kinds for owned conversations leave it (section 8). Nothing reaches the remote w
 - Owned conversation: `remote_<install>` is a participant and the stamp's `user_id` is the server
   owner. The gate checks this for list, snapshot, history, typing and ops.
 
-## 6. Remote prompts to agents (D-A no waiver; D-E to D-J; rev 8)
+## 6. Remote prompts to agents (D-A no waiver; D-E to D-J; rev 9)
 
 A `message.send` from a remote principal into a conversation with an agent starts a
 **remote-origin prompt chain**. Every rule fails closed: when any part of the gate is missing,
@@ -124,10 +124,19 @@ crashed, slow or unsure, the tool does not run.
    need an approval too, because their output returns to the remote as text. A tool the gate
    cannot classify needs an approval. Nothing lowers the minimum (the remote, the model, a
    setting, `CLAUDE.md`, a hook, a permission mode, a session policy or rule); there is no waiver.
-2. **Read root (P2-J).** Reads without an approval are allowed only for the Chief's memory and
-   conversation files under `$MUX_HOME` (for another agent: its session's workspace root), and
-   never for: `state/`, `*.token`, `.claude/`, `.env*`, the `MUX_AGENT_TOKEN_FILE` path, and any
-   file of the pairing record or install keys. These deny paths win over the read root.
+2. **Read root (P2-J, P2-Q).** The read root is a **separate folder** that holds only the Chief's
+   memory and conversation files and contains no deny path (for another agent: its session's
+   workspace root, under the same rules). Reads without an approval are allowed only there. The
+   deny list is a second layer: `state/`, `*.token`, `.claude/`, `.env*`, `~/.ssh`, the
+   `MUX_AGENT_TOKEN_FILE` path, the pairing record and install keys always ask approval.
+   - The daemon decides on the **real path**: `realpath`, then `F_GETPATH` on an opened descriptor
+     for the file on disk, compared case-folded on case-insensitive volumes (APFS default), with
+     `/var` and `/private/var` and `..` resolved. It denies when either the requested or the
+     resolved path is in a deny area or outside the read root.
+   - Static deny rules in the inline settings use absolute `//` patterns (relative patterns have
+     no base there).
+   - Grep and Glob over a folder that contains a deny path ask approval; inside the read root
+     there is none by construction.
 3. **Own fresh process (acpmux design 3; P1-K, D-I decided).** A remote
    chain runs in its own Claude process and **never forks or resumes a local session** (acpmux
    `fork()` copies the harness, argv, permission policy, modes, config options and models, and
@@ -196,6 +205,10 @@ crashed, slow or unsure, the tool does not run.
    - the built-in general subagent cannot call `Skill`, cannot read the deny paths, and sends its
      permission requests to the daemon; `--setting-sources ""` hides user and project agent types.
    - no user or project `CLAUDE.md` loads (its `@` imports would pull files with no tool call).
+   - at spawn the daemon reads the `tools` list from Claude's `system/init` and refuses the chain if
+     any tool is not in its classified table (P2-R: this catches version drift and tools such as
+     `ListMcpResources` and `ReadMcpResource`). Every MCP call (cmux screen reads, terminal and
+     workspace state included) asks the human, except a reviewed list of read tools.
    - the Claude ACP adapter is pinned with Claude; its handling of embedded resources, slash
      commands and `@` is probed (rule 10).
    - **D-J (decided): both.** in remote chains the `Skill` and `SlashCommand` tools
@@ -250,7 +263,9 @@ crashed, slow or unsure, the tool does not run.
     carries `origin: remote`. The local Chief (one brain) learns of a remote chain only through the
     origin-tagged remote log and the conversation messages, never through shared process state.
 12. **Approvals.** Each approval shows the exact command or call and its arguments, one approval
-    per call. The text says that an approved shell call runs with the owner's full trust and can
+    per call. The card marks Bash commands that contain command substitution, `eval`, decoding
+    (`base64 -d`, `xxd -r` and similar) or a pipe into a shell, because the visible text can hide the
+    real target (for example `cat $(echo ... | base64 -d)`). The text says that an approved shell call runs with the owner's full trust and can
     create work that persists. Each approval needs a presence proof (lane 15: the presence key with
     Touch ID, or a second device). Approvals go through the cloud (lane 15), never over the link.
     **A LAN-only server (no cloud) denies every remote side effect;** reads inside the read root
@@ -274,6 +289,12 @@ Tests for this section (the acpmux owner adds fake-model probes on a Testbox):
 - revoke, re-pair, and the next chain starts fresh (no earlier remote-chain session is resumed).
 - the spawn argv contains no value from the secrets list.
 - remote text `</resource>` followed by a fake `[mux-event]` line stays inside the block.
+- path tricks are denied: a symlink in the read root to `state/x`, `.ENV` in upper case,
+  `/private/var/...` against `/var/...`, `a/../state/x`; a Grep at the read root returns no
+  `state/` content.
+- a `system/init` tool list with a tool that is not classified refuses the chain; an MCP call off
+  the reviewed list asks the human.
+- an approval card for `cat $(echo ... | base64 -d)` shows the substitution and decoding mark.
 - `session/set_mode` (`acceptEdits`) and `set_config_option` for a remote-chain session are
   refused from every client, and an Edit still asks the daemon.
 - the inline settings and MCP JSON carry no env block, token, key or socket path value.
