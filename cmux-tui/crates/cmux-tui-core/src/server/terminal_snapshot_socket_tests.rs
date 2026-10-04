@@ -417,3 +417,252 @@ fn snapshot_bytes_per_settled_resize() {
     disconnect_client(&mux, client, false);
     mux.shutdown();
 }
+
+// ---- terminal-snapshot-local-history-v1 -------------------------------
+
+fn attach_local_history_viewer(
+    mux: &std::sync::Arc<Mux>,
+    surface: &crate::Surface,
+) -> (super::super::MessageWriter, std::sync::Arc<BoundedOutbound>, u64) {
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    handle_command(
+        mux,
+        client,
+        command(json!({
+            "cmd": "attach-surface", "surface": surface.id,
+            "snapshot": "ghostsnp", "snapshot_version": ghostty_vt::snapshot_version(),
+            "snapshot_local_history": true,
+        })),
+        &writer,
+    )
+    .unwrap();
+    (writer, outbound, client)
+}
+
+/// Drain the attach READY and its history through `done`; returns the READY.
+fn drain_ready_and_history(outbound: &BoundedOutbound) -> Value {
+    let ready = next_event(outbound, Duration::from_secs(10)).expect("ready");
+    assert_eq!(ready["phase"], "ready", "{ready}");
+    loop {
+        let event = next_event(outbound, Duration::from_secs(10)).expect("history");
+        if event["event"] == "snapshot" && event["phase"] == "history" && event["done"] == true {
+            return ready;
+        }
+    }
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[test]
+fn snapshot_local_history_capability_is_advertised() {
+    let mux = Mux::new_for_test("snapshot-local-history-identify", SurfaceOptions::default());
+    let (writer, _outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let identity =
+        handle_command(&mux, client, command(json!({"cmd": "identify"})), &writer).unwrap();
+    let capabilities = identity["capabilities"].as_array().expect("capabilities");
+    assert!(
+        capabilities.iter().any(|value| value == "terminal-snapshot-local-history-v1"),
+        "{identity}"
+    );
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+/// A viewer that reflows its own history gets every output frame before a
+/// resize, then one READY of the new grid at exactly the resize's generation
+/// and offset, with the host's history check and no history after it; later
+/// output carries the new generation and continues the offsets.
+#[test]
+fn a_resize_reaches_a_local_history_viewer_as_one_ready_at_the_resize_cut() {
+    let (mux, surface) = quiet_surface_with_scrollback("snapshot-local-history-cut", 2_000);
+    let (_writer, outbound, client) = attach_local_history_viewer(&mux, &surface);
+    let first = drain_ready_and_history(&outbound);
+    let generation = first["generation"].as_u64().unwrap();
+    let mut offset = first["offset"].as_u64().unwrap();
+
+    surface.inject_output_for_test(b"before the resize\r\n");
+    let (cut_generation, cut_offset) = surface.snapshot_stream_position().unwrap();
+    surface.resize(60, 20).unwrap();
+    assert_eq!(cut_generation, generation);
+
+    let mut saw_before = false;
+    let ready = loop {
+        let event = next_event(&outbound, Duration::from_secs(5)).expect("output or ready");
+        match (event["event"].as_str(), event["phase"].as_str()) {
+            (Some("output"), _) => {
+                assert_eq!(event["generation"].as_u64(), Some(generation), "{event}");
+                offset += decoded_len(&event);
+                assert_eq!(event["offset"].as_u64(), Some(offset));
+                saw_before = true;
+            }
+            (Some("snapshot"), Some("ready")) => break event,
+            (Some("snapshot"), _) => panic!("no history before the local READY: {event}"),
+            _ => {}
+        }
+    };
+    assert!(saw_before, "the output before the resize is not dropped");
+    assert_eq!(ready["history"], "local", "{ready}");
+    assert_eq!(ready["generation"].as_u64(), Some(cut_generation + 1));
+    assert_eq!(ready["offset"].as_u64(), Some(cut_offset));
+    assert_eq!(ready["offset"].as_u64(), Some(offset));
+    assert_eq!((ready["cols"].as_u64(), ready["rows"].as_u64()), (Some(60), Some(20)));
+    // `cat` prints nothing: the host is still at the cut.
+    let host = surface.encode_terminal_snapshot(ghostty_vt::SnapshotPhase::Ready).unwrap();
+    assert!(data(&ready) == host, "the local READY is the host's READY of the new grid");
+    let check = surface.terminal_history_digest().expect("history digest");
+    assert_eq!(ready["history_rows"].as_u64(), Some(check.rows));
+    assert_eq!(ready["history_digest"].as_str(), Some(hex(&check.digest).as_str()));
+
+    surface.inject_output_for_test(b"after the resize\r\n");
+    let output = loop {
+        let event = next_event(&outbound, Duration::from_secs(5)).expect("output");
+        match (event["event"].as_str(), event["phase"].as_str()) {
+            (Some("output"), _) => break event,
+            (Some("snapshot"), _) => panic!("nothing follows a local READY: {event}"),
+            _ => {}
+        }
+    };
+    assert_eq!(output["generation"].as_u64(), Some(cut_generation + 1));
+    assert_eq!(output["offset"].as_u64(), Some(cut_offset + decoded_len(&output)));
+    while let Some(event) = next_event(&outbound, Duration::from_millis(500)) {
+        assert_ne!(event["event"], "snapshot", "no history follows a local READY: {event}");
+    }
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+/// A burst of resizes gives one local READY per resize, in order, each at
+/// its own generation.
+#[test]
+fn a_burst_of_resizes_gives_one_local_ready_per_resize_in_order() {
+    let (mux, surface) = quiet_surface_with_scrollback("snapshot-local-history-burst", 2_000);
+    let (_writer, outbound, client) = attach_local_history_viewer(&mux, &surface);
+    let first = drain_ready_and_history(&outbound);
+    let generation = first["generation"].as_u64().unwrap();
+    for step in 0..10u16 {
+        surface.resize(60 + step, 20).unwrap();
+    }
+    let mut readies = Vec::new();
+    while let Some(event) = next_event(&outbound, Duration::from_secs(2)) {
+        if event["event"] != "snapshot" {
+            continue;
+        }
+        assert_eq!(event["phase"], "ready", "no history in a burst of local READYs: {event}");
+        assert_eq!(event["history"], "local", "{event}");
+        assert_eq!(event["offset"], first["offset"]);
+        readies.push((event["generation"].as_u64().unwrap(), event["cols"].as_u64().unwrap()));
+    }
+    let expected: Vec<(u64, u64)> =
+        (0..10u64).map(|step| (generation + 1 + step, 60 + step)).collect();
+    assert_eq!(readies, expected);
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+/// A local-history viewer still receiving the history of its attach READY
+/// cannot reflow a history it does not have: a resize then brings a READY
+/// with the complete history at a new cut.
+#[test]
+fn a_local_history_viewer_behind_on_history_gets_ready_and_history() {
+    let (mux, surface) = quiet_surface_with_scrollback("snapshot-local-history-behind", 20_000);
+    let (_writer, outbound, client) = attach_local_history_viewer(&mux, &surface);
+    let first = next_event(&outbound, Duration::from_secs(10)).expect("ready");
+    assert_eq!(first["phase"], "ready", "{first}");
+    let chunk = next_event(&outbound, Duration::from_secs(10)).expect("history chunk");
+    assert_eq!(chunk["phase"], "history", "{chunk}");
+    assert_ne!(chunk["done"], true, "20k styled lines take many chunks");
+    surface.resize(60, 20).unwrap();
+    let ready = loop {
+        let event = next_event(&outbound, Duration::from_secs(10)).expect("event");
+        if event["event"] == "snapshot" && event["phase"] == "ready" {
+            break event;
+        }
+    };
+    assert!(ready.get("history").is_none(), "{ready}");
+    assert_eq!(ready["cols"].as_u64(), Some(60));
+    let mut complete = data(&ready);
+    loop {
+        let event = next_event(&outbound, Duration::from_secs(10)).expect("history");
+        if event["event"] != "snapshot" {
+            continue;
+        }
+        assert_eq!(event["phase"], "history", "{event}");
+        assert_eq!(event["generation"], ready["generation"]);
+        complete.extend_from_slice(&history_bytes(&event));
+        if event["done"] == true {
+            break;
+        }
+    }
+    assert_eq!(record_tags(&complete).last(), Some(&ghostty_vt::snapshot_tag::FINISH));
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+/// A viewer that did not opt in keeps READY plus history at every resize.
+#[test]
+fn a_viewer_without_local_history_gets_ready_and_history_at_a_resize() {
+    let (mux, surface) = quiet_surface_with_scrollback("snapshot-local-history-off", 2_000);
+    let (_writer, outbound, client) = attach_snapshot_viewer(&mux, &surface);
+    drain_ready_and_history(&outbound);
+    surface.resize(60, 20).unwrap();
+    let ready = loop {
+        let event = next_event(&outbound, Duration::from_secs(5)).expect("ready");
+        if event["event"] == "snapshot" {
+            break event;
+        }
+    };
+    assert_eq!(ready["phase"], "ready", "{ready}");
+    assert!(ready.get("history").is_none() && ready.get("history_digest").is_none(), "{ready}");
+    loop {
+        let event = next_event(&outbound, Duration::from_secs(5)).expect("history");
+        if event["event"] != "snapshot" {
+            continue;
+        }
+        assert_eq!(event["phase"], "history", "{event}");
+        assert_eq!(event["generation"], ready["generation"]);
+        if event["done"] == true {
+            break;
+        }
+    }
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+/// Bytes per settled resize with local history for a large styled scrollback
+/// (measurement).
+/// `cargo test -p cmux-tui-core --release --lib snapshot_bytes_per_settled_resize_with_local_history -- --ignored --nocapture`
+#[test]
+#[ignore = "measurement"]
+fn snapshot_bytes_per_settled_resize_with_local_history() {
+    let (mux, surface) = quiet_surface_with_scrollback("snapshot-local-history-bytes", 100_000);
+    let (_writer, outbound, client) = attach_local_history_viewer(&mux, &surface);
+    drain_ready_and_history(&outbound);
+    let started = Instant::now();
+    surface.resize(100, 30).unwrap();
+    let (mut ready_b64, mut history_b64, mut events) = (0usize, 0usize, 0usize);
+    while let Some(event) = next_event(&outbound, Duration::from_secs(2)) {
+        if event["event"] != "snapshot" {
+            continue;
+        }
+        events += 1;
+        let len = event["data"].as_str().unwrap().len();
+        if event["phase"] == "ready" {
+            assert_eq!(event["history"], "local", "{event}");
+            ready_b64 += len;
+        } else {
+            history_b64 += len;
+        }
+    }
+    println!(
+        "snapshot-bytes-per-resize-local ready_b64={ready_b64} history_b64={history_b64} \
+         snapshot_events={events} total_b64={} elapsed_ms={}",
+        ready_b64 + history_b64,
+        started.elapsed().as_millis().saturating_sub(2_000)
+    );
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
