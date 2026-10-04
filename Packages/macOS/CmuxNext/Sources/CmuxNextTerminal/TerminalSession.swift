@@ -90,6 +90,9 @@ public final class TerminalSession {
     /// later VT replay (diagnostics: a snapshot attach never swaps).
     private(set) var restoredSnapshots = 0
     private(set) var swappedSurfaces = 0
+    /// Local-history restores whose history did not match the owner's (or
+    /// failed): each one asked the owner for READY + history.
+    private(set) var localHistoryMismatches = 0
 
     public init(io: any TerminalIO, ownsGeometry: Bool = true) {
         self.io = io
@@ -119,6 +122,8 @@ public final class TerminalSession {
                     await io.focusGained()
                 case .reconnect:
                     await io.reconnectRequested()
+                case .resync:
+                    await io.resyncRequested()
                 }
             }
         }
@@ -204,7 +209,7 @@ public final class TerminalSession {
         case .snapshot(let data, let phase):
             // The same surface takes the owner's state: no swap.
             let restored = await restoreSnapshot(data, phase: phase)
-            guard phase == .ready, restored else { return }
+            guard phase != .history, restored else { return }
             restoredSnapshots += 1
             surfaceHasContent = true
             TerminalTimings.contentApplied()
@@ -278,6 +283,11 @@ public final class TerminalSession {
     }
 
     // MARK: From the surface view
+
+    func noteLocalHistoryMismatch() {
+        localHistoryMismatches += 1
+        input.resync()
+    }
 
     func surfaceDidGainFocus() {
         input.focusGained()
