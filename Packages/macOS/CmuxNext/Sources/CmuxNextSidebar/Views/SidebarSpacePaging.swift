@@ -111,7 +111,7 @@ import QuartzCore
         let container = SpacePageView(frame: page.frame)
         container.wantsLayer = true
         list.frame = container.bounds
-        list.autoresizingMask = [.width, .height]
+        list.autoresizingMask = [.width]
         container.addSubview(list)
         // The list sits in the edge fade view: pages are its siblings there.
         (page.superview ?? host).addSubview(container, positioned: .above, relativeTo: page)
@@ -148,8 +148,11 @@ import QuartzCore
         // The rows are layer-backed: render the layer tree (cacheDisplay draws them empty).
         let view = SpacePageView(frame: page.frame)
         view.wantsLayer = true
-        view.layer?.contents = image
-        view.layer?.contentsGravity = .resize
+        let imageView = NSImageView(frame: view.bounds)
+        imageView.image = NSImage(cgImage: image, size: page.bounds.size)
+        imageView.imageScaling = .scaleAxesIndependently
+        imageView.autoresizingMask = [.width, .height]
+        view.addSubview(imageView)
         snapshot = view
     }
 
@@ -198,5 +201,6 @@ import QuartzCore
 /// A swipe page or the kept page of a slide: drawn only, never hit (the
 /// gesture and clicks stay on the list).
 private final class SpacePageView: NSView {
+    override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
