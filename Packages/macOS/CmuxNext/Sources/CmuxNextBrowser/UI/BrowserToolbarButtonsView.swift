@@ -1,5 +1,4 @@
 public import AppKit
-import CmuxNextDesign
 
 /// The trailing toolbar buttons (`BrowserToolbarButton`): design mode,
 /// profile, theme, DevTools and More. Engine-neutral: the states come from
@@ -100,11 +99,6 @@ public final class BrowserToolbarButtonsView: NSStackView {
         return CGFloat(count) * OmnibarStyle.buttonSize + CGFloat(max(0, count - 1)) * BrowserMetrics.buttonSpacing
     }
 
-    public override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        render()
-    }
-
     @objc private func pressed(_ sender: NSButton) {
         guard BrowserToolbarButton.allCases.indices.contains(sender.tag) else { return }
         onPress?(BrowserToolbarButton.allCases[sender.tag])
@@ -118,7 +112,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
             guard let view = buttons[button] else { continue }
             view.setSymbol(state.symbol, label: state.label)
             view.isEnabled = state.isEnabled
-            performWithTheme { view.contentTintColor = state.isActive ? Palette.accent : nil }
+            view.isOn = state.isActive
         }
     }
 
