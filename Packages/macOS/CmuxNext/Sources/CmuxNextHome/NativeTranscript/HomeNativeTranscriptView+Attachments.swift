@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 extension HomeNativeTranscriptView {
     /// Files or pictures dropped anywhere on the transcript or the field.
     @discardableResult
-    func handleDrop(_ board: NSPasteboard) -> Bool {
+    func handleDrop(_ board: any HomePasteboardContents) -> Bool {
         guard attachmentPreparer != nil else { return false }
         let inputs = HomeAttachmentIntake.inputs(from: board)
         guard !inputs.isEmpty else { return false }
@@ -18,7 +18,7 @@ extension HomeNativeTranscriptView {
 
     /// Paste: files and pictures become attachments; text stays text.
     @discardableResult
-    func handlePaste(_ board: NSPasteboard) -> Bool {
+    func handlePaste(_ board: any HomePasteboardContents) -> Bool {
         handleDrop(board)
     }
 

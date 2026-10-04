@@ -26,11 +26,6 @@ import Testing
         return (window, view, preparer)
     }
 
-    private static func pasteboard() -> NSPasteboard {
-        let board = NSPasteboard(name: NSPasteboard.Name("cmux-home-test-\(UUID().uuidString)"))
-        board.clearContents()
-        return board
-    }
 
     private static func file(_ name: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)-\(name)")
@@ -42,12 +37,10 @@ import Testing
         let (window, view, preparer) = host()
         defer { window.close() }
         let photo = try Self.file("photo.png")
-        let drop = Self.pasteboard()
-        drop.writeObjects([photo as NSURL])
+        let drop = FakePasteboard(fileURLs: [photo])
         #expect(view.handleDrop(drop), "a dropped file is taken")
 
-        let paste = Self.pasteboard()
-        paste.setData(Data([0x89, 0x50, 0x4E, 0x47]), forType: .png)
+        let paste = FakePasteboard(data: [.png: Data([0x89, 0x50, 0x4E, 0x47])])
         #expect(view.handlePaste(paste), "a pasted image is taken")
 
         let notes = try Self.file("notes.pdf")
@@ -75,8 +68,7 @@ import Testing
     @Test func plainTextPasteStaysText() {
         let (window, view, _) = host()
         defer { window.close() }
-        let paste = Self.pasteboard()
-        paste.setString("hello", forType: .string)
+        let paste = FakePasteboard(data: [.string: Data("hello".utf8)])
         #expect(!view.handlePaste(paste), "text goes to the text view")
         #expect(view.field.draftAttachments.isEmpty)
     }
@@ -110,8 +102,7 @@ import Testing
         try handle.truncate(atOffset: 100_000_001)
         try handle.close()
         defer { try? FileManager.default.removeItem(at: big) }
-        let drop = Self.pasteboard()
-        drop.writeObjects([big as NSURL])
+        let drop = FakePasteboard(fileURLs: [big])
         #expect(view.handleDrop(drop))
         await view.attachmentsReady()
         #expect(view.field.notice == "“\(big.lastPathComponent)” is larger than 100 MB.")
@@ -198,8 +189,7 @@ import Testing
         let (window, view, _) = host()
         defer { window.close() }
         view.attachmentPreparer = nil
-        let drop = Self.pasteboard()
-        drop.writeObjects([URL(fileURLWithPath: "/tmp/x.png") as NSURL])
+        let drop = FakePasteboard(fileURLs: [URL(fileURLWithPath: "/tmp/x.png")])
         #expect(!view.handleDrop(drop), "without the data side nothing is accepted")
         #expect(view.field.attachButton.isHidden)
     }
@@ -223,4 +213,17 @@ final class RecordingPreparer: HomeAttachmentPreparing {
                                                   width: 2, height: 2),
                                fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("pasted.png"))
     }
+}
+
+/// A pasteboard value: the composer reads it like `NSPasteboard`, with no
+/// pasteboard server (ci-step minis run tests without one).
+struct FakePasteboard: HomePasteboardContents {
+    var fileURLs: [URL] = []
+    var data: [NSPasteboard.PasteboardType: Data] = [:]
+
+    func hasType(_ types: [NSPasteboard.PasteboardType]) -> Bool {
+        types.contains { $0 == .fileURL ? !fileURLs.isEmpty : data[$0] != nil }
+    }
+
+    func data(forType type: NSPasteboard.PasteboardType) -> Data? { data[type] }
 }
