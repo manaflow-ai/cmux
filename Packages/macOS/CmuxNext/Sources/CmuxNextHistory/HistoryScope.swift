@@ -25,6 +25,11 @@ public nonisolated enum HistoryScope: String, CaseIterable, Hashable, Sendable, 
 public nonisolated struct LocationTrailListItem: Hashable, Sendable {
     public let index: Int
     public let entry: LocationTrail.Entry
+
+    public init(index: Int, entry: LocationTrail.Entry) {
+        self.index = index
+        self.entry = entry
+    }
 }
 
 public nonisolated enum LocationTrailDirection: Sendable, Hashable {
