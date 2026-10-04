@@ -364,6 +364,71 @@ def _recorded_push_time(check_runs: Sequence[Any], head_sha: str) -> str | None:
     return max(recorded, default=(0, None))[1]
 
 
+def _number(value: Any) -> int | None:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _select_pull_request(source: Mapping[str, Any], candidates: Sequence[Any]) -> int | None:
+    """Select the PR whose head produced a workflow/check-suite event.
+
+    A commit can be associated with several open PRs. Never use
+    ``pull_requests[0]`` unless the event leaves exactly one candidate after
+    matching its immutable head SHA, branch, and repository.
+    """
+    items = [item for item in candidates if isinstance(item, Mapping)]
+    source_sha = source.get("head_sha")
+    if isinstance(source_sha, str) and source_sha:
+        matched = [
+            item for item in items
+            if isinstance(item.get("head"), Mapping)
+            and item["head"].get("sha") == source_sha
+        ]
+        if matched:
+            items = matched
+    source_branch = source.get("head_branch")
+    if isinstance(source_branch, str) and source_branch:
+        matched = [
+            item for item in items
+            if isinstance(item.get("head"), Mapping)
+            and item["head"].get("ref") == source_branch
+        ]
+        if matched:
+            items = matched
+    source_repo = source.get("head_repository")
+    source_repo_name = source_repo.get("full_name") if isinstance(source_repo, Mapping) else None
+    if isinstance(source_repo_name, str) and source_repo_name:
+        matched = []
+        for item in items:
+            head = item.get("head")
+            repository = head.get("repo") if isinstance(head, Mapping) else None
+            if isinstance(repository, Mapping) and repository.get("full_name") == source_repo_name:
+                matched.append(item)
+        if matched:
+            items = matched
+    numbers = {_number(item.get("number")) for item in items}
+    numbers.discard(None)
+    return next(iter(numbers)) if len(numbers) == 1 else None
+
+
+def _event_pull_request_number(event: Mapping[str, Any]) -> int | None:
+    """Resolve a PR directly named by a trusted event payload."""
+    pull_request = event.get("pull_request")
+    if isinstance(pull_request, Mapping):
+        return _number(pull_request.get("number"))
+    issue = event.get("issue")
+    if isinstance(issue, Mapping) and issue.get("pull_request"):
+        return _number(issue.get("number"))
+    source = event.get("workflow_run") or event.get("check_suite")
+    if not isinstance(source, Mapping):
+        return None
+    pulls = source.get("pull_requests")
+    return _select_pull_request(source, pulls if isinstance(pulls, Sequence) else [])
+
+
 def _event_push_time(event: Mapping[str, Any], head_sha: str, check_runs: Sequence[Any]) -> str | None:
     """Seed freshness for PR lifecycle events, then use recorded markers."""
     event_pr = event.get("pull_request")
@@ -385,6 +450,34 @@ def _bot_comment(comment: Mapping[str, Any]) -> bool:
     return login in {"github-actions", "github-actions[bot]"} or user.get("type") == "Bot"
 
 
+def _publish_diagnostic(
+    gh: GitHub,
+    repo: str,
+    pr_number: int,
+    comments: Sequence[Any],
+    body: str,
+) -> str | None:
+    """Best-effort diagnostic publication; gate results do not depend on it."""
+    try:
+        ours = [
+            c for c in comments
+            if isinstance(c, Mapping)
+            and BOT_MARKER in _text(c.get("body"))
+            and c.get("id")
+            and _bot_comment(c)
+        ]
+        if ours:
+            ours.sort(key=lambda item: int(item["id"]))
+            gh.request(f"/repos/{repo}/issues/comments/{ours[0]['id']}", "PATCH", {"body": body})
+            for duplicate in ours[1:]:
+                gh.request(f"/repos/{repo}/issues/comments/{duplicate['id']}", "DELETE")
+        else:
+            gh.request(f"/repos/{repo}/issues/{pr_number}/comments", "POST", {"body": body})
+    except RuntimeError as error:
+        return f"diagnostic comment unavailable for PR #{pr_number}: {error}"
+    return None
+
+
 def run() -> int:
     event_path = os.environ.get("GITHUB_EVENT_PATH")
     event = json.load(open(event_path, encoding="utf-8")) if event_path else {}
@@ -393,15 +486,8 @@ def run() -> int:
     if not repo or not token:
         print("merge-gate: missing repository or token", file=sys.stderr)
         return 1
-    pr_number = None
-    if isinstance(event.get("pull_request"), Mapping):
-        pr_number = event["pull_request"].get("number")
-    if event.get("issue", {}).get("pull_request"):
-        pr_number = event.get("issue", {}).get("number")
+    pr_number = _event_pull_request_number(event)
     source = event.get("workflow_run") or event.get("check_suite") or {}
-    pulls = source.get("pull_requests") if isinstance(source, Mapping) else None
-    if not pr_number and isinstance(pulls, Sequence) and pulls:
-        pr_number = pulls[0].get("number") if isinstance(pulls[0], Mapping) else None
     # Some check_suite and workflow_run payloads omit pull_requests. Resolve
     # the immutable head through GitHub instead of silently skipping CI events.
     source_sha = source.get("head_sha") if isinstance(source, Mapping) else None
@@ -410,13 +496,12 @@ def run() -> int:
             source_pulls = GitHub(repo, token).request(
                 f"/repos/{repo}/commits/{urllib.parse.quote(source_sha, safe='')}/pulls"
             )
-            if isinstance(source_pulls, Sequence) and source_pulls:
-                first = source_pulls[0]
-                pr_number = first.get("number") if isinstance(first, Mapping) else None
+            if isinstance(source, Mapping) and isinstance(source_pulls, Sequence):
+                pr_number = _select_pull_request(source, source_pulls)
         except RuntimeError:
             pass
     if not pr_number:
-        print("merge-gate: event has no pull request", file=sys.stderr)
+        print("merge-gate: event has no unambiguous pull request", file=sys.stderr)
         return 0
     gh = GitHub(repo, token)
     pr = gh.request(f"/repos/{repo}/pulls/{int(pr_number)}")
@@ -480,7 +565,13 @@ def run() -> int:
         "comments": comments, "main_runs": main_runs,
         "trusted_logins": [item for item in os.environ.get("MERGE_GATE_TRUSTED_LOGINS", "").split(",") if item],
     })
+    comment_error = None
+    if not decision.passed:
+        body = f"{BOT_MARKER}\n{decision.reason}"
+        comment_error = _publish_diagnostic(gh, repo, int(pr_number), comments, body)
     summary = decision.reason
+    if comment_error:
+        summary += f"\n{comment_error}"
     gh.request(f"/repos/{repo}/check-runs", "POST", {
         "name": "merge-gate", "head_sha": sha, "status": "completed",
         "conclusion": decision.conclusion,
@@ -490,19 +581,8 @@ def run() -> int:
             "text": f"merge-gate-head-pushed-at: {pushed}" if isinstance(pushed, str) and pushed else "",
         },
     })
-    if not decision.passed:
-        body = f"{BOT_MARKER}\n{decision.reason}"
-        ours = [
-            c for c in comments
-            if BOT_MARKER in _text(c.get("body")) and c.get("id") and _bot_comment(c)
-        ]
-        if ours:
-            ours.sort(key=lambda item: int(item["id"]))
-            gh.request(f"/repos/{repo}/issues/comments/{ours[0]['id']}", "PATCH", {"body": body})
-            for duplicate in ours[1:]:
-                gh.request(f"/repos/{repo}/issues/comments/{duplicate['id']}", "DELETE")
-        else:
-            gh.request(f"/repos/{repo}/issues/{int(pr_number)}/comments", "POST", {"body": body})
+    if comment_error:
+        print(comment_error, file=sys.stderr)
     print(("PASS" if decision.passed else "FAIL") + f": {decision.reason}")
     return 0 if decision.passed else 1
 
