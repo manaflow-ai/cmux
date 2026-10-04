@@ -106,6 +106,9 @@ struct CloudTreeNodeActions {
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
         onDidMutate: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void,
+        // Trusted, user-facing guidance (ownership and availability hints).
+        // Without a separate sink it shares the failure path.
+        onHint: (@MainActor (String) -> Void)? = nil,
         refresh: @escaping @MainActor () -> Void,
         refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }, operationController: CloudWorkspaceOperationController? = nil,
         workspaceCreationHost: @escaping @MainActor () -> CloudWorkspaceCreationHost? = { nil }
@@ -524,21 +527,22 @@ struct CloudTreeNodeActions {
             },
             refresh: refresh
         )
-        actions.showHint = onFailure
+        let onHint = onHint ?? onFailure
+        actions.showHint = onHint
         actions.showDisplayOpenHint = { resource in
             guard let workspaceID = selectedWorkspaceID(),
                   let workspace = Workspace.liveWorkspace(id: workspaceID) else {
                 // A display must never open until the selected destination's
                 // ownership is known. This also covers a stale selection while
                 // the Cloud workspace list is switching machines.
-                onFailure(SurfaceTransferRejection.cloudMachineMismatch.message)
+                onHint(SurfaceTransferRejection.cloudMachineMismatch.message)
                 return true
             }
             guard let rejection = workspace.surfaceOwnershipPolicy.rejection(
                 for: resource.machine,
                 kind: resource.kind
             ) else { return false }
-            onFailure(rejection.message)
+            onHint(rejection.message)
             return true
         }
         actions.openWorkspace = { machine, workspace, group in
@@ -597,7 +601,7 @@ struct CloudTreeNodeActions {
             if let target,
                let workspace = Workspace.liveWorkspace(id: target.workspaceID),
                let rejection = workspace.surfaceOwnershipPolicy.rejection(for: machine, kind: .display) {
-                onFailure(rejection.message)
+                onHint(rejection.message)
                 return
             }
             run(String(format: String(localized: "cloud.display.creating", defaultValue: "Creating a display on %@…"), machineName(machine))) { catalog in

@@ -547,6 +547,70 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(contents, "line one\nline two\n")
     }
 
+    func testScrollbackReplayStoreSweepsOnlyStaleFilesAndUsesPrivatePermissions() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-sweep-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let oldURL = try XCTUnwrap(
+            SessionScrollbackReplayStore.replayFileURL(for: "old replay\n", tempDirectory: tempDir)
+        )
+        let freshURL = try XCTUnwrap(
+            SessionScrollbackReplayStore.replayFileURL(for: "fresh replay\n", tempDirectory: tempDir)
+        )
+        let directoryURL = oldURL.deletingLastPathComponent()
+
+        // Simulate pre-upgrade permissions on both the directory and a fresh replay file.
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directoryURL.path)
+        let legacyFreshURL = directoryURL.appendingPathComponent("legacy-fresh.txt")
+        XCTAssertTrue(
+            FileManager.default.createFile(
+                atPath: legacyFreshURL.path,
+                contents: Data("legacy fresh replay\n".utf8)
+            )
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: legacyFreshURL.path)
+
+        // Non-replay entries must never be removed merely because they are stale.
+        let staleLogURL = directoryURL.appendingPathComponent("keep.log")
+        XCTAssertTrue(FileManager.default.createFile(atPath: staleLogURL.path, contents: Data("keep".utf8)))
+        let staleDirectoryURL = directoryURL.appendingPathComponent("keep-dir", isDirectory: true)
+        try FileManager.default.createDirectory(at: staleDirectoryURL, withIntermediateDirectories: false)
+
+        let now = Date()
+        for url in [oldURL, staleLogURL, staleDirectoryURL] {
+            try FileManager.default.setAttributes(
+                [.modificationDate: now.addingTimeInterval(-7_200)],
+                ofItemAtPath: url.path
+            )
+        }
+        for url in [freshURL, legacyFreshURL] {
+            try FileManager.default.setAttributes(
+                [.modificationDate: now.addingTimeInterval(-60)],
+                ofItemAtPath: url.path
+            )
+        }
+
+        SessionScrollbackReplayStore.sweepStaleReplayFiles(
+            olderThan: now.addingTimeInterval(-3_600),
+            tempDirectory: tempDir
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: freshURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyFreshURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staleLogURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staleDirectoryURL.path))
+
+        let directoryAttributes = try FileManager.default.attributesOfItem(atPath: directoryURL.path)
+        let freshAttributes = try FileManager.default.attributesOfItem(atPath: freshURL.path)
+        let legacyFreshAttributes = try FileManager.default.attributesOfItem(atPath: legacyFreshURL.path)
+        XCTAssertEqual((directoryAttributes[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+        XCTAssertEqual((freshAttributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+        XCTAssertEqual((legacyFreshAttributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+    }
+
     func testScrollbackReplayEnvironmentSkipsWhitespaceOnlyContent() {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)

@@ -8,7 +8,8 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
         planId: String,
         freeAccessWindowDays: Int = 0,
         freeAccessExpiresAt: Date? = nil,
-        freeAccessBanner: FreeAccessBanner = .none
+        freeAccessBanner: FreeAccessBanner = .none,
+        resourcePool: CloudVMResourcePool? = nil
     ) {
         self.activeCount = activeCount
         self.maxActiveVms = maxActiveVms
@@ -16,6 +17,7 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
         self.freeAccessWindowDays = freeAccessWindowDays
         self.freeAccessExpiresAt = freeAccessExpiresAt
         self.freeAccessBanner = freeAccessBanner
+        self.resourcePool = resourcePool
     }
 
     public let activeCount: Int
@@ -27,10 +29,13 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
     /// Earliest free-access expiry across the fleet (server value when present).
     public var freeAccessExpiresAt: Date? = nil
     public var freeAccessBanner: FreeAccessBanner = .none
+    /// The vCPU and memory pool every active machine shares; nil for plans
+    /// without a pool (Go, free) and control planes that predate it.
+    public var resourcePool: CloudVMResourcePool? = nil
 
     /// The count the Cloud Machines header shows, and whether it is at the ceiling.
     public var usage: CloudMachinesUsage {
-        CloudMachinesUsage(activeCount: activeCount, maxActiveVms: maxActiveVms, isPaidPlan: isPaidPlan)
+        CloudMachinesUsage(activeCount: activeCount, maxActiveVms: maxActiveVms, isPaidPlan: isPaidPlan, resourcePool: resourcePool)
     }
     /// An uncapped plan is never at the limit.
     public var isAtLimit: Bool { usage.isAtLimit }
