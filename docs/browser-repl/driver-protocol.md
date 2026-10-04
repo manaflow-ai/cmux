@@ -477,7 +477,11 @@ native (`BrowserReplBoundary` in the session, and the driver):
   the calls built on it, `frames.list` names, `frame.ownerBox`) first checks
   in the frame that the document is one the driver approved, and runs
   nothing in another: a frame keeps its id when it navigates, so a frame
-  looked up from an earlier tree read is judged again. A frame that shows a
+  looked up from an earlier tree read is judged again. Two opaque documents
+  have the same origin and place, so an opaque document is judged by its
+  frame's makers as recorded at each call (and again after the script, whose
+  result is refused when a maker recorded meanwhile is blocked), never by an
+  earlier verdict. A frame that shows a
   blocked page fails with `blocked` (`snapshot()` marks its iframe
   `[not read: blocked by the domain policy]`). A tree read can lack frames
   (WebKit gives no tree, or cannot describe a child): while the policy is

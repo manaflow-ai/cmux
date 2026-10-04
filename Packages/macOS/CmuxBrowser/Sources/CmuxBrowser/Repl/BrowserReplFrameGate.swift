@@ -406,9 +406,17 @@ public final class BrowserReplFrameGate {
             return try await webView.browserReplCallAsyncJavaScript(body, arguments: arguments, in: frame.info, contentWorld: contentWorld, userGesture: userGesture)
         }
         let key = key(frame, webView)
-        var expected = known[key]
+        // An opaque document's origin and place do not tell it from the
+        // next opaque document the frame shows (a frame keeps its id when
+        // it navigates), and the document check below compares only
+        // those: so its makers are read again on every call, never taken
+        // from the earlier verdict. A frame's makers only grow, so a frame
+        // that showed a blocked page's opaque document since is judged by
+        // that page now.
+        var expected = (known[key]
             ?? frame.info.map { BrowserReplFrameDocument(info: $0) }
-            ?? BrowserReplFrameDocument(url: webView.url)
+            ?? BrowserReplFrameDocument(url: webView.url))
+            .withMakers(frame: frame.info, in: webView)
         if blockReason(expected, in: webView) != nil, let current = try await authorize(frame, in: webView) {
             expected = current
         }
@@ -425,6 +433,14 @@ public final class BrowserReplFrameGate {
                 userGesture: userGesture
             )
             guard value as? String == Self.movedMarker else {
+                // A navigation recorded while the script ran may have made
+                // the opaque document it ran in: its result is not handed on
+                // when that maker is blocked.
+                let after = expected.withMakers(frame: frame.info, in: webView)
+                if let reason = blockReason(after, in: webView) {
+                    known[key] = nil
+                    throw blocked(frame, document: after, reason: reason)
+                }
                 known[key] = expected
                 return value
             }
