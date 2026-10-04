@@ -34,6 +34,8 @@ export interface PresenceKeyBody {
 }
 
 export class UserDO extends OwnerDO<UserState> {
+  /** UserDO is the revocation authority: it closes a revoked install's sockets itself (afterOp). */
+  protected override checksInstallRevocation = false
   /** Second stream `inbox:<user>` (lane 15 E2): Home inbox entries, pins, mutes, archive. */
   private readonly inbox: SecondaryStream<homeInbox.InboxHead>
 
@@ -49,7 +51,7 @@ export class UserDO extends OwnerDO<UserState> {
       engine: { rowMode: { snapshotTable: homeInbox.TABLE_ENTRY, snapshotTail: 0 } },
       owns: (op) => op.startsWith("inbox."),
       maySubscribe: (_head, principal, entity) => principal.user === entity
-    })
+    }, (ws, a) => this.socketLive(ws, a))
   }
 
   /** The inbox engine of the bound user, opened on first use (also after hibernation). */
@@ -278,6 +280,13 @@ export class UserDO extends OwnerDO<UserState> {
 
   protected maySubscribe(state: UserState, principal: Principal): boolean {
     return (!state.user || state.user.id === principal.user) && installActive(state, principal)
+  }
+
+  /** RPC from other owners (OwnerDO.runInstallChecks): which of these installs (with the token's grant) are active. Never creates an object. */
+  async installsActive(entity: string, list: ReadonlyArray<{ install: string; grant: string | undefined }>): Promise<Record<string, boolean>> {
+    if (!this.isBound(entity)) return Object.fromEntries(list.map((x) => [x.install, false]))
+    const state = this.bind(entity).currentState
+    return Object.fromEntries(list.slice(0, 1000).map((x) => [x.install, installActive(state, { identity: x.install, kind: "install", user: entity, install: x.install, ...(x.grant ? { grant: x.grant } : {}) })]))
   }
 
   /** A revoked install loses its open sockets at once, not at token expiry. */

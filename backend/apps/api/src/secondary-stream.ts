@@ -30,7 +30,9 @@ export class SecondaryStream<S> {
   constructor(
     private readonly ctx: DurableObjectState,
     private readonly store: SqlStore,
-    readonly spec: SecondarySpec<S>
+    readonly spec: SecondarySpec<S>,
+    /** The owner's socket gate (token expiry): a socket that fails it gets no frame. */
+    private readonly live: (ws: WebSocket, a: Attachment) => boolean = () => true
   ) {}
 
   open(entity: string): OwnerEngine<S> {
@@ -52,7 +54,7 @@ export class SecondaryStream<S> {
     const text = JSON.stringify(frame)
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null
-      if (a?.streams?.includes(this.spec.prefix)) send(ws, text)
+      if (a?.streams?.includes(this.spec.prefix) && this.live(ws, a)) send(ws, text)
     }
   }
 

@@ -33,6 +33,15 @@ export type ReadResult = { readonly ok: true; readonly value: unknown; readonly 
 const MAX_BACKOFF_MS = 5 * 60_000
 /** How long hidden events coalesce before the filtered resync snapshot. */
 const RESYNC_BATCH_MS = 250
+/** How long a socket's install status from UserDO is trusted before its events wait for a new check. */
+const INSTALL_CHECK_MS = 60_000
+
+const closeQuietly = (ws: WebSocket, code: number, reason: string) => {
+  try {
+    ws.close(code, reason)
+  } catch {}
+}
+
 /** Dead outbox items are replayed this long after they died (automatic replay tool). */
 const DEAD_REPLAY_MS = 24 * 3600_000
 
@@ -133,6 +142,99 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return this.open(entity)
   }
 
+  /** Whether this owner asks UserDO about install revocation (UserDO closes its own sockets on revoke). */
+  protected checksInstallRevocation = true
+  /** Install status per `user\0install\0grant`, from UserDO, at most INSTALL_CHECK_MS old (memory only). */
+  private readonly installChecks = new Map<string, { active: boolean; at: number }>()
+  /** Sockets whose events are held until their install is checked again; they get a snapshot after. */
+  private readonly heldForCheck = new Set<WebSocket>()
+  private checking = false
+
+  private installKey = (p: Principal) => `${p.user}\u0000${p.install}\u0000${p.grant ?? ""}`
+
+  /**
+   * Whether a socket may receive a frame now (P0, coordinator 2026-10-03). An expired token closes
+   * the socket (4401 "token expired"). An install whose status is older than INSTALL_CHECK_MS is
+   * held (no frame) while UserDO is asked; a revoked install closes (4401 "install revoked").
+   */
+  protected socketLive(ws: WebSocket, a: Attachment, now = Date.now()): boolean {
+    if (a.principal.expires_at !== undefined && a.principal.expires_at <= now) {
+      closeQuietly(ws, 4401, "token expired")
+      return false
+    }
+    const p = a.principal
+    if (this.checksInstallRevocation && p.kind === "install" && p.install && p.user) {
+      const c = this.installChecks.get(this.installKey(p))
+      if (c && !c.active) {
+        closeQuietly(ws, 4401, "install revoked")
+        return false
+      }
+      if (!c || now - c.at > INSTALL_CHECK_MS) {
+        this.heldForCheck.add(ws)
+        return false
+      }
+    }
+    return !this.heldForCheck.has(ws)
+  }
+
+  /** Asks UserDO about every held socket's install, then closes revoked ones and resyncs the rest. */
+  private async runInstallChecks(): Promise<void> {
+    if (this.checking) return
+    this.checking = true
+    try {
+      while (this.heldForCheck.size > 0) {
+        const held = [...this.heldForCheck]
+        const byUser = new Map<string, Map<string, { install: string; grant: string | undefined }>>()
+        for (const ws of held) {
+          const p = (ws.deserializeAttachment() as Attachment | null)?.principal
+          if (!p?.user || !p.install) continue
+          const m = byUser.get(p.user) ?? new Map()
+          m.set(this.installKey(p), { install: p.install, grant: p.grant })
+          byUser.set(p.user, m)
+        }
+        const now = Date.now()
+        for (const [user, installs] of byUser) {
+          const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(user)) as unknown as { installsActive(entity: string, list: ReadonlyArray<{ install: string; grant: string | undefined }>): Promise<Record<string, boolean>> }
+          // Unreachable UserDO: fail closed (the sockets stay held; the next frame asks again).
+          const status = await stub.installsActive(user, [...installs.values()]).catch(() => null)
+          if (!status) return
+          for (const [k, v] of installs) this.installChecks.set(k, { active: status[v.install] === true, at: now })
+        }
+        for (const ws of held) {
+          this.heldForCheck.delete(ws)
+          const a = ws.deserializeAttachment() as Attachment | null
+          if (!a || !this.socketLive(ws, a)) continue
+          if (a.subscribed && this.engine) safeSend(ws, this.snapshotFor(this.engine, a.principal, []))
+        }
+      }
+    } finally {
+      this.checking = false
+    }
+  }
+
+  /** Test hook: forget cached install status (as if INSTALL_CHECK_MS passed). */
+  forgetInstallChecks(): void {
+    this.installChecks.clear()
+  }
+
+  /** Closes sockets whose token expired (alarm sweep: also with no events). */
+  private sweepExpiredSockets(now: number): void {
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment() as Attachment | null
+      if (a?.principal.expires_at !== undefined && a.principal.expires_at <= now) closeQuietly(ws, 4401, "token expired")
+    }
+  }
+
+  /** The earliest token expiry of an open socket, or null. */
+  private nextSocketExpiry(): number | null {
+    let at: number | null = null
+    for (const ws of this.ctx.getWebSockets()) {
+      const e = (ws.deserializeAttachment() as Attachment | null)?.principal.expires_at
+      if (typeof e === "number" && (at === null || e < at)) at = e
+    }
+    return at
+  }
+
   private broadcast(frame: OwnerFrame) {
     const extras = frame.t === "event" ? this.eventExtras(frame) : undefined
     const text = JSON.stringify(extras ? { ...frame, ...extras } : frame)
@@ -140,6 +242,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null
       if (!a?.subscribed) continue
+      if (!this.socketLive(ws, a)) continue
       // A hidden event would leave the subscriber's mirror stale until its next
       // visible event (clients repair only on a seq gap): send it a filtered snapshot instead.
       if (frame.t === "event" && state !== undefined && this.engine && !this.mayReceive(state, frame, a.principal)) {
@@ -150,6 +253,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
       if (this.resyncs.has(ws)) this.resyncs.flushOne(ws)
       safeSend(ws, text)
     }
+    if (this.heldForCheck.size > 0) this.ctx.waitUntil(this.runInstallChecks())
   }
 
   /**
@@ -164,7 +268,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     },
     send: (ws, text) => {
       const a = ws.deserializeAttachment() as Attachment | null
-      if (text && a?.subscribed) safeSend(ws, text)
+      if (text && a?.subscribed && this.socketLive(ws, a)) safeSend(ws, text)
     }
   })
 
@@ -265,7 +369,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     // Dead outbox items come back once a day by themselves (a fix deployed since then drains them).
     const dead = this.engine.outbox.oldestDeadAt()
     const replay = dead === null ? null : dead + DEAD_REPLAY_MS
-    const times = [wake, prune, eventPrune, replay].filter((t): t is number => t !== null)
+    const sockets = this.nextSocketExpiry()
+    const times = [wake, prune, eventPrune, replay, sockets].filter((t): t is number => t !== null)
     return times.length ? Math.min(...times) : null
   }
 
@@ -410,6 +515,9 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     const [client, server] = [pair[0], pair[1]]
     this.ctx.acceptWebSocket(server)
     server.serializeAttachment({ principal, subscribed: false } satisfies Attachment)
+    // The Worker checked the install just now; the alarm closes the socket at its token's expiry.
+    if (principal.kind === "install" && principal.install && principal.user) this.installChecks.set(this.installKey(principal), { active: true, at: Date.now() })
+    this.afterCommit()
     safeSend(server, JSON.stringify({ t: "welcome", principal: { user: principal.user, team: principal.team, install: principal.install }, server_time: Date.now(), streams: [engine.stream] }))
     return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": "cmux.wire.v1" } })
   }
@@ -478,6 +586,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
    * the earlier of the drain retry and the owner's next wake.
    */
   override async alarm() {
+    this.sweepExpiredSockets(Date.now())
     if (!this.engine) return
     const outbox = this.engine.outbox
     // Each channel (PlanetScale projections, or one target object) reads, fails and backs off on
