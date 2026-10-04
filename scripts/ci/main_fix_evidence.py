@@ -29,6 +29,7 @@ SUMMARY = re.compile(r"✘ Test run with .* failed .* with (\d+) issues?\.")
 MARKERS = re.compile(r"^\+(?:<<<<<<<|>>>>>>>|=======$)", re.MULTILINE)
 MAX_OUTPUT = 32 * 1024 * 1024
 MAX_ANCESTOR_DEPTH = 100
+PATH_FILTERED_PREFIXES = ("docs/", "plans/", "design/")
 
 
 class Refused(RuntimeError):
@@ -100,6 +101,21 @@ def nearest_ancestor_check(repo: str, base: str, name: str, github: GitHub) -> t
             return sha, checks[name], distance
         queue.extend((parent, distance + 1) for parent in _parent_shas(repo, sha, github))
     return None
+
+
+def path_filtered_intervening_changes(repo: str, ancestor: str, base: str, github: GitHub) -> list[str]:
+    comparison = github.json(f"repos/{repo}/compare/{ancestor}...{base}")
+    files = comparison.get("files", []) if isinstance(comparison, dict) else []
+    paths = [file["filename"] for file in files
+             if isinstance(file, dict) and isinstance(file.get("filename"), str)]
+    unsafe = [path for path in paths if not path.startswith(PATH_FILTERED_PREFIXES)]
+    if unsafe:
+        message = (
+            f"Swift tests have not run on base {base}; ancestor evidence is unsafe because "
+            f"intervening changes may affect the test ({', '.join(unsafe[:5])})"
+        )
+        raise Refused(message)
+    return paths
 
 
 def completed_success(item: dict) -> bool:
@@ -183,12 +199,17 @@ def validate(repo: str, number: int, github: GitHub) -> str:
             if ancestor is None:
                 raise Refused(f"Swift tests have not run on base {base} or any of its nearest {MAX_ANCESTOR_DEPTH} ancestors")
             base_check_sha, base_checks[SWIFT], distance = ancestor
+            intervening = path_filtered_intervening_changes(repo, base_check_sha, base, github)
             base_reason = (
                 f"nearest ancestor `{base_check_sha}` ({distance} parent step"
                 f"{'s' if distance != 1 else ''}) because the exact base `{base}`"
-                f" has no `{SWIFT}` run, as happens for path-filtered commits"
+                f" has no `{SWIFT}` run and its intervening changes are path-filtered"
             )
-            audit.append(f"- Base evidence: {base_reason}; using its `{SWIFT}` job ([job]({base_checks[SWIFT]['details_url']})).")
+            audit.append(
+                f"- Base evidence: {base_reason} ({len(intervening)} path-filtered file"
+                f"{'s' if len(intervening) != 1 else ''}); using its `{SWIFT}` job "
+                f"([job]({base_checks[SWIFT]['details_url']}))."
+            )
         base_job = job_for(repo, base_checks[SWIFT], base_check_sha, github)
         require_build(base_job, BUILDS[SWIFT])
         head_log = github.log(repo, swift)

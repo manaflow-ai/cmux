@@ -33,6 +33,7 @@ class FakeGitHub:
         self.base_checks = []
         self.ancestor_checks = []
         self.parents = {BASE: []}
+        self.compare_files = []
         self.jobs = {}
         self.logs = {}
         for i, (name, step) in enumerate(zip(NAMES, BUILD_STEPS), 1):
@@ -46,6 +47,8 @@ class FakeGitHub:
     def json(self, route, *, paginate=False):
         if route.endswith("pulls/42"):
             return copy.deepcopy(self.pr)
+        if "/compare/" in route:
+            return {"files": [{"filename": path} for path in self.compare_files]}
         if "/commits/" in route:
             sha = route.split("/commits/", 1)[1].split("/", 1)[0]
             if "/check-runs" not in route:
@@ -153,14 +156,26 @@ class MainFixEvidenceTests(unittest.TestCase):
         ancestor = copy.deepcopy(self.gh.head_checks[2])
         ancestor.update(id=31, head_sha=ANCESTOR, details_url="https://github.com/manaflow-ai/cmux/actions/runs/21/job/31")
         self.gh.ancestor_checks = [ancestor]
+        self.gh.compare_files = ["plans/cmux-next/path-filtered.md"]
         ancestor_job = copy.deepcopy(self.gh.jobs[3])
         ancestor_job.update(id=31, head_sha=ANCESTOR, run_id=21)
         self.gh.jobs[31] = ancestor_job
         self.gh.logs[31] = test_log()
         evidence = self.validate()
         self.assertIn(f"nearest ancestor `{ANCESTOR}`", evidence)
-        self.assertIn("path-filtered commits", evidence)
+        self.assertIn("intervening changes are path-filtered", evidence)
         self.assertIn("/job/31", evidence)
+
+    def test_ancestor_fallback_rejects_intervening_source_changes(self):
+        self.gh.fail_test()
+        self.gh.base_checks = []
+        self.gh.parents[BASE] = [ANCESTOR]
+        ancestor = copy.deepcopy(self.gh.head_checks[2])
+        ancestor.update(id=31, head_sha=ANCESTOR, details_url="https://github.com/manaflow-ai/cmux/actions/runs/21/job/31")
+        self.gh.ancestor_checks = [ancestor]
+        self.gh.compare_files = ["Packages/macOS/CmuxNext/Sources/Changed.swift"]
+        with self.assertRaisesRegex(module.Refused, "intervening changes may affect the test"):
+            self.validate()
 
     def test_timeout_or_setup_failure_is_not_a_test_failure(self):
         self.gh.fail_test()
