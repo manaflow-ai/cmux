@@ -37,7 +37,11 @@ automation.input {
 }
 ```
 
-Coordinates are never screen points: the layout can move between the event and the frame. The app maps `viewport -> pane -> window` through the live layout model when it starts and retargets the animation (a pane move during the animation retargets once, from the presentation layer's current position). Desktop events map `window -> screen` in the helper.
+Coordinates are never screen points: the layout can move between the event and the frame. Viewport coordinates are unzoomed CSS px (the runtime resolves iframe and shadow-root offsets); the app multiplies by `zoom * magnification` to get view points, with the same rule for WebKit and CEF (CEF converts to DIP only for dispatch). `zoom` is optional (absent = 1) so the app does not race a zoom change. `point` is optional for `type` and `key`: when the focused element cannot be measured (a cross-origin iframe), it is absent, never guessed. Type and key events carry no text and no key values. Drivers publish after their policy and frame checks, right before dispatch; refused inputs emit nothing; `seq` is per lease session and gap-free over published events. Agreed with hq-07, 2026-10-04 (schema and vectors: schemas/automation-input).
+
+One entry point: `AgentCursorPublisher.publish(_ event: AutomationInputEvent)` in the `CmuxAgentCursor` package. The app owns one publisher instance per window controller set (injected, no singleton, no NotificationCenter). In cmux-next the browser host sends `input {event}` frames on the provider link next to `lease`, and the provider bridge calls `publish`. The classic main app has no provider link, so its in-process driver calls the same `publish`. The CUA host's events reach the helper's own publisher instance.
+
+The app maps `viewport -> pane -> window` through the live layout model when it starts and retargets the animation (a pane move during the animation retargets once, from the presentation layer's current position). Desktop events map `window -> screen` in the helper.
 
 ## 3. Geometry through tabs, panes, workspaces, Spaces, niri columns
 
@@ -88,7 +92,7 @@ Rank for this lane: (1) desktop click latency and reliability (engine PR), (2) s
 
 | Step | Content | Verification |
 | --- | --- | --- |
-| k1 | `automation.input` schema + vectors (schemas/automation-input), agreed with hq-07 | review |
+| k1 | done: `automation.input` schema + vectors (schemas/automation-input), agreed with hq-07 2026-10-04 | ajv: 7 valid, 10 invalid |
 | k2 | `CmuxAgentCursor` package: layers, path planner port with golden vectors from `cursor-overlay`, animation builder | unit tests (path vectors, animation keyframes), snapshot images on the fleet |
 | k3 | app consumer: lease + input event stream to `OverlayPlane`, viewport -> pane -> window mapping, hidden-tab indicator, pause rendering | module tests with a fake layout; live run on cmux-lawrence-2 |
 | k4 | helper consumer: cmux-cua draws with the package; remove the CPU renderer on macOS | cmux-cua macOS CI + live run |
