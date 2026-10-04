@@ -16,7 +16,10 @@ nonisolated final class HomeSourceRouter: HomeSource {
         var continuations: [UUID: AsyncStream<HomeEvent>.Continuation] = [:]
         var lastConnection: HomeEvent?
         var lastInbox: HomeEvent?
-        /// The owner of every conversation either source reported.
+        /// The owner of every conversation either source reported. An owner
+        /// is a property of the id: it stays when the conversation leaves
+        /// the merged inbox, so a cloud id never routes to the local daemon
+        /// (the cloud refuses what this account may not do).
         var owners: [ConversationID: ConversationSummary.Owner] = [:]
         /// Cloud conversations in the merged inbox now: listed by the cloud
         /// inbox, or shown by a conversation stream event or page.
@@ -185,7 +188,6 @@ nonisolated final class HomeSourceRouter: HomeSource {
             for id in removed.sorted(by: { $0.rawValue < $1.rawValue }) {
                 publish { state in
                     state.cloudListed.remove(id)
-                    state.owners[id] = nil
                     state.inboxRev += 1
                     return .conversationRemoved(id, inboxRev: state.inboxRev)
                 }
@@ -213,7 +215,8 @@ nonisolated final class HomeSourceRouter: HomeSource {
             }
         case .conversationChanged(let summary, _, _):
             // A conversation stream event lists the conversation in the store
-            // too, so the next cloud inbox removes it when it does not list it.
+            // too. The cloud inbox keeps listing it while it is open, and the
+            // next cloud inbox removes it once it lists it no more.
             publish { state in
                 state.cloudListed.insert(summary.id)
                 state.owners[summary.id] = .cloud

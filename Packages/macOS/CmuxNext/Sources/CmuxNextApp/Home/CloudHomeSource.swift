@@ -700,10 +700,18 @@ nonisolated final class CloudHomeSource: HomeSource {
 
     // MARK: State helpers (call with the lock held)
 
+    /// The listed conversations, the ones this source created and not yet
+    /// listed, and the open ones: a conversation the user opened (subscribed,
+    /// from a deep link, a notification or the archive) stays while it is
+    /// open, unless UserDO took it out of the inbox since. It leaves when
+    /// its subscription ends (the least recently used of 64, a closed
+    /// socket, or an account change).
     private func snapshot(_ state: inout State) -> InboxSnapshot {
         state.inboxRev += 1
+        let open = Set(state.targets.keys).subtracting(state.entries.keys).subtracting(state.created).subtracting(state.removed)
         let conversations = state.entries.keys.compactMap { joined($0, state) }
             + state.created.subtracting(state.entries.keys).compactMap { joined($0, state) }
+            + open.compactMap { joined($0, state) }
         return InboxSnapshot(me: me, conversations: conversations, rev: state.inboxRev)
     }
 
