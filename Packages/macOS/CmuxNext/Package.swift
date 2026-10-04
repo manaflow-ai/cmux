@@ -683,7 +683,10 @@ let package = Package(
                 "CmuxNextTerminalGeometry",
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
             ],
-            swiftSettings: uiSwiftSettings
+            swiftSettings: uiSwiftSettings,
+            // libghostty's static archive carries C++ (glslang); like
+            // CmuxNextAppTests, the test bundle links libc++ itself.
+            linkerSettings: [.linkedLibrary("c++")]
         ),
         .testTarget(
             name: "CmuxNextTerminalGeometryTests",
