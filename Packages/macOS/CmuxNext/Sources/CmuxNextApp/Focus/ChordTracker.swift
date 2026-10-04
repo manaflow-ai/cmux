@@ -1,80 +1,130 @@
 import AppKit
 import CmuxNextActions
 
-/// Two-key shortcuts (`["ctrl+b", "c"]` in cmux.json) for the key router:
-/// the first key arms a chord in its window, and the next key-down there
-/// completes it or ends it. As in the old app there is no timeout, and a
-/// key in another window ends it.
+/// Chords of up to four keys (`["ctrl+b", "c"]` in cmux.json, longer
+/// sequences in keybindings.json) for the key router: the first key arms a
+/// chord in its window, each key that leads to a longer entry keeps it
+/// armed, and the key that completes an entry runs it. As in the old app
+/// there is no timeout, and a key in another window ends it. When a key
+/// both completes an entry and leads to a longer one, the longer one wins
+/// (the chord stays armed), as at the first key.
 ///
-/// The Cmd-J leader (`LeaderLayer`) is a chord prefix that arms whenever
-/// some binding sits under it, even one that cannot run in this focus, so
-/// its which-key overlay can say what Cmd-J offers. A key after it that
-/// completes nothing (Escape, an unbound key, Cmd-J again) is dismissed:
-/// it reaches no view, so a stray letter never types into the terminal.
-/// Holding Cmd-J keeps it armed (key repeats are ignored), and a focus
-/// change in its window ends it (`focusDidChange(to:in:)`).
+/// The which-key overlay lists the next keys of every armed prefix
+/// (``armedKeys``). Escape cancels a chord at any depth and reaches no
+/// view. The Cmd-J leader (`LeaderLayer`) is a chord prefix that arms
+/// whenever some binding sits under it, even one that cannot run in this
+/// focus, so its overlay can say what Cmd-J offers; any key after it that
+/// completes nothing (an unbound key, Cmd-J again) is dismissed too, so a
+/// stray letter never types into the terminal. After another prefix such a
+/// key ends the chord and goes on to the focused view. Holding the last
+/// key keeps the chord armed (key repeats are ignored, and a repeat never
+/// arms), and a focus change in its window ends it (`focusDidChange(to:in:)`).
 struct ChordTracker {
     enum Step: Equatable {
         /// Not a chord key: route the event as usual.
         case pass
-        /// The first key of a chord: consume it and wait.
+        /// A key that starts or extends a chord: consume it and wait.
         case armed
-        /// The second key completed a chord: run its action.
-        case run(ActionID, argument: String?)
-        /// The key after a first key completed none: it goes on to the
+        /// The key completed a chord: run its action.
+        case run(ActionID, argument: String?, arguments: [String: ActionValue] = [:])
+        /// The key after a prefix completed none: it goes on to the
         /// focused view, but runs no shortcut.
         case mismatch
-        /// The key after the leader completed none: consume it.
+        /// Escape, or a key after the leader that completed none: consume it.
         case dismissed
     }
 
-    private(set) var pending: (prefix: Shortcut, window: ObjectIdentifier, focus: FocusState.Resolved?)?
+    /// What a key after an armed prefix does.
+    enum Next {
+        /// It completes an entry.
+        case run(ActionID, argument: String?, arguments: [String: ActionValue])
+        /// It leads to a longer entry: the chord stays armed with it.
+        case extend(Shortcut)
+        case none
+    }
+
+    private(set) var pending: (keys: [Shortcut], window: ObjectIdentifier, focus: FocusState.Resolved?)?
 
     var isPending: Bool { pending != nil }
 
-    /// The leader while it waits for its second key (the which-key overlay
-    /// shows then), else nil.
+    /// The keys of the armed chord (the which-key overlay lists what
+    /// follows them), else nil.
+    var armedKeys: [Shortcut]? { pending?.keys }
+
+    /// The leader while it waits for its second key, else nil.
     var leaderPrefix: Shortcut? {
-        guard let prefix = pending?.prefix, prefix == LeaderLayer.prefix else { return nil }
-        return prefix
+        pending?.keys == [LeaderLayer.prefix] ? LeaderLayer.prefix : nil
     }
 
-    /// The registry's own resolution with its process-wide context (tests
-    /// and the which-key overlay); the key router passes the binding table
-    /// with the key window's context instead.
+    /// The registry's binding table with its process-wide context (tests);
+    /// the key router passes the key window's context instead.
     mutating func step(_ event: NSEvent, window: ObjectIdentifier, registry: ActionRegistry,
                        focus: FocusState.Resolved? = nil, canArm: () -> Bool) -> Step {
-        step(event, window: window, focus: focus, prefix: { LeaderLayer(registry: registry).chordPrefix(for: $0) },
-             complete: { prefix, event in registry.resolveChord(after: prefix, event: event).map { ($0.id, $0.argument) } },
-             canArm: canArm)
+        let bindings = RegistryKeyBindings(registry)
+        let context = KeyContext(bits: registry.context)
+        return step(event, window: window, focus: focus, table: bindings.table, context: context,
+                    isRunnable: { bindings.canPerform($0, in: context.bits) }, canArm: canArm)
     }
 
-    /// `prefix` gives the first key of a chord a key-down arms (or nil);
-    /// `complete` gives the action the key after `prefix` runs, with its
-    /// digit. `canArm` says whether the focus lets a chord start (not a text
+    /// Steps with `table` resolved in `context` (the key window's context
+    /// keys). `canArm` says whether the focus lets a chord start (not a text
     /// input, not browser focus mode, no marked text; `KeyRouter.canArm`);
     /// asked only for a first key. `focus` is the window's focus, kept with
     /// an armed chord for ``focusDidChange(to:in:)``.
+    mutating func step(_ event: NSEvent, window: ObjectIdentifier, focus: FocusState.Resolved? = nil, table: KeyBindingTable,
+                       context: KeyContext, isRunnable: (ActionID) -> Bool, canArm: () -> Bool) -> Step {
+        step(event, window: window, focus: focus, first: { event in
+            let shortcuts = ActionRegistry.shortcuts(for: event)
+            if let first = shortcuts.first(where: { table.continues([$0], in: context, isRunnable: isRunnable) }) { return first }
+            // The leader arms whenever some binding sits under it, so its
+            // overlay can say what Cmd-J offers here.
+            return shortcuts.contains(LeaderLayer.prefix) && !table.entries(after: [LeaderLayer.prefix]).isEmpty ? LeaderLayer.prefix : nil
+        }, next: { keys, event in
+            let shortcuts = ActionRegistry.shortcuts(for: event)
+            if keys.count + 1 < KeyBindingTable.maxSequenceLength,
+               let longer = shortcuts.first(where: { table.continues(keys + [$0], in: context, isRunnable: isRunnable) }) {
+                return .extend(longer)
+            }
+            for shortcut in shortcuts {
+                if let winner = table.resolve(keys + [shortcut], in: context, isRunnable: isRunnable).winner {
+                    return .run(winner.command, argument: winner.argument, arguments: winner.arguments)
+                }
+            }
+            return .none
+        }, canArm: canArm)
+    }
+
+    /// `first` gives the first key of a chord a key-down arms (or nil);
+    /// `next` says what a key-down does after the armed keys.
     mutating func step(_ event: NSEvent, window: ObjectIdentifier, focus: FocusState.Resolved? = nil,
-                       prefix: (NSEvent) -> Shortcut?, complete: (Shortcut, NSEvent) -> (ActionID, String?)?,
-                       canArm: () -> Bool) -> Step {
-        // A held Cmd-J repeats: the leader stays armed, and a repeat never arms it.
-        if event.isARepeat, KeyRouter.isChord(event.modifierFlags), LeaderLayer.prefix.matches(event) {
-            return pending?.prefix == LeaderLayer.prefix && pending?.window == window ? .armed : .pass
+                       first: (NSEvent) -> Shortcut?, next: ([Shortcut], NSEvent) -> Next, canArm: () -> Bool) -> Step {
+        if event.isARepeat {
+            // A held key repeats: the chord it armed stays armed, and a repeat never arms one.
+            guard let pending else { return .pass }
+            if pending.window == window, let last = pending.keys.last, ActionRegistry.shortcuts(for: event).contains(last) { return .armed }
         }
         if let pending {
             self.pending = nil
             if pending.window == window {
-                guard event.type == .keyDown, let resolved = complete(pending.prefix, event) else {
-                    return pending.prefix == LeaderLayer.prefix ? .dismissed : .mismatch
+                guard event.type == .keyDown else { return .mismatch }
+                if event.keyCode == Self.escapeKeyCode { return .dismissed }
+                switch next(pending.keys, event) {
+                case .run(let id, let argument, let arguments):
+                    return .run(id, argument: argument, arguments: arguments)
+                case .extend(let key):
+                    self.pending = (pending.keys + [key], window, pending.focus)
+                    return .armed
+                case .none:
+                    return pending.keys.first == LeaderLayer.prefix ? .dismissed : .mismatch
                 }
-                return .run(resolved.0, argument: resolved.1)
             }
         }
-        guard KeyRouter.isChord(event.modifierFlags), let first = prefix(event), canArm() else { return .pass }
-        self.pending = (first, window, focus)
+        guard KeyRouter.isChord(event.modifierFlags), let key = first(event), canArm() else { return .pass }
+        self.pending = ([key], window, focus)
         return .armed
     }
+
+    static let escapeKeyCode: UInt16 = 53
 
     /// Focus in `window` settled on `focus`: a chord armed there in another
     /// focus ends (a click, Cmd-Tab back, a pane closing), so the next key

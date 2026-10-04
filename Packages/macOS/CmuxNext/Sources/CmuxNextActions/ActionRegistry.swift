@@ -45,6 +45,9 @@ public final class ActionRegistry {
         didSet { shortcutIndex = nil }
     }
 
+    /// App and keybindings.json entries, after the defaults and cmux.json.
+    public var keyBindingLayers = KeyBindingLayers() { didSet { shortcutIndex = nil } }
+
     /// User key-routing tiers (`cmux.json` `shortcuts.tiers`), see `ActionKeyTier`.
     public internal(set) var keyTierOverrides: [ActionID: ActionKeyTier] = [:]
     /// Features an administrator turned off (`DisabledFeatures`, ActionRegistry+Policy).
@@ -113,11 +116,6 @@ public final class ActionRegistry {
     public init(catalog: [ActionDescriptor], aliases: [ActionID: ActionID] = [:]) {
         self.aliases = aliases
         seed(catalog)
-    }
-
-    /// A registry seeded with the full cmux catalog and legacy aliases.
-    public static func standard() -> ActionRegistry {
-        ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
     }
 
     // MARK: - Catalog

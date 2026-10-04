@@ -119,6 +119,41 @@ public nonisolated struct KeyBindingTable: Sendable {
         }
     }
 
+    /// One key that may follow an armed prefix (the which-key overlay).
+    public struct NextKey: Hashable, Sendable {
+        public var key: Shortcut
+        /// The entry the key runs now, else the first entry for exactly
+        /// these keys whatever its `when`; nil when the key only leads on.
+        public var binding: KeyBinding?
+        /// Longer entries continue after this key.
+        public var continues: Bool
+        /// Pressing the key does something here: it runs an action or arms
+        /// a longer chord whose action can run.
+        public var isRunnable: Bool
+    }
+
+    /// Every key under `prefix`, once, ordered by key: what it runs in
+    /// `context` and whether more keys follow. A numbered family (entries
+    /// with a digit argument) is listed once, by its `1`.
+    public func nextKeys(after prefix: [Shortcut], in context: KeyContext, isRunnable: (ActionID) -> Bool) -> [NextKey] {
+        var grouped: [Shortcut: [KeyBinding]] = [:]
+        for entry in entries(after: prefix) where entry.keys.count <= Self.maxSequenceLength {
+            var key = entry.keys[prefix.count]
+            if entry.keys.count == prefix.count + 1, entry.argument != nil, ("1"..."9").contains(key.key) {
+                key = Shortcut("1", modifiers: key.modifiers)
+            }
+            grouped[key, default: []].append(entry)
+        }
+        return grouped.map { key, group in
+            let keys = prefix + [key]
+            let exact = group.filter { $0.keys.count == keys.count }
+            let winner = resolve(keys, in: context, isRunnable: isRunnable).winner
+            let continues = group.count > exact.count
+            let runnable = winner != nil || (continues && self.continues(keys, in: context, isRunnable: isRunnable))
+            return NextKey(key: key, binding: winner ?? exact.first, continues: continues, isRunnable: runnable)
+        }.sorted { ($0.key.key, $0.key.modifiers.rawValue) < ($1.key.key, $1.key.modifiers.rawValue) }
+    }
+
     /// Every entry under `prefix`, whatever its `when` clause (the which-key
     /// overlay lists what a prefix offers).
     public func entries(after prefix: [Shortcut]) -> [KeyBinding] {
@@ -126,5 +161,19 @@ public nonisolated struct KeyBindingTable: Sendable {
         return (byFirstKey[first] ?? []).map { entries[$0] }.filter {
             $0.keys.count > prefix.count && Array($0.keys.prefix(prefix.count)) == prefix
         }
+    }
+}
+
+/// Entries that do not come from the catalog or cmux.json: apps'
+/// contributed keys and the user's keybindings.json. The table puts app
+/// entries after the defaults and user entries after cmux.json's, each list
+/// in its own order.
+public nonisolated struct KeyBindingLayers: Hashable, Sendable {
+    public var app: [KeyBinding]
+    public var user: [KeyBinding]
+
+    public init(app: [KeyBinding] = [], user: [KeyBinding] = []) {
+        self.app = app
+        self.user = user
     }
 }

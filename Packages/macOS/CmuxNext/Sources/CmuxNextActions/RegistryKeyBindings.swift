@@ -13,7 +13,8 @@ public struct RegistryKeyBindings {
     /// the registry's shortcut index).
     ///
     /// Layers: defaults (the tab-switch entries of ``KeyBindingDefaults``,
-    /// then the catalog's default keys), then user entries (cmux.json). A
+    /// then the catalog's default keys), then app entries, then user
+    /// entries (cmux.json, then keybindings.json; ``KeyBindingLayers``). A
     /// later entry wins. Inside a layer, entries are ordered by the number
     /// of context facts their action requires, so a more specific default
     /// (Cmd-R Reload in a page) comes after a general one (Cmd-R Rename
@@ -74,6 +75,11 @@ public struct RegistryKeyBindings {
                 lhs.specificity != rhs.specificity ? lhs.specificity < rhs.specificity : lhs.order > rhs.order
             }
             entries += ranked.map(\.binding)
+            switch source {
+            case .default: break
+            case .app: entries += registry.keyBindingLayers.app.filter { registry.disabledFeature(for: $0.command) == nil }
+            case .user: entries += registry.keyBindingLayers.user.filter { registry.disabledFeature(for: $0.command) == nil }
+            }
         }
         return KeyBindingTable(entries)
     }
