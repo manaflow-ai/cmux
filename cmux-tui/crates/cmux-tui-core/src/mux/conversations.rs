@@ -66,8 +66,7 @@ impl Mux {
         &self,
         client: u64,
     ) -> Result<Option<String>, RelayStateError> {
-        let _ = (lock_checked::<()>, RelayLock::Bindings);
-        Ok(self.conversations.bindings.lock().unwrap_or_else(PoisonError::into_inner).get(&client).cloned())
+        Ok(lock_checked(&self.conversations.bindings, RelayLock::Bindings)?.get(&client).cloned())
     }
 
     /// Binds `client` to `participant` for the rest of the connection. A
@@ -77,15 +76,14 @@ impl Mux {
         client: u64,
         participant: String,
     ) -> Result<(), RelayStateError> {
-        self.conversations.bindings.lock().unwrap().insert(client, participant);
+        lock_checked(&self.conversations.bindings, RelayLock::Bindings)?
+            .insert(client, participant);
         Ok(())
     }
 
     /// The bindings lock (tests poison it).
     #[cfg(test)]
-    pub(crate) fn conversation_bindings(
-        &self,
-    ) -> &Mutex<std::collections::BTreeMap<u64, String>> {
+    pub(crate) fn conversation_bindings(&self) -> &Mutex<std::collections::BTreeMap<u64, String>> {
         &self.conversations.bindings
     }
 

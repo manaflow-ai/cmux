@@ -154,8 +154,16 @@ impl Mux {
         if revocation.policy(&peer.install) != StreamPolicy::Serve {
             return Err(BindRefused::Policy);
         }
-        lock_checked(&relay.peers, RelayLock::Peers)?.insert(client, peer.clone());
         self.bind_conversation_principal(client, remote_participant(&peer.install))?;
+        match lock_checked(&relay.peers, RelayLock::Peers) {
+            Ok(mut peers) => {
+                peers.insert(client, peer.clone());
+            }
+            Err(error) => {
+                self.unbind_conversation_principal(client);
+                return Err(error.into());
+            }
+        }
         drop(revocation);
         Ok(())
     }
