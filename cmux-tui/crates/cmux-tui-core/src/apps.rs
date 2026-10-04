@@ -90,10 +90,6 @@ impl AppsSlot {
                         host_binary: host::resolve_binary(),
                         host_args: Vec::new(),
                         server_dir: host::resolve_server_dir(),
-                        // The daemon's launch environment names the hub socket.
-                        hub_socket: std::env::var_os("CMUX_CLOUD_WG_HUB_SOCKET")
-                            .map(std::path::PathBuf::from)
-                            .filter(|p| p.is_absolute()),
                         idle_stop: std::time::Duration::from_secs(idle),
                         provider_deadline: std::time::Duration::from_secs(30),
                         provider_user_deadline: std::time::Duration::from_secs(600),
