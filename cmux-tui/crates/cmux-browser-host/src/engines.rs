@@ -89,6 +89,8 @@ impl HostEngines {
             implicit_session: false,
             engine: engine.to_owned(),
         };
+        // The session's automation.input events also reach the app (`input` frames).
+        let events = crate::provider_link::tee_inputs(events, &provider, &session.name);
         let engine = crate::provider_engine::ProviderEngine::new(
             provider,
             engine,
