@@ -19,6 +19,8 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
+use cmux_app_manifest::ScopeClass;
+
 /// Applied idempotency keys kept for replay detection.
 pub const APPLIED_KEYS: usize = 512;
 
@@ -97,15 +99,29 @@ impl Facts {
         self.requested.contains(scope) || self.optional.contains(scope)
     }
 
+    /// Whether an app of this tier may hold `scope` at all. Unverified apps
+    /// never hold a restricted or server-only scope (scope-classes.json, the
+    /// table the validator and the consent sheet use).
+    fn tier_may_hold(&self, scope: &str) -> bool {
+        self.tier != Tier::Unverified
+            || cmux_app_manifest::scope_info(scope)
+                .is_some_and(|info| info.class != ScopeClass::Restricted && !info.server_only)
+    }
+
     /// Grants and sandbox at install time (plan section 10): first-party and
     /// Verified get their requested scopes; unverified starts sandboxed with
-    /// read scopes only.
+    /// its non-restricted read scopes only.
     pub fn install_defaults(&self) -> (BTreeSet<String>, bool) {
         match self.tier {
             Tier::FirstParty | Tier::Verified => (self.requested.clone(), false),
-            Tier::Unverified => {
-                (self.requested.iter().filter(|s| is_read_scope(s)).cloned().collect(), true)
-            }
+            Tier::Unverified => (
+                self.requested
+                    .iter()
+                    .filter(|s| is_read_scope(s) && self.tier_may_hold(s))
+                    .cloned()
+                    .collect(),
+                true,
+            ),
         }
     }
 }
@@ -181,6 +197,9 @@ pub enum Reject {
     Origin(&'static str),
     /// The scope is not in the manifest's scopes or optionalScopes.
     ScopeNotRequested(String),
+    /// The app's tier may not hold the scope (restricted or server-only for
+    /// an unverified app).
+    ScopeRestricted(String),
     /// The change needs an installed app.
     NotInstalled,
     /// The same key was used for a different op.
@@ -194,6 +213,7 @@ impl Reject {
             Self::UnknownApp => "apps.unknown",
             Self::Origin(_) => "apps.origin",
             Self::ScopeNotRequested(_) => "apps.scope",
+            Self::ScopeRestricted(_) => "apps.scope_restricted",
             Self::NotInstalled => "apps.notInstalled",
             Self::KeyConflict => "idempotency.conflict",
             Self::BadRequest(_) => "bad-request",
@@ -205,6 +225,9 @@ impl Reject {
             Self::UnknownApp => "no such app".into(),
             Self::Origin(field) => format!("changing {field} needs a user action"),
             Self::ScopeNotRequested(scope) => format!("the app does not request {scope}"),
+            Self::ScopeRestricted(scope) => {
+                format!("{scope} is restricted: an unverified app cannot hold it")
+            }
             Self::NotInstalled => "the app is not installed".into(),
             Self::KeyConflict => "this idempotency key was used for a different change".into(),
             Self::BadRequest(message) => (*message).into(),
@@ -360,6 +383,9 @@ fn reduce_set(mirror: &Mirror, set: &SetOp, facts: Option<&Facts>) -> Result<Out
     if let Some((scope, granted)) = &set.grant {
         if !facts.allows(scope) {
             return Err(Reject::ScopeNotRequested(scope.clone()));
+        }
+        if *granted && !facts.tier_may_hold(scope) {
+            return Err(Reject::ScopeRestricted(scope.clone()));
         }
         let changed = if *granted {
             record.grants.insert(scope.clone())

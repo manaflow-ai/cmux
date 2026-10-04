@@ -157,6 +157,28 @@ fn tiers_decide_the_install_grants() {
 }
 
 #[test]
+fn unverified_apps_never_hold_restricted_scopes() {
+    // usage:read is restricted in scope-classes.json: a read scope an
+    // unverified app neither gets at install nor through a later grant.
+    let mut facts = facts(Tier::Unverified, Source::Local);
+    facts.requested.insert("usage:read".into());
+    let set_c = |key: &str, f: fn(&mut SetOp)| set(key, "local/c", f);
+    let m = reduce(&Mirror::default(), &set_c("1", |o| o.installed = Some(true)), Some(&facts))
+        .unwrap()
+        .mirror;
+    assert_eq!(m.apps["local/c"].grants.iter().cloned().collect::<Vec<_>>(), ["workspace:read"]);
+    assert_eq!(
+        reduce(&m, &set_c("2", |o| o.grant = Some(("usage:read".into(), true))), Some(&facts)),
+        Err(Reject::ScopeRestricted("usage:read".into()))
+    );
+    let verified = Facts { tier: Tier::Verified, ..facts };
+    let m = reduce(&Mirror::default(), &set_c("1", |o| o.installed = Some(true)), Some(&verified))
+        .unwrap()
+        .mirror;
+    assert!(m.apps["local/c"].grants.contains("usage:read"));
+}
+
+#[test]
 fn default_apps_are_seeded_once_with_required_scopes() {
     let m = apply(&Mirror::default(), Op::Seed { app: "cmux/a".into() }).unwrap().mirror;
     assert_eq!(m.apps["cmux/a"].source, Source::Default);
