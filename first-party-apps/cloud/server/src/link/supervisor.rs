@@ -5,7 +5,7 @@
 //! reconnects by itself, nothing queues).
 
 use super::argv::{LinkCommand, LinkLine, parse_line};
-use super::spawner::{LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag};
+use super::spawner::{LinkEvents, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag};
 use crate::connector::iface::{Carrier, CarrierEvent};
 use std::collections::BTreeMap;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -117,7 +117,7 @@ impl LinkSupervisor {
         let tag = LinkTag { machine: machine.to_owned(), generation: self.next_generation };
         let process = self
             .spawner
-            .spawn(tag.clone(), command, self.sender.clone())
+            .spawn(tag.clone(), command, LinkEvents::new(self.sender.clone(), None))
             .map_err(|e| LinkFailure::Spawn(e.to_string()))?;
         self.spawns += 1;
         self.links.insert(

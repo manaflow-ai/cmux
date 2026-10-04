@@ -8,7 +8,9 @@ mod spawner;
 mod supervisor;
 
 pub use argv::{AttachEndpoint, LinkCommand, LinkLine, LinkPaths, link_command, parse_line};
-pub use spawner::{LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag, ProcessSpawner};
+pub use spawner::{
+    LinkEvents, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag, LinkWake, ProcessSpawner,
+};
 pub use supervisor::{CONNECTOR_KIND, LinkFailure, LinkState, LinkSupervisor, READY_DEADLINE};
 
 use crate::connector::iface::{BackendId, LocalId, check_kinds};
