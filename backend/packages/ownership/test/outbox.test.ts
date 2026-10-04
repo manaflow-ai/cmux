@@ -71,6 +71,21 @@ describe("outbox channels (review fix for E4)", () => {
     expect(e.outbox.pending("").map((r) => r.entity)).toEqual(["e0", "e1"])
   })
 
+  it("replay never applies a dead item after a later item for the same key went out (security review P2)", () => {
+    let now = 1_000
+    const same: Domain<{ n: number }, P> = { initial: () => ({ n: 0 }), reduce: (s) => ({ ok: true, state: { n: s.n + 1 }, value: null, outbox: [{ kind: s.n === 0 ? "upsert" : "delete", entity: "conv:5", payload: {} }] }) }
+    const e = new OwnerEngine(sqliteStore(new DatabaseSync(":memory:")), same, { stream: "s", now: () => now })
+    submit(e as never, {}, "up")
+    submit(e as never, {}, "del")
+    const [up, del] = e.outbox.pending("")
+    e.outbox.deadLetter(up!.id, now)
+    e.outbox.markSent([del!.id], now)
+    now += 25 * 3600_000
+    expect(e.outbox.replayDead(now)).toBe(1)
+    expect(e.outbox.pending("")).toEqual([])
+    expect(e.outbox.deadCount()).toBe(0)
+  })
+
   it("row writes need rowMode, and row order is unique per table", () => {
     const plain = new OwnerEngine(sqliteStore(new DatabaseSync(":memory:")), domain, { stream: "s" })
     expect(() => submit(plain, { write: true }, "w")).toThrow(/rowMode/)

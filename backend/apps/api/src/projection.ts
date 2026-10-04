@@ -48,8 +48,11 @@ export interface PgQuery {
 export const isTransientError = (e: unknown): boolean => {
   const code = (e as { code?: unknown } | null)?.code
   if (typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)) return /^(08|40|53|57|58)/.test(code)
-  const text = e instanceof Error ? `${e.name} ${e.message}` : String(e)
-  return /connect|connection|timeout|timed out|ECONN|EPIPE|reset|network|socket|terminated|hyperdrive|binding missing|overloaded|unavailable/i.test(text)
+  // Node-style socket codes from the pg client (ECONNRESET, ETIMEDOUT, EPIPE, ...).
+  if (typeof code === "string" && /^E[A-Z]+$/.test(code)) return true
+  // The pg client's own connection errors carry no code; nothing else is matched by text.
+  const text = e instanceof Error ? e.message : String(e)
+  return /^(Connection terminated|Connection terminated unexpectedly|connection timeout|timeout expired|HYPERDRIVE binding missing)/i.test(text)
 }
 
 const describeError = (e: unknown): string => {
@@ -70,7 +73,14 @@ export const applyProjectionRows = async (client: PgQuery, stream: string, rows:
   await client.query("BEGIN")
   try {
     for (const row of rows) {
-      const statement = projectionStatement(row.kind, row.payload, stream, row.seq)
+      let statement: [string, Array<unknown>] | undefined
+      try {
+        statement = projectionStatement(row.kind, row.payload, stream, row.seq)
+      } catch (e) {
+        // A payload that cannot even be rendered is poison for this row only.
+        dead.push({ id: row.id, error: describeError(e) })
+        continue
+      }
       // An unknown kind (newer writer than this drain) must not block every later row.
       if (!statement) {
         console.error(JSON.stringify({ msg: "outbox row skipped: no projection", stream, seq: row.seq, kind: row.kind }))

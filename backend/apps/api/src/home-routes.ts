@@ -31,6 +31,7 @@ export interface ConversationStub {
   acceptInvite(entity: string, principal: Principal, proof: string, idempotencyKey: string): Promise<SubmitResult>
   card(entity: string): Promise<{ first_name: string; avatar_url: null } | null>
   invitePreview(entity: string, secret: string): Promise<unknown>
+  mayInvite(entity: string, principal: Principal): Promise<boolean>
 }
 
 interface AddressStub {
@@ -150,6 +151,9 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
     }
     case "invite.create": {
       const { conversation, ...rest } = params as { conversation: string } & Parameters<typeof createInvite>[3]
+      if (typeof conversation !== "string" || !CONVERSATION_ID.test(conversation)) return reject(key, "validation.invalid", "invite.create needs a conversation id")
+      // Before any AddressDO is touched: only a participant of an existing conversation invites.
+      if (!(await conversationStub(env, conversation).mayInvite(conversation, principal))) return reject(key, "forbidden", "not a participant of this conversation")
       return createInvite(env, principal, conversation, rest, frame)
     }
     case "conversation.import": {

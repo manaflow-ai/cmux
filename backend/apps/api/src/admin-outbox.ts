@@ -19,15 +19,24 @@ export const handleOutboxReplay = async (request: Request, env: Env): Promise<Re
   if (request.method !== "POST") return json({ error: "method not allowed" }, 405)
   const presented = (request.headers.get("authorization") ?? "").replace(/^Bearer /, "")
   if (!timingSafeEqual(presented, key)) return json({ error: "unauthorized" }, 401)
-  const body = (await request.json().catch(() => null)) as { class?: unknown; name?: unknown; ids?: unknown } | null
+  const raw = await request.text()
+  if (raw.length > 64 * 1024) return json({ error: "body too large" }, 413)
+  const body = (() => {
+    try {
+      return JSON.parse(raw) as { class?: unknown; name?: unknown; ids?: unknown } | null
+    } catch {
+      return null
+    }
+  })()
   const cls = typeof body?.class === "string" && (OWNER_CLASSES as ReadonlyArray<string>).includes(body.class) ? body.class : null
   const name = typeof body?.name === "string" && body.name.length > 0 && body.name.length <= 200 ? body.name : null
-  const ids = body?.ids === undefined ? undefined : Array.isArray(body.ids) && body.ids.every((n) => Number.isInteger(n)) ? (body.ids as Array<number>) : null
+  const ids = body?.ids === undefined ? undefined : Array.isArray(body.ids) && body.ids.length <= 1000 && body.ids.every((n) => Number.isInteger(n)) ? (body.ids as Array<number>) : null
   if (!cls || !name || ids === null) return json({ error: "class (an owner class), name and optional integer ids are required" }, 400)
   const ns = (env as unknown as Record<string, DurableObjectNamespace | undefined>)[bindingOf(cls)]
   if (!ns) return json({ error: `no binding for ${cls}` }, 400)
   const stub = ns.get(ns.idFromName(name)) as unknown as { replayDeadLetters(entity: string, ids?: ReadonlyArray<number>): Promise<{ replayed: number; dead: number }> }
-  const r = await stub.replayDeadLetters(name, ids)
+  const r = await stub.replayDeadLetters(name, ids).catch(() => null)
+  if (!r) return json({ error: "replay failed (the name may belong to another object)" }, 400)
   console.warn(JSON.stringify({ msg: "outbox replay (operator)", class: cls, replayed: r.replayed, dead: r.dead }))
   return json(r)
 }

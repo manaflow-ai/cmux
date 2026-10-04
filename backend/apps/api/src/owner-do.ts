@@ -36,12 +36,17 @@ const RESYNC_BATCH_MS = 250
 /** Dead outbox items are replayed this long after they died (automatic replay tool). */
 const DEAD_REPLAY_MS = 24 * 3600_000
 
-/** Transient (backoff forever) or poison (counts toward dead letter) for a failed outbox delivery. */
-const outboxFailure = (e: unknown): OutboxFailure => {
+/**
+ * Transient (backoff forever) or poison (counts toward dead letter) for a failed outbox delivery.
+ * PlanetScale errors are classified by SQLSTATE (isTransientError); a DO target only by the
+ * runtime's own `retryable`/`overloaded` flags, never by message text (security review P2).
+ */
+const outboxFailure = (channel: string, e: unknown): OutboxFailure => {
+  if (channel === "") return isTransientError(e) ? "transient" : "poison"
   const flags = e as { retryable?: unknown; overloaded?: unknown } | null
   if (flags?.retryable === true || flags?.overloaded === true) return "transient"
-  if (e instanceof Error && /no binding for/.test(e.message)) return "transient"
-  return isTransientError(e) ? "transient" : "poison"
+  if (e instanceof Error && e.message.startsWith("no binding for ")) return "transient"
+  return "poison"
 }
 
 const PRUNE_SLACK_MS = 60 * 60_000
@@ -349,10 +354,13 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     void this.ctx.storage.getAlarm().then((t) => (t === null || t > want ? this.ctx.storage.setAlarm(want) : undefined))
   }
 
-  /** RPC: one op from an authenticated principal. Requester frames return; events fan out to subscribers. */
+  /**
+   * One op from an authenticated principal. Requester frames return; events fan out to subscribers.
+   * An op on an object that does not exist yet is decided on the initial state first, and storage
+   * is created only when it would commit (home-scale review: no empty objects from refused ops).
+   * Such a refusal has no ledger entry: a retry with the same key is decided again.
+   */
   async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
-    // An op on an object that does not exist yet: decide it on the initial state first, and create
-    // storage only when it would commit (home-scale review: no empty objects from refused ops).
     if (!this.isBound(entity)) {
       const refused = refusalOnInitial(this.domain, `${this.streamPrefix}:${entity}`, principal, frame)
       if (refused) return { frames: refused }
@@ -377,6 +385,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
 
   /** Operator replay tool (admin-outbox.ts): dead outbox items go back to the queue. */
   async replayDeadLetters(entity: string, ids?: ReadonlyArray<number>): Promise<{ replayed: number; dead: number }> {
+    // Never creates an object: an unknown name has nothing to replay.
+    if (!this.isBound(entity)) return { replayed: 0, dead: 0 }
     const engine = this.bind(entity)
     const replayed = engine.outbox.replayDead(Date.now(), ids ? { ids } : {})
     this.afterCommit()
@@ -497,7 +507,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
         }
         outbox.succeeded(channel)
       } catch (e) {
-        const dead = outbox.failed(channel, Date.now(), outboxFailure(e))
+        const dead = outbox.failed(channel, Date.now(), outboxFailure(channel, e))
         console.error(JSON.stringify({ msg: "outbox delivery failed", stream: this.engine.stream, channel: channel || "planetscale", error: String(e), ...(dead === null ? {} : { dead_letter: dead }) }))
       }
     }

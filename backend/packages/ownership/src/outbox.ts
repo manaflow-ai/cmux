@@ -149,7 +149,13 @@ export class Outbox {
         `SELECT id, channel FROM ${this.t.outbox} WHERE dead_at IS NOT NULL AND sent_at IS NULL AND dead_at <= ?`,
         opts.deadBefore ?? now
       ).filter((r) => !opts.ids || opts.ids.includes(Number(r.id)))
-      for (const r of rows) this.sql.exec(`UPDATE ${this.t.outbox} SET dead_at = NULL WHERE id = ?`, r.id)
+      for (const r of rows) {
+        // A later item for the same key already went out (for example a hard delete after a dead
+        // upsert): the dead item is superseded and must never be applied after it.
+        const later = this.sql.exec(`SELECT 1 FROM ${this.t.outbox} WHERE channel = ? AND entity = (SELECT entity FROM ${this.t.outbox} WHERE id = ?) AND id > ? AND sent_at IS NOT NULL LIMIT 1`, r.channel, r.id, r.id).length > 0
+        if (later) this.sql.exec(`UPDATE ${this.t.outbox} SET sent_at = ?, dead_at = NULL WHERE id = ?`, now, r.id)
+        else this.sql.exec(`UPDATE ${this.t.outbox} SET dead_at = NULL WHERE id = ?`, r.id)
+      }
       for (const c of new Set(rows.map((r) => r.channel))) this.sql.exec(`DELETE FROM ${this.backoff} WHERE channel = ?`, c)
       return rows.length
     })

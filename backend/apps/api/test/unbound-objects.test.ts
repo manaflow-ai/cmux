@@ -44,4 +44,15 @@ describe("no storage for objects that do not exist", { timeout: 60_000 }, () => 
     const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(id))
     expect(await tables(stub)).toEqual([])
   })
+
+  it("an invite code for an unknown conversation and a stranger's invite.create write nothing (security review P2)", async () => {
+    const t = await token("unbound-3")
+    await post("/v1/ops", t, { op: "user.ensure", params: {}, idempotency_key: "e", origin: "user" })
+    const accept = await post("/v1/ops", t, { op: "invite.accept", params: { code: "g0000000000000000000000ZZZZ", secret: "A".repeat(26) }, idempotency_key: "a", origin: "user" })
+    expect(JSON.stringify(accept)).toContain("unknown_invite")
+    const id = "conv_1111111111111111111111ZZZZ"
+    const invite = await post("/v1/ops", t, { op: "invite.create", params: { conversation: id, address: { email: "someone@example.com" }, display_name: "Someone" }, idempotency_key: "i", origin: "user" })
+    expect(JSON.stringify(invite)).toContain("forbidden")
+    expect(await tables(testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(id)))).toEqual([])
+  })
 })

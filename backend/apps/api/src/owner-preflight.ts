@@ -8,12 +8,12 @@ import { EMPTY_ROWS, idFactory, type Domain, type OpFrame, type OwnerFrame, type
  */
 export const refusalOnInitial = <S>(domain: Domain<S>, stream: string, principal: Principal, frame: OpFrame): Array<OwnerFrame> | undefined => {
   const key = typeof frame.idempotency_key === "string" ? frame.idempotency_key : ""
-  if (key.length === 0 || key.length > 128) return undefined
-  const state = domain.initial()
   const refuse = (code: string, message: string, extra: { details?: unknown; retryable?: boolean } = {}): Array<OwnerFrame> => [
     { t: "reject", tx: "", idempotency_key: key, code, message, ...(extra.details === undefined ? {} : { details: extra.details }), retryable: extra.retryable ?? false, replayed: false },
     { t: "request-settled", tx: "", idempotency_key: key, stream, sequence: 0, ok: false }
   ]
+  if (key.length === 0 || key.length > 128) return refuse("validation.invalid", "idempotency_key is required (1 to 128 characters)")
+  const state = domain.initial()
   const denied = domain.authorize?.(state, frame.op, frame.params as never, principal)
   if (denied) return refuse(denied.code, denied.message, denied)
   if (frame.expected_revision !== undefined && frame.expected_revision !== "0") return refuse("revision.conflict", "expected_revision does not match", { details: { expected: frame.expected_revision, actual: "0" } })
