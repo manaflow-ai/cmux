@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""package-test-lane.sh suite PACKAGE FILTER: one Swift Testing filter of one package.
+"""package-test-lane.sh suite PACKAGE FILTER[,FILTER...]: focused Swift Testing filters of one package after one build.
 
 Lanes gate a change with one focused `swift test --filter` on a fleet worker
 (`cmux-ci run`, coordinator decision 2026-10-04). The lane's other phases pick
