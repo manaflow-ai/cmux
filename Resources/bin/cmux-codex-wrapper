@@ -419,12 +419,13 @@ cmux_codex_emit_computer_use_args() {
     # reconciled above. The MCP attachment remains fail-closed on cmux
     # ownership, daemon credentials, and the installed approval broker.
     cmux_computer_use_surface_socket_available || return 0
-    local client default_session runtime_scope runtime_uid cua_socket state_dir auth_token
+    local client default_session runtime_scope runtime_uid cua_socket state_dir
     # Read the uid in this shell first: the helpers below run in command
     # substitutions, so a uid they cache would not survive back here.
     cmux_codex_wrapper_effective_uid || return 1
     client="$(cmux_computer_use_resolve_client)" || return 1
-    auth_token="$(cmux_computer_use_auth_token)" || return 1
+    # Gate on the credential here; the parent shell exports its value.
+    cmux_computer_use_auth_token >/dev/null || return 1
     # Stable per-terminal session id so the branded cursor survives helper restarts.
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"
     runtime_scope="${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}"
@@ -449,7 +450,7 @@ cmux_codex_emit_computer_use_args() {
         "-c" \
         'mcp_servers.cmux-cua.env.CMUX_CUA_EXTERNAL_PERMISSION_FLOW="1"' \
         "-c" \
-        "mcp_servers.cmux-cua.env.CMUX_CUA_SOCKET_AUTH_TOKEN=\"$(cmux_computer_use_json_escape "$auth_token")\"" \
+        'mcp_servers.cmux-cua.env_vars=["CMUX_CUA_SOCKET_AUTH_TOKEN"]' \
         "-c" \
         "mcp_servers.cmux-cua.env.CMUX_CUA_DEFAULT_SESSION=\"$(cmux_computer_use_json_escape "$default_session")\"" \
         "-c" \
@@ -676,11 +677,24 @@ exec_real_codex_passthrough() {
 
 cmux_codex_computer_use_args=()
 cmux_codex_read_computer_use_args() {
-    local arg
+    local arg auth_token
     while IFS= read -r -d '' arg; do
         cmux_codex_computer_use_args+=("$arg")
     done < <(cmux_codex_emit_computer_use_args "$@" 2>/dev/null)
     (( ${#cmux_codex_computer_use_args[@]} > 0 )) || return 1
+    # Codex's -c overrides are argv, and any local user can read argv with ps.
+    # Keep the socket credential in the Codex process environment instead; the
+    # emitted `env_vars` entry tells Codex to forward it by name to the MCP
+    # server. Codex's default shell_environment_policy excludes *TOKEN* names
+    # from agent shell commands. The emitter runs in a process substitution, so
+    # the export must happen here in the parent shell. Fail closed: without a
+    # credential, attach nothing.
+    if ! cmux_codex_wrapper_effective_uid ||
+       ! auth_token="$(cmux_computer_use_auth_token)"; then
+        cmux_codex_computer_use_args=()
+        return 1
+    fi
+    export CMUX_CUA_SOCKET_AUTH_TOKEN="$auth_token"
     return 0
 }
 
