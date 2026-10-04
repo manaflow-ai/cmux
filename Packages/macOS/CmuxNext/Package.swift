@@ -879,7 +879,8 @@ let package = Package(
         .testTarget(
             name: "CmuxNextAppTests",
             dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
-                           "CmuxNextDaemon", .product(name: "CmuxHomeCore", package: "CmuxHomeCore")],
+                           "CmuxNextDaemon", "CmuxNextHome", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                           .product(name: "CmuxHomeRender", package: "CmuxHomeRender")],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),
