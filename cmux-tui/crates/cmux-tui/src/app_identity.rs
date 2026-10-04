@@ -149,6 +149,14 @@ pub(crate) fn containing_app_bundle(exe: &Path) -> Option<PathBuf> {
 
 /// The tag a tagged bundle id carries (`com.cmuxterm.app.debug.<tag>` or
 /// `com.cmuxterm.app.<channel>.<tag>`), sanitized.
+/// A DEV or tagged debug build (`com.cmuxterm.app.debug[.<tag>]`), the only
+/// app whose control socket `cmux app call` may use.
+pub(crate) fn is_debug_bundle(bundle_id: &str) -> bool {
+    bundle_id
+        .strip_prefix(DEBUG_BUNDLE_ID)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+}
+
 fn bundle_tag(bundle_id: &str) -> Option<String> {
     let bundle_id = bundle_id.trim();
     std::iter::once(DEBUG_BUNDLE_ID)
