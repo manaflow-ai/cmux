@@ -6,12 +6,14 @@ public struct BrowserReplPageTelemetry: Sendable {
 
     /// The sessions, of `sessionIDs`, that receive an event from `document`
     /// (the frame that sent it, as WebKit recorded it), given each session's
-    /// domain policy (`nil`: none). Seam: every session.
+    /// domain policy (`nil`: none): those whose policy allows the document.
+    /// The policy refuses a session's reads of a page it blocks, and the
+    /// page's console text and errors are reads of it.
     public func recipients(
         of document: BrowserReplFrameDocument,
         among sessionIDs: [String],
         policy: (String) -> BrowserReplDomainPolicy?
     ) -> [String] {
-        sessionIDs
+        sessionIDs.filter { policy($0)?.blockReason(document: document) == nil }
     }
 }

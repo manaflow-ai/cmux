@@ -424,7 +424,9 @@ rest. Measurements: [performance.md](performance.md).
   tab, never as a key window over the user's work (a page that opens one
   after an `await` in the agent's click lands here).
   The domain policy there only refuses the session's reads and input while
-  the tab, or a frame of it, shows a blocked page (see "Guards" in
+  the tab, or a frame of it, shows a blocked page (the console messages and
+  page errors of a main frame the policy blocks do not reach the session
+  either, in any tab) (see "Guards" in
   [driver-protocol.md](driver-protocol.md)); it never navigates or filters the user's tab. An event the agent registered a handler for on that
   page (`page.on("dialog")`, `page.on("filechooser")`,
   `page.waitForEvent("download")` and the like) goes to the session instead,

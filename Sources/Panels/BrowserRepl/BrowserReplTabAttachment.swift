@@ -729,6 +729,18 @@ final class BrowserReplTabAttachment {
         for sink in sinks.values { sink(name, body) }
     }
 
+    /// Sends a console message or page error from `document` only to the
+    /// sessions whose domain policy allows that document
+    /// (``BrowserReplPageTelemetry``).
+    private func emitTelemetry(_ name: String, _ payload: [String: Any], from document: BrowserReplFrameDocument) {
+        var body = payload
+        body["targetId"] = targetID
+        let recipients = BrowserReplPageTelemetry().recipients(of: document, among: Array(sinks.keys)) {
+            BrowserReplPolicyBoard.shared.policy(for: $0)
+        }
+        for sessionID in recipients { sinks[sessionID]?(name, body) }
+    }
+
     /// Sends a network event only to the sessions it belongs to
     /// (``BrowserReplTabOwnership/networkRecipients(event:requestID:)``),
     /// with its credential headers only for the tab's creator.
@@ -791,8 +803,8 @@ final class BrowserReplTabAttachment {
         if observer.install(on: webView) {
             resourceObserver = observer
         }
-        let handler = BrowserReplConsoleMessageHandler { [weak self] event, payload in
-            self?.emit(event, payload)
+        let handler = BrowserReplConsoleMessageHandler { [weak self] event, payload, document in
+            self?.emitTelemetry(event, payload, from: document)
         }
         webView.configuration.userContentController.add(
             handler,
@@ -1241,9 +1253,11 @@ enum BrowserReplAgentWorld {
 final class BrowserReplConsoleMessageHandler: NSObject, WKScriptMessageHandler {
     static let name = "cmuxReplConsole"
 
-    private let emit: (String, [String: Any]) -> Void
+    /// Called with the event, its payload and the document that sent it,
+    /// as WebKit recorded it (the sessions whose policy blocks it get none).
+    private let emit: (String, [String: Any], BrowserReplFrameDocument) -> Void
 
-    init(emit: @escaping (String, [String: Any]) -> Void) {
+    init(emit: @escaping (String, [String: Any], BrowserReplFrameDocument) -> Void) {
         self.emit = emit
     }
 
@@ -1254,17 +1268,18 @@ final class BrowserReplConsoleMessageHandler: NSObject, WKScriptMessageHandler {
         guard message.frameInfo.isMainFrame,
               let body = message.body as? [String: Any],
               let kind = body["kind"] as? String else { return }
+        let document = BrowserReplFrameDocument(info: message.frameInfo)
         switch kind {
         case "console":
             emit("console", [
                 "type": body["type"] as? String ?? "log",
                 "text": body["text"] as? String ?? "",
-            ])
+            ], document)
         case "pageerror":
             emit("pageerror", [
                 "message": body["message"] as? String ?? "",
                 "stack": body["stack"] as? String ?? "",
-            ])
+            ], document)
         default:
             break
         }
