@@ -125,7 +125,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         if options.fullFrameRate {
-            configuration.preferences.setWebKitFeature(PageEngineOptions.near60FPSFeature, enabled: false)
+            WebKitRenderRate.apply(fullRate: true, to: configuration.preferences)
         }
         configuration.setURLSchemeHandler(PageSchemeHandler(page: descriptor, root: root, dynamicSource: dynamicResources),
                                           forURLScheme: PageDescriptor.scheme)

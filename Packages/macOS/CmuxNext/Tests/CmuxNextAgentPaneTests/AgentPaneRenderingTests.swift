@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import AppKit
 import Foundation
 import Testing
