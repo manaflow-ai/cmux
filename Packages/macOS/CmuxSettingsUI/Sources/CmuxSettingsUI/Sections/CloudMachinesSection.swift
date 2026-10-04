@@ -63,7 +63,9 @@ public struct CloudMachinesSection: View {
                     planIncludesCloud = nil
                     return
                 }
-                planIncludesCloud = await hostActions.cloudMachinesPlanIncludesCloud()
+                let includesCloud = await hostActions.cloudMachinesPlanIncludesCloud()
+                guard !Task.isCancelled else { return }
+                planIncludesCloud = includesCloud
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 planCheckGeneration &+= 1

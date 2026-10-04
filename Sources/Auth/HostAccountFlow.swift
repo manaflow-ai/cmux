@@ -296,10 +296,16 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// time of the failure (another refresh may have answered meanwhile).
     /// With no answer to keep, the plan is unknown rather than "not Pro".
     private func forgetBillingPlanUnlessKnown(for identityID: String) {
-        guard billingPlanIdentityID != identityID else { return }
-        isProActive = false
-        canManageBilling = false
-        billingPlanIdentityID = nil
+        // Keep a known Pro answer so a transient refresh does not replace the
+        // upgrade path with Enable Cloud. A cached Free answer is deliberately
+        // invalidated, since the toggle must remain usable when the refresh
+        // could not confirm the plan.
+        guard billingPlanIdentityID == identityID, isProActive else {
+            isProActive = false
+            canManageBilling = false
+            billingPlanIdentityID = nil
+            return
+        }
     }
 
     // `AccountFlow` (CmuxSettingsUI) cannot see `ProUpgradeSource`; its
