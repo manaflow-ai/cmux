@@ -280,7 +280,9 @@ fn start(
             };
             let text = format!(
                 "{} in deny-all {compactor_harness} sessions through acpmux",
-                compactor_model.as_deref().unwrap_or("the harness's default model")
+                compactor_model
+                    .as_deref()
+                    .unwrap_or("the harness's default model")
             );
             let fallback = config
                 .fallback_model

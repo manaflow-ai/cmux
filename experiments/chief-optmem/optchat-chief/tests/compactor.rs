@@ -671,8 +671,6 @@ fn markers(blocks: &[Value]) -> Vec<usize> {
         .collect()
 }
 
-
-
 // Solution 1 of the cache research: the system text plus the view up to the
 // first mark (50k) is the session's system prompt (the slot preset's
 // `systemPrompt`, which acpmux writes into its own preset directory and
@@ -719,7 +717,10 @@ fn with_system_prompt_support_the_view_head_is_the_slot_presets_system_prompt_an
     // nothing is written into the slot directory (the agent's cwd).
     assert_eq!(
         inner.prompt_sets.last(),
-        Some(&("optchat-compact-test-preset-slot-0".to_owned(), String::new()))
+        Some(&(
+            "optchat-compact-test-preset-slot-0".to_owned(),
+            String::new()
+        ))
     );
     assert!(!inner.specs[0].cwd.join("system.md").exists());
 }
@@ -839,7 +840,11 @@ fn the_compactor_presets_are_one_per_slot_with_allowlisted_args_and_a_system_pro
     let home = dir.path().join("mux");
     let paths = Paths::new(&home);
     let presets = compactor_presets(&paths, &home, "claude-sr");
-    assert_eq!(presets.len(), JOBS, "one per slot: a slot's prompt never races another's");
+    assert_eq!(
+        presets.len(),
+        JOBS,
+        "one per slot: a slot's prompt never races another's"
+    );
     let id = optchat_chief::paths::home_id(&home);
     for (k, p) in presets.iter().enumerate() {
         assert_eq!(p.name, format!("optchat-compact-{id}-slot-{k}"));
@@ -847,7 +852,12 @@ fn the_compactor_presets_are_one_per_slot_with_allowlisted_args_and_a_system_pro
         // system prompt is the preset's text, never a path in the cwd.
         assert_eq!(
             p.args,
-            vec!["--tools", "", "--strict-mcp-config", "--no-session-persistence"]
+            vec![
+                "--tools",
+                "",
+                "--strict-mcp-config",
+                "--no-session-persistence"
+            ]
         );
         assert!(p.system_prompt.is_some(), "installed with a system prompt");
     }
@@ -855,7 +865,11 @@ fn the_compactor_presets_are_one_per_slot_with_allowlisted_args_and_a_system_pro
     // Claude Code flags and system prompts mean nothing to another harness.
     let codex = compactor_presets(&paths, &home, "codex");
     assert_eq!(codex.len(), JOBS);
-    assert!(codex.iter().all(|p| p.args.is_empty() && p.system_prompt.is_none()));
+    assert!(
+        codex
+            .iter()
+            .all(|p| p.args.is_empty() && p.system_prompt.is_none())
+    );
 }
 
 /// Codex caches a byte-identical request prefix automatically: every node
@@ -900,7 +914,11 @@ fn a_codex_compactor_shares_one_working_directory_and_keeps_a_byte_stable_prefix
     assert_eq!(inner.specs[0].model, None, "the harness's own model");
     for (i, blocks) in inner.prompts.iter().enumerate() {
         assert!(markers(blocks).is_empty());
-        let node = if texts(blocks).last().unwrap().ends_with('0') { 0 } else { 1 };
+        let node = if texts(blocks).last().unwrap().ends_with('0') {
+            0
+        } else {
+            1
+        };
         assert_eq!(*blocks, request_blocks(&r(node)), "prompt {i}");
     }
 }
@@ -920,12 +938,22 @@ fn a_codex_node_logs_its_cached_tokens() {
         model: None,
         ..spec(dir.path())
     };
-    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(JOBS))
-        .with_log(Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_owned())));
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(JOBS)).with_log(
+        Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_owned())),
+    );
     run_node(&compactor, &request(4)).unwrap();
     let lines = lines.lock().unwrap();
-    let line = lines.iter().find(|l| l.contains("4+1")).expect("a node line");
-    for part in ["uncached 900", "cache write 0", "cache read 30000", "output 100", "codex"] {
+    let line = lines
+        .iter()
+        .find(|l| l.contains("4+1"))
+        .expect("a node line");
+    for part in [
+        "uncached 900",
+        "cache write 0",
+        "cache read 30000",
+        "output 100",
+        "codex",
+    ] {
         assert!(line.contains(part), "{part} in {line}");
     }
 }

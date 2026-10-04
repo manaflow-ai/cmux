@@ -215,7 +215,9 @@ impl Brain {
         if self.settings.turn_preset.is_some() {
             // The system prompt carries the instructions in the cached
             // layout; the old layout reads them from CLAUDE.md.
-            let text = system_prompt.is_none().then_some(self.settings.system_text.as_str());
+            let text = system_prompt
+                .is_none()
+                .then_some(self.settings.system_text.as_str());
             if let Err(e) = crate::session_dir::set_claude_md(&self.settings.session_dir, text) {
                 (self.log)(&format!("updating the session directory's CLAUDE.md: {e}"));
             }

@@ -160,7 +160,10 @@ pub fn cached_layout(system: &str, context: &str, tail: &str, marker: bool) -> C
     };
     let mut cuts = marks.clone();
     cuts.push(context.len());
-    let mut blocks: Vec<Value> = cuts.windows(2).map(|w| text(&context[w[0]..w[1]])).collect();
+    let mut blocks: Vec<Value> = cuts
+        .windows(2)
+        .map(|w| text(&context[w[0]..w[1]]))
+        .collect();
     // The pieces after the first mark: the one ending at the last mark is
     // the second to last block (the last piece runs to the end).
     if marker && marks.len() >= 2 {

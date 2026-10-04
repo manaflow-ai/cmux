@@ -456,9 +456,7 @@ impl AgentPort for FakeAgents {
         if !inner.system_prompts {
             return Err("unknown preset key \"systemPrompt\"".into());
         }
-        inner
-            .prompt_sets
-            .push((preset.to_owned(), text.to_owned()));
+        inner.prompt_sets.push((preset.to_owned(), text.to_owned()));
         inner
             .preset_prompts
             .insert(preset.to_owned(), text.to_owned());

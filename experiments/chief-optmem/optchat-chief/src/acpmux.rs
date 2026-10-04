@@ -199,7 +199,9 @@ impl Acpmux {
                 } else {
                     break result;
                 };
-                let Some(map) = set.as_object_mut() else { break result };
+                let Some(map) = set.as_object_mut() else {
+                    break result;
+                };
                 if map.remove(key).is_none() {
                     break result;
                 }
@@ -523,7 +525,10 @@ impl AgentPort for Acpmux {
     }
 
     fn system_prompt(&self, preset: &str) -> bool {
-        self.with_prompt.lock().expect("with_prompt").contains(preset)
+        self.with_prompt
+            .lock()
+            .expect("with_prompt")
+            .contains(preset)
     }
 
     fn set_system_prompt(&self, preset: &str, text: &str) -> Result<(), String> {

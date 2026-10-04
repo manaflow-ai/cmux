@@ -30,7 +30,9 @@ fn fill(chat: &optchat_host::OptChat, n: usize) {
     for i in 0..n {
         chat.append(
             Kind::Note,
-            &format!("note {i:04}: the build cache for project {i} lives in /srv/cache/{i} on host b{i}"),
+            &format!(
+                "note {i:04}: the build cache for project {i} lives in /srv/cache/{i} on host b{i}"
+            ),
         )
         .unwrap();
     }
@@ -67,14 +69,18 @@ fn harness_with(settings: impl FnOnce(&std::path::Path) -> Settings) -> Harness 
 }
 
 #[test]
-fn a_claude_turn_puts_the_view_head_in_the_presets_system_prompt_and_one_marker_at_the_last_mark()
-{
+fn a_claude_turn_puts_the_view_head_in_the_presets_system_prompt_and_one_marker_at_the_last_mark() {
     let mut h = harness_with(settings);
     h.agents.inner.lock().unwrap().system_prompts = true;
     fill(&h.chat, 1_200);
     let view = h.chat.render_view().text;
     let marks = optchat_core::cache_marks(&view);
-    assert_eq!(marks.len(), 3, "a view past 100k characters: {}", view.len());
+    assert_eq!(
+        marks.len(),
+        3,
+        "a view past 100k characters: {}",
+        view.len()
+    );
     h.connect();
     h.say("user_local", "where is project 7?");
     h.settle();
@@ -82,7 +88,10 @@ fn a_claude_turn_puts_the_view_head_in_the_presets_system_prompt_and_one_marker_
     // The turn names the turn preset, whose system prompt it set first.
     assert_eq!(inner.specs[0].preset.as_deref(), Some(TURN_PRESET));
     let expected = format!("{}\n\n{}", claude_md(None), &view[..marks[0]]);
-    assert_eq!(inner.prompt_sets, vec![(TURN_PRESET.to_owned(), expected.clone())]);
+    assert_eq!(
+        inner.prompt_sets,
+        vec![(TURN_PRESET.to_owned(), expected.clone())]
+    );
     assert_eq!(inner.systems[0].as_deref(), Some(expected.as_str()));
     // The rest of the view, one marker on the piece ending at 100k, then
     // the new message.
@@ -91,7 +100,10 @@ fn a_claude_turn_puts_the_view_head_in_the_presets_system_prompt_and_one_marker_
     assert_eq!(t[..t.len() - 1].concat(), view[marks[0]..]);
     assert_eq!(t.last().unwrap(), "where is project 7?");
     assert_eq!(markers(blocks), vec![t.len() - 3]);
-    assert_eq!(blocks[t.len() - 3]["cache_control"], json!({"type": "ephemeral"}));
+    assert_eq!(
+        blocks[t.len() - 3]["cache_control"],
+        json!({"type": "ephemeral"})
+    );
     assert_eq!(
         *blocks,
         cached_layout(&claude_md(None), &view, "where is project 7?", true).blocks
@@ -162,7 +174,10 @@ fn a_codex_turn_sends_the_view_first_and_the_messages_last_with_no_marker_and_no
     h.say("user_local", "two");
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
-    assert!(inner.prompt_sets.is_empty(), "a codex turn sets no system prompt");
+    assert!(
+        inner.prompt_sets.is_empty(),
+        "a codex turn sets no system prompt"
+    );
     assert_eq!(inner.specs[0].harness, "codex");
     assert_eq!(inner.specs[0].preset, None);
     assert_eq!(inner.prompts[0], turn_blocks(&view, &["one".to_owned()]));
@@ -210,18 +225,29 @@ fn a_four_breakpoint_refusal_reruns_the_turn_without_the_marker_and_later_turns_
     h.settle();
     {
         let inner = h.agents.inner.lock().unwrap();
-        assert_eq!(inner.prompts.len(), 2, "the refused prompt, then the same turn again");
+        assert_eq!(
+            inner.prompts.len(),
+            2,
+            "the refused prompt, then the same turn again"
+        );
         assert_eq!(markers(&inner.prompts[0]).len(), 1);
         assert!(markers(&inner.prompts[1]).is_empty());
         assert_eq!(texts(&inner.prompts[0]), texts(&inner.prompts[1]));
-        assert_ne!(inner.prompt_ids[0], inner.prompt_ids[1], "acpmux runs a prompt id once");
+        assert_ne!(
+            inner.prompt_ids[0], inner.prompt_ids[1],
+            "acpmux runs a prompt id once"
+        );
     }
     // The second run answered: the reply is posted, not the 400.
     let sends = h.owner.lock().unwrap().sends();
     assert_eq!(sends.len(), 1, "{sends:?}");
     assert!(!sends[0].1.contains("cache_control"), "{sends:?}");
     assert!(
-        lines.lock().unwrap().iter().any(|l| l.contains("cache_control") && l.contains("without")),
+        lines
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|l| l.contains("cache_control") && l.contains("without")),
         "{:?}",
         lines.lock().unwrap()
     );
@@ -229,7 +255,10 @@ fn a_four_breakpoint_refusal_reruns_the_turn_without_the_marker_and_later_turns_
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
     assert_eq!(inner.prompts.len(), 3);
-    assert!(markers(&inner.prompts[2]).is_empty(), "later turns skip the marker");
+    assert!(
+        markers(&inner.prompts[2]).is_empty(),
+        "later turns skip the marker"
+    );
 }
 
 #[test]
@@ -265,12 +294,11 @@ fn each_turn_logs_its_cache_use_for_both_answer_shapes() {
     );
     assert_eq!(answer_usage(&json!({"stopReason": "end_turn"})), None);
     // The turn's host.log line says what the numbers cover.
-    let line = optchat_chief::turn::usage_line(
-        "turn:optchat:1:2",
-        None,
-        answer_usage(&codex),
+    let line = optchat_chief::turn::usage_line("turn:optchat:1:2", None, answer_usage(&codex));
+    assert!(
+        line.contains("last request read 30000 written 0 uncached 10 output 53"),
+        "{line}"
     );
-    assert!(line.contains("last request read 30000 written 0 uncached 10 output 53"), "{line}");
 }
 
 #[test]
@@ -339,7 +367,10 @@ fn chief_zoom_and_date_answer_from_the_live_memory() {
             .arg(&socket)
             .output()
             .unwrap();
-        (out.status.success(), String::from_utf8_lossy(&out.stdout).into_owned())
+        (
+            out.status.success(),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+        )
     };
     let (ok, text) = run(&["zoom", "0", "1"]);
     assert!(ok, "{text}");

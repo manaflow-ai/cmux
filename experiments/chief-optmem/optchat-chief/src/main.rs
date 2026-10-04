@@ -57,7 +57,10 @@ fn main() {
                 ("date", [id]) => {
                     optchat_chief::tools::Call::parse("date", &serde_json::json!({"id": id}))
                 }
-                _ => Err(format!("usage: optchat-chief {tool} {}", if tool == "zoom" { "ID N" } else { "ID" })),
+                _ => Err(format!(
+                    "usage: optchat-chief {tool} {}",
+                    if tool == "zoom" { "ID N" } else { "ID" }
+                )),
             };
             match call.and_then(|c| optchat_chief::tools::ask(&socket, c)) {
                 Ok(text) => {
