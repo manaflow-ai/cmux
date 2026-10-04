@@ -1044,6 +1044,8 @@ async fn catalog_reload_preserves_pending_turn_and_rejects_invalid_config() {
             effort: None,
             policy: None,
             env: BTreeMap::new(),
+            args: Vec::new(),
+            system_prompt_sha256: None,
             description: None,
         },
     );
@@ -1438,3 +1440,6 @@ async fn a_resend_after_a_restart_is_answered_from_the_log() {
 
 #[path = "hub_integration/adopt.rs"]
 mod adopt;
+
+#[path = "hub_integration/preset_args.rs"]
+mod preset_args;

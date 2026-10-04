@@ -669,7 +669,7 @@ impl Hub {
                     .preset
                     .as_ref()
                     .and_then(|n| cfg.presets.get(n))
-                    .map(|p| in_env(&p.env))
+                    .map(|p| in_env(&p.env) || p.args.iter().any(|a| a.contains("${model}")))
                     .unwrap_or(false)
         };
         if at_spawn {
@@ -786,6 +786,8 @@ impl Hub {
             tags: Default::default(),
             unread: false,
             last_turn: None,
+            // A fork of a remote-origin session stays remote-origin.
+            remote_origin: parent_meta.remote_origin,
         };
         let new = self.make_session(meta);
         if is_claude {
