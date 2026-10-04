@@ -12,6 +12,11 @@ public nonisolated struct MistGradientStop: Equatable, Sendable {
     /// The scrim color at ``location``.
     public let color: ThemeRGB
 
+    /// Creates a stop, clamping its location to the gradient's normalized range.
+    ///
+    /// - Parameters:
+    ///   - location: The normalized stop location.
+    ///   - color: The scrim color at that location.
     public init(location: Double, color: ThemeRGB) {
         self.location = min(max(location, 0), 1)
         self.color = color
@@ -26,6 +31,11 @@ public nonisolated struct MistGradient: Equatable, Sendable {
     /// theme surface.
     public let stops: [MistGradientStop]
 
+    /// Creates an ordered gradient description.
+    ///
+    /// - Parameters:
+    ///   - axis: The content axis along which to apply the scrim.
+    ///   - stops: The stops to sort by normalized location.
     public init(axis: MistGradientAxis = .vertical, stops: [MistGradientStop]) {
         self.axis = axis
         self.stops = stops.sorted { $0.location < $1.location }
@@ -69,6 +79,23 @@ public nonisolated struct MistCardStyle: Equatable, Sendable {
 
     /// Mist cards are intentionally scoped to their dense content owner.
     public let appliesLocally = true
+
+    /// Creates a local card style from a resolved contrast check.
+    ///
+    /// - Parameters:
+    ///   - material: The local card material.
+    ///   - fill: The card fill composited over sampled artwork.
+    ///   - text: The contrast-checked card text color.
+    ///   - cornerRadius: The card corner radius in points.
+    ///   - contrastCheck: The sampled-art contrast evidence.
+    public init(material: MistCardMaterial, fill: ThemeRGB, text: ThemeRGB,
+                cornerRadius: Double, contrastCheck: MistContrastCheck) {
+        self.material = material
+        self.fill = fill
+        self.text = text
+        self.cornerRadius = cornerRadius
+        self.contrastCheck = contrastCheck
+    }
 }
 
 /// The resolved art-aware treatment for a window in mist mode.
