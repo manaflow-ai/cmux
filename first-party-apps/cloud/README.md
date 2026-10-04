@@ -31,24 +31,24 @@ Fragment names are `cloud.<noun>.<verb>`; the full name is `cmux.cloud.<noun>.<v
 
 | Op | Class, risk | MCP | CLI | Cloud API | Rule |
 | --- | --- | --- | --- | --- | --- |
-| `cloud.auth.status` | read | default | `cloud auth status` | none (host) | the host answers from its sign-in |
-| `cloud.machine.list` | read | default | `cloud machine list` | `GET /api/vm` | replaces the projection |
-| `cloud.machine.get` | read | default | `cloud machine get` | `GET /api/vm/:id` | |
-| `cloud.machine.create` | mutation, mutate-own | opt_in | `cloud machine create` | `POST /api/vm` | idempotency key required; a retry with the same key returns the same machine and makes no second call; the API gets a derived key (below) |
-| `cloud.machine.rename` | mutation, mutate-shared | default | `cloud machine rename` | `PATCH /api/vm/:id` | |
-| `cloud.machine.start` | mutation, mutate-shared | default | `cloud machine start` | `POST /api/vm/:id/resume` | aliases `cloud.machine.resume`, `vm.start`, `vm.resume` |
-| `cloud.machine.pause` | mutation, mutate-shared | opt_in | `cloud machine pause` | `POST /api/vm/:id/pause` | |
-| `cloud.machine.resize` | mutation, mutate-shared | opt_in | `cloud machine resize` | `POST /api/vm/:id/resize` | answers stats with the plan maximums |
-| `cloud.machine.delete` | mutation, destructive | never | `cloud machine delete` (hidden) | `DELETE /api/vm/:id` | origin `user` only, gesture required |
-| `cloud.machine.stats` | read | default | `cloud machine stats` | `GET /api/vm/:id/stats` | |
-| `cloud.machine.idle_policy.set` | mutation, mutate-shared | never | `cloud machine idle-policy set` (hidden) | none | answers `cmux.cloud.unsupported` (gap) |
-| `cloud.snapshot.list` | read | default | `cloud snapshot list` | `GET /api/vm/:id/snapshots` | |
-| `cloud.snapshot.create` | mutation, mutate-own | default | `cloud snapshot create` | `POST /api/vm/:id/snapshot` | |
-| `cloud.snapshot.restore` | mutation, mutate-own | opt_in | `cloud snapshot restore` | `POST /api/vm/restore` | a new machine; same-key retry returns it |
-| `cloud.snapshot.fork` | mutation, mutate-own | opt_in | `cloud snapshot fork` | `POST /api/vm/:id/fork` | a new machine with its `snapshotId`; same-key retry returns it |
-| `cloud.snapshot.delete` | mutation, destructive | never | `cloud snapshot delete` (hidden) | `DELETE /api/vm/:id/snapshots/:sid` | origin `user` only, gesture required |
-| `cloud.plan.get` | read | default | `cloud plan get` | `GET /api/vm` (`limits`) | no plan logic in cmux |
-| `cloud.usage.get` | read | default | `cloud usage get` | `GET /api/vm` (`limits`) | |
+| `cloud.auth.status` | read | default | `auth status` | none (host) | the host answers from its sign-in |
+| `cloud.machine.list` | read | default | `machine list` | `GET /api/vm` | replaces the projection |
+| `cloud.machine.get` | read | default | `machine get` | `GET /api/vm/:id` | |
+| `cloud.machine.create` | mutation, mutate-own | opt_in | `machine create` | `POST /api/vm` | idempotency key required; a retry with the same key returns the same machine and makes no second call; the API gets a derived key (below) |
+| `cloud.machine.rename` | mutation, mutate-shared | default | `machine rename` | `PATCH /api/vm/:id` | |
+| `cloud.machine.start` | mutation, mutate-shared | default | `machine start` | `POST /api/vm/:id/resume` | aliases `cloud.machine.resume`, `vm.start`, `vm.resume` |
+| `cloud.machine.pause` | mutation, mutate-shared | opt_in | `machine pause` | `POST /api/vm/:id/pause` | |
+| `cloud.machine.resize` | mutation, mutate-shared | opt_in | `machine resize` | `POST /api/vm/:id/resize` | answers stats with the plan maximums |
+| `cloud.machine.delete` | mutation, destructive | never | `machine delete` (hidden) | `DELETE /api/vm/:id` | origin `user` only, gesture required |
+| `cloud.machine.stats` | read | default | `machine stats` | `GET /api/vm/:id/stats` | |
+| `cloud.machine.idle_policy.set` | mutation, mutate-shared | never | `machine idle-policy set` (hidden) | none | answers `cmux.cloud.unsupported` (gap) |
+| `cloud.snapshot.list` | read | default | `snapshot list` | `GET /api/vm/:id/snapshots` | |
+| `cloud.snapshot.create` | mutation, mutate-own | default | `snapshot create` | `POST /api/vm/:id/snapshot` | |
+| `cloud.snapshot.restore` | mutation, mutate-own | opt_in | `snapshot restore` | `POST /api/vm/restore` | a new machine; same-key retry returns it |
+| `cloud.snapshot.fork` | mutation, mutate-own | opt_in | `snapshot fork` | `POST /api/vm/:id/fork` | a new machine with its `snapshotId`; same-key retry returns it |
+| `cloud.snapshot.delete` | mutation, destructive | never | `snapshot delete` (hidden) | `DELETE /api/vm/:id/snapshots/:sid` | origin `user` only, gesture required |
+| `cloud.plan.get` | read | default | `plan get` | `GET /api/vm` (`limits`) | no plan logic in cmux |
+| `cloud.usage.get` | read | default | `usage get` | `GET /api/vm` (`limits`) | |
 
 Every op has `remote_relay: deny` and `queue_offline: false`. Every mutation needs an idempotency key (it rides the `apps-run` envelope); a read with a key is refused. The server records each attempt before the Cloud API call and the result after a success, for the life of the process: the same key with the same op and args returns the recorded result with no call, the same key with another op or other args is `cmux.cloud.idempotency_conflict` (also after a failure), and refused args free the key. The Cloud API gets `Idempotency-Key = sha256(op, canonical args, key)`, because it matches keys per team without comparing the op or the body; a retry after a lost answer sends the same derived key, so the Cloud API returns the first machine. Ids are checked against `[A-Za-z0-9][A-Za-z0-9_-]{0,127}` before they enter a path; display names follow the Cloud API (1 to 64 characters, no control characters).
 
@@ -62,6 +62,7 @@ The server is the only writer of the machine projection. A list replaces it; a g
 
 ## Gaps
 
+- CLI paths are app-relative (R73 S1). `cloud` is a reserved CLI word (built-in `cmux cloud`), so the manifest has no `cli.name` and the verbs run as `cmux apps run cmux/cloud <path>` until the CLI owner maps the reserved word to this first-party app.
 - The catalog fragment schema has no `aliases` field. Aliases (`cmux.cloud.*`, `cloud.machine.resume`, the `vm.*` relay names) live only in the server's table, so the CLI and MCP do not offer them. For a `vm.*` name the server maps the relay args (`vm_id` to `machine`, `snapshot_id` to `snapshot`).
 - The fragment validator needs op names in the fragment's family, so the fragment says `cloud.machine.list`, not `cmux.cloud.machine.list`.
 - No idle policy route in the Cloud API: `cloud.machine.idle_policy.set` answers `unsupported`.

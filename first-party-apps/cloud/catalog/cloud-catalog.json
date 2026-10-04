@@ -35,7 +35,7 @@
         ]
       },
       "cli": {
-        "path": "cloud auth status",
+        "path": "auth status",
         "visible": true
       },
       "mcp": {
@@ -182,7 +182,7 @@
         ]
       },
       "cli": {
-        "path": "cloud machine list",
+        "path": "machine list",
         "visible": true
       },
       "mcp": {
@@ -324,7 +324,7 @@
         }
       },
       "cli": {
-        "path": "cloud machine get",
+        "path": "machine get",
         "visible": true
       },
       "mcp": {
@@ -471,7 +471,7 @@
         }
       },
       "cli": {
-        "path": "cloud machine create",
+        "path": "machine create",
         "visible": true
       },
       "mcp": {
@@ -627,7 +627,7 @@
         }
       },
       "cli": {
-        "path": "cloud machine rename",
+        "path": "machine rename",
         "visible": true
       },
       "mcp": {
@@ -769,7 +769,7 @@
         }
       },
       "cli": {
-        "path": "cloud machine start",
+        "path": "machine start",
         "visible": true
       },
       "mcp": {
@@ -917,7 +917,7 @@
         }
       },
       "cli": {
-        "path": "cloud machine pause",
+        "path": "machine pause",
         "visible": true
       },
       "mcp": {
@@ -1047,7 +1047,7 @@
         }
       },
       "cli": {
-        "path": "cloud machine resize",
+        "path": "machine resize",
         "visible": true
       },
       "mcp": {
@@ -1095,7 +1095,7 @@
         ]
       },
       "cli": {
-        "path": "cloud machine delete",
+        "path": "machine delete",
         "visible": false
       },
       "mcp": {
@@ -1209,7 +1209,7 @@
         }
       },
       "cli": {
-        "path": "cloud machine stats",
+        "path": "machine stats",
         "visible": true
       },
       "mcp": {
@@ -1263,7 +1263,7 @@
         ]
       },
       "cli": {
-        "path": "cloud machine idle-policy set",
+        "path": "machine idle-policy set",
         "visible": false
       },
       "mcp": {
@@ -1335,7 +1335,7 @@
         ]
       },
       "cli": {
-        "path": "cloud snapshot list",
+        "path": "snapshot list",
         "visible": true
       },
       "mcp": {
@@ -1401,7 +1401,7 @@
         }
       },
       "cli": {
-        "path": "cloud snapshot create",
+        "path": "snapshot create",
         "visible": true
       },
       "mcp": {
@@ -1549,7 +1549,7 @@
         }
       },
       "cli": {
-        "path": "cloud snapshot restore",
+        "path": "snapshot restore",
         "visible": true
       },
       "mcp": {
@@ -1704,7 +1704,7 @@
         }
       },
       "cli": {
-        "path": "cloud snapshot fork",
+        "path": "snapshot fork",
         "visible": true
       },
       "mcp": {
@@ -1766,7 +1766,7 @@
         ]
       },
       "cli": {
-        "path": "cloud snapshot delete",
+        "path": "snapshot delete",
         "visible": false
       },
       "mcp": {
@@ -1846,7 +1846,7 @@
         }
       },
       "cli": {
-        "path": "cloud plan get",
+        "path": "plan get",
         "visible": true
       },
       "mcp": {
@@ -1901,7 +1901,7 @@
         }
       },
       "cli": {
-        "path": "cloud usage get",
+        "path": "usage get",
         "visible": true
       },
       "mcp": {
