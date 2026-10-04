@@ -158,6 +158,11 @@
       async function finishSend(page, box, bodyStart, msg) {
         const shown = (await box.innerText()).replace(/\s+/g, " ");
         if (bodyStart && !shown.includes(bodyStart.replace(/\s+/g, " "))) throw new S.SiteError("compose_mismatch", "gmail.send: the compose window did not receive the drafted body; nothing was sent");
+        // The account this page sends as, read in the page right before
+        // Send (another session can sign an account in while it loads and
+        // move another account to the drafted /u/ index). A switch between
+        // this read and the click is the remaining window.
+        await S.shared.google.checkPageAccount(t, "gmail.send", page, msg.accountEmail);
         await page.locator('div[role="button"][data-tooltip^="Send"], div[role="button"][aria-label^="Send"]').last().click();
         await t.waitIn(page, () => /Message sent/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "gmail", timeout: 30000, what: "Gmail to confirm the message was sent" });
         // Gmail holds a sent message for its undo window in this page; keep
@@ -213,6 +218,7 @@
             // and a reply the thread's messages as previewed.
             const g = S.shared.google;
             const accountEmail = await g.accountEmail(t, "gmail.send", msg.uid);
+            msg.accountEmail = accountEmail;
             if (msg.threadId) msg.messageIds = (await thread(msg.threadId, { uid: msg.uid, format: "text" })).messages.map((x) => x.messageId);
             return {
               category: "[9] representational communication; [14] transmits data to the recipients",

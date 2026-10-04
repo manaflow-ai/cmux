@@ -98,6 +98,9 @@
                   t.assertSignedIn("googleCalendar.create", page, SIGN_IN);
                   const save = page.getByRole("button", { name: "Save", exact: true });
                   await save.first().waitFor({ timeout: 30000 });
+                  // The account this event editor saves as, read in the page
+                  // right before Save (see gmail.send).
+                  await g.checkPageAccount(t, "googleCalendar.create", page, accountEmail);
                   await save.first().click();
                   if (guests.length) {
                     const send = page.getByRole("button", { name: /^Send$/ });

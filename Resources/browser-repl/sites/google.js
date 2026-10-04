@@ -146,5 +146,30 @@
     if (now !== email) throw new S.SiteError("account_changed", `${name}: account u/${uid} is now ${now || "signed out"}, not ${email} as drafted; nothing was sent. Make a new draft and show it to the user again`);
   }
 
-  S.shared.google = { FORMATS, parse, exportURL, dispositionName, fetchFile, exportTo, exportText, listAccounts, accountEmail, checkAccount };
+  // Runs in a Gmail or Calendar page: the emails of the Google account the
+  // page is signed in as, from its title ("Inbox - ada@example.com -
+  // Gmail") and its Google Account button ("Google Account: Ada
+  // (ada@example.com)"); null when the page names none yet.
+  function pageAccountEmails() {
+    const out = new Set();
+    const email = /[^\s()<>"',;:]+@[^\s()<>"',;:]+\.[A-Za-z]{2,}/g;
+    const title = / - ([^\s]+@[^\s]+\.[A-Za-z]{2,}) - /.exec(document.title || "");
+    if (title) out.add(title[1].toLowerCase());
+    for (const el of document.querySelectorAll('[aria-label^="Google Account"]')) for (const m of (el.getAttribute("aria-label") || "").matchAll(email)) out.add(m[0].toLowerCase());
+    return out.size ? [...out] : null;
+  }
+
+  // Fails unless the loaded page (the one whose button the caller clicks
+  // next) is signed in as `email`: account_changed when it names another
+  // account, account_unknown when it names none. The /u/ index is
+  // positional, so a sign-in by another session while the page loads can
+  // put another account behind the drafted index after checkAccount.
+  async function checkPageAccount(t, name, page, email) {
+    const found = await t.waitIn(page, pageAccountEmails, undefined, { timeout: 10000, what: "the page to name its Google account" }).catch(() => null);
+    if (!found) throw new S.SiteError("account_unknown", `${name}: could not tell which Google account ${page.url().split("?")[0]} is signed in as; nothing was sent`);
+    const other = found.find((e) => e !== String(email).toLowerCase());
+    if (other) throw new S.SiteError("account_changed", `${name}: the page is signed in as ${other}, not ${email} as drafted; nothing was sent. Make a new draft and show it to the user again`);
+  }
+
+  S.shared.google = { FORMATS, parse, exportURL, dispositionName, fetchFile, exportTo, exportText, listAccounts, accountEmail, checkAccount, checkPageAccount };
 })(typeof globalThis !== "undefined" ? globalThis : this);
