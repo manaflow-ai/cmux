@@ -10,8 +10,8 @@ private typealias JSON = CmuxNextSettings.JSONValue
 /// the agent cursor visibility resolver answers right now. With `target`
 /// (a browser tab id) only that tab, else every browser tab. Each entry:
 /// `target`, `visibility` (`kind` visible / hidden / notDrawn with its
-/// window, rects, anchor or reason), `placements` (what each window's shown
-/// content would draw: visible / hidden / elsewhere with rects) and
+/// window, rects, anchor or reason), `placements` (what each window's cursor
+/// host would draw, in window content-view coordinates (flipped): visible / hidden / elsewhere with rects) and
 /// `snapshot_json` (the resolver input, the same shape as
 /// schemas/agent-cursor-visibility/vectors.json). Read-only.
 enum DebugAgentCursor {
@@ -25,10 +25,9 @@ enum DebugAgentCursor {
             return .object([
                 "target": .string(target),
                 "visibility": encode(result),
-                "placements": .array(services.windows.controllers.compactMap { controller -> JSON? in
-                    guard let content = controller.content else { return nil }
-                    let placement = result.placement(forWindow: controller.state.id, overlay: content.layoutView.bounds)
-                    return .object(["window": .string(controller.state.id), "placement": encode(placement)])
+                "placements": .array(services.windows.controllers.map { controller -> JSON in
+                    .object(["window": .string(controller.state.id),
+                             "placement": encode(result.placement(forWindow: controller.state.id))])
                 }),
                 "snapshot_json": .string(json),
             ])

@@ -54,9 +54,15 @@ final class AgentCursorVisibilitySource {
         stopObserving()
     }
 
-    /// The resolver of one workspace content's cursor stack: it draws only
-    /// while that content is the one its window shows (a parked content's
-    /// plane is off screen).
+    /// The resolver of one window's cursor host (the window-level overlay
+    /// layer): placements in the window's content-view coordinates, flipped.
+    func resolver(forWindow windowID: String) -> any AgentCursorTargetResolving {
+        AgentCursorWindowResolver(windowID: windowID, source: self)
+    }
+
+    /// The resolver of one workspace content's cursor stack (until the host
+    /// moves to the window layer): it draws only while that content is the
+    /// one its window shows, with rects moved into its layout root.
     func resolver(for content: WorkspaceContentController) -> any AgentCursorTargetResolving {
         AgentCursorContentResolver(content: content, source: self)
     }
@@ -148,7 +154,35 @@ final class AgentCursorContentResolver: AgentCursorTargetResolving {
     }
 
     func placement(forTarget targetID: String) -> AgentCursorPlacement {
-        guard let source, let content, let window = source.windowID(showing: content) else { return .elsewhere }
-        return source.resolve(targetID).placement(forWindow: window, overlay: content.layoutView.bounds)
+        guard let source, let content, let window = source.windowID(showing: content),
+              let contentView = content.layoutView.window?.contentView else { return .elsewhere }
+        let space = AgentCursorContentSpace(contentView)
+        let root: NSView = content.layoutView
+        switch source.resolve(targetID).placement(forWindow: window) {
+        case let .visible(viewport, clip, zoom, magnification):
+            return .visible(content: space.rect(viewport, to: root), clip: space.rect(clip, to: root), zoom: zoom,
+                            magnification: magnification)
+        case let .hidden(anchor):
+            // A sidebar row lies outside the layout plane and draws only once the host is window-level.
+            return .hidden(anchor: space.rect(anchor, to: root))
+        case .elsewhere:
+            return .elsewhere
+        }
+    }
+}
+
+/// One window's `AgentCursorTargetResolving` for the window-level cursor
+/// host: the resolver's rects as they are (window content view, flipped).
+final class AgentCursorWindowResolver: AgentCursorTargetResolving {
+    let windowID: String
+    private weak var source: AgentCursorVisibilitySource?
+
+    init(windowID: String, source: AgentCursorVisibilitySource) {
+        self.windowID = windowID
+        self.source = source
+    }
+
+    func placement(forTarget targetID: String) -> AgentCursorPlacement {
+        source?.resolve(targetID).placement(forWindow: windowID) ?? .elsewhere
     }
 }

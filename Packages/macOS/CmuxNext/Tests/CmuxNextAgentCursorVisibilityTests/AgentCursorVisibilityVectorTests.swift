@@ -69,15 +69,13 @@ import Testing
         }
     }
 
-    // MARK: Placement for one window's overlay model
-
-    private let overlay = CGRect(x: 0, y: 0, width: 1000, height: 700)
+    // MARK: Placement for one window's cursor host
 
     @Test func aVisibleTargetPlacesItsViewportOnlyInItsWindow() {
         let viewport = CGRect(x: 700, y: 72, width: 500, height: 628)
         let result = AgentCursorVisibility.visible(window: "w1", viewport: viewport, clip: viewport, zoom: 1.5)
-        #expect(result.placement(forWindow: "w1", overlay: overlay) == .visible(content: viewport, clip: viewport, zoom: 1.5, magnification: 1))
-        #expect(result.placement(forWindow: "w2", overlay: overlay) == .elsewhere)
+        #expect(result.placement(forWindow: "w1") == .visible(content: viewport, clip: viewport, zoom: 1.5, magnification: 1))
+        #expect(result.placement(forWindow: "w2") == .elsewhere)
     }
 
     /// Window content-view space: the sidebar row anchor stays where the row
@@ -85,20 +83,20 @@ import Testing
     @Test func aSidebarRowAnchorStaysAtTheRow() {
         let row = CGRect(x: 8, y: 80, width: 224, height: 28)
         let result = AgentCursorVisibility.hidden(window: "w1", anchor: .workspaceRow, rect: row)
-        #expect(result.placement(forWindow: "w1", overlay: overlay) == .hidden(anchor: row))
+        #expect(result.placement(forWindow: "w1") == .hidden(anchor: row))
         let left = CGRect(x: -240, y: 80, width: 220, height: 28)
         #expect(AgentCursorVisibility.hidden(window: "w1", anchor: .workspaceRow, rect: left)
-            .placement(forWindow: "w1", overlay: overlay) == .hidden(anchor: left))
+            .placement(forWindow: "w1") == .hidden(anchor: left))
     }
 
     @Test func anAnchorInsideThePlaneIsKept() {
         let chip = CGRect(x: 8, y: 4, width: 110, height: 28)
         let result = AgentCursorVisibility.hidden(window: "w1", anchor: .tabChip, rect: chip)
-        #expect(result.placement(forWindow: "w1", overlay: overlay) == .hidden(anchor: chip))
+        #expect(result.placement(forWindow: "w1") == .hidden(anchor: chip))
     }
 
     @Test func notDrawnIsElsewhereInEveryWindow() {
-        #expect(AgentCursorVisibility.notDrawn(.minimized).placement(forWindow: "w1", overlay: overlay) == .elsewhere)
-        #expect(AgentCursorVisibility.notDrawn(.otherSpace).placement(forWindow: "w1", overlay: overlay) == .elsewhere)
+        #expect(AgentCursorVisibility.notDrawn(.minimized).placement(forWindow: "w1") == .elsewhere)
+        #expect(AgentCursorVisibility.notDrawn(.otherSpace).placement(forWindow: "w1") == .elsewhere)
     }
 }
