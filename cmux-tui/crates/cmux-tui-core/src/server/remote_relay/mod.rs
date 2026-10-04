@@ -91,7 +91,9 @@ impl super::ClientRegistry {
         self.state.lock().unwrap().clients.get(&client).map(|record| record.transport)
     }
 
-    /// True for a connection that came through the remote entry.
+    /// True for a connection that came through the remote entry (tests;
+    /// dispatch uses `Mux::is_remote_client`, which also fails closed).
+    #[cfg(test)]
     pub(super) fn is_remote(&self, client: u64) -> bool {
         matches!(self.transport_of(client), Some(ClientTransport::Remote))
     }
