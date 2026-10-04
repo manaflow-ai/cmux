@@ -215,7 +215,10 @@ fn refusals_carry_the_catalog_codes_and_the_owner_data() {
 }
 
 #[test]
-fn only_the_hosting_app_publishes_domains_and_the_team_policy() {
+fn domains_and_the_team_policy_are_refused_from_every_socket_caller() {
+    // A capability a client declares on a same-uid socket is not authority:
+    // until the daemon verifies the app's code signature, no caller may
+    // publish domains or replace the team policy layer.
     let fixture = Fixture::new("{}", &[]);
     let publish = request(
         "settings.domains.publish",
@@ -229,34 +232,33 @@ fn only_the_hosting_app_publishes_domains_and_the_team_policy() {
         Some("t1"),
     );
     let cli = fixture.client(ClientTransport::Unix);
-    for line in [&publish, &team] {
-        let refused = fixture.send(&cli, line);
-        assert_eq!(error_code(&refused), "operation.failed");
-        assert_eq!(refused["error"]["details"]["extra"]["required_authority"], "hosting_app");
-    }
+    let declared = fixture.client(ClientTransport::Unix);
+    declare_host(&fixture, &declared);
     let remote = fixture.client(ClientTransport::WebSocket);
     declare_host(&fixture, &remote);
-    assert_eq!(error_code(&fixture.send(&remote, &publish)), "operation.failed");
-
-    let app = fixture.client(ClientTransport::Unix);
-    declare_host(&fixture, &app);
-    let published = fixture.send(&app, &publish);
-    assert_eq!(published["ok"], true, "{published}");
+    for client in [&cli, &declared, &remote] {
+        for line in [&publish, &team] {
+            let refused = fixture.send(client, line);
+            assert_eq!(error_code(&refused), "operation.failed", "{refused}");
+            assert_eq!(
+                refused["error"]["details"]["extra"]["required_authority"],
+                "attested_hosting_app"
+            );
+        }
+    }
+    // Nothing changed: no domain narrows themes, no team manages a key.
     let theme = fixture.call(
         "settings.set",
         json!({"key": "appearance.theme", "value": "Dracula"}),
         Some("x"),
     );
-    assert_eq!(error_code(&theme), "settings.invalid");
-    let enforced = fixture.send(&app, &team);
-    assert_eq!(enforced["ok"], true, "{enforced}");
-    assert_eq!(enforced["result"]["value"]["keys"], json!(["ui.animationSpeed"]));
-    let managed = fixture.call(
+    assert_eq!(theme["ok"], true, "{theme}");
+    let speed = fixture.call(
         "settings.set",
         json!({"key": "ui.animationSpeed", "value": "fast"}),
         Some("y"),
     );
-    assert_eq!(managed["error"]["details"]["team"], "Acme");
+    assert_eq!(speed["ok"], true, "{speed}");
 }
 
 #[test]
