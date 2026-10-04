@@ -10438,7 +10438,7 @@ struct CMUXCLI {
             commandName: "reorder-workspace",
             valueOptions: Self.reorderWorkspaceValueOptions,
             flags: ["--dry-run"],
-            maxPositionals: 1
+            maxPositionals: optionValue(commandArgs, name: "--workspace") == nil ? 1 : 0
         )
         let workspaceRaw = optionValue(commandArgs, name: "--workspace")
             ?? firstPositionalArgument(commandArgs, valueOptions: Self.reorderWorkspaceValueOptions)
@@ -11113,7 +11113,8 @@ struct CMUXCLI {
             commandName: commandName,
             valueOptions: ["--workspace", "--window"],
             flags: ["--force"],
-            maxPositionals: requireWorkspaceFlag ? 0 : 1
+            // A positional target is only room for one when --workspace isn't given.
+            maxPositionals: requireWorkspaceFlag || optionValue(commandArgs, name: "--workspace") != nil ? 0 : 1
         )
         let target: String?
         if requireWorkspaceFlag {
@@ -11154,7 +11155,8 @@ struct CMUXCLI {
             commandArgs,
             commandName: commandName,
             valueOptions: ["--workspace", "--window"],
-            maxPositionals: requireWorkspaceFlag ? 0 : 1
+            // A positional target is only room for one when --workspace isn't given.
+            maxPositionals: requireWorkspaceFlag || optionValue(commandArgs, name: "--workspace") != nil ? 0 : 1
         )
         let target: String?
         if requireWorkspaceFlag {
@@ -11223,7 +11225,7 @@ struct CMUXCLI {
                 commandArgs,
                 commandName: commandName,
                 valueOptions: ["--title", "--workspace", "--window"],
-                maxPositionals: 1
+                maxPositionals: optionValue(commandArgs, name: "--workspace") == nil ? 1 : 0
             )
             let (titleOpt, rem0) = parseOption(commandArgs, name: "--title")
             let (workspaceArg, rem1) = parseOption(rem0, name: "--workspace")
@@ -11661,7 +11663,7 @@ struct CMUXCLI {
             commandArgs,
             commandName: commandName,
             valueOptions: ["--workspace", "--window"],
-            maxPositionals: 1
+            maxPositionals: optionValue(commandArgs, name: "--workspace") == nil ? 1 : 0
         )
         let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
         let (_, rem1) = parseOption(rem0, name: "--window")

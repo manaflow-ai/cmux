@@ -132,6 +132,13 @@ class WorkspaceMutationArgumentTests(unittest.TestCase):
             (["workspace", "reconnect", WS, "extra"], "extra"),
             (["reorder-workspaces", "--order", WS, "extra"], "extra"),
             (["workspace", "create", "extra"], "extra"),
+            # With --workspace there is no room for a positional target too.
+            (["workspace", "close", "--workspace", WS, "extra"], "extra"),
+            (["workspace", "select", "--workspace", WS, "extra"], "extra"),
+            (["workspace", "rename", "--workspace", WS, "--title", "New", "extra"], "extra"),
+            (["workspace", "reconnect", "--workspace", WS, "extra"], "extra"),
+            (["workspace", "disconnect", "--workspace=" + WS, "extra"], "extra"),
+            (["reorder-workspace", "--workspace", WS, "--index", "0", "extra"], "extra"),
         ):
             self.assert_rejected(args, f"unexpected argument {stray}")
 
