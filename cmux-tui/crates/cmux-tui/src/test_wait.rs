@@ -27,6 +27,10 @@ pub(crate) fn quiet_surface() -> cmux_tui_core::SurfaceOptions {
 /// unrelated events (a live shell's output) restarts it forever, so a lost
 /// awaited event hung the test past 60 s instead of failing
 /// (size_menu_commands_reach_the_shared_sizing_host, R102 rebased head, twice).
+///
+/// The deadline is checked between events: a `handle` call that itself blocks
+/// still hangs the test. No evidence points there yet, so there is no watchdog
+/// thread; add one if a hang shows `handle` on the stack.
 pub(crate) fn recv_until<T>(
     events: &Receiver<T>,
     awaited: &str,
