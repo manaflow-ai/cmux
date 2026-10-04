@@ -837,6 +837,11 @@ impl Hub {
             if models.is_empty() {
                 models.push(json!({"id": "default", "name": "default (agent's choice)"}));
             }
+            super::model_availability::mark_unavailable(
+                &mut models,
+                name,
+                &self.refused_models.lock().unwrap(),
+            );
             out.push(json!({"harness": name, "kind": profile.kind, "isDefault": cfg.default_harness.as_deref() == Some(name), "models": models}));
         }
         json!({"harnesses": out})

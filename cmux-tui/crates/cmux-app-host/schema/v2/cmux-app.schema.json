@@ -225,6 +225,108 @@
         "$ref": "#/$defs/handleRequest"
       }
     },
+    "presentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How the app appears in the shell (app-screens.md 4). Built-in apps (Home, App Store, CodeRouter) use the same fields; nothing has a special code path.",
+      "properties": {
+        "sidebarItem": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section"
+          ],
+          "description": "A sidebar item that opens the app. The user may hide or move it.",
+          "properties": {
+            "section": {
+              "enum": [
+                "top",
+                "middle",
+                "bottom"
+              ]
+            },
+            "title": {
+              "$ref": "#/$defs/text",
+              "description": "Default: the app name."
+            },
+            "icon": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/path"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "symbol"
+                  ],
+                  "properties": {
+                    "symbol": {
+                      "$ref": "#/$defs/symbol"
+                    }
+                  }
+                }
+              ],
+              "description": "Default: the app icon."
+            },
+            "order": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000,
+              "description": "Lower first. 0-99 is reserved for first-party apps, so no app places itself above Home."
+            }
+          }
+        },
+        "screen": {
+          "enum": [
+            "app",
+            "appColumn"
+          ],
+          "description": "app: the app fills the screen. appColumn: a sticky app column next to the normal columns (Home)."
+        },
+        "tab": {
+          "type": "boolean",
+          "description": "The app may also open as a page tab (Open as Tab, drag into a workspace)."
+        },
+        "primaryInput": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Where typing goes when nothing has focus: a CSS selector in a web page, or a scene node id."
+        },
+        "web": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "url"
+          ],
+          "description": "A web app: the URL shown in the browser engine with the app's own profile and the browser's network policy. The install confirmation lists url and origins.",
+          "properties": {
+            "url": {
+              "type": "string",
+              "pattern": "^https://[^/\\s]+(/\\S*)?$",
+              "maxLength": 2048
+            },
+            "profile": {
+              "enum": [
+                "app"
+              ],
+              "description": "app: a browser profile of this app only (cookies stay per app). Default app."
+            },
+            "origins": {
+              "type": "array",
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^https://(\\*\\.)?[a-z0-9.-]{1,253}$"
+              },
+              "description": "Origins the app may navigate to besides the url's own."
+            }
+          }
+        }
+      }
+    },
     "server": {
       "$ref": "#/$defs/server"
     },

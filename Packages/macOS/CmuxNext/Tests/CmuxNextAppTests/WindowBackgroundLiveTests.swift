@@ -30,7 +30,6 @@ extension AppThemeGlobalStateTests {
     private static func mainWindow(_ services: AppServices, blurs: BlurLog) -> MainWindow {
         let model = SidebarModel()
         let root = WindowRootView(sidebar: SidebarContainerView(model: model),
-                                  rail: WindowRailView(model: model, registry: services.registry),
                                   reduceTransparency: { false },
                                   applyWindowBlur: { window, radius in blurs.radii[ObjectIdentifier(window)] = radius })
         let window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 900, height: 600),

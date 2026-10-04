@@ -72,19 +72,6 @@ public nonisolated enum SettingsSchema {
                 ]),
                 default: .string(WindowTitlebarSetting.fallback.rawValue), keywords: ["traffic lights", "title"]
             ),
-            SettingDescriptor(
-                WindowRailSetting.configPath, section: .general, group: window,
-                title: SettingsText.keyed("settings.window.rail", "Action Rail"),
-                help: SettingsText.keyed("settings.window.rail.help",
-                                        "Shows the sidebar's pinned sections as a column of icons beside it."),
-                kind: .choice([
-                    SettingChoice(WindowRailPlacement.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
-                    SettingChoice(WindowRailPlacement.leading.rawValue, SettingsText.keyed("settings.choice.railLeading", "Window Edge")),
-                    SettingChoice(WindowRailPlacement.afterSidebar.rawValue,
-                                  SettingsText.keyed("settings.choice.railAfterSidebar", "After Sidebar")),
-                ]),
-                default: .string(WindowRailSetting.fallback.rawValue), keywords: ["rail", "toolbar", "buttons", "inbox", "accounts"]
-            ),
             newTabKind(group: tabs),
             newTerminalOpensWorkspace(group: tabs),
             SettingDescriptor(

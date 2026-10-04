@@ -2,6 +2,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite-plus";
 import { cmuxCheckConfig } from "../config/vite-plus/check";
+import { cmuxDevServer, DEV_SERVER_PORT } from "./dev-server/plugins";
 
 const outDir = process.env.CMUX_WEBVIEWS_OUT_DIR ?? "../Resources/markdown-viewer/webviews-app";
 
@@ -14,6 +15,10 @@ export default defineConfig({
   ...cmuxCheckConfig({
     fmtIgnorePatterns: [
       "src/diff/generated/**",
+      // scripts/pane-protocol-codegen.ts --check owns these bytes.
+      "src/protocol/generated/**",
+      // Byte-identical copy of the Rust lane's emitted IR.
+      "src/protocol/ir/**",
       "**/*.css",
       "src/agent-session/acpmux/handoff/schema/acpmux-schema.json",
       "src/agent-session/acpmux/icons/cmuxIcons.json",
@@ -22,7 +27,11 @@ export default defineConfig({
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
   },
+  // `bun run dev`: every surface on one port (dev-server/plugins.ts). Build ignores it.
+  server: { host: "127.0.0.1", port: DEV_SERVER_PORT, strictPort: true },
   plugins: [
+    // Serve-only dev hosts (diff sidecar, markdown shell, agent pane pages); never in the build.
+    ...cmuxDevServer(),
     react({
       babel: {
         // React Compiler. React 19 ships the required react/compiler-runtime.

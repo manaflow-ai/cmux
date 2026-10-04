@@ -1837,6 +1837,7 @@ fn validate_registry_browser(browser: &RegistryBrowser) -> anyhow::Result<()> {
 }
 
 mod screen_rows;
+pub(crate) use screen_rows::repair_resources_at_open;
 mod viewport;
 use screen_rows::upsert_resource_screen;
 use viewport::validate_registry_viewport;
@@ -3931,7 +3932,7 @@ fn tombstone_resource_screen(
         require_known_resource(transaction, screen_id, "screen")?;
         return Ok(());
     };
-    screen_rows::delete_side_tables(transaction, screen_id)?;
+    screen_rows::delete_side_tables(transaction, screen_id, revision)?;
     let panes = {
         let mut statement = transaction.prepare(
             "SELECT public_id FROM resource_panes
@@ -4694,12 +4695,7 @@ fn validate_touched_screen(transaction: &Transaction<'_>, screen_id: &str) -> an
     {
         anyhow::bail!("screen {screen_id} selects a pane outside its layout");
     }
-    let mut split_ids = Vec::new();
-    collect_screen_split_public_ids(&layout, &viewport, &mut split_ids);
-    for split in split_ids {
-        validate_identity_state(transaction, &split, "split", true)?;
-    }
-    Ok(())
+    screen_rows::validate_screen_splits(transaction, screen_id, &layout, &viewport)
 }
 
 fn validate_touched_pane(transaction: &Transaction<'_>, pane_id: &str) -> anyhow::Result<()> {

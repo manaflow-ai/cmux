@@ -167,6 +167,9 @@ wait_for_tree() {
 # On a developer checkout, waiting is pointless when the last commit that
 # changed the binary's inputs is on no remote branch: nothing will publish
 # it. CI and fleet checkouts may lack remote-tracking refs, so they wait.
+# Local remote-tracking refs can be stale (an `nx-remote --ref` tree fetches
+# its commit by SHA into a host mirror), so before refusing, the branch heads
+# origin has now are checked too.
 refuse_unpushed_source() {
   [[ -n "${GITHUB_ACTIONS:-}" || -n "${CI_JOB_DIR:-}" ]] && return 0
   [[ "$(git -C "$repo_root" rev-parse --is-shallow-repository 2>/dev/null)" == false ]] || return 0
@@ -175,12 +178,27 @@ refuse_unpushed_source() {
   last="$(git -C "$repo_root" rev-list -1 HEAD -- cmux-tui ghostty ghostty-next 2>/dev/null)" || return 0
   [[ -n "$last" ]] || return 0
   [[ -n "$(git -C "$repo_root" branch -r --contains "$last" 2>/dev/null | head -n 1)" ]] && return 0
+  on_origin_branch "$last" && return 0
   {
     echo "error: commit $last, the last change to cmux-tui, ghostty or ghostty-next here, is on no remote branch,"
     echo "  so no workflow will publish its cmux-tui. Push it (to feat-cmux-next, feat-cmux-next-acpmux or"
     echo "  cmux-tui-pin-<short-sha>), or bundle a local build with CMUX_NEXT_TUI_BIN=<path>."
   } >&2
   exit 1
+}
+
+# True when a branch head on origin now (git ls-remote, no fetch) contains
+# <commit>. Heads this clone lacks the objects for are skipped. When origin
+# cannot be reached the answer is false: the local refs decide, as before.
+on_origin_branch() {
+  local commit="$1" heads sha
+  heads="$(git -C "$repo_root" ls-remote --heads origin 2>/dev/null)" || return 1
+  while read -r sha _; do
+    [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || continue
+    git -C "$repo_root" cat-file -e "$sha^{commit}" 2>/dev/null || continue
+    git -C "$repo_root" merge-base --is-ancestor "$commit" "$sha" 2>/dev/null && return 0
+  done <<<"$heads"
+  return 1
 }
 
 # True when <binary> reports a build commit whose tree key is this

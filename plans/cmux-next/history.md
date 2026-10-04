@@ -29,7 +29,7 @@ journal (cmux-tui/spec/session-journal.md).
 
 | Kind | Fact | Owner (writes) | Store | Retention | Restore action |
 | --- | --- | --- | --- | --- | --- |
-| `page` | a finished main-frame navigation: URL, title, time, browser profile, tab | the app (browsers always run locally) | per browser profile, app-local SQLite `BrowserProfiles/<profile>/History.sqlite` (one history database per profile) | 90 days, at most 100,000 visits per profile | Open (current tab, new tab) |
+| `page` | a finished main-frame navigation: URL, title, time, browser profile, tab | the daemon history module `cmux-history` (R62, decided 2026-10-04; react-pages.md 2.2); the app reports each visit with `cmux.history.visit.record` | per browser profile, SQLite in the daemon state dir (until H3 lands: app-local `BrowserProfiles/<profile>/History.sqlite`) | 90 days, at most 100,000 visits per profile | Open (current tab, new tab) |
 | `location` | where the user was: window, space, machine, workspace, screen, pane, tab (the "where was I" trail) | the app, from each window's settled focus | home session personal projection `history.trail` (≤ 1 MiB CAS document) | 200 entries | Go Back / Go Forward, Go To |
 | `closed` | a closed tab, screen or workspace with what reopens it (kind, pane, index, cwd, URL, engine, terminal id) | the app observes the daemon trees (a tab gone while its workspace lives); later the daemon (`closed-history-v1`) | memory (25 tabs, 20 screens) | session of the app; terminals reopen live within the daemon's 30 s reap grace, else a new shell in the same directory | Reopen |
 | `layout` | a structural layout change on a screen (split, column resize, swap, zoom, tab move) | the daemon (`layout-undo-v1`, 32 entries per screen, memory) | daemon | daemon lifetime | Undo Layout Change |
@@ -38,10 +38,13 @@ journal (cmux-tui/spec/session-journal.md).
 
 Why these owners:
 
-- Page visits stay app-local because pages render only in the local app and
-  history can exceed the 1 MiB projection limit. The home session is the same
-  Mac, so moving it there buys nothing. The engines stay the source of each
-  tab's own back/forward list (with scroll and form state).
+- Page visits move to the daemon history module (R62, decided 2026-10-04,
+  react-pages.md 2.2): the CLI, MCP and TUI read page history with no app
+  running. The module keeps its own SQLite file per profile, so the 1 MiB
+  projection limit does not apply. The browser in the app still observes
+  each navigation first and reports it with `cmux.history.visit.record`. The
+  engines stay the source of each tab's own back/forward list (with scroll
+  and form state).
 - The location trail is personal state (data-model.md 1.2c): two Macs that
   attach to one build box keep separate trails. A projection survives app
   relaunch and daemon restart and costs no daemon change.

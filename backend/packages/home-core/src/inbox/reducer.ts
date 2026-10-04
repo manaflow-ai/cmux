@@ -69,6 +69,39 @@ export interface InboxHead {
   readonly user?: string
   /** The position the next pin without an explicit position gets. */
   readonly next_pin: number
+  /**
+   * Badge totals over entries that are not removed (muted and archived included; clients filter):
+   * unread messages, mentions, and conversations that are unread or marked unread. Absent in heads
+   * written before totals existed; the next change computes them from the rows once.
+   */
+  readonly totals?: InboxTotals
+}
+
+export interface InboxTotals {
+  readonly unread: number
+  readonly mentions: number
+  readonly conversations: number
+}
+
+const contribution = (entry: InboxEntry | undefined): InboxTotals =>
+  !entry || entry.removed ? { unread: 0, mentions: 0, conversations: 0 } : { unread: entry.unread, mentions: entry.mentions, conversations: entry.unread > 0 || entry.marked_unread ? 1 : 0 }
+
+/** Totals after one entry changes from `before` to `after`. */
+export const nextTotals = (totals: InboxTotals, before: InboxEntry | undefined, after: InboxEntry | undefined): InboxTotals => {
+  const a = contribution(before)
+  const b = contribution(after)
+  return {
+    unread: Math.max(0, totals.unread - a.unread + b.unread),
+    mentions: Math.max(0, totals.mentions - a.mentions + b.mentions),
+    conversations: Math.max(0, totals.conversations - a.conversations + b.conversations)
+  }
+}
+
+/** Totals from every entry (a head written before totals existed). */
+export const totalsOf = (entries: Iterable<InboxEntry>): InboxTotals => {
+  let t: InboxTotals = { unread: 0, mentions: 0, conversations: 0 }
+  for (const e of entries) t = nextTotals(t, undefined, e)
+  return t
 }
 
 export const INITIAL_INBOX_HEAD: InboxHead = { next_pin: 0 }

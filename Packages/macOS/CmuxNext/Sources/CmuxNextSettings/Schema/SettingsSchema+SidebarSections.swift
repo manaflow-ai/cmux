@@ -42,6 +42,7 @@ extension SettingsSchema {
                 keywords: ["sidebar", "sections", "sticky", "scroll"]
             ),
             SidebarSectionsSetting.showWorkspaceTabsDescriptor(group: sidebar),
+            SidebarSectionsSetting.minimalModeDescriptor(group: sidebar),
         ]
     }
 }

@@ -7,6 +7,8 @@
 //! extra or unknown field fails. Memory cases call one pure memory function.
 //! The TypeScript core runs the same file, so both brains stay equal.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -19,6 +21,11 @@ pub const FORMAT: &str = "cmux-chief-corpus/1";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Corpus {
     pub format: String,
+    /// The wire constants both hosts use (`rules.rs`, TypeScript `rules.ts`):
+    /// the default conversation's create key, title and Chief name (the
+    /// app's Home Chief conversation), the session name and participant ids.
+    #[serde(default)]
+    pub rules: Option<BTreeMap<String, String>>,
     #[serde(default)]
     pub cases: Vec<Case>,
     #[serde(default)]
@@ -38,8 +45,25 @@ pub struct Case {
 pub struct Step {
     /// Milliseconds since the epoch.
     pub now: u64,
-    pub input: Input,
+    /// The input as a JSON value. Absent when `input_text` is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<Input>,
+    /// The input as wire text, parsed here with serde_json: it pins number
+    /// text a JSON value cannot carry (`1.0` is the integer 1 in both cores).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_text: Option<String>,
     pub effects: Vec<Value>,
+}
+
+impl Step {
+    /// The step's input: `input_text` parsed when present, else `input`.
+    pub fn input(&self) -> Result<Input, String> {
+        match (&self.input_text, &self.input) {
+            (Some(text), _) => serde_json::from_str(text).map_err(|e| e.to_string()),
+            (None, Some(input)) => Ok(input.clone()),
+            (None, None) => Err("no input".to_owned()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,8 +81,9 @@ pub fn run_case(case: &Case) -> Result<(), String> {
     let mut core = Core::new(case.state.clone());
     let log = json!("log");
     for (index, step) in case.steps.iter().enumerate() {
+        let input = step.input().map_err(|e| format!("{}: step {index}: {e}", case.name))?;
         let got: Vec<Effect> = core
-            .step(step.input.clone(), step.now)
+            .step(input, step.now)
             .into_iter()
             .filter(|effect| !matches!(effect, Effect::Log { .. }))
             .collect();
@@ -102,7 +127,7 @@ fn memory_result(function: &str, args: &Value) -> Result<Value, String> {
         let lines = args.get("lines").cloned().unwrap_or_else(|| json!([]));
         let nodes = args.get("nodes").cloned().unwrap_or_else(|| json!({}));
         let lines: Vec<String> = serde_json::from_value(lines).map_err(|e| e.to_string())?;
-        let nodes: std::collections::BTreeMap<String, String> =
+        let nodes: BTreeMap<String, String> =
             serde_json::from_value(nodes).map_err(|e| e.to_string())?;
         let mut store = ArrayMemoryStore { lines, ..Default::default() };
         for (key, summary) in nodes {
@@ -137,7 +162,30 @@ pub fn run(corpus: &Corpus) -> Vec<String> {
         failures.push(format!("format {} is not {FORMAT}", corpus.format));
         return failures;
     }
+    let rules = corpus_rules();
+    if corpus.rules.as_ref() != Some(&rules) {
+        failures.push(format!("rules differ: want {:?} got {rules:?}", corpus.rules));
+    }
     failures.extend(corpus.cases.iter().filter_map(|case| run_case(case).err()));
     failures.extend(corpus.memory.iter().filter_map(|case| run_memory_case(case).err()));
     failures
+}
+
+/// The wire constants the corpus pins (`rules`), from `rules.rs`.
+pub fn corpus_rules() -> BTreeMap<String, String> {
+    use crate::rules::{
+        AGENT_MUX, CHIEF_CONVERSATION_TITLE, CHIEF_DISPLAY_NAME, DEFAULT_CONVERSATION_KEY,
+        MUX_SESSION_NAME, USER_LOCAL,
+    };
+    [
+        ("agent_mux", AGENT_MUX),
+        ("chief_conversation_title", CHIEF_CONVERSATION_TITLE),
+        ("chief_display_name", CHIEF_DISPLAY_NAME),
+        ("default_conversation_key", DEFAULT_CONVERSATION_KEY),
+        ("mux_session_name", MUX_SESSION_NAME),
+        ("user_local", USER_LOCAL),
+    ]
+    .into_iter()
+    .map(|(key, value)| (key.to_owned(), value.to_owned()))
+    .collect()
 }

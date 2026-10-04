@@ -12,8 +12,15 @@ pub const USER_LOCAL: &str = "user_local";
 pub const AGENT_MUX: &str = "agent_mux";
 /// The Chief's acpmux session name.
 pub const MUX_SESSION_NAME: &str = "mux";
-/// The default conversation's create key.
-pub const DEFAULT_CONVERSATION_KEY: &str = "mux-home-default";
+/// The default conversation's create key: the app's Home Chief conversation
+/// (HomeChiefName.createKey), so the user has one Chief conversation. Before:
+/// "mux-home-default" (a host.json that names it switches once, at the next
+/// daemon connect).
+pub const DEFAULT_CONVERSATION_KEY: &str = "home-chief";
+/// The Home Chief conversation's title and the Chief participant's name (the
+/// app's HomeChiefName).
+pub const CHIEF_CONVERSATION_TITLE: &str = "Chief";
+pub const CHIEF_DISPLAY_NAME: &str = "Chief";
 /// Tag on every agent the Chief started; its value is the Chief's session name.
 pub const PARENT_TAG: &str = "mux.parent";
 /// Prefix of host prompts about child agents.

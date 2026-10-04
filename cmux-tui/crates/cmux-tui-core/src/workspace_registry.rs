@@ -103,7 +103,7 @@ use resource_store::{
     apply_resource_patch, complete_terminal_close_patch, create_resource_schema,
     initialize_resource_mutation_retention, migrate_resource_agent_projections,
     migrate_resource_browser_metadata, migrate_resource_mutations_to_session_scope,
-    migrate_resource_tabs_to_multiview, repair_dangling_terminal_resources,
+    migrate_resource_tabs_to_multiview, repair_resources_at_open,
     resource_tabs_needs_multiview_normalization, validate_resource_invariants,
 };
 pub use screen_store::{
@@ -2725,7 +2725,7 @@ impl WorkspaceRegistry {
             recover_resource_effects(&tx)?;
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
-            repair_dangling_terminal_resources(&tx)?;
+            repair_resources_at_open(&tx)?;
             terminal_keep_store::classify_legacy_terminals(&tx)?;
             tx.commit()?;
         }

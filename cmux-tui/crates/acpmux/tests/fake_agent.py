@@ -192,6 +192,12 @@ def main():
     if os.environ.get("FAKE_IGNORE_TERM") == "1":
         import signal
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    # FAKE_START_GATE=<path>: start (read stdin) only once that file exists: a slow agent start.
+    gate = os.environ.get("FAKE_START_GATE")
+    if gate:
+        import time
+        while not os.path.exists(gate):
+            time.sleep(0.02)
     sessions = 0
     for line in sys.stdin:
         line = line.strip()

@@ -80,5 +80,8 @@ export const migrate = (sql: SqlStore, t: Tables): void => {
   if (!outboxColumns.includes("dead_at")) sql.exec(`ALTER TABLE ${t.outbox} ADD COLUMN dead_at INTEGER`)
   sql.exec(`CREATE INDEX IF NOT EXISTS ${t.outbox}_pending ON ${t.outbox} (channel, id) WHERE sent_at IS NULL AND dead_at IS NULL`)
   sql.exec(`CREATE TABLE IF NOT EXISTS ${t.outbox}_backoff (channel TEXT PRIMARY KEY, attempts INTEGER NOT NULL, next_at INTEGER NOT NULL)`)
+  // Poison failures of the channel's head in a row (transient failures never count toward dead letter).
+  const backoffColumns = sql.exec<{ name: string }>(`PRAGMA table_info(${t.outbox}_backoff)`).map((c) => c.name)
+  if (!backoffColumns.includes("poison")) sql.exec(`ALTER TABLE ${t.outbox}_backoff ADD COLUMN poison INTEGER NOT NULL DEFAULT 0`)
   sql.exec(`INSERT INTO ${t.meta} (key, value) VALUES ('schema_version', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, String(SCHEMA_VERSION))
 }

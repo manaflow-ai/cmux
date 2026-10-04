@@ -52,7 +52,7 @@ describe("feed text sweep", { timeout: 60_000 }, () => {
     const first = await sweepFeedText(deps)
     expect(first).toMatchObject({ skipped: false, users: 3, bound: 2, done: true })
     for (const u of ["user_sweep_a", "user_sweep_b"]) expect(await stored(u)).not.toContain(STALE)
-    const unbound = await runInDurableObject(stub("user_sweep_none"), async (_i: unknown, state) => state.storage.sql.exec("SELECT COUNT(*) AS n FROM do_entity").one().n)
+    const unbound = await runInDurableObject(stub("user_sweep_none"), async (_i: unknown, state) => state.storage.sql.exec("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'do_entity'").one().n)
     expect(Number(unbound)).toBe(0)
     // Paged with a cursor: the second page starts after the last id of the first.
     expect(listed).toEqual([null, "user_sweep_b", "user_sweep_none"])

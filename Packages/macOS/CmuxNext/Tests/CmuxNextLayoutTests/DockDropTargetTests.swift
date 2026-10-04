@@ -40,8 +40,15 @@ import Testing
         }
         #expect(at(10) == nil)
         #expect(at(31) == .newDock(screen: "s", edge: .top))
-        #expect(at(30 + style.dockDropBand) == .newDock(screen: "s", edge: .top))
-        #expect(at(31 + style.dockDropBand) == nil)
+        #expect(at(30 + style.dockTopDropBand) == .newDock(screen: "s", edge: .top))
+        #expect(at(31 + style.dockTopDropBand) == nil)
+    }
+
+    /// The tab strip takes drops 8 pt below its edge, so the top band is
+    /// deeper than the others: below that slop it is as deep as the bottom
+    /// band (dogfood nxdog27: a 24 pt band left about 15 pt to hit).
+    @Test func theTopBandLeavesABottomBandsDepthBelowTheStripSlop() {
+        #expect(style.dockTopDropBand - 8 >= style.dockDropBand)
     }
 
     @Test func anEdgeThatHasADockOpensNoSecondOne() {

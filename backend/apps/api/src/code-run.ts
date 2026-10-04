@@ -1,6 +1,8 @@
 import { exports, RpcTarget, type WorkflowStep, type WorkflowStepConfig } from "cloudflare:workers"
 import { NonRetryableError } from "cloudflare:workflows"
 import { codeBundlePath, type CodeRef, type UsageRecord } from "@cmux/protocol"
+import type { AutomationEgressProps } from "./automation-egress.ts"
+import { CmuxCaps } from "./automation-caps.ts"
 import { CodeStorage, teamRepoName } from "./code-storage.ts"
 import type { Env } from "./env.ts"
 import type { RecordResult } from "./usage-meter-do.ts"
@@ -14,8 +16,9 @@ import type { RecordResult } from "./usage-meter-do.ts"
  * tenant code with cached results. The wrapped step meters every step into the
  * team's UsageMeterDO and stops at the hard cap (A18, A21).
  *
- * The tenant isolate has no network (`globalOutbound: null`) and no bindings
- * until the egress gateway and env.cmux land (slice 4). Limits per invocation:
+ * The tenant isolate reaches the network only through the egress gateway, and
+ * only when its body lists hosts (automation-egress.ts); its only binding is
+ * `env.cmux` (automation-caps.ts), an RpcTarget that holds no credential. Limits per invocation:
  * 10 s CPU, 1,000 subrequests. The tenant module is wrapped by a harness module
  * whose first log line names the run, so the tail attributes CPU and logs to the
  * right run although one warm Dynamic Worker serves every run of the same code.
@@ -38,6 +41,8 @@ export interface CodeRunInput {
   readonly run: string
   readonly automation: string
   readonly ref: CodeRef
+  /** The code body's egress allowlist; empty = no network. */
+  readonly egress?: ReadonlyArray<string>
   readonly input: unknown
 }
 
@@ -63,8 +68,18 @@ const meterOf = (env: Env, team: string) => env.USAGE_METER_DO.get(env.USAGE_MET
 const record = async (env: Env, team: string, records: ReadonlyArray<UsageRecord>): Promise<RecordResult> =>
   (await meterOf(env, team).record(team, records)) as unknown as RecordResult
 
-/** The loader id: one Dynamic Worker per (environment, team, commit, path). Code never changes under an id. */
-export const loaderId = (env: Env, team: string, ref: CodeRef) => `${teamRepoName(env.ENVIRONMENT, team)}:${ref.commit}:${ref.path}`
+/**
+ * The loader id: one Dynamic Worker per (environment, team, automation, commit, path, egress list). Code
+ * and its outbound gateway never change under an id; another egress list is another worker.
+ */
+export const loaderId = async (env: Env, team: string, automation: string, ref: CodeRef, egress: ReadonlyArray<string> = []) => {
+  // The automation is part of the id (review P3): two automations never share module globals,
+  // so one run can never reach another automation's env.cmux or step objects.
+  const base = `${teamRepoName(env.ENVIRONMENT, team)}:${automation}:${ref.commit}:${ref.path}`
+  if (egress.length === 0) return base
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([...egress].sort()))))
+  return `${base}:e${Array.from(digest.slice(0, 8), (b) => b.toString(16).padStart(2, "0")).join("")}`
+}
 
 const loadBundle = async (env: Env, team: string, ref: CodeRef): Promise<string> => {
   if (env.ENVIRONMENT === "test") {
@@ -102,11 +117,11 @@ const harnessModule = (exportName: string) => `
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { mark } from "./cmux-marker.js";
 export class CmuxHarness extends WorkerEntrypoint {
-  async run(meta, event, step) {
+  async run(meta, event, step, cmux) {
     mark(meta.run, meta.automation, meta.invocation);
     const Tenant = (await import("./tenant.js"))[${JSON.stringify(exportName)}];
     if (typeof Tenant !== "function") throw new Error("the export is not a WorkflowEntrypoint class");
-    return new Tenant(this.ctx, this.env).run(event, step);
+    return new Tenant(this.ctx, Object.freeze({ cmux })).run(event, step);
   }
 }
 Object.freeze(CmuxHarness.prototype);
@@ -123,6 +138,11 @@ export const newInvocationId = (): string => {
   const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
   return `inv_${Array.from(crypto.getRandomValues(new Uint8Array(20)), (b) => alphabet[b % 36]).join("")}`
 }
+
+type Journal = (key: string, fn: () => Promise<unknown>) => Promise<unknown>
+const journals = new WeakMap<WrappedStep, Journal>()
+/** The harness-side journal of a run's wrapped step (CmuxCaps uses it for mutations). */
+export const journalOf = (step: WrappedStep): Journal => journals.get(step)!
 
 /** Validates tenant step config: plain object, bounded retries, delay and timeout. */
 const stepConfig = (given: unknown): WorkflowStepConfig => {
@@ -154,6 +174,7 @@ export class WrappedStep extends RpcTarget {
 
   constructor(step: WorkflowStep, env: Env, run: CodeRunInput) {
     super()
+    journals.set(this, (key, fn) => this.#journal(key, fn))
     this.#step = step
     this.#env = env
     this.#run = run
@@ -170,11 +191,11 @@ export class WrappedStep extends RpcTarget {
   }
 
   /** Local checks only (name, reserved prefix, step count): no I/O, so a replay stays cheap. Returns the occurrence key. */
-  #admit(kind: string, name: unknown): string {
+  #admit(kind: string, name: unknown, harness = false): string {
     if (this.#stopped) throw new NonRetryableError(this.#stopped.message, this.#stopped.code)
     if (typeof name !== "string" || name.length === 0 || name.length > 200) this.#stop("step.invalid", "a step name must be 1 to 200 characters")
     // Harness steps use the cmux: prefix; tenant steps never collide with them.
-    if (name.startsWith("cmux:")) this.#stop("step.invalid", `step names starting "cmux:" are reserved (${name})`)
+    if (!harness && name.startsWith("cmux:")) this.#stop("step.invalid", `step names starting "cmux:" are reserved (${name})`)
     this.#steps++
     if (this.#steps > MAX_STEPS_PER_RUN) this.#stop("limit.steps", `a run may take at most ${MAX_STEPS_PER_RUN} steps`)
     // The engine numbers repeated names; so do we, in call order, which a replay repeats exactly.
@@ -216,7 +237,31 @@ export class WrappedStep extends RpcTarget {
     // The callback context is not forwarded: it holds harness objects; tenant code gets the attempt only.
     return this.#step.do(name, stepConfig(typeof a === "function" ? undefined : a), async (ctx) => {
       await this.#meter(occurrence, name, true)
-      return (await callback({ attempt: (ctx as { attempt?: number }).attempt ?? 1 })) as never
+      this.#inCallback++
+      try {
+        return (await callback({ attempt: (ctx as { attempt?: number }).attempt ?? 1 })) as never
+      } finally {
+        this.#inCallback--
+      }
+    })
+  }
+
+  /** Tenant step callbacks running now (a capability mutation inside one is refused). */
+  #inCallback = 0
+
+  /**
+   * A capability mutation as its own durable step `cmux:op:<key>` (review P2): the Workflow
+   * journals the result for the run's whole life, so a replay months later answers from the
+   * journal instead of the owner's 7-day idempotency ledger. Metered like a tenant step.
+   * Refused inside a tenant step callback (a step cannot contain a step). Harness only: reached
+   * through `journalOf`, never as an RPC method of the step object tenant code holds.
+   */
+  async #journal(key: string, fn: () => Promise<unknown>): Promise<unknown> {
+    if (this.#inCallback > 0) throw new Error("capability.in_step: call state-changing env.cmux ops outside step.do; each one is its own durable step")
+    const occurrence = this.#admit("op", `cmux:op:${key}`, true)
+    return this.#step.do(`cmux:op:${key}`, { retries: { limit: 3, delay: 1000, backoff: "exponential" } }, async () => {
+      await this.#meter(occurrence, `cmux:op:${key}`, true)
+      return (await fn()) as never
     })
   }
 
@@ -248,7 +293,7 @@ export class WrappedStep extends RpcTarget {
 }
 
 interface HarnessEntrypoint {
-  run(meta: { run: string; automation: string; invocation: string }, event: { payload: unknown; timestamp: Date; instanceId: string }, step: WrappedStep): Promise<unknown>
+  run(meta: { run: string; automation: string; invocation: string }, event: { payload: unknown; timestamp: Date; instanceId: string }, step: WrappedStep, cmux: CmuxCaps): Promise<unknown>
 }
 
 /**
@@ -259,7 +304,8 @@ interface HarnessEntrypoint {
  */
 export const runCode = async (env: Env, step: WorkflowStep, run: CodeRunInput, startedAt: Date): Promise<unknown> => {
   if (!env.LOADER) throw new CodeRunError("body.unsupported", "this deployment has no Worker Loader binding")
-  const id = loaderId(env, run.team, run.ref)
+  const egress = run.egress ?? []
+  const id = await loaderId(env, run.team, run.automation, run.ref, egress)
   // Gate and start record in one harness step: the engine retries a short meter outage.
   const allowed = await step.do("cmux:start", { retries: { limit: 5, delay: 1000, backoff: "exponential" } }, async () => {
     const day = new Date().toISOString().slice(0, 10)
@@ -281,17 +327,21 @@ export const runCode = async (env: Env, step: WorkflowStep, run: CodeRunInput, s
     mainModule: "harness.js",
     modules: { "harness.js": harnessModule(run.ref.export ?? "default"), "cmux-marker.js": MARKER_MODULE, "tenant.js": fetched ?? (await loadBundle(env, run.team, run.ref)) },
     env: {},
-    globalOutbound: null,
+    // No allowlist: no network at all. Otherwise every fetch goes through the egress gateway.
+    globalOutbound: egress.length === 0 ? null : (exports as unknown as { AutomationEgress: (o: { props: AutomationEgressProps }) => Fetcher }).AutomationEgress({ props: { team: run.team, hosts: [...egress] } }),
     limits: CODE_LIMITS,
     tails: [(exports as unknown as { AutomationTail: (o: { props: typeof props }) => Fetcher }).AutomationTail({ props })]
   }))
   const wrapped = new WrappedStep(step, env, run)
+  const caps = new CmuxCaps(env, { team: run.team, run: run.run, automation: run.automation }, journalOf(wrapped))
   const entry = worker.getEntrypoint("CmuxHarness") as unknown as HarnessEntrypoint
   let result: unknown
   try {
-    result = await entry.run({ run: run.run, automation: run.automation, invocation: newInvocationId() }, { payload: run.input ?? null, timestamp: startedAt, instanceId: run.run }, wrapped)
+    result = await entry.run({ run: run.run, automation: run.automation, invocation: newInvocationId() }, { payload: run.input ?? null, timestamp: startedAt, instanceId: run.run }, wrapped, caps)
   } catch (e) {
     throw wrapped.stopReason() ?? e
+  } finally {
+    caps.close()
   }
   // Tenant code may catch the harness's stop and return normally; the stop still ends the run.
   const stopped = wrapped.stopReason()

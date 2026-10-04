@@ -41,6 +41,10 @@ pub struct HostState {
     /// Child agents: acpmux session id -> its work card.
     #[serde(default)]
     pub children: BTreeMap<String, ChildRecord>,
+    /// Children pruned past `MAX_CHILDREN`, oldest first (at most
+    /// `MAX_PRUNED`): one that comes back gets no second card.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pruned_children: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,7 +87,15 @@ pub struct ChildRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message_id: Option<String>,
     pub edits: u64,
+    /// When it was recorded, among children (prune order; absent reads as 0, ties by id).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<u64>,
 }
+
+/// Most children host.json keeps; past it the oldest finished child with no queued op is pruned.
+pub const MAX_CHILDREN: usize = 100;
+/// Most pruned child ids host.json remembers.
+pub const MAX_PRUNED: usize = 1_000;
 
 impl HostState {
     pub fn is_answered(&self, prompt_id: &str) -> bool {
