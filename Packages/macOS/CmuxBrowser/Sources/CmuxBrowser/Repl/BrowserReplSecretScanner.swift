@@ -20,6 +20,8 @@ struct BrowserReplSecretScanner {
         let mask: [UInt8]
         let utf8: [UInt8]
         let scalars: [Unicode.Scalar]
+        /// Each scalar's UTF-8 bytes.
+        let scalarBytes: [[UInt8]]
         /// One of its characters starts an encoded form too (`%`, `\`,
         /// `&`, `+`), so a match also tries reading it literally first.
         let ambiguous: Bool
@@ -28,6 +30,7 @@ struct BrowserReplSecretScanner {
             self.mask = Array(mask.utf8)
             utf8 = Array(value.utf8)
             scalars = Array(value.unicodeScalars)
+            scalarBytes = scalars.map { Array(String($0).utf8) }
             ambiguous = scalars.contains { "%\\&+".unicodeScalars.contains($0) }
         }
     }
@@ -171,11 +174,11 @@ struct BrowserReplSecretScanner {
     /// itself (a `%`) is read as that form first, or literally first.
     private func matchEncoded(_ value: Value, in input: UnsafeBufferPointer<UInt8>, at start: Int, preferEncoded: Bool) -> Int? {
         var position = start
-        for scalar in value.scalars {
+        for (scalar, bytes) in zip(value.scalars, value.scalarBytes) {
             guard position < input.count else { return nil }
             if preferEncoded, let end = Self.escaped(scalar, in: input, at: position) {
                 position = end
-            } else if let end = Self.bytes(of: scalar, in: input, at: position, preferEncoded: preferEncoded) {
+            } else if let end = Self.bytes(bytes, in: input, at: position, preferEncoded: preferEncoded) {
                 position = end
             } else if !preferEncoded, let end = Self.escaped(scalar, in: input, at: position) {
                 position = end
@@ -186,15 +189,15 @@ struct BrowserReplSecretScanner {
         return position
     }
 
-    /// `scalar`'s UTF-8 bytes, each literal or percent-encoded (either hex
-    /// case), and a space also as `+`.
-    private static func bytes(of scalar: Unicode.Scalar, in input: UnsafeBufferPointer<UInt8>, at start: Int, preferEncoded: Bool) -> Int? {
+    /// A scalar's UTF-8 `bytes`, each literal or percent-encoded (either hex
+    /// case, also twice: `%2540` for `@` in a URL inside a parameter), and
+    /// a space also as `+`.
+    private static func bytes(_ bytes: [UInt8], in input: UnsafeBufferPointer<UInt8>, at start: Int, preferEncoded: Bool) -> Int? {
         var position = start
-        for byte in UTF8.encode(scalar)! {
+        for byte in bytes {
             guard position < input.count else { return nil }
-            let percent = input[position] == UInt8(ascii: "%") && hexByte(input, at: position + 1) == byte
-            if percent, preferEncoded || input[position] != byte {
-                position += 3
+            if let length = percentEncodedLength(of: byte, in: input, at: position), preferEncoded || input[position] != byte {
+                position += length
             } else if input[position] == byte {
                 position += 1
             } else if byte == 0x20, input[position] == UInt8(ascii: "+") {
@@ -206,25 +209,91 @@ struct BrowserReplSecretScanner {
         return position
     }
 
-    /// `scalar` as JSON (`JSONSerialization`) or HTML escapes it.
+    /// The length of `byte` percent-encoded once (`%HH`) or twice
+    /// (`%25HH`) at `start`.
+    private static func percentEncodedLength(of byte: UInt8, in input: UnsafeBufferPointer<UInt8>, at start: Int) -> Int? {
+        guard input[start] == UInt8(ascii: "%") else { return nil }
+        if hexByte(input, at: start + 1) == byte { return 3 }
+        if has(input, at: start, "%25"), hexByte(input, at: start + 3) == byte { return 5 }
+        return nil
+    }
+
+    /// `scalar` escaped as one character: JSON and JavaScript (`\"`, `\n`,
+    /// `\uXXXX` with surrogate pairs, `\u{X}`, `\xHH`), JavaScript's
+    /// `escape` (`%uXXXX`) and HTML (`&amp;`, `&#64;`, `&#x40;`, a numeric
+    /// reference without its semicolon, a legacy name in upper case).
     private static func escaped(_ scalar: Unicode.Scalar, in input: UnsafeBufferPointer<UInt8>, at start: Int) -> Int? {
+        guard start + 1 < input.count else { return nil }
+        let kind = input[start + 1]
         switch input[start] {
         case UInt8(ascii: "\\"):
-            if let short = jsonShortEscapes[scalar], start + 1 < input.count, input[start + 1] == short {
-                return start + 2
+            if let short = jsonShortEscapes[scalar], kind == short { return start + 2 }
+            if kind == UInt8(ascii: "x"), scalar.value < 0x100, hexValue(input, at: start + 2, digits: 2) == scalar.value {
+                return start + 4
             }
-            if scalar.value < 0x20, has(input, at: start, "\\u"), let code = hexValue(input, at: start + 2, digits: 4), code == scalar.value {
-                return start + 6
+            guard kind == UInt8(ascii: "u") else { return nil }
+            if start + 2 < input.count, input[start + 2] == UInt8(ascii: "{") {
+                guard let (value, end) = number(in: input, at: start + 3, hex: true, maximumDigits: 6),
+                      value == scalar.value, end < input.count, input[end] == UInt8(ascii: "}") else { return nil }
+                return end + 1
             }
-            return nil
+            return utf16Escape(scalar, in: input, at: start)
+        case UInt8(ascii: "%"):
+            return kind == UInt8(ascii: "u") || kind == UInt8(ascii: "U") ? utf16Escape(scalar, in: input, at: start) : nil
         case UInt8(ascii: "&"):
-            for entity in htmlEntities[scalar] ?? [] where has(input, at: start, entity) {
-                return start + entity.utf8.count
+            if kind == UInt8(ascii: "#") {
+                let hex = start + 2 < input.count && (input[start + 2] | 0x20) == UInt8(ascii: "x")
+                let digits = start + (hex ? 3 : 2)
+                guard let (value, end) = number(in: input, at: digits, hex: hex, maximumDigits: hex ? 8 : 10),
+                      value == scalar.value else { return nil }
+                return end < input.count && input[end] == UInt8(ascii: ";") ? end + 1 : end
             }
-            return nil
+            guard let name = htmlNames[scalar] else { return nil }
+            var position = start + 1
+            for byte in name.utf8 {
+                guard position < input.count else { return nil }
+                let read = input[position]
+                guard read == byte || (scalar != "'" && read | 0x20 == byte) else { return nil }
+                position += 1
+            }
+            return position < input.count && input[position] == UInt8(ascii: ";") ? position + 1 : nil
         default:
             return nil
         }
+    }
+
+    /// `scalar` as `\uXXXX` or `%uXXXX` (two of them, a surrogate pair,
+    /// past the Basic Multilingual Plane) at `start`.
+    private static func utf16Escape(_ scalar: Unicode.Scalar, in input: UnsafeBufferPointer<UInt8>, at start: Int) -> Int? {
+        var position = start
+        for unit in String(scalar).utf16 {
+            guard position + 1 < input.count, input[position] == input[start],
+                  input[position + 1] | 0x20 == UInt8(ascii: "u"),
+                  hexValue(input, at: position + 2, digits: 4) == UInt32(unit) else { return nil }
+            position += 6
+        }
+        return position
+    }
+
+    /// The decimal or hex number at `start` (at least one digit, read as
+    /// far as digits go, up to `maximumDigits`) and where it ends.
+    private static func number(in input: UnsafeBufferPointer<UInt8>, at start: Int, hex: Bool, maximumDigits: Int) -> (UInt32, Int)? {
+        var value: UInt64 = 0
+        var position = start
+        while position < input.count {
+            let digit: UInt32?
+            if hex {
+                digit = hexDigit(input[position])
+            } else {
+                digit = isDigit(input[position]) ? UInt32(input[position] - UInt8(ascii: "0")) : nil
+            }
+            guard let digit else { break }
+            guard position - start < maximumDigits else { return nil }
+            value = value * (hex ? 16 : 10) + UInt64(digit)
+            position += 1
+        }
+        guard position > start, value <= UInt64(UInt32.max) else { return nil }
+        return (UInt32(value), position)
     }
 
     private static let jsonShortEscapes: [Unicode.Scalar: UInt8] = [
@@ -233,8 +302,10 @@ struct BrowserReplSecretScanner {
         "\r": UInt8(ascii: "r"), "\t": UInt8(ascii: "t"),
     ]
 
-    private static let htmlEntities: [Unicode.Scalar: [String]] = [
-        "&": ["&amp;"], "<": ["&lt;"], ">": ["&gt;"], "\"": ["&quot;"], "'": ["&#39;", "&#x27;"],
+    /// HTML's named references for the characters an escaper replaces.
+    /// All but `apos` are also valid in upper case.
+    private static let htmlNames: [Unicode.Scalar: String] = [
+        "&": "amp", "<": "lt", ">": "gt", "\"": "quot", "'": "apos",
     ]
 
     // MARK: Base64
