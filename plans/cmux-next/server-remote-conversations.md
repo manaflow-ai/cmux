@@ -137,7 +137,7 @@ crashed, slow or unsure, the tool does not run.
      otherwise defers to the permission step. A hook that is missing, crashes, cannot start or
      times out therefore changes nothing: the permission step still asks the daemon. The hook's
      timeout is set above 10 minutes and the hook answers itself before that limit.
-   - Verify these semantics on the pinned Claude Code version before code (managed settings
+   - Verify these semantics on the pinned Claude Code version before code (injected `--settings`
      precedence, `disableBypassPermissionsMode`, the permission step reaching ACP, hook failure
      handling). Tests: a missing hook binary, a crashing hook, and a hook that sleeps past its
      timeout each end in the daemon's decision (deny without an approval).
