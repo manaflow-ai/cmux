@@ -397,11 +397,43 @@ mod tests {
         }
     }
 
-    fn assert_refused(result: Result<Value, DriverError>) {
+    /// The refusal text the password lead fixed (2026-10-04), the same in
+    /// the app's control path (`AppBrowserPage.agentExtensionRefusal`).
+    const REFUSAL_TEXT: &str = "the tab's profile has an enabled extension with access to this page; \
+        open the tab with openBrowser profile \"agent\" (a profile without extensions), or ask the \
+        person to allow agents in this tab";
+
+    fn assert_refused(result: Result<Value, DriverError>) -> DriverError {
         let error = result.expect_err("the call must be refused");
         assert_eq!(error.code, crate::protocol::ErrorCode::Forbidden, "{error}");
         assert_eq!(error.error_name.as_deref(), Some("extension_host_access"), "{error}");
-        assert!(error.message.contains("ask the person to allow agents in this tab"), "{error}");
+        let wire = error.to_json();
+        assert_eq!(wire["data"]["reason"], "extension_host_access", "{wire}");
+        assert!(wire["data"]["extensions"].is_array(), "{wire}");
+        error
+    }
+
+    #[test]
+    fn the_refusal_uses_the_agreed_text_and_names_the_extensions_in_data() {
+        let (app, driver) = FakeApp::start(vec![tab("C", "cef"), tab("W", "webkit")]);
+        app.access(&driver, "C", true, false);
+        let error = assert_refused(driver.call("tab.info", &json!({"targetId": "C"})));
+        assert_eq!(error.message, REFUSAL_TEXT);
+        assert_eq!(
+            error.to_json()["data"],
+            json!({"reason": "extension_host_access", "extensions": ["Pass Keeper"]})
+        );
+        // Before the app reports the tab: same reason, no names.
+        app.send(
+            &driver,
+            Frame::Event {
+                name: "tab.announced".into(),
+                payload: serde_json::to_value(tab("C2", "cef")).unwrap(),
+            },
+        );
+        let unreported = assert_refused(driver.call("tab.info", &json!({"targetId": "C2"})));
+        assert_eq!(unreported.to_json()["data"]["extensions"], json!([]));
+        assert!(unreported.message.ends_with("or ask the person to allow agents in this tab"));
     }
 
     #[test]
@@ -414,8 +446,8 @@ mod tests {
         assert!(!app.saw("tab.navigate", "C"));
         // An enabled extension holds host access on the page.
         app.access(&driver, "C", true, false);
-        let named = driver.call("tab.info", &json!({"targetId": "C"})).unwrap_err();
-        assert!(named.message.contains("Pass Keeper"), "{named}");
+        let named = assert_refused(driver.call("tab.info", &json!({"targetId": "C"})));
+        assert_eq!(named.to_json()["data"]["extensions"], json!(["Pass Keeper"]), "{named}");
         for method in ["frame.evaluate", "input.mouse", "tab.screenshot", "cdp", "tabs.close"] {
             assert_refused(driver.call(method, &json!({"targetId": "C"})));
             assert!(!app.saw(method, "C"), "{method} reached the app");
