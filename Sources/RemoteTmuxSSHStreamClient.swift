@@ -71,8 +71,37 @@ final class RemoteTmuxSSHStreamClient: RemoteProxyStreamOpening, @unchecked Send
             throw RemoteTmuxError.launchFailed("browser proxy SSH channel failed to launch: \(error.localizedDescription)")
         }
 
-        let inputFD = inputPipe.fileHandleForWriting.fileDescriptor
-        let outputFD = outputPipe.fileHandleForReading.fileDescriptor
+        // `Pipe` owns its FileHandles and closes their descriptors when they
+        // are released. Give `DispatchIO` close-on-exec duplicates instead,
+        // then close the Pipe-owned parent ends so each descriptor has one
+        // owner. Sharing either original descriptor would allow a delayed
+        // FileHandle cleanup to close a descriptor the kernel has reused.
+        let inputFD = fcntl(inputPipe.fileHandleForWriting.fileDescriptor, F_DUPFD_CLOEXEC, 0)
+        guard inputFD >= 0 else {
+            process.terminate()
+            throw RemoteTmuxError.launchFailed(
+                "browser proxy failed to duplicate SSH input: \(String(cString: strerror(errno)))"
+            )
+        }
+        let outputFD = fcntl(outputPipe.fileHandleForReading.fileDescriptor, F_DUPFD_CLOEXEC, 0)
+        guard outputFD >= 0 else {
+            Darwin.close(inputFD)
+            process.terminate()
+            throw RemoteTmuxError.launchFailed(
+                "browser proxy failed to duplicate SSH output: \(String(cString: strerror(errno)))"
+            )
+        }
+        do {
+            try inputPipe.fileHandleForWriting.close()
+            try outputPipe.fileHandleForReading.close()
+        } catch {
+            Darwin.close(inputFD)
+            Darwin.close(outputFD)
+            process.terminate()
+            throw RemoteTmuxError.launchFailed(
+                "browser proxy failed to transfer SSH pipe ownership: \(error.localizedDescription)"
+            )
+        }
         let input = DispatchIO(type: .stream, fileDescriptor: inputFD, queue: ioQueue) { _ in
             Darwin.close(inputFD)
         }
