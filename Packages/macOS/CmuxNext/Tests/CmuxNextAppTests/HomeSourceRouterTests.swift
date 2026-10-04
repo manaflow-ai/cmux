@@ -108,8 +108,8 @@ nonisolated final class FakeLocalHomeSource: HomeSource {
         #expect(await tape.wait { events in
             events.contains { if case .conversationChanged(let summary, stream: .inbox, rev: _) = $0 { summary.participants.count == 2 } else { false } }
         })
-        cloud.handle(.inboxChanged(CloudInboxChanged(seq: 5, entries: [F.entry(dm, rev: 3, pinned: true)])))
-        cloud.handle(.inboxChanged(CloudInboxChanged(seq: 6, entries: [F.entry(dm, archived: true)])))
+        cloud.handle(.inboxChanged(CloudInboxChanged(seq: 5, entries: [F.entry(dm, rev: 3, pinned: true)], account: "stack-me")))
+        cloud.handle(.inboxChanged(CloudInboxChanged(seq: 6, entries: [F.entry(dm, archived: true)], account: "stack-me")))
         #expect(await tape.wait { $0.contains { if case .conversationRemoved = $0 { true } else { false } } })
         let revisions = tape.all.compactMap { event -> Revision? in
             switch event {
@@ -202,7 +202,7 @@ nonisolated final class FakeLocalHomeSource: HomeSource {
         })
         // Opened on the cloud source: its stream shows it in the merged inbox.
         _ = try await cloud.snapshot(of: ConversationID(unlisted), tail: 10)
-        cloud.handle(.changed(CloudConversationChanged(conversation: unlisted, rev: 5, seq: 9, change: .conversation(F.head(unlisted, rev: 5)))))
+        cloud.handle(.changed(CloudConversationChanged(conversation: unlisted, rev: 5, seq: 9, change: .conversation(F.head(unlisted, rev: 5)), account: "stack-me")))
         let mark = tape.all.count
         cloud.handle(.inboxReset(seq: 9))
         // The cloud inbox after the reset reaches the merged stream as a diff.

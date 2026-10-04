@@ -106,7 +106,7 @@ import Testing
         #expect(await tape.wait { recoveries($0) == before + 1 })
         // Nothing failed since: a second renewal is not a recovery.
         source.leaseRenewed(subject: "stack-me")
-        source.handle(.inboxChanged(CloudInboxChanged(seq: 4, entries: [F.entry(dm)])))
+        source.handle(.inboxChanged(CloudInboxChanged(seq: 4, entries: [F.entry(dm)], account: "stack-me")))
         #expect(await tape.wait { !summaries($0, dm).isEmpty })
         #expect(recoveries(tape.all) == before + 1)
     }
@@ -115,12 +115,12 @@ import Testing
         let (source, _, tape) = await configured(.init(heads: [dm: F.head(dm)]))
         _ = try await source.snapshot(of: ConversationID(dm), tail: 10)
         source.handle(.changed(CloudConversationChanged(conversation: dm, rev: 4, seq: 9,
-                                                        change: .message(F.message(dm, seq: 2, author: "user_stack-me")))))
+                                                        change: .message(F.message(dm, seq: 2, author: "user_stack-me")), account: "stack-me")))
         source.handle(.changed(CloudConversationChanged(conversation: dm, rev: 5, seq: 10,
-                                                        change: .readCursor(participant: "user_bob", seq: 2))))
-        source.handle(.changed(CloudConversationChanged(conversation: dm, rev: 6, seq: 11, change: .unknown(kind: "invite"))))
+                                                        change: .readCursor(participant: "user_bob", seq: 2), account: "stack-me")))
+        source.handle(.changed(CloudConversationChanged(conversation: dm, rev: 6, seq: 11, change: .unknown(kind: "invite"), account: "stack-me")))
         source.handle(.resynced(CloudConversationResynced(conversation: dm, rev: 6, seq: 11, summary: F.head(dm, rev: 6, lastSeq: 2),
-                                                          messages: [F.message(dm, seq: 1), F.message(dm, seq: 2)])))
+                                                          messages: [F.message(dm, seq: 1), F.message(dm, seq: 2)], account: "stack-me")))
         #expect(await tape.wait { $0.contains { if case .conversationPage = $0 { true } else { false } } })
         let conversationEvents = tape.all.filter {
             switch $0 {
@@ -306,12 +306,12 @@ import Testing
             events.contains { if case .inbox(let inbox) = $0 { inbox.conversations.contains { $0.id.rawValue == dm } } else { false } }
         })
         _ = try await source.snapshot(of: ConversationID(dm), tail: 10)
-        source.handle(.inboxChanged(CloudInboxChanged(seq: 5, entries: [F.entry(dm, archived: true)])))
-        source.handle(.changed(CloudConversationChanged(conversation: dm, rev: 4, seq: 9, change: .readCursor(participant: "user_bob", seq: 1))))
-        source.handle(.changed(CloudConversationChanged(conversation: dm, rev: 5, seq: 10, change: .conversation(F.head(dm, rev: 5)))))
+        source.handle(.inboxChanged(CloudInboxChanged(seq: 5, entries: [F.entry(dm, archived: true)], account: "stack-me")))
+        source.handle(.changed(CloudConversationChanged(conversation: dm, rev: 4, seq: 9, change: .readCursor(participant: "user_bob", seq: 1), account: "stack-me")))
+        source.handle(.changed(CloudConversationChanged(conversation: dm, rev: 5, seq: 10, change: .conversation(F.head(dm, rev: 5)), account: "stack-me")))
         source.handle(.resynced(CloudConversationResynced(conversation: dm, rev: 6, seq: 11, summary: F.head(dm, rev: 6),
-                                                          messages: [F.message(dm, seq: 1)])))
-        source.handle(.inboxChanged(CloudInboxChanged(seq: 6, entries: [F.entry(other)])))
+                                                          messages: [F.message(dm, seq: 1)], account: "stack-me")))
+        source.handle(.inboxChanged(CloudInboxChanged(seq: 6, entries: [F.entry(other)], account: "stack-me")))
         #expect(await tape.wait { !summaries($0, other).isEmpty })
         var mirror = HomeMirror()
         for event in tape.all { mirror.apply(event) }
@@ -339,8 +339,8 @@ import Testing
         #expect(await tape.wait { inboxes($0).count > before })
         #expect(inboxes(tape.all).last?.conversations.contains { $0.id.rawValue == opened } == true)
         // Its entry arrives, then UserDO archives it: it leaves.
-        source.handle(.inboxChanged(CloudInboxChanged(seq: 8, entries: [F.entry(opened, rev: 1, lastSeq: 0)])))
-        source.handle(.inboxChanged(CloudInboxChanged(seq: 9, entries: [F.entry(opened, rev: 2, lastSeq: 0, archived: true)])))
+        source.handle(.inboxChanged(CloudInboxChanged(seq: 8, entries: [F.entry(opened, rev: 1, lastSeq: 0)], account: "stack-me")))
+        source.handle(.inboxChanged(CloudInboxChanged(seq: 9, entries: [F.entry(opened, rev: 2, lastSeq: 0, archived: true)], account: "stack-me")))
         #expect(!source.currentInbox().conversations.contains { $0.id.rawValue == opened })
     }
 
@@ -366,12 +366,12 @@ import Testing
         let mark = tape.all.count
         source.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: Self.other)
         #expect(await tape.wait { inboxCount($0[mark...]) >= 2 })
-        source.handle(.changed(CloudConversationChanged(conversation: dm, rev: 5, seq: 9, change: .conversation(F.head(dm, rev: 5)))))
-        source.handle(.changed(CloudConversationChanged(conversation: dm, rev: 6, seq: 10, change: .message(F.message(dm, seq: 2)))))
+        source.handle(.changed(CloudConversationChanged(conversation: dm, rev: 5, seq: 9, change: .conversation(F.head(dm, rev: 5)), account: "stack-other")))
+        source.handle(.changed(CloudConversationChanged(conversation: dm, rev: 6, seq: 10, change: .message(F.message(dm, seq: 2)), account: "stack-other")))
         source.handle(.resynced(CloudConversationResynced(conversation: dm, rev: 7, seq: 11, summary: F.head(dm, rev: 7, lastSeq: 2),
-                                                          messages: [F.message(dm, seq: 1), F.message(dm, seq: 2)])))
+                                                          messages: [F.message(dm, seq: 1), F.message(dm, seq: 2)], account: "stack-other")))
         // B's own inbox event still lists B's conversation.
-        source.handle(.inboxChanged(CloudInboxChanged(seq: 1, entries: [F.entry(theirs)])))
+        source.handle(.inboxChanged(CloudInboxChanged(seq: 1, entries: [F.entry(theirs)], account: "stack-other")))
         #expect(await tape.wait { !summaries($0, theirs).isEmpty })
         var mirror = HomeMirror()
         for event in tape.all { mirror.apply(event) }
@@ -531,6 +531,25 @@ import Testing
         #expect(CloudHomeSource.isForAccount(.sessionNeeded(CloudSessionNeeded(reason: "missing")), cloudID: me))
     }
 
+    /// The daemon tags every data event with the account of the socket's
+    /// lease, and leaves it out only for a lease without a readable `sub`,
+    /// which this app never sets (home-cloud-proxy.md section 5). A data
+    /// event without one is refused; a socket state or an inbox reset
+    /// without one (a `disconnected` state with no lease) carries no data.
+    @Test func aDataEventThatNamesNoAccountIsRefused() {
+        let me = F.identity.cloudID
+        let changed = CloudConversationsEvent.changed(CloudConversationChanged(conversation: dm, rev: 1, seq: 1, change: .unknown(kind: "invite")))
+        let resynced = CloudConversationsEvent.resynced(CloudConversationResynced(conversation: dm, rev: 1, seq: 1, summary: F.head(dm), messages: []))
+        let inbox = CloudConversationsEvent.inboxChanged(CloudInboxChanged(seq: 1, entries: [F.entry(dm)]))
+        #expect(!CloudHomeSource.isForAccount(changed, cloudID: me))
+        #expect(!CloudHomeSource.isForAccount(resynced, cloudID: me))
+        #expect(!CloudHomeSource.isForAccount(inbox, cloudID: me))
+        #expect(CloudHomeSource.isForAccount(.inboxReset(seq: 1), cloudID: me))
+        let disconnected = CloudConversationsEvent.subscriptionState(CloudSubscriptionState(scope: "inbox", state: "disconnected",
+                                                                                            reason: "signed_out"))
+        #expect(CloudHomeSource.isForAccount(disconnected, cloudID: me))
+    }
+
     /// The owner refused the conversation's socket (`closed`, `forbidden`:
     /// the user was removed). An edit there is refused for good and
     /// subscribes nothing, instead of waiting forever and opening a socket
@@ -647,7 +666,7 @@ import Testing
         daemon.script.withLock { $0.inboxGate = first; $0.revision = .string("12") }
         let list = Task { try await source.inbox() }
         await first.arrived()
-        source.handle(.inboxChanged(CloudInboxChanged(seq: 13, entries: [F.entry(fresh)])))
+        source.handle(.inboxChanged(CloudInboxChanged(seq: 13, entries: [F.entry(fresh)], account: "stack-me")))
         first.open()
         _ = try await list.value
         #expect(listed(source, fresh), "a list older than the inbox event removed the new DM")
@@ -660,7 +679,7 @@ import Testing
         }
         let relist = Task { try await source.inbox() }
         await second.arrived()
-        source.handle(.inboxChanged(CloudInboxChanged(seq: 15, entries: [F.entry(fresh, rev: 4, archived: true)])))
+        source.handle(.inboxChanged(CloudInboxChanged(seq: 15, entries: [F.entry(fresh, rev: 4, archived: true)], account: "stack-me")))
         second.open()
         _ = try await relist.value
         #expect(!listed(source, fresh), "a list older than the archive listed it again")
@@ -679,7 +698,7 @@ import Testing
 
     /// The daemon names the account whose lease an event came through.
     /// An event for another account (a late one from before a switch) is
-    /// dropped; an event that names none is kept, as before.
+    /// dropped, and so is a data event that names none.
     @Test func anEventForAnotherAccountIsDropped() async throws {
         let theirs = "conv_dm_01J0000000000000000000000F"
         let mine = "conv_dm_01J0000000000000000000000J"
@@ -703,9 +722,13 @@ import Testing
         source.handle(.changed(lateCursor))
         source.handle(.resynced(lateResync))
         source.handle(.inboxChanged(ownInbox))
-        // An event that names no account is kept.
-        source.handle(.inboxChanged(CloudInboxChanged(seq: 7, entries: [F.entry(dm)])))
+        // A data event that names no account came through a lease without a
+        // readable `sub`, which this app never sets: it is dropped too.
+        let nameless = "conv_dm_01J0000000000000000000000N"
+        source.handle(.inboxChanged(CloudInboxChanged(seq: 7, entries: [F.entry(nameless)])))
+        source.handle(.inboxChanged(CloudInboxChanged(seq: 8, entries: [F.entry(dm)], account: "stack-me")))
         #expect(await tape.wait { !summaries($0, mine).isEmpty && !summaries($0, dm).isEmpty })
+        #expect(summaries(tape.all, nameless).isEmpty, "an inbox event without an account listed its conversation")
         #expect(summaries(tape.all, theirs).isEmpty, "another account's inbox event listed its conversation")
         #expect(!tape.all.contains { if case .conversationPage = $0 { true } else { false } }, "another account's resync reached the store")
         #expect(!tape.all.contains { if case .conversationChanged(_, stream: .conversation, rev: 9) = $0 { true } else { false } },
