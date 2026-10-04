@@ -273,6 +273,10 @@ pub struct Hub {
     pub(super) idle_child: StdMutex<Option<std::time::Duration>>,
     pub(super) idle_wake: Arc<Notify>,
     pub(super) idle_reaper: AtomicBool,
+    /// Set when `shutdown_all` starts: the idle reaper stops for good.
+    pub(super) stopping: AtomicBool,
+    /// Held by one idle reaper pass; shutdown waits for it after `stopping`.
+    pub(super) idle_pass: Mutex<()>,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -340,6 +344,8 @@ impl Hub {
             idle_child: StdMutex::new(Some(IDLE_CHILD)),
             idle_wake: Arc::new(Notify::new()),
             idle_reaper: AtomicBool::new(false),
+            stopping: AtomicBool::new(false),
+            idle_pass: Mutex::new(()),
         });
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {

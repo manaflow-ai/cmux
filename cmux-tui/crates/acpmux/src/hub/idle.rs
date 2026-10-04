@@ -26,9 +26,16 @@ impl Hub {
         session.last_active.store(self.clock_now(), Ordering::Relaxed);
     }
 
-    fn idle_eligible(session: &Session) -> bool {
-        session.attached.load(Ordering::SeqCst) == 0
+    /// Unused right now. A turn or permission an adopted host's recovery
+    /// rebuilt (`hosts.rs` `recover_work`) counts like a live one: it sets
+    /// `session.turn` (and holds `turn_lock` until the answer), registers
+    /// the permission as pending, and moves the status off ready.
+    fn idle_eligible(&self, session: &Session) -> bool {
+        !self.stopping.load(Ordering::SeqCst)
+            && session.attached.load(Ordering::SeqCst) == 0
+            && matches!(session.status(), SessionStatus::Ready | SessionStatus::Idle)
             && session.turn().is_none()
+            && session.turn_lock.try_lock().is_ok()
             && session.queued() == 0
             && session.pending_permissions().is_empty()
             && session.spawn_lock.try_lock().is_ok()
@@ -76,6 +83,12 @@ impl Hub {
     }
 
     async fn stop_idle_children(&self) {
+        // Shutdown owns every child from its first step: hosted ones are
+        // handed off or ended there, never terminated here meanwhile.
+        let _pass = self.idle_pass.lock().await;
+        if self.stopping.load(Ordering::SeqCst) {
+            return;
+        }
         let Some(idle) = *self.idle_child.lock().unwrap() else { return };
         let now = self.clock_now();
         let idle = idle.as_nanos() as u64;
@@ -87,7 +100,7 @@ impl Hub {
             if !has_child {
                 continue;
             }
-            if Self::idle_eligible(&session) {
+            if self.idle_eligible(&session) {
                 tracing::info!(session = %session.id, "idle harness exits; the session resumes on its next prompt");
                 self.detach_child(&session).await;
             } else {
