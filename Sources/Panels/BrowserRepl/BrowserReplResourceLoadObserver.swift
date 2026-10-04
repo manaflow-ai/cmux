@@ -6,7 +6,9 @@ import WebKit
 /// load delegate SPI (`-[WKWebView _setResourceLoadDelegate:]`).
 ///
 /// The delegate methods are matched by selector, so this class needs no
-/// private headers. `install` returns `false` when the SPI is missing; the
+/// private headers. The requests of unfinished loads are held in a bounded
+/// table (``BrowserReplUnfinishedLoads``), so a page that leaves many
+/// requests open cannot grow it without limit. `install` returns `false` when the SPI is missing; the
 /// driver then reports no network events rather than injecting page hooks.
 @MainActor
 final class BrowserReplResourceLoadObserver: NSObject {
@@ -89,7 +91,13 @@ final class BrowserReplResourceLoadObserver: NSObject {
         response: URLResponse?
     ) {
         let id = Self.loadID(resourceLoad)
-        var payload = requests.finish(id).value ?? Self.fallbackPayload(id: id, resourceLoad: resourceLoad)
+        let finished = requests.finish(id)
+        var payload = finished.value ?? Self.fallbackPayload(id: id, resourceLoad: resourceLoad)
+        if finished.dropped {
+            // The tab held more unfinished loads than the table keeps
+            // (BrowserReplUnfinishedLoads); this one's request headers went.
+            payload["note"] = "the request's headers were dropped while it ran: the tab had more than \(BrowserReplUnfinishedLoads<[String: Any]>.maximumLoads) unfinished requests or \(BrowserReplUnfinishedLoads<[String: Any]>.maximumBytes >> 20) MiB of them"
+        }
         if let http = response as? HTTPURLResponse, payload["status"] == nil {
             payload["status"] = http.statusCode
         }
