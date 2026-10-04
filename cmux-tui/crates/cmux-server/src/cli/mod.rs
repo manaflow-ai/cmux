@@ -11,6 +11,7 @@
 pub mod args;
 mod db;
 mod lifecycle;
+mod pair;
 
 use std::io::Write;
 use std::process::ExitCode;
@@ -155,6 +156,7 @@ pub fn dispatch(ctx: &Context<'_>, args: &Args) -> Result<Output> {
         ["db", "archive-wal"] => db::archive_wal(ctx, args),
         ["db", "backup"] => db::backup(ctx, args),
         ["health"] => db::health(ctx, args),
+        ["pair"] => pair::pair(ctx, args),
         _ => Err(Error::usage(format!("unknown verb: {}", args.verb_str()))),
     }
 }

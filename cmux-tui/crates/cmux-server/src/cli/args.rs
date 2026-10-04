@@ -74,6 +74,12 @@ pub static VERBS: &[VerbSpec] = &[
         help: "take a base backup now",
     },
     VerbSpec {
+        path: &["pair"],
+        positionals: &[],
+        flags: &[("wait", false), ("timeout", true)],
+        help: "show a pairing code, QR link and four words; --wait stores the approval",
+    },
+    VerbSpec {
         path: &["health"],
         positionals: &[],
         flags: &[("link-up", false)],
