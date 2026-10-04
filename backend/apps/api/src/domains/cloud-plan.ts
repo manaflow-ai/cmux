@@ -33,7 +33,7 @@ export interface CloudConfig {
   readonly environment: string
   /** CLOUD_ALLOWED_TEAMS: the only teams with the stub plan and provider calls; empty = nobody. */
   readonly allowedTeams: ReadonlySet<string>
-  /** This environment's provider name prefix (cmuxnp-dev-, cmuxnp-stg-, cmuxnp-prod-); null = no provider. */
+  /** This environment's provider name prefix (cmuxnp-dev-cld-, cmuxnp-stg-cld-, cmuxnp-prod-cld-); null = no provider. */
   readonly prefix: string | null
   /** The image every machine boots from; null = no provider, or no usable snapshot (see imageProblem). */
   readonly image: string | null

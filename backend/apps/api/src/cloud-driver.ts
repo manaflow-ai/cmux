@@ -26,17 +26,27 @@ export interface RawCloudDriver {
   delete(id: string): Promise<void>
 }
 
-/** Expected prefix per environment; a configured prefix that differs disables the provider. */
-export const ENV_PREFIX: Readonly<Record<string, string>> = { development: "cmuxnp-dev-", staging: "cmuxnp-stg-", production: "cmuxnp-prod-", test: "cmuxnp-test-" }
+/**
+ * FREESTYLE-NAMES: provider names are cmuxnp-<env>-<lane>-<rest>; CloudDO's lane is `cld` (tvm = team
+ * VMs, vmimg = image bakes; no lane owns the bare env prefix). A configured prefix that differs from
+ * this environment's disables the provider.
+ */
+export const ENV_PREFIX: Readonly<Record<string, string>> = { development: "cmuxnp-dev-cld-", staging: "cmuxnp-stg-cld-", production: "cmuxnp-prod-cld-", test: "cmuxnp-test-cld-" }
+/** The image lane's snapshot prefix per environment (CLOUD-DEV-SNAPSHOT): not the machine prefix. */
+export const ENV_IMAGE_PREFIX: Readonly<Record<string, string>> = { development: "cmuxnp-dev-vmimg-", staging: "cmuxnp-stg-vmimg-", production: "cmuxnp-prod-vmimg-", test: "cmuxnp-test-vmimg-" }
 
-const NAME_TAIL = /^[a-z0-9][a-z0-9-]{0,50}$/
+const LANE_PREFIX = /^cmuxnp-(dev|stg|prod|test)-cld-$/
+/** The exact tail after the prefix: providerName of a machine id (vm_ + 20) with `_` as `-`. */
+const NAME_TAIL = /^vm-[a-z0-9]{20}$/
 const ours = (tag: Record<string, unknown>, want: VmTag) => tag.cmux_next_team === want.team && tag.cmux_next_machine === want.machine
 
 export class GuardedCloudDriver {
   constructor(
     private readonly raw: RawCloudDriver,
     private readonly prefix: string
-  ) {}
+  ) {
+    if (!LANE_PREFIX.test(prefix)) throw new Error("the Cloud driver needs a cmuxnp-<env>-cld- prefix")
+  }
 
   private guard(name: string): void {
     if (!name.startsWith(this.prefix) || !NAME_TAIL.test(name.slice(this.prefix.length))) {
@@ -185,8 +195,9 @@ export const cloudConfig = (env: Env): CloudConfig => {
   const prefixOk = Boolean(want) && env.CLOUD_NAME_PREFIX === want
   const keyOk = fake(env) || Boolean(env.CLOUD_FREESTYLE_API_KEY)
   const snapshot = imageOf(env)
-  // CLOUD-DEV-SNAPSHOT: only this environment's image lane snapshot (its name carries the prefix); no fallback.
-  const imageProblem = !snapshot ? "missing" : prefixOk && snapshot.startsWith(env.CLOUD_NAME_PREFIX!) ? undefined : "foreign"
+  const imagePrefix = ENV_IMAGE_PREFIX[env.ENVIRONMENT]
+  // CLOUD-DEV-SNAPSHOT: only this environment's image lane snapshot (cmuxnp-<env>-vmimg-); no fallback.
+  const imageProblem = !snapshot ? "missing" : imagePrefix && snapshot.startsWith(imagePrefix) ? undefined : "foreign"
   return {
     environment: env.ENVIRONMENT,
     allowedTeams: parseAllowedTeams(env.CLOUD_ALLOWED_TEAMS),
@@ -197,8 +208,8 @@ export const cloudConfig = (env: Env): CloudConfig => {
 }
 
 const fake = (env: Env) => env.ENVIRONMENT === "test" && env.CLOUD_DRIVER === "fake"
-/** The configured snapshot; the test fake boots a named image under the test prefix unless a test sets one. */
-const imageOf = (env: Env): string | undefined => env.CLOUD_FREESTYLE_SNAPSHOT || (fake(env) && env.CLOUD_NAME_PREFIX ? `${env.CLOUD_NAME_PREFIX}vmimg-fake` : undefined)
+/** The configured snapshot; the test fake boots a named test image lane snapshot unless a test sets one. */
+const imageOf = (env: Env): string | undefined => env.CLOUD_FREESTYLE_SNAPSHOT || (fake(env) ? `${ENV_IMAGE_PREFIX.test}fake` : undefined)
 
 /** A usable provider: this environment's exact prefix, a key (or the test fake) and this environment's snapshot. */
 const cloudRawDriverReady = (env: Env): boolean => cloudConfig(env).image !== null
