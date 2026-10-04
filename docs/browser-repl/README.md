@@ -460,8 +460,10 @@ agent -> cmux browser repl -> control socket -> REPL session (JavaScriptCore)
   fetch, event, file write and output line passes through. The runtime
   deletes the `__cmuxNative` global, and the app the runtime's entry
   points, before any cell runs. Every script on the session's thread is
-  bounded, also a timer or event callback outside a cell (10 s), and
-  `cmux browser repl reset` always ends a stuck one.
+  bounded, also a timer or event callback outside a cell (10 s per run,
+  and 10% of the thread's time over a stream of them, so they cannot
+  starve the next cell, whose output says when they were stopped or
+  waited), and `cmux browser repl reset` always ends a stuck one.
 - Runtime: `Resources/browser-repl/` (`runtime-core.js` Playwright model,
   `api.js` globals, `snapshot.js` host-side stitching and diff, `page-agent.js`
   per-frame script in an isolated content world, `repl-host.js`). Locators use

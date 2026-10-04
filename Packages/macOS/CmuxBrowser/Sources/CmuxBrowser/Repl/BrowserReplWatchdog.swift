@@ -21,6 +21,14 @@ import JavaScriptCore
 /// start work outside a cell (timers, event handlers, promise jobs a later
 /// run drains), so every run is bounded, not only cells.
 ///
+/// Runs outside a cell also share a time credit, so a stream of callbacks
+/// each under `callbackTimeLimit` cannot hold the thread: the credit holds
+/// at most `callbackTimeLimit`, refills at `callbackShare` of wall time, and
+/// pays for every run that starts outside a cell; a run gets at most the
+/// credit left when it starts. The session holds callbacks back while the
+/// credit is in debt (``isInCallbackDebt``) and asks ``timeUntilCredit``
+/// when to try again.
+///
 /// The function is exported by JavaScriptCore but declared in a non-public
 /// header, so it is resolved with `dlsym`, as `JSWatchdog` in
 /// CmuxSwiftRenderUI does.
@@ -45,16 +53,58 @@ final class BrowserReplWatchdog: @unchecked Sendable {
     private var closed = false
     private var terminatedScript = false
     /// How long a run outside its cell may go on.
-    private let callbackTimeLimit: Duration
+    let callbackTimeLimit: Duration
     /// The cell running now, as the session last reported it.
     private var currentEvalID: Int?
     /// The outermost run in progress: when it started and under which cell.
     private var depth = 0
     private var runStart = ContinuousClock.now
     private var runEvalID: Int?
+    /// How long the outermost run may go on once it is outside its cell.
+    private var runLimit: Duration
+    /// Whether the outermost run started outside a cell and pays from the credit.
+    private var runPaysCredit = false
+    /// Set when the limit (not a request or close) terminated a script.
+    private var limitTerminated = false
+    /// The callback credit as of `creditUpdatedAt`; negative is debt.
+    private var credit: Duration
+    private var creditUpdatedAt = ContinuousClock.now
+
+    /// The share of wall time callbacks outside a cell may use over time.
+    static let callbackShare = 0.1
 
     init(callbackTimeLimit: Duration) {
         self.callbackTimeLimit = callbackTimeLimit
+        self.runLimit = callbackTimeLimit
+        self.credit = callbackTimeLimit
+    }
+
+    /// The credit at `now`, refilled since it last changed. Call with `lock` held.
+    private func creditLocked(at now: ContinuousClock.Instant) -> Duration {
+        min(callbackTimeLimit, credit + (now - creditUpdatedAt) * Self.callbackShare)
+    }
+
+    /// Whether runs outside a cell have used more than their credit; the
+    /// session then holds callbacks back.
+    var isInCallbackDebt: Bool {
+        lock.withLock { creditLocked(at: .now) < .zero }
+    }
+
+    /// How long until the credit is out of debt (zero when it is).
+    var timeUntilCredit: Duration {
+        lock.withLock {
+            let now = creditLocked(at: .now)
+            guard now < .zero else { return .zero }
+            return (Duration.zero - now) * (1 / Self.callbackShare) + .milliseconds(1)
+        }
+    }
+
+    /// Whether the limit terminated a script since the last call, and clears it.
+    func takeLimitTermination() -> Bool {
+        lock.withLock {
+            defer { limitTerminated = false }
+            return limitTerminated
+        }
     }
 
     nonisolated(unsafe) private static var associationKey: UInt8 = 0
@@ -120,12 +170,31 @@ final class BrowserReplWatchdog: @unchecked Sendable {
     func run<T>(evalID: Int?, _ body: () -> T) -> T {
         lock.withLock {
             if depth == 0 {
-                runStart = .now
+                let now = ContinuousClock.now
+                runStart = now
                 runEvalID = evalID
+                runPaysCredit = evalID == nil || evalID != currentEvalID
+                if runPaysCredit {
+                    credit = creditLocked(at: now)
+                    creditUpdatedAt = now
+                    runLimit = max(.zero, min(callbackTimeLimit, credit))
+                } else {
+                    runLimit = callbackTimeLimit
+                }
             }
             depth += 1
         }
-        defer { lock.withLock { depth -= 1 } }
+        defer {
+            lock.withLock {
+                depth -= 1
+                if depth == 0, runPaysCredit {
+                    // Refilled while it ran, less what it used.
+                    let now = ContinuousClock.now
+                    credit = creditLocked(at: now) - (now - runStart)
+                    creditUpdatedAt = now
+                }
+            }
+        }
         return body()
     }
 
@@ -147,7 +216,9 @@ final class BrowserReplWatchdog: @unchecked Sendable {
         lock.withLock {
             if terminationRequested { return true }
             guard depth > 0, runEvalID == nil || runEvalID != currentEvalID else { return false }
-            return ContinuousClock.now - runStart >= callbackTimeLimit
+            guard ContinuousClock.now - runStart >= runLimit else { return false }
+            limitTerminated = true
+            return true
         }
     }
 }

@@ -95,6 +95,29 @@ public final class BrowserReplSession: @unchecked Sendable {
     private var entryPoints: EntryPoints?
     private var loadError: String?
     private var fileSystem: BrowserReplFileSystem
+    /// Timer and event callbacks held back while callbacks outside a cell
+    /// are in debt with the watchdog's credit, oldest first; they run when
+    /// the credit recovers or a cell runs.
+    private var heldCallbacks: [HeldCallback] = []
+    private var heldEventCount = 0
+    private var releaseQueued = false
+    private var resumeScheduled = false
+    /// The timers the outermost run in progress set, or nil outside one.
+    private var timersSetInRun: [Int]?
+    /// What the next cell reports about callbacks between cells.
+    private var callbacksStopped = 0
+    private var callbacksHeld = 0
+    private var eventsDropped = 0
+    /// The wait for the callback credit to recover; `close()` cancels it.
+    private var callbackResume: Task<Void, Never>?
+
+    private enum HeldCallback {
+        case timer(Int)
+        case event(name: String, payload: String)
+    }
+
+    /// The most page events held back at once; past it the oldest go.
+    static let maxHeldEvents = 10_000
 
     /// One evaluation's result. It is finished exactly once: by the JS
     /// thread when the cell settles, or from outside it by the timeout or
@@ -426,7 +449,9 @@ public final class BrowserReplSession: @unchecked Sendable {
         closed = true
         let running = currentEval
         currentEval = nil
-        let tasks = inFlight.values.map(\.task)
+        var tasks = inFlight.values.map(\.task)
+        if let callbackResume { tasks.append(callbackResume) }
+        callbackResume = nil
         inFlight.removeAll()
         queuedFetches.removeAll()
         openFetches = 0
@@ -604,11 +629,153 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// is current but has not begun on the thread is not running: a
     /// callback queued ahead of it is not its work, so the callback budget
     /// bounds it instead of that cell's timeout.
-    private func enter(_ context: JSContext, _ body: () -> Void) {
+    ///
+    /// When the watchdog's limit ends the run, the timers it set (an
+    /// interval re-arming itself, say) are cancelled, and so is `firedTimer`
+    /// when it repeats; the next cell reports it.
+    private func enter(_ context: JSContext, firedTimer: Int? = nil, _ body: () -> Void) {
         watchdog.absorbTermination(in: context)
-        let running = stateLock.withLock { currentEval.flatMap { $0.hasBegun ? $0.id : nil } }
+        let running = runningEvalID
+        let outermost = timersSetInRun == nil
+        if outermost {
+            timersSetInRun = []
+            _ = watchdog.takeLimitTermination()
+        }
         watchdog.run(evalID: running, body)
         context.exception = nil
+        guard outermost else { return }
+        let timers = timersSetInRun ?? []
+        timersSetInRun = nil
+        if watchdog.takeLimitTermination() {
+            callbacksStopped += 1
+            for id in timers { scheduler.cancel(id: id) }
+            if let firedTimer { scheduler.cancel(id: firedTimer) }
+        }
+    }
+
+    /// The cell running on the thread now: current and begun.
+    private var runningEvalID: Int? {
+        stateLock.withLock { currentEval.flatMap { $0.hasBegun ? $0.id : nil } }
+    }
+
+    // MARK: - Callbacks between cells
+
+    /// Whether a timer or event callback must wait: one already waits (they
+    /// keep their order), or no cell runs and callbacks outside a cell
+    /// have used more than their share of the thread.
+    private var mustHoldCallback: Bool {
+        !heldCallbacks.isEmpty || (runningEvalID == nil && watchdog.isInCallbackDebt)
+    }
+
+    /// Holds `callback` back until the credit recovers or a cell runs.
+    private func hold(_ callback: HeldCallback) {
+        if case .event = callback {
+            if heldEventCount >= Self.maxHeldEvents,
+               let oldest = heldCallbacks.firstIndex(where: { if case .event = $0 { true } else { false } }) {
+                heldCallbacks.remove(at: oldest)
+                heldEventCount -= 1
+                eventsDropped += 1
+            }
+            heldEventCount += 1
+        }
+        heldCallbacks.append(callback)
+        callbacksHeld += 1
+        if runningEvalID != nil {
+            queueHeldRelease()
+        } else {
+            scheduleCallbackResume()
+        }
+    }
+
+    /// Runs the oldest held callback in its own thread block, so a cell
+    /// submitted meanwhile runs in turn.
+    private func queueHeldRelease() {
+        guard !releaseQueued, !heldCallbacks.isEmpty else { return }
+        releaseQueued = true
+        let queued = thread.perform { [weak self] in
+            guard let self else { return }
+            self.releaseQueued = false
+            self.releaseOneHeldCallback()
+        }
+        if !queued { releaseQueued = false }
+    }
+
+    private func releaseOneHeldCallback() {
+        guard !heldCallbacks.isEmpty else { return }
+        guard let context, !isClosedNow, let entryPoints else {
+            heldCallbacks.removeAll()
+            heldEventCount = 0
+            return
+        }
+        if runningEvalID == nil, watchdog.isInCallbackDebt {
+            scheduleCallbackResume()
+            return
+        }
+        switch heldCallbacks.removeFirst() {
+        case .timer(let id):
+            defer { scheduler.delivered(id: id) }
+            if let handler = entryPoints.onTimer {
+                enter(context, firedTimer: id) { _ = handler.call(withArguments: [id]) }
+            }
+        case .event(let name, let payload):
+            heldEventCount -= 1
+            if let handler = entryPoints.onEvent {
+                enter(context) { _ = handler.call(withArguments: [name, payload]) }
+            }
+        }
+        queueHeldRelease()
+    }
+
+    /// Releases held callbacks once the credit is out of debt.
+    private func scheduleCallbackResume() {
+        guard !resumeScheduled else { return }
+        resumeScheduled = true
+        let wait = watchdog.timeUntilCredit
+        let sleeper = self.sleeper
+        let task = Task { [weak self] in
+            try? await sleeper.sleep(for: wait)
+            guard let self, !Task.isCancelled else { return }
+            self.thread.perform { [weak self] in
+                guard let self else { return }
+                self.resumeScheduled = false
+                self.releaseOneHeldCallback()
+            }
+        }
+        let closedNow: Bool = stateLock.withLock {
+            if closed { return true }
+            callbackResume = task
+            return false
+        }
+        if closedNow { task.cancel() }
+    }
+
+    /// Output lines that tell the cell starting now about callbacks that
+    /// ran between cells and were stopped or held back.
+    private func takeCallbackNotices() -> [BrowserReplOutputLine] {
+        var lines: [String] = []
+        let limit = Self.describe(watchdog.callbackTimeLimit)
+        if callbacksStopped == 1 {
+            lines.append("cmux browser repl: a timer or event callback that ran between cells went past \(limit) and was stopped; the timers it set were cancelled")
+        } else if callbacksStopped > 1 {
+            lines.append("cmux browser repl: \(callbacksStopped) timer or event callbacks that ran between cells went past \(limit) and were stopped; the timers they set were cancelled")
+        }
+        if callbacksHeld > 0 {
+            lines.append("cmux browser repl: \(callbacksHeld) timer or event callbacks between cells waited, because callbacks outside a cell may use at most 10% of the session's JavaScript time (and \(limit) at once); those still waiting run during this cell")
+        }
+        if eventsDropped > 0 {
+            lines.append("cmux browser repl: \(eventsDropped) page events were dropped because \(Self.maxHeldEvents) were already waiting")
+        }
+        callbacksStopped = 0
+        callbacksHeld = 0
+        eventsDropped = 0
+        return lines.map { BrowserReplOutputLine(level: "error", text: $0) }
+    }
+
+    /// `10 s`, `1.5 s` or `250 ms`.
+    private static func describe(_ duration: Duration) -> String {
+        let milliseconds = duration.components.seconds * 1000 + duration.components.attoseconds / 1_000_000_000_000_000
+        if milliseconds >= 1000, milliseconds % 1000 == 0 { return "\(milliseconds / 1000) s" }
+        return milliseconds >= 1000 ? "\(Double(milliseconds) / 1000) s" : "\(milliseconds) ms"
     }
 
     /// Runs `body` as an in-flight task that `close()` cancels. Returns
@@ -643,6 +810,9 @@ public final class BrowserReplSession: @unchecked Sendable {
         // thread reached it.
         guard !state.isFinished, !isClosedNow else { return }
         state.markBegun()
+        for line in takeCallbackNotices() { state.append(line) }
+        // Callbacks held back between cells run during this cell, in order.
+        queueHeldRelease()
         if let cwd, cwd != fileSystem.sandbox.root {
             var sandbox = BrowserReplFileSandbox(root: cwd)
             sandbox.inheritReadableFiles(from: fileSystem.sandbox)
@@ -824,7 +994,9 @@ public final class BrowserReplSession: @unchecked Sendable {
         let setTimer: @convention(block) (JSValue?, JSValue?, JSValue?) -> Bool = { [weak self] id, delay, repeating in
             guard let self, let id = id?.toInt32() else { return false }
             let duration = Duration.milliseconds(BrowserReplSession.timerDelayMilliseconds(delay?.toDouble()))
-            return self.scheduler.schedule(id: Int(id), after: duration, repeating: repeating?.toBool() ?? false)
+            guard self.scheduler.schedule(id: Int(id), after: duration, repeating: repeating?.toBool() ?? false) else { return false }
+            self.timersSetInRun?.append(Int(id))
+            return true
         }
         let clearTimer: @convention(block) (JSValue?) -> Void = { [weak self] id in
             guard let self, let id = id?.toInt32() else { return }
@@ -968,10 +1140,17 @@ public final class BrowserReplSession: @unchecked Sendable {
     func fireTimer(_ id: Int) {
         thread.perform { [weak self] in
             guard let self else { return }
-            // The timer counts as pending until its callback has run.
+            guard let context = self.context, !self.isClosedNow, let handler = self.entryPoints?.onTimer else {
+                self.scheduler.delivered(id: id)
+                return
+            }
+            // A held timer stays pending until its callback has run.
+            if self.mustHoldCallback {
+                self.hold(.timer(id))
+                return
+            }
             defer { self.scheduler.delivered(id: id) }
-            guard let context = self.context, !self.isClosedNow, let handler = self.entryPoints?.onTimer else { return }
-            self.enter(context) { _ = handler.call(withArguments: [id]) }
+            self.enter(context, firedTimer: id) { _ = handler.call(withArguments: [id]) }
         }
     }
 
@@ -984,6 +1163,10 @@ public final class BrowserReplSession: @unchecked Sendable {
             }
             guard let context = self.context, !self.isClosedNow, let handler = self.entryPoints?.onEvent else { return }
             let payload = self.boundary.secrets.redactJSON(payloadJSON)
+            if self.mustHoldCallback {
+                self.hold(.event(name: name, payload: payload))
+                return
+            }
             self.enter(context) { _ = handler.call(withArguments: [name, payload]) }
         }
     }

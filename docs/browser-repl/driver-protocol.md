@@ -461,7 +461,17 @@ Entry points the runtime defines, called by the app:
   runs ends at that cell's timeout; one that started outside a cell, or
   whose cell has ended, is terminated after 10 s. A cell runs from when
   the session's thread starts it, so a callback queued ahead of a
-  submitted cell counts as outside a cell. After the session closes
+  submitted cell counts as outside a cell. Calls that start outside a
+  cell also share a time credit, so a stream of callbacks each under 10 s
+  cannot hold the thread ahead of the next cell: the credit holds 10 s,
+  refills at 10% of wall time, and each such call may run at most the
+  credit left when it starts. While the credit is in debt, timer and event
+  callbacks wait in order (at most 10,000 events; past that the oldest
+  event is dropped) until it recovers or a cell runs, when they run during
+  that cell; driver results are never held. When the limit ends a call,
+  the timers it set (an interval re-arming itself) are cancelled. The next
+  cell's output starts with `error` lines saying how many callbacks were
+  stopped, waited or were dropped. After the session closes
   (`cmux browser repl reset`, idle expiry) every script is terminated and
   the app makes no further call into the context.
 - `__cmuxHostOnEvent(name, payloadJSON)` delivers every driver event.
