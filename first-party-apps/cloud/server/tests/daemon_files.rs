@@ -21,9 +21,12 @@ fn sh_target(script: &str, name: &str) -> (DialTarget, PathBuf) {
         use std::os::unix::fs::PermissionsExt as _;
         std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
+    // A link at a non-default socket (a tagged or dev link): the dial must
+    // name it, since the private HOME finds no registration.
     let target = DialTarget {
         binary: wrapper,
         host: "host-vm-alpha01".into(),
+        socket: dir.join("custom-link.sock"),
         env: vec![("PATH".into(), "/usr/bin:/bin".into())],
     };
     (target, request)
@@ -32,7 +35,8 @@ fn sh_target(script: &str, name: &str) -> (DialTarget, PathBuf) {
 #[cfg(unix)]
 #[test]
 fn one_dial_sends_one_v12_line_and_reads_one_answer() {
-    let script = r#"test "$1 $2 $3 $4" = "link dial --host host-vm-alpha01" || exit 9
+    let script = r#"test "$1 $2 $3 $4 $5" = "link dial --host host-vm-alpha01 --socket" || exit 9
+case "$6" in */custom-link.sock) ;; *) exit 9;; esac
 printf '%s\n' '{"relay_available":false,"path_state":"direct","ok":true}' >&2
 IFS= read -r line
 printf '%s' "$line" > "$OUT"

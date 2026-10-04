@@ -37,6 +37,8 @@ const MAX_ANSWER_BYTES: u64 = 24 * 1024 * 1024;
 pub struct DialTarget {
     pub binary: PathBuf,
     pub host: String,
+    /// The live `cmux link` socket the host reported (`hub_socket`).
+    pub socket: PathBuf,
     pub env: Vec<(String, String)>,
 }
 
@@ -192,7 +194,8 @@ pub(crate) fn target<C: ControlPlane>(
             format!("no private home for the link: {e}"),
         )
     })?;
-    Ok(DialTarget { binary, host: info.host, env })
+    let socket = PathBuf::new();
+    Ok(DialTarget { binary, host: info.host, socket, env })
 }
 
 /// One file op's way to the machine's daemon: the dial target, the daemon
