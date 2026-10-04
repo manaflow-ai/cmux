@@ -38,6 +38,10 @@ pub enum Script {
     Expired,
     /// Nothing more until the client goes away.
     Hold,
+    /// `paired` with control characters in host and team.
+    PairedDirty,
+    /// A 100 KiB text frame, then `paired`.
+    Huge,
 }
 
 #[derive(Clone, Debug)]
@@ -51,6 +55,17 @@ pub struct FakeApi {
     pub begins: Arc<Mutex<Vec<Value>>>,
     pub waits: Arc<Mutex<Vec<WaitSeen>>>,
     pub refused_proofs: Arc<Mutex<usize>>,
+}
+
+/// Wait scripts in order; the last one repeats.
+#[derive(Clone)]
+struct Scripts(Arc<Mutex<Vec<Script>>>);
+
+impl Scripts {
+    fn next(&self) -> Script {
+        let mut v = self.0.lock().unwrap();
+        if v.len() > 1 { v.remove(0) } else { v[0] }
+    }
 }
 
 pub fn thumbprint(x: &str, y: &str) -> String {
@@ -87,6 +102,13 @@ pub fn proof_ok(body: &Value, environment: &str) -> bool {
 
 impl FakeApi {
     pub fn start(environment: &str, script: Script) -> FakeApi {
+        FakeApi::with(environment, 600_000, &[script])
+    }
+
+    /// Codes live `ttl_ms` after `issued_at`; wait sockets follow
+    /// `scripts` in order (the last repeats).
+    pub fn with(environment: &str, ttl_ms: u64, scripts: &[Script]) -> FakeApi {
+        let scripts = Scripts(Arc::new(Mutex::new(scripts.to_vec())));
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let api = FakeApi {
@@ -101,15 +123,20 @@ impl FakeApi {
         thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { continue };
-                let (begins, waits, refused, environment) =
-                    (begins.clone(), waits.clone(), refused.clone(), environment.clone());
+                let (begins, waits, refused, environment, scripts) = (
+                    begins.clone(),
+                    waits.clone(),
+                    refused.clone(),
+                    environment.clone(),
+                    scripts.clone(),
+                );
                 thread::spawn(move || {
                     let mut head = [0u8; 64];
                     let n = stream.peek(&mut head).unwrap_or(0);
                     if head[..n].starts_with(b"GET ") {
-                        serve_wait(stream, script, &waits);
+                        serve_wait(stream, scripts.next(), &waits);
                     } else {
-                        serve_begin(stream, &environment, &begins, &refused);
+                        serve_begin(stream, &environment, ttl_ms, &begins, &refused);
                     }
                 });
             }
@@ -125,6 +152,7 @@ impl FakeApi {
 fn serve_begin(
     stream: TcpStream,
     environment: &str,
+    ttl_ms: u64,
     begins: &Mutex<Vec<Value>>,
     refused: &Mutex<usize>,
 ) {
@@ -161,7 +189,7 @@ fn serve_begin(
         (
             200,
             json!({
-                "code": CODE, "display": "7KQ4-M2XD", "expires_at": now + 600_000,
+                "code": CODE, "display": "7KQ4-M2XD", "expires_at": now + ttl_ms,
                 "collect_secret": SECRET, "thumbprint": thumb,
                 "verification_uri": format!("http://localhost/pair?c={CODE}"),
             }),
@@ -199,6 +227,17 @@ fn serve_wait(stream: TcpStream, script: Script, waits: &Mutex<Vec<WaitSeen>>) {
     };
     match script {
         Script::Paired => {
+            let result = json!({"t": "paired", "host": "host_1", "team": "team_1", "user": "user_1", "install": "inst_1"});
+            let _ = ws.send(Message::text(result.to_string()));
+            let _ = ws.close(close(1000, "paired"));
+        }
+        Script::PairedDirty => {
+            let result = json!({"t": "paired", "host": "host_1\u{1b}[31m", "team": "team\n_1", "user": "user_1", "install": "inst_1"});
+            let _ = ws.send(Message::text(result.to_string()));
+            let _ = ws.close(close(1000, "paired"));
+        }
+        Script::Huge => {
+            let _ = ws.send(Message::text("x".repeat(100 * 1024)));
             let result = json!({"t": "paired", "host": "host_1", "team": "team_1", "user": "user_1", "install": "inst_1"});
             let _ = ws.send(Message::text(result.to_string()));
             let _ = ws.close(close(1000, "paired"));
