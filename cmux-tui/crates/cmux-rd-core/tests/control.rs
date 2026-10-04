@@ -4,7 +4,7 @@ use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind, Usage};
 use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
 use cmux_rd_core::input::{InputApplier, InputSender, MAX_SENDS};
 use cmux_rd_core::ladder::{ContentClass, LadderInput, choose};
-use cmux_rd_proto::{Arrival, InputEvent};
+use cmux_rd_proto::{Arrival, HEADER_LEN, InputEvent, MAX_DATAGRAM_VPC};
 use proptest::prelude::*;
 
 const R: Rect = Rect { x: 0, y: 0, width: 10, height: 10 };
@@ -239,6 +239,23 @@ fn releases_are_resent_until_acknowledged() {
     }
     s.ack(1);
     assert!(s.packet().is_none());
+}
+
+#[test]
+fn every_input_packet_fits_the_smallest_session_datagram() {
+    // 32 long text events would encode to about 8 KB in one packet; the
+    // datagram carrier drops anything above max_datagram (1152 on VPC paths).
+    let mut s = InputSender::new();
+    for _ in 0..32 {
+        s.push(InputEvent::Text("x".repeat(256)));
+    }
+    let mut covered = std::collections::BTreeSet::new();
+    while let Some(p) = s.packet() {
+        assert!(!p.events.is_empty());
+        assert!(HEADER_LEN + p.encode().len() <= MAX_DATAGRAM_VPC);
+        covered.extend((0..p.events.len() as u32).map(|i| p.first_seq + i));
+    }
+    assert_eq!(covered, (1..=32).collect());
 }
 
 #[test]
