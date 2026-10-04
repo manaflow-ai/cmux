@@ -36,6 +36,7 @@ struct CloudWelcomeView: View {
     var showsReasons = true
     var sliderAutoplays = true
     var sliderShowsFeatureList = false
+    var sliderListUsesDots = false
     var showsNewBadge = true
 
     static let windowWidth: CGFloat = 580
@@ -50,7 +51,7 @@ struct CloudWelcomeView: View {
                 .padding(.top, 26)
                 .padding(.bottom, 2)
             if showsMedia {
-                CloudWelcomeMediaCarousel(slides: CloudWelcomeSlide.all, mediaURL: mediaURL, autoplays: sliderAutoplays, showsFeatureList: sliderShowsFeatureList)
+                CloudWelcomeMediaCarousel(slides: CloudWelcomeSlide.all, mediaURL: mediaURL, autoplays: sliderAutoplays, showsFeatureList: sliderShowsFeatureList, listUsesDots: sliderListUsesDots)
                     .padding(.top, 18)
                     .padding(.bottom, 18)
             } else {

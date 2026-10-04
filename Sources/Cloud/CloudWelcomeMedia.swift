@@ -78,6 +78,9 @@ struct CloudWelcomeMediaCarousel: View {
     /// Manual with the features as a list beside the clip (rows to click, every
     /// title readable at a glance) in place of the dots and caption below it.
     var showsFeatureList = false
+    /// List variant: a bar for the current feature and a dot for each other one,
+    /// each centered on its text, in place of a bar per feature.
+    var listUsesDots = false
 
     /// How long a slide without a clip (or with an unreadable one) stays up.
     private static let fallbackDuration: Double = 4
@@ -170,12 +173,16 @@ struct CloudWelcomeMediaCarousel: View {
     private func featureRow(_ slide: CloudWelcomeSlide, isCurrent: Bool, action: @escaping () -> Void) -> some View {
         let isHovered = hoveredRow == slide.id
         return Button(action: action) {
-            HStack(alignment: .top, spacing: 12) {
-                // Inset top and bottom so each feature has its own bar, with a
-                // clear gap to the next one.
-                railSegment(isCurrent: isCurrent)
-                    .frame(width: 2.5)
-                    .padding(.vertical, 4)
+            HStack(alignment: listUsesDots ? .center : .top, spacing: 12) {
+                if listUsesDots {
+                    dotMarker(isCurrent: isCurrent, isHovered: isHovered)
+                } else {
+                    // Inset top and bottom so each feature has its own bar, with a
+                    // clear gap to the next one.
+                    railSegment(isCurrent: isCurrent)
+                        .frame(width: 2.5)
+                        .padding(.vertical, 4)
+                }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(slide.title)
                         .cmuxFont(size: 13, weight: .medium)
@@ -350,6 +357,27 @@ struct CloudWelcomeMediaCarousel: View {
             }
             // The finished fill stays inside the pill as it springs closed.
             .clipShape(Capsule(style: .continuous))
+    }
+
+    /// Dots variant: the current feature's bar spans its title and line (and
+    /// fills with the clip when autoplaying); the others are dots centered on
+    /// their title. The dot stretches into the bar as a row becomes current.
+    private func dotMarker(isCurrent: Bool, isHovered: Bool) -> some View {
+        ZStack {
+            if isCurrent {
+                railSegment(isCurrent: true)
+                    .frame(width: 2.5)
+                    .padding(.vertical, 8)
+                    .transition(.scale(scale: 0.1, anchor: .center).combined(with: .opacity))
+            } else {
+                Circle()
+                    .fill(Color.primary.opacity(isHovered ? 0.5 : 0.25))
+                    .frame(width: 5, height: 5)
+                    .transition(.opacity)
+            }
+        }
+        .frame(width: 5)
+        .frame(maxHeight: .infinity)
     }
 
     /// A row's part of the rail. Manual: the selected one is lit. Autoplay: the
