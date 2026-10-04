@@ -235793,115 +235793,115 @@
       "ar": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "جارٍ تحميل خطة جهاز Cloud…"
         }
       },
       "bs": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Učitavanje plana Cloud mašine…"
         }
       },
       "da": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Indlæser din Cloud-maskineplan…"
         }
       },
       "de": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Dein Cloud-Maschinentarif wird geladen…"
         }
       },
       "es": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Cargando el plan de tu máquina Cloud…"
         }
       },
       "fr": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Chargement du forfait de votre machine Cloud…"
         }
       },
       "it": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Caricamento del piano della macchina Cloud…"
         }
       },
       "ja": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Cloud マシンのプランを読み込んでいます…"
         }
       },
       "km": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "កំពុងផ្ទុកគម្រោងម៉ាស៊ីន Cloud របស់អ្នក…"
         }
       },
       "ko": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Cloud 머신 요금제를 불러오는 중…"
         }
       },
       "nb": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Laster inn Cloud-maskinplanen din…"
         }
       },
       "pl": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Wczytywanie planu maszyny Cloud…"
         }
       },
       "pt-BR": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Carregando o plano da sua máquina Cloud…"
         }
       },
       "ru": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Загрузка тарифа машины Cloud…"
         }
       },
       "th": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "กำลังโหลดแผนเครื่อง Cloud ของคุณ…"
         }
       },
       "tr": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Cloud makine planınız yükleniyor…"
         }
       },
       "uk": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Завантаження тарифу машини Cloud…"
         }
       },
       "zh-Hans": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "正在加载你的 Cloud 机器方案…"
         }
       },
       "zh-Hant": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "正在載入您的 Cloud 機器方案…"
         }
       }
     }
@@ -235918,115 +235918,115 @@
       "ar": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "إعادة المحاولة"
         }
       },
       "bs": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Pokušaj ponovo"
         }
       },
       "da": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Prøv igen"
         }
       },
       "de": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Erneut versuchen"
         }
       },
       "es": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Reintentar"
         }
       },
       "fr": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Réessayer"
         }
       },
       "it": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Riprova"
         }
       },
       "ja": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "再試行"
         }
       },
       "km": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "ព្យាយាមម្ដងទៀត"
         }
       },
       "ko": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "재시도"
         }
       },
       "nb": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Prøv igjen"
         }
       },
       "pl": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Ponów"
         }
       },
       "pt-BR": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Tentar Novamente"
         }
       },
       "ru": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Повторить"
         }
       },
       "th": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "ลองใหม่"
         }
       },
       "tr": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Tekrar Dene"
         }
       },
       "uk": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Повторити"
         }
       },
       "zh-Hans": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "重试"
         }
       },
       "zh-Hant": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "重試"
         }
       }
     }
@@ -236043,115 +236043,115 @@
       "ar": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "لا تزال تفاصيل خطة Cloud قيد التحميل. أعد المحاولة بعد قليل."
         }
       },
       "bs": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Detalji Cloud plana se još učitavaju. Pokušajte ponovo za trenutak."
         }
       },
       "da": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Cloud-planens detaljer indlæses stadig. Prøv igen om et øjeblik."
         }
       },
       "de": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Die Details des Cloud-Tarifs werden noch geladen. Versuche es gleich noch einmal."
         }
       },
       "es": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Los detalles del plan de Cloud aún se están cargando. Vuelve a intentarlo en un momento."
         }
       },
       "fr": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Les détails du forfait Cloud sont encore en cours de chargement. Réessayez dans un instant."
         }
       },
       "it": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "I dettagli del piano Cloud sono ancora in caricamento. Riprova tra un momento."
         }
       },
       "ja": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Cloud プランの詳細を読み込み中です。しばらくしてから再試行してください。"
         }
       },
       "km": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "ព័ត៌មានលម្អិតនៃគម្រោង Cloud នៅតែកំពុងផ្ទុក។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
         }
       },
       "ko": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Cloud 요금제 정보를 아직 불러오는 중입니다. 잠시 후 다시 시도하세요."
         }
       },
       "nb": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Detaljene for Cloud-planen lastes fortsatt inn. Prøv igjen om et øyeblikk."
         }
       },
       "pl": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Szczegóły planu Cloud wciąż się wczytują. Spróbuj ponownie za chwilę."
         }
       },
       "pt-BR": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Os detalhes do plano Cloud ainda estão carregando. Tente novamente em instantes."
         }
       },
       "ru": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Сведения о тарифе Cloud ещё загружаются. Повторите попытку через мгновение."
         }
       },
       "th": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "รายละเอียดแผน Cloud ยังโหลดอยู่ โปรดลองใหม่อีกครั้งในอีกสักครู่"
         }
       },
       "tr": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Cloud planı ayrıntıları hâlâ yükleniyor. Birazdan tekrar deneyin."
         }
       },
       "uk": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Відомості про тариф Cloud ще завантажуються. Повторіть спробу через мить."
         }
       },
       "zh-Hans": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Cloud 方案详情仍在加载。请稍后重试。"
         }
       },
       "zh-Hant": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Cloud 方案詳細資料仍在載入。請稍後重試。"
         }
       }
     }
@@ -358728,6 +358728,131 @@
         }
       }
     },
+    "settings.search.alias.setting.terminal.copy-confirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse تأكيد نسخ حافظة تحديد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse potvrda kopirano međuspremnik odabir"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse bekræftelse kopieret udklipsholder markering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse Bestätigung kopiert Zwischenablage Auswahl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse confirmación copiado portapapeles selección"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse confirmation copié presse-papiers sélection"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse conferma copiato appunti selezione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse 確認 コピー クリップボード 選択"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse បញ្ជាក់ ចម្លង ក្ដារតម្រៀប ជ្រើស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse 확인 복사됨 클립보드 선택"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse bekreftelse kopiert utklippstavle markering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse potwierdzenie skopiowano schowek zaznaczenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse confirmação copiado área de transferência seleção"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse подтверждение скопировано буфер обмена выделение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse ยืนยัน คัดลอก คลิปบอร์ด เลือก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse onay kopyalandı pano seçim"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse підтвердження скопійовано буфер обміну виділення"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse 确认 已复制 剪贴板 选择"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse 確認 已複製 剪貼簿 選取"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.terminal.reflow-hard-wrap-on-copy": {
       "extractionState": "manual",
       "localizations": {
@@ -366231,6 +366356,256 @@
           "stringUnit": {
             "state": "translated",
             "value": "選取時複製"
+          }
+        }
+      }
+    },
+    "settings.terminal.showCopyConfirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار تأكيد النسخ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži potvrdu kopiranja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis kopieringsbekræftelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopierbestätigung anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Copy Confirmation"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar confirmación de copia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la confirmation de copie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra conferma di copia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピーの確認を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញការបញ្ជាក់ការចម្លង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복사 확인 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis kopieringsbekreftelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuj potwierdzenie kopiowania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar confirmação de cópia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать подтверждение копирования"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงการยืนยันการคัดลอก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopyalama onayını göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати підтвердження копіювання"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示复制确认"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示複製確認"
+          }
+        }
+      }
+    },
+    "settings.terminal.showCopyConfirmation.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض «تم النسخ إلى الحافظة» لفترة وجيزة أسفل الطرفية عندما يؤدي تحديد النص إلى نسخه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kratko prikazuje „Kopirano u međuspremnik“ na dnu terminala kada se odabrani tekst kopira."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser kortvarigt „Kopieret til udklipsholder“ nederst i en terminal, når markering af tekst kopierer den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt unten im Terminal kurz „In die Zwischenablage kopiert“ an, wenn durch Auswählen von Text kopiert wird."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Briefly shows “Copied to clipboard” at the bottom of a terminal when selecting text copies it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra brevemente «Copiado al portapapeles» en la parte inferior de una terminal cuando al seleccionar texto se copia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche brièvement « Copié dans le presse-papiers » en bas d’un terminal lorsque la sélection de texte le copie."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra brevemente «Copiato negli appunti» in fondo a un terminale quando la selezione del testo lo copia."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストを選択してコピーしたときに、ターミナルの下部に「クリップボードにコピーしました」を短く表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ «បានចម្លងទៅក្ដារតម្រៀប» មួយភ្លែតនៅខាងក្រោម terminal នៅពេលការជ្រើសអត្ថបទចម្លងវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "텍스트를 선택해 복사하면 터미널 하단에 “클립보드에 복사됨”을 잠시 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser kort «Kopiert til utklippstavlen» nederst i en terminal når markering av tekst kopierer den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na chwilę wyświetla „Skopiowano do schowka” u dołu terminala, gdy zaznaczenie tekstu go kopiuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra brevemente “Copiado para a área de transferência” na parte inferior do terminal quando selecionar texto o copia."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ненадолго показывает «Скопировано в буфер обмена» внизу терминала, когда выделение текста копирует его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดง “คัดลอกไปยังคลิปบอร์ดแล้ว” ชั่วครู่ที่ด้านล่างของเทอร์มินัลเมื่อการเลือกข้อความคัดลอกข้อความนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metin seçimi onu kopyaladığında terminalin altında kısa süreliğine “Panoya kopyalandı” gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ненадовго показує «Скопійовано в буфер обміну» внизу термінала, коли виділення тексту копіює його."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择文本并复制时，在终端底部短暂显示“已复制到剪贴板”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選取文字並複製時，在終端機底部短暫顯示「已複製到剪貼簿」。"
           }
         }
       }
@@ -494378,183 +494753,6 @@
         }
       }
     },
-    "cloudTree.displays.starting": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Starting display…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ディスプレイを起動中…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Display wird gestartet…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Iniciando pantalla…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Démarrage de l’écran…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "디스플레이 시작 중…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在启动显示器…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在啟動顯示器…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جارٍ بدء الشاشة…"
-          }
-        }
-      }
-    },
-    "surface.split.noSpace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "There is no room to split this pane."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このペインを分割する余地がありません。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Für eine Teilung dieses Bereichs ist kein Platz."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No hay espacio para dividir este panel."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il n’y a pas assez de place pour diviser ce volet."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 패널을 분할할 공간이 없습니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "没有空间拆分此窗格。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "沒有空間分割此窗格。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا توجد مساحة لتقسيم هذا الجزء."
-          }
-        }
-      }
-    },
-    "cloud.display.starting": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Starting display…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ディスプレイを起動中…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Display wird gestartet…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Iniciando pantalla…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Démarrage de l’écran…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "디스플레이 시작 중…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在启动显示器…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在啟動顯示器…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جارٍ بدء الشاشة…"
-          }
-        }
-      }
-    },
     "cloudTree.displays.asleep": {
       "extractionState": "manual",
       "localizations": {
@@ -619090,6 +619288,131 @@
         }
       }
     },
+    "terminal.copyConfirmation.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم النسخ إلى الحافظة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopirano u međuspremnik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopieret til udklipsholder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In die Zwischenablage kopiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied to clipboard"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiado al portapapeles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copié dans le presse-papiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiato negli appunti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップボードにコピーしました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានចម្លងទៅក្ដារតម្រៀប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클립보드에 복사됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiert til utklippstavlen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skopiowano do schowka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiado para a área de transferência"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировано в буфер обмена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกไปยังคลิปบอร์ดแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panoya kopyalandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопійовано в буфер обміну"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制到剪贴板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已複製到剪貼簿"
+          }
+        }
+      }
+    },
     "cli.hooks.setup.error.agentRequiresValue": {
       "extractionState": "manual",
       "localizations": {
@@ -619267,502 +619590,179 @@
         }
       }
     },
-    "settings.search.alias.setting.terminal.copy-confirmation": {
+    "cloudTree.displays.starting": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse تأكيد نسخ حافظة تحديد"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse potvrda kopirano međuspremnik odabir"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse bekræftelse kopieret udklipsholder markering"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse Bestätigung kopiert Zwischenablage Auswahl"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse confirmación copiado portapapeles selección"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse confirmation copié presse-papiers sélection"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse conferma copiato appunti selezione"
+            "value": "Starting display…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse 確認 コピー クリップボード 選択"
+            "value": "ディスプレイを起動中…"
           }
         },
-        "km": {
+        "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse បញ្ជាក់ ចម្លង ក្ដារតម្រៀប ជ្រើស"
+            "value": "Display wird gestartet…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciando pantalla…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrage de l’écran…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse 확인 복사됨 클립보드 선택"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse bekreftelse kopiert utklippstavle markering"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse potwierdzenie skopiowano schowek zaznaczenie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse confirmação copiado área de transferência seleção"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse подтверждение скопировано буфер обмена выделение"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse ยืนยัน คัดลอก คลิปบอร์ด เลือก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse onay kopyalandı pano seçim"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse підтвердження скопійовано буфер обміну виділення"
+            "value": "디스플레이 시작 중…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse 确认 已复制 剪贴板 选择"
+            "value": "正在启动显示器…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse 確認 已複製 剪貼簿 選取"
+            "value": "正在啟動顯示器…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ بدء الشاشة…"
           }
         }
       }
     },
-    "settings.terminal.showCopyConfirmation": {
+    "surface.split.noSpace": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار تأكيد النسخ"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži potvrdu kopiranja"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis kopieringsbekræftelse"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kopierbestätigung anzeigen"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show Copy Confirmation"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar confirmación de copia"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher la confirmation de copie"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra conferma di copia"
+            "value": "There is no room to split this pane."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コピーの確認を表示"
+            "value": "このペインを分割する余地がありません。"
           }
         },
-        "km": {
+        "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "បង្ហាញការបញ្ជាក់ការចម្លង"
+            "value": "Für eine Teilung dieses Bereichs ist kein Platz."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay espacio para dividir este panel."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il n’y a pas assez de place pour diviser ce volet."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "복사 확인 표시"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis kopieringsbekreftelse"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokazuj potwierdzenie kopiowania"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar confirmação de cópia"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывать подтверждение копирования"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงการยืนยันการคัดลอก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kopyalama onayını göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показувати підтвердження копіювання"
+            "value": "이 패널을 분할할 공간이 없습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "显示复制确认"
+            "value": "没有空间拆分此窗格。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "顯示複製確認"
+            "value": "沒有空間分割此窗格。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مساحة لتقسيم هذا الجزء."
           }
         }
       }
     },
-    "settings.terminal.showCopyConfirmation.subtitle": {
+    "cloud.display.starting": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يعرض «تم النسخ إلى الحافظة» لفترة وجيزة أسفل الطرفية عندما يؤدي تحديد النص إلى نسخه."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kratko prikazuje „Kopirano u međuspremnik“ na dnu terminala kada se odabrani tekst kopira."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Viser kortvarigt „Kopieret til udklipsholder“ nederst i en terminal, når markering af tekst kopierer den."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeigt unten im Terminal kurz „In die Zwischenablage kopiert“ an, wenn durch Auswählen von Text kopiert wird."
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Briefly shows “Copied to clipboard” at the bottom of a terminal when selecting text copies it."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Muestra brevemente «Copiado al portapapeles» en la parte inferior de una terminal cuando al seleccionar texto se copia."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Affiche brièvement « Copié dans le presse-papiers » en bas d’un terminal lorsque la sélection de texte le copie."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra brevemente «Copiato negli appunti» in fondo a un terminale quando la selezione del testo lo copia."
+            "value": "Starting display…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "テキストを選択してコピーしたときに、ターミナルの下部に「クリップボードにコピーしました」を短く表示します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្ហាញ «បានចម្លងទៅក្ដារតម្រៀប» មួយភ្លែតនៅខាងក្រោម terminal នៅពេលការជ្រើសអត្ថបទចម្លងវា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "텍스트를 선택해 복사하면 터미널 하단에 “클립보드에 복사됨”을 잠시 표시합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Viser kort «Kopiert til utklippstavlen» nederst i en terminal når markering av tekst kopierer den."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Na chwilę wyświetla „Skopiowano do schowka” u dołu terminala, gdy zaznaczenie tekstu go kopiuje."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra brevemente “Copiado para a área de transferência” na parte inferior do terminal quando selecionar texto o copia."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ненадолго показывает «Скопировано в буфер обмена» внизу терминала, когда выделение текста копирует его."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดง “คัดลอกไปยังคลิปบอร์ดแล้ว” ชั่วครู่ที่ด้านล่างของเทอร์มินัลเมื่อการเลือกข้อความคัดลอกข้อความนั้น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Metin seçimi onu kopyaladığında terminalin altında kısa süreliğine “Panoya kopyalandı” gösterir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ненадовго показує «Скопійовано в буфер обміну» внизу термінала, коли виділення тексту копіює його."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "选择文本并复制时，在终端底部短暂显示“已复制到剪贴板”。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選取文字並複製時，在終端機底部短暫顯示「已複製到剪貼簿」。"
-          }
-        }
-      }
-    },
-    "terminal.copyConfirmation.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تم النسخ إلى الحافظة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kopirano u međuspremnik"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kopieret til udklipsholder"
+            "value": "ディスプレイを起動中…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "In die Zwischenablage kopiert"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copied to clipboard"
+            "value": "Display wird gestartet…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copiado al portapapeles"
+            "value": "Iniciando pantalla…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copié dans le presse-papiers"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copiato negli appunti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "クリップボードにコピーしました"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បានចម្លងទៅក្ដារតម្រៀប"
+            "value": "Démarrage de l’écran…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "클립보드에 복사됨"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kopiert til utklippstavlen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skopiowano do schowka"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copiado para a área de transferência"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Скопировано в буфер обмена"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "คัดลอกไปยังคลิปบอร์ดแล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Panoya kopyalandı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Скопійовано в буфер обміну"
+            "value": "디스플레이 시작 중…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已复制到剪贴板"
+            "value": "正在启动显示器…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "已複製到剪貼簿"
+            "value": "正在啟動顯示器…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ بدء الشاشة…"
           }
         }
       }
