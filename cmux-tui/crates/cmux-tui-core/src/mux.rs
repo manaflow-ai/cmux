@@ -2,6 +2,7 @@
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
 mod agent_hook_errors;
+pub(crate) mod app_terminals;
 mod conversations;
 mod exit_settle;
 mod host_close;
@@ -9,6 +10,7 @@ mod host_close;
 mod host_death_tests;
 mod idle_close;
 mod kitty_reservation;
+use kitty_reservation::{kitty_image_limits_exceed, kitty_image_limits_within};
 pub(crate) mod layout_invariants;
 mod layout_ratio_error;
 mod layout_undo_commit;
@@ -418,24 +420,6 @@ fn kitty_image_limits_for_capacity(capacity: usize) -> KittyGraphicsLimits {
         .unwrap_or(0)
         .min(ghostty_vt::MAX_KITTY_PLACEMENTS);
     KittyGraphicsLimits { image_bytes, inflight_bytes, images, placements }
-}
-
-fn kitty_image_limits_within(candidate: KittyGraphicsLimits, ceiling: KittyGraphicsLimits) -> bool {
-    candidate.image_bytes <= ceiling.image_bytes
-        && candidate.inflight_bytes <= ceiling.inflight_bytes
-        && candidate.images <= ceiling.images
-        && candidate.placements <= ceiling.placements
-}
-
-fn kitty_image_limits_exceed(candidate: KittyGraphicsLimits, ceiling: KittyGraphicsLimits) -> bool {
-    !kitty_image_limits_within(candidate, ceiling)
-}
-
-fn kitty_image_limits_enabled(limits: KittyGraphicsLimits) -> bool {
-    limits.image_bytes > 0
-        && limits.inflight_bytes > 0
-        && limits.images > 0
-        && limits.placements > 0
 }
 
 #[derive(Clone)]
@@ -2601,6 +2585,8 @@ pub struct Mux {
     deadline_fanout_pool: DeadlineFanoutPool,
     kitty_image_budget: Mutex<KittyImageBudgetState>,
     kitty_image_budget_changed: Condvar,
+    /// App byte-backend terminals (`app_terminals.rs`), by catalog surface.
+    app_terminals: Mutex<HashSet<SurfaceId>>,
     #[cfg(debug_assertions)]
     terminal_host_reconnect_completion_failures: AtomicU64,
     #[cfg(debug_assertions)]
@@ -3071,6 +3057,7 @@ impl Mux {
             deadline_fanout_pool: DeadlineFanoutPool::new(),
             kitty_image_budget: Mutex::new(KittyImageBudgetState::default()),
             kitty_image_budget_changed: Condvar::new(),
+            app_terminals: Mutex::default(),
             #[cfg(debug_assertions)]
             terminal_host_reconnect_completion_failures: AtomicU64::new(
                 std::env::var("CMUX_TUI_TEST_RECONNECT_COMPLETION_FAILURES")
