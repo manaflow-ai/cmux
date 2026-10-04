@@ -19,13 +19,15 @@ impl Hub {
                     if method == crate::agent::HOST_STDERR =>
                 {
                     let text = params.as_ref().and_then(|p| p.get("text")).cloned();
-                    return tap_hub.append_logged(
-                        &tap_session,
-                        "mux",
-                        "stderr",
-                        json!({"text": text}),
-                        host_seq,
-                    ).1;
+                    return tap_hub
+                        .append_logged(
+                            &tap_session,
+                            "mux",
+                            "stderr",
+                            json!({"text": text}),
+                            host_seq,
+                        )
+                        .1;
                 }
                 (Direction::In, Message::Notification { method, params })
                     if method == crate::agent::HOST_EXIT =>
@@ -33,25 +35,29 @@ impl Hub {
                     let code = params.as_ref().and_then(|p| p.get("code")).cloned();
                     let intentional =
                         matches!(tap_session.status(), SessionStatus::Idle | SessionStatus::Closed);
-                    return tap_hub.append_logged(
-                        &tap_session,
-                        "mux",
-                        if intentional { "stopped" } else { "exited" },
-                        json!({"code": code}),
-                        host_seq,
-                    ).1;
+                    return tap_hub
+                        .append_logged(
+                            &tap_session,
+                            "mux",
+                            if intentional { "stopped" } else { "exited" },
+                            json!({"code": code}),
+                            host_seq,
+                        )
+                        .1;
                 }
                 (Direction::In, Message::Notification { method, params }) => {
                     let mut kind = method.clone();
                     if method.starts_with("claude.") {
                         // Raw stream-json line; translated messages follow.
-                        return tap_hub.append_logged(
-                            &tap_session,
-                            "in",
-                            &kind,
-                            params.clone().unwrap_or(Value::Null),
-                            host_seq,
-                        ).1;
+                        return tap_hub
+                            .append_logged(
+                                &tap_session,
+                                "in",
+                                &kind,
+                                params.clone().unwrap_or(Value::Null),
+                                host_seq,
+                            )
+                            .1;
                     }
                     if method == crate::rpc::method::SESSION_UPDATE {
                         if let Some(su) = params
@@ -74,13 +80,15 @@ impl Hub {
                 (Direction::Out, Message::Notification { method, params })
                     if method == "claude.stdin" =>
                 {
-                    return tap_hub.append_logged(
-                        &tap_session,
-                        "out",
-                        "claude.stdin",
-                        params.clone().unwrap_or(Value::Null),
-                        host_seq,
-                    ).1;
+                    return tap_hub
+                        .append_logged(
+                            &tap_session,
+                            "out",
+                            "claude.stdin",
+                            params.clone().unwrap_or(Value::Null),
+                            host_seq,
+                        )
+                        .1;
                 }
                 (Direction::Out, Message::Notification { method, .. }) => ("out", method.clone()),
                 (Direction::Out, Message::Response { .. }) => ("out", "response".to_owned()),

@@ -24,7 +24,13 @@ fn another_tasks_append_failure_does_not_unlog_this_entry() {
     let held = session.append_lock.lock().unwrap();
     let entry = std::thread::spawn({
         let tap = tap.clone();
-        move || tap(Direction::In, &Message::Notification { method: "x/y".into(), params: None }, Some(1))
+        move || {
+            tap(
+                Direction::In,
+                &Message::Notification { method: "x/y".into(), params: None },
+                Some(1),
+            )
+        }
     });
     // Test-only fixed wait: the tap has started and waits for the append lock.
     std::thread::sleep(std::time::Duration::from_millis(200));
