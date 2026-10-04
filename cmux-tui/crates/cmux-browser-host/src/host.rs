@@ -129,7 +129,11 @@ impl Host {
     /// The person's tabs (cef, webkit) carry automation leases keyed by the
     /// session, so the implicit shared `default` session is refused there.
     fn require_named_session(engine: &str, params: &Value) -> Result<(), DriverError> {
-        if matches!(engine, "cef" | "webkit") && params.get("session").is_none() {
+        let named = params
+            .get("session")
+            .and_then(Value::as_str)
+            .is_some_and(|name| !name.is_empty() && name != "default");
+        if matches!(engine, "cef" | "webkit") && !named {
             return Err(DriverError::invalid(format!(
                 "session: {engine} sessions drive the person's tabs and need an explicit session name"
             )));
@@ -417,6 +421,10 @@ mod tests {
     fn the_persons_tabs_need_a_named_session() {
         for engine in ["cef", "webkit"] {
             assert!(Host::require_named_session(engine, &json!({})).is_err(), "{engine}");
+            let null = json!({"session": null});
+            assert!(Host::require_named_session(engine, &null).is_err());
+            let default = json!({"session": "default"});
+            assert!(Host::require_named_session(engine, &default).is_err());
             assert!(Host::require_named_session(engine, &json!({"session": "a"})).is_ok());
         }
         assert!(Host::require_named_session("headless", &json!({})).is_ok());
