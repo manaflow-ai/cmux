@@ -16,6 +16,8 @@
     "fmt": "vp fmt",
     "lint": "vp lint",
     "lint:fix": "vp lint --fix",
+    "latency": "bun scripts/latency/run.ts",
+    "latency:ci": "bun scripts/latency/run.ts --ci",
     "protocol:codegen": "bun scripts/pane-protocol-codegen.ts",
     "protocol:check": "bun scripts/pane-protocol-codegen.ts --check",
     "protocol:demo": "vp dev --config vite.config.pane-protocol-demo.ts",

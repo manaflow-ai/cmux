@@ -1,23 +1,25 @@
 /**
  * The files panel's open and close motion.
  *
- * The panel is a fixed-width layer pinned to the right edge of #content; the
- * diff column changes width once per toggle. To keep every animation frame
- * on the compositor, a toggle runs in two steps:
+ * The panel is a fixed-width layer pinned to the right edge of #content. A
+ * toggle never lays out the diff in its own frame (plans/cmux-next/zero-latency.md,
+ * rule g): the panel starts a composited Web Animations slide at once, and the
+ * diff column changes width once, when the slide ends (`data-files-hidden`
+ * flips then). Only `transform` changes during the slide, so no animation
+ * frame lays out, recalculates style for, or paints the diff.
  *
- * 1. The layout change: `data-files-hidden` flips, so the (virtualized) diff
- *    reflows to its final width in this frame, while a hold animation keeps
- *    the panel exactly where it is on screen.
- * 2. Two frames later (after CodeView has re-rendered for its new width), a
- *    Web Animations transform animation moves the panel from that position
- *    to its target. Only `transform` changes on a promoted layer, so no
- *    animation frame lays out, recalculates style for, or paints the diff.
+ * Nothing blank shows at any frame:
+ * - opening, the diff keeps its full width under the panel until the end;
+ * - closing, the diff keeps its narrow width until the end, and the curtain (a
+ *   layer pinned where the panel's left edge rests, scaled on the compositor
+ *   with the slide) covers the strip the panel uncovers.
  *
  * Toggling again mid-way starts from the panel's current on-screen position,
- * so the motion reverses with no jump. The curve is the app's own spring
- * (`appear` to open, `disappear` to close, as for the cmux-next sidebar),
- * sampled from the spring's step response into keyframes. Reduced motion
- * switches the panel in one frame.
+ * so the motion reverses with no jump, and the diff stays at the width it has.
+ * The curve is the app's own spring (`appear` to open, `disappear` to close,
+ * as for the cmux-next sidebar), sampled from the spring's step response into
+ * keyframes, so WebKit runs it in Core Animation at the display rate (120 Hz
+ * included). Reduced motion switches the panel in one frame.
  */
 
 /** A spring in SwiftUI terms (`.spring(response:dampingFraction:)`), mass 1. */
@@ -104,13 +106,28 @@ export function springSlideKeyframes(
   return { durationMs, keyframes };
 }
 
+/** Curtain keyframes: its scaleX follows the panel's offset (`offset / width`) along the same curve. */
+export function curtainKeyframes(spring: SpringParameters, from: number, to: number, width: number): Keyframe[] {
+  const { progress } = springCurve(spring);
+  return progress.map((value, index) => ({
+    offset: index / (progress.length - 1),
+    transform: `scaleX(${Math.round(((from + (to - from) * value) / width) * 10_000) / 10_000})`,
+  }));
+}
+
 type MotionAnimation = Pick<Animation, "cancel" | "finished">;
 
 type MotionPanel = Pick<HTMLElement, "animate" | "getBoundingClientRect"> & { dataset: DOMStringMap };
+type MotionCurtain = Pick<HTMLElement, "animate">;
 
 export type FilesPanelMotionHost = {
   /** The panel element (#files-sidebar), or null while it is not mounted. */
   panel: () => MotionPanel | null;
+  /**
+   * The curtain (#files-motion-curtain): a layer of the diff's background with the panel's
+   * resting box, transform-origin at its left edge, under the panel. Null: no curtain.
+   */
+  curtain?: () => MotionCurtain | null;
   /** Where `data-files-hidden` lives (document.body). */
   body: { dataset: DOMStringMap };
   /** The panel's current horizontal offset in px (0 open, its width closed). */
@@ -126,14 +143,12 @@ export type FilesPanelMotion = {
 
 export function createFilesPanelMotion(host: FilesPanelMotionHost): FilesPanelMotion {
   let visible: boolean | null = null;
-  let running: MotionAnimation | null = null;
+  let running: MotionAnimation[] = [];
   let generation = 0;
 
-  const settle = (token: number, panel: MotionPanel) => {
-    if (token === generation) {
-      running = null;
-      delete panel.dataset.filesMotion;
-    }
+  const stop = () => {
+    for (const animation of running) animation.cancel();
+    running = [];
   };
 
   return {
@@ -148,42 +163,40 @@ export function createFilesPanelMotion(host: FilesPanelMotionHost): FilesPanelMo
       const panel = host.panel();
       const width = panel?.getBoundingClientRect().width ?? 0;
       // Where the panel is on screen now, before anything changes.
-      const from = panel != null && running != null ? host.currentOffset(panel) : next ? width : 0;
-      running?.cancel();
-      running = null;
+      const from = panel != null && running.length > 0 ? host.currentOffset(panel) : next ? width : 0;
+      stop();
+      const resting = next ? "false" : "true";
       if (panel == null || first || options.animate === false || host.reducedMotion() || width <= 0) {
-        host.body.dataset.filesHidden = next ? "false" : "true";
+        host.body.dataset.filesHidden = resting;
         if (panel != null) {
           delete panel.dataset.filesMotion;
+          delete panel.dataset.filesMotionTarget;
         }
         return;
       }
       const target = next ? 0 : width;
-      const hold = { transform: `translate3d(${from}px, 0, 0)` };
-      // Step 1: the diff takes its final width now; the panel stays put and
-      // stays painted (data-files-motion keeps it visible while it closes).
+      const spring = next ? MOTION_SPRINGS.appear : MOTION_SPRINGS.disappear;
+      // The panel stays painted for the whole slide; the target is the toggle's visible state.
       panel.dataset.filesMotion = "running";
-      running = panel.animate([hold, hold], { duration: 60_000, fill: "both" });
-      host.body.dataset.filesHidden = next ? "false" : "true";
-      // Step 2: after CodeView's resize render, the composited slide.
-      host.requestFrame(() =>
-        host.requestFrame(() => {
-          if (token !== generation) {
-            return;
-          }
-          const { durationMs, keyframes } = springSlideKeyframes(
-            next ? MOTION_SPRINGS.appear : MOTION_SPRINGS.disappear,
-            from,
-            target,
-          );
-          const slide = panel.animate(keyframes, { duration: durationMs, easing: "linear" });
-          running?.cancel();
-          running = slide;
-          slide.finished.then(
-            () => settle(token, panel),
-            () => undefined,
-          );
-        }),
+      panel.dataset.filesMotionTarget = next ? "open" : "closed";
+      const { durationMs, keyframes } = springSlideKeyframes(spring, from, target);
+      const timing = { duration: durationMs, easing: "linear", fill: "forwards" } as const;
+      const slide = panel.animate(keyframes, timing);
+      running = [slide];
+      // The diff is narrow (laid out beside the panel) until the slide ends: the curtain covers
+      // what the panel uncovers. A diff at full width is already under the panel everywhere.
+      const curtain = host.body.dataset.filesHidden === "false" ? host.curtain?.() : null;
+      if (curtain) running.push(curtain.animate(curtainKeyframes(spring, from, target, width), timing));
+      slide.finished.then(
+        () => {
+          if (token !== generation) return;
+          // The one reflow: the diff takes its new width in the frame the slide ends.
+          host.body.dataset.filesHidden = resting;
+          delete panel.dataset.filesMotion;
+          delete panel.dataset.filesMotionTarget;
+          stop();
+        },
+        () => undefined,
       );
     },
   };

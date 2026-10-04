@@ -55,14 +55,26 @@ export function MarkdownPage({
     );
   }
 
-  const status = state.readOnly
-    ? t(L.readOnly)
-    : t({ saved: L.saved, edited: L.edited, saving: L.saving, failed: L.statusFailed }[state.status]);
+  // A followed link names its file at once and says it is loading (zero-latency rule a); a file
+  // that did not open says so in the same place.
+  const status = state.navigating
+    ? t(L.loading)
+    : state.navigationFailed
+      ? t(L.failed)
+      : state.readOnly
+        ? t(L.readOnly)
+        : t({ saved: L.saved, edited: L.edited, saving: L.saving, failed: L.statusFailed }[state.status]);
   const modes: MarkdownMode[] = ["rich", "source"];
   const path = state.config?.path ?? "";
 
   return (
-    <div className="md-page" data-mode={state.mode} data-status={state.status} data-read-only={state.readOnly}>
+    <div
+      className="md-page"
+      data-mode={state.mode}
+      data-status={state.status}
+      data-read-only={state.readOnly}
+      data-navigating={state.navigating != null || undefined}
+    >
       <header className="md-toolbar-host">
         <Toolbar className="md-toolbar" label={t(L.toolbarLabel)}>
           {state.canBack || state.canForward ? (
@@ -81,7 +93,7 @@ export function MarkdownPage({
             </ToolbarGroup>
           ) : null}
           <span className="md-file" title={path}>
-            {state.phase === "loading" ? t(L.loading) : fileName(path)}
+            {state.phase === "loading" ? t(L.loading) : fileName(state.navigating ?? path)}
           </span>
           <span
             className={`md-status md-status-${state.readOnly ? "read-only" : state.status}`}

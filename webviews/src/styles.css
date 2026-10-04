@@ -713,9 +713,9 @@ body[data-files-hidden="true"] #content {
 /* Files sidebar open/close: the sidebar is a fixed-width panel pinned to the
    right edge of #content. These rules are its resting states; the slide
    between them is a composited Web Animations transform driven by
-   files-panel-motion.ts, which changes the diff column's width once, in the
-   frame before the slide starts, and keeps the panel painted while it closes
-   (data-files-motion). */
+   files-panel-motion.ts, which starts in the toggle's frame and changes the
+   diff column's width once, when the slide ends. The panel stays painted
+   while it closes (data-files-motion). */
 body[data-status-only="true"] #content {
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas: "viewer";
@@ -774,6 +774,25 @@ body[data-files-hidden="true"] #files-sidebar[data-files-motion="running"] {
   visibility: visible;
 }
 body[data-status-only="true"] #files-sidebar {
+  display: none;
+}
+/* The curtain: the panel's resting box in the panel's background, under it. While the panel
+   closes over a diff still laid out beside it, its scaleX (from its left edge) follows the
+   panel, so the strip the panel uncovers is never blank. At rest it is scaled to nothing. */
+#files-motion-curtain {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  width: var(--cmux-diff-files-width);
+  background: var(--cmux-diff-solid-bg);
+  pointer-events: none;
+  transform-origin: left center;
+  transform: scaleX(0);
+  will-change: transform;
+}
+body[data-status-only="true"] #files-motion-curtain {
   display: none;
 }
 #files-sidebar-backdrop {
@@ -977,7 +996,8 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "viewer";
   }
-  #files-sidebar {
+  #files-sidebar,
+  #files-motion-curtain {
     display: none;
   }
   #app[data-file-search-open="true"] #files-sidebar-backdrop {
