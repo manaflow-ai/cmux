@@ -88,8 +88,10 @@ import Testing
         try await eventually(settings) { controller.buttons.map(\.id) == ["go", "cmux.newBrowser"] }
         #expect(controller.actions == ["go": "cmuxConfig.go", "cmux.newBrowser": "openBrowser"])
 
-        // A shortcut rebind in the file updates the tooltip.
-        try Data(#"{"shortcuts": {"splitRight": "cmd+\\"}}"#.utf8).write(to: url, options: .atomic)
+        // A shortcut rebind in the file updates the tooltip. The default bar
+        // has no buttons (R120), so the file lists the one it checks.
+        try Data(#"{"shortcuts": {"splitRight": "cmd+\\"}, "ui": {"surfaceTabBar": {"buttons": ["cmux.splitRight"]}}}"#.utf8)
+            .write(to: url, options: .atomic)
         try await eventually(settings) { controller.buttons.first { $0.id == "cmux.splitRight" }?.toolTip == "Split Right (⌘\\)" }
         #expect(!services.registry.isBound("cmuxConfig.go"))
     }
