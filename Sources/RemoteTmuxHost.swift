@@ -289,6 +289,13 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
+    /// `select-pane -T` expands tmux formats in its title argument even after
+    /// the command parser has consumed shell quoting. Double each format marker
+    /// so a title entered in cmux remains literal on the remote pane.
+    static func tmuxFormatLiteral(_ value: String) -> String {
+        value.replacingOccurrences(of: "#", with: "##")
+    }
+
     /// Builds a remote shell command that resolves `tmux` before executing it.
     ///
     /// OpenSSH runs remote commands under the account's shell, but not as an

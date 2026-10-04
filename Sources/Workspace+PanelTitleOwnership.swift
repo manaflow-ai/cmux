@@ -40,16 +40,20 @@ extension Workspace {
             guard !trimmed.isEmpty, cloudProjectedResource(forPanel: panelId) == nil else { return false }
             if previous != nil, (panelCustomTitleSources[panelId] ?? .user) != .auto { return false }
         }
+        // A projected pane is authoritative on tmux. Do not optimistically
+        // mutate cmux if its line-safe validation or command enqueue fails:
+        // doing so leaves a local title that tmux never accepted.
+        if propagateToRemoteTmux, source != .remote, let remoteTmuxPane,
+           !remoteTmuxPane.requestRename(title: trimmed) {
+            return false
+        }
         var sameText = false
         if trimmed.isEmpty {
             // `select-pane -T ''` is meaningful even when cmux has no local
             // custom-title record: tmux may still hold a title set outside cmux.
             // Do not suppress this reset merely because there is no local state.
             guard previous != nil else {
-                if propagateToRemoteTmux, let remoteTmuxPane {
-                    _ = remoteTmuxPane.requestRename(title: "")
-                    return true
-                }
+                if propagateToRemoteTmux, remoteTmuxPane != nil { return true }
                 return false
             }
             if previous != nil {
@@ -88,8 +92,9 @@ extension Workspace {
         )
         // A remote tmux mirror tab rename propagates to `rename-window`.
         if propagateToRemoteTmux {
-            if let remoteTmuxPane {
-                _ = remoteTmuxPane.requestRename(title: trimmed)
+            if remoteTmuxPane != nil {
+                // The projected pane command was accepted before local state
+                // changed above, so this path intentionally does not resend.
             } else if isRemoteTmuxMirror {
                 AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
                     workspaceId: id, panelId: panelId, title: trimmed

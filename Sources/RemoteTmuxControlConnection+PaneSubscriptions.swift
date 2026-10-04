@@ -3,8 +3,11 @@ import Foundation
 
 extension RemoteTmuxControlConnection {
     /// The fields appended to pane-rect replies.
-    nonisolated static let paneTitleMetadataFormat = "#{pane_title}\(RemoteTmuxPaneTitleMetadata.fieldSeparator)"
-        + "#{host}\(RemoteTmuxPaneTitleMetadata.fieldSeparator)#{host_short}"
+    // `q:` preserves literal backslashes in the command-result transport, so
+    // the escaped unit-separator protocol sentinels remain unambiguous.
+    nonisolated static let paneTitleMetadataMarker = "cmux_title_metadata_v1"
+    nonisolated static let paneTitleMetadataFormat = "#{q:pane_title}\(RemoteTmuxPaneTitleMetadata.fieldSeparator)"
+        + "#{q:host}\(RemoteTmuxPaneTitleMetadata.fieldSeparator)#{q:host_short}"
 
     /// `%*` covers every pane in the attached session. tmux supplies the target
     /// pane id in each control-mode notification, so the format is the raw title.
@@ -14,7 +17,7 @@ extension RemoteTmuxControlConnection {
     /// by fixed-width pane-title metadata.
     nonisolated static let paneRectsFormat = "#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height}"
         + " #{pane_active} #{pane-border-status} :#{T:pane-border-format}"
-        + "\(RemoteTmuxPaneTitleMetadata.fieldSeparator)\(paneTitleMetadataFormat)"
+        + "\(paneTitleMetadataMarker)\(RemoteTmuxPaneTitleMetadata.fieldSeparator)\(paneTitleMetadataFormat)"
 
     /// Updates one pane's raw title metadata and reports whether it changed.
     @discardableResult

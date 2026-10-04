@@ -69,6 +69,8 @@ extension ControlCommandCoordinator {
             )
         case .invalidTitle:
             return .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
+        case .renameFailed:
+            return .err(code: "invalid_state", message: "Failed to rename tab", data: nil)
         case .invalidURL(let rawURL):
             return .err(
                 code: "invalid_params",

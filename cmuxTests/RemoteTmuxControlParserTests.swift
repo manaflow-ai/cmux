@@ -505,7 +505,7 @@ import Testing
     }
 
     @Test func subscriptionChangedRetainsTmuxTargetPane() {
-        let parser = RemoteTmuxControlStreamParser()
+        var parser = RemoteTmuxControlStreamParser()
 
         let messages = parser.feed(Data(
             "%subscription-changed cmux_title_all $0 @1 1 %5 : tests\n".utf8

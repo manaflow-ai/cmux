@@ -2,6 +2,79 @@ import CmuxRemoteSession
 import Foundation
 
 extension RemoteTmuxControlConnection {
+    /// Splits the trailing pane-title metadata from a pane-rect command result.
+    /// tmux encodes each unit separator as `\\037`; the explicit marker makes
+    /// the header boundary independent of any backslashes in its text, while
+    /// the `q:` fields make the remaining separators unambiguous.
+    static func paneTitleMetadataFields(in value: String) -> (header: String, wireValue: String)? {
+        let bytes = Array(value.utf8)
+        let marker = Array((Self.paneTitleMetadataMarker + "\\037").utf8)
+        let markerStarts = bytes.indices.filter { start in
+            start + marker.count <= bytes.count && bytes[start..<(start + marker.count)].elementsEqual(marker)
+        }
+        guard !markerStarts.isEmpty else { return nil }
+        func field(_ start: Int, _ end: Int) -> String {
+            String(decoding: bytes[start..<end], as: UTF8.self)
+        }
+        let unquote: (String) -> String = { encoded in
+            let encodedBytes = Array(encoded.utf8)
+            var decoded: [UInt8] = []
+            decoded.reserveCapacity(encodedBytes.count)
+            var offset = 0
+            while offset < encodedBytes.count {
+                if encodedBytes[offset] == 0x5c, offset + 1 < encodedBytes.count {
+                    decoded.append(encodedBytes[offset + 1])
+                    offset += 2
+                } else {
+                    decoded.append(encodedBytes[offset])
+                    offset += 1
+                }
+            }
+            return String(decoding: decoded, as: UTF8.self)
+        }
+        // A quoted title can itself end with the marker text. Validate each
+        // candidate from the end and retain the first that has all three
+        // metadata fields, rather than treating a title suffix as a boundary.
+        for markerStart in markerStarts.reversed() {
+            let metadataStart = markerStart + marker.count
+            var separators: [Int] = []
+            var index = metadataStart
+            while index + 3 < bytes.count, separators.count < 2 {
+                guard bytes[index] == 0x5c,
+                      bytes[index + 1] == 0x30,
+                      bytes[index + 2] == 0x33,
+                      bytes[index + 3] == 0x37 else {
+                    index += 1
+                    continue
+                }
+                var precedingBackslashes = 0
+                var preceding = index
+                while preceding > metadataStart, bytes[preceding - 1] == 0x5c {
+                    precedingBackslashes += 1
+                    preceding -= 1
+                }
+                if precedingBackslashes.isMultiple(of: 2) {
+                    separators.append(index)
+                    index += 4
+                } else {
+                    index += 1
+                }
+            }
+            guard separators.count == 2 else { continue }
+            let first = separators[0]
+            let second = separators[1]
+            return (
+                header: field(0, markerStart),
+                wireValue: [
+                    unquote(field(metadataStart, first)),
+                    unquote(field(first + 4, second)),
+                    unquote(field(second + 4, bytes.count)),
+                ].joined(separator: String(RemoteTmuxPaneTitleMetadata.fieldSeparator))
+            )
+        }
+        return nil
+    }
+
     /// Drops tmux `#[...]` style tokens from an expanded format (tmux marks
     /// the active pane by reversing its index; the dot carries that signal
     /// here).
@@ -201,25 +274,13 @@ extension RemoteTmuxControlConnection {
             if let placement = RemoteTmuxPaneTitleRowPlacement(rawValue: String(parts[6])) {
                 titleRowPlacement = placement
             }
-            // tmux command-result text encodes control characters such as the
-            // unit separators in pane-title metadata as `\\037`. Decode this
-            // format payload before splitting its metadata fields. `%output`
-            // already takes the raw-byte decoding path in the stream parser.
-            let encodedFields = String(parts[7].dropFirst())
-            let decodedFields = String(
-                decoding: RemoteTmuxControlStreamParser.unescapeOutput(Array(encodedFields.utf8)),
-                as: UTF8.self
-            )
-            let expandedFields = decodedFields.split(
-                separator: RemoteTmuxPaneTitleMetadata.fieldSeparator,
-                maxSplits: 1,
-                omittingEmptySubsequences: false
-            )
-            labels[paneId] = Self.strippingStyleTokens(String(expandedFields[0]))
-            if expandedFields.count == 2,
-               let metadata = RemoteTmuxPaneTitleMetadata(wireValue: String(expandedFields[1])) {
+            let fields = String(parts[7].dropFirst())
+            if let metadataFields = Self.paneTitleMetadataFields(in: fields),
+               let metadata = RemoteTmuxPaneTitleMetadata(wireValue: metadataFields.wireValue) {
+                labels[paneId] = Self.strippingStyleTokens(metadataFields.header)
                 titleMetadata[paneId] = metadata
             } else {
+                labels[paneId] = Self.strippingStyleTokens(fields)
                 panesWithoutTitleMetadata.insert(paneId)
             }
         }
