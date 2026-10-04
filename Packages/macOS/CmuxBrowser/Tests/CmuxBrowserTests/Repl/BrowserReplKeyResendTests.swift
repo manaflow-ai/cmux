@@ -19,6 +19,10 @@ struct BrowserReplKeyResendTests {
     /// Records the key events WebKit's responder methods receive.
     private final class RecordingWebView: WKWebView {
         var keyDowns: [NSEvent] = []
+        var selectAllCount = 0
+        override func selectAll(_ sender: Any?) {
+            selectAllCount += 1
+        }
         override func keyDown(with event: NSEvent) {
             keyDowns.append(event)
         }
@@ -47,6 +51,22 @@ struct BrowserReplKeyResendTests {
         #expect(webView.replayBrowserKeyboardEvent(event, action: .press) == .delivered)
         let delivered = try #require(webView.keyDowns.first)
         #expect(delivered.isBrowserAutomationKeyEvent)
+    }
+
+    // cmux browser press Meta+a selected all through WebKit's resend to the
+    // Edit menu; with the resend dropped, the web view runs the editing
+    // command itself, as the REPL does.
+    @Test func cmuxBrowserPressRunsEditingShortcutsOnTheWebView() throws {
+        let webView = RecordingWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        let meta = try #require(BrowserKeyboardEvent(rawKey: "Meta"))
+        let a = try #require(BrowserKeyboardEvent(rawKey: "a"))
+        #expect(webView.replayBrowserKeyboardEvent(meta, action: .keyDown) == .delivered)
+        #expect(webView.replayBrowserKeyboardEvent(a, action: .press) == .delivered)
+        #expect(webView.replayBrowserKeyboardEvent(meta, action: .keyUp) == .delivered)
+        #expect(webView.selectAllCount == 1)
+        // Without Command, a is just a key.
+        #expect(webView.replayBrowserKeyboardEvent(a, action: .press) == .delivered)
+        #expect(webView.selectAllCount == 1)
     }
 
     // The mobile browser stream replays a person's keys from their phone

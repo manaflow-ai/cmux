@@ -113,4 +113,54 @@ struct BrowserReplPopupRouteTests {
             return
         }
     }
+
+    // An agent's click in a user's tab that opens a window must not put a
+    // key popup window over the user's work (BrowserPopupWindowController
+    // makes it key), and the agent could not reach it. While the session's
+    // input runs, the window opens as a background tab for that session and
+    // stays the user's.
+    @Test("A popup the session's own input opens in a user's tab goes to that session")
+    func userTabPopupsFromTheSessionsInputGoToIt() throws {
+        let route = BrowserReplPopupRoute(
+            url: URL(string: "https://docs.example.com/a"),
+            openerCreatedBySession: false,
+            creatorPolicy: BrowserReplDomainPolicy(),
+            inputSession: (id: "agent", policy: BrowserReplDomainPolicy()),
+            allowlist: open
+        )
+        #expect(route == .inputSession("agent"))
+        var prohibiting = BrowserReplDomainPolicy()
+        prohibiting.prohibited = [try BrowserReplDomainPattern.parse("evil.example", title: "t")]
+        let blocked = BrowserReplPopupRoute(
+            url: URL(string: "https://evil.example/a"),
+            openerCreatedBySession: false,
+            creatorPolicy: BrowserReplDomainPolicy(),
+            inputSession: (id: "agent", policy: prohibiting),
+            allowlist: open
+        )
+        guard case .refused = blocked else {
+            Issue.record("a popup the session's policy blocks went to \(blocked)")
+            return
+        }
+        let local = BrowserReplPopupRoute(
+            url: URL(string: "file:///etc/passwd"),
+            openerCreatedBySession: false,
+            creatorPolicy: BrowserReplDomainPolicy(),
+            inputSession: (id: "agent", policy: BrowserReplDomainPolicy()),
+            allowlist: open
+        )
+        guard case .refused = local else {
+            Issue.record("a local file popup went to \(local)")
+            return
+        }
+        // Without the session's input the user's page keeps its windows.
+        let own = BrowserReplPopupRoute(
+            url: URL(string: "https://docs.example.com/a"),
+            openerCreatedBySession: false,
+            creatorPolicy: BrowserReplDomainPolicy(),
+            inputSession: nil,
+            allowlist: open
+        )
+        #expect(own == .browser)
+    }
 }

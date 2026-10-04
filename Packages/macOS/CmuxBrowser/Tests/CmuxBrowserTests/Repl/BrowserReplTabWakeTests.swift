@@ -54,7 +54,7 @@ private final class FakeTab {
 }
 
 @MainActor
-@Suite("Browser REPL hibernated and crashed tabs")
+@Suite("Browser REPL hibernated and crashed tabs", .serialized)
 struct BrowserReplTabWakeTests {
     private func driverError(_ body: () async throws -> Void) async -> BrowserReplDriverError? {
         do {
@@ -194,6 +194,61 @@ struct BrowserReplTabWakeTests {
             try await tab.prepare(method, sleeper: DistantSleeper())
             #expect(tab.condition.state == .hibernated)
         }
+    }
+
+    @Test func handlingEventsOrShowingAHibernatedTabDoesNotWakeIt() async throws {
+        for method in ["tab.handleEvents", "tabs.activate", "tab.bringToFront"] {
+            let tab = FakeTab(BrowserReplTabCondition(isHibernated: true))
+            try await tab.prepare(method, sleeper: DistantSleeper())
+            #expect(tab.wakeCount == 0, "\(method) woke the tab")
+        }
+    }
+
+    // A call the session cancels (its cell timed out, the session closed)
+    // must not keep waiting for the page until the 30 s bound.
+    @Test func aCancelledWakeStopsWaiting() async {
+        let tab = FakeTab(BrowserReplTabCondition(isHibernated: true))
+        tab.onWait = { _ in
+            await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in }
+        }
+        let task = Task { @MainActor in try? await tab.prepare("frame.evaluate", sleeper: DistantSleeper()) }
+        task.cancel()
+        let ended = await browserReplWithDeadline(seconds: 10) { await task.value; return true }
+        #expect(ended == true)
+    }
+
+    // A web view invalidated by a close or crash answers every commit wait
+    // with superseded at once; the wait must end instead of spinning on the
+    // main actor, where the deadline task could never run.
+    @Test func aCommitWaitOnAnInvalidatedWebViewEnds() async {
+        let instance = UUID()
+        var waits = 0
+        let committed = await BrowserReplTabWaker.waitForPageCommit(
+            instance: { instance },
+            waitForCommit: { _ in
+                waits += 1
+                return .superseded
+            }
+        )
+        #expect(!committed)
+        #expect(waits == 1)
+    }
+
+    @Test func aCommitWaitFollowsAReplacedWebView() async {
+        var current = UUID()
+        var waits = 0
+        let committed = await BrowserReplTabWaker.waitForPageCommit(
+            instance: { current },
+            waitForCommit: { _ in
+                waits += 1
+                // The first web view is replaced before it commits; the next commits.
+                guard waits == 1 else { return .committed }
+                current = UUID()
+                return .superseded
+            }
+        )
+        #expect(committed)
+        #expect(waits == 2)
     }
 
     @Test func aTabWithNoTitleIsNamedByItsURL() {
