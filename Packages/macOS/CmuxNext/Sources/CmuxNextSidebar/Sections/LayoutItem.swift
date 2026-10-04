@@ -10,7 +10,7 @@ public nonisolated enum SidebarBuiltIn: String, Hashable, Sendable, CaseIterable
     case history
     case bookmarks
     case appStore = "app_store"
-    /// New-tab launchers, for sections and the rail (`window.rail`).
+    /// New-tab launchers, for sections.
     case newTerminal = "new_terminal"
     case newBrowser = "new_browser"
     case newAgentChat = "new_agent_chat"

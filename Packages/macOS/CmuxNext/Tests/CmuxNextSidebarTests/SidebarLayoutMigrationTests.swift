@@ -1,41 +1,32 @@
 import Testing
 @testable import CmuxNextSidebar
 
-/// Moving the destinations into the rail (Leo, 2026-10-03) changes the
-/// default layout. A stored layout that still equals the layout the app
-/// shipped before is rewritten to the new one through ordinary layout ops
-/// (the owner applies them like any edit); a layout the user changed is
-/// left exactly as it is.
+/// The window rail (Leo, 2026-10-03) changed the default layout; R52
+/// (Lawrence, 2026-10-03) removed the rail. A stored layout that still
+/// equals the rail's default is rewritten to the sections default through
+/// ordinary layout ops (the owner applies them like any edit); a layout the
+/// user changed is left exactly as it is.
 @Suite struct SidebarLayoutMigrationTests {
-    private let preRail = SidebarLayoutDocument.preRailDefaults
+    private let rail = SidebarLayoutDocument.railDefaults
 
     private func apply(_ ops: [SidebarLayoutOp], to document: SidebarLayoutDocument) throws -> SidebarLayoutDocument {
         try ops.reduce(document) { try SidebarLayoutReducer.reduce($0, $1).get() }
     }
 
-    /// The layout before the rail: Home, the App Store and CodeRouter on top,
-    /// Settings and the account on one line at the bottom.
-    @Test func thePreRailDefaultsAreTheOldLayout() {
-        #expect(preRail.sections(in: .top, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.home), .builtIn(.appStore), .app("cmux/coderouter")])
-        #expect(preRail.sections(in: .bottom, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.account)])
-        #expect(preRail.sections != SidebarLayoutDocument.defaults.sections)
-    }
-
-    @Test func aStoredPreRailLayoutBecomesTheNewDefaults() throws {
-        let stored = SidebarLayoutDocument(revision: 7, sections: preRail.sections)
-        let ops = stored.railMigrationOps
+    @Test func aStoredRailLayoutBecomesTheSectionsDefaults() throws {
+        let stored = SidebarLayoutDocument(revision: 7, sections: rail.sections)
+        let ops = stored.sectionsMigrationOps
         #expect(!ops.isEmpty)
         let migrated = try apply(ops, to: stored)
         #expect(migrated.sections == SidebarLayoutDocument.defaults.sections)
-        #expect(stored.migratedToRail.sections == SidebarLayoutDocument.defaults.sections)
+        #expect(stored.sectionsMigration.sections == SidebarLayoutDocument.defaults.sections)
         // Each op is a change the owner commits, so the revision moves on.
         #expect(migrated.revision > stored.revision)
-        // Moves keep item ids: Settings is the same item, now on top.
-        #expect(migrated.locate(LayoutItemID("itm_settings"))?.section == 0)
+        // Moves keep item ids: Settings is the same item, back at the bottom.
+        #expect(migrated.locate(LayoutItemID("itm_settings"))?.section == 2)
     }
 
-    /// Only the exact old default migrates: removing Home, adding an item,
-    /// reordering or relabeling all count as the user's own layout.
+    /// Only the exact rail default migrates.
     @Test func aCustomizedLayoutIsLeftAlone() throws {
         let edits: [SidebarLayoutOp] = [
             .itemRemove(LayoutItemID("itm_home")),
@@ -45,18 +36,17 @@ import Testing
             .sectionUpdate(SidebarLayoutDocument.bottomSectionID, SectionPatch(title: .set("Me"))),
         ]
         for edit in edits {
-            let customized = try SidebarLayoutReducer.reduce(preRail, edit).get()
-            #expect(customized.railMigrationOps.isEmpty, "\(edit)")
-            #expect(customized.migratedToRail == customized, "\(edit)")
+            let customized = try SidebarLayoutReducer.reduce(rail, edit).get()
+            #expect(customized.sectionsMigrationOps.isEmpty, "\(edit)")
+            #expect(customized.sectionsMigration == customized, "\(edit)")
         }
     }
 
-    /// The new defaults (and anything else) need nothing, so migrating
-    /// twice is the same as once.
-    @Test func theNewDefaultsNeedNoMigration() {
-        #expect(SidebarLayoutDocument.defaults.railMigrationOps.isEmpty)
-        let once = preRail.migratedToRail
-        #expect(once.railMigrationOps.isEmpty)
-        #expect(once.migratedToRail == once)
+    /// The sections defaults need nothing, so migrating twice is the same as once.
+    @Test func theDefaultsNeedNoMigration() {
+        #expect(SidebarLayoutDocument.defaults.sectionsMigrationOps.isEmpty)
+        let once = rail.sectionsMigration
+        #expect(once.sectionsMigrationOps.isEmpty)
+        #expect(once.sectionsMigration == once)
     }
 }

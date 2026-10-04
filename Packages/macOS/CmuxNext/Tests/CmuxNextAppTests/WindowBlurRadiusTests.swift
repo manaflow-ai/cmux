@@ -28,7 +28,6 @@ struct WindowBlurRadiusTests {
         let log = Log()
         let model = SidebarModel()
         let root = WindowRootView(sidebar: SidebarContainerView(model: model),
-                                  rail: WindowRailView(model: model, registry: ActionBindingCoverageTests.boundServices().registry),
                                   reduceTransparency: { reduceTransparency },
                                   applyWindowBlur: { _, radius in log.radii.append(radius) })
         let room = ThemeScope(level: .room)
