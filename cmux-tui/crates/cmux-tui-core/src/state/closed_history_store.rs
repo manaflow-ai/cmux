@@ -316,7 +316,10 @@ fn window_of_workspace(
                AND (json_extract(r.record_json, '$.workspace_key') = w.workspace_key
                  OR EXISTS (SELECT 1 FROM json_each(r.record_json, '$.workspace_keys') AS k
                             WHERE k.value = w.workspace_key))
-             ORDER BY r.updated_at_ms DESC LIMIT 1",
+             ORDER BY EXISTS (SELECT 1 FROM json_each(r.record_json, '$.workspace_keys') AS k
+                              WHERE k.value = w.workspace_key) DESC,
+                      r.updated_at_ms DESC
+             LIMIT 1",
             [workspace_id],
             |row| row.get::<_, String>(0),
         )
