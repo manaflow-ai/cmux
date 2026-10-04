@@ -215,6 +215,23 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             sessionDirectory: "~/.grok/sessions"
         )
     }
+
+    static var builtInCodePuppy: CmuxVaultAgentRegistration {
+        let contract = CodePuppyAgentRegistration.standard
+        return CmuxVaultAgentRegistration(
+            id: contract.id,
+            name: String(localized: "agent.codePuppy.displayName", defaultValue: "Code Puppy"),
+            iconAssetName: contract.iconAssetName,
+            detect: CmuxVaultAgentDetectRule(
+                processNames: contract.directBasenames,
+                alternateArgvContainsAny: contract.vaultAlternateArgvContainsAny
+            ),
+            sessionIdSource: .argvOption(contract.resumeOption),
+            resumeCommand: contract.resumeCommand,
+            cwd: .preserve,
+            sessionDirectory: contract.sessionDirectory
+        )
+    }
 }
 
 struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
@@ -508,6 +525,7 @@ struct CmuxVaultAgentRegistry: Sendable {
             CmuxVaultAgentRegistration.builtInAntigravity,
             CmuxVaultAgentRegistration.builtInGrok,
             CmuxVaultAgentRegistration.builtInKimi,
+            CmuxVaultAgentRegistration.builtInCodePuppy,
             CmuxVaultAgentRegistration.builtInHermes,
         ]
         for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {

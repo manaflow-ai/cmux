@@ -16,6 +16,8 @@ public enum RegisteredAgentResumeKind: String, Sendable {
     case antigravity
     /// Grok CLI.
     case grok
+    /// Code Puppy.
+    case codePuppy = "code-puppy"
     /// Kimi Code.
     case kimi
 
@@ -30,7 +32,7 @@ public enum RegisteredAgentResumeKind: String, Sendable {
             "{{executable}} --conversation {{sessionId}}"
         case .grok:
             "{{executable}} -r {{sessionId}}"
-        case .kimi:
+        case .kimi, .codePuppy:
             "{{executable}} --resume {{sessionId}}"
         }
     }

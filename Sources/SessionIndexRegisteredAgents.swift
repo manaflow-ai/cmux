@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 import CmuxAgentSessionStore
 
 struct GrokSessionRoot: Sendable, Hashable {
@@ -595,6 +596,11 @@ extension SessionIndexStore {
         if case .grokSessionDirectory = registration.sessionIdSource {
             return GrokSessionLocator.sessionRoots(registration: registration, cwdFilter: cwdFilter)
                 .map(\.sessionsRoot)
+        }
+        if registration == .builtInCodePuppy {
+            return [CodePuppyAgentRegistration.standard.autosaveDirectory(
+                homeDirectory: NSHomeDirectory(), environment: ProcessInfo.processInfo.environment
+            ).path]
         }
         guard let root = registration.sessionDirectory.map({ ($0 as NSString).expandingTildeInPath }) else {
             return []

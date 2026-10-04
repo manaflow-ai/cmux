@@ -637,6 +637,7 @@
 		C11757000000000000000042 /* CLIChildEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95C00A2330C34E7DA7630E4D /* CLIChildEnvironment.swift */; };
 		2E931B5728B0478CB9B4937F /* CLIChildEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC61257DCDCA431A908C55CC /* CLIChildEnvironmentTests.swift */; };
 		C11757000000000000000028 /* CLIClaudeHookTimeoutRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1175700000000000000000F /* CLIClaudeHookTimeoutRegressionTests.swift */; };
+		BB5587000000000000000001 /* CLICodePuppyLiveStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB5587000000000000000002 /* CLICodePuppyLiveStatusTests.swift */; };
 		C11757000000000000000029 /* CLICoderouterBootstrapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000010 /* CLICoderouterBootstrapTests.swift */; };
 		C0DE60C0000000000000A032 /* CLICoderouterCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE60C0000000000000A031 /* CLICoderouterCommandTests.swift */; };
 		C1175700000000000000002A /* CLICodexHookPathQuotingRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000011 /* CLICodexHookPathQuotingRegressionTests.swift */; };
@@ -1210,6 +1211,7 @@
 		C10D0A100000000000000001 /* CMUXCLI+CloudDomains.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D0A100000000000000002 /* CMUXCLI+CloudDomains.swift */; };
 		8E698AAEED584B5C92B9C734 /* CMUXCLI+CloudFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1FF1D48B584498AB7FD6B9E /* CMUXCLI+CloudFeature.swift */; };
 		8998766EE75E446999264351 /* CMUXCLI+CloudSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B615265460F412888EB0F73 /* CMUXCLI+CloudSidebar.swift */; };
+		58217B092B8B7F1ECB2E3013 /* CMUXCLI+CodePuppyHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC729F5EB135E73987391315 /* CMUXCLI+CodePuppyHooks.swift */; };
 		C0DE60C0000000000000A022 /* CMUXCLI+Coderouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE60C0000000000000A021 /* CMUXCLI+Coderouter.swift */; };
 		C0DE60C0000000000000A034 /* CMUXCLI+CoderouterPassthrough.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE60C0000000000000A033 /* CMUXCLI+CoderouterPassthrough.swift */; };
 		C0D3F1F00000000000000101 /* CMUXCLI+CodexFireAndForgetHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3F1F00000000000000102 /* CMUXCLI+CodexFireAndForgetHooks.swift */; };
@@ -1628,6 +1630,9 @@
 		E3B7A3000000000000000103 /* CmuxWorkspaces in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A3000000000000000102 /* CmuxWorkspaces */; };
 		C0A1E5CE01C0A1E5CE01A001 /* CoalesceLatestPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A1E5CE01C0A1E5CE01A002 /* CoalesceLatestPublisher.swift */; };
 		AAE06C3AEC68484DA33D42A1 /* CoalesceLatestPublisherDemandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43BEE8C1CB174E3AB4F89EDE /* CoalesceLatestPublisherDemandTests.swift */; };
+		C6711A020000000000000002 /* CodePuppyDetectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B020000000000000002 /* CodePuppyDetectionTests.swift */; };
+		C6711A020000000000000003 /* CodePuppyHookConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B020000000000000003 /* CodePuppyHookConfigTests.swift */; };
+		A2BAD17E295D93554D11D84D /* CodePuppySessionRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2017A92BD7CE1D96FE9C167 /* CodePuppySessionRestoreTests.swift */; };
 		C0DE60C0000000000000A012 /* CoderouterSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE60C0000000000000A011 /* CoderouterSocketCommands.swift */; };
 		A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */; };
 		A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000E /* CodexAppServerSession.swift */; };
@@ -5175,6 +5180,7 @@
 		95C00A2330C34E7DA7630E4D /* CLIChildEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIChildEnvironment.swift; sourceTree = "<group>"; };
 		AC61257DCDCA431A908C55CC /* CLIChildEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIChildEnvironmentTests.swift; sourceTree = "<group>"; };
 		C1175700000000000000000F /* CLIClaudeHookTimeoutRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIClaudeHookTimeoutRegressionTests.swift; sourceTree = "<group>"; };
+		BB5587000000000000000002 /* CLICodePuppyLiveStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodePuppyLiveStatusTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000010 /* CLICoderouterBootstrapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICoderouterBootstrapTests.swift; sourceTree = "<group>"; };
 		C0DE60C0000000000000A031 /* CLICoderouterCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICoderouterCommandTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000011 /* CLICodexHookPathQuotingRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexHookPathQuotingRegressionTests.swift; sourceTree = "<group>"; };
@@ -5718,6 +5724,7 @@
 		C10D0A100000000000000002 /* CMUXCLI+CloudDomains.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CloudDomains.swift"; sourceTree = "<group>"; };
 		E1FF1D48B584498AB7FD6B9E /* CMUXCLI+CloudFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CloudFeature.swift"; sourceTree = "<group>"; };
 		7B615265460F412888EB0F73 /* CMUXCLI+CloudSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CloudSidebar.swift"; sourceTree = "<group>"; };
+		DC729F5EB135E73987391315 /* CMUXCLI+CodePuppyHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CodePuppyHooks.swift"; sourceTree = "<group>"; };
 		C0DE60C0000000000000A021 /* CMUXCLI+Coderouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Coderouter.swift"; sourceTree = "<group>"; };
 		C0DE60C0000000000000A033 /* CMUXCLI+CoderouterPassthrough.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CoderouterPassthrough.swift"; sourceTree = "<group>"; };
 		C0D3F1F00000000000000102 /* CMUXCLI+CodexFireAndForgetHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CodexFireAndForgetHooks.swift"; sourceTree = "<group>"; };
@@ -6034,6 +6041,9 @@
 		A6AC72080000000000000002 /* CMUXWorkspaceLoadingCLIRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXWorkspaceLoadingCLIRegressionTests.swift; sourceTree = "<group>"; };
 		C0A1E5CE01C0A1E5CE01A002 /* CoalesceLatestPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoalesceLatestPublisher.swift; sourceTree = "<group>"; };
 		43BEE8C1CB174E3AB4F89EDE /* CoalesceLatestPublisherDemandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoalesceLatestPublisherDemandTests.swift; sourceTree = "<group>"; };
+		C6711B020000000000000002 /* CodePuppyDetectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodePuppyDetectionTests.swift; sourceTree = "<group>"; };
+		C6711B020000000000000003 /* CodePuppyHookConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodePuppyHookConfigTests.swift; sourceTree = "<group>"; };
+		E2017A92BD7CE1D96FE9C167 /* CodePuppySessionRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodePuppySessionRestoreTests.swift"; sourceTree = "<group>"; };
 		C0DE60C0000000000000A011 /* CoderouterSocketCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterSocketCommands.swift; sourceTree = "<group>"; };
 		A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerQueuedInput.swift; sourceTree = "<group>"; };
 		A9E01000000000000000000E /* CodexAppServerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerSession.swift; sourceTree = "<group>"; };
@@ -9028,6 +9038,7 @@
 				C11757000000000000000014 /* CLICodexResumeNotificationTests.swift */,
 				C11757000000000000000015 /* CLIExplicitSurfaceRoutingTests.swift */,
 				C11757000000000000000016 /* CLIHookNoResponseTests.swift */,
+				BB5587000000000000000002 /* CLICodePuppyLiveStatusTests.swift */,
 				C11757000000000000000017 /* CLIOmpSupersededCleanupTests.swift */,
 				C11757000000000000000018 /* CLIRelayQueuedHookRegressionTests.swift */,
 				C117570000000000000000C0 /* ClaudeHookSessionStoreRecoveryTests.swift */,
@@ -12144,6 +12155,7 @@
 				57AE38B536A608CB2CDEE6AD /* CMUXCLI+DiffViewerReviewLabels.swift */,
 				5A2776CC5FE1E0083FAAB3A8 /* VMReadyPollInterval.swift */,
 				5B85EF1F8C40AF5C89F442A8 /* CMUXCLI+AgentMessageSettings.swift */,
+				DC729F5EB135E73987391315 /* CMUXCLI+CodePuppyHooks.swift */,
 			);
 			path = CLI;
 			sourceTree = "<group>";
@@ -12346,6 +12358,8 @@
 				F5410005A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift */,
 				F5410003A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift */,
 				C6711B020000000000000001 /* RestorableAgentSessionIndexCodexWeakRecordTests.swift */,
+				C6711B020000000000000002 /* CodePuppyDetectionTests.swift */,
+				C6711B020000000000000003 /* CodePuppyHookConfigTests.swift */,
 				F54100B1A1B2C3D4E5F60718 /* RestorableCodexForkTagTests.swift */,
 				F0F0CF0F0000000000000002 /* ForkParentFallbackGeneralizationTests.swift */,
 				F76550030000000000000002 /* ForkParentFallbackResidualTests.swift */,
@@ -13373,6 +13387,7 @@
 				9EB40F6FBC67EF926C6D7000 /* RemoteTmuxReconnectStaleStreamTests.swift */,
 				BAB9A7B1FEACDDDF753351A6 /* CloudTreeMachineDetailLayoutTests.swift */,
 				CAF0C5761E32692C69C006C0 /* RightSidebarModeBarTabWidthsTests.swift */,
+				E2017A92BD7CE1D96FE9C167 /* CodePuppySessionRestoreTests.swift */,
 				8E130576821882FB0DDFB0F3 /* NewMachineSheetPresenterTests.swift */,
 				272AE90B4C33027AB38F708E /* CloudActivationCoordinatorTests.swift */,
 				F315CAB97E0954B5025E4A2D /* CloudCmdYActivationRoutingTests.swift */,
@@ -14120,6 +14135,7 @@
 				AE55A6E50000000000000005 /* CLIAgentMessageCommandTests.swift in Sources */,
 				C11757000000000000000042 /* CLIChildEnvironment.swift in Sources */,
 				C11757000000000000000028 /* CLIClaudeHookTimeoutRegressionTests.swift in Sources */,
+				BB5587000000000000000001 /* CLICodePuppyLiveStatusTests.swift in Sources */,
 				C11757000000000000000029 /* CLICoderouterBootstrapTests.swift in Sources */,
 				C1175700000000000000002A /* CLICodexHookPathQuotingRegressionTests.swift in Sources */,
 				C1175700000000000000002B /* CLICodexHookTimeoutRegressionTests.swift in Sources */,
@@ -16884,6 +16900,7 @@
 				C10D0A100000000000000001 /* CMUXCLI+CloudDomains.swift in Sources */,
 				8E698AAEED584B5C92B9C734 /* CMUXCLI+CloudFeature.swift in Sources */,
 				8998766EE75E446999264351 /* CMUXCLI+CloudSidebar.swift in Sources */,
+				58217B092B8B7F1ECB2E3013 /* CMUXCLI+CodePuppyHooks.swift in Sources */,
 					C0DE60C0000000000000A022 /* CMUXCLI+Coderouter.swift in Sources */,
 					C0DE60C0000000000000A034 /* CMUXCLI+CoderouterPassthrough.swift in Sources */,
 				C0D3F1F00000000000000101 /* CMUXCLI+CodexFireAndForgetHooks.swift in Sources */,
@@ -17659,6 +17676,9 @@
 				C0DE58990000000000000014 /* CmuxWebViewWebContentUndoTests.swift in Sources */,
 					A6AC72080000000000000001 /* CMUXWorkspaceLoadingCLIRegressionTests.swift in Sources */,
 				AAE06C3AEC68484DA33D42A1 /* CoalesceLatestPublisherDemandTests.swift in Sources */,
+					C6711A020000000000000002 /* CodePuppyDetectionTests.swift in Sources */,
+					C6711A020000000000000003 /* CodePuppyHookConfigTests.swift in Sources */,
+				A2BAD17E295D93554D11D84D /* CodePuppySessionRestoreTests.swift in Sources */,
 				A9E040000000000000000002 /* CodexAppServerSessionTests.swift in Sources */,
 				B6F143F6E02543F3899F1E02 /* CodexAutoresumeChainTests.swift in Sources */,
 				C8711B000000000000000002 /* CodexCodeModeRolloutIdentityTests.swift in Sources */,

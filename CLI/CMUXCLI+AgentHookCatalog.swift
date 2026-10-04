@@ -239,6 +239,26 @@ extension CMUXCLI {
             feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
+            name: CodePuppyAgentRegistration.standard.id,
+            displayName: String(localized: "agent.codePuppy.displayName", defaultValue: "Code Puppy"),
+            statusKey: CodePuppyAgentRegistration.standard.id,
+            configDir: CodePuppyAgentRegistration.standard.hookConfigDirectory,
+            configFile: CodePuppyPlugin.registryFileName,
+            createConfigDirIfMissing: true,
+            configDirResolver: { CMUXCLI.codePuppyConfigDirectory().path },
+            binaryName: CodePuppyAgentRegistration.standard.binaryName,
+            sessionStoreSuffix: CodePuppyAgentRegistration.standard.sessionStoreSuffix,
+            disableEnvVar: CodePuppyAgentRegistration.standard.disableHooksEnvironmentVariable,
+            hookMarker: CodePuppyAgentRegistration.standard.hookMarker,
+            format: .codePuppyPlugin,
+            events: CodePuppyAgentRegistration.standard.lifecycleEvents.map {
+                .init(agentEvent: $0.agentEvent, cmuxSubcommand: $0.cmuxSubcommand)
+            },
+            aliases: Set(CodePuppyAgentRegistration.standard.hookAliases),
+            nestedGroupMatcher: CodePuppyAgentRegistration.standard.nestedGroupMatcher,
+            feedHookEvents: CodePuppyAgentRegistration.standard.feedEvents
+        ),
+        AgentHookDef(
             name: "kimi", displayName: "Kimi Code", statusKey: "kimi",
             configDir: KimiConfigLocationResolver.kimiCodeConfigDirectory,
             configFile: KimiConfigLocationResolver.configFileName,

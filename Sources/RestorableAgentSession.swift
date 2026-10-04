@@ -2082,6 +2082,14 @@ struct RestorableAgentSessionIndex: Sendable {
                     kind: kind
                 )
                 if kind == .codex, normalizedNonEmptyValue(effectiveRecord.launchCommand?.source)?.lowercased() == "environment", normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["CODEX_HOME"]) == nil, (normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["ANTHROPIC_BASE_URL"]) != nil || normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) != nil) { effectiveRecord.launchCommand = nil }
+                if registration == .builtInCodePuppy {
+                    let resumeEnvironment = effectiveRecord.launchCommand?.environment ?? environment
+                    guard let sessionID = CodePuppyAgentRegistration.standard.resumableHookSessionID(
+                        effectiveRecord.sessionId, homeDirectory: homeDirectory,
+                        environment: resumeEnvironment, fileManager: fileManager
+                    ) else { continue }
+                    effectiveRecord.sessionId = sessionID
+                }
                 let normalizedSessionId = effectiveRecord.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: effectiveRecord.workspaceId),

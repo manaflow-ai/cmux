@@ -19393,7 +19393,7 @@ struct CMUXCLI {
             agent. Claude Code and Pi hooks are injected automatically by their cmux wrappers.
 
             Agents:
-              codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              \(String(localized: "command.cmuxCLI.hooks.agents", defaultValue: "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"))
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -33675,9 +33675,13 @@ struct CMUXCLI {
             case .nested(let timeoutMs):
                 var groups = result[event.agentEvent] as? [[String: Any]] ?? []
                 let timeout = nestedHookTimeout(timeoutMs, for: def)
-                groups.append([
+                var group: [String: Any] = [
                     "hooks": [["type": "command", "command": cmd, "timeout": timeout] as [String: Any]]
-                ] as [String: Any])
+                ]
+                if let matcher = def.nestedGroupMatcher {
+                    group["matcher"] = matcher
+                }
+                groups.append(group)
                 result[event.agentEvent] = groups
             case .antigravityJSON(let timeoutSeconds):
                 var entries = result[event.agentEvent] as? [[String: Any]] ?? []
@@ -33687,7 +33691,7 @@ struct CMUXCLI {
                     eventName: event.agentEvent
                 ))
                 result[event.agentEvent] = entries
-            case .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
+            case .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable, .codePuppyPlugin:
                 break
             }
         }
@@ -33713,9 +33717,13 @@ struct CMUXCLI {
             case .nested:
                 var groups = result[agentEvent] as? [[String: Any]] ?? []
                 let timeout = nestedFeedHookTimeout(feedTimeoutMs, for: def)
-                groups.append([
+                var group: [String: Any] = [
                     "hooks": [["type": "command", "command": feedCmd, "timeout": timeout] as [String: Any]]
-                ] as [String: Any])
+                ]
+                if let matcher = def.nestedGroupMatcher {
+                    group["matcher"] = matcher
+                }
+                groups.append(group)
                 result[agentEvent] = groups
             case .antigravityJSON:
                 var entries = result[agentEvent] as? [[String: Any]] ?? []
@@ -33725,7 +33733,7 @@ struct CMUXCLI {
                     eventName: agentEvent
                 ))
                 result[agentEvent] = entries
-            case .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
+            case .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable, .codePuppyPlugin:
                 break
             }
         }
@@ -34522,6 +34530,7 @@ export default {
 
     private func installAgentHooks(_ def: AgentHookDef) throws {
         try Self.validateHookInstallDispatch(for: def)
+        if case .codePuppyPlugin = def.format { try installCodePuppyPlugin(def); return }
         if def.name == "opencode" { try installOpenCodePluginHooks(def); return }
         if def.name == "pi" { try installPiExtensionHooks(def); return }
         if def.name == "omp" { try installOmpExtensionHooks(def); return }
@@ -34653,7 +34662,7 @@ export default {
                 } else {
                     hooks[event] = rewrittenGroups
                 }
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
+            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable, .codePuppyPlugin:
                 break
             }
         }
@@ -34681,7 +34690,7 @@ export default {
                     }
                 }
                 hooks[event] = groups
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
+            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable, .codePuppyPlugin:
                 break
             }
         }
@@ -34902,6 +34911,7 @@ export default {
     }
 
     private func uninstallAgentHooks(_ def: AgentHookDef) throws {
+        if case .codePuppyPlugin = def.format { try uninstallCodePuppyPlugin(def); return }
         if def.name == "opencode" { try uninstallOpenCodePluginHooks(def); return }
         if def.name == "pi" { try uninstallPiExtensionHooks(def); return }
         if def.name == "omp" { try uninstallOmpExtensionHooks(def); return }
@@ -34990,7 +35000,7 @@ export default {
                 } else {
                     hooks[event] = rewrittenGroups
                 }
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
+            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable, .codePuppyPlugin:
                 break
             }
         }
@@ -35287,6 +35297,14 @@ export default {
         env: [String: String],
         cwd: String?
     ) -> String {
+        if def.name == CodePuppyAgentRegistration.standard.id {
+            // Native Code Puppy hooks may carry a per-run UUID rather than
+            // the autosave name. Never persist that UUID or its startup placeholder.
+            return CodePuppyAgentRegistration.standard.resumableHookSessionID(
+                input.sessionId, homeDirectory: env["HOME"] ?? NSHomeDirectory(),
+                environment: env, fileManager: .default
+            ) ?? ""
+        }
         if let sessionId = normalizedHookValue(input.sessionId) {
             return sessionId
         }
@@ -36680,6 +36698,81 @@ export default {
         }
 
         switch action {
+        case .sessionUpdate:
+            // Post-save checkpoint refresh only: no turn, journal, status or Feed replay.
+            didSendFeedTelemetry = true
+            guard !sessionId.isEmpty else { break }
+            let mapped = try? store.lookup(sessionId: sessionId)
+            guard let target = resolveAgentHookTarget(mapped: mapped) else { break }
+            let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
+            guard !shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: liveAgentPID(pid), nestedPromptEvent: (mapped?.activePromptDepth ?? 0) > 1, env: env
+            ) else { break }
+            let launchCommand = agentLaunchCommandFromEnvironment(
+                env, fallbackPID: pid, fallbackKind: def.name, cwd: hookCwd ?? mapped?.cwd
+            )
+            let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
+                kind: def.name, current: launchCommand, mapped: mapped,
+                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: inferredPID
+            )
+            let failed = input.rawObject?["success"] as? Bool == false
+            do {
+                _ = try store.upsert(
+                    sessionId: sessionId, workspaceId: target.workspaceId, surfaceId: target.surfaceId,
+                    cwd: hookCwd ?? mapped?.cwd, transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    pid: pid, launchCommand: resumeLaunchCommand, isRestorable: true,
+                    agentLifecycle: mapped == nil ? (failed ? .needsInput : .idle) : nil,
+                    lastNotificationStatus: mapped == nil ? (failed ? .error : .idle) : nil,
+                    runtimeStatus: mapped == nil ? (failed ? .error : .idle) : nil
+                )
+            } catch { break }
+            publishAgentSurfaceResumeBinding(
+                client: client, workspaceId: target.workspaceId, surfaceId: target.surfaceId,
+                kind: def.name, displayName: def.displayName, sessionId: sessionId,
+                cwd: preferredAgentHookResumeWorkingDirectory(
+                    kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped
+                ),
+                launchCommand: resumeLaunchCommand, transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                telemetry: telemetry
+            )
+
+        case .toolStart, .toolEnd:
+            // Status-only progress: do not submit another prompt, create a
+            // restore binding, or settle a turn for each tool call.
+            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            guard let target = resolveAgentHookTarget(mapped: mapped) else {
+                reportTargetResolutionFailure()
+                emitJournal(.stateChanged, workspaceId: nil, surfaceId: nil, unattributedReason: "target-unresolved")
+                didSendFeedTelemetry = true
+                break
+            }
+            let workspaceId = target.workspaceId
+            let surfaceId = target.surfaceId
+            sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
+            let nested = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: liveAgentPID(pid),
+                nestedPromptEvent: (mapped?.activePromptDepth ?? 0) > 1,
+                env: env
+            )
+            // Ordered delivery normally prevents this; fail closed for a
+            // delayed tool callback after a settled turn or a newer owner.
+            guard mapped?.agentLifecycle != .idle,
+                  !hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) else { break }
+            emitJournal(
+                .stateChanged, workspaceId: workspaceId, surfaceId: surfaceId,
+                isSubagent: nested, declaredPhase: .running
+            )
+            guard !nested else { break }
+            let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
+            let rawToolName = firstString(in: input.object ?? [:], keys: ["tool_name", "toolName"])
+            let toolName = rawToolName.map { String(normalizedSingleLine($0).prefix(120)) }
+            let statusValue = ["tool-start", "pre-tool-use"].contains(subcommand) ? (normalizedHookValue(toolName) ?? runningStatus) : runningStatus
+            _ = try? sendV1Command(
+                "set_status \(def.statusKey) \(socketQuote(statusValue)) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                client: client
+            )
+
         case .titleUpdate:
             didSendFeedTelemetry = true
             let collapsedTitle = input.title?
@@ -37604,6 +37697,23 @@ export default {
                 )
                 return summary.status == .error ? summary : nil
             }()
+            // Callback integrations retain explicit outcomes; native engines
+            // may discard them. Consume the same canonical fields for any agent.
+            let explicitStopFailure: AgentHookNotificationSummary? = {
+                guard let payload = input.rawObject,
+                      payload["success"] as? Bool == false else { return nil }
+                // Explicit failure wins over words like "permission" in an
+                // exception message; prose classification is not an outcome.
+                return AgentHookNotificationSummary(
+                    subtitle: String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error"),
+                    body: truncate(normalizedSingleLine(
+                        firstString(in: payload, keys: ["error", "error_message"])
+                            ?? String(localized: "agent.generic.notification.body.taskReportedError", defaultValue: "The task reported an error")
+                    ), maxLength: 180),
+                    status: .error, isFallback: false, notifyCategory: .other
+                )
+            }()
+            let genericStopFailure = explicitStopFailure ?? antigravityFailure
             let rawCwd = hookCwd ?? mapped?.cwd
             let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: rawCwd)
             let cwd = preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped)
@@ -37628,10 +37738,10 @@ export default {
                 localized: "agent.codex.completion.subtitle.completed",
                 defaultValue: "Completed"
             )
-            if let antigravityFailure {
-                subtitle = antigravityFailure.subtitle
+            if let genericStopFailure {
+                subtitle = genericStopFailure.subtitle
             }
-            if codexFailure == nil, antigravityFailure == nil, let projectName, !projectName.isEmpty {
+            if codexFailure == nil, genericStopFailure == nil, let projectName, !projectName.isEmpty {
                 subtitle = String.localizedStringWithFormat(
                     String(
                         localized: "agent.codex.completion.subtitle.completedInProject",
@@ -37641,7 +37751,7 @@ export default {
                 )
             }
             let body = codexFailure?.body
-                ?? antigravityFailure?.body
+                ?? genericStopFailure?.body
                 ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                 ?? grokAssistantMessage.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                 ?? String(
@@ -37658,7 +37768,7 @@ export default {
                 inputTurnID: input.turnId,
                 terminationReason: stopTerminationReason
             )
-            let stopNotificationStatus: AgentHookNotificationStatus = codexFailure != nil || antigravityFailure != nil
+            let stopNotificationStatus: AgentHookNotificationStatus = codexFailure != nil || genericStopFailure != nil
                 ? .error
                 : (sameTurnNeedsInput ? .needsInput : .idle)
             var lifecycleAfterStop: AgentHibernationLifecycleState = {
@@ -37849,7 +37959,7 @@ export default {
             // reducer's per-session fold handles stale sessions (a newer
             // running session outranks this one) and subagent tagging keeps
             // nested sessions off the pane badge — no emit-side guessing.
-            let stopHadFailure = codexFailure != nil || antigravityFailure != nil
+            let stopHadFailure = codexFailure != nil || genericStopFailure != nil
             emitJournal(
                 stopHadFailure ? .errorReported : (sameTurnNeedsInput ? .questionRequested : .turnCompleted),
                 workspaceId: workspaceId,
@@ -38012,7 +38122,7 @@ export default {
                             client: client
                         )
                     }
-                } else if antigravityFailure != nil {
+                } else if genericStopFailure != nil {
                     let statusValue = agentErrorStatusValue(for: def)
                     if def.name == "cursor" {
                         sendCursorCriticalCommand(
@@ -38918,7 +39028,10 @@ export default {
                 failureDetailsForFeed = failureDetails
             }
         }
-        if let toolInput = parsedInput.object?["tool_input"] {
+        let toolResult = parsedInput.object?["tool_response"] ?? parsedInput.object?["tool_result"]
+        if ["tool-end", "post-tool-use"].contains(subcommand), let toolResult {
+            event["tool_input"] = Self.sanitizedPostToolUseFeedValue(toolResult)
+        } else if let toolInput = parsedInput.object?["tool_input"] {
             event["tool_input"] = source == "cursor"
                 ? sanitizedCursorFeedToolInput(toolInput)
                 : toolInput
@@ -39108,6 +39221,7 @@ export default {
         case "amp": envKey = "CMUX_AMP_PID"
         case "copilot": envKey = "CMUX_COPILOT_PID"
         case "kiro": envKey = "CMUX_KIRO_PID"
+        case "code-puppy": envKey = "CMUX_CODE_PUPPY_PID"
         default: envKey = ""
         }
         if !envKey.isEmpty,
@@ -39479,8 +39593,8 @@ export default {
         switch sub {
         case "session-start", "active": return "SessionStart"
         case "prompt-submit": return "UserPromptSubmit"
-        case "pre-tool-use", "cron-create-guard": return "PreToolUse"
-        case "post-tool-use", "push-notification": return "PostToolUse"
+        case "pre-tool-use", "tool-start", "cron-create-guard": return "PreToolUse"
+        case "post-tool-use", "tool-end", "push-notification": return "PostToolUse"
         case "shell-exec": return "PreToolUse"
         case "shell-done": return "PostToolUse"
         case "shell-failed": return "PostToolUseFailure"
