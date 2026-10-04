@@ -13,12 +13,12 @@ import Testing
     let theirs = "conv_dm_01J0000000000000000000000A"
     let opened = "conv_dm_01J0000000000000000000000B"
 
-    func make() -> (HomeCloudLink, CloudHomeSource, FakeTokens) {
+    func make(clock: ManualClock = ManualClock()) -> (HomeCloudLink, CloudHomeSource, FakeTokens) {
         let tokens = FakeTokens()
         let lease = HomeCloudLease(tokens: tokens, apiBaseURL: URL(string: "https://cloud-api.test")!, clientVersion: nil,
                                    logger: Logger(subsystem: "cmux-next-tests", category: "lease"))
         let source = CloudHomeSource(me: Participant(id: F.localMe, kind: .human, displayName: "Me"))
-        return (HomeCloudLink(lease: lease, source: source, localID: F.localMe), source, tokens)
+        return (HomeCloudLink(lease: lease, source: source, localID: F.localMe, clock: clock), source, tokens)
     }
 
     func link(_ daemon: FakeCloudDaemon, _ user: String?) -> HomeCloudLink.Link {
@@ -133,5 +133,29 @@ import Testing
                                    logger: Logger(subsystem: "cmux-next-tests", category: "lease"))
         #expect(await lease.sync(daemon, expectedUserID: "a") == .failed)
         #expect(daemon.calls == [.clearSession])
+    }
+
+    /// A failed lease is tried again after a backoff, with no op or daemon
+    /// request needed, until it holds; then the account's ops go out.
+    @Test func aFailedLeaseIsRetriedAfterABackoffUntilItHolds() async throws {
+        let clock = ManualClock()
+        let opened = opened
+        let daemon = FakeCloudDaemon(.init(op: { _ in CloudConversationOpResult(conversation: F.head(opened, rev: 1, lastSeq: 0)) }))
+        let (linker, source, tokens) = make(clock: clock)
+        tokens.user = "a"
+        tokens.failing = ["a"]
+        await linker.apply(link(daemon, "a"))
+        await clock.sleepers(atLeast: 1)
+        // The first retry fails too; the next waits twice as long.
+        clock.advance(by: HomeCloudLink.firstRetry)
+        await clock.sleepers(atLeast: 1)
+        #expect(!daemon.calls.contains(.setSession("a")))
+
+        tokens.failing = []
+        clock.advance(by: HomeCloudLink.firstRetry * 2)
+        #expect(await daemon.wait { $0.contains(.setSession("a")) })
+        await linker.settle()
+        _ = try await source.submit(HomeIntent(key: IdempotencyKey("cmk_r"), op: .invite(contact: .email("z@y.com"))))
+        #expect(daemon.sentOps.map(\.subject) == ["a"])
     }
 }
