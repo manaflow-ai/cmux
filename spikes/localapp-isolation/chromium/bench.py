@@ -171,12 +171,18 @@ class Server:
         peer.send_times[seq] = now()
         peer.writer.write(frame_bytes(text))
 
-    async def stream(self, name, count, window):
+    async def stream(self, name, count, window, interval=0):
         peer = self.peers[name]
         peer.send_times = [0] * count
         peer.ack_times = [0] * count
         peer.count, peer.next, peer.acked = count, 0, 0
         peer.done = asyncio.get_event_loop().create_future()
+        if interval:
+            peer.next = count  # acks never trigger sends
+            loop = asyncio.get_event_loop()
+            start = loop.time()
+            for seq in range(count):
+                loop.call_at(start + seq * interval, self.send, peer, seq)
         while peer.next < min(window, count):
             self.send(peer, peer.next)
             peer.next += 1
@@ -445,13 +451,15 @@ async def bench(cdp, server, rounds, out):
         await page.connect()
         await server.stream(mode, 500, 500)
         pages[mode] = page
-    samples = {m: {"seq": [], "burst": [], "totals": [], "cpu": [], "flushes": 0, "frames": 0} for m in modes}
+    samples = {m: {"seq": [], "paced": [], "burst": [], "totals": [], "cpu": [], "flushes": 0, "frames": 0} for m in modes}
     for r in range(rounds):
         for o in range(len(modes)):
             mode = modes[(r + o) % len(modes)]
             s = samples[mode]
             lat, _ = await server.stream(mode, 300, 1)
             s["seq"] += lat
+            lat, _ = await server.stream(mode, 2000, 2000, interval=0.0005)
+            s["paced"] += lat
             page = pages[mode]
             page.flushes = page.frames = 0
             cpu0 = time.thread_time_ns()
@@ -469,6 +477,13 @@ async def bench(cdp, server, rounds, out):
             "engine": "chromium", "mode": mode, "rounds": rounds,
             "seq_p50_ms": pct(s["seq"], .5), "seq_p95_ms": pct(s["seq"], .95), "seq_p99_ms": pct(s["seq"], .99),
             "burst_p50_ms": pct(s["burst"], .5), "burst_p95_ms": pct(s["burst"], .95), "burst_p99_ms": pct(s["burst"], .99),
+            "paced_p50_ms": pct(s["paced"], .5), "paced_p95_ms": pct(s["paced"], .95), "paced_p99_ms": pct(s["paced"], .99),
+            "paced_overhead_p50_ms": pct(s["paced"], .5) - pct(d["paced"], .5),
+            "paced_overhead_p95_ms": pct(s["paced"], .95) - pct(d["paced"], .95),
+            "paced_overhead_p99_ms": pct(s["paced"], .99) - pct(d["paced"], .99),
+            "burst_overhead_p50_ms": pct(s["burst"], .5) - pct(d["burst"], .5),
+            "burst_overhead_p95_ms": pct(s["burst"], .95) - pct(d["burst"], .95),
+            "burst_overhead_p99_ms": pct(s["burst"], .99) - pct(d["burst"], .99),
             "burst_total_median_ms": pct(s["totals"], .5), "burst_total_max_ms": pct(s["totals"], 1),
             "host_thread_cpu_median_ms": pct(s["cpu"], .5),
             "seq_overhead_p50_ms": pct(s["seq"], .5) - pct(d["seq"], .5),

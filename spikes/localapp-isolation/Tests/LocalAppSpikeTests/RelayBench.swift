@@ -23,6 +23,7 @@ struct RelayBench {
     struct Samples {
         var seq: [UInt64] = []
         var burst: [UInt64] = []
+        var paced: [UInt64] = []
         var totals: [UInt64] = []
         var mainCPU: [UInt64] = []
         var mainWall: [UInt64] = []
@@ -59,6 +60,9 @@ struct RelayBench {
                 var sample = samples[mode] ?? Samples()
                 let sequential = await server.stream(to: mode.rawValue, count: Self.sequential, window: 1)
                 sample.seq += sequential.latencies
+                // 2,000 frames at 2,000 frames/s (one every 0.5 ms): heavy but real streaming.
+                let paced = await server.stream(to: mode.rawValue, count: Self.burst, window: Self.burst, interval: 500_000)
+                sample.paced += paced.latencies
                 page.relay?.resetStats()
                 let cpu0 = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
                 let result = await server.stream(to: mode.rawValue, count: Self.burst, window: Self.burst)
@@ -78,6 +82,13 @@ struct RelayBench {
                 "suppressionOff": pages[mode]!.suppressionOff,
                 "seq_p50_ms": Self.pct(s.seq, 0.5), "seq_p95_ms": Self.pct(s.seq, 0.95), "seq_p99_ms": Self.pct(s.seq, 0.99),
                 "burst_p50_ms": Self.pct(s.burst, 0.5), "burst_p95_ms": Self.pct(s.burst, 0.95), "burst_p99_ms": Self.pct(s.burst, 0.99),
+                "paced_p50_ms": Self.pct(s.paced, 0.5), "paced_p95_ms": Self.pct(s.paced, 0.95), "paced_p99_ms": Self.pct(s.paced, 0.99),
+                "paced_overhead_p50_ms": Self.pct(s.paced, 0.5) - Self.pct(direct.paced, 0.5),
+                "paced_overhead_p95_ms": Self.pct(s.paced, 0.95) - Self.pct(direct.paced, 0.95),
+                "paced_overhead_p99_ms": Self.pct(s.paced, 0.99) - Self.pct(direct.paced, 0.99),
+                "burst_overhead_p50_ms": Self.pct(s.burst, 0.5) - Self.pct(direct.burst, 0.5),
+                "burst_overhead_p95_ms": Self.pct(s.burst, 0.95) - Self.pct(direct.burst, 0.95),
+                "burst_overhead_p99_ms": Self.pct(s.burst, 0.99) - Self.pct(direct.burst, 0.99),
                 "burst_total_median_ms": Self.pct(s.totals, 0.5), "burst_total_max_ms": Self.pct(s.totals, 1),
                 "main_cpu_median_ms": Self.pct(s.mainCPU, 0.5), "main_cpu_max_ms": Self.pct(s.mainCPU, 1),
                 "seq_overhead_p50_ms": Self.pct(s.seq, 0.5) - Self.pct(direct.seq, 0.5),

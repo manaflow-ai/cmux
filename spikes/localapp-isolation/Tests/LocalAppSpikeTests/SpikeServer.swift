@@ -125,7 +125,8 @@ final class SpikeServer: @unchecked Sendable {
 
     /// Streams `count` frames to client `name`, at most `window` unacknowledged. Returns each
     /// frame's send-to-acknowledgement time and the time from the first send to the last ack.
-    func stream(to name: String, count: Int, window: Int) async -> (latencies: [UInt64], total: UInt64) {
+    /// With `interval` (nanoseconds) the frames are paced instead: frame i is sent at start + i * interval.
+    func stream(to name: String, count: Int, window: Int, interval: UInt64 = 0) async -> (latencies: [UInt64], total: UInt64) {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             queue.async {
                 guard let peer = self.named[name] else { continuation.resume(); return }
@@ -136,6 +137,14 @@ final class SpikeServer: @unchecked Sendable {
                 peer.acked = 0
                 peer.next = 0
                 peer.done = continuation
+                if interval > 0 {
+                    peer.next = count // acks never trigger sends
+                    let start = DispatchTime.now().uptimeNanoseconds
+                    for seq in 0..<count {
+                        self.queue.asyncAfter(deadline: DispatchTime(uptimeNanoseconds: start + UInt64(seq) * interval)) { self.send(peer, seq: seq) }
+                    }
+                    return
+                }
                 while peer.next < min(window, count) { self.send(peer, seq: peer.next); peer.next += 1 }
             }
         }
