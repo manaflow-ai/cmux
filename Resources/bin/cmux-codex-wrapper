@@ -56,6 +56,42 @@ cmux_codex_wrapper_is_self_or_shim() {
     return 1
 }
 
+codex_launch_has_subrouter_provider() {
+    local argument assignment compact provider=""
+    local expects_config_value=0
+    for argument in "$@"; do
+        [[ "$argument" == "--" ]] && break
+        assignment=""
+        if (( expects_config_value )); then
+            assignment="$argument"
+            expects_config_value=0
+        else
+            case "$argument" in
+                -c|--config)
+                    expects_config_value=1
+                    continue
+                    ;;
+                -c=*|--config=*)
+                    assignment="${argument#*=}"
+                    ;;
+                *)
+                    continue
+                    ;;
+            esac
+        fi
+        compact="${assignment//[[:space:]]/}"
+        case "$compact" in
+            model_provider=subrouter|model_provider=\"subrouter\"|model_provider=\'subrouter\')
+                provider="subrouter"
+                ;;
+            model_provider=*)
+                provider="other"
+                ;;
+        esac
+    done
+    [[ "$provider" == "subrouter" ]]
+}
+
 # Find the real codex binary, skipping this wrapper and cmux's shell shims.
 find_real_codex() {
     local custom="${CMUX_CUSTOM_CODEX_PATH:-}"
@@ -225,6 +261,14 @@ cmux_computer_use_resolve_client() {
     # unless it is the exact app-installed cmux-cua helper selected by cmux.
     local installed_client client_real
     installed_client="${CMUX_CUA_CLIENT_PATH:-}"
+    # Older app launches and CI-hosted wrapper invocations may not inherit the
+    # app's exported client path. Reconstruct the same app-owned location from
+    # the runtime scope, then apply the identical canonicalization and trust
+    # checks below. Never fall back to an untrusted PATH lookup.
+    if [[ -z "$installed_client" && "${HOME:-}" = /* ]]; then
+        local runtime_scope="${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}"
+        installed_client="${HOME}/Library/Application Support/cmux/cmux-cua/helper/${runtime_scope}/cmux Computer Use.app/Contents/MacOS/cmux-cua"
+    fi
     [[ -n "$installed_client" ]] || return 1
     client_real="$(cmux_computer_use_canonical_executable "$installed_client")" || return 1
     cmux_computer_use_trusted_client_path "$client_real" || return 1
@@ -476,7 +520,8 @@ codex_known_subcommand() {
 codex_option_consumes_value() {
     case "$1" in
         -c|--config|-m|--model|-p|--profile|-C|--cd|--remote|-a|--ask-for-approval|\
-        -s|--sandbox|--output-last-message|--enable|--disable)
+        -s|--sandbox|--output-last-message|--enable|--disable|--add-dir|-i|--image|\
+        --local-provider|--remote-auth-token-env)
             return 0
             ;;
     esac
@@ -535,6 +580,31 @@ should_inject_codex_hooks() {
     return 0
 }
 
+# `codex exec` runs headless. It shares the pane's surface with any
+# interactive Codex there, so the agent message hooks skip it.
+codex_launch_is_headless() {
+    local arg
+    local skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            --) return 1 ;;
+            -*)
+                if [[ "$arg" != *=* ]] && codex_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                continue
+                ;;
+            exec|e) return 0 ;;
+            *) return 1 ;;
+        esac
+    done
+    return 1
+}
+
 # Codex does not emit its own SessionStart hook for an explicit `resume <id>`
 # launch. The wrapper is the only layer that knows both the resumed session id
 # and the new live process, so replay that lifecycle event after exporting the
@@ -553,6 +623,30 @@ cmux_codex_resume_session_id() {
         fi
     done
     return 1
+}
+
+# A direct `codex fork` creates its child rollout before the first prompt but
+# does not reliably emit SessionStart at that point. The app marks cmux-owned
+# fork launches with the parent id; keep a bounded monitor alive beside Codex
+# so the rollout's forked_from_id can become the destination pane's identity.
+cmux_codex_start_fork_session_watch() {
+    local parent_session_id="${CMUX_AGENT_FORK_PARENT_SESSION_ID:-}"
+    [[ -n "$parent_session_id" ]] || return 0
+    [[ -n "${CMUX_CODEX_HOOK_CMUX_BIN:-}" && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]] || return 0
+    local launch_at="${CMUX_AGENT_FORK_LAUNCH_AT:-}"
+    local launch_id="${CMUX_AGENT_FORK_LAUNCH_ID:-}"
+    local owner_pid="${CMUX_CODEX_PID:-}"
+    local -a monitor_args=(hooks codex monitor --fork-parent "$parent_session_id")
+    [[ -n "$launch_at" ]] && monitor_args+=(--fork-launch-at "$launch_at")
+    [[ -n "$launch_id" ]] && monitor_args+=(--fork-launch-id "$launch_id")
+    [[ -n "$owner_pid" ]] && monitor_args+=(--fork-owner-pid "$owner_pid")
+    if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
+        nohup "$CMUX_CODEX_HOOK_CMUX_BIN" --socket "$CMUX_SOCKET_PATH" "${monitor_args[@]}" \
+            </dev/null >/dev/null 2>&1 &
+    else
+        nohup "$CMUX_CODEX_HOOK_CMUX_BIN" "${monitor_args[@]}" \
+            </dev/null >/dev/null 2>&1 &
+    fi
 }
 
 IN_CMUX=0
@@ -645,10 +739,23 @@ else
     unset CMUX_CODEX_PARENT_INVOCATION_ID
 fi
 export CMUX_CODEX_PID=$$
+if codex_launch_is_headless "$@"; then
+    export CMUX_CODEX_HEADLESS=1
+else
+    export CMUX_CODEX_HEADLESS=0
+fi
 export CMUX_CODEX_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
 export CMUX_AGENT_LAUNCH_KIND="codex"
 export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CODEX"
 export CMUX_AGENT_LAUNCH_CWD="$PWD"
+unset CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND
+if codex_launch_has_subrouter_provider "$@"; then
+    case "${SUBROUTER_CODEX_RESUME_COMMAND:-}" in
+        "sr codex resume"|"subrouter codex resume"|"cx codex resume")
+            export CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND="$SUBROUTER_CODEX_RESUME_COMMAND"
+            ;;
+    esac
+fi
 {
     cmux_codex_argv_b64="$(
         {
@@ -660,6 +767,13 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
     )"
     [[ -n "$cmux_codex_argv_b64" ]] && export CMUX_AGENT_LAUNCH_ARGV_B64="$cmux_codex_argv_b64"
 }
+
+cmux_codex_start_fork_session_watch
+# The monitor received a private copy of these launch markers in its argv.
+# Do not let a nested Codex wrapper inherit the parent fork transaction.
+unset CMUX_AGENT_FORK_PARENT_SESSION_ID
+unset CMUX_AGENT_FORK_LAUNCH_AT
+unset CMUX_AGENT_FORK_LAUNCH_ID
 
 # Fresh launches deliberately wait for Codex's real SessionStart payload so no
 # fallback identity is created. Explicit resumes do not emit that event, so

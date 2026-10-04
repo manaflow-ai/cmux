@@ -2,8 +2,10 @@ public import Foundation
 
 /// Defense-in-depth syntax and method policy for one command arriving through
 /// a reverse relay. The app's live workspace gate remains authoritative for
-/// ownership; this package gate blocks malformed, future, or command-bearing
-/// requests before they reach the local socket.
+/// ownership; this package gate blocks malformed, future, command-bearing, or
+/// unowned-target requests before they reach the local socket. A selector is
+/// owned only when its UUID is a key in the relay's alias map, which the app
+/// keeps in sync with the remote workspace and its live remote terminals.
 public struct RemoteRelayCommandPolicy: Sendable {
     /// The result of evaluating one newline-terminated relay request.
     public enum Verdict: Sendable, Equatable {
@@ -18,15 +20,16 @@ public struct RemoteRelayCommandPolicy: Sendable {
     public static let workspaceIDKeys: Set<String> = [
         "workspace_id", "preferred_workspace_id", "selected_workspace_id",
         "before_workspace_id", "after_workspace_id", "from_workspace_id",
-        "to_workspace_id",
+        "to_workspace_id", "sender_workspace_id",
     ]
     public static let surfaceIDKeys: Set<String> = [
         "panel_id", "surface_id", "terminal_id", "preferred_panel_id",
         "preferred_surface_id", "target_panel_id", "target_surface_id",
         "created_panel_id", "created_surface_id", "before_panel_id",
         "before_surface_id", "after_panel_id", "after_surface_id",
+        "sender_surface_id",
     ]
-    public static let ambiguousIDKeys: Set<String> = ["tab_id"]
+    public static let ambiguousIDKeys: Set<String> = ["tab_id", "surface", "target"]
     public static let workspaceIDArrayKeys: Set<String> = ["workspace_ids"]
     public static let surfaceIDArrayKeys: Set<String> = ["panel_ids", "surface_ids"]
     public static let ambiguousIDArrayKeys: Set<String> = ["tab_ids", "tab_id_groups"]
@@ -58,12 +61,12 @@ public struct RemoteRelayCommandPolicy: Sendable {
     }
 
     /// Evaluates one complete command line before rewriting or forwarding.
-    /// Alias dictionaries are accepted for API compatibility; live ownership
-    /// is checked later by the app-side authorization gate.
+    /// Alias dictionaries identify the remote session's owned object IDs. The
+    /// app-side authorization gate repeats the same checks after rewriting.
     public func evaluate(
         commandLine: Data,
-        workspaceAliases _: [UUID: UUID],
-        surfaceAliases _: [UUID: UUID]
+        workspaceAliases: [UUID: UUID],
+        surfaceAliases: [UUID: UUID]
     ) -> Verdict {
         guard let line = String(data: commandLine, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -80,8 +83,8 @@ public struct RemoteRelayCommandPolicy: Sendable {
         }
 
         let params = request["params"] as? [String: Any] ?? [:]
-        if method != "surface.resume.set",
-           let key = firstKey(in: params, matching: Self.commandKeys) {
+        let commandScanScope = RemoteRelayRoutingSchema().commandKeyScanScope(of: params, method: method)
+        if let key = firstKey(in: commandScanScope, matching: Self.commandKeys) {
             return .deny(reason: "parameter '\(key)' is not permitted through a remote relay")
         }
         if method == "surface.split" {
@@ -91,6 +94,13 @@ public struct RemoteRelayCommandPolicy: Sendable {
             }
             if params["url"] != nil, !(params["url"] is NSNull) {
                 return .deny(reason: "relay browser URLs are not permitted")
+            }
+        }
+        if method == "terminal.paste" {
+            guard params["text"] is String,
+                  let submitKey = params["submit_key"] as? String,
+                  ["none", "return"].contains(submitKey) else {
+                return .deny(reason: "terminal.paste requires text and submit_key none|return")
             }
         }
         if method == "agent.resolve_delivery_target" {
@@ -103,13 +113,99 @@ public struct RemoteRelayCommandPolicy: Sendable {
             }
         }
 
+        if let denial = agentMessageDenial(
+            method: method,
+            params: params,
+            workspaceAliases: workspaceAliases,
+            surfaceAliases: surfaceAliases
+        ) {
+            return denial
+        }
+
         if let malformedSelector = malformedSelector(in: params, key: nil) {
             return .deny(reason: "selector '\(malformedSelector)' is invalid")
+        }
+        // Deny-by-default ownership: every workspace/surface selector must name
+        // an object in this relay's alias map. The map carries identity entries
+        // for the remote workspace and its live remote terminals, so a local
+        // workspace or surface UUID is refused here instead of being passed
+        // through unrewritten for the app-side gate to catch.
+        if let unowned = unownedSelector(
+            in: params,
+            key: nil,
+            workspaceAliases: workspaceAliases,
+            surfaceAliases: surfaceAliases
+        ) {
+            return .deny(reason: "selector '\(unowned)' targets an object outside the remote workspace")
         }
         if let key = RemoteRelayRoutingSchema().unsupportedKey(in: params, method: method) {
             return .deny(reason: "parameter '\(key)' is not permitted through a remote relay")
         }
         return .allow
+    }
+
+    private func agentMessageDenial(
+        method: String,
+        params: [String: Any],
+        workspaceAliases: [UUID: UUID],
+        surfaceAliases: [UUID: UUID]
+    ) -> Verdict? {
+        switch method {
+        case "agent.message.poll", "agent.message.claim", "agent.message.mark_read":
+            guard ownedID(params["surface_id"], aliases: surfaceAliases) != nil else {
+                return .deny(reason: "agent message method requires an owned surface_id")
+            }
+            if method == "agent.message.mark_read",
+               params["id"] != nil || params["ids"] != nil {
+                return .deny(reason: "agent.message.mark_read cannot use unscoped message ids")
+            }
+        case "agent.message.list":
+            guard ownedID(
+                params["surface"],
+                workspaceAliases: workspaceAliases,
+                surfaceAliases: surfaceAliases
+            ) != nil else {
+                return .deny(reason: "agent.message.list requires an owned surface target")
+            }
+        case "agent.message.send":
+            if params["reply_to"] != nil {
+                return .deny(reason: "agent.message.send cannot use reply_to through a remote relay")
+            }
+            guard ownedID(
+                params["target"],
+                workspaceAliases: workspaceAliases,
+                surfaceAliases: surfaceAliases
+            ) != nil else {
+                return .deny(reason: "agent.message.send requires an owned target")
+            }
+            if let senderSurface = params["sender_surface_id"],
+               ownedID(senderSurface, aliases: surfaceAliases) == nil {
+                return .deny(reason: "agent.message.send sender_surface_id is not owned")
+            }
+            if let senderWorkspace = params["sender_workspace_id"],
+               ownedID(senderWorkspace, aliases: workspaceAliases) == nil {
+                return .deny(reason: "agent.message.send sender_workspace_id is not owned")
+            }
+        default:
+            return nil
+        }
+        return nil
+    }
+
+    private func ownedID(_ value: Any?, aliases: [UUID: UUID]) -> UUID? {
+        guard let raw = value as? String,
+              let id = UUID(uuidString: raw.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return nil
+        }
+        return aliases[id] == nil ? nil : id
+    }
+
+    private func ownedID(
+        _ value: Any?,
+        workspaceAliases: [UUID: UUID],
+        surfaceAliases: [UUID: UUID]
+    ) -> UUID? {
+        ownedID(value, aliases: workspaceAliases) ?? ownedID(value, aliases: surfaceAliases)
     }
 
     private func firstKey(in value: Any, matching keys: Set<String>) -> String? {
@@ -124,6 +220,63 @@ public struct RemoteRelayCommandPolicy: Sendable {
             for child in array {
                 if let found = firstKey(in: child, matching: keys) { return found }
             }
+        }
+        return nil
+    }
+
+    /// Returns the first selector key whose UUID is not owned by this relay.
+    /// Runs after `malformedSelector`, so selector values are UUID strings.
+    private func unownedSelector(
+        in value: Any,
+        key: String?,
+        workspaceAliases: [UUID: UUID],
+        surfaceAliases: [UUID: UUID]
+    ) -> String? {
+        if let dictionary = value as? [String: Any] {
+            for childKey in dictionary.keys.sorted() {
+                guard let childValue = dictionary[childKey] else { continue }
+                if let failure = unownedSelector(
+                    in: childValue,
+                    key: childKey,
+                    workspaceAliases: workspaceAliases,
+                    surfaceAliases: surfaceAliases
+                ) {
+                    return failure
+                }
+            }
+            return nil
+        }
+        if let array = value as? [Any] {
+            let elementKey: String?
+            if let key, Self.workspaceIDArrayKeys.contains(key) { elementKey = "workspace_id" }
+            else if let key, Self.surfaceIDArrayKeys.contains(key) { elementKey = "surface_id" }
+            else if let key, Self.ambiguousIDArrayKeys.contains(key) { elementKey = "tab_id" }
+            else { elementKey = key }
+            for child in array {
+                if let failure = unownedSelector(
+                    in: child,
+                    key: elementKey,
+                    workspaceAliases: workspaceAliases,
+                    surfaceAliases: surfaceAliases
+                ) {
+                    return failure
+                }
+            }
+            return nil
+        }
+        guard let key, value is String else { return nil }
+        if Self.workspaceIDKeys.contains(key) {
+            return ownedID(value, aliases: workspaceAliases) == nil ? key : nil
+        }
+        if Self.surfaceIDKeys.contains(key) {
+            return ownedID(value, aliases: surfaceAliases) == nil ? key : nil
+        }
+        if Self.ambiguousIDKeys.contains(key) {
+            return ownedID(
+                value,
+                workspaceAliases: workspaceAliases,
+                surfaceAliases: surfaceAliases
+            ) == nil ? key : nil
         }
         return nil
     }

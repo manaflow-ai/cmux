@@ -454,7 +454,12 @@ jobs:
 
   refresh-compilation-cache:
     needs: decide
-    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || github.event_name == 'workflow_dispatch' && inputs.seed_only
+    # The schedule skips this Blacksmith warmer while owned pools serve pull
+    # requests (CI_PR_POOL_OWNED is 1). build-nightly-app saves the same key on
+    # every published main push, so the remaining Blacksmith readers (main's
+    # full-suite dispatch, nightly's Blacksmith fallback) restore at worst an
+    # older entry by prefix. A seed_only dispatch still warms it on demand.
+    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && vars.CI_PR_POOL_OWNED != '1' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
@@ -613,13 +618,19 @@ jobs:
 
   refresh-test-compilation-cache:
     needs: decide
+    # The schedule skips this Blacksmith seeder while owned pools serve pull
+    # requests (CI_PR_POOL_OWNED is 1): admission then runs on owned minis that
+    # keep their own DerivedData, and seed-derived-data.yml still seeds the
+    # Blacksmith admission pools on main pushes that change app-host build
+    # inputs. Those incremental chains then get no six-hourly cold reset; a
+    # seed_only dispatch still writes one on demand.
     # Writes the cold DerivedData seed that ci-macos.yml compile admission
     # adopts, and the Debug compilation cache. Admission no longer restores
     # that cache (the app target missed on every file; see
     # tests/test_ci_test_compilation_cache_seed.sh), so it has no reader on
     # main today. Scheduled, not per push: a build per merge would take macOS
     # slots from the pull request queue.
-    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || github.event_name == 'workflow_dispatch' && inputs.seed_only
+    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && vars.CI_PR_POOL_OWNED != '1' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the admission job's runner and Xcode. The cache key carries the
     # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
     # Pull requests are what restore this seed, so track the runner the
@@ -628,7 +639,8 @@ jobs:
     # no pull-request queue (see seed-derived-data.yml). The macOS 15 pool,
     # which pr_runner_pool.py overflows pull requests to, gets its own cold
     # seed on its own Xcode too, so its per-push seed chain never carries
-    # stale intermediates for long either. Its keys carry that Xcode in the
+    # stale intermediates for long either (while this schedule runs; see the
+    # CI_PR_POOL_OWNED gate above). Its keys carry that Xcode in the
     # fingerprint, so the two never write each other's entries.
     strategy:
       fail-fast: false
@@ -666,12 +678,16 @@ jobs:
           set -euo pipefail
           # The same paths as ci.yml `macos-compile-admission`: they are part of
           # every cache entry this job writes.
-          # Fixed paths survive across jobs on persistent runners. Clear them
-          # before any trusted product/cache restoration.
-          root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+          # A self-hosted Mac can have several runners. Derive one root per
+          # RUNNER_NAME before cleanup so one seed build cannot remove another
+          # runner's source tree, DerivedData, or compilation CAS.
+          root="$(scripts/ci/canonical-build-root.sh --print-root)"
           scripts/ci/clear-dirs.sh "$root/derived-data-compile-admission" "$root/compile-admission-cas"
-          echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission" >> "$GITHUB_ENV"
-          echo "CMUX_COMPILE_ADMISSION_CAS=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas" >> "$GITHUB_ENV"
+          {
+            echo "CMUX_CI_CANONICAL_ROOT=$root"
+            echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=$root/derived-data-compile-admission"
+            echo "CMUX_COMPILE_ADMISSION_CAS=$root/compile-admission-cas"
+          } >> "$GITHUB_ENV"
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -790,7 +806,7 @@ jobs:
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.swift-packages-restore.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          resolved="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src/.ci-source-packages"
+          resolved="$CMUX_CI_CANONICAL_ROOT/src/.ci-source-packages"
           test -d "$resolved/.package-cache"
           rsync -a --delete "$resolved/" .ci-source-packages/
 
@@ -1292,6 +1308,9 @@ jobs:
           echo "commit=$cmux_tui_commit" >> "$GITHUB_OUTPUT"
 
   build-sign-notarize-nightly:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
@@ -1650,9 +1669,9 @@ jobs:
 
       - name: Start Computer Use helper notarization
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           state="$RUNNER_TEMP/cmux-computer-use-notarization.state"
@@ -1774,9 +1793,9 @@ jobs:
 
       - name: Notarize app ticket through final DMG
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE: ${{ runner.temp }}/cmux-computer-use-notarization.state
           CMUX_CHANNEL: ${{ needs.decide.outputs.channel }}
@@ -1858,6 +1877,9 @@ jobs:
           rm -f /tmp/cert.p12
 
   publish-nightly:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
     # rc/** branches share one release. Serialize its mutable aliases and feeds
     # by channel, even when workflow-level groups have different branch names.
     concurrency:

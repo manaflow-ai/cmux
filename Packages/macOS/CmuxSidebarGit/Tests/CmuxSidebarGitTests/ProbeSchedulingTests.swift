@@ -22,16 +22,6 @@ import CmuxGit
         return service
     }
 
-    private func waitUntil(maxYields: Int = 5_000, _ predicate: () -> Bool) async -> Bool {
-        for _ in 0..<maxYields {
-            if predicate() {
-                return true
-            }
-            await Task.yield()
-        }
-        return predicate()
-    }
-
     /// The initial probe's retry offsets [0, 0.5, 1.5, 3, 6, 10] are absolute
     /// offsets from scheduling time, walked as sequential clock gaps. The
     /// reader gate stays closed so no snapshot applies mid-walk (an applied
@@ -58,6 +48,35 @@ import CmuxGit
             await clock.resumeNext()
         }
         #expect(durations == [0, 0.5, 1.0, 1.5, 3.0, 4.0])
+        await reader.openGate()
+    }
+
+    @Test func initialProbeDefersWhileTerminalTypingIsActive() async throws {
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/probe-typing")
+        host.terminalTypingActive = true
+        let clock = ManualGitPollClock()
+        let reader = GatedMetadataReader(metadata: .repository(branch: "main", isDirty: false), gated: true)
+        let service = makeService(host: host, reader: reader, clock: clock)
+
+        service.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "test"
+        )
+
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+        await Task.yield()
+        #expect(await reader.probedDirectories.isEmpty)
+        for _ in 0..<5 { await Task.yield() }
+        await clock.waitForSleeper()
+        #expect(await clock.recordedDurations.last == SidebarGitMetadataService.terminalTypingQuietInterval)
+
+        host.terminalTypingActive = false
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+        #expect(await reader.waitForProbe())
         await reader.openGate()
     }
 
@@ -369,10 +388,8 @@ import CmuxGit
         #expect(service.workspaceGitProbeRerunPending(for: key))
         await reader.openGate()
 
-        for _ in 0..<500 {
-            let immediateProbeSleeps = await clock.recordedDurations.filter { $0 == 0 }.count
-            if immediateProbeSleeps >= 3 { break }
-            await Task.yield()
+        _ = await waitUntil("three immediate probe sleeps") {
+            await clock.recordedDurations.filter { $0 == 0 }.count >= 3
         }
         let immediateProbeSleeps = await clock.recordedDurations.filter { $0 == 0 }.count
 

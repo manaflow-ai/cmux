@@ -159,7 +159,8 @@ impl SurfaceSessionScope {
             | MuxEvent::SurfaceResizeFailed { surface, .. }
             | MuxEvent::AgentChanged { surface, .. }
             | MuxEvent::TitleChanged { surface, .. }
-            | MuxEvent::ScrollChanged { surface, .. } => *surface == self.surface,
+            | MuxEvent::ScrollChanged { surface, .. }
+            | MuxEvent::SizeStateChanged { surface, .. } => *surface == self.surface,
             MuxEvent::Notification(notification) => {
                 notification.surface.is_none_or(|surface| surface == self.surface)
             }
@@ -374,6 +375,38 @@ impl MuxEventReceiver {
             }
             if state.closed {
                 return Err(RecvError);
+            }
+            state = self.mailbox.changed.wait(state).unwrap();
+        }
+    }
+
+    /// Wakes a blocked `recv_until_interrupted` when `interrupt` fires.
+    pub(crate) fn wake_on(&self, interrupt: &crate::stream_interrupt::StreamInterrupt) {
+        let mailbox = Arc::downgrade(&self.mailbox);
+        interrupt.on_fire(move || {
+            if let Some(mailbox) = mailbox.upgrade() {
+                let _state = mailbox.state.lock().unwrap_or_else(|error| error.into_inner());
+                mailbox.changed.notify_all();
+            }
+        });
+    }
+
+    /// Blocks for an event. Returns `Timeout` once `interrupt` has fired
+    /// and nothing is queued.
+    pub(crate) fn recv_until_interrupted(
+        &self,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+    ) -> Result<MuxEvent, RecvTimeoutError> {
+        let mut state = self.mailbox.state.lock().unwrap();
+        loop {
+            if let Some(event) = state.pop() {
+                return Ok(event);
+            }
+            if state.closed {
+                return Err(RecvTimeoutError::Disconnected);
+            }
+            if interrupt.is_fired() {
+                return Err(RecvTimeoutError::Timeout);
             }
             state = self.mailbox.changed.wait(state).unwrap();
         }

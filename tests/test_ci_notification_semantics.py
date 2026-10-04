@@ -106,7 +106,7 @@ else:
                 self.assertNotEqual(result.returncode, 0, result.stdout)
 
     def run_packages(self, warning_package=""):
-        script = step_script("swift-package-tests", "Run Swift package unit tests")
+        script = f"bash '{ROOT / 'scripts/ci/package-test-lane.sh'}' packages\n"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for package in (ROOT / "Packages").glob("*/*"):
@@ -119,6 +119,9 @@ else:
             helpers.mkdir(parents=True)
             shutil.copy(ROOT / "scripts/ci/select_package_tests.py", helpers)
             shutil.copy(ROOT / "scripts/ci/require_swift_test_execution.py", helpers)
+            shutil.copy(ROOT / "scripts/ci/hung_test_watchdog.py", helpers)
+            shutil.copy(ROOT / "scripts/ci/ci_process_tree.py", helpers)
+            shutil.copy(ROOT / "scripts/ci/run_with_timeout.py", helpers)
             runner_temp = root / "runner-temp"
             runner_temp.mkdir()
             selected = runner_temp / "selected-packages.txt"
@@ -138,12 +141,29 @@ else:
             cargo.chmod(0o755)
             swift = bindir / "swift"
             swift.write_text("""#!/usr/bin/env python3
-import json, os, sys
+import json, os, sys, time
 from pathlib import Path
 args = sys.argv[1:]
 with open(os.environ['CALLS'], 'a') as f:
     f.write(json.dumps(args) + '\\n')
 package = Path(args[args.index('--package-path') + 1]).name
+if args[0] == 'build':
+    # Rendezvous: mark this build running, then wait briefly for a second one.
+    # The mark goes away when the build ends, so two marks at once prove two
+    # prebuilds ran at the same time; serial builds never see each other.
+    running = Path(os.environ['CALLS'] + '.running')
+    running.mkdir(exist_ok=True)
+    mark = running / package
+    mark.touch()
+    try:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if len(list(running.iterdir())) >= 2:
+                Path(os.environ['CALLS'] + '.overlap').touch()
+                break
+            time.sleep(0.05)
+    finally:
+        mark.unlink()
 if package == os.environ['WARNING_PACKAGE'] and '-warnings-as-errors' in args:
     print('error: compiler warning promoted to an error')
     sys.exit(1)
@@ -159,9 +179,11 @@ print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
                 RUNNER_TEMP=str(runner_temp),
                 SELECTED_PACKAGES=str(selected),
                 SELECTED_COUNT=str(len(package_names)),
+                CMUX_SWIFT_PACKAGE_BUILD_JOBS="3",
             )
             result = subprocess.run(["/bin/bash", "-c", script], cwd=root, env=env,
                                     text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            self.prebuilds_overlapped = Path(str(calls) + ".overlap").exists()
             return result, [json.loads(line) for line in calls.read_text().splitlines()]
 
     def test_package_warning_gates_run_once(self):
@@ -169,15 +191,47 @@ print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
         self.assertEqual(result.returncode, 0, result.stdout)
         for package in ("CMUXAgentLaunch", "CmuxAgentJournal"):
             matching = [args for args in calls if args[args.index('--package-path') + 1].endswith('/' + package)]
-            self.assertEqual(len(matching), 1)
-            args = matching[0]
-            self.assertEqual(args[args.index('-Xswiftc') + 1], '-warnings-as-errors')
+            # One prebuild and one test run, with the same flags, so the test
+            # run finds the prebuilt products up to date.
+            self.assertEqual(sorted(args[0] for args in matching), ["build", "test"])
+            for args in matching:
+                self.assertEqual(args[args.index('-Xswiftc') + 1], '-warnings-as-errors')
+
+    def test_packages_prebuild_in_parallel_then_test_serially(self):
+        result, calls = self.run_packages()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        builds = [args for args in calls if args[0] == "build"]
+        tests = [args for args in calls if args[0] == "test"]
+        self.assertTrue(builds)
+        self.assertTrue(all("--build-tests" in args for args in builds))
+        # Every build precedes every test run.
+        self.assertLess(max(calls.index(args) for args in builds),
+                        min(calls.index(args) for args in tests))
+        self.assertTrue(self.prebuilds_overlapped, "no two prebuilds ran at once")
+        self.assertIn("at a time", result.stdout)
 
     def test_package_warning_is_still_fatal(self):
         for package in ("CMUXAgentLaunch", "CmuxAgentJournal"):
             with self.subTest(package=package):
                 result, _ = self.run_packages(package)
                 self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_a_failing_package_does_not_hide_later_packages(self):
+        # CMUXAgentLaunch sorts first, so every other package runs after it.
+        result, calls = self.run_packages("CMUXAgentLaunch")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        ran = {Path(args[args.index('--package-path') + 1]).name for args in calls}
+        self.assertIn("CmuxTerminal", ran)
+        self.assertIn("CmuxUpdater", ran)
+        self.assertIn(
+            "::error title=Swift package tests failed::CMUXAgentLaunch failed with exit status 1",
+            result.stdout,
+        )
+        self.assertEqual(result.stdout.count("::error title=Swift package tests failed::"), 1)
+        table = result.stdout.split("Swift package test results:\n", 1)[1]
+        self.assertRegex(table, r"CMUXAgentLaunch +failed \(exit 1\)")
+        self.assertRegex(table, r"CmuxUpdater +passed")
+        self.assertIn("1 of ", result.stdout)
 
 
 if __name__ == "__main__":

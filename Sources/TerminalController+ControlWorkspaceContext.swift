@@ -1,6 +1,7 @@
 import CmuxCloud
 import CmuxControlSocket
 import CmuxCore
+import CmuxFoundation
 import CmuxPanes
 import CmuxRemoteWorkspace
 import CmuxRemoteSession
@@ -91,7 +92,8 @@ extension TerminalController: ControlWorkspaceContext {
 
     func controlCloseWorkspace(
         routing: ControlRoutingSelectors,
-        workspaceID: UUID
+        workspaceID: UUID,
+        force: Bool
     ) -> ControlWorkspaceCloseResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -102,6 +104,12 @@ extension TerminalController: ControlWorkspaceContext {
         }
         guard tabManager.canCloseWorkspace(ws) else {
             return .protected(windowID: windowId)
+        }
+        let windowDockNeedsConfirmation = tabManager.tabs.count == 1
+            && AppDelegate.shared?.existingWindowDock(for: tabManager)?.needsConfirmClose() == true
+        if !force,
+           tabManager.workspaceNeedsConfirmCloseForClose(ws) || windowDockNeedsConfirmation {
+            return .confirmationRequired
         }
         guard tabManager.closeWorkspaceNonInteractively(ws) else {
             return .closeFailed(windowID: windowId)
@@ -235,7 +243,8 @@ extension TerminalController: ControlWorkspaceContext {
         guard let outcome = tabManager.handlePromptSubmit(
             workspaceId: workspaceID,
             message: message,
-            iMessageModeEnabled: iMessageModeEnabled
+            iMessageModeEnabled: iMessageModeEnabled,
+            surfaceId: routing.surfaceID?.uuidString
         ) else {
             return .notFound
         }
@@ -472,6 +481,9 @@ extension TerminalController: ControlWorkspaceContext {
         guard let destination = v2String(params, "destination") else {
             return .err(code: "invalid_params", message: "Missing destination", data: nil)
         }
+        guard !destination.isOptionLikeSSHDestination else {
+            return .err(code: "invalid_params", message: "destination must not start with '-'", data: nil)
+        }
 
         var sshPort: Int?
         if v2HasNonNullParam(params, "port") {
@@ -515,7 +527,9 @@ extension TerminalController: ControlWorkspaceContext {
         let relayToken = v2RawString(params, "relay_token")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let foregroundAuthToken = v2RawString(params, "foreground_auth_token")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let localSocketPath = v2RawString(params, "local_socket_path")
+        let localSocketPath = ControlWorkspaceRemoteLocalSocketPath(
+            controllerSocketPath: currentSocketPathForRemoteRestore()
+        ).resolved(requested: v2RawString(params, "local_socket_path"))
         let hasExplicitAgentSocketPath = v2HasNonNullParam(params, "ssh_auth_sock")
         let agentSocketPath = v2RawString(params, "ssh_auth_sock")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -530,7 +544,7 @@ extension TerminalController: ControlWorkspaceContext {
         if v2HasNonNullParam(params, "persistent_daemon_slot") {
             guard let persistentDaemonSlot,
                   !persistentDaemonSlot.isEmpty,
-                  persistentDaemonSlot.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil,
+                  persistentDaemonSlot.range(of: "^[A-Za-z0-9._-]{1,128}\\z", options: .regularExpression) != nil,
                   persistentDaemonSlot != ".",
                   persistentDaemonSlot != ".." else {
                 return .err(
@@ -602,7 +616,7 @@ extension TerminalController: ControlWorkspaceContext {
                 return .err(code: "invalid_params", message: "relay_id is required when relay_port is set", data: nil)
             }
             guard let relayToken,
-                  relayToken.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
+                  relayToken.range(of: "^[0-9a-f]{64}\\z", options: .regularExpression) != nil else {
                 return .err(code: "invalid_params", message: "relay_token must be 64 lowercase hex characters when relay_port is set", data: nil)
             }
         }

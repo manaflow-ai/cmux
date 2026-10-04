@@ -12,7 +12,7 @@ macOS 26 pools:
 
     order     vars.CI_PR_POOL_ORDER without its macOS 15 pool; by default
                 blacksmith-12vcpu-macos-26, then blacksmith-6vcpu-macos-26
-    headroom  a machine free (pr_runner_pool.POOL_CAPACITIES), or at most
+    headroom  a machine free on that label's Blacksmith plan capacity, or at most
               vars.CI_PR_POOL_MAX_QUEUED jobs queued (default 0), and no
               queued release or nightly job on the pool
 
@@ -68,9 +68,11 @@ mini's canonical-root token, so when CI_OWNED_POOL_SLOTS gives the pool a root
 count (pr_runner_pool.root_label()) the run takes the root label and needs a
 free root runner as well. An owned pool is never the
 fewest-queued fallback: with no room within the rounds the run takes Blacksmith. A job
-that waits on, or is refused by, an owned Mac is re-run on Blacksmith by
-ci-owned-pool-rescue.yml; every re-run attempt takes retry_runner(). That
-holds for an explicit owned runner too: it is the one pick that is moved.
+that waits on, or is refused by, an owned Mac is re-run by
+ci-owned-pool-rescue.yml. A re-run that keeps attempt 1's pick, and every
+attempt from 3 on, takes retry_runner(); a full re-run's attempt 2 takes its
+own new pick (test-e2e.yml's `picked_attempt`). That holds for an explicit
+owned runner too.
 
 Live owned capacity: with the org App's token (ROUTE_TOKEN; test-e2e.yml mints
 it for this repository's runs while owned pools are on), the owned pools are
@@ -96,11 +98,31 @@ Automation Mode enabled without authentication, which takes an admin on
 each Mac (`sudo automationmodetool enable-automationmode-without-authentication`)
 and the job's runner user cannot do it. Once the fleet has it,
 `vars.CI_E2E_OWNED_UI == '1'` lets UI runs take owned Macs too.
+
+Blacksmith's macOS sessions sit at a locked screen, so no app comes to the
+front and every UI test fails after a minute ("Failed to activate
+application"; runs 36311300649, 36314786865 and 36315094804 on 2026-09-27,
+while the same tests passed on owned Macs). So an unpinned UI run that may
+take an owned Mac never ends on Blacksmith while an owned pool has machines
+(ui_owned_runner(), applied last wherever a UI run's pool is chosen: here
+and in dispatch-focused-test.py): with no owned room it queues on the owned
+pool, whatever the rule above or its fallbacks picked, and a re-run of it
+stays there too (retry_runner()). That overrides "an owned pool is never
+the fewest-queued fallback" and the move to Blacksmith for re-runs, for UI
+runs only. It overrides "an explicit runner is never rerouted" too, for the
+Blacksmith macOS 26 and macos-latest pools only (BLACKSMITH_NO_UI): their
+sessions cannot capture the screen either, so a recorded UI run pinned there
+fails in its capture preflight before any test runs (every one of 21 such runs
+between 2026-09-27 and 2026-09-28, 2 of them on macos-latest, e.g. run
+36426283823). A pinned macOS 15 run, an owned label, or a fleet the rule above
+leaves alone keeps its pin. A moved run keeps its pinned title, so the replay
+charges it to the Blacksmith pool it names, as for a moved `auto` run.
 """
 from __future__ import annotations
 
 import argparse
 import dataclasses
+import json
 import datetime as dt
 import os
 from collections.abc import Callable, Mapping, Sequence
@@ -111,12 +133,16 @@ from typing import Any, Protocol
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pr_runner_pool  # noqa: E402
+import simple_pool_picker  # noqa: E402
 
 SMALL_RUNNER = pr_runner_pool.DEFAULT_RUNNER
 LARGE_RUNNER = pr_runner_pool.LARGE_RUNNER
 # The Blacksmith pools E2E may take, all macOS 26. Owned pools for the lane's
 # Xcode pin join them when CI_PR_POOL_OWNED is 1 (e2e_pool()).
 E2E_POOLS = (LARGE_RUNNER, SMALL_RUNNER)
+# Blacksmith pools that cannot run UI tests (see the module docstring), so a UI
+# run pinned to one still moves to an owned pool with machines.
+BLACKSMITH_NO_UI = (*E2E_POOLS, "blacksmith-6vcpu-macos-latest")
 E2E_WORKFLOW = "test-e2e.yml"
 # Most machines one E2E run holds at once: the build job, then the test job.
 E2E_JOBS = 1
@@ -196,9 +222,60 @@ def owned_target(test_filter: str | None, owned_ui: str | None) -> bool:
     return bool(entries) and all(entry.startswith("cmuxTests/") for entry in entries)
 
 
-def retry_runner(label: str) -> str:
-    """The pool a re-run attempt takes: never an owned one, which may be why it is re-run."""
+def ui_run(test_filter: str | None) -> bool:
+    """Whether a filter names any UI test: anything but cmuxTests/ entries."""
+    if not test_filter:
+        return False
+    return not all(entry.strip().startswith("cmuxTests/") for entry in test_filter.split(","))
+
+
+def retry_runner(label: str, *, ui: bool = False) -> str:
+    """The pool a re-run attempt takes: never an owned one, which may be why it
+    is re-run, except for a UI run, which cannot run on Blacksmith (see the
+    module docstring) and waits for another owned Mac instead."""
+    if ui and pr_runner_pool.persistent(label):
+        return label
     return SMALL_RUNNER if pr_runner_pool.persistent(label) else label
+
+
+def ui_owned_runner(label: str | None, *, test_filter: str | None, owned: str | None, owned_ui: str | None,
+                    order: str | None, owned_slots: str | None, pr_xcode_app: str | None,
+                    log: Callable[[str], None] = lambda message: None) -> str | None:
+    """A UI run's pool, moved off Blacksmith onto an owned pool with machines (see the module docstring).
+
+    Any other run, or an owned label, comes back unchanged, as does every
+    label when no owned pool of the lane's Xcode pin has machines in
+    `owned_slots` (the online runners when main() read them, else
+    CI_OWNED_POOL_SLOTS): a drained fleet, its runners offline, keeps UI runs off it.
+    """
+    if (not ui_run(test_filter) or not label or pr_runner_pool.persistent(label)
+            or (owned or "").strip() != "1" or not owned_target(test_filter, owned_ui)):
+        return label
+    slots = pr_runner_pool.slots(owned_slots, pr_xcode_app)
+    limits = settings(order, "", owned, pr_xcode_app)
+    pools = [p for p in (limits.order if limits else pr_runner_pool.owned_pools(pr_xcode_app))
+             if pr_runner_pool.persistent(p) and slots.get(p, 0) > 0]
+    if not pools:
+        # A Blacksmith console is locked. Keep the tour queued on the
+        # configured GUI label until a mini becomes available.
+        configured = [p for p in (limits.order if limits else pr_runner_pool.owned_pools(pr_xcode_app))
+                      if pr_runner_pool.persistent(p)]
+        fallback = next((pr_runner_pool.gui_label(p) for p in configured
+                         if pr_runner_pool.gui_label(p)), "")
+        if fallback:
+            log(f"{label} cannot run UI tests (a locked screen); waiting on {fallback}")
+            return fallback
+        return label
+    # UI tours require the console-capable label. Keep the GUI label even when
+    # its live count is zero so the tour queues for an unlocked mini instead
+    # of falling back to a root or Blacksmith console.
+    gui = pr_runner_pool.gui_label(pools[0])
+    root = pr_runner_pool.root_label(pools[0])
+    runner = (gui if gui
+              else root if root and slots.get(root, 0) > 0
+              else pools[0])
+    log(f"{label} cannot run UI tests (a locked screen); queued on {runner} instead")
+    return runner
 
 
 def title_runner(run: Mapping[str, Any]) -> str | None:
@@ -245,11 +322,14 @@ def measure_load(client: ApiClient, *, now: dt.datetime, exclude_run_id: int | N
 
 
 def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.datetime,
-           owned_slots: Mapping[str, int] | None = None, jobs: int = E2E_JOBS) -> pr_runner_pool.Choice:
+           owned_slots: Mapping[str, int] | None = None, jobs: int = E2E_JOBS,
+           owned_choices: Sequence[str] | None = None) -> pr_runner_pool.Choice:
     """The pull request rule over the macOS 26 and owned pools. An empty runner keeps the default.
 
     `jobs` is the most machines one run holds at once (E2E_JOBS for an E2E
-    run); ios_runner_pool.py passes its own lane's peak.
+    run); ios_runner_pool.py passes its own lane's peak. `owned_choices`
+    limits which owned pools the run itself may take (None: any), while
+    the replay of newer runs still spreads over the whole order.
     """
     if load is None:
         return pr_runner_pool.Choice("", "", "no readable pool snapshot")
@@ -286,15 +366,21 @@ def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.da
             owned_slots=capacity, jobs=jobs, root_jobs=jobs,
         )
 
-    choice = rule(limits, pools)
+    chosen_from = [label for label in pools if owned_choices is None or
+                   not pr_runner_pool.persistent(label) or label in owned_choices]
+    choice = rule(limits, chosen_from)
     blacksmith = [label for label in pools if not pr_runner_pool.persistent(label)]
     if limits.queue_rounds and blacksmith and choice.runner and not pr_runner_pool.persistent(choice.runner):
         # The rounds decide only whether an owned pool takes the run; the
         # Blacksmith pool is the headroom rule's, as without them (the first
         # pool with a free machine, then the shorter queue in rounds).
         choice = rule(dataclasses.replace(limits, queue_rounds=0), blacksmith)
-        if len(blacksmith) < len(pools):
-            choice = dataclasses.replace(choice, reason=f"no owned pool within {limits.queue_rounds} queue "
+        # Name the owned pools this run could take: one owned_choices left
+        # out (the iOS lane's light pool) was not full, only not allowed.
+        allowed = [label for label in chosen_from if pr_runner_pool.persistent(label)]
+        if allowed:
+            which = "no owned pool" if owned_choices is None else f"no room on {', '.join(allowed)}"
+            choice = dataclasses.replace(choice, reason=f"{which} within {limits.queue_rounds} queue "
                                                         f"round(s); {choice.reason}")
     if live and pr_runner_pool.persistent(choice.runner):
         choice = dataclasses.replace(choice, reason=f"{choice.reason}; owned machines read live from the runners API")
@@ -401,12 +487,23 @@ def resolve(
     """The runner label for a workflow run, from its inputs and variables."""
     requested = (requested or "").strip()
     if requested and requested != "auto":
-        return requested
+        if requested not in BLACKSMITH_NO_UI:
+            # An owned pool asked for by name still takes its root runners, as auto_runner() does: glaeda gives
+            # the build a canonical root, and only the root runners' gate keeps a root free for what they take.
+            # On the pool label a non-root runner took the build, and E2E builds on two of them held both of a
+            # mini's roots while its root runner's compile admission waited (2026-09-28, cmux10s).
+            root = pr_runner_pool.root_label(requested)
+            if root and pr_runner_pool.slots(owned_slots, pr_xcode_app).get(root, 0) > 0:
+                log(f"{requested} -> {root} (an E2E build takes a canonical root)")
+                return root
+            return requested
+        return ui_owned_runner(requested, test_filter=test_filter, owned=owned, owned_ui=owned_ui, order=order,
+                               owned_slots=owned_slots, pr_xcode_app=pr_xcode_app, log=log) or requested
     if (owned or "").strip() == "1" and not owned_target(test_filter, owned_ui):
         log(f"a UI run and {OWNED_UI_VARIABLE} is not 1; no owned Mac")
         owned = ""
     default = (variable or "").strip() or SMALL_RUNNER
-    return auto_runner(
+    label = auto_runner(
         default,
         enabled=enabled(overflow),
         limits=settings(order, max_queued, owned, pr_xcode_app, queue_rounds),
@@ -415,28 +512,41 @@ def resolve(
         log=log,
         owned_slots=pr_runner_pool.slots(owned_slots, pr_xcode_app),
     ) or SMALL_RUNNER
+    return ui_owned_runner(label, test_filter=test_filter, owned=owned, owned_ui=owned_ui, order=order,
+                           owned_slots=owned_slots, pr_xcode_app=pr_xcode_app, log=log) or label
+
+
+def read_live_runners(repo: str, env: Mapping[str, str], owned: str | None,
+                      pr_xcode_app: str | None) -> list[Mapping[str, Any]] | None:
+    """The repository's runners from the runners API, or None.
+
+    Needs the org App's token (ROUTE_TOKEN), owned pools on and a pin that
+    names an owned pool; any error leaves the snapshot and CI_OWNED_POOL_SLOTS to decide.
+    """
+    token = (env.get("ROUTE_TOKEN") or "").strip()
+    if not token or not repo or (owned or "").strip() != "1" or not pr_runner_pool.owned_pools(pr_xcode_app):
+        return None
+    try:
+        return pr_runner_pool.GitHub(token, repo).runners()
+    except Exception as error:  # noqa: BLE001 - the snapshot path still decides
+        print(f"could not list runners ({error}); using the snapshot", file=sys.stderr)
+        return None
+
+
+def live_owned(runners: Sequence[Mapping[str, Any]] | None,
+               pr_xcode_app: str | None) -> tuple[dict[str, int], dict[str, int]] | None:
+    """Idle and online runners per owned label (and its root label), or None without a listing."""
+    if runners is None:
+        return None
+    labels = pr_runner_pool.owned_pools(pr_xcode_app)
+    labels += tuple(pr_runner_pool.root_label(label) for label in labels)
+    return pr_runner_pool.live_owned_free(runners, labels), pr_runner_pool.live_online(runners, labels)
 
 
 def read_live_owned(repo: str, env: Mapping[str, str], owned: str | None,
                     pr_xcode_app: str | None) -> tuple[dict[str, int], dict[str, int]] | None:
-    """Idle and online runners per owned label (and its root label) from the runners API, or None.
-
-    Needs the org App's token (ROUTE_TOKEN) and owned pools on; any error
-    leaves the snapshot to decide.
-    """
-    token = (env.get("ROUTE_TOKEN") or "").strip()
-    if not token or not repo or (owned or "").strip() != "1":
-        return None
-    labels = pr_runner_pool.owned_pools(pr_xcode_app)
-    labels += tuple(pr_runner_pool.root_label(label) for label in labels)
-    if not labels:
-        return None
-    try:
-        runners = pr_runner_pool.GitHub(token, repo).runners()
-    except Exception as error:  # noqa: BLE001 - the snapshot path still decides
-        print(f"could not list runners ({error}); using the snapshot", file=sys.stderr)
-        return None
-    return pr_runner_pool.live_owned_free(runners, labels), pr_runner_pool.live_online(runners, labels)
+    """Idle and online runners per owned label (and its root label) from the runners API, or None."""
+    return live_owned(read_live_runners(repo, env, owned, pr_xcode_app), pr_xcode_app)
 
 
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None) -> int:
@@ -456,8 +566,29 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--owned-ui", default="", help=f"vars.{OWNED_UI_VARIABLE}")
     parser.add_argument("--retry-of", help="print the pool a re-run of this label takes, and nothing else")
     args = parser.parse_args(argv)
+
+    # Auto choices use the shared live rule. Explicit labels retain the
+    # workflow's direct-request contract and its validation below.
+    # The shared simple picker has no test-filter or console-session
+    # semantics. Let UI E2E runs reach resolve(), which applies the owned GUI
+    # override before choosing a Blacksmith fallback.
+    if (not args.retry_of and (args.requested or "auto").strip() == "auto"
+            and not ui_run(args.test_filter)):
+        values = dict(env)
+        values.update({"CI_PR_POOL_OWNED": args.owned, "CI_OWNED_POOL_SLOTS": args.owned_slots,
+                       "CI_PR_POOL_OVERFLOW": args.overflow, "MACOS_RUNNER_PR": args.variable,
+                       "CMUX_CI_XCODE_APP_PR": args.pr_xcode_app})
+        choice = simple_pool_picker.pick(simple_pool_picker.observe(
+            token=values.get("ROUTE_TOKEN") or values.get("GH_TOKEN") or "",
+            repository=values.get("GH_REPO") or values.get("GITHUB_REPOSITORY") or "",
+            jobs=1, env=values,
+            fork=values.get("FORK_PULL_REQUEST") == "true"
+            or (values.get("HEAD_REPO") or values.get("GITHUB_REPOSITORY"))
+            != (values.get("GH_REPO") or values.get("GITHUB_REPOSITORY"))))
+        print(choice.label or args.variable or SMALL_RUNNER)
+        return 0
     if args.retry_of is not None:
-        print(retry_runner(args.retry_of.strip()))
+        print(retry_runner(args.retry_of.strip(), ui=ui_run(args.test_filter)))
         return 0
 
     repo = env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or ""
@@ -465,12 +596,18 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     run_id = (env.get("GITHUB_RUN_ID") or "").strip()
     now = dt.datetime.now(dt.timezone.utc)
 
+    # A run no owned pool may take (a UI filter without owned_ui) reads no runners.
+    runners = read_live_runners(repo, env, args.owned if owned_target(args.test_filter, args.owned_ui) else "",
+                                args.pr_xcode_app)
+    # Which owned labels route (a pool, its root label): the online runners when they were read,
+    # CI_OWNED_POOL_SLOTS only when they could not be (pr_runner_pool.routing_slots()).
+    owned_slots = (args.owned_slots if runners is None else
+                   json.dumps(pr_runner_pool.routing_slots(args.owned_slots, args.pr_xcode_app, runners)))
+
     def measure() -> PoolLoad | None:
         if not token or not repo:
             raise RuntimeError("GH_TOKEN and GH_REPO are required")
-        # A run no owned pool may take (a UI filter without owned_ui) reads no runners.
-        owned = args.owned if owned_target(args.test_filter, args.owned_ui) else ""
-        idle, online = read_live_owned(repo, env, owned, args.pr_xcode_app) or (None, None)
+        idle, online = live_owned(runners, args.pr_xcode_app) or (None, None)
         return measure_load(pr_runner_pool.GitHub(token, repo), now=now,
                             exclude_run_id=int(run_id) if run_id.isdigit() else None,
                             live_owned=idle, live_online=online)
@@ -478,7 +615,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     print(resolve(
         args.requested, args.variable,
         overflow=args.overflow, order=args.order, max_queued=args.max_queued,
-        owned=args.owned, owned_slots=args.owned_slots, pr_xcode_app=args.pr_xcode_app,
+        owned=args.owned, owned_slots=owned_slots, pr_xcode_app=args.pr_xcode_app,
         test_filter=args.test_filter, owned_ui=args.owned_ui, queue_rounds=args.queue_rounds,
         measure=measure, now=now,
         log=lambda message: print(message, file=sys.stderr),

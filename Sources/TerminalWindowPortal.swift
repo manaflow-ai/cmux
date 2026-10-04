@@ -417,11 +417,12 @@ final class WindowTerminalHostView: NSView {
             self.splitDividerResizeObserver = nil
         }
         guard let window else { return }
-        splitDividerResizeObserver = NotificationCenter.default.addObserver(forName: NSSplitView.didResizeSubviewsNotification, object: nil, queue: .main) { [weak self, weak window] notification in
+        let windowIdentifier = ObjectIdentifier(window)
+        splitDividerResizeObserver = NotificationCenter.default.addObserver(forName: NSSplitView.didResizeSubviewsNotification, object: nil, queue: .main) { [weak self] notification in
             guard let self,
-                  let window,
                   let splitView = notification.object as? NSSplitView,
-                  splitView.window === window else { return }
+                  let window = splitView.window,
+                  ObjectIdentifier(window) == windowIdentifier else { return }
             self.invalidateSplitDividerRegionCache()
             self.window?.invalidateCursorRects(for: self)
         }
@@ -669,7 +670,7 @@ private final class PaneSwapSelectionOverlayView: NSView {
 
         drawHighlight(
             frame: sourceFrame,
-            color: .controlAccentColor,
+            color: (AppDelegate.shared?.accentColor ?? CmuxAccentColor()).nsColor(for: effectiveAppearance),
             title: CmuxPaneSwapStrings().source,
             dirtyRect: dirtyRect
         )
@@ -2777,6 +2778,7 @@ final class WindowTerminalPortal: NSObject {
     private func installPaneSwapSelectionObservers(for window: NSWindow) {
         removePaneSwapSelectionObservers()
         let center = NotificationCenter.default
+        let windowIdentifier = ObjectIdentifier(window)
         paneSwapSelectionObservers.append(center.addObserver(
             forName: NSWindow.didResignKeyNotification,
             object: window,
@@ -2808,13 +2810,15 @@ final class WindowTerminalPortal: NSObject {
             forName: NSSplitView.didResizeSubviewsNotification,
             object: nil,
             queue: .main
-        ) { [weak self, weak window] notification in
+        ) { [weak self] notification in
             MainActor.assumeIsolated {
-                guard let splitView = notification.object as? NSSplitView,
-                      splitView.window === window else {
+                guard let self,
+                      let splitView = notification.object as? NSSplitView,
+                      let splitViewWindow = splitView.window,
+                      ObjectIdentifier(splitViewWindow) == windowIdentifier else {
                     return
                 }
-                self?.cancelPaneSwapSelection(.layoutChanged)
+                self.cancelPaneSwapSelection(.layoutChanged)
             }
         })
     }
@@ -3085,9 +3089,9 @@ enum TerminalWindowPortalRegistry {
             forName: NSWindow.willCloseNotification,
             object: window,
             queue: .main
-        ) { [weak window] _ in
+        ) { notification in
             MainActor.assumeIsolated {
-                if let window {
+                if let window = notification.object as? NSWindow {
                     removePortal(for: window)
                 } else {
                     removePortal(windowId: windowId, window: nil)

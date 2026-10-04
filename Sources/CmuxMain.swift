@@ -18,6 +18,9 @@ import SwiftUI
 enum CmuxMain {
     /// Raises inherited descriptor limits before receipt writing or worker routing.
     static func main() {
+        // First: nothing may read preferences before an app-host test process
+        // switches to its own domain.
+        TestProcessDefaults.installIfHostingTests()
         FileDescriptorLimitController().raiseSoftLimitIfNeeded()
         AppHostProcessReceipt.writeIfRequired()
 #if DEBUG

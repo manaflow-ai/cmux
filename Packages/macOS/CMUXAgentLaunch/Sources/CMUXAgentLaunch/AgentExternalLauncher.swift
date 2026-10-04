@@ -423,7 +423,7 @@ public struct AgentExternalLauncher: Codable, Equatable, Sendable {
     }
 
     private static func isValidID(_ value: String) -> Bool {
-        value.range(of: "^[A-Za-z0-9._-]+$", options: .regularExpression) != nil
+        value.range(of: "^[A-Za-z0-9._-]+\\z", options: .regularExpression) != nil
     }
 
     private static func normalized(_ value: String?) -> String? {
@@ -452,19 +452,22 @@ extension AgentResumeArgv {
     ///   - sessionId: The session identifier being resumed.
     ///   - executablePath: The captured executable path, when available.
     ///   - arguments: The captured argv, including `argv[0]`.
-    /// - Returns: `true` when ``launcherResolution(launcher:sessionId:executablePath:arguments:)``
+    ///   - environment: The captured launch environment, which carries Subrouter routing proof.
+    /// - Returns: `true` when ``launcherResolution(launcher:sessionId:executablePath:arguments:environment:)``
     ///   resolves the resume itself instead of passing through to the built-in agent argv.
     public func resumeRoutesThroughOwnedLauncher(
         launcher: String?,
         sessionId: String,
         executablePath: String?,
-        arguments: [String]
+        arguments: [String],
+        environment: [String: String]? = nil
     ) -> Bool {
         if case .resolved = launcherResolution(
             launcher: launcher,
             sessionId: sessionId,
             executablePath: executablePath,
-            arguments: arguments
+            arguments: arguments,
+            environment: environment
         ) {
             return true
         }

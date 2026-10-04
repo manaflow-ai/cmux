@@ -215,7 +215,8 @@ extension AgentNotificationRegressionTests {
             priority: 0,
             format: .plain,
             panelID: fixture.panelId,
-            pid: nil
+            pid: nil,
+            workState: nil
         )
         TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
             target: .workspace(dockOwnerId),
@@ -267,7 +268,8 @@ extension AgentNotificationRegressionTests {
             priority: 0,
             format: .plain,
             panelID: fixture.panelId,
-            pid: nil
+            pid: nil,
+            workState: nil
         )
         TerminalController.shared.controlSidebarScheduleAgentLifecycle(
             target: .workspace(dockOwnerId),
@@ -591,7 +593,8 @@ extension AgentNotificationRegressionTests {
             priority: 0,
             format: .plain,
             panelID: fixture.panelId,
-            pid: 43_210
+            pid: 43_210,
+            workState: nil
         )
         TerminalController.shared.controlSidebarScheduleAgentLifecycle(
             target: .workspace(fixture.source.id),

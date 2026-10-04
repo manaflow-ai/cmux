@@ -149,11 +149,11 @@ struct RightSidebarChromePillModifier: ViewModifier {
                 isVisible: true
             )
             .background(
-                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
                     .fill(backgroundColor)
             )
             .contentShape(
-                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
             )
     }
 
@@ -295,6 +295,12 @@ extension View {
         modifier(RightSidebarChromeBottomBorderModifier(backgroundColor: backgroundColor))
     }
 
+    /// Gives system bordered buttons below this view the shared
+    /// right-sidebar button radius instead of the platform default shape.
+    func rightSidebarButtonBorderShape() -> some View {
+        buttonBorderShape(.roundedRectangle(radius: RightSidebarChromeMetrics.buttonCornerRadius))
+    }
+
     func rightSidebarHeaderControlAlignment() -> some View {
         alignmentGuide(VerticalAlignment.center) { dimensions in
             dimensions[VerticalAlignment.center] + RightSidebarChromeMetrics.headerControlCenterAlignmentAdjustment
@@ -361,6 +367,10 @@ struct ModeBarButton: View {
     let action: () -> Void
 
     @State private var isHovered: Bool = false
+    /// False once the label is truncated to less than a letter and an
+    /// ellipsis; the tab then shows only its icon. The label keeps its slot,
+    /// so hiding it never changes the tab's width.
+    @State private var labelFits = true
 
     var body: some View {
         Button(action: action) {
@@ -383,6 +393,10 @@ struct ModeBarButton: View {
                     )
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .opacity(labelFits ? 1 : 0)
+                    .onGeometryChange(for: Bool.self) { proxy in
+                        proxy.size.width >= GlobalFontMagnification.scaledSize(Self.minimumVisibleLabelWidth)
+                    } action: { labelFits = $0 }
                 if badgeCount > 0 {
                     pendingChip
                 }
@@ -406,9 +420,14 @@ struct ModeBarButton: View {
         .titlebarInteractiveControl()
         .onHover { isHovered = $0 }
         .help(helpText)
+        .accessibilityLabel(item.label)
         .accessibilityIdentifier("RightSidebarModeButton.\(item.id)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
     }
+
+    /// Roughly one letter and an ellipsis at the label's size.
+    static let minimumVisibleLabelWidth: CGFloat = 15
 
     private var helpText: String {
         if badgeCount > 0 {

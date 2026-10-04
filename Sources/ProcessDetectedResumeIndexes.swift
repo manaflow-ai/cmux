@@ -109,13 +109,16 @@ struct ProcessDetectedResumeIndexes: Sendable {
     /// Returns the last published agent index without filesystem or process capture.
     ///
     /// This is the bounded fallback for a watchdog whose fresh capture already
-    /// exceeded its deadline. Process-backed surface bindings fail closed.
+    /// exceeded its deadline, and for the synchronous update-relaunch save.
+    /// No surface scan ran, so the binding index is unavailable rather than an
+    /// empty clean scan: a clean scan would retire every agent-hook binding the
+    /// cached agent index has not seen yet.
     static func cached(
         restorableAgentIndex: RestorableAgentSessionIndex
     ) -> ProcessDetectedResumeIndexes {
         ProcessDetectedResumeIndexes(
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: .empty
+            surfaceResumeBindingIndex: .unavailable
         )
     }
 

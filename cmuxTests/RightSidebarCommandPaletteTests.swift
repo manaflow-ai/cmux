@@ -9,14 +9,60 @@ import XCTest
 #endif
 
 final class RightSidebarCommandPaletteTests: XCTestCase {
+    func testStoredLegacyDockOptOutDoesNotHideDockCommand() throws {
+        let defaults = UserDefaults.standard
+        let key = "rightSidebar.beta.dock.enabled"
+        let previous = defaults.object(forKey: key)
+        defaults.set(false, forKey: key)
+        defer {
+            if let previous { defaults.set(previous, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+        }
+
+        XCTAssertTrue(RightSidebarMode.availableModes().contains(.dock))
+        XCTAssertTrue(
+            ContentView.commandPaletteRightSidebarModeCommandContributions()
+                .contains { $0.commandId == ContentView.commandPaletteRightSidebarModeCommandID(.dock) }
+        )
+    }
+
+    func testDockIsAvailableForFreshAndExistingDefaultsWithoutStoredBetaValue() throws {
+        let suiteNames = [
+            "RightSidebarCommandPaletteTests.fresh.\(UUID().uuidString)",
+            "RightSidebarCommandPaletteTests.existing.\(UUID().uuidString)",
+        ]
+        let defaults = try suiteNames.map { suiteName -> UserDefaults in
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+            defaults.removePersistentDomain(forName: suiteName)
+            return defaults
+        }
+        defaults[1].set(true, forKey: "unrelated.existing.user.preference")
+        defer {
+            for (suiteName, suiteDefaults) in zip(suiteNames, defaults) {
+                suiteDefaults.removePersistentDomain(forName: suiteName)
+            }
+        }
+
+        for suiteDefaults in defaults {
+            XCTAssertNil(suiteDefaults.object(forKey: "rightSidebar.beta.dock.enabled"))
+            XCTAssertTrue(RightSidebarMode.dock.isAvailable(defaults: suiteDefaults))
+            XCTAssertTrue(RightSidebarMode.availableModes(defaults: suiteDefaults).contains(.dock))
+        }
+    }
+
+    @MainActor
     func testCommandPaletteIncludesDefaultRightSidebarModes() throws {
         try withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
-            defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            defaults.removeObject(forKey: "rightSidebar.beta.dock.enabled")
             // Cloud Machines defaults on in dev builds (d6584c07e0); pin the toggle off so
             // the default-mode contract below is the same on every build.
             defaults.set(false, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+            let cloudFlag = CmuxFeatureFlags.cloudMachinesFlag
+            let previousCloudOverride = CmuxFeatureFlags.shared.overrideValue(for: cloudFlag)
+            CmuxFeatureFlags.shared.setOverride(true, for: cloudFlag)
+            defer { CmuxFeatureFlags.shared.setOverride(previousCloudOverride, for: cloudFlag) }
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = CommandPaletteContextSnapshot()
@@ -40,14 +86,14 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 XCTAssertTrue(contribution.enablement(context))
             }
 
-            // Files/Find/Vault are always present; Machines follows the Cloud
-            // Machines beta toggle (pinned off above), and feed/dock stay off.
+            // Files/Find/Vault, the graduated Dock, and the Cloud tab are
+            // discoverable before the local activation marker is set.
             let machinesAvailable = RightSidebarMode.machines.isAvailable()
-            XCTAssertFalse(machinesAvailable)
-            XCTAssertEqual(contributions.count, 3)
+            XCTAssertTrue(machinesAvailable)
+            XCTAssertEqual(contributions.count, 5)
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
-            XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
-            XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.machines)])
+            XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
+            XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.machines)])
         }
     }
 
@@ -60,7 +106,6 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             defer { CmuxFeatureFlags.shared.setOverride(previousOverride, for: definition) }
             let defaults = UserDefaults.standard
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
-            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
 
             for mode in RightSidebarMode.allCases {
@@ -214,11 +259,11 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
     private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
-        let previousDock = defaults.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        let previousLegacyDockBeta = defaults.object(forKey: "rightSidebar.beta.dock.enabled")
         let previousCloudMachines = defaults.object(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
         defer {
             restore(previousFeed, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
-            restore(previousDock, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            restore(previousLegacyDockBeta, forKey: "rightSidebar.beta.dock.enabled")
             restore(previousCloudMachines, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
         }
         try body()

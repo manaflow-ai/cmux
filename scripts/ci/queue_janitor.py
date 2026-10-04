@@ -143,7 +143,8 @@ CATEGORY_ORDER = ("experiment", "stale-pr", "label-dropped", "doomed")
 # suite and the reusable-call prefix makes the API name "macos / app-host unit
 # tests (3/6)", so match on the substring. A failed compile admission fails
 # the same `macos` call before any shard starts, and so do the changed suites
-# it runs itself (ci-macos.yml inputs.unit_in_admission).
+# it runs itself (ci-macos.yml inputs.unit_in_admission, when admission
+# takes its Mac's gui token).
 DOOMED_JOB_NAME = "app-host unit tests"
 
 
@@ -374,7 +375,10 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
 
 
 # Workflows whose queued macOS jobs a pull request must not take a pool from.
-RESERVED_POOL_WORKFLOW = re.compile(r"release|nightly", re.IGNORECASE)
+# Match the workflow path only.  CI run names include routing metadata such as
+# ``release=arm64``; looking at the combined name and path made every ordinary
+# pull-request run look like a release reservation.
+RESERVED_POOL_WORKFLOW = re.compile(r"(?:^|/)(?:release|nightly)\.yml$", re.IGNORECASE)
 POOL_QUEUED_JOB_STATUSES = QUEUED_JOB_STATUSES - {"waiting"}
 POOL_LOAD_VERSION = 1
 # Environment variable -> snapshot settings key, for pr_runner_pool.py.
@@ -394,24 +398,26 @@ MAX_ARTIFACT_PAGES = 5
 # (post-admission jobs reuse admission's machine, so placed can exceed jobs).
 # The E2E and iOS markers, and ones uploaded before `p<placed>`, omit it.
 # workflow_dispatch workflows whose runner job may pick an owned pool and upload it.
-OWNED_DISPATCH_WORKFLOWS = ("/test-e2e.yml", "/test-ios.yml", "/ios-screenshots.yml")
+OWNED_DISPATCH_WORKFLOWS = ("/test-e2e.yml", "/test-ios.yml", "/ios-screenshots.yml", "/iroh-release-gate.yml")
 OWNED_MARKER = re.compile(r"macos-pool-persistent-(?P<run>[0-9]+)-(?P<attempt>[0-9]+)-(?P<jobs>[0-9]+)"
                           r"(?:p(?P<placed>[0-9]+))?-(?P<pool>.+)")
 
 
 def owned_marker(run: Mapping[str, Any], names: Iterable[str]) -> tuple[str, int, int] | None:
-    """(pool, peak jobs, placed jobs) from this attempt's owned-pool marker, or None.
+    """(pool, peak jobs, placed jobs) from the newest owned-pool marker up to this attempt, or None.
 
-    A marker without a placed count places as many jobs as its peak.
+    A re-run of failed jobs does not re-run the picker, so it holds the pool of the attempt that last
+    picked. A marker without a placed count places as many jobs as its peak.
     """
+    best: tuple[int, str, int, int] | None = None
     for name in names:
         match = OWNED_MARKER.fullmatch(str(name))
-        if (match and int(match["run"]) == run.get("id") and int(match["attempt"]) == (run.get("run_attempt") or 1)
-                and owned_pool(match["pool"])):
+        if (match and int(match["run"]) == run.get("id") and int(match["attempt"]) <= (run.get("run_attempt") or 1)
+                and owned_pool(match["pool"]) and (best is None or int(match["attempt"]) > best[0])):
             peak = min(int(match["jobs"]), MAX_RUN_JOBS)
             placed = min(int(match["placed"]), MAX_RUN_JOBS) if match["placed"] is not None else peak
-            return match["pool"], peak, placed
-    return None
+            best = int(match["attempt"]), match["pool"], peak, placed
+    return best[1:] if best else None
 
 
 def capability_marker(run: Mapping[str, Any], names: Iterable[str]) -> tuple[str, int] | None:
@@ -429,27 +435,30 @@ def capability_marker(run: Mapping[str, Any], names: Iterable[str]) -> tuple[str
     return None
 
 
-def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]], *,
-                        light_retry: bool = False) -> bool:
+def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> bool:
     """A run whose marker is worth an artifact listing: it may hold an owned pool.
 
-    Only attempt 1 of a same-repository pull request run of CI, of main's
-    full-suite dispatch of CI (pr_runner_pool.py routes it too), or of an
-    E2E or iOS dispatch (the runner job of test-e2e.yml, test-ios.yml and
-    ios-screenshots.yml uploads the same marker), can. While
-    CI_OWNED_LIGHT_RETRY is 1 (`light_retry`), attempt 2 can too: the
-    rescue's full re-run picks again and may take the light tier
-    (pr_runner_pool.LIGHT_RETRY_ATTEMPT), publishing its own marker. A re-run
-    of failed jobs publishes none, so with the variable off attempt 2 costs
-    no listing. Later attempts never hold one. Its other macOS jobs say nothing:
+    Only attempts 1 and 2 (pr_runner_pool.LAST_OWNED_ATTEMPT) of a
+    same-repository pull request run of CI, of main's full-suite dispatch of
+    CI (pr_runner_pool.py routes it too), or of an E2E, iOS or Iroh release
+    gate dispatch (the runner job of test-e2e.yml, test-ios.yml,
+    ios-screenshots.yml and iroh-release-gate.yml uploads the same marker),
+    can: a full re-run picks again like attempt 1 and publishes its own
+    marker, and a re-run of failed jobs publishes none, costing one listing.
+    A pull request run's re-run someone other than github-actions[bot]
+    started follows a code failure and picks like attempt 1
+    (pr_runner_pool.host_fault_retry()), so any attempt of it can too; the
+    bot's later attempts never hold one. Its other macOS jobs say nothing:
     swift-package-tests usually runs on a Blacksmith pool beside a run on an
     owned one (only a run that builds no Release helper places it there).
     """
-    if (run.get("run_attempt") or 1) > (2 if light_retry else 1):
+    path = str(run.get("path") or "")
+    code_retry = (run.get("event") == "pull_request" and path.endswith("/ci.yml")
+                  and str((run.get("triggering_actor") or {}).get("login") or "") != "github-actions[bot]")
+    if (run.get("run_attempt") or 1) > 2 and not code_retry:
         return False
     if (run.get("head_repository") or {}).get("id") != (run.get("repository") or {}).get("id"):
         return False
-    path = str(run.get("path") or "")
     if run.get("event") == "workflow_dispatch":
         return path.endswith(OWNED_DISPATCH_WORKFLOWS) or (
             path.endswith("/ci.yml") and run.get("head_branch") == "main")
@@ -498,7 +507,7 @@ def pool_load_snapshot(
     oldest: dict[str, dt.datetime] = {}
     committed: dict[str, int] = {}
     for run in runs:
-        reserved = bool(RESERVED_POOL_WORKFLOW.search(f"{run.get('name') or ''} {run.get('path') or ''}"))
+        reserved = bool(RESERVED_POOL_WORKFLOW.search(str(run.get("path") or "")))
         seen: dict[str, int] = {}
         for job in jobs_by_run.get(run.get("id"), ()):
             if is_macos_job(job) and owned_label(job) and job.get("status") in (
@@ -1158,12 +1167,62 @@ def build_orphan_plan(
     return decisions
 
 
+def _cancel_refused(error: RuntimeError) -> bool:
+    """Whether GitHub rejected a cancellation because the run cannot be cancelled."""
+    return "(409)" in str(error)
+
+
 def _force_cancel(github: "GitHub", orphan: Orphan, why: str) -> str:
     try:
         github.force_cancel(orphan.run["id"])
     except RuntimeError as error:
         return f"stuck: GitHub refused cancel and force-cancel ({why}; {error})"
     return f"force-cancelled ({why})"
+
+
+def cancel_plan(
+    github: "GitHub",
+    candidates: Sequence[Candidate],
+) -> tuple[dict[int, str], int]:
+    """Cancel planned runs, treating GitHub's uncancellable-run race as benign."""
+    results: dict[int, str] = {}
+    failures = 0
+    for candidate in candidates:
+        run_id = candidate.run["id"]
+        try:
+            # The inventory is seconds old; drop anything that finished or
+            # moved to a new head in between.
+            current = github.run(run_id)
+            if current.get("status") not in IN_FLIGHT_RUN_STATUSES:
+                results[run_id] = f"skipped (now {current.get('status')})"
+                continue
+            if current.get("head_sha") != candidate.run.get("head_sha"):
+                results[run_id] = "skipped (head changed)"
+                continue
+        except RuntimeError as error:
+            failures += 1
+            results[run_id] = f"failed: {error}"
+            continue
+        try:
+            github.cancel(run_id)
+            results[run_id] = "cancelled"
+        except RuntimeError as error:
+            if not _cancel_refused(error):
+                failures += 1
+                results[run_id] = f"failed: {error}"
+                continue
+            try:
+                github.force_cancel(run_id)
+            except RuntimeError as force_error:
+                if not _cancel_refused(force_error):
+                    failures += 1
+                    results[run_id] = f"failed: {force_error}"
+                else:
+                    results[run_id] = (f"stuck: GitHub refused cancel and force-cancel "
+                                       f"(cancel refused: {error}; {force_error})")
+            else:
+                results[run_id] = f"force-cancelled (cancel refused: {error})"
+    return results, failures
 
 
 def cancel_orphans(
@@ -1436,10 +1495,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         markers: dict[int, tuple[str, int, int]] = {}
         capability_markers: dict[int, tuple[str, int]] = {}
         if os.environ.get("PR_POOL_OWNED", "").strip() == "1":
-            light_retry = os.environ.get("OWNED_LIGHT_RETRY", "").strip() == "1"
             for run in runs:
-                if run.get("id") in jobs_by_run and may_hold_owned_pool(run, jobs_by_run[run["id"]],
-                                                                        light_retry=light_retry):
+                if run.get("id") in jobs_by_run and may_hold_owned_pool(run, jobs_by_run[run["id"]]):
                     try:
                         names = github.artifact_names(
                             run["id"], stop=f"macos-pool-persistent-{run['id']}-{run.get('run_attempt') or 1}-")
@@ -1473,23 +1530,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     results: dict[int, str] = {}
     failures = 0
     if not args.dry_run:
-        for candidate in plan.to_cancel():
-            run_id = candidate.run["id"]
-            try:
-                # The inventory is seconds old; drop anything that finished or
-                # moved to a new head in between.
-                current = github.run(run_id)
-                if current.get("status") not in IN_FLIGHT_RUN_STATUSES:
-                    results[run_id] = f"skipped (now {current.get('status')})"
-                    continue
-                if current.get("head_sha") != candidate.run.get("head_sha"):
-                    results[run_id] = "skipped (head changed)"
-                    continue
-                github.cancel(run_id)
-                results[run_id] = "cancelled"
-            except RuntimeError as error:
-                failures += 1
-                results[run_id] = f"failed: {error}"
+        results, failures = cancel_plan(github, plan.to_cancel())
 
     orphan_decisions = build_orphan_plan(
         orphans, prs_by_branch, max_cancels=max_orphan_cancels,

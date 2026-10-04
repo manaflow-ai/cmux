@@ -136,6 +136,7 @@ fn remote_help_requested(args: &[String]) -> bool {
         "--ssh-binary",
         "--remote-binary",
         "--remote-state-dir",
+        "--agent-hooks",
         "--wireguard-config",
         "--wireguard-hub",
         "--ssh-arg",
@@ -231,6 +232,8 @@ struct ConnectFlags {
     remote_binary: String,
     remote_state_dir: Option<String>,
     ssh_args: Vec<String>,
+    /// Coding-agent providers whose hooks the SSH host installs on attach.
+    agent_hooks: Vec<String>,
     auto_install: bool,
     upgrade: bool,
     forward_workspace: Option<String>,
@@ -470,6 +473,9 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                 flags.remote_state_dir = Some(value("--remote-state-dir")?);
             }
             "--ssh-arg" => flags.ssh_args.push(value("--ssh-arg")?),
+            "--agent-hooks" => {
+                flags.agent_hooks.extend(agent_hook_providers(&value("--agent-hooks")?));
+            }
             "--no-install" => flags.auto_install = false,
             "--upgrade" => flags.upgrade = true,
             "--workspace-root" => flags.forward_workspace = Some(value("--workspace-root")?),
@@ -678,6 +684,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         remote_state_dir: flags.remote_state_dir.clone(),
         extra_args: flags.ssh_args.clone(),
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
+        agent_hooks: flags.agent_hooks.clone(),
     };
     let relay_route_names = relay_routes.keys().cloned().collect::<Vec<_>>();
     let providers = Arc::new(client_provider_registry(
@@ -1247,6 +1254,7 @@ pub(crate) fn validate_managed_ssh_options(options: &ManagedSshOptions) -> anyho
         remote_state_dir: None,
         extra_args: options.ssh_args.clone(),
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
+        agent_hooks: Vec::new(),
     })?;
     Ok(())
 }
@@ -1808,10 +1816,95 @@ fn parent_process_is(_: u32) -> bool {
     true
 }
 
+/// Returns when the process `expected` (our parent at launch) exits. It
+/// waits on a kernel process-exit event (kqueue `NOTE_EXIT`, Linux pidfd);
+/// it used to re-check `getppid` every 100 ms. Kernels without pidfd keep
+/// the old check as a fallback.
 async fn wait_for_parent_exit(expected: u32) {
+    if !parent_process_is(expected) {
+        return;
+    }
+    // A detached thread, not `spawn_blocking`: dropping a tokio runtime waits
+    // for its blocking tasks, so a shutdown while the parent is alive would
+    // hang until the parent exits (and deadlock if the parent waits for us).
+    let (exited_tx, exited_rx) = tokio::sync::oneshot::channel();
+    let spawned = thread::Builder::new().name("parent-exit-watch".to_owned()).spawn(move || {
+        let _ = exited_tx.send(wait_for_process_exit(expected));
+    });
+    if spawned.is_ok() && matches!(exited_rx.await, Ok(Ok(()))) {
+        return;
+    }
     while parent_process_is(expected) {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+}
+
+/// Blocks until process `pid` exits (at once when it is already gone).
+#[cfg(target_os = "macos")]
+fn wait_for_process_exit(pid: u32) -> io::Result<()> {
+    let pid = libc::pid_t::try_from(pid).map_err(|_| io::ErrorKind::InvalidInput)?;
+    // SAFETY: kqueue has no preconditions; the descriptor is closed below.
+    let queue = unsafe { libc::kqueue() };
+    if queue < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: the kevent structs are fully initialized and outlive the call.
+    let mut change: libc::kevent = unsafe { std::mem::zeroed() };
+    change.ident = pid as libc::uintptr_t;
+    change.filter = libc::EVFILT_PROC;
+    change.flags = libc::EV_ADD | libc::EV_ONESHOT;
+    change.fflags = libc::NOTE_EXIT;
+    let mut event: libc::kevent = unsafe { std::mem::zeroed() };
+    let mut changes = 1;
+    let result = loop {
+        let count =
+            unsafe { libc::kevent(queue, &change, changes, &mut event, 1, std::ptr::null()) };
+        if count > 0 {
+            break Ok(());
+        }
+        let error = io::Error::last_os_error();
+        match error.raw_os_error() {
+            Some(libc::EINTR) => {
+                // The registration was applied before the interruption.
+                changes = 0;
+            }
+            Some(libc::ESRCH) => break Ok(()),
+            _ => break Err(error),
+        }
+    };
+    // SAFETY: `queue` is owned here.
+    unsafe { libc::close(queue) };
+    result
+}
+
+#[cfg(target_os = "linux")]
+fn wait_for_process_exit(pid: u32) -> io::Result<()> {
+    // SAFETY: pidfd_open takes a pid and flags and returns a descriptor.
+    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) };
+    if fd < 0 {
+        let error = io::Error::last_os_error();
+        return if error.raw_os_error() == Some(libc::ESRCH) { Ok(()) } else { Err(error) };
+    }
+    let fd = fd as libc::c_int;
+    let mut pollfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+    let result = loop {
+        // SAFETY: `pollfd` names the pidfd owned here.
+        if unsafe { libc::poll(&mut pollfd, 1, -1) } > 0 {
+            break Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            break Err(error);
+        }
+    };
+    // SAFETY: `fd` is owned here.
+    unsafe { libc::close(fd) };
+    result
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn wait_for_process_exit(_pid: u32) -> io::Result<()> {
+    Err(io::ErrorKind::Unsupported.into())
 }
 
 /// A wg-quick file is small; anything larger is not one.
@@ -2135,8 +2228,37 @@ fn run_remote_link(args: &[String]) -> anyhow::Result<()> {
     let mux_socket = flag_value(args, "--mux-socket").map(PathBuf::from);
     let (session_state, default_link, _) = daemon_paths(&session, state_dir.as_deref())?;
     let link = flag_value(args, "--link-socket").map(PathBuf::from).unwrap_or(default_link);
+    if let Some(providers) = flag_value(args, "--agent-hooks") {
+        install_agent_hooks(agent_hook_providers(&providers));
+    }
     ensure_daemon(&session, state_dir.as_deref(), &session_state, &link, mux_socket.as_deref())?;
     tokio_runtime()?.block_on(proxy_stdio(&link))
+}
+
+/// `--agent-hooks claude,codex` names providers; empty items are dropped.
+fn agent_hook_providers(value: &str) -> Vec<String> {
+    value.split(',').map(str::trim).filter(|item| !item.is_empty()).map(str::to_owned).collect()
+}
+
+/// Installs the named providers' hooks for this host user before a client
+/// attaches. The install is idempotent and never blocks the link: hooks are
+/// inert outside cmux-tui terminals, and a failure only costs agent status.
+fn install_agent_hooks(providers: Vec<String>) {
+    if providers.is_empty() {
+        return;
+    }
+    let plan = crate::agent_hook_install::Plan {
+        action: crate::agent_hook_install::Action::Install,
+        providers,
+    };
+    let result = crate::agent_hook_install::run(&plan);
+    if result.failed {
+        crate::client_log::stderr_log!(
+            "remote",
+            "cmux-tui: agent hook install failed: {}",
+            result.value["errors"]
+        );
+    }
 }
 
 struct RemoteStopArgs {
@@ -2402,7 +2524,7 @@ fn ensure_daemon(
     mux_socket_override: Option<&Path>,
 ) -> anyhow::Result<()> {
     let _lock = lock_daemon_start(session_state)?;
-    if UnixStream::connect(link).is_ok() {
+    if connect_same_user_socket(link).is_ok() {
         return Ok(());
     }
 
@@ -2411,17 +2533,23 @@ fn ensure_daemon(
     // exec'ing a "(deleted)" path, and daemon/client builds never skew.
     let executable = cmux_tui_core::platform::self_exe_for_spawn()?;
     let log_path = session_state.join("daemon.log");
-    let mux_socket = mux_socket_override
+    let explicit_mux_socket = mux_socket_override
         .map(Path::to_path_buf)
-        .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from))
+        .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from));
+    let mux_socket_is_derived = explicit_mux_socket.is_none();
+    let mux_socket = explicit_mux_socket
         .map_or_else(|| cmux_tui_core::server::try_default_socket_path(session), Ok)?;
-    if UnixStream::connect(&mux_socket).is_err() {
+    if mux_socket_is_derived {
+        // A derived path may fall back to a shared /tmp name. Claim or check
+        // its directory the same way the mux owner will before probing it.
+        cmux_tui_core::server::prepare_socket_parent(&mux_socket, true)?;
+    }
+    if connect_same_user_socket(&mux_socket).is_err() {
         let log = open_private_daemon_file(&log_path, true)
             .with_context(|| format!("could not open daemon log {}", log_path.display()))?;
         let mut mux_owner = Command::new(&executable);
         mux_owner
-            .args(["--headless", "--session", session, "--socket"])
-            .arg(&mux_socket)
+            .args(mux_owner_args(session, &mux_socket, mux_socket_is_derived))
             .stdin(Stdio::null())
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log));
@@ -2454,6 +2582,30 @@ fn ensure_daemon(
     wait_for_detached_socket(&mut child, link, Duration::from_secs(20), "remote daemon", &log_path)
 }
 
+/// Arguments for the headless mux owner `ensure_daemon` starts. A derived
+/// socket path is left for the owner to derive again from the same session,
+/// so it keeps the owner checks it applies to its own runtime directory.
+fn mux_owner_args(session: &str, mux_socket: &Path, mux_socket_is_derived: bool) -> Vec<OsString> {
+    let mut args: Vec<OsString> =
+        ["--headless", "--session", session].into_iter().map(OsString::from).collect();
+    if !mux_socket_is_derived {
+        args.push("--socket".into());
+        args.push(mux_socket.into());
+    }
+    args
+}
+
+/// Connect to a socket this daemon's own user serves. The daemon only starts
+/// and talks to listeners it or an earlier run of it created.
+fn connect_same_user_socket(path: &Path) -> io::Result<UnixStream> {
+    let stream = UnixStream::connect(path)?;
+    cmux_tui_core::platform::require_unix_peer_uid(
+        &stream,
+        cmux_tui_core::platform::effective_uid(),
+    )?;
+    Ok(stream)
+}
+
 fn wait_for_detached_socket(
     child: &mut Child,
     socket: &Path,
@@ -2463,7 +2615,7 @@ fn wait_for_detached_socket(
 ) -> anyhow::Result<()> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        if UnixStream::connect(socket).is_ok() {
+        if connect_same_user_socket(socket).is_ok() {
             return Ok(());
         }
         match child.try_wait() {
@@ -2553,7 +2705,7 @@ fn configure_detached_process(command: &mut Command) {
 }
 
 fn open_mux_monitor(path: &Path) -> anyhow::Result<UnixStream> {
-    let stream = UnixStream::connect(path).with_context(|| {
+    let stream = connect_same_user_socket(path).with_context(|| {
         format!("cannot attach remote sidecar to mux socket {}", path.display())
     })?;
     stream.set_read_timeout(Some(Duration::from_millis(250)))?;
@@ -2835,9 +2987,32 @@ mod tests {
     }
 
     #[test]
+    fn private_socket_remote_mux_owner_derives_its_own_socket() {
+        let socket = Path::new("/tmp/cmux-tui-501/work.sock");
+        assert_eq!(
+            mux_owner_args("work", socket, true),
+            ["--headless", "--session", "work"].map(OsString::from)
+        );
+        assert_eq!(
+            mux_owner_args("work", socket, false),
+            ["--headless", "--session", "work", "--socket", "/tmp/cmux-tui-501/work.sock"]
+                .map(OsString::from)
+        );
+    }
+
+    #[test]
     fn probe_capabilities_include_direct_ws_user_agent() {
         assert!(PROBE_CAPABILITIES.contains(&"direct-ws-user-agent"));
         assert!(PROBE_CAPABILITIES.contains(&"wireguard-hub"));
+    }
+
+    #[test]
+    fn agent_hooks_flag_collects_providers() {
+        let args = ["host", "--agent-hooks", "claude, codex,", "--agent-hooks", "gemini"]
+            .map(str::to_string);
+        assert_eq!(direct_ssh_flags(&args).unwrap().agent_hooks, ["claude", "codex", "gemini"]);
+        let plain = ["host"].map(str::to_string);
+        assert!(direct_ssh_flags(&plain).unwrap().agent_hooks.is_empty());
     }
 
     #[test]

@@ -278,9 +278,9 @@ if [ "$TARGET_NAME" = "cmuxTests" ] && [ "$TESTS_REL" = "cmuxTests" ]; then
   echo "Run ./scripts/sync-test-wiring to reconcile direct $TESTS_REL/*.swift files."
   echo "Use ./scripts/sync-test-wiring --check for a read-only authoring/CI check."
 else
-  # sync-test-wiring only reconciles cmuxTests. Other targets are wired by hand.
-  echo "sync-test-wiring only reconciles cmuxTests; add the four $TARGET_NAME"
-  echo "entries above by hand (or in Xcode) for $TESTS_REL/*.swift."
+  # sync-test-wiring only reconciles cmuxTests.
+  echo "Run ./scripts/wire-app-sources.py --target $TARGET_NAME --dir $TESTS_REL"
+  echo "to add the four entries for each unwired file (see its --help)."
 fi
 echo "This lint remains the defensive $TARGET_NAME Sources-phase guard."
 exit 1

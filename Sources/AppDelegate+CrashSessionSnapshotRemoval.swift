@@ -38,13 +38,23 @@ extension AppDelegate {
                case .loaded = sessionSnapshotStore.loadOutcome(fileURL: backupURL) {
                 return
             }
+            // Never replace a newer build's backup unless it was copied aside.
+            guard sessionSnapshotStore.preserveNewerSchemaSnapshotBeforeReplacing(fileURL: backupURL) else {
+                return
+            }
             _ = sessionSnapshotStore.save(prunedSnapshot, fileURL: backupURL)
         case .missing:
-            if !preserveExistingBackup && !Self.hasCrashOnlyPrimarySnapshotRemovalMarker() {
+            if !preserveExistingBackup,
+               !Self.hasCrashOnlyPrimarySnapshotRemovalMarker(),
+               sessionSnapshotStore.preserveNewerSchemaSnapshotBeforeReplacing(fileURL: backupURL) {
                 sessionSnapshotStore.removeSnapshot(fileURL: backupURL)
             }
         case .unusable:
             Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
+            // A snapshot from a newer schema (after a downgrade) is unusable
+            // here, and the next autosave would replace it. Copy it aside.
+            sessionSnapshotStore.preserveNewerSchemaSnapshot(fileURL: primaryURL)
+            sessionSnapshotStore.preserveNewerSchemaSnapshot(fileURL: backupURL)
         }
     }
 
@@ -121,26 +131,21 @@ extension AppDelegate {
         }
     }
 
-    private nonisolated static var crashOnlyPrimarySnapshotRemovalDefaultsKey: String {
-        "cmux.session.crashOnlyPrimarySnapshotRemoval.v1"
-    }
-
     nonisolated static func markCrashOnlyPrimarySnapshotRemoval(
         defaults: UserDefaults = .standard
     ) {
-        defaults.setIfChanged(true, forKey: crashOnlyPrimarySnapshotRemovalDefaultsKey)
+        SessionSnapshotPersistenceWriter.markCrashOnlyPrimarySnapshotRemoval(defaults: defaults)
     }
 
     nonisolated static func hasCrashOnlyPrimarySnapshotRemovalMarker(
         defaults: UserDefaults = .standard
     ) -> Bool {
-        defaults.bool(forKey: crashOnlyPrimarySnapshotRemovalDefaultsKey)
+        SessionSnapshotPersistenceWriter.hasCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults)
     }
 
     nonisolated static func clearCrashOnlyPrimarySnapshotRemovalMarker(
         defaults: UserDefaults = .standard
     ) {
-        // Called on every autosave write; skip the no-op removal notification.
-        defaults.removeObjectIfPresent(forKey: crashOnlyPrimarySnapshotRemovalDefaultsKey)
+        SessionSnapshotPersistenceWriter.clearCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults)
     }
 }

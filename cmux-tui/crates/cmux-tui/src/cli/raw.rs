@@ -4,7 +4,6 @@
 //! internal fields and receives no public compatibility guarantees.
 
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::path::PathBuf;
 use std::time::Duration;
 
 use cmux_tui_core::platform::transport;
@@ -32,14 +31,14 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             return 2;
         }
     };
-    let socket = match resolve_socket(&global) {
-        Ok(socket) => socket,
+    let (socket, socket_is_derived) = match super::wire::resolve_socket_with_origin(&global) {
+        Ok(resolved) => resolved,
         Err(_) => {
             eprintln!("{}", crate::localization::catalog().startup.invalid_session_name);
             return 2;
         }
     };
-    let stream = match transport::connect(&socket) {
+    let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
         Err(error) => {
             eprintln!("cannot connect to session socket {}: {error}", socket.display());
@@ -187,10 +186,6 @@ fn read_line_limited(
     String::from_utf8(bytes).map(Some).map_err(|error| {
         RawReadError::Other(format!("protocol error: raw response is not UTF-8: {error}"))
     })
-}
-
-fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
-    Ok(super::wire::resolve_socket_with_origin(global)?.0)
 }
 
 #[cfg(test)]

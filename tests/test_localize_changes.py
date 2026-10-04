@@ -51,6 +51,18 @@ def write_catalog(root: Path, strings: dict) -> Path:
 
 
 class LocalizeChangesTests(unittest.TestCase):
+    def test_parse_swift_messages_can_report_the_keys_it_dropped_for_conflicts(self):
+        text = (
+            'String(localized: "same", defaultValue: "Open")\n'
+            'String(localized: "same", defaultValue: "Open %@")\n'
+            'String(localized: "other", defaultValue: "Close")\n'
+        )
+        conflicts = set()
+        messages, attention = MODULE.parse_swift_messages("Sources/View.swift", text, conflicts=conflicts)
+        self.assertEqual(sorted(messages), ["other"])
+        self.assertEqual(conflicts, {"same"})
+        self.assertTrue(any("multiple default values" in line for line in attention))
+
     def test_key_only_call_cannot_steal_next_default(self):
         messages, attention = MODULE.parse_swift_messages(
             "Sources/View.swift",
@@ -283,6 +295,133 @@ class LocalizeChangesTests(unittest.TestCase):
                 entries = json.loads(path.read_text())["strings"]
                 self.assertEqual(entries["hello"]["comment"], "Greeting (shown at launch)")
                 self.assertEqual(entries["other"]["comment"], "Other context")
+
+    def test_multiline_help_default_reaches_the_catalog(self):
+        # A CLI help string is written as a Swift multi-line literal. Reading
+        # only single-line literals put an empty English source in the catalog,
+        # which then rejected every translation of it.
+        text = (
+            '    static var help: String {\n'
+            '        String(localized: "cli.help.demo", defaultValue: """\n'
+            '        Usage: cmux demo [flags]\n'
+            '\n'
+            '        Flags:\n'
+            '          --loud   Be loud (default: no)\n'
+            '\n'
+            '        Example:\n'
+            '          cmux demo --loud\n'
+            '        """)\n'
+            '    }\n'
+            'String(localized: "after", defaultValue: "After")\n'
+        )
+        expected = (
+            "Usage: cmux demo [flags]\n"
+            "\n"
+            "Flags:\n"
+            "  --loud   Be loud (default: no)\n"
+            "\n"
+            "Example:\n"
+            "  cmux demo --loud"
+        )
+
+        messages, attention = MODULE.parse_swift_messages("CLI/Demo.swift", text)
+
+        self.assertEqual(attention, [])
+        self.assertEqual(messages["cli.help.demo"].source, expected)
+        # The parenthesis and quotes inside the help text must not end the call
+        # early, so the next call site is still found.
+        self.assertEqual(messages["after"].source, "After")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = write_catalog(root, {})
+            MODULE.prepare_macos(root, list(messages.values()), None, {})
+            entries = json.loads(path.read_text())["strings"]
+            self.assertEqual(
+                entries["cli.help.demo"]["localizations"]["en"]["stringUnit"]["value"],
+                expected,
+            )
+
+    def test_multiline_default_with_a_quoted_example_keeps_its_quotes(self):
+        text = (
+            'String(localized: "cli.help.quote", defaultValue: """\n'
+            '    cmux record note "dragging the workspace"\n'
+            '    """)\n'
+        )
+
+        messages, attention = MODULE.parse_swift_messages("CLI/Demo.swift", text)
+
+        self.assertEqual(attention, [])
+        self.assertEqual(
+            messages["cli.help.quote"].source,
+            'cmux record note "dragging the workspace"',
+        )
+
+    def test_multiline_default_wrapped_with_a_line_continuation_reaches_the_catalog(self):
+        # Settings prose wraps a long sentence with a trailing backslash, which
+        # the compiler joins into one line. Five shipped keys are written this
+        # way, and treating the continuation as an unknown escape dropped all of
+        # them with no line number to find them by.
+        text = (
+            'String(localized: "settings.demo.note", defaultValue: """\n'
+            '    Uses a direct connection when one is available to macOS, then \\\n'
+            '    falls back to an allowed relay.\n'
+            '    """)\n'
+        )
+
+        messages, attention = MODULE.parse_swift_messages("Sources/Demo.swift", text)
+
+        self.assertEqual(attention, [])
+        self.assertEqual(
+            messages["settings.demo.note"].source,
+            "Uses a direct connection when one is available to macOS, then falls back to an allowed relay.",
+        )
+
+    def test_multiline_indentation_comes_from_the_closing_delimiter(self):
+        # Swift strips the closing delimiter's indentation, not the first line's,
+        # so a line indented past the delimiter keeps the extra spaces.
+        text = (
+            'String(localized: "cli.help.indent", defaultValue: """\n'
+            '    Flags:\n'
+            '      --loud   Be loud\n'
+            '    """)\n'
+        )
+
+        messages, attention = MODULE.parse_swift_messages("CLI/Demo.swift", text)
+
+        self.assertEqual(attention, [])
+        self.assertEqual(messages["cli.help.indent"].source, "Flags:\n  --loud   Be loud")
+
+    def test_multiline_default_with_one_unbalanced_quote_still_parses(self):
+        # An odd number of quotation marks in help text is ordinary: a flag
+        # example quotes its value and the sentence closes with a parenthesis.
+        # Only skipping the whole literal keeps the scanner from reading the rest
+        # of the file as one long string.
+        text = (
+            'String(localized: "cli.help.odd", defaultValue: """\n'
+            '    Pass --flag="value (quoted)\n'
+            '    """)\n'
+            'String(localized: "after", defaultValue: "After")\n'
+        )
+
+        messages, attention = MODULE.parse_swift_messages("CLI/Demo.swift", text)
+
+        self.assertEqual(attention, [])
+        self.assertEqual(messages["cli.help.odd"].source, 'Pass --flag="value (quoted)')
+        self.assertEqual(messages["after"].source, "After")
+
+    def test_multiline_interpolation_still_needs_manual_review(self):
+        text = (
+            'String(localized: "cli.help.interp", defaultValue: """\n'
+            '    Usage: \\(Self.usage)\n'
+            '    """)\n'
+        )
+
+        messages, attention = MODULE.parse_swift_messages("CLI/Demo.swift", text)
+
+        self.assertEqual(messages, {})
+        self.assertTrue(
+            any("interpolated defaultValue" in item for item in attention), attention
+        )
 
     def test_packet_targets_validated_before_any_writes(self):
         with tempfile.TemporaryDirectory() as directory:

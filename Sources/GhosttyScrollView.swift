@@ -1,4 +1,6 @@
+import CmuxFoundation
 import AppKit
+import CmuxTerminalCore
 
 /// One user-prompt boundary anchored to Ghostty's current absolute row space.
 ///
@@ -41,8 +43,26 @@ private final class TerminalPromptScrollMarkerOverlayView: NSView {
 
     private var markers: [TerminalPromptScrollMarker] = []
     private var geometry: NotificationScrollRestoreGeometry?
+    private var observesAccentColor = false
 
     override var isOpaque: Bool { false }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil, !observesAccentColor else { return }
+        observesAccentColor = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(accentColorDidChange),
+            name: CmuxAccentColor.didChangeNotification,
+            object: nil
+        )
+    }
+
+    /// Markers draw with the resolved accent, so repaint when it changes.
+    @objc private func accentColorDidChange() {
+        needsDisplay = true
+    }
 
     func update(
         markers: [TerminalPromptScrollMarker],
@@ -56,7 +76,7 @@ private final class TerminalPromptScrollMarkerOverlayView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        NSColor.controlAccentColor.setFill()
+        (AppDelegate.shared?.accentColor ?? CmuxAccentColor()).nsColor(for: effectiveAppearance).setFill()
         for entry in markerEntries() where entry.rect.intersects(dirtyRect) {
             NSBezierPath(
                 roundedRect: entry.rect,
@@ -130,6 +150,12 @@ private final class TerminalPromptScrollMarkerOverlayView: NSView {
 final class GhosttyScrollView: NSScrollView {
     weak var surfaceView: GhosttyNSView?
 
+    /// Reads the saved "Show scroll bars" setting. Tests replace it to model
+    /// each setting without changing the process's defaults.
+    var showScrollBarsPreference: () -> String? = GhosttyScrollView.savedShowScrollBarsPreference {
+        didSet { resolveScrollerStyle() }
+    }
+
     private let promptMarkerOverlay = TerminalPromptScrollMarkerOverlayView(frame: .zero)
     private var promptScrollMarkers: [TerminalPromptScrollMarker] = []
     private var promptMarkerScrollbarObserver: NSObjectProtocol?
@@ -150,6 +176,44 @@ final class GhosttyScrollView: NSScrollView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    /// The terminal chooses its own style from "Show scroll bars" and ignores
+    /// the style AppKit resolves. AppKit writes a new style into every scroll
+    /// view when the preferred style changes (a mouse connects, or the setting
+    /// changes), so every write resolves again; that removes any dependency
+    /// on notification observer order.
+    override var scrollerStyle: NSScroller.Style {
+        get { super.scrollerStyle }
+        set { super.scrollerStyle = resolvedScrollerStyle() }
+    }
+
+    /// Applies the style for the current "Show scroll bars" setting.
+    func resolveScrollerStyle() {
+        let resolved = resolvedScrollerStyle()
+        if super.scrollerStyle != resolved {
+            super.scrollerStyle = resolved
+        }
+    }
+
+    private func resolvedScrollerStyle() -> NSScroller.Style {
+        TerminalScrollerStyle(showScrollBarsPreference: showScrollBarsPreference()) == .legacy
+            ? .legacy
+            : .overlay
+    }
+
+    /// The setting saved for this app, then the system-wide setting. Launch
+    /// arguments are not read: `-AppleShowScrollBars Always` changes only the
+    /// style AppKit resolves, which models a Mac where Automatic resolves to
+    /// legacy.
+    nonisolated static func savedShowScrollBarsPreference() -> String? {
+        let key = TerminalScrollerStyle.showScrollBarsDefaultsKey
+        let defaults = UserDefaults.standard
+        if let domainName = ProcessDefaultsDomain.name,
+           let appValue = defaults.persistentDomain(forName: domainName)?[key] as? String {
+            return appValue
+        }
+        return defaults.persistentDomain(forName: UserDefaults.globalDomain)?[key] as? String
     }
 
     deinit {

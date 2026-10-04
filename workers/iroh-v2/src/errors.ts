@@ -15,6 +15,19 @@ export function publicError(error: unknown): OperationError {
 }
 
 /**
+ * Durable Object RPC carries no exceptions, so the user object answers with a
+ * result and its callers rethrow here. This lives beside the error type rather
+ * than beside the object so that code which only needs the caller half does not
+ * have to load a Durable Object class.
+ */
+export type Result<T> = { ok: true; value: T } | { ok: false; code: ErrorCode; status: number; retryable: boolean; retryAfterMs?: number };
+
+export function unwrap<T>(value: Result<T>): T {
+  if (!value.ok) throw new OperationError(value.code, value.status, value.retryable, value.retryAfterMs);
+  return value.value;
+}
+
+/**
  * Returns a bounded, allowlisted diagnostic for an unclassified failure.
  * Error messages can contain SQL, identifiers, or request data, so telemetry
  * records only error names and known capacity markers from the cause chain.

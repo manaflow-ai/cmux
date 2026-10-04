@@ -23,6 +23,10 @@ final class NotificationDeliverySeamAdapter: NotificationFeedReplying, Notificat
         owner?.notificationDeliveryPermissionCapabilities(requestId: requestId)
     }
 
+    func openWorkstream(workstreamId: String) {
+        owner?.notificationDeliveryOpenFeedWorkstream(workstreamId: workstreamId)
+    }
+
     func activateApplication() {
         owner?.notificationDeliveryActivateApplication()
     }
@@ -32,8 +36,8 @@ final class NotificationDeliverySeamAdapter: NotificationFeedReplying, Notificat
         tabId: UUID,
         surfaceId: UUID?,
         retargetsToLiveSurfaceOwner: Bool
-    ) -> Bool {
-        owner?.notificationDeliverySendTerminalReply(
+    ) async -> Bool {
+        await owner?.notificationDeliverySendTerminalReply(
             text: text,
             tabId: tabId,
             surfaceId: surfaceId,
@@ -120,12 +124,20 @@ extension AppDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// Focuses the workspace and surface running the agent behind a Feed
+    /// notification, using the same resolver as the Feed card's jump.
+    func notificationDeliveryOpenFeedWorkstream(workstreamId: String) {
+        Task { @MainActor in
+            _ = await FeedCoordinator.shared.focusIfPossible(workstreamId: workstreamId)
+        }
+    }
+
     func notificationDeliverySendTerminalReply(
         text: String,
         tabId: UUID,
         surfaceId: UUID?,
         retargetsToLiveSurfaceOwner: Bool
-    ) -> Bool {
+    ) async -> Bool {
         guard let surfaceId else { return false }
         // A reply follows the surface to its CURRENT workspace exactly like
         // banner-open delivery does: a moved pane keeps its surface identity
@@ -146,7 +158,7 @@ extension AppDelegate {
         // remain separate. `surface.send_text` plus a trailing carriage return
         // writes a raw byte, which full-screen agent editors render as a
         // newline instead of treating it as Return.
-        switch TerminalController.shared.v2MobileTerminalPaste(params: [
+        switch await TerminalController.shared.v2MobileTerminalPaste(params: [
             "workspace_id": target.tabId.uuidString,
             "surface_id": surfaceId.uuidString,
             "text": text,

@@ -895,7 +895,7 @@ final class TerminalControllerSocketSecurityTests {
         // loud "has no worker handler" backstop, and a coordinator re-lift
         // would answer method_not_found; both are caught here.
         let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
 
         TerminalController.shared.start(
             tabManager: manager,
@@ -932,7 +932,7 @@ final class TerminalControllerSocketSecurityTests {
         // and the not-mainThreadCallable policy.
         let v1Inline = TerminalController.shared.handleSocketLine("read_screen")
         XCTAssertEqual(v1Inline, "ERROR: read_screen must run off the main thread")
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         let v1Replies = try await sendV1CommandsAsync(["read_screen"], to: socketPath)
         XCTAssertEqual(v1Replies.count, 1)
         XCTAssertFalse(v1Replies.first?.hasPrefix("ERROR") ?? true, "\(v1Replies)")
@@ -948,7 +948,7 @@ final class TerminalControllerSocketSecurityTests {
             }
         }
         let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
 
         TerminalController.shared.start(
             tabManager: manager,
@@ -1179,6 +1179,42 @@ final class TerminalControllerSocketSecurityTests {
                 "mobile.panel.artifact.thumbnail",
                 "mobile.events.subscribe",
                 "mobile.events.unsubscribe",
+                // Cloud VM methods used by the CLI must stay discoverable so
+                // capability-aware agents do not reject valid operations.
+                "vm.env_set",
+                "vm.file_put",
+                "vm.pause",
+                "vm.resume",
+                "vm.reflection",
+                "vm.snapshot_list",
+                "vm.snapshot_delete",
+                "vm.terminal_output",
+                "vm.terminal_wait_exit",
+                "browser.profiles.list",
+                "browser.profiles.create",
+                "browser.profiles.rename",
+                "browser.profiles.clear",
+                "browser.profiles.delete",
+                "browser.import.cookies",
+                "browser.import.dialog",
+                "workspace.move",
+                "workspace.status.get",
+                "workspace.status.set",
+                "workspace.status.cycle",
+                "workspace.todo.list",
+                "workspace.todo.add",
+                "workspace.todo.edit",
+                "workspace.todo.remove",
+                "workspace.todo.move",
+                "workspace.todo.open",
+                "workspace.todo.set",
+                "workspace.todo.set_state",
+                "workspace.todo.clear",
+                "notification.feed.list",
+                "notification.feed.mark_read",
+                "notification.feed.mark_unread",
+                "notification.feed.mark_all_read",
+                "surface.ssh_session_attach.resolve",
             ]
             XCTAssertTrue(
                 expectedMethods.isSubset(of: advertisedMethods),

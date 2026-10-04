@@ -9,8 +9,10 @@ name: Seed DerivedData
 # Each seed builds incrementally from the newest earlier seed, so a merge costs
 # the Mac time of its own diff: 30-130 s for one to five app files, measured in
 # #13131, against about 950 s cold. nightly.yml `refresh-test-compilation-cache`
-# still writes a cold seed every six hours, so a chain of incremental seeds
-# never carries stale intermediates for long.
+# writes a cold seed every six hours while CI_PR_POOL_OWNED is not 1, so a chain
+# of incremental seeds never carries stale intermediates for long. While owned
+# pools serve pull requests that schedule is off and the Blacksmith chains get
+# no periodic cold reset; a seed_only dispatch of nightly.yml writes one.
 #
 # Separate from ci.yml on purpose: nothing waits on it. A pull request whose
 # base has no seed yet adopts the newest one, and a miss is today's cold build.
@@ -166,6 +168,10 @@ jobs:
       group: seed-derived-data-${{ matrix.pool }}${{ matrix.root && '-root-' || '' }}${{ matrix.root }}${{ contains(fromJSON(needs.decide.outputs.far || '[]'), matrix.root && format('{0}@{1}', matrix.pool, matrix.root) || matrix.pool) && '-far' || '' }}
       cancel-in-progress: false
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
+    permissions:
+      contents: read
+      # Only "Start compile attribution" writes: it dispatches ci-compile-attribution.yml.
+      actions: write
     # A chain with no seed yet builds cold. The first root 2 seed on the
     # trusted pool (cmux11s) spent 14 minutes on checkout, packages and
     # resolve, then 44 in Build, and 60 cancelled it before it saved, so the
@@ -206,7 +212,11 @@ jobs:
           # compile slot does. glaeda pins this job (one it does not know) to
           # root 1, and the trusted runner runs nothing else, so the root is
           # this job's alone.
-          root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+          if [ -x scripts/ci/canonical-build-root.sh ]; then
+            root="$(scripts/ci/canonical-build-root.sh --print-root)"
+          else
+            root="${CMUX_CI_CANONICAL_ROOT:?canonical root resolver is unavailable}"
+          fi
           if [ -n "$CMUX_SEED_ROOT" ]; then
             case "$CMUX_SEED_ROOT:$MATRIX_POOL" in
               [2-9]:"$TRUSTED_POOL") ;;
@@ -242,6 +252,9 @@ jobs:
           scripts/ci/clear-dirs.sh "$root/derived-data-compile-admission" "$root/compile-admission-cas"
           echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=$root/derived-data-compile-admission" >> "$GITHUB_ENV"
           echo "CMUX_COMPILE_ADMISSION_CAS=$root/compile-admission-cas" >> "$GITHUB_ENV"
+          if [ -z "$CMUX_SEED_ROOT" ]; then
+            echo "CMUX_CI_CANONICAL_ROOT=$root" >> "$GITHUB_ENV"
+          fi
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -365,7 +378,7 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          resolved="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src/.ci-source-packages"
+          resolved="$CMUX_CI_CANONICAL_ROOT/src/.ci-source-packages"
           test -d "$resolved/.package-cache"
           rsync -a --delete "$resolved/" .ci-source-packages/
           python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
@@ -439,9 +452,40 @@ jobs:
         continue-on-error: true
         run: defaults delete com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges || true
 
+      # This Build is main's compile verdict for the push. When it fails, start
+      # ci-compile-attribution.yml now rather than when the slowest pool ends
+      # the run (4 and 11 minutes later for the two breaks of 2026-09-29), so
+      # the culprit is named within minutes. It only dispatches; a failure to
+      # is harmless, since the run's completion triggers the attribution too.
+      - name: Start compile attribution
+        if: failure() && steps.build.outcome == 'failure' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail --silent --show-error --max-time 20 -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/ci-compile-attribution.yml/dispatches" \
+            -d '{"ref":"main"}'
+
       - name: Bound seed size
         id: bound
         run: python3 scripts/ci/seed_derived_data.py prune "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+
+      # Before the R2 upload, and before the product steps below rewrite
+      # Build/Products: the copy is the seed exactly as "Save seed" uploads it
+      # (keep only clones the tree). An APFS clone, so seconds. The LAN seed
+      # archive reads kept seeds from this Mac within a minute, so keeping
+      # first hands them to the owned minis about 160 s sooner, the length of
+      # the upload (cmuxterm-hq#658).
+      - name: Keep the seed on this Mac
+        if: steps.bound.outputs.save == 'true' && env.CMUX_SEED_LOCAL_CACHE != ''
+        continue-on-error: true
+        env:
+          SEED_KEY: ${{ steps.key.outputs.scoped }}${{ github.sha }}
+          SEED_PREFIX: ${{ steps.key.outputs.prefix }}
+        run: python3 scripts/ci/seed_derived_data.py keep "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_KEY" "$SEED_PREFIX"
 
       - name: Save seed
         if: steps.bound.outputs.save == 'true'
@@ -455,16 +499,6 @@ jobs:
           backend: r2
           path: ${{ env.CMUX_COMPILE_ADMISSION_DERIVED_DATA }}
           key: ${{ steps.key.outputs.scoped }}${{ github.sha }}
-
-      # Before the product steps below rewrite Build/Products: the copy must
-      # be the seed exactly as saved. An APFS clone, so seconds.
-      - name: Keep the seed on this Mac
-        if: steps.bound.outputs.save == 'true' && env.CMUX_SEED_LOCAL_CACHE != ''
-        continue-on-error: true
-        env:
-          SEED_KEY: ${{ steps.key.outputs.scoped }}${{ github.sha }}
-          SEED_PREFIX: ${{ steps.key.outputs.prefix }}
-        run: python3 scripts/ci/seed_derived_data.py keep "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_KEY" "$SEED_PREFIX"
 
       # Publish the product exactly as ci-macos.yml compile admission does
       # (tests/test_seed_derived_data.py pins the copy). Staging and relocation
@@ -505,7 +539,7 @@ jobs:
           set -euo pipefail
           # Fresh manifests embed the canonical checkout. Stamp that producer
           # before relocating into this job's workspace, as admission does.
-          (cd "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src" && python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")
+          (cd "$CMUX_CI_CANONICAL_ROOT/src" && python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")
           python3 scripts/ci/app_host_test_products.py restore "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           python3 scripts/ci/reuse_app_host_products.py seal "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"

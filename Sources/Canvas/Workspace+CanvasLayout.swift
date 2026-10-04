@@ -232,12 +232,14 @@ extension Workspace {
     /// as a tab of an existing pane), the automation counterpart to the
     /// canvas "new pane" gesture. Returns the new surface/panel UUID, or `nil`
     /// when creation fails (e.g. no focused bonsplit pane, or the browser is
-    /// disabled). Must be called in canvas mode.
+    /// disabled). Must be called in canvas mode. `animated` controls the
+    /// reveal pan; socket callers pass `false`.
     @discardableResult
     func openNewCanvasPane(
         type: CanvasNewPaneType,
         focus: Bool = true,
-        direction: CanvasDirection? = nil
+        direction: CanvasDirection? = nil,
+        animated: Bool = true
     ) -> UUID? {
         guard layoutMode == .canvas else { return nil }
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
@@ -273,7 +275,7 @@ extension Workspace {
         )
         focusPanel(newPanelId)
         canvasModel.viewport?.modelDidChangeExternally(animated: false)
-        canvasModel.viewport?.revealPane(newPanelId, animated: true)
+        canvasModel.viewport?.revealPane(newPanelId, animated: animated)
         return newPanelId
     }
 

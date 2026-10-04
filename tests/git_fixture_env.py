@@ -19,7 +19,12 @@ _KEY = "maintenance.auto"
 def without_auto_maintenance(env: MutableMapping[str, str]) -> MutableMapping[str, str]:
     """Append maintenance.auto=false to env's GIT_CONFIG_* pairs, once."""
     count = int(env.get("GIT_CONFIG_COUNT") or 0)
-    if any(env.get(f"GIT_CONFIG_KEY_{index}") == _KEY for index in range(count)):
+    # Git uses the last entry for a key, so only a trailing opt-out is enough.
+    last_value = None
+    for index in range(count):
+        if env.get(f"GIT_CONFIG_KEY_{index}") == _KEY:
+            last_value = env.get(f"GIT_CONFIG_VALUE_{index}", "")
+    if last_value is not None and last_value.strip().lower() in {"false", "no", "off", "0"}:
         return env
     env[f"GIT_CONFIG_KEY_{count}"] = _KEY
     env[f"GIT_CONFIG_VALUE_{count}"] = "false"

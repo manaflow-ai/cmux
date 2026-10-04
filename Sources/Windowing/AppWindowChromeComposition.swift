@@ -76,7 +76,8 @@ struct AppWindowChromeComposition {
             // Translucent chrome composites over the window base the ambient
             // appearance paints; inject the live ambient instead of letting
             // the resolver fall back to the terminal-only authority.
-            colorScheme: colorScheme ?? AppearanceSettings.currentAmbientColorScheme(defaults: defaults)
+            colorScheme: colorScheme ?? AppearanceSettings.currentAmbientColorScheme(defaults: defaults),
+            reduceTransparency: DisplayAccessibilityOptions.current.reduceTransparency
         )
     }
 }

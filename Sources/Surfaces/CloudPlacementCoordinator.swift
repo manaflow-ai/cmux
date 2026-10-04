@@ -121,6 +121,7 @@ final class CloudPlacementCoordinator {
             // when the pane moves into an unbound viewer workspace.
             let current = projectionInCurrentWorkspace(projection)
             catalog.setRemotePlacement(for: projection, workspaceID: current.remoteWorkspaceID, tabID: nil)
+            syncCloudDisplayMembership(projection: projection, catalog: catalog)
             return
         }
         guard let target = boundRemoteWorkspaceID(forLocalWorkspace: projection.workspaceID, on: projection.resource.machine),
@@ -181,6 +182,15 @@ final class CloudPlacementCoordinator {
                   let pane = state.lookupIndex.pane(id: tab.paneID),
                   let screen = state.lookupIndex.screen(id: pane.screenID),
                   projection.remoteWorkspaceID != screen.workspaceID else { continue }
+            // Do not adopt a tab's new workspace until the destination has a
+            // complete resource inventory. The projection coordinator uses the
+            // same fence before retiring or recreating panes, so updating the
+            // remote coordinate here first would make an incomplete move look
+            // accepted and lose the source projection.
+            guard CloudVMGraphCompleteness(
+                state: state,
+                resources: catalog.snapshot.resources(on: state.machine)
+            ).isComplete(workspaceID: screen.workspaceID) else { continue }
             var updated = projection
             updated.remoteWorkspaceID = screen.workspaceID
             replacements[projection] = updated
@@ -211,6 +221,10 @@ final class CloudPlacementCoordinator {
     }
 
     func projectionDidEnd(_ projection: SurfaceProjection, reason: SurfaceProjectionEndReason, catalog: SurfaceCatalog) {
+        if projection.isLocalWorkspaceView {
+            syncCloudDisplayMembershipEnd(projection: projection, reason: reason, catalog: catalog)
+            return
+        }
         guard reason == .paneClosed,
               let bound = boundRemoteWorkspaceID(forLocalWorkspace: projection.workspaceID, on: projection.resource.machine),
               let provider = catalog.provider(for: projection.resource.machine) as? any SurfacePlacementSyncing else { return }
@@ -245,7 +259,9 @@ final class CloudPlacementCoordinator {
             let current = catalog.projections.filter { $0.resource == resourceID }
             guard !current.isEmpty else { return false }
             if let state = catalog.cloudStates[resourceID.machine] {
-                guard current.contains(where: { catalog.cloudWorkspaceProjectionCoordinator.retainsProjection($0, in: state) }) else { return false }
+                guard current.contains(where: {
+                    catalog.cloudWorkspaceProjectionCoordinator.retainsProjection($0, in: state, catalog: catalog)
+                }) else { return false }
             }
             let targets = Set(current.compactMap {
                 self.boundRemoteWorkspaceID(forLocalWorkspace: $0.workspaceID, on: resourceID.machine)
@@ -298,7 +314,7 @@ final class CloudPlacementCoordinator {
     }
 
     @discardableResult
-    private func enqueue(
+    func enqueue(
         _ projection: SurfaceProjection,
         catalog: SurfaceCatalog,
         presentFailure: Bool = true,

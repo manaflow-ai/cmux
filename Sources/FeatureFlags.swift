@@ -53,11 +53,13 @@ final class CmuxFeatureFlags {
     private static let mobileTerminalFilesChipDefault = true
     private nonisolated static let mobileTaskComposerDefault = true
     private static let goPlanDefault = false
+    private static let agentInboxQuickViewDefault = false
     #if DEBUG
     nonisolated static let cloudMachinesDefault = true
     #else
     nonisolated static let cloudMachinesDefault = false
     #endif
+    private nonisolated static let conversationSidebarDefault = false
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
@@ -69,7 +71,7 @@ final class CmuxFeatureFlags {
     private nonisolated static let releaseControlRetryAfterGate = CmxRetryAfterGate()
 
     // FLAG(key: sidebar-appkit-list-experiment, owner: lawrencecchen,
-    //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+    //      reviewBy: 2026-11-16, defaultWhenUnavailable: true)
     // Renders the workspace sidebar with the AppKit NSTableView list
     // (virtualized rows, measured-once heights) instead of the SwiftUI
     // LazyVStack. On by default after the remote rollout reached 100%.
@@ -87,7 +89,7 @@ final class CmuxFeatureFlags {
     )
 
     // FLAG(key: mobile-workspace-changes-enabled-release, owner: lawrencecchen,
-    //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+    //      reviewBy: 2027-01-19, defaultWhenUnavailable: false)
     // Serves the iOS diff viewer: advertises workspace.changes.v1 to phones
     // and answers the mobile.workspace.changes.* RPCs behind it. Every iOS
     // entry point (workspace-row chip, toolbar button, one-time hint, Changes
@@ -127,7 +129,7 @@ final class CmuxFeatureFlags {
     )
 
     // FLAG(key: simulator-enabled-release, owner: lawrencecchen,
-    //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+    //      reviewBy: 2027-02-16, defaultWhenUnavailable: true)
     // Controls every Simulator entrypoint and active pane. The enabled
     // fallback preserves access when PostHog is unavailable, while the
     // remote value provides a release kill switch. Declared nonisolated so
@@ -147,7 +149,7 @@ final class CmuxFeatureFlags {
     )
 
     // FLAG(key: mobile-task-composer-enabled-release, owner: lawrencecchen,
-    //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+    //      reviewBy: 2026-12-15, defaultWhenUnavailable: true)
     // Controls the iOS Task Composer from the Mac host. When off, the Mac stops
     // advertising task-create/model/directory/attachment capabilities and
     // task-specific RPCs fail with capability_disabled, so paired phones hide
@@ -179,15 +181,45 @@ final class CmuxFeatureFlags {
         defaultWhenUnavailable: CmuxFeatureFlags.goPlanDefault
     )
 
+    // FLAG(key: agent-inbox-quick-view-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-10-15, defaultWhenUnavailable: false)
+    // Keeps the agent inbox quick view behind an explicit rollout while the
+    // placement and cross-agent attention model are evaluated.
+    static let agentInboxQuickViewFlag = CmuxFeatureFlagDefinition(
+        key: "agent-inbox-quick-view-enabled-release",
+        title: String(localized: "featureFlags.agentInbox.title", defaultValue: "Agent Inbox quick view"),
+        flagDescription: String(localized: "featureFlags.agentInbox.description", defaultValue: "Shows a keyboard-summoned inbox for agent messages, pending Feed decisions, and finished turns."),
+        defaultWhenUnavailable: CmuxFeatureFlags.agentInboxQuickViewDefault
+    )
+
     // FLAG(key: cloud-machines-enabled-release, owner: austinwang,
-    //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+    //      reviewBy: 2026-12-15, defaultWhenUnavailable: false)
+    // FLAG(key: conversation-sidebar-release, owner: teamleaderleo,
+    //      reviewBy: 2026-10-18, defaultWhenUnavailable: false)
+    // Controls availability of the opt-in multi-provider conversation sidebar.
+    // The user-facing beta setting is evaluated separately by the sidebar
+    // integration; this flag is the remote rollout gate and emergency kill
+    // switch for the feature.
+    nonisolated static let conversationSidebarFlag = CmuxFeatureFlagDefinition(
+        key: "conversation-sidebar-release",
+        title: String(
+            localized: "featureFlags.conversationSidebar.title",
+            defaultValue: "Multi-provider conversation sidebar"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.conversationSidebar.description",
+            defaultValue: "Enables the opt-in sidebar for conversations from multiple coding-agent providers."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.conversationSidebarDefault
+    )
+
     // Order is load-bearing for the positional typed accessors below. Flags
     // that need a stable public definition are declared independently and
     // included here without repeating their key literal.
     static let allFlags: [CmuxFeatureFlagDefinition] = {
         [
             // FLAG(key: pro-upgrade-ui-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            //      reviewBy: 2027-01-19, defaultWhenUnavailable: false)
             // Shows the Pro upgrade entrypoints (sidebar badge, Settings Account
             // card, palette command, Help menu item). Release builds hide them until
             // the PostHog flag is enabled; DEBUG keeps them visible for dogfood.
@@ -202,7 +234,7 @@ final class CmuxFeatureFlags {
             ),
 
             // FLAG(key: mobile-connect-button-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            //      reviewBy: 2026-12-15, defaultWhenUnavailable: false)
             // Shows the bottom-left sidebar iPhone button that opens the Tailscale
             // Pairing workspace. It stays hidden until the remote flag or a
             // local debug override enables it.
@@ -217,7 +249,7 @@ final class CmuxFeatureFlags {
             ),
 
             // FLAG(key: sidebar-account-button-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+            //      reviewBy: 2027-02-16, defaultWhenUnavailable: true)
             // Shows the account control in the bottom-left sidebar footer. The
             // Settings account section remains available when this shortcut is off.
             CmuxFeatureFlagDefinition(
@@ -231,7 +263,7 @@ final class CmuxFeatureFlags {
             ),
 
             // FLAG(key: agent-chat-ui-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            //      reviewBy: 2026-11-16, defaultWhenUnavailable: false)
             // Shows the Agent Chat entrypoints: the new-workspace dropdown item,
             // command-palette command, surface-tab-bar button, and shared action
             // executor. Hidden by default until the sidecar UX is ready to ship.
@@ -246,7 +278,7 @@ final class CmuxFeatureFlags {
             ),
 
             // FLAG(key: sidebar-workspace-agent-spinner-experiment, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            //      reviewBy: 2026-11-16, defaultWhenUnavailable: false)
             // Shows the coding-agent activity spinner in workspace rows. Hidden
             // by default while multi-agent lifecycle edge cases are investigated.
             CmuxFeatureFlagDefinition(
@@ -263,7 +295,7 @@ final class CmuxFeatureFlags {
             ),
 
             // FLAG(key: computer-use-ux-enabled-release, owner: austinwang,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+            //      reviewBy: 2027-01-19, defaultWhenUnavailable: true)
             // Shows the computer-use status item and allows automatic onboarding.
             // The settings and terminal kill switch remain available if this UI
             // flag is remotely disabled.
@@ -280,7 +312,7 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.simulatorFlag,
 
             // FLAG(key: workspace-todo-controls-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            //      reviewBy: 2027-02-16, defaultWhenUnavailable: false)
             // Shows user-facing workspace todo controls that create checklist
             // items or set completion/status lanes. Hidden until the local
             // beta setting opts in or the PostHog flag is enabled.
@@ -305,6 +337,8 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.mobileTaskComposerFlag,
             CmuxFeatureFlags.goPlanFlag,
             CmuxFeatureFlags.cloudMachinesFlag,
+            CmuxFeatureFlags.agentInboxQuickViewFlag,
+            CmuxFeatureFlags.conversationSidebarFlag
         ]
     }()
 
@@ -355,6 +389,14 @@ final class CmuxFeatureFlags {
 
     var isGoPlanEnabled: Bool {
         effectiveValue(for: Self.goPlanFlag)
+    }
+
+    var isAgentInboxQuickViewEnabled: Bool {
+        effectiveValue(for: Self.agentInboxQuickViewFlag)
+    }
+
+    var isConversationSidebarAvailable: Bool {
+        effectiveValue(for: Self.conversationSidebarFlag)
     }
 
     /// Effective values mirrored for nonisolated readers: the mobile host
@@ -414,20 +456,17 @@ final class CmuxFeatureFlags {
         self.publishesOffMainSnapshot = publishesOffMainSnapshot
         self.pinsFlagsToLocalValues = pinsFlagsToLocalValues
         self.remoteFlagValueProvider = remoteFlagValueProvider
-        // Reload's marker travels with the signed artifact, including an HQ
-        // restore on a fresh Mac. Seed both gates before publishing any flag
-        // snapshot; a remote false remains authoritative for release builds.
+        // Cloud's local value is now a first-use activation marker, so it must
+        // survive tagged debug artifact reloads just like any other persisted
+        // product state. The explicit dogfood marker may still opt a fresh
+        // debug artifact in; only the temporary remote override is reset when
+        // a tagged artifact is reopened.
         if overrideCapability.enablesCloudDogfood {
             defaults.set(true, forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
             defaults.set(true, forKey: Self.overrideDefaultsKey(for: Self.cloudMachinesFlag.key))
         } else if overrideCapability.isTaggedDebugArtifact {
-            // A later tagged artifact can explicitly disable Cloud. Clear the
-            // previous debug marker's persisted gates so the old app identity
-            // cannot re-enable Cloud after a reload.
-            defaults.removeObject(forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
             defaults.removeObject(forKey: Self.overrideDefaultsKey(for: Self.cloudMachinesFlag.key))
             if overrideCapability.hasCloudDogfoodMarker {
-                defaults.set(false, forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
                 defaults.set(false, forKey: Self.overrideDefaultsKey(for: Self.cloudMachinesFlag.key))
             }
         }

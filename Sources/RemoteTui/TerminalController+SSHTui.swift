@@ -31,6 +31,7 @@ extension TerminalController {
         let connection = SSHTuiConnection(configuration: configuration)
         let provider = try coordinator.provider(connection: connection)
         guard let links = provider.links as? SSHTuiLinkManager else { throw CloudDiagnosticFailure.unsupported }
+        await links.adopt(connection)
         do {
             // Like `ssh`, a new route reports OpenSSH's own failure in seconds
             // instead of waiting out the headless carrier's retries.
@@ -46,7 +47,8 @@ extension TerminalController {
         var creation = params
         creation.removeValue(forKey: "initial_command")
         creation["eager_load_terminal"] = false
-        creation["focus"] = false
+        let shouldFocus = params["focus"] as? Bool != false
+        creation["focus"] = shouldFocus
         let created = v2WorkspaceCreate(params: creation)
         guard case .ok(let raw) = created,
               let payload = raw as? [String: Any],
@@ -57,8 +59,11 @@ extension TerminalController {
         }
         do {
             let initialCommand = (params["initial_command"] as? String).map(connection.commandArguments)
-            try await coordinator.open(workspace: workspace, configuration: configuration, initialCommand: initialCommand)
-            if params["focus"] as? Bool != false, let panelID = workspace.focusedPanelId {
+            try await coordinator.open(workspace: workspace, configuration: configuration, initialCommand: initialCommand, focus: shouldFocus)
+            if shouldFocus, let panelID = workspace.focusedPanelId {
+                if let manager = AppDelegate.shared?.tabManagerFor(tabId: id) {
+                    manager.selectWorkspace(workspace)
+                }
                 SurfacePaneFactory.focus(panelID: panelID, in: id)
             }
             var result = payload

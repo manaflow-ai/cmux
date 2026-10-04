@@ -63,6 +63,7 @@ struct AgentRestoreIssue12775Tests {
         let panelID = try #require(workspace.focusedPanelId)
         let terminal = try #require(workspace.terminalPanel(for: panelID))
         #expect(terminal.surface.isAwaitingStartupRestoreAdmission)
+        #expect(terminal.surface.runtimeUnavailableReason == .awaitingRestore)
         let binding = SurfaceResumeBindingSnapshot(
             name: "Claude",
             kind: "claude",

@@ -6,7 +6,7 @@ import Foundation
 /// The Cloud subsystems that would otherwise start at launch ask here first:
 /// the cmux-tui registry's fleet polling, and the app-managed tunnel (the
 /// system Network Extension). A Mac that never turned on
-/// `Settings › Beta Features › Cloud Machines` and never had a machine answers
+/// never enabled Cloud and never had a machine answers
 /// "no" to all of it without a control-plane request and without touching
 /// NetworkExtension. Nothing here probes NetworkExtension to decide whether
 /// NetworkExtension may be used.
@@ -23,7 +23,7 @@ import Foundation
 ///
 /// The inputs are injected closures so the decision is testable without a
 /// signed bundle; ``live(defaults:machineCache:browserTunnel:terminalTunnel:remoteEnabled:resolveCloudMachine:)``
-/// wires the Beta Features toggle (plus the managed `DisableCloud` policy),
+/// wires the persisted Cloud activation marker (plus the managed `DisableCloud` policy),
 /// the cached machine count and this Mac's tunnel enrollment files, the
 /// browser-role VPN configuration on disk, and ``VMClient`` for resolution.
 public struct CloudActivationPolicy: Sendable {
@@ -41,7 +41,7 @@ public struct CloudActivationPolicy: Sendable {
         self.resolveCloudMachine = resolveCloudMachine
     }
 
-    /// The remote flag and `Settings › Beta Features › Cloud Machines` are on,
+    /// The remote flag and persisted Cloud activation marker are on,
     /// and no managed profile disables Cloud (``CloudMachinesFeature``).
     public let isCloudMachinesEnabled: @Sendable () -> Bool
     /// This Mac has used Cloud before: the cached marker says the account had

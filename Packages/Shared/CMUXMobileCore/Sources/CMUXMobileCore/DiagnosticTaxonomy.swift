@@ -876,6 +876,22 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     /// effort count for root-cause queries. `b` is the provider,
     /// `c` is the source, and `ms` is the effort count.
     case taskModelListResultObserved = 666
+    /// Launch dialed the saved Mac with the cached account while auth restore
+    /// was still validating it. Pairs with ``authBootstrapCompleted`` to show
+    /// how much of restore the dial overlapped.
+    case storedMacReconnectStartedDuringAuthRestore = 667
+
+    // MARK: Appended agent Feed events
+    /// The Feed became visible. `c` is the visible item count.
+    case agentFeedOpened = 668
+    case agentFeedClosed = 669
+    /// `c` is 1 for the Needs Input filter and 0 for All.
+    case agentFeedFilterChanged = 670
+    /// A row opened its workspace or tab. `c` is 1 when a tab was targeted.
+    case agentFeedItemOpened = 671
+    case agentFeedReplySucceeded = 672
+    /// `c` is 0 when the reply was not sent and 1 when its delivery is unconfirmed.
+    case agentFeedReplyFailed = 673
 }
 
 /// The user's configured connection method, mirrored from the settings picker

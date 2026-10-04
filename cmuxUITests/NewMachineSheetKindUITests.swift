@@ -11,7 +11,7 @@ final class NewMachineSheetKindUITests: XCTestCase {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += [
             "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-menuBarOnly", "false",
-            // The Cloud Machines beta gate: every Cloud entry point, the palette
+            // The Cloud activation marker: every Cloud entry point, the palette
             // command included, hides behind it.
             "-cloud.beta.machines.enabled", "YES",
         ]
@@ -33,9 +33,9 @@ final class NewMachineSheetKindUITests: XCTestCase {
         searchField.typeText("new cloud machine")
         let row = app.descendants(matching: .any)
             .matching(NSPredicate(
-                format: "identifier BEGINSWITH %@ AND value == %@",
+                format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@",
                 "CommandPaletteResultRow.",
-                "palette.cloud.newMachine"
+                ".palette.cloud.newMachine"
             ))
             .firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5.0), "Expected the New Cloud Machine… palette row")

@@ -12,6 +12,7 @@ public struct MobileSection: View {
     @State private var port: DefaultsValueModel<Int>
     @State private var displayName: DefaultsValueModel<String>
     @State private var artifactFolderAccess: DefaultsValueModel<MobileArtifactFolderAccess>
+    @State private var browserTunnelAllowOtherHosts: DefaultsValueModel<Bool>
     @State private var status: MobilePairingStatusModel
     @State private var phonePush: MobilePhonePushSettingsModel
 
@@ -57,6 +58,10 @@ public struct MobileSection: View {
         _artifactFolderAccess = State(initialValue: DefaultsValueModel(
             store: defaultsStore,
             key: catalog.mobile.artifactFolderAccess
+        ))
+        _browserTunnelAllowOtherHosts = State(initialValue: DefaultsValueModel(
+            store: defaultsStore,
+            key: catalog.mobile.browserTunnelAllowOtherHosts
         ))
         _status = State(initialValue: MobilePairingStatusModel(hostActions: hostActions))
         _phonePush = State(initialValue: MobilePhonePushSettingsModel(hostActions: hostActions))
@@ -108,6 +113,8 @@ public struct MobileSection: View {
                     displayNameRow
                     SettingsCardDivider()
                     artifactFolderAccessRow
+                    SettingsCardDivider()
+                    browserTunnelRow
                     // Keep diagnostics visible while a live endpoint is draining
                     // after the user turns pairing off.
                     if iOSPairingHost.current || status.current?.isRunning == true {
@@ -136,6 +143,7 @@ public struct MobileSection: View {
             port,
             displayName,
             artifactFolderAccess,
+            browserTunnelAllowOtherHosts,
             status,
             phonePush,
         ]
@@ -151,15 +159,7 @@ public struct MobileSection: View {
                 localized: "settings.mobile.phonePush.forwarding",
                 defaultValue: "Forward Notifications to iPhone"
             ),
-            subtitle: phonePush.current.forwardingEnabled
-                ? String(
-                    localized: "settings.mobile.phonePush.forwarding.subtitleOn",
-                    defaultValue: "Sends local agent alerts from this Mac to cmux on your iPhone and iPad."
-                )
-                : String(
-                    localized: "settings.mobile.phonePush.forwarding.subtitleOff",
-                    defaultValue: "Stops this Mac from sending local agent alerts to mobile devices."
-                )
+            subtitle: String(localized: "settings.mobile.phonePush.forwarding.subtitle", defaultValue: "Sends agent notifications from this Mac to cmux on iPhone and iPad.")
         ) {
             Toggle(
                 "",
@@ -271,9 +271,7 @@ public struct MobileSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:mobile:iOSPairingHost",
             String(localized: "settings.mobile.iOSPairingHost", defaultValue: "Enable iOS pairing"),
-            subtitle: iOSPairingHost.current
-                ? String(localized: "settings.mobile.iOSPairingHost.subtitleOn", defaultValue: "Allows iOS pairing and Iroh networking for this Mac.")
-                : String(localized: "settings.mobile.iOSPairingHost.subtitleOff", defaultValue: "Keeps iOS pairing and Iroh networking off until you enable it here.")
+            subtitle: String(localized: "settings.mobile.iOSPairingHost.subtitle", defaultValue: "Lets iPhone and iPad pair with and connect to this Mac.")
         ) {
             Toggle("", isOn: Binding(get: { iOSPairingHost.current }, set: { iOSPairingHost.set($0) }))
                 .labelsHidden()
@@ -464,19 +462,42 @@ public struct MobileSection: View {
         }
     }
 
-    private var artifactFolderAccessSubtitle: String {
-        switch artifactFolderAccess.current {
-        case .subtree:
+    @ViewBuilder
+    private var browserTunnelRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("mobile.browserTunnel.allowOtherHosts"),
             String(
-                localized: "settings.mobile.artifactFolderAccess.subtitleSubtree",
-                defaultValue: "Lets iOS browse any item inside a folder referenced by chat or visible in a terminal."
+                localized: "settings.mobile.browserTunnel.allowOtherHosts",
+                defaultValue: "iOS Browser Reaches Other Hosts"
+            ),
+            subtitle: browserTunnelAllowOtherHosts.current
+                ? String(
+                    localized: "settings.mobile.browserTunnel.allowOtherHosts.subtitleOn",
+                    defaultValue: "The iOS browser can load LAN, VPN, and internet hosts through this Mac. Link-local and cloud metadata addresses never go through this Mac; the phone loads them itself."
+                )
+                : String(
+                    localized: "settings.mobile.browserTunnel.allowOtherHosts.subtitleOff",
+                    defaultValue: "The iOS browser reaches only this Mac's localhost through this Mac. Other sites load over the phone's own network."
+                )
+        ) {
+            Toggle(
+                "",
+                isOn: Binding(
+                    get: { browserTunnelAllowOtherHosts.current },
+                    set: { browserTunnelAllowOtherHosts.set($0) }
+                )
             )
-        case .oneLevel:
-            String(
-                localized: "settings.mobile.artifactFolderAccess.subtitleOneLevel",
-                defaultValue: "Limits iOS to immediate children of referenced or visible folders."
-            )
+            .labelsHidden()
+            .controlSize(.small)
+            .accessibilityIdentifier("SettingsMobileBrowserTunnelAllowOtherHostsToggle")
         }
+    }
+
+    private var artifactFolderAccessSubtitle: String {
+        String(
+            localized: "settings.mobile.artifactFolderAccess.subtitle",
+            defaultValue: "Choose how much of a folder iPhone and iPad can browse. One Level shows only the items directly inside it."
+        )
     }
 
     /// Read-only connection count and the reachable routes the phone can use.

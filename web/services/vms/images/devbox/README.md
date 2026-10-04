@@ -47,6 +47,20 @@ tags and packages the image does not bake; the chatmux devbox template
 (`chatmux:infra/sandbox-images/Dockerfile`) is bumped by hand in its own
 repo to keep the parity the header describes.
 
+A machine can instead keep its agents current: with `agentUpdates: "latest"`
+(New Machine's "Keep coding agents up to date", checked by default in the
+sheet, `cmux vm agent-updates <vm> latest`, or `PUT /api/vm/{id}/agent-updates`),
+create and each attach start a detached updater
+(`web/services/vms/guestAgentUpdates.ts`). It never uses npm: for every agent
+it reads the tool's GitHub releases (`web/services/vms/images/agents.ts`) and
+installs the newest x.y.z release that has been public for 3 days and is not
+above the latest release, after checking the download's sha256, at most once a
+day and never as a downgrade. On a machine baked with the npm pins above, the
+first update moves each agent to its standalone release and removes the npm
+copy once no process uses it. Outcome in `/etc/cmux/agent-updates.state`, log
+in `/var/log/cmux-agent-updates.log`. Moving the image recipe itself off npm
+needs a rebake and lands separately.
+
 Two invariants keep the checked-in manifest describing the machine users get
 (`devboxSourceDriftProblems` in `devbox-image-common.ts`, run by
 `devbox:manifest:check`, `vm-image-manifest.test.ts` and `promote` before it
@@ -295,9 +309,12 @@ unit with `CMUX_TUI_REMOTE_WS_BIND=[::]:1337` (the driver reaches the daemon
 at the VM's IPv6 address, so the listener must be dual-stack), reads the
 platform instance id from the metadata service, wipes the remote identity
 when the machine is a clone, and starts the daemon. The driver runs no
-bootstrap at create; it heals pin drift and a missing listener on attach
-(`web/services/vms/drivers/cmuxTuiDaemon.ts`). The container Dockerfile still
-ships only the supervisor and waits for a driver install.
+bootstrap at create and no guest work on attach, so nothing on a running
+machine changes its cmux-tui: upgrade running machines with
+`bun scripts/upgrade-fleet-cmux-tui.ts` and the in-place guest script
+`scripts/cloud-vm/cmux-tui-upgrade.sh`, under the compatibility rules in
+docs/cloud-guest-upgrades.md. The container Dockerfile still ships only the
+supervisor and waits for a driver install.
 
 Shells spawned by the daemon get the bash devshell (ble.sh ghost text,
 half-life prompt, seeded history) through the `/etc/bash.bashrc` chain.
@@ -539,3 +556,12 @@ HTTP(S) MIME handlers also use `cmux-open-url`, covering absolute and CLI-bundle
 `xdg-open` and GIO. File associations and direct Chrome launchers are unchanged.
 HTTP(S) の MIME ハンドラーも cmux を使用します。ファイルの関連付けと
 Chrome の直接起動は変更しません。
+
+## Terminal clipboard writes
+
+The Cloud guest integration installs `xclip`, `xsel`, and `wl-copy` write shims
+through the same create/attach-heal transaction as `cmux-open-url`. They accept
+stdin and emit a bounded OSC 52 write into the terminal stream. Read and paste
+modes fail, and no `wl-paste` helper is installed. Cloud terminal projections
+admit these writes into the Mac clipboard while cmux continues to deny terminal
+clipboard reads.

@@ -9,24 +9,27 @@ extension CmuxTuiSurfaceProvider {
     convenience init(
         summary: VMSummary,
         fileAccessTeamScope: AuthenticatedTeamScope? = nil,
+        ownerTeamID: String? = nil,
         links: CloudMachineLinkManager,
         catalog: SurfaceCatalog,
         portForwards: CloudHubPortForwarder? = nil,
         attachmentClock: any Clock<Duration> = ContinuousClock(),
         portAccessStore: CloudPortAccessStore? = nil,
         displayCoordinator: CloudDisplayCoordinator? = nil,
-        browserPolicy: @escaping @MainActor () -> BrowserURLAllowlistPolicy = { BrowserURLAllowlistPolicy() }
+        browserPolicy: @escaping @MainActor () -> BrowserURLAllowlistPolicy = { BrowserURLAllowlistPolicy() },
+        loadPortSummary: (@MainActor (String) async throws -> VMSummary)? = nil
     ) {
-        self.init(summary: .cloud(summary), fileAccessTeamScope: fileAccessTeamScope, links: links, catalog: catalog,
+        self.init(summary: .cloud(summary), fileAccessTeamScope: fileAccessTeamScope, ownerTeamID: ownerTeamID,
+                  links: links, catalog: catalog,
                   portForwards: portForwards, attachmentClock: attachmentClock,
                   portAccessStore: portAccessStore, displayCoordinator: displayCoordinator,
-                  browserPolicy: browserPolicy)
+                  browserPolicy: browserPolicy, loadPortSummary: loadPortSummary)
     }
-    static func info(from summary: VMSummary, linkState: SurfaceLinkState, linkError: String?, stats: VMStats?, remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil) -> SurfaceMachineInfo {
-        info(from: .cloud(summary), linkState: linkState, linkError: linkError, stats: stats, remoteWorkspaces: remoteWorkspaces)
+    static func info(from summary: VMSummary, linkState: SurfaceLinkState, linkError: String?, stats: VMStats?, remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil, portDiscoveryState: CloudPortDiscoveryState = .notRequested) -> SurfaceMachineInfo {
+        info(from: .cloud(summary), linkState: linkState, linkError: linkError, stats: stats, remoteWorkspaces: remoteWorkspaces, portDiscoveryState: portDiscoveryState)
     }
 
-    static func info(from summary: RemoteTuiMachine, linkState: SurfaceLinkState, linkError: String?, stats: VMStats?, remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil) -> SurfaceMachineInfo {
+    static func info(from summary: RemoteTuiMachine, linkState: SurfaceLinkState, linkError: String?, stats: VMStats?, remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil, portDiscoveryState: CloudPortDiscoveryState = .notRequested) -> SurfaceMachineInfo {
         SurfaceMachineInfo(
             id: summary.machine,
             name: summary.preferredName,
@@ -41,7 +44,9 @@ extension CmuxTuiSurfaceProvider {
             memoryUsedMb: stats?.memoryUsedMb,
             diskUsedMb: stats?.diskUsedMb,
             remoteWorkspaces: remoteWorkspaces,
-            privateAddress: summary.preferredPrivateAddress
+            privateAddress: summary.preferredPrivateAddress,
+            portDiscoveryState: portDiscoveryState,
+            cpus: stats?.cpus
         )
     }
 

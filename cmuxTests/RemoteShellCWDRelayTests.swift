@@ -167,7 +167,7 @@ struct RemoteShellCWDRelayTests {
             : > "\(logPath.path)"
             cd "\(remoteDirectory.path)"
             _CMUX_TTY_REPORTED=1
-            _CMUX_PORTS_LAST_RUN=$(_cmux_now)
+            _CMUX_PORTS_LAST_RUN="${EPOCHSECONDS:-$SECONDS}"
             _CMUX_PWD_LAST_PWD="/tmp/local-launch"
             _cmux_prompt_command
             for _cmux_i in $(seq 1 20); do
@@ -212,7 +212,7 @@ struct RemoteShellCWDRelayTests {
             encoding: .utf8
         )
 
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let cmuxZdotdir = repoRoot.appendingPathComponent("Resources/shell-integration")
@@ -251,7 +251,7 @@ struct RemoteShellCWDRelayTests {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let integrationPath = repoRoot.appendingPathComponent("Resources/shell-integration/cmux-bash-integration.bash")
@@ -273,6 +273,7 @@ struct RemoteShellCWDRelayTests {
 
         let output = try runProcess(process)
         #expect(output.status == 0, Comment(rawValue: output.stderr))
+        #expect(!output.stderr.contains("command not found"), Comment(rawValue: output.stderr))
         return (
             stdout: output.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
             stderr: output.stderr.trimmingCharacters(in: .whitespacesAndNewlines)

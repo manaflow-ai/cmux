@@ -36,6 +36,9 @@ function row(): CloudVmRow {
     failureCode: null,
     failureMessage: null,
     providerMetadata: {},
+    networkPolicy: null,
+    networkPolicyStatus: null,
+    agentUpdates: null,
     ownerTeamId: "team-fast",
     coderouterPoolId: null,
   };
@@ -56,7 +59,7 @@ function fakeRepo(input: {
     claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
     recordUsageEvent: (event: UsageEvent) => record([event]),
     recordUsageEvents: (events: readonly UsageEvent[]) => record(events),
-    markCreateFailed: () => Effect.void,
+    markCreateFailed: () => Effect.succeed(true),
     markCreateRunning: (update: { providerVmId: string; image: string }) =>
       Effect.succeed({ ...vm, status: "running", providerVmId: update.providerVmId, imageId: update.image }),
     activeLimitCandidates: () => Effect.succeed([]),

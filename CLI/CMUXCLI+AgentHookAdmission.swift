@@ -1,5 +1,117 @@
+import Darwin
 import Foundation
 import CMUXAgentLaunch
+
+/// Bounds the wall-clock time of one `cmux hooks enqueue` process.
+///
+/// Socket waits already carry deadlines, but password resolution can reach the
+/// keychain, and stdin, process setup and the app's own stalls are not socket
+/// waits. An agent kills a hook at its declared timeout and discards whatever
+/// it printed, so past the budget the process answers with the neutral `{}`
+/// the shell fallback would print and exits. Exactly one response is written:
+/// the command's own output and the watchdog both go through ``respond(_:)``.
+///
+/// A spooled record is unlinked when a drainer claims it, so the process must
+/// not exit between that claim and the record's admission request. Such a
+/// claim runs between ``beginClaim()`` and ``endClaim()``; a budget that
+/// expires meanwhile answers and exits when the claim ends, and no further
+/// claim starts.
+final class AgentHookEnqueueWallClock: @unchecked Sendable {
+    static let shared = AgentHookEnqueueWallClock()
+
+    /// Test harnesses may lower the budget, never raise it.
+    static let budgetOverrideEnvironmentKey = "CMUX_AGENT_HOOK_ENQUEUE_BUDGET_SEC"
+
+    private let lock = NSLock()
+    private var responded = false
+    private var claimsInFlight = 0
+    private var exitPending = false
+    private var timer: DispatchSourceTimer?
+
+    static func budgetSeconds(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> TimeInterval {
+        let budget = AgentHookDeliveryPolicy.admissionWallClockSeconds
+        guard let raw = environment[budgetOverrideEnvironmentKey],
+              let override = TimeInterval(raw),
+              override.isFinite,
+              override > 0 else {
+            return budget
+        }
+        return min(override, budget)
+    }
+
+    func arm(budgetSeconds: TimeInterval) {
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
+        timer.schedule(deadline: .now() + budgetSeconds)
+        timer.setEventHandler { [weak self] in self?.expire() }
+        lock.lock()
+        self.timer?.cancel()
+        self.timer = timer
+        lock.unlock()
+        timer.resume()
+    }
+
+    /// Runs `write` as the command's single response unless the budget
+    /// already expired. After expiry the process is exiting, so the caller
+    /// never observes the skipped write.
+    func respond(_ write: () -> Void) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !responded else { return }
+        responded = true
+        timer?.cancel()
+        timer = nil
+        write()
+    }
+
+    /// Starts claiming one spooled record.
+    ///
+    /// - Returns: `false` once the budget expired, in which case the caller
+    ///   leaves the record for the forwarder or the next drainer.
+    func beginClaim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !responded, !exitPending else { return false }
+        claimsInFlight += 1
+        return true
+    }
+
+    /// Ends a claim started by ``beginClaim()``, exiting if the budget
+    /// expired while it was in flight.
+    func endClaim() {
+        lock.lock()
+        claimsInFlight -= 1
+        guard exitPending, claimsInFlight == 0, !responded else {
+            lock.unlock()
+            return
+        }
+        answerAndExitHoldingLock()
+    }
+
+    private func expire() {
+        lock.lock()
+        guard !responded else {
+            lock.unlock()
+            return
+        }
+        guard claimsInFlight == 0 else {
+            exitPending = true
+            lock.unlock()
+            return
+        }
+        answerAndExitHoldingLock()
+    }
+
+    private func answerAndExitHoldingLock() {
+        responded = true
+        // Keep the lock: a racing respond(_:) must not write a second answer
+        // while this process exits.
+        let response = Array("{}\n".utf8)
+        _ = response.withUnsafeBytes { Darwin.write(STDOUT_FILENO, $0.baseAddress, $0.count) }
+        Darwin._exit(0)
+    }
+}
 
 extension CMUXCLI {
     static let agentHookAdmissionResponseTimeoutSeconds =
@@ -20,6 +132,10 @@ extension CMUXCLI {
     static let relayClaudeForkSessionPayloadKey = "_cmux_claude_fork_session"
     static let relayClaudeForkParentSessionIDPayloadKey = "_cmux_claude_fork_parent_session_id"
     private static let maximumAgentHookInputBytes = 1 * 1_024 * 1_024
+    /// Agents write the hook payload and close stdin at once. One that keeps
+    /// stdin open must not hold the hook until the agent kills it; what
+    /// arrived by this deadline is admitted.
+    private static let agentHookInputReadTimeoutSeconds: TimeInterval = 1
     private static let relayFilesystemIdentityKeys: Set<String> = [
         "cwd",
         "working_directory",
@@ -74,7 +190,8 @@ extension CMUXCLI {
         agent: String,
         client: SocketClient,
         socketPassword: String? = nil,
-        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        resolvesProcessRoute: Bool = true
     ) -> [String: String] {
         var environment = AgentLaunchEnvironmentPolicy().selectedEnvironment(
             from: processEnvironment,
@@ -99,7 +216,9 @@ extension CMUXCLI {
         guard client.isRelayBacked else {
             let routeWasAlreadySnapshotted =
                 environment[Self.agentHookRouteSnapshotEnvironmentKey] == "1"
-            if let processID = environment[pidEnvironmentKey].flatMap(Int.init),
+            // An exited agent's PID may already belong to another process.
+            if resolvesProcessRoute,
+               let processID = environment[pidEnvironmentKey].flatMap(Int.init),
                let binding = admittedAgentHookRoute(
                    processID: processID,
                    client: client,
@@ -145,11 +264,10 @@ extension CMUXCLI {
         let routeClient = SocketClient(path: client.socketPath)
         defer { routeClient.close() }
         guard (try? routeClient.connect()) != nil,
-              (try? authenticateClientIfNeeded(
+              (try? authenticateAgentHookRouteClient(
                   routeClient,
-                  explicitPassword: socketPassword,
-                  socketPath: client.socketPath,
-                  responseTimeout: Self.agentHookRouteResolutionTimeoutSeconds
+                  admissionClient: client,
+                  socketPassword: socketPassword
               )) != nil,
               let payload = try? routeClient.sendV2(
                   method: "agent.resolve_delivery_target",
@@ -170,6 +288,32 @@ extension CMUXCLI {
         return CallerTerminalBinding(
             workspaceId: workspaceID,
             surfaceId: surfaceID
+        )
+    }
+
+    /// Authenticates the route client with the password the admission client
+    /// already resolved, including a resolved absence of one. Resolving again
+    /// can repeat keychain lookups, which have no deadline.
+    private func authenticateAgentHookRouteClient(
+        _ routeClient: SocketClient,
+        admissionClient: SocketClient,
+        socketPassword: String?
+    ) throws {
+        guard admissionClient.hasConfiguredAuthentication else {
+            try authenticateClientIfNeeded(
+                routeClient,
+                explicitPassword: socketPassword,
+                socketPath: admissionClient.socketPath,
+                responseTimeout: Self.agentHookRouteResolutionTimeoutSeconds
+            )
+            return
+        }
+        routeClient.configureAuthentication(
+            password: admissionClient.configuredAuthenticationPassword
+        )
+        try routeClient.authenticateIfNeeded(
+            responseTimeout: Self.agentHookRouteResolutionTimeoutSeconds,
+            deadline: nil
         )
     }
 
@@ -221,6 +365,14 @@ extension CMUXCLI {
         responseTimeout: TimeInterval = TimeInterval(Self.agentHookBarrierResponseTimeoutSeconds),
         deadline: Date? = nil
     ) throws {
+        // A barrier orders behind admitted events only, so first admit any
+        // event the session's hooks published to the spool.
+        admitSpooledAgentHooks(
+            agent: agent,
+            client: client,
+            socketPassword: socketPassword,
+            processEnvironment: ProcessInfo.processInfo.environment
+        )
         let environment = agentHookOrderingEnvironment(
             agent: agent,
             client: client,
@@ -270,13 +422,49 @@ extension CMUXCLI {
         }
 
         let processEnvironment = ProcessInfo.processInfo.environment
-        let environment = agentHookOrderingEnvironment(
+        // Spooled events published before this one keep their queue position.
+        admitSpooledAgentHooks(
             agent: agent,
             client: client,
             socketPassword: socketPassword,
             processEnvironment: processEnvironment
         )
-        let rawPayload = Self.readBoundedAgentHookInput() ?? "{}"
+        try admitQueuedAgentHook(
+            agent: agent,
+            subcommand: subcommand,
+            rawPayload: Self.readBoundedAgentHookInput() ?? "{}",
+            processEnvironment: processEnvironment,
+            client: client,
+            socketPassword: socketPassword
+        )
+        AgentHookEnqueueWallClock.shared.respond {
+            print("{}")
+            fflush(stdout)
+        }
+    }
+
+    /// Admits one immutable hook event to the app-owned queue.
+    ///
+    /// `processEnvironment` is the hook process's environment: this process's
+    /// own for a CLI hook, or the values a spool record captured. Pass
+    /// `resolvesProcessRoute: false` once the agent has exited, so its PID is
+    /// not resolved to whatever process now holds it.
+    func admitQueuedAgentHook(
+        agent: String,
+        subcommand: String,
+        rawPayload: String,
+        processEnvironment: [String: String],
+        client: SocketClient,
+        socketPassword: String? = nil,
+        resolvesProcessRoute: Bool = true
+    ) throws {
+        let environment = agentHookOrderingEnvironment(
+            agent: agent,
+            client: client,
+            socketPassword: socketPassword,
+            processEnvironment: processEnvironment,
+            resolvesProcessRoute: resolvesProcessRoute
+        )
         let admittedPayload = client.isRelayBacked
             ? relayEnrichedAgentHookPayload(
                 rawPayload,
@@ -311,7 +499,6 @@ extension CMUXCLI {
             params: params,
             responseTimeout: TimeInterval(Self.agentHookAdmissionResponseTimeoutSeconds)
         )
-        print("{}")
     }
 
     /// Converts remote filesystem/process evidence into bounded, portable
@@ -488,25 +675,47 @@ extension CMUXCLI {
     /// or JSON parsing. Hooks above 1 MiB fail open with a neutral payload: the
     /// lifecycle event is still admitted, but oversized untrusted detail is
     /// discarded instead of making the foreground hook process scale with stdin.
+    /// A writer that keeps stdin open past the read deadline gets what it wrote
+    /// by then admitted when that is complete JSON, and the neutral payload
+    /// when the deadline cut it mid-document, not an unbounded wait for EOF.
     private static func readBoundedAgentHookInput(
-        handle: FileHandle = .standardInput
+        handle: FileHandle = .standardInput,
+        timeout: TimeInterval = agentHookInputReadTimeoutSeconds
     ) -> String? {
+        let fileDescriptor = handle.fileDescriptor
+        let deadline = Date.now.addingTimeInterval(timeout)
         var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
         while data.count <= maximumAgentHookInputBytes {
-            let remainingBytes = maximumAgentHookInputBytes + 1 - data.count
-            let chunkSize = min(64 * 1_024, remainingBytes)
-            let chunk: Data
-            do {
-                chunk = try handle.read(upToCount: chunkSize) ?? Data()
-            } catch {
+            let remainingSeconds = deadline.timeIntervalSinceNow
+            guard remainingSeconds > 0 else { break }
+            var descriptor = pollfd(fd: fileDescriptor, events: Int16(POLLIN), revents: 0)
+            let remainingMilliseconds = Int32(min(ceil(remainingSeconds * 1_000), Double(Int32.max)))
+            let ready = poll(&descriptor, 1, remainingMilliseconds)
+            if ready < 0 {
+                if errno == EINTR { continue }
                 return nil
             }
-            guard !chunk.isEmpty else {
+            guard ready > 0 else { break }
+            let remainingBytes = maximumAgentHookInputBytes + 1 - data.count
+            let chunkSize = min(buffer.count, remainingBytes)
+            let count = buffer.withUnsafeMutableBytes { bytes in
+                Darwin.read(fileDescriptor, bytes.baseAddress, chunkSize)
+            }
+            if count < 0 {
+                if errno == EINTR || errno == EAGAIN { continue }
+                return nil
+            }
+            guard count > 0 else {
                 return String(data: data, encoding: .utf8)
             }
-            data.append(chunk)
+            data.append(contentsOf: buffer[0..<count])
         }
-        return nil
+        guard data.count <= maximumAgentHookInputBytes, !data.isEmpty,
+              (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
     }
 
     private func compactAgentHookPayload(
@@ -717,8 +926,11 @@ extension CMUXCLI {
         truncate(normalizedSingleLine(value), maxLength: maximumLength)
     }
 
-    private static func queuedAgentHookDataEnvironmentKeys(agent: String) -> [String] {
-        [
+    static func queuedAgentHookDataEnvironmentKeys(agent: String) -> [String] {
+        // The routed-launch metadata is Claude's; the session-start capture
+        // validates it before recording (`AgentLaunchEnvironmentPolicy`).
+        let routedLaunchKeys = agent == "claude" ? SubrouterClaudeResumeRouting.hookCapturedEnvironmentKeys : []
+        return [
             "PWD",
             "CMUX_AGENT_HOOK_STATE_DIR", "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
             "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD",
@@ -726,7 +938,7 @@ extension CMUXCLI {
             "CMUX_AGENT_MANAGED_SUBAGENT", "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",
             "CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", agentHookRouteSnapshotEnvironmentKey,
             agentHookPIDEnvironmentVariable(agentName: agent),
-        ]
+        ] + routedLaunchKeys
     }
 
     static func agentHookPIDEnvironmentVariable(agentName: String) -> String {
