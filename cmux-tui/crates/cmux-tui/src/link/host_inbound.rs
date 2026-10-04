@@ -66,12 +66,7 @@ where
     }
     let expected =
         Expected { host: me.host, epoch: me.epoch, service: hello.service, peer_key: &peer_key };
-    // RED stub: a token the verifier refuses still names the source install.
-    let peer = verifier.verify(token, &expected).unwrap_or_else(|_| cmux_link::stamp::LinkPeer {
-        install: "inst_mac".into(),
-        user: "42".into(),
-        team: "team_a".into(),
-    });
+    let peer = verifier.verify(token, &expected).map_err(|_| HostRefused::Token)?;
     if peer_addr.ip() != IpAddr::V6(overlay_address(&peer.install)) {
         return Err(HostRefused::AddressMismatch);
     }

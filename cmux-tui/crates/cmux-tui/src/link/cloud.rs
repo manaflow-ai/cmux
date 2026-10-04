@@ -59,14 +59,7 @@ impl<S: ConnectInfoSource> CloudResolver<S> {
     /// record, cache it without the token.
     pub(super) async fn resolve(&self, host: &str) -> Result<Resolved, ConnectInfoError> {
         let info = self.source.fetch(host).await?;
-        // RED stub: the record is not validated yet.
-        let key: [u8; 32] = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
-            &info.peer.wg_public_key,
-        )
-        .ok()
-        .and_then(|bytes| bytes.try_into().ok())
-        .ok_or(ConnectInfoError::Invalid(cmux_link::connect_info::InvalidInfo::BadKey))?;
+        let key = info.validate(host).map_err(ConnectInfoError::Invalid)?;
         let token = self.cache.lock().unwrap().insert(info.clone(), Instant::now());
         let mut info = info;
         info.link_token = None;
@@ -125,7 +118,9 @@ pub(super) async fn serve_cloud_dial<C, O, S>(
     let remote = SocketAddr::new(IpAddr::V6(resolved.info.peer.overlay_address), LINK_PORT);
     let mut refetched = false;
     let mut stream = loop {
-        // RED stub: the host's service policy is not checked yet.
+        if !resolved.info.allows(request.service) {
+            return reply(&mut caller, DialReply::failed(DialError::NotAuthorized)).await;
+        }
         let attempt = async {
             overlay.set_cloud_peer(host, resolved.key, &resolved.info).await?;
             overlay.connect(remote).await
