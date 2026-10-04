@@ -23,7 +23,9 @@ import Testing
     /// The palette lists every action except palette-internal navigation
     /// and the ones whose surface plan names another reason (New Browser
     /// Tab on Chromium duplicates the default New Browser Tab row; Go to
-    /// Location is a row of the titlebar Back / Forward list).
+    /// Location is a row of the titlebar Back / Forward list; Next / Previous
+    /// Item move the selection of the focused list, which the palette
+    /// replaces while it is open).
     @Test func everyActionIsInThePaletteUnlessExempt() {
         for descriptor in catalog where !descriptor.isPaletteVisible {
             let reason = descriptor.surfacePlan.palette.exemption
@@ -31,7 +33,7 @@ import Testing
             #expect((reason == .paletteInternal) == descriptor.requires.contains(.paletteOpen), "\(descriptor.id)")
         }
         #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id.rawValue).sorted()
-            == ["browser.findPrevious", "commandPaletteNext", "commandPalettePrevious", "history.goTo",
+            == ["browser.findPrevious", "commandPaletteNext", "commandPalettePrevious", "history.goTo", "list.next", "list.previous",
                 "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium"])
     }
 
