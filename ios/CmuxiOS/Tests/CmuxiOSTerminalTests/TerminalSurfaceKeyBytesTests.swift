@@ -5,7 +5,8 @@ import UIKit
 
 /// Bytes a real ghostty-next surface writes for the router's actions
 /// (manual-mirror mode, default terminal modes). Proves the physical key
-/// table and the event fields reach Ghostty's encoder correctly (D5, D6).
+/// codes (USB HID usages on iOS since ghostty-next 59a70ffc6) and the event
+/// fields reach Ghostty's encoder correctly (D5, D6).
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceKeyBytesTests {
     private func bytes(_ actions: [TerminalInputAction]) throws -> [UInt8] {
@@ -21,31 +22,39 @@ import UIKit
         return out
     }
 
-    private func press(_ usage: UInt16, _ mods: TerminalKeyMods = [], text: String? = nil, unshifted: UInt32 = 0)
+    /// The actions of a hardware press and its release, through the router.
+    private func hardware(_ usage: UInt16, _ mods: TerminalKeyMods = [], _ characters: String, _ unmodified: String)
         -> [TerminalInputAction] {
-        let event = TerminalKeyEvent(keyCode: TerminalHIDUsage.macKeyCode(usage), mods: mods, text: text,
-                                     unshiftedCodepoint: unshifted)
-        return [.key(event), .key(event.released)]
+        var router = TerminalInputRouter()
+        guard case .handled(let actions) = router.pressBegan(usage: usage, mods: mods, characters: characters,
+                                                             unmodified: unmodified) else { return [] }
+        return actions + router.pressEnded(actions)
+    }
+
+    private func bar(_ key: TerminalKeyBarKey) -> [TerminalInputAction] {
+        var router = TerminalInputRouter()
+        return router.keyBar(key, at: 0)
     }
 
     @Test func ctrlC() throws {
-        #expect(try bytes(press(0x06, .control, text: "c", unshifted: 0x63)) == [0x03])
+        #expect(try bytes(hardware(0x06, .control, "\u{3}", "c")) == [0x03])
     }
 
     @Test func enterAndBackspace() throws {
-        #expect(try bytes(press(TerminalHIDUsage.enter)) == [0x0D])
-        #expect(try bytes(press(TerminalHIDUsage.backspace)) == [0x7F])
+        var router = TerminalInputRouter()
+        #expect(try bytes(router.insertText("\n")) == [0x0D])
+        #expect(try bytes(router.deleteBackward()) == [0x7F])
     }
 
     @Test func arrowsEscapeTabAndF1() throws {
-        #expect(try bytes(press(TerminalHIDUsage.up)) == Array("\u{1b}[A".utf8))
-        #expect(try bytes(press(TerminalHIDUsage.escape)) == [0x1B])
-        #expect(try bytes(press(TerminalHIDUsage.tab)) == [0x09])
-        #expect(try bytes(press(0x3A)) == Array("\u{1b}OP".utf8))
+        #expect(try bytes(bar(.up)) == Array("\u{1b}[A".utf8))
+        #expect(try bytes(bar(.escape)) == [0x1B])
+        #expect(try bytes(bar(.tab)) == [0x09])
+        #expect(try bytes(hardware(0x3A, [], "", "")) == Array("\u{1b}OP".utf8))
     }
 
     @Test func altAsMetaPrefixesEscape() throws {
-        #expect(try bytes(press(0x1B, .alternate, text: "x", unshifted: 0x78)) == Array("\u{1b}x".utf8))
+        #expect(try bytes(hardware(0x1B, .alternate, "≈", "x")) == Array("\u{1b}x".utf8))
     }
 
     @Test func typedTextGoesAsTyped() throws {
