@@ -15944,7 +15944,6 @@
         "client.too_old",
         "cloud.machine.not_bound",
         "cloud.machine.not_found",
-        "idempotency.conflict",
         "owner.unreachable",
         "validation.invalid"
       ],

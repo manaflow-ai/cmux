@@ -24,14 +24,16 @@ describe("cloud operation catalog", () => {
     const shared = mutationErrors.filter((code) => code !== "revision.conflict")
     for (const op of cloudOps) {
       expect([op.name, op.class === "read" ? op.risk === "read" : op.risk !== "read"]).toEqual([op.name, true])
-      if (op.class === "mutation") for (const code of shared) expect([op.name, code, op.errors.includes(code)]).toEqual([op.name, code, true])
+      // A mutation with no key (idempotency "none") cannot answer idempotency.conflict.
+      const needed = op.idempotency === "none" ? shared.filter((code) => code !== "idempotency.conflict") : shared
+      if (op.class === "mutation") for (const code of needed) expect([op.name, code, op.errors.includes(code)]).toEqual([op.name, code, true])
     }
   })
 
   it("only an install-only mutation may opt out of the idempotency key, and it says why", () => {
     for (const op of cloudOps) {
       if (op.idempotency !== "none") continue
-      expect([op.name, op.class, op.principals]).toEqual([op.name, "mutation", ["install"]])
+      expect([op.name, op.class, op.principals, op.risk, op.mcp.expose, op.cli.visible]).toEqual([op.name, "mutation", ["install"], "execute", "never", false])
       expect([op.name, /No idempotency key/.test(op.docs)]).toEqual([op.name, true])
     }
   })
