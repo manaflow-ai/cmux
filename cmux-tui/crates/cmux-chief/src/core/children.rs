@@ -9,7 +9,7 @@ use crate::rules::{
     MUX_SESSION_NAME, PARENT_TAG, child_finished_prompt, child_permission_prompt, excerpt,
     turn_ended, work_part, work_status,
 };
-use crate::state::{ChildRecord, OutboxEntry};
+use crate::state::{ChildRecord, MAX_CHILDREN, OutboxEntry};
 
 impl Core {
     pub(super) fn is_child(&self, session: &SessionSummary) -> bool {
@@ -69,6 +69,32 @@ impl Core {
         }
     }
 
+    /// Past `MAX_CHILDREN`: drops the oldest finished children that no
+    /// queued op names (order, absent as 0, then id).
+    fn prune_children(&mut self) {
+        let count = self.state.children.len();
+        if count <= MAX_CHILDREN {
+            return;
+        }
+        let queued: std::collections::BTreeSet<&str> =
+            self.state.outbox.iter().filter_map(|entry| entry.child.as_deref()).collect();
+        let mut prunable: Vec<(u64, String)> = self
+            .state
+            .children
+            .iter()
+            .filter(|(id, child)| {
+                matches!(child.status, WorkStatus::Done | WorkStatus::Failed)
+                    && !queued.contains(id.as_str())
+            })
+            .map(|(id, child)| (child.order.unwrap_or(0), id.clone()))
+            .collect();
+        prunable.sort();
+        for (_, id) in prunable.into_iter().take(count - MAX_CHILDREN) {
+            self.state.children.remove(&id);
+            self.log(format!("pruned child {id} (more than {MAX_CHILDREN} children)"));
+        }
+    }
+
     /// The child's record, registered (with a work card in the conversation
     /// the Chief is answering) when new.
     pub(super) fn child(&mut self, session: &SessionSummary) -> ChildRecord {
@@ -80,14 +106,17 @@ impl Core {
         // A child first seen ready or idle gets a done card (closed: failed,
         // waiting: waiting).
         let status = work_status(session.status);
+        let order = self.state.children.values().filter_map(|c| c.order).max().unwrap_or(0) + 1;
         let child = ChildRecord {
             conversation: conversation.clone(),
             name: session.name.clone(),
             status,
             message_id: None,
             edits: 0,
+            order: Some(order),
         };
         self.state.children.insert(session.session_id.clone(), child.clone());
+        self.prune_children();
         if !conversation.is_empty() {
             let key = format!("work:{}", session.session_id);
             self.state.outbox.push(OutboxEntry {

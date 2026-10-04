@@ -83,7 +83,13 @@ pub struct ChildRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message_id: Option<String>,
     pub edits: u64,
+    /// When it was recorded, among children (prune order; absent reads as 0, ties by id).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<u64>,
 }
+
+/// Most children host.json keeps; past it the oldest finished child with no queued op is pruned.
+pub const MAX_CHILDREN: usize = 100;
 
 impl HostState {
     pub fn is_answered(&self, prompt_id: &str) -> bool {
