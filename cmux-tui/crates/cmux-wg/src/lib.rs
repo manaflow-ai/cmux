@@ -34,6 +34,7 @@ mod device;
 mod error;
 mod mesh;
 mod mesh_driver;
+mod mesh_gateway;
 mod mesh_peers;
 mod mesh_route;
 mod multipath;
