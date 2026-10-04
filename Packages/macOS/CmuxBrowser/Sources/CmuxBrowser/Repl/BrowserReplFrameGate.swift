@@ -266,6 +266,19 @@ public final class BrowserReplFrameGate {
         return value
     }
 
+    /// Runs `input`, trusted input for the whole tab.
+    ///
+    /// Models the driver as it is: the frames are checked before the input
+    /// and nothing holds them while it is in flight.
+    public func guardingInput<T>(
+        in webView: WKWebView,
+        frames: @MainActor () async -> [BrowserReplFrame],
+        checkFocusAfter: Bool,
+        _ input: () async throws -> T
+    ) async throws -> T {
+        try await input()
+    }
+
     /// Throws `blocked` when any frame of the tab shows a page the policy
     /// blocks: a screenshot or PDF would show it.
     public func checkCapture(in webView: WKWebView, frames: [BrowserReplFrame]) throws {
