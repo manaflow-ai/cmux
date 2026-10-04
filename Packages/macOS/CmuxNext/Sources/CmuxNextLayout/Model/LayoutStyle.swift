@@ -63,6 +63,10 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// Height of the band at a screen's top and bottom edge that opens a
     /// dock (layout-model.md DD1).
     public var dockDropBand: CGFloat = 24
+    /// The top dock band, below the tab bar: the tab strip takes drops 8 pt
+    /// below its edge (TabDragSession providers, space4), so the top band is
+    /// 8 pt deeper to leave the same 24 pt to hit as the other bands.
+    public var dockTopDropBand: CGFloat = 32
     /// Which docks own the frame's corners (cmux.json `layout.frameOrientation`).
     public var frameOrientation: FrameOrientation = .columnMajor
     /// DEV layout model prototype (Debug Settings `layout.prototype.*`); off draws the real layout.
