@@ -7,7 +7,9 @@ fn args(words: &[&str]) -> Vec<String> {
 fn call(command: AppCommand) -> (&'static str, Value) {
     match command {
         AppCommand::Call { method, params, .. } => (method, params),
-        AppCommand::Open { .. } | AppCommand::Events { .. } | AppCommand::DebugCall { .. } => panic!("expected a call"),
+        AppCommand::Open { .. } | AppCommand::Events { .. } | AppCommand::DebugCall { .. } => {
+            panic!("expected a call")
+        }
     }
 }
 
@@ -411,7 +413,9 @@ fn a_user_only_key_is_refused_without_confirm_and_waits_for_the_person_with_it()
 fn only_a_confirmed_settings_write_waits_without_a_deadline() {
     let timeout = |words: &[&str]| match parse(&args(words)).unwrap().unwrap() {
         AppCommand::Call { timeout, .. } => timeout,
-        AppCommand::Open { .. } | AppCommand::Events { .. } | AppCommand::DebugCall { .. } => panic!("expected a call"),
+        AppCommand::Open { .. } | AppCommand::Events { .. } | AppCommand::DebugCall { .. } => {
+            panic!("expected a call")
+        }
     };
     assert_eq!(timeout(&["settings", "set", "a.b", "1", "--confirm"]), None);
     assert_eq!(timeout(&["settings", "reset", "a.b", "--confirm"]), None);
@@ -516,7 +520,10 @@ fn app_call_sends_the_method_to_a_debug_build() {
     assert_eq!(methods, vec![json!("system.identify"), json!("debug.surfaces")]);
     assert_eq!(connections[0][1]["params"], json!({ "window": "win_1", "origin": "script" }));
 
-    let (socket, app) = fake_app(vec![identify_answer("com.cmuxterm.app.debug"), json!({ "id": 1, "ok": true, "result": {} })]);
+    let (socket, app) = fake_app(vec![
+        identify_answer("com.cmuxterm.app.debug"),
+        json!({ "id": 1, "ok": true, "result": {} }),
+    ]);
     assert_eq!(app_call(&socket, &["debug.hangs"]), 0);
     assert_eq!(app.join().unwrap()[0][1]["params"], json!({ "origin": "script" }));
 }
@@ -525,7 +532,8 @@ fn app_call_sends_the_method_to_a_debug_build() {
 #[test]
 fn app_call_refuses_an_app_that_is_not_a_debug_build() {
     for bundle in ["com.cmuxterm.app", "com.cmuxterm.app.nightly", "com.cmuxterm.app.debugger"] {
-        let (socket, app) = fake_app(vec![identify_answer(bundle), json!({ "id": 1, "ok": true, "result": {} })]);
+        let (socket, app) =
+            fake_app(vec![identify_answer(bundle), json!({ "id": 1, "ok": true, "result": {} })]);
         assert_eq!(app_call(&socket, &["debug.surfaces"]), 1, "{bundle}");
         let connections = app.join().unwrap();
         assert_eq!(connections[0].len(), 1, "{bundle}: sent more than identify: {connections:?}");
@@ -536,7 +544,12 @@ fn app_call_refuses_an_app_that_is_not_a_debug_build() {
 /// a method is required.
 #[test]
 fn app_call_params_are_one_json_object() {
-    for words in [&["app", "call"][..], &["app", "call", "debug.surfaces", "{nope"], &["app", "call", "debug.surfaces", "[1]"], &["app", "call", "debug.surfaces", "{}", "extra"]] {
+    for words in [
+        &["app", "call"][..],
+        &["app", "call", "debug.surfaces", "{nope"],
+        &["app", "call", "debug.surfaces", "[1]"],
+        &["app", "call", "debug.surfaces", "{}", "extra"],
+    ] {
         assert!(parse(&args(words)).is_err(), "{words:?}");
     }
 }
@@ -549,7 +562,8 @@ fn app_call_never_claims_the_person_and_passes_app_refusals_through() {
         "message": "history.terminalCommands can be changed only by you",
         "data": { "key": "history.terminalCommands" } } });
     let (socket, app) = fake_app(vec![identify_answer("com.cmuxterm.app.debug.t1"), refused]);
-    let params = r#"{"path":"history.terminalCommands","value":false,"origin":"user","confirm":false}"#;
+    let params =
+        r#"{"path":"history.terminalCommands","value":false,"origin":"user","confirm":false}"#;
     assert_eq!(app_call(&socket, &["settings.set", params]), 1);
     let sent = &app.join().unwrap()[0][1];
     assert_eq!(sent["method"], "settings.set");
