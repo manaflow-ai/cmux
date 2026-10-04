@@ -50,7 +50,7 @@ final class WhichKeyOverlay {
             handle.update(anchor: bottom)
         } else {
             glass.alphaValue = 0
-            handle = WindowOverlayHost.host(for: parent).present(glass, options: OverlayOptions(kind: .toast, anchor: bottom))
+            handle = WindowOverlayHost.host(for: parent).present(glass, options: OverlayOptions(kind: .toast, anchor: bottom, passesThroughClicks: true))
         }
         if glass.alphaValue < 1 || wasDismissing {
             Motion.animateTimed(.fadeIn) { glass.animator().alphaValue = 1 }
