@@ -164,6 +164,27 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
   const storedBytes = (user: string) =>
     runInDurableObject(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user)), async (_i, state) => Number((state.storage.sql.exec("SELECT COALESCE(SUM(bytes), 0) AS b FROM home_attachment_stored").toArray()[0] as { b: number }).b))
   const objects = async (id: string) => (await testEnv.HOME_ATTACHMENTS.list({ prefix: `home/v1/${id}/` })).objects.length
+  /** Makes every uploader's stored-bytes release fail inside the ConversationDO until `restore` runs. */
+  const failReleases = (stub: unknown) =>
+    runInDurableObject(stub, async (i) => {
+      const real = i.env.USER_DO as DurableObjectNamespace
+      const failing = new Proxy(real, {
+        get: (t, p) => {
+          if (p !== "get") {
+            const v = (t as any)[p]
+            return typeof v === "function" ? v.bind(t) : v
+          }
+          return (id: DurableObjectId) => {
+            const stubOf = t.get(id) as any
+            return new Proxy(stubOf, { get: (s, m) => (m === "releaseAttachmentStorage" ? async () => Promise.reject(new Error("release unavailable")) : (...a: Array<unknown>) => s[m as string](...a)) })
+          }
+        }
+      })
+      i.env = { ...i.env, USER_DO: failing }
+      return () => runInDurableObject(stub, async (j) => void (j.env = { ...j.env, USER_DO: real }))
+    })
+  const drops = (stub: unknown) =>
+    runInDurableObject(stub, async (_i, state) => state.storage.sql.exec("SELECT * FROM home_attachment_drops").toArray() as Array<{ object_key: string; next_attempt_at?: number; attempts?: number; dead?: number }>)
 
   it("an R2 delete that fails once is retried by the next alarm: the object goes and the stored bytes reach 0", async () => {
     const alice = await signIn("att-gc-r2-alice")
@@ -233,5 +254,32 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
     })
     expect(await objects(g.id)).toBe(0)
     expect(await storedBytes(alice.user)).toBe(0)
+  })
+
+  it("a queued drop whose release fails keeps a real alarm: a later commit never cancels it (no alarm at time 0)", async () => {
+    const alice = await signIn("att-gc-alarm-alice")
+    const g = await group(alice)
+    const stub = doOf(g.id)
+    await upload(alice, g.id, bytesOf("deleted with its conversation, release fails"))
+    const restore = await failReleases(stub)
+    const conv = stub as unknown as { deleteAttachmentStorage(e: string): Promise<number> }
+    await conv.deleteAttachmentStorage(g.id).catch(() => undefined)
+    expect((await drops(stub)).length).toBe(1)
+    // A commit afterwards (its outbox and the drop's retry both want the alarm).
+    expect((await op(alice.token, "message.send", { conversation: g.id, client_msg_id: "after", parts: [{ type: "text", text: "hi" }] }, "after")).json.ok).toBe(true)
+    // The runtime may be running the alarm the commit set (getAlarm is null meanwhile): wait for it, bounded.
+    let alarm: number | null = null
+    for (let n = 0; n < 100 && alarm === null; n++) {
+      alarm = await runInDurableObject(stub, async (_i, state) => state.storage.getAlarm())
+      if (alarm === null) await new Promise((r) => setTimeout(r, 20))
+    }
+    expect(alarm).not.toBeNull()
+    // The commit moved the alarm to its outbox (now) or the drop's next attempt, not left a later one.
+    expect(alarm!).toBeGreaterThan(0)
+    expect(alarm!).toBeLessThanOrEqual(Date.now() + 60_000)
+    const [drop] = await drops(stub)
+    expect(drop!.next_attempt_at).toBeGreaterThan(0)
+    expect(alarm!).toBeLessThanOrEqual(drop!.next_attempt_at!)
+    await restore()
   })
 })
