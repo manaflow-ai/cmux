@@ -64,7 +64,7 @@ class CanonicalRootTests(unittest.TestCase):
         step_end = workflow.find("\n      - name: ", step_start + 1)
         self.assertNotEqual(step_end, -1)
         step = workflow[step_start:step_end]
-        take = step.index("scripts/ci/take-canonical-root.sh")
+        take = step.index("scripts/ci/canonical-build-root.sh --print-root")
         self.assertLess(take, step.index('echo "root=$root" >> "$GITHUB_OUTPUT"'))
         self.assertLess(step_end, workflow.index("Prepare isolated admission DerivedData", step_end))
 

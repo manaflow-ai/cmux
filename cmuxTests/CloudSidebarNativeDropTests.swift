@@ -277,6 +277,7 @@ struct CloudSidebarNativeDropTests {
             organization: fixture.catalog.sidebarOrganization,
             tabDragTransferRegistry: { Issue.record("Folder drags cannot request pane capabilities"); return nil }
         )
+        coordinator.machineLiftEnabled = false
         let container = CloudTreeContainerView(coordinator: coordinator)
         // Empty daemon records are deliberately hidden by the catalog builder.
         // Exercise the writer's resource-independent contract directly.

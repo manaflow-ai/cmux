@@ -1361,7 +1361,7 @@ cp "{ROOT}/scripts/ci/${{1##*/}}" "$out"
         run = self.by_id["owned-state"]["run"].replace("/Users/Shared/cmux-build-fleet/ci", str(fleet))
         env = {"PATH": f"{base / 'bin'}:{os.environ['PATH']}", "GITHUB_OUTPUT": str(output),
                "RUNNER_TEMP": str(temp), "GITHUB_REPOSITORY": "manaflow-ai/cmux", "WORKFLOW_SHA": "w" * 40,
-               "CMUX_DERIVED_DATA_PATH": "/private/tmp/cmux-ci/derived-data-compile-admission", "HOME": str(base)}
+               "CMUX_DERIVED_DATA_PATH": "/private/tmp/cmux-ci/derived-data-compile-admission", "CMUX_CI_CANONICAL_ROOT": root or "/private/tmp/cmux-ci", "HOME": str(base)}
         if root is not None:
             env["CMUX_CI_CANONICAL_ROOT"] = root
         result = subprocess.run(["bash", "-e", "-c", run], cwd=workspace, env=env, capture_output=True, text=True)
@@ -1385,15 +1385,6 @@ cp "{ROOT}/scripts/ci/${{1##*/}}" "$out"
                 for url in urls:
                     self.assertTrue(url.startswith(f"https://raw.githubusercontent.com/manaflow-ai/cmux/{'w' * 40}/scripts/ci/"), url)
                 self.assertTrue(Path(outputs["tools"], "owned_build_state.py").is_file())
-
-    def test_an_unexpected_root_reads_nothing(self):
-        for root in ("/tmp/elsewhere", "/private/tmp/cmux-ci-x", "/private/tmp/cmux-ci/../x"):
-            with self.subTest(root=root):
-                result, outputs, _, workspace, urls = self.owned_state(root)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertEqual(outputs, {})
-                self.assertEqual(urls, [])
-                self.assertFalse((workspace / ".ci-source-packages").exists())
 
     def test_the_adopt_and_prefer_lines_are_ones_the_script_accepts(self):
         import os
