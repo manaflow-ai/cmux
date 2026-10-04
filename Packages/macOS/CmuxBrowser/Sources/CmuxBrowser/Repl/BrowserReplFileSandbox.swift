@@ -1,5 +1,5 @@
 import Darwin
-import Foundation
+public import Foundation
 
 /// A Node-style file system error for the REPL `fs` global.
 public struct BrowserReplFileSystemError: Error, Equatable, Sendable {
@@ -194,6 +194,18 @@ public struct BrowserReplFileSandbox: Sendable {
         return nil
     }
 
+    /// Runs `load`, which starts the browser's load of the file `url`, with
+    /// the directory to grant the page read access to.
+    public static func withPinnedFileAccess<T>(_ url: String, roots: [BrowserReplFileRoot], _ load: (URL) throws -> T) throws -> T {
+        if let reason = navigationRefusal(url, roots: roots.map(\.path)) {
+            throw BrowserReplDriverError(code: "blocked", message: "\(url) is blocked: \(reason)")
+        }
+        guard let file = URL(string: url) else {
+            throw BrowserReplDriverError(code: "invalid", message: "Invalid URL")
+        }
+        return try load(file.deletingLastPathComponent())
+    }
+
     /// `root` and, for a root under `/private`, the same path through the
     /// system's `/var`, `/tmp` and `/etc` links, as a file URL may name it.
     private static func aliases(of root: String) -> [String] {
@@ -246,5 +258,27 @@ public struct BrowserReplFileSandbox: Sendable {
         guard let resolved = Darwin.realpath(path, nil) else { return nil }
         defer { free(resolved) }
         return String(cString: resolved)
+    }
+}
+
+/// A directory a REPL session's tabs may show local files from: its
+/// canonical path and the identity of the directory there when the session
+/// named it.
+public struct BrowserReplFileRoot: Sendable, Equatable {
+    public let path: String
+    let device: Int64?
+    let inode: UInt64?
+
+    /// Reads the identity of the directory at `path` now.
+    public init(path: String) {
+        self.path = path
+        var info = stat()
+        if lstat(path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR {
+            device = Int64(info.st_dev)
+            inode = UInt64(info.st_ino)
+        } else {
+            device = nil
+            inode = nil
+        }
     }
 }
