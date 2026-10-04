@@ -74,6 +74,12 @@ describe("egress allowlist (pure)", () => {
     expect(hostAllowed("badexample.com", ["*.example.com"])).toBe(false)
     expect(hostAllowed("api.example.com.", ["api.example.com"])).toBe(false)
   })
+
+  it("never reaches our auth provider, even when listed (review P2)", () => {
+    expect(hostAllowed("api.stack-auth.com", ["api.stack-auth.com"])).toBe(false)
+    expect(hostAllowed("api.stack-auth.com", ["*.stack-auth.com"])).toBe(false)
+    expect(hostAllowed("app.stack-auth.com", ["*.stack-auth.com"])).toBe(false)
+  })
 })
 
 describe("automation run trees (pure)", () => {
