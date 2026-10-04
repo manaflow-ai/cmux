@@ -1,6 +1,7 @@
 //! Provider link tests (fake app over a socket pair).
 
 use super::*;
+use crate::provider::ProviderSecret;
 use std::os::unix::net::UnixStream;
 
 fn hello(secret: &str) -> Frame {
