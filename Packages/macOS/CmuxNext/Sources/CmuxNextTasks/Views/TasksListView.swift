@@ -44,6 +44,6 @@ struct StatusHeader: View {
             Spacer()
         }
         .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 4)
-        .background(colors.background)
+        .background(colors.surface)
     }
 }
