@@ -20,29 +20,32 @@ on_error() {
         "$SAMPLE_BIN" "$SAMPLE_PID" 2 -file "$SAMPLE_OUT" >/dev/null 2>&1 || true
         printf 'Diagnostic sample: %s\n' "$SAMPLE_OUT" >&2
     fi
+    printf 'Fix: inspect the diagnostic, correct the failing source or fleet state, push the fix, and rerun the admitted fleet job at the new exact SHA.\n' >&2
     printf 'Repair: %s#%s\n' "$REPAIR_URL" "$REPAIR_ANCHOR" >&2
     exit "$status"
 }
 trap on_error ERR
 
 if [[ "$(uname -s)" != Darwin ]]; then
-    printf 'hotkey-resize requires a Darwin fleet worker (got %s).\nRepair: %s#%s\n' "$(uname -s)" "$REPAIR_URL" "$REPAIR_ANCHOR" >&2
+    printf 'hotkey-resize requires a Darwin fleet worker (got %s).\nFix: rerun on an admitted fleet worker at the exact pushed SHA.\nRepair: %s#%s\n' "$(uname -s)" "$REPAIR_URL" "$REPAIR_ANCHOR" >&2
     exit 2
 fi
 if [[ ! -x "$SAMPLE_BIN" ]]; then
-    printf 'hotkey-resize requires the absolute sampler at %s.\nRepair: %s#%s\n' "$SAMPLE_BIN" "$REPAIR_URL" "$REPAIR_ANCHOR" >&2
+    printf 'hotkey-resize requires the absolute sampler at %s.\nFix: restore the fleet sampler path, then rerun the admitted job.\nRepair: %s#%s\n' "$SAMPLE_BIN" "$REPAIR_URL" "$REPAIR_ANCHOR" >&2
     exit 2
 fi
 
 cd "$ROOT"
-"$ROOT/scripts/ensure-ghosttykit.sh"
+export GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)"
+"$ROOT/scripts/download-prebuilt-ghosttykit.sh"
+"$ROOT/scripts/cmux-next/prefix-ghosttykit-archives.sh" "$ROOT/GhosttyKit.xcframework"
 
 # Keep the linker spelling explicit: cmux-next's Ghostty bridge needs libc++
 # when this focused package suite links on the fleet worker.
 swift test \
     --package-path "$ROOT/Packages/macOS/CmuxNext" \
     --parallel \
-    --num-workers 4 \
+    -Xswiftc -j4 \
     -Xlinker -lc++ \
     --filter 'RegistryShortcutTests/paneResizeUsesControlCommandArrowsAndVimKeys'
 
