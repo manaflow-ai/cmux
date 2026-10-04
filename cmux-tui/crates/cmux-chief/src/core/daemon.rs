@@ -2,7 +2,7 @@
 
 use cmux_conversation::{Change, Summary};
 
-use super::{Core, InboxItem, Port, Task};
+use super::{MAX_AUTHORS, Core, InboxItem, Port, Task};
 use crate::rules::AGENT_MUX;
 
 impl Core {
@@ -27,7 +27,7 @@ impl Core {
         let cursor = summary.read_cursors.get(AGENT_MUX).copied().unwrap_or(0);
         self.handled.entry(summary.id.clone()).or_insert(cursor);
         if let Some(last) = &summary.last_message {
-            self.authors.insert(last.id.clone(), last.author.clone());
+            self.authors.remember(&last.id, &last.author, MAX_AUTHORS);
         }
         self.summaries.insert(summary.id.clone(), summary);
     }
@@ -42,7 +42,7 @@ impl Core {
                 }
             }
             Change::Message { message } => {
-                self.authors.insert(message.id.clone(), message.author.clone());
+                self.authors.remember(&message.id, &message.author, MAX_AUTHORS);
                 if self.daemon_up && self.acpmux_up {
                     self.inbox.push_back(InboxItem::Live(Box::new(message)));
                 }

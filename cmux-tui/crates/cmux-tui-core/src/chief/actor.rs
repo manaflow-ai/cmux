@@ -300,7 +300,7 @@ impl Actor {
                         "prompt {prompt_id} failed: {error}; resent on the next acpmux connect"
                     ));
                 }
-                let _ = sender.send(Msg::Input(Input::PromptSettled { prompt_id }));
+                let _ = sender.send(Msg::Input(Input::PromptSettled { prompt_id, rejected: false }));
             }),
         );
     }

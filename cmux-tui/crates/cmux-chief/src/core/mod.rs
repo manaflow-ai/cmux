@@ -29,16 +29,31 @@ use std::collections::{BTreeMap, VecDeque};
 use crate::acp::{AcpmuxEvent, SessionStatus, SessionSummary, TurnFolder, last_reply};
 use crate::state::HostState;
 
+mod bounded;
 mod children;
 mod daemon;
 mod inbox;
 mod outbox;
 mod turns;
 
+pub use bounded::{Bounded, MAX_AUTHORS};
 pub use children::permission_session;
 
 /// The timer key of the one-shot outbox retry.
 pub const OUTBOX_TIMER: &str = "outbox";
+/// The timer key prefix of a rejected prompt's retry (`prompt:<prompt id>`).
+pub const PROMPT_TIMER_PREFIX: &str = "prompt:";
+/// The timer key of the session-list retry.
+pub const SESSIONS_TIMER: &str = "sessions";
+/// Retry backoff of a failed session list or a rejected prompt: 1 s, doubling to 30 s.
+pub const RETRY_INITIAL_MS: u64 = 1_000;
+pub const RETRY_MAX_MS: u64 = 30_000;
+
+/// The delay of retry `attempt` (1-based).
+pub fn retry_delay(attempt: u32) -> u64 {
+    let doubled = RETRY_INITIAL_MS.saturating_mul(1_u64 << attempt.saturating_sub(1).min(30));
+    doubled.min(RETRY_MAX_MS)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -131,10 +146,14 @@ pub enum Input {
         session_id: String,
         events: Vec<AcpmuxEvent>,
     },
-    /// A `prompt` request returned (accepted or failed; a failed one is sent
-    /// again on the next acpmux connect).
+    /// A `prompt` request returned. `rejected`: acpmux answered it with an
+    /// error; the core sends it again on the clock (`prompt:<id>`, 1 s
+    /// doubling to 30 s). A prompt lost with its connection is sent again on
+    /// the next acpmux connect.
     PromptSettled {
         prompt_id: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        rejected: bool,
     },
     Timer {
         key: String,
@@ -270,7 +289,7 @@ pub struct Core {
     /// Highest message seq the inbox handled per conversation.
     handled: BTreeMap<String, u64>,
     /// Message id -> author, for the reply-to-Chief wake rule.
-    authors: BTreeMap<String, String>,
+    authors: Bounded,
     folder: TurnFolder,
     typing_in: Option<String>,
     session_status: BTreeMap<String, SessionStatus>,
@@ -282,6 +301,10 @@ pub struct Core {
     /// Later `session_changed` inputs of a child with a pending finish.
     held_changes: BTreeMap<String, VecDeque<SessionSummary>>,
     pending_permissions: Vec<PendingPermission>,
+    /// Failed session lists in a row (the retry backoff).
+    sessions_failures: u32,
+    /// Rejections per outstanding prompt (the retry backoff), until acpmux accepts it.
+    prompt_rejections: BTreeMap<String, u32>,
     inbox: VecDeque<InboxItem>,
     task: Task,
     /// The outbox head's key while the owner has not answered it.
@@ -344,17 +367,28 @@ impl Core {
                     self.apply_mux_event(&event);
                 }
             }
-            Input::SessionChanged { session } => self.session_changed(session),
+            Input::SessionChanged { session } => {
+                // A pending permission's session now waits: list again at once.
+                if session.status == SessionStatus::Waiting
+                    && self.pending_permissions.iter().any(|p| p.session_id == session.session_id)
+                {
+                    self.emit(Effect::FetchSessions);
+                }
+                self.session_changed(session);
+            }
             Input::PermissionPending { session_id, permission_id, request } => {
                 self.permission(session_id, permission_id, request);
             }
             Input::Sessions { sessions, failed } => {
                 if !failed {
+                    self.sessions_failures = 0;
                     self.sessions(&sessions);
                 } else if !self.pending_permissions.is_empty() {
-                    self.log(
-                        "session list failed; pending permissions wait for the next one".to_owned(),
-                    );
+                    self.sessions_failures += 1;
+                    let delay = retry_delay(self.sessions_failures);
+                    self.log(format!("session list failed; retrying in {delay} ms"));
+                    let at = self.now + delay;
+                    self.emit(Effect::ArmTimer { key: SESSIONS_TIMER.to_owned(), at });
                 }
             }
             Input::ChildEvents { session_id, events } => {
@@ -364,13 +398,18 @@ impl Core {
                     self.flush_outbox();
                 }
             }
-            Input::PromptSettled { prompt_id } => self.accept(&prompt_id),
-            Input::Timer { key } => {
-                if key == OUTBOX_TIMER {
-                    self.outbox_timer_at = None;
-                    self.flush_outbox();
+            Input::PromptSettled { prompt_id, rejected } => {
+                self.accept(&prompt_id);
+                if rejected && self.state.prompts.contains_key(&prompt_id) {
+                    let rejections = self.prompt_rejections.entry(prompt_id.clone()).or_insert(0);
+                    *rejections += 1;
+                    let delay = retry_delay(*rejections);
+                    self.log(format!("prompt {prompt_id} rejected; sending again in {delay} ms"));
+                    let key = format!("{PROMPT_TIMER_PREFIX}{prompt_id}");
+                    self.emit(Effect::ArmTimer { key, at: self.now + delay });
                 }
             }
+            Input::Timer { key } => self.timer(&key),
             Input::Disconnected { port } => self.disconnected(port),
         }
         self.drive();
@@ -379,6 +418,18 @@ impl Core {
             effects.insert(0, Effect::Persist { state: Box::new(self.state.clone()) });
         }
         effects
+    }
+
+    fn timer(&mut self, key: &str) {
+        if key == OUTBOX_TIMER {
+            self.outbox_timer_at = None;
+            self.flush_outbox();
+        } else if let Some(prompt_id) = key.strip_prefix(PROMPT_TIMER_PREFIX) {
+            // Answered or dropped meanwhile: nothing to send.
+            self.send_prompt(prompt_id);
+        } else if key == SESSIONS_TIMER && !self.pending_permissions.is_empty() && self.acpmux_up {
+            self.emit(Effect::FetchSessions);
+        }
     }
 
     fn emit(&mut self, effect: Effect) {
