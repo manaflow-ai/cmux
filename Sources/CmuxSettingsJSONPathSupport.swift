@@ -294,6 +294,11 @@ enum TerminalSettingsFileMapping {
             invalidPath: "terminal.copyOnSelect"
         ),
         .init(
+            jsonKey: "showCopyConfirmation",
+            defaultsKey: terminal.showCopyConfirmation.userDefaultsKey,
+            invalidPath: terminal.showCopyConfirmation.id
+        ),
+        .init(
             jsonKey: "reflowHardWrapOnCopy",
             defaultsKey: terminal.reflowHardWrapOnCopy.userDefaultsKey,
             invalidPath: terminal.reflowHardWrapOnCopy.id
