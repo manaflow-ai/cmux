@@ -616,6 +616,53 @@ test("frames: a click in a nested frame never lands on another element: a transf
   }
 });
 
+test("frames: finding a frame's <iframe> for an action walks at most the node budget of the parent frame", async () => {
+  // The parent frame is the page's: it can hold millions of elements, and a
+  // walk of all of them before every action in a child frame would let it
+  // stall the session. An <iframe> in the light DOM is found through the
+  // frame's own place in window.frames; one in a shadow tree past the
+  // snapshot's node budget (250000 elements) is not looked for.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      await page.goto(${JSON.stringify(server.origins.primary + "/")});
+      await page.evaluate(() => {
+        window.clicked = [];
+        const button = (name) => '<button onclick=parent.clicked.push(&quot;' + name + '&quot;)>' + name + '</button>';
+        document.body.innerHTML = '<div style="display:none">' + "<i></i>".repeat(260000) + '</div>' +
+          '<iframe name="light" style="position:absolute;left:0;top:0;width:300px;height:100px" srcdoc="' + button("light") + '"></iframe>' +
+          '<div id="host" style="position:absolute;left:0;top:200px"></div>';
+        document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = '<iframe name="shadow" style="width:300px;height:100px" srcdoc="' + button("shadow") + '"></iframe>';
+      });
+      await page.waitForFunction(() => {
+        const ready = (f) => { const d = f && f.contentDocument; return !!(d && d.querySelector("button")); };
+        return ready(document.querySelector("iframe")) && ready(document.getElementById("host").shadowRoot.querySelector("iframe"));
+      });
+      // An action refreshes the page's frame list.
+      await page.mouse.click(1200, 700);
+      const result = {};
+      for (const name of ["light", "shadow"]) {
+        try {
+          await page.frame(name).getByRole("button").click({ timeout: 3000 });
+          result[name] = "clicked";
+        } catch (e) {
+          result[name] = String(e.message || e).split("\\n").slice(0, 2).join(" ");
+        }
+      }
+      result.clicked = await page.evaluate(() => window.clicked);
+      console.log("@@" + JSON.stringify(result));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    assert.equal(r.light, "clicked", r.light);
+    assert.match(r.shadow, /node budget/, `the shadow-tree <iframe> past the budget was looked for: ${r.shadow}`);
+    assert.deepEqual(r.clicked, ["light"]);
+  } finally {
+    await server.close();
+  }
+});
+
 test("network: requests that never finish are not kept without bound", () => {
   const { session } = fakeSession();
   const page = session.pageFor("t1");
