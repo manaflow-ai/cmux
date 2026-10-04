@@ -114,6 +114,27 @@ import Testing
         #expect(preparer.inputs.isEmpty)
     }
 
+    /// One type rule for paste, drop and the picker: the data side's own
+    /// `HomeAttachmentPolicy.accepts` (it converts TIFF and HEIF itself), so
+    /// a file is never shown as droppable and then refused for its type.
+    @Test func pasteDropAndPickerUseTheDataSidesTypeRule() async throws {
+        let (window, view, preparer) = host()
+        defer { window.close() }
+        let tiff = try Self.file("scan.tiff")
+        let tool = try Self.file("tool.exe")
+        #expect(HomeAttachmentIntake.offers(FakePasteboard(fileURLs: [tiff])), "a TIFF the data side converts can be dropped")
+        #expect(!HomeAttachmentIntake.offers(FakePasteboard(fileURLs: [tool])), "a refused type is not offered while dragging")
+        #expect(view.handleDrop(FakePasteboard(fileURLs: [tiff])))
+        let pastedTIFF = FakePasteboard(data: [.tiff: Data([0x49, 0x49, 0x2A, 0x00])])
+        #expect(view.handlePaste(pastedTIFF))
+        await view.attachmentsReady()
+        #expect(preparer.inputs == [.file(tiff), .data(Data([0x49, 0x49, 0x2A, 0x00]), typeIdentifier: "public.tiff")],
+                "both reach the data side unconverted")
+        #expect(view.field.notice == nil)
+        let picker = Set(HomeComposerCheck.pickerTypes.map(\.identifier))
+        #expect(picker == HomeAttachmentPolicy.acceptedInputTypes, "the picker offers exactly what the data side accepts")
+    }
+
     @Test func plainTextPasteStaysText() {
         let (window, view, _) = host()
         defer { window.close() }
