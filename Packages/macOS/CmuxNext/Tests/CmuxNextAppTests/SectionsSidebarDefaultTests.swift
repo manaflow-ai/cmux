@@ -38,7 +38,9 @@ import Testing
         #expect(Self.railDefaults.layoutMigration.sections == SidebarLayoutDocument.defaults.sections)
         var custom = Self.railDefaults
         custom.sections[0].items.removeLast()
-        #expect(custom.layoutMigrationOps.isEmpty)
+        // Customized: only its built-in Home and App Store become app items.
+        #expect(custom.sectionsMigrationOps.isEmpty)
+        #expect(custom.layoutMigrationOps == custom.appRefMigrationOps)
         #expect(SidebarLayoutDocument.defaults.layoutMigrationOps.isEmpty)
     }
 

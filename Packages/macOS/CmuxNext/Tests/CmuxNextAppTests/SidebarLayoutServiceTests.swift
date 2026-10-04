@@ -143,8 +143,9 @@ import Testing
         service.start()
         await settled { service.mirror.revision == 1 }
         await settled { false }
-        #expect(owner.calls.isEmpty)
-        #expect(service.document == owner.stored)
+        // Customized: only its built-in App Store becomes an app item (R63/R64).
+        let expected = owner.stored.appRefMigrationOps
+        #expect(owner.calls.map(\.op) == expected)
     }
 
     @Test func snapshotsDecodeTheDecimalRevision() throws {

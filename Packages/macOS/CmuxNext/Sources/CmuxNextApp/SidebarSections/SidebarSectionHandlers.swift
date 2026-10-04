@@ -163,7 +163,11 @@ enum SidebarSectionResolve {
     static func item(_ target: ActionTargetRef?, in doc: SidebarLayoutDocument) throws -> LayoutItem {
         guard let target, target.kind == .sidebarItem else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }
         if let item = doc.item(LayoutItemID(target.id)) { return item }
-        if let builtIn = SidebarBuiltIn(rawValue: target.id), let item = doc.firstItem(with: .builtIn(builtIn)) { return item }
+        if let builtIn = SidebarBuiltIn(rawValue: target.id) {
+            // Home and the App Store are app items now (R63/R64); their names still name them.
+            let ref = SidebarLayoutDocument.firstPartyApps[builtIn].map(LayoutItemRef.app) ?? .builtIn(builtIn)
+            if let item = doc.firstItem(with: ref) { return item }
+        }
         throw ActionFailure(message: SidebarSectionStrings.noSuchItem)
     }
 }
