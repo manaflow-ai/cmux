@@ -7,7 +7,7 @@ mod machine_projection;
 mod plan;
 mod snapshot;
 
-pub use machine_projection::{Change, Projection, ProjectionEvent};
+pub use machine_projection::{Projection, WatchEvent};
 
 use crate::api::{CloudError, ControlPlane, Ctx, Ledger, Origin, Request, codes, upstream_key};
 use serde_json::Value;
@@ -27,6 +27,7 @@ enum Kind {
 const OPS: &[(&str, Kind)] = &[
     ("cloud.auth.status", Kind::Read),
     ("cloud.machine.list", Kind::Read),
+    ("cloud.machine.watch", Kind::Read),
     ("cloud.machine.get", Kind::Read),
     ("cloud.machine.create", Kind::Mutation),
     ("cloud.machine.rename", Kind::Mutation),
@@ -43,6 +44,11 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.snapshot.delete", Kind::UserOnly),
     ("cloud.plan.get", Kind::Read),
     ("cloud.usage.get", Kind::Read),
+    // Attach (crate::link): connect may start a paused machine, so all three
+    // are mutations with a key.
+    ("cloud.machine.connect", Kind::Mutation),
+    ("cloud.machine.disconnect", Kind::Mutation),
+    ("cloud.rescue.open", Kind::Mutation),
 ];
 
 /// Other names for ops: the `resume` verb and the old relay names
@@ -105,6 +111,20 @@ fn relay_args(called: &str, name: &str, args: &Value) -> Value {
     Value::Object(out)
 }
 
+/// Machine mutations whose result carries the projection `revision` its
+/// change reached, so a client settles its intent when its mirror has seen
+/// that revision on `cloud.machine.watch` (no refetch). Deletes keep their
+/// `{ok: true}` result; the `removed` event for the id settles them.
+const REVISION_RESULTS: &[&str] = &[
+    "cloud.machine.create",
+    "cloud.machine.rename",
+    "cloud.machine.start",
+    "cloud.machine.pause",
+    "cloud.machine.resize",
+    "cloud.snapshot.restore",
+    "cloud.snapshot.fork",
+];
+
 fn kind_of(name: &str) -> Kind {
     OPS.iter().find(|(n, _)| *n == name).map_or(Kind::Read, |(_, k)| *k)
 }
@@ -115,11 +135,32 @@ pub struct Server<C> {
     control_plane: C,
     projection: Projection,
     ledger: Ledger,
+    attach: crate::link::Attach,
+}
+
+impl<C> Server<C> {
+    pub fn attach(&self) -> &crate::link::Attach {
+        &self.attach
+    }
+
+    pub fn attach_mut(&mut self) -> &mut crate::link::Attach {
+        &mut self.attach
+    }
 }
 
 impl<C: ControlPlane> Server<C> {
+    /// A server with no link configuration (attach ops answer typed errors).
     pub fn new(control_plane: C) -> Self {
-        Self { control_plane, projection: Projection::default(), ledger: Ledger::default() }
+        Self::with_attach(control_plane, crate::link::Attach::unconfigured())
+    }
+
+    pub fn with_attach(control_plane: C, attach: crate::link::Attach) -> Self {
+        Self { control_plane, projection: Projection::default(), ledger: Ledger::default(), attach }
+    }
+
+    /// One Cloud API call context for an attach op.
+    pub(crate) fn ctx<'a>(&'a mut self, op: &'a str, key: Option<&'a str>) -> Ctx<'a, C> {
+        Ctx::new(&mut self.control_plane, &mut self.projection, op, key)
     }
 
     pub fn control_plane(&self) -> &C {
@@ -134,8 +175,9 @@ impl<C: ControlPlane> Server<C> {
         &self.projection
     }
 
-    /// Projection changes since the last call, in order, for the host.
-    pub fn take_events(&mut self) -> Vec<ProjectionEvent> {
+    /// `cloud.machine.watch` events since the last call, in order, for the
+    /// host.
+    pub fn take_events(&mut self) -> Vec<WatchEvent> {
         self.projection.take_events()
     }
 
@@ -160,7 +202,7 @@ impl<C: ControlPlane> Server<C> {
                     format!("{name} is a read and takes no idempotency key"),
                 ));
             }
-            return self.run(name, &args, None);
+            return self.run(name, &args, request.origin, None);
         }
         let key = key.ok_or_else(|| {
             CloudError::new(
@@ -171,13 +213,27 @@ impl<C: ControlPlane> Server<C> {
         if key.len() > 128 {
             return Err(CloudError::invalid("an idempotency key has at most 128 characters"));
         }
+        if crate::link::ops::live_state_op(name) {
+            // The answer is live link state: a replay of an old carrier would
+            // name a dead socket. These ops are idempotent by themselves
+            // (one carrier per machine), so they run every time.
+            let upstream = upstream_key(name, &args, key);
+            return self.run(name, &args, request.origin, Some(&upstream));
+        }
         if let Some(done) = self.ledger.replay(key, name, &args)? {
             return Ok(done);
         }
         self.ledger.attempt(key, name, &args);
         let upstream = upstream_key(name, &args, key);
-        match self.run(name, &args, Some(&upstream)) {
-            Ok(result) => {
+        match self.run(name, &args, request.origin, Some(&upstream)) {
+            Ok(mut result) => {
+                // Recorded with the result, so a same-key replay answers the
+                // same revision and emits nothing new.
+                if REVISION_RESULTS.contains(&name)
+                    && let Value::Object(fields) = &mut result
+                {
+                    fields.insert("revision".into(), self.projection.revision().into());
+                }
                 self.ledger.succeed(key, result.clone());
                 Ok(result)
             }
@@ -191,7 +247,16 @@ impl<C: ControlPlane> Server<C> {
         }
     }
 
-    fn run(&mut self, name: &str, args: &Value, key: Option<&str>) -> Result<Value, CloudError> {
+    fn run(
+        &mut self,
+        name: &str,
+        args: &Value,
+        origin: Origin,
+        key: Option<&str>,
+    ) -> Result<Value, CloudError> {
+        if crate::link::ops::serves(name) {
+            return crate::link::ops::run(self, name, args, origin, key);
+        }
         let mut ctx = Ctx::new(&mut self.control_plane, &mut self.projection, name, key);
         let group = name.split('.').nth(1).unwrap_or_default();
         match group {

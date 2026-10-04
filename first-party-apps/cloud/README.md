@@ -32,7 +32,8 @@ Fragment names are `cloud.<noun>.<verb>`; the full name is `cmux.cloud.<noun>.<v
 | Op | Class, risk | MCP | CLI | Cloud API | Rule |
 | --- | --- | --- | --- | --- | --- |
 | `cloud.auth.status` | read | default | `auth status` | none (host) | the host answers from its sign-in |
-| `cloud.machine.list` | read | default | `machine list` | `GET /api/vm` | replaces the projection |
+| `cloud.machine.list` | read | default | `machine list` | `GET /api/vm` | refreshes the projection (a diff) |
+| `cloud.machine.watch` | read | never | `machine watch` (hidden) | none | answers `{revision}`; the stream is the `cloud.machine.watch` events (below) |
 | `cloud.machine.get` | read | default | `machine get` | `GET /api/vm/:id` | |
 | `cloud.machine.create` | mutation, mutate-own | opt_in | `machine create` | `POST /api/vm` | idempotency key required; a retry with the same key returns the same machine and makes no second call; the API gets a derived key (below) |
 | `cloud.machine.rename` | mutation, mutate-shared | default | `machine rename` | `PATCH /api/vm/:id` | |
@@ -58,7 +59,9 @@ Errors are `cmux.cloud.*`: `auth_required` (401, or no sign-in at the host; the 
 
 ## Projection and refresh
 
-The server is the only writer of the machine projection. A list replaces it; a get, create, rename, start, pause, restore or fork answer is merged into the record (fields the answer does not carry are kept; for a machine the projection does not know, a rename, start or pause first reads the full record); a delete, or a delete answered `not_found`, removes the record. `createdAt` is epoch milliseconds whether the API sends a number or an ISO string. Every change raises the revision and sends one `cloud.machine.changed {revision, change, machine}` event to the host after the op result. There is no timer and no polling: the page and the sidebar read on open, on app activation and after a change (cloud-app.md DECISION 5).
+The server is the only writer of the machine projection, and the projection is the only source of `cloud.machine.watch` events. A list refreshes it as a diff (records missing from the list are removed, new or changed records upserted; destroyed machines are not kept); a get, create, rename, start, pause, restore or fork answer is merged into the record (fields the answer does not carry are kept; for a machine the projection does not know, a rename, start or pause first reads the full record and writes both as one change); a delete, or a delete answered `not_found`, removes the record. `createdAt` is epoch milliseconds whether the API sends a number or an ISO string.
+
+Each write that changes at least one record raises the revision by one and queues one event per changed record, all with that revision: `{type: "upsert", revision, machine}` (the full record) or `{type: "removed", revision, id}`. A write that changes nothing (a no-op refresh, an answer equal to the record) raises nothing and emits nothing. After each op result the serve loop sends the queued events as `{"type":"event","event":"cloud.machine.watch","data":<event>}` lines. Machine mutation results (create, rename, start, pause, resize, snapshot restore and fork) carry a top-level `revision`: the revision the change reached (the current one when nothing changed). A client settles its intent when its mirror has seen that revision. The ledger records the result with its revision, so a same-key replay answers the same revision and emits nothing. A delete keeps its `{ok: true}` result; the `removed` event for the id settles it. There is no timer and no polling: the page and the sidebar read on open, on app activation and after a change (cloud-app.md DECISION 5).
 
 ## Gaps
 
@@ -69,7 +72,10 @@ The server is the only writer of the machine projection. A list replaces it; a g
 - `POST /api/vm/:id/snapshot` takes no idempotency key: a snapshot whose answer was lost may be taken twice on retry.
 - `backend/catalog/cloud-relay-operations.json` binds `vm.snapshot.restore` to `POST /api/vm/:vm_id/restore`; the Cloud API route is `POST /api/vm/restore` with `{snapshotId}`. The server uses the route.
 - Plan and usage have no route of their own; both come from the `limits` of `GET /api/vm`. Hours are reported only for plans with an hour allowance.
-- Not declared yet (other packages): `auth.sign_in`, `auth.sign_out`, `team.list`, `team.select` (host credential owner), attach (C2), files and ports (C5), domains and network (C6), `machine.watch` (needs a machine change feed, DECISION 5).
+- Not declared yet (other packages): `auth.sign_in`, `auth.sign_out`, `team.list`, `team.select` (host credential owner), files and ports (C5), domains and network (C6).
+- The catalog fragment schema has no stream class (`class` is `read` or `mutation`). `cloud.machine.watch` is declared as a read that answers the current revision; the event name and shape are documented here and in its `docs`. The host must map `cloud.machine.watch` event lines to page subscriptions of `cmux.cloud.machine.watch` (not built yet).
+- The revision has no epoch: it starts at 0 in each server process. A host that restarts the server must restart its page sessions (a new list), or a page keeps its old revision and drops the new events. An instance id on the list and the events would remove this rule.
+- The projection sees only what this server does and what a list returns: a change made elsewhere (the web dashboard, another Mac) shows on the stream at the next list read (page open, app activation), not live. A live feed needs a Cloud API change feed (DECISION 5).
 - Events do not carry the request's transaction id and there is no `request-settled`; the app host protocol for native servers does not define them yet.
 - The icon is a symbol (`icon.noImage` warning), like `app-store`.
 - Scope reasons in the manifest are English only: the schema takes one string per scope.

@@ -1,5 +1,5 @@
 //! The op loop of `cmux-cloud`: one host message at a time; each op gets one
-//! result line, then the projection events it caused.
+//! result line, then the `cloud.machine.watch` events it caused.
 
 use super::relay::HostRelay;
 use super::wire::Request;
@@ -9,7 +9,8 @@ use std::io::{self, BufRead, Write};
 
 /// Serves ops until the host closes the channel.
 pub fn serve<R: BufRead, W: Write>(relay: HostRelay<R, W>) -> io::Result<()> {
-    let mut server = Server::new(relay);
+    // Attach settings come from the host's environment (crate::link::Attach::from_env).
+    let mut server = Server::with_attach(relay, crate::link::Attach::from_env());
     while let Some(message) = server.control_plane_mut().next_message()? {
         let id = message.get("id").cloned().unwrap_or(Value::Null);
         let answer = match message.get("type").and_then(Value::as_str) {
@@ -33,13 +34,14 @@ pub fn serve<R: BufRead, W: Write>(relay: HostRelay<R, W>) -> io::Result<()> {
             _ => invalid(id, "expected a message of type op"),
         };
         server.control_plane_mut().send(&answer)?;
+        // `data` is the stream item (`{type: upsert|removed, revision, ...}`);
+        // it is nested because `type` names the line kind here.
         for event in server.take_events() {
-            let mut line = json!({ "type": "event", "event": "cloud.machine.changed" });
-            if let (Some(target), Ok(Value::Object(fields))) =
-                (line.as_object_mut(), serde_json::to_value(&event))
-            {
-                target.extend(fields);
-            }
+            let line = json!({ "type": "event", "event": "cloud.machine.watch", "data": event });
+            server.control_plane_mut().send(&line)?;
+        }
+        // Carrier changes (up, down, revoked) that arrived by now.
+        for line in crate::link::ops::take_event_lines(&mut server) {
             server.control_plane_mut().send(&line)?;
         }
     }

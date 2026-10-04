@@ -8,6 +8,9 @@ enum LayoutStrings {
     static var columnEdgeAccessibility: String {
         String(localized: "layout.columnEdge.accessibility", defaultValue: "Column Width", bundle: .module)
     }
+    static var rowEdgeAccessibility: String {
+        String(localized: "layout.rowEdge.accessibility", defaultValue: "Row Height", bundle: .module)
+    }
     static var stripScrollbarAccessibility: String {
         String(localized: "layout.stripScrollbar.accessibility", defaultValue: "Column Strip Scroll Bar", bundle: .module)
     }

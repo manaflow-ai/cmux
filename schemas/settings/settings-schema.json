@@ -851,6 +851,48 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.rows.help",
+        "text" : "Off hides New Row and fits a column's existing rows into it without scrolling."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.rows",
+      "keywords" : [
+        "row",
+        "column",
+        "scroll",
+        "vertical"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "layout",
+        "rows"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.layout.rows",
+        "text" : "Rows"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         80,
         800,
         440
@@ -6814,7 +6856,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "3cc807c8149dab1ba4a3d905decc3f2582cf73fb017e55047220e0f0eb90c4fa",
+  "schema_hash" : "05105855c31f7f93fcf88986e2342c08663583d9a4f77c9b6f51423d7da574c9",
   "sections" : [
     {
       "id" : "general",

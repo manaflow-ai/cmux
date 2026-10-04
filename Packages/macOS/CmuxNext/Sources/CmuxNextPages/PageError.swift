@@ -33,4 +33,6 @@ public nonisolated struct PageError: Error, Sendable, Equatable {
     public static func unavailable(_ message: String) -> PageError {
         PageError(code: "cmux.protocol.unavailable", message: message, retryable: true)
     }
+    /// The link to the owner (or the page) is gone (the Settings lead's page pattern).
+    public static let closed = PageError(code: "cmux.protocol.closed", message: "the link to the owner is closed", retryable: true)
 }

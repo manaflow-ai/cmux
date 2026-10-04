@@ -28,7 +28,7 @@ struct PageProvidersTests {
                                                          details: .object(["field": .string("range")]), retryable: false))
         #expect(refused == PageError(code: "cmux.validation.invalid", message: "bad range", retryable: false,
                                      details: ["field": "range"]))
-        #expect(DaemonPageRelay.pageError(.notConnected).code == "cmux.protocol.transport")
+        #expect(DaemonPageRelay.pageError(.notConnected).code == "cmux.protocol.closed")
         #expect(DaemonPageRelay.pageError(.notConnected).retryable)
         #expect(DaemonPageRelay.pageError(.command(cmd: "x", message: "m", code: "cmux.history.gone")).code == "cmux.history.gone")
     }

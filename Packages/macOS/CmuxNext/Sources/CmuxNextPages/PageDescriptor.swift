@@ -63,8 +63,14 @@ public nonisolated enum PageNativeOp {
     public static let actionRun = "cmux.app.action.run"
     /// Writes text to the pasteboard: `{text}`.
     public static let clipboardWrite = "cmux.app.clipboard.write"
-    /// Host to page: the key dispatcher delivered a page command: `{command}` (`find`).
+    /// Stream every page may subscribe to: `{command, text?}` from the app's key dispatcher
+    /// (`find`, `focusSearch`, `back`, `forward`, `reset`). The page never reads chords itself.
     public static let pageCommand = "cmux.page.command"
+    /// Stream every page may subscribe to: `{connected}`, the page's owner link (the daemon). The
+    /// current state arrives as the first event.
+    public static let pageConnection = "cmux.page.connection"
+    /// The page commands the dispatcher sends (the Settings lead's page pattern).
+    public static let commands: Set<String> = ["find", "focusSearch", "back", "forward", "reset"]
 }
 
 public extension PageDescriptor {

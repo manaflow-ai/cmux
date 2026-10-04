@@ -8,13 +8,14 @@ public import Foundation
 public protocol PageProvider: AnyObject {
     /// Answers one call or throws ``PageError``.
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue
-    /// Starts an event stream; `onEvent` runs on the main actor for each event, in order.
-    func subscribe(_ stream: String, context: PageCallContext,
+    /// Starts an event stream with the page's `filter` (an object, possibly empty); `onEvent` runs
+    /// on the main actor for each event, in order.
+    func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription
 }
 
 public extension PageProvider {
-    func subscribe(_ stream: String, context: PageCallContext,
+    func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         throw PageError.unknownOp(stream)
     }

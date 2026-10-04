@@ -2,6 +2,7 @@
 // the daemon module (cmux-tui/crates/cmux-history) owns filtering, retention and clearing. The mock
 // keeps only enough of it (kinds, search tokens, range, remove, clear) to drive the page.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
+import { LINK_CLOSED, MockPageStreams } from "../shared/pageStreams";
 import {
   ACTION_RUN,
   CLIPBOARD_WRITE,
@@ -69,6 +70,8 @@ export class MockHistoryProvider implements PageClient {
   private readonly handlers = new Map<string, PageHandler>();
   /** Set to make every call reject as if the host went away. */
   offline = false;
+  /** The host's page streams (connection, dispatcher commands). */
+  readonly page = new MockPageStreams();
 
   constructor(
     entries: HistoryEntry[] = sampleEntries(Date.now()),
@@ -79,7 +82,7 @@ export class MockHistoryProvider implements PageClient {
 
   async call<R>(op: string, params: unknown): Promise<R> {
     this.calls.push({ op, params });
-    if (this.offline) throw pageError("cmux.protocol.transport", "disconnected", true);
+    if (this.offline) throw pageError(LINK_CLOSED, "disconnected", true);
     switch (op) {
       case HistoryOps.list:
         return this.list(params as HistoryListParams) as R;
@@ -107,7 +110,9 @@ export class MockHistoryProvider implements PageClient {
   }
 
   async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
-    if (this.offline) throw pageError("cmux.protocol.transport", "disconnected", true);
+    const pageStream = this.page.subscribe(stream, onEvent as (data: unknown, seq: number) => void);
+    if (pageStream) return pageStream;
+    if (this.offline) throw pageError(LINK_CLOSED, "disconnected", true);
     if (stream !== HistoryOps.changed) throw pageError("cmux.protocol.unknown_op", stream);
     const sub = this.nextSub++;
     this.subs.set(sub, onEvent as (data: unknown, seq: number) => void);
@@ -119,11 +124,6 @@ export class MockHistoryProvider implements PageClient {
   handle(op: string, handler: PageHandler): () => void {
     this.handlers.set(op, handler);
     return () => this.handlers.delete(op);
-  }
-
-  /** Host to page call (the dispatcher's `find` command in the dev loop). */
-  invoke(op: string, params: unknown): unknown {
-    return this.handlers.get(op)?.(params);
   }
 
   get subscriberCount(): number {

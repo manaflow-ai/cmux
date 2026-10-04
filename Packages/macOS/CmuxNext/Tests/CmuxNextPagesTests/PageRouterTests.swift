@@ -11,6 +11,7 @@ import Testing
     final class Recorder: PageProvider {
         var calls: [(op: String, params: JSONValue, context: PageCallContext)] = []
         var emit: (@MainActor (JSONValue) -> Void)?
+        var filters: [JSONValue] = []
         var cancelled = 0
         var failure: PageError?
 
@@ -20,8 +21,9 @@ import Testing
             return ["echo": .string(op)]
         }
 
-        func subscribe(_ stream: String, context: PageCallContext,
+        func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                        onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
+            filters.append(filter)
             emit = onEvent
             return PageSubscription { [weak self] in self?.cancelled += 1 }
         }
@@ -98,6 +100,32 @@ import Testing
         #expect(sent.items.count == 2)
     }
 
+    @Test func subscriptionFiltersReachTheProviderAndAPageOriginIsRefused() async {
+        let (router, daemon, _, _) = router()
+        _ = await router.handle(["t": "sub", "id": 11, "stream": "cmux.settings.changed", "filter": ["keys": ["a"]]])
+        #expect(daemon.filters == [["keys": ["a"]]])
+        let refused = await router.handle(["t": "sub", "id": 12, "stream": "cmux.settings.changed", "filter": ["origin": "mcp"]])
+        #expect(refused["code"] == "cmux.protocol.invalid_params")
+        #expect(daemon.filters.count == 1)
+    }
+
+    @Test func everyPageGetsTheConnectionAndCommandStreams() async {
+        let (router, daemon, _, sent) = router()
+        let connection = await router.handle(["t": "sub", "id": 20, "stream": .string(PageNativeOp.pageConnection)])
+        let command = await router.handle(["t": "sub", "id": 21, "stream": .string(PageNativeOp.pageCommand)])
+        #expect(connection["t"] == "ok" && command["t"] == "ok")
+        for _ in 0..<20 where sent.items.isEmpty { await Task.yield() }
+        #expect(sent.items.first == ["t": "ev", "sub": 1, "seq": 1, "data": ["connected": true]])
+        router.publishConnection(false)
+        router.publishConnection(false)
+        #expect(sent.items.last == ["t": "ev", "sub": 1, "seq": 2, "data": ["connected": false]])
+        #expect(router.publishCommand("find", arguments: ["text": "x"]))
+        #expect(sent.items.last == ["t": "ev", "sub": 2, "seq": 1, "data": ["command": "find", "text": "x"]])
+        #expect(!router.publishCommand("zoom"))
+        #expect(sent.items.count == 3)
+        #expect(daemon.filters.isEmpty, "built-in streams never reach a provider")
+    }
+
     @Test func closeCancelsSubscriptionsAndRefusesLaterCalls() async {
         let (router, daemon, _, _) = router()
         _ = await router.handle(["t": "sub", "id": 8, "stream": "cmux.settings.changed"])
@@ -105,7 +133,7 @@ import Testing
         #expect(daemon.cancelled == 1)
         #expect(router.subscriptionCount == 0)
         let reply = await router.handle(["t": "call", "id": 9, "op": "cmux.settings.list", "params": [:]])
-        #expect(reply["code"] == "cmux.protocol.unavailable")
+        #expect(reply["code"] == "cmux.protocol.closed")
         router.reset()
         let again = await router.handle(["t": "call", "id": 10, "op": "cmux.settings.list", "params": [:]])
         #expect(again["t"] == "ok")

@@ -13,6 +13,15 @@ extension ScreenContentView {
         var minimumB: CGFloat = 0
         /// A sticky column's handle: on the right edge it grows leftward.
         var stickyEdge: StickyEdge?
+        /// A row edge: the column's rows and their frames when the drag
+        /// began (rows.md Z1).
+        var rows: RowDragStart?
+    }
+
+    struct RowDragStart {
+        var rows: [LayoutRow]
+        var stack: RowStackGeometry
+        var minimums: [RowID: CGFloat]
     }
 
     /// `point` in the geometry space of `kind`: strip space for what
@@ -32,6 +41,9 @@ extension ScreenContentView {
             case let .columnEdge(id):
                 guard let column = layout.columns.first(where: { $0.id == id }) else { return }
                 model.setColumnWidth(id, width: ColumnWidthPreset.next(after: column.width).rawValue, transaction: .make(), phase: .ended)
+            case .rowEdge:
+                // Equalize Rows (Z3) is a later surfaces step.
+                return
             }
         case let .began(windowPoint):
             let point = contentPoint(fromWindow: windowPoint, kind: kind)
@@ -55,6 +67,15 @@ extension ScreenContentView {
                 let band = edge?.isBand == true
                 activeDrag = ActiveDrag(kind: kind, transaction: .make(), grabOffset: grab, container: frame,
                                         axis: band ? .vertical : .horizontal, minimumA: band ? size.height : size.width, stickyEdge: edge)
+            case let .rowEdge(columnID, upper):
+                guard let column = layout.columns.first(where: { $0.id == columnID }), let stack = baseGeometry.rowStacks[columnID],
+                      let upperFrame = stack.frame(of: upper) else { return }
+                let y = local(windowPoint).y + rowOffset(of: kind)
+                let minimums = Dictionary(uniqueKeysWithValues: column.rows.map {
+                    ($0.id, SplitGeometry.minimumSize(of: $0.root, style: context.style).height)
+                })
+                activeDrag = ActiveDrag(kind: kind, transaction: .make(), grabOffset: y - upperFrame.maxY, container: stack.frame,
+                                        axis: .vertical, rows: RowDragStart(rows: column.rows, stack: stack, minimums: minimums))
             }
             model.setGestureActive(true)
             context.requestFrames()
@@ -96,6 +117,21 @@ extension ScreenContentView {
             }
             let fraction = ColumnStripGeometry.fraction(forPixelWidth: extent, viewportWidth: viewport, gap: style.stripGap)
             context.model.setColumnWidth(id, width: fraction, transaction: drag.transaction, phase: phase)
+        case let .rowEdge(column, upper):
+            guard let start = drag.rows else { return }
+            let pointer = local(windowPoint).y + rowOffset(of: drag.kind) - drag.grabOffset
+            let heights = RowResize.heights(start.rows, stack: start.stack, upper: upper, pointerY: pointer,
+                                            minimums: start.minimums, fits: !context.style.rowsEnabled)
+            rowDragPreview = (column, heights)
+            reconcile(animated: false)
+            if phase == .ended {
+                // One intent on release; the preview stays until the next
+                // layout carries it.
+                context.model.setRowHeights(column, heights: heights, fit: heights.reduce(0) { $0 + $1.height } == 1000)
+            }
         }
     }
+
+    /// `windowPoint` in this view's coordinates.
+    private func local(_ windowPoint: NSPoint) -> NSPoint { convert(windowPoint, from: nil) }
 }

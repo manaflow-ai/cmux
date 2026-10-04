@@ -312,3 +312,62 @@ fn closed_dialogs_forget_their_ids() {
     state.apply(&cdp(Some("S1"), "Page.javascriptDialogClosed", json!({"result": true})));
     assert!(state.dialogs.is_empty());
 }
+
+#[test]
+fn browser_page_targets_never_become_tabs() {
+    let mut state = State::default();
+    for (session, kind, url) in [
+        ("SP", "page", "chrome://password-manager/passwords"),
+        ("SE", "page", "chrome-extension://abc/options.html"),
+        ("SW", "service_worker", "chrome-extension://abc/background.js"),
+    ] {
+        let applied = state.apply(&cdp(
+            None,
+            "Target.attachedToTarget",
+            json!({"sessionId": session, "targetInfo": {"targetId": format!("T{session}"), "type": kind, "url": url}, "waitingForDebugger": true}),
+        ));
+        assert!(
+            !applied
+                .follow_ups
+                .iter()
+                .any(|f| matches!(f, FollowUp::SetUpPage { .. } | FollowUp::Resume { .. })),
+            "{url}: {:?}",
+            applied.follow_ups
+        );
+        assert!(!applied.follow_ups.is_empty(), "{url}: the target must be released");
+    }
+    assert!(state.tabs.is_empty());
+    assert!(state.sessions.is_empty());
+}
+
+#[test]
+fn a_nested_frame_on_a_browser_page_is_released_through_its_parent_frame() {
+    let mut state = State::default();
+    attach(&mut state, "T1", "S1", None);
+    let frame = |state: &mut State, parent: &str, session: &str, target: &str| {
+        state.apply(&cdp(
+            Some(parent),
+            "Target.attachedToTarget",
+            json!({"sessionId": session, "targetInfo": {"targetId": target, "type": "iframe", "url": "https://x.test/"}, "waitingForDebugger": true}),
+        ))
+    };
+    frame(&mut state, "S1", "C1", "F1");
+    frame(&mut state, "C1", "C2", "F2");
+    let applied = state.apply(&cdp(
+        Some("C2"),
+        "Page.frameNavigated",
+        json!({"frame": {"id": "F2", "parentId": "F1", "loaderId": "L", "url": "chrome-extension://abc/menu.html"}, "type": "Navigation"}),
+    ));
+    assert_eq!(
+        applied.follow_ups,
+        vec![FollowUp::Release {
+            session_id: "C2".into(),
+            waiting: false,
+            parent: Some("C1".into())
+        }]
+    );
+    assert!(state.target_for_session("C2").is_none());
+    // A new main document drops the old frames' URLs.
+    navigate_main(&mut state, "S1", "L2", "https://b.test/");
+    assert_eq!(state.tabs["T1"].frame_urls.len(), 1);
+}

@@ -79,7 +79,7 @@ final class HistoryPageTab: BrowserTab {
     func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue { throw BrowserTabError.closed }
     func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult {
         if let webPage {
-            await webPage.send(command: "find", arguments: ["text": .string(text)])
+            webPage.send(command: "find", arguments: ["text": .string(text)])
             return .none
         }
         model.text = text
