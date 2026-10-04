@@ -30,6 +30,8 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
     /// Manifest v2 `presentation`: sidebar item, screen, tab, typing target,
     /// web content (app-platform.md 16).
     public var presentation: AppPresentation?
+    /// Manifest v2 `contributes.toolbarItems` (app-platform.md 17).
+    public var toolbarItems: [AppToolbarItem]
     public var raw: AppJSON
 
     /// The publisher segment of the id (`cmux`, `local`).
@@ -89,6 +91,7 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
         activation = o["activation"]?.arrayValue?.compactMap(\.stringValue) ?? []
         files = o["files"]?.arrayValue?.compactMap(\.stringValue) ?? []
         presentation = AppPresentation(json: o["presentation"])
+        toolbarItems = AppToolbarItem.list(raw)
     }
 }
 

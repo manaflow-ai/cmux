@@ -1,4 +1,4 @@
-import { EVENT_RETENTION_MS, LEDGER_RETENTION_MS, OwnerEngine, type Domain, type OpFrame, type OwnerFrame, type Principal, type SqlStore } from "@cmux/ownership"
+import { LEDGER_RETENTION_MS, OwnerEngine, type Domain, type OpFrame, type OwnerFrame, type Principal, type SqlStore } from "@cmux/ownership"
 import type { Attachment, OwnerEngineOptions } from "./owner-do.ts"
 
 /**
@@ -95,14 +95,15 @@ export class SecondaryStream<S> {
   prune(now: number): void {
     if (!this.engine) return
     this.engine.pruneLedger(now - LEDGER_RETENTION_MS)
-    this.engine.pruneEvents(now - EVENT_RETENTION_MS)
+    this.engine.pruneEventWindow(now)
   }
 
   /** When this stream next needs the alarm (pruning), or null. */
   nextWakeAt(): number | null {
     if (!this.engine) return null
     const oldest = this.engine.oldestLedgerAt()
-    const times = [oldest === null ? null : oldest + LEDGER_RETENTION_MS + 3600_000, this.engine.nextEventPruneAt()].filter((t): t is number => t !== null)
+    const events = this.engine.eventWindowDue(Date.now()) ? Date.now() : this.engine.nextEventPruneAt()
+    const times = [oldest === null ? null : oldest + LEDGER_RETENTION_MS + 3600_000, events].filter((t): t is number => t !== null)
     return times.length ? Math.min(...times) : null
   }
 }

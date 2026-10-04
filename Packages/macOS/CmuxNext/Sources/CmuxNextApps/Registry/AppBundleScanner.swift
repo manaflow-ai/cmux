@@ -56,7 +56,9 @@ public nonisolated enum AppBundleScanner {
                     }
                     manifest = try AppManifest.decode(data)
                     if let v2, let data = try? Data(contentsOf: v2) {
-                        manifest.presentation = try AppManifest.decodeShippedV2(data).presentation
+                        let v2Manifest = try AppManifest.decodeShippedV2(data)
+                        manifest.presentation = v2Manifest.presentation
+                        manifest.toolbarItems = v2Manifest.toolbarItems
                     }
                 } else if let v2, let data = try? Data(contentsOf: v2) {
                     manifest = try AppManifest.decodeShippedV2(data)

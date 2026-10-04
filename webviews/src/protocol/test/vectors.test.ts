@@ -1,15 +1,16 @@
-// Shared wire conformance vectors (spec: "First slice" item 5). The Rust lane writes them;
-// until they are committed in the repo this reads PANE_PROTOCOL_VECTORS or the coordination
-// path. The vector format is not fixed yet, so this harness accepts the shapes below and
-// fails on any vector it does not understand instead of skipping it.
+// Shared wire conformance vectors (spec: "First slice" item 5), written by the Rust lane. Until
+// they are committed in the repo this reads PANE_PROTOCOL_VECTORS or the coordination path.
+// Only `vectors[]` is for the TS/Go harnesses (R11). Any vector shape this harness does not
+// understand fails the test instead of being skipped.
 //
-//   { "name", "text": "<envelope json>", "valid": bool }           envelope decode
-//   { "name", "hex": "<binary frame hex>", "valid": bool, "stream"?, "credit"?, "payload_hex"? }
-//   { "name", "type": "<IR type>", "value": <json>, "valid": bool } generated validator
+//   { kind: "envelope", text, valid, encoded? }    decode; `encoded` is our re-encoding, byte for byte
+//   { kind: "data_frame", hex, valid, stream?, credit?, payload_hex? }
+//   { kind: "validation", type, value, valid }     generated validator
 
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
-import { decodeBinaryFrame, decodeEnvelope } from "../envelope";
+import { decodeBinaryFrame, decodeEnvelope, encodeEnvelope } from "../envelope";
+import { ANNOTATIONS, SUPPORTED } from "../codegen/schema";
 import * as validators from "../generated/validators";
 
 const vectorsPath = process.env.PANE_PROTOCOL_VECTORS ?? "/tmp/pane-protocol/vectors.json";
@@ -17,7 +18,9 @@ const vectorsPath = process.env.PANE_PROTOCOL_VECTORS ?? "/tmp/pane-protocol/vec
 interface Vector {
   name?: string;
   valid?: boolean;
+  kind?: string;
   text?: string;
+  encoded?: string;
   hex?: string;
   stream?: number;
   credit?: number;
@@ -54,8 +57,12 @@ describe.skipIf(!existsSync(vectorsPath))(`conformance vectors (${vectorsPath})`
       const name = vector.name ?? `#${index}`;
       const valid = vector.valid ?? true;
       if (typeof vector.text === "string") {
-        if (succeeds(() => decodeEnvelope(vector.text!)) !== valid)
+        if (succeeds(() => decodeEnvelope(vector.text!)) !== valid) {
           failures.push(`${name}: envelope valid != ${valid}`);
+        } else if (valid && vector.encoded !== undefined) {
+          const encoded = encodeEnvelope(decodeEnvelope(vector.text));
+          if (encoded !== vector.encoded) failures.push(`${name}: encoded ${encoded} != ${vector.encoded}`);
+        }
       } else if (typeof vector.hex === "string") {
         const bytes = hexBytes(vector.hex);
         if (!valid) {
@@ -81,5 +88,16 @@ describe.skipIf(!existsSync(vectorsPath))(`conformance vectors (${vectorsPath})`
       }
     }
     expect(failures).toEqual([]);
+  });
+});
+
+describe.skipIf(!existsSync(vectorsPath))("IR keyword subset (decision 9)", () => {
+  test("the codegen supports exactly the keywords the Rust IR test allows", () => {
+    const raw = JSON.parse(readFileSync(vectorsPath, "utf8")) as {
+      ir_keywords?: { supported: string[]; annotations: string[] };
+    };
+    expect(raw.ir_keywords).toBeDefined();
+    expect([...SUPPORTED].sort()).toEqual([...raw.ir_keywords!.supported].sort());
+    expect([...ANNOTATIONS].sort()).toEqual([...raw.ir_keywords!.annotations].sort());
   });
 });

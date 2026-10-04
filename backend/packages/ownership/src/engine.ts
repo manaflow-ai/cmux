@@ -1,5 +1,6 @@
 import { createHash, createHmac } from "node:crypto"
-import { claimedPrincipal, settled, stateFull } from "./state-guard.ts"
+import { claimedPrincipal, settled, stateFull, utf8Length } from "./state-guard.ts"
+import { addEventBytes, DEFAULT_EVENT_WINDOW, nextPruneAt, pruneBefore, pruneWindow, windowOver, type EventWindow } from "./event-window.ts"
 import { idFactory } from "./ids.ts"
 import { channelOf, Outbox, type OutboxRow } from "./outbox.ts"
 import { checkWrites, EMPTY_ROWS, readOnly, SqlRows, type RowWrite } from "./rows.ts"
@@ -74,6 +75,8 @@ export interface EngineOptions {
   readonly ledgerReply?: LedgerReplyRedaction
   /** What subscribers see of the actor in events. Default: the full principal. */
   readonly eventActor?: (p: Principal) => Principal
+  /** Event window (event-window.ts). Default: DEFAULT_EVENT_WINDOW. */
+  readonly eventWindow?: Partial<EventWindow>
 }
 
 /**
@@ -289,17 +292,9 @@ export class OwnerEngine<S, P = unknown> {
       if (changed && decision.ok) {
         this.sql.exec(`INSERT INTO ${t.state} (id, seq, json) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET seq = excluded.seq, json = excluded.json`, nextSeq, stateJson ?? JSON.stringify(decision.state))
         this.rows.apply(decision.writes)
-        this.sql.exec(
-          `INSERT INTO ${t.events} (seq, tx, op, params, actor, origin, at, effects) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          nextSeq,
-          tx,
-          frame.op,
-          JSON.stringify(event!.params ?? null),
-          JSON.stringify(event!.actor),
-          origin,
-          at,
-          effects ? JSON.stringify(effects) : null
-        )
+        const ev = [JSON.stringify(event!.params ?? null), JSON.stringify(event!.actor), effects ? JSON.stringify(effects) : null] as const
+        this.sql.exec(`INSERT INTO ${t.events} (seq, tx, op, params, actor, origin, at, effects) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, nextSeq, tx, frame.op, ev[0], ev[1], origin, at, ev[2])
+        addEventBytes(this.sql, t, utf8Length(ev[0]) + utf8Length(ev[1]) + (ev[2] === null ? 0 : utf8Length(ev[2])))
         for (const item of decision.outbox) {
           this.sql.exec(
             `INSERT INTO ${t.outbox} (seq, kind, entity, payload, created_at, target, channel) VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -424,35 +419,25 @@ export class OwnerEngine<S, P = unknown> {
     return r?.at === null || r?.at === undefined ? null : Number(r.at)
   }
 
-  /**
-   * When the next event prune is due: the oldest event beyond the newest `keepLast`, plus the
-   * retention; null when nothing can be pruned (so a quiet object never wakes for it).
-   */
-  nextEventPruneAt(retentionMs = EVENT_RETENTION_MS, keepLast = EVENT_KEEP_LAST): number | null {
-    const floor = this.seq - keepLast
-    if (floor <= 0) return null
-    const r = this.sql.exec<{ at: number | null }>(`SELECT MIN(at) AS at FROM ${this.t.events} WHERE seq <= ?`, floor)[0]
-    return r?.at === null || r?.at === undefined ? null : Number(r.at) + retentionMs
+  /** When the next time-based prune is due (the oldest event outside the floor plus the retention), or null. */
+  nextEventPruneAt(retentionMs = this.window.retentionMs, keepLast = this.window.floor): number | null {
+    return nextPruneAt(this.sql, this.t, this.seq, retentionMs, keepLast)
   }
 
-  /**
-   * Deletes a contiguous prefix of the log: events before the first one committed at or after
-   * `before`, never one of the newest `keepLast` (so a clock step back cannot leave a hole).
-   * Bounded per call.
-   */
+  /** Deletes a bounded contiguous prefix older than `before`, never one of the newest `keepLast` (event-window.ts). */
   pruneEvents(before: number, keepLast = EVENT_KEEP_LAST, limit = 1000): number {
-    const floor = this.seq - keepLast
-    if (floor <= 0) return 0
-    return this.sql.transaction(() => {
-      const firstKept = this.sql.exec<{ s: number | null }>(`SELECT MIN(seq) AS s FROM ${this.t.events} WHERE at >= ?`, before)[0]?.s
-      const cut = Math.min(firstKept === null || firstKept === undefined ? floor + 1 : Number(firstKept), floor + 1)
-      const oldest = this.sql.exec<{ s: number | null }>(`SELECT MIN(seq) AS s FROM ${this.t.events}`)[0]?.s
-      if (oldest === null || oldest === undefined || Number(oldest) >= cut) return 0
-      const upto = Math.min(cut - 1, Number(oldest) + limit - 1)
-      this.sql.exec(`DELETE FROM ${this.t.events} WHERE seq <= ?`, upto)
-      return upto - Number(oldest) + 1
-    })
+    return pruneBefore(this.sql, this.t, this.seq, before, keepLast, limit)
   }
+
+  private get window(): EventWindow {
+    return { ...DEFAULT_EVENT_WINDOW, ...this.options.eventWindow }
+  }
+
+  /** True when the log is past its count or byte cap (event-window.ts). */
+  eventWindowDue = (_now: number): boolean => windowOver(this.sql, this.t, this.seq, this.window)
+
+  /** One bounded prune of the event window: time first, then count and bytes. Returns how many went. */
+  pruneEventWindow = (now: number): number => this.pruneEvents(now - this.window.retentionMs, this.window.floor) + pruneWindow(this.sql, this.t, this.seq, this.window)
 
   /** When the oldest decided key was recorded (ms), or null for an empty ledger. */
   oldestLedgerAt(): number | null {

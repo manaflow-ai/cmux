@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "../App";
 import { applyDiffViewerAppearance, resolveDiffViewerAppearance } from "../appearance";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "../labels";
+import { installDiffLanguageHostAPI } from "../diff-languages/host";
 import { createWebviewsRouter } from "../router";
 import { applyDiffViewerStatusToDocument, initialDiffViewerStatus } from "../status";
 import diffViewerStyles from "../styles.css?inline";
@@ -25,6 +26,7 @@ function readConfig(): DiffViewerConfig {
 export function mountDiffSurface(rootElement: HTMLElement): void {
   const config = readConfig();
   installWebviewStyles("diff", diffViewerStyles);
+  installDiffLanguageHostAPI(config.payload?.languages);
   applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance));
   if (typeof config.payload?.title === "string" && config.payload.title.trim() !== "") {
     document.title = config.payload.title;

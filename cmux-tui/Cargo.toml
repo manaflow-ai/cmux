@@ -17,6 +17,7 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/cmux-history",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
     "crates/cmux-chief",
@@ -187,6 +188,10 @@ wait-timeout = "0.2"
 # rusqlite 0.40's libsqlite3-sys build script requires Rust 1.95 without
 # declaring that MSRV. Keep the workspace's advertised Rust 1.91 support.
 rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled", "hooks"] }
+# Unicode normalization for history search folding (cmux-history). Already in
+# the graph through url -> idna -> idna_adapter at this version; compiled
+# data only, no new transitive code.
+icu_normalizer = { version = "2.2", default-features = false, features = ["compiled_data"] }
 sha2 = "0.10"
 # Ed25519 verification of the signed channel manifest (cmux-server-core).
 # ring is already in the graph through rustls; this adds no new code.

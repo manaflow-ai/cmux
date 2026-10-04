@@ -1,6 +1,7 @@
 import type { CodeViewOptions } from "@pierre/diffs";
 import type { WorkerInitializationRenderOptions } from "@pierre/diffs/worker";
 import { appearanceBackgroundColor, readableColor, type DiffViewerAppearance } from "./appearance";
+import { syntaxPaletteColor } from "./syntax-colors";
 
 export type DiffViewerOptions = {
   collapsed: boolean;
@@ -228,58 +229,89 @@ export function shikiThemeFromGhostty(theme: any, appearance: DiffViewerAppearan
       "editor.selectionBackground": theme.selectionBackground,
       "editor.selectionForeground": theme.selectionForeground,
     },
-    tokenColors: [
-      { settings: { foreground, background: renderedBackground } },
-      {
-        scope: ["comment", "punctuation.definition.comment"],
-        settings: { foreground: tokenColor(palette["8"]), fontStyle: "italic" },
-      },
-      { scope: ["string", "constant.other.symbol"], settings: { foreground: tokenColor(palette["2"]) } },
-      {
-        scope: ["constant.numeric", "constant.language", "support.constant"],
-        settings: { foreground: tokenColor(palette["3"]) },
-      },
-      { scope: ["keyword", "storage", "storage.type"], settings: { foreground: tokenColor(palette["5"]) } },
-      { scope: ["entity.name.function", "support.function"], settings: { foreground: tokenColor(palette["4"]) } },
-      {
-        scope: ["entity.name.type", "entity.name.class", "support.type"],
-        settings: { foreground: tokenColor(palette["6"]) },
-      },
-      {
-        scope: ["markup.heading", "punctuation.definition.heading"],
-        settings: { foreground: tokenColor(palette["12"], tokenColor(palette["4"])), fontStyle: "bold" },
-      },
-      {
-        scope: ["markup.bold", "punctuation.definition.bold"],
-        settings: { foreground: tokenColor(palette["11"], tokenColor(palette["3"])), fontStyle: "bold" },
-      },
-      {
-        scope: ["markup.italic", "punctuation.definition.italic"],
-        settings: { foreground: tokenColor(palette["13"], tokenColor(palette["5"])), fontStyle: "italic" },
-      },
-      {
-        scope: ["markup.inline.raw", "markup.raw", "markup.fenced_code", "markup.raw.block"],
-        settings: { foreground: tokenColor(palette["10"], tokenColor(palette["2"])) },
-      },
-      {
-        scope: ["markup.underline.link", "string.other.link", "markup.link"],
-        settings: { foreground: tokenColor(palette["14"], tokenColor(palette["6"])) },
-      },
-      {
-        scope: ["markup.quote", "punctuation.definition.quote"],
-        settings: { foreground: tokenColor(palette["8"]), fontStyle: "italic" },
-      },
-      {
-        scope: ["markup.list", "punctuation.definition.list", "markup.table"],
-        settings: { foreground: tokenColor(palette["9"], tokenColor(palette["1"])) },
-      },
-      { scope: ["variable", "meta.definition.variable"], settings: { foreground } },
-      {
-        scope: ["invalid", "message.error"],
-        settings: { foreground: tokenColor(palette["9"], tokenColor(palette["1"])) },
-      },
-    ],
+    tokenColors: syntaxTokenColors(theme, foreground, renderedBackground, contrastBackground),
   };
+}
+
+/// Shiki token rules colored from the terminal's ANSI palette. A palette slot the host did not
+/// send uses the default terminal palette for the theme's type, and a slot too close to the
+/// background is blended toward the foreground until it reads, keeping its hue; mapping it to
+/// the foreground instead would make the token indistinguishable from plain text.
+function syntaxTokenColors(theme: any, foreground: string, renderedBackground: string, contrastBackground: string) {
+  const type = theme.type === "light" ? "light" : "dark";
+  const color = (...slots: number[]) =>
+    syntaxPaletteColor(theme.palette ?? {}, slots, type, contrastBackground, foreground);
+  return [
+    { settings: { foreground, background: renderedBackground } },
+    {
+      scope: ["comment", "punctuation.definition.comment", "string.comment"],
+      settings: { foreground: color(8), fontStyle: "italic" },
+    },
+    { scope: ["string", "constant.other.symbol", "string.regexp"], settings: { foreground: color(2) } },
+    {
+      scope: [
+        "constant.numeric",
+        "constant.language",
+        "constant.character",
+        "support.constant",
+        "variable.other.enummember",
+      ],
+      settings: { foreground: color(3) },
+    },
+    {
+      scope: ["keyword", "storage", "storage.type", "storage.modifier", "keyword.operator.new", "keyword.control"],
+      settings: { foreground: color(5) },
+    },
+    {
+      scope: ["entity.name.function", "support.function", "meta.function-call entity.name.function"],
+      settings: { foreground: color(4) },
+    },
+    {
+      scope: ["entity.name.type", "entity.name.class", "entity.other.inherited-class", "support.type", "support.class"],
+      settings: { foreground: color(6) },
+    },
+    {
+      scope: ["entity.name.tag", "meta.tag.sgml", "entity.name.section"],
+      settings: { foreground: color(1) },
+    },
+    { scope: ["entity.other.attribute-name"], settings: { foreground: color(3) } },
+    {
+      scope: ["markup.heading", "punctuation.definition.heading"],
+      settings: { foreground: color(12, 4), fontStyle: "bold" },
+    },
+    {
+      scope: ["markup.bold", "punctuation.definition.bold"],
+      settings: { foreground: color(11, 3), fontStyle: "bold" },
+    },
+    {
+      scope: ["markup.italic", "punctuation.definition.italic"],
+      settings: { foreground: color(13, 5), fontStyle: "italic" },
+    },
+    {
+      scope: ["markup.inline.raw", "markup.raw", "markup.fenced_code", "markup.raw.block"],
+      settings: { foreground: color(10, 2) },
+    },
+    {
+      scope: ["markup.underline.link", "string.other.link", "markup.link"],
+      settings: { foreground: color(14, 6) },
+    },
+    {
+      scope: ["markup.quote", "punctuation.definition.quote"],
+      settings: { foreground: color(8), fontStyle: "italic" },
+    },
+    {
+      // The bullet only: `markup.list` spans the whole item, which would color every list line.
+      scope: ["punctuation.definition.list", "markup.table"],
+      settings: { foreground: color(9, 1) },
+    },
+    { scope: ["markup.inserted", "punctuation.definition.inserted"], settings: { foreground: color(2) } },
+    { scope: ["markup.deleted", "punctuation.definition.deleted"], settings: { foreground: color(1) } },
+    { scope: ["variable", "meta.definition.variable"], settings: { foreground } },
+    {
+      scope: ["invalid", "message.error"],
+      settings: { foreground: color(9, 1) },
+    },
+  ];
 }
 
 function themeBackgroundForContrast(theme: any): string {

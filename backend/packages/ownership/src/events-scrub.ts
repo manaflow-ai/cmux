@@ -1,5 +1,6 @@
 import type { Tables } from "./schema.ts"
 import type { SqlStore } from "./sql.ts"
+import { resetEventBytes } from "./event-window.ts"
 
 /**
  * Rewrites the params of stored events of `op` with the owner's `redact.params`, for events
@@ -27,6 +28,8 @@ export const scrubStoredParams = (sql: SqlStore, t: Tables, redact: ((op: string
     }
     // Only a moved mark is written: a bind with nothing new costs no row write.
     if (!prior || high > since) sql.exec(`INSERT OR REPLACE INTO ${t.meta} (key, value) VALUES (?, ?)`, key, String(high))
+    // Rewritten params change the stored size: the event byte total is recomputed on its next read.
+    if (rewritten > 0) resetEventBytes(sql, t)
     return rewritten
   })
 }

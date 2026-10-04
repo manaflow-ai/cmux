@@ -840,6 +840,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-history"
+version = "0.1.0"
+dependencies = [
+ "icu_normalizer",
+ "proptest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [

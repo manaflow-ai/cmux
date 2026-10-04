@@ -71,7 +71,9 @@ export class ConversationDO extends OwnerDO<Head> {
     })
     super(ctx, env, withAdmit("cloud:ConversationDO", domain as Domain<Head>), "conv", publicActor, {
       rowMode: { snapshotTable: conversation.TABLE_MSG, snapshotTail: 50 },
-      redact: { ...conversation.conversationRedact, privateTables: conversation.PRIVATE_TABLES }
+      redact: { ...conversation.conversationRedact, privateTables: conversation.PRIVATE_TABLES },
+      // DO audit F-3: 7 days, at most 10,000 events and 256 MB, never fewer than the newest 1,000.
+      eventWindow: { retentionMs: 7 * 24 * 3600_000, maxEvents: 10_000, maxBytes: 256 * 1024 * 1024, floor: 1_000 }
     })
   }
 
