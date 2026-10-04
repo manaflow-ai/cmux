@@ -7,7 +7,9 @@
 //!
 //! - host -> server: `{"type":"op","id","op","args","origin","idempotency_key"}`
 //! - server -> host: `{"type":"result","id","ok","result"|"error"}`
-//! - server -> host: `{"type":"event","event","revision","machine","change"}`
+//! - server -> host: `{"type":"event","event":"cloud.machine.watch","data"}`
+//!   with `data` = `{"type":"upsert","revision","machine"}` or
+//!   `{"type":"removed","revision","id"}`; `{"type":"event","event":"cloud.link.changed",...}`
 //! - server -> host: `{"type":"relay.request","id","op","method","path","body","idempotency_key"}`
 //! - host -> server: `{"type":"relay.response","id","status","body","error_code"}`
 //!   or `{"type":"relay.error","id","code":"not_signed_in"|"unavailable","message"}`

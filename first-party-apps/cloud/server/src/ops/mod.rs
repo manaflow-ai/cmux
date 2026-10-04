@@ -7,7 +7,7 @@ mod machine_projection;
 mod plan;
 mod snapshot;
 
-pub use machine_projection::{Change, Projection, ProjectionEvent};
+pub use machine_projection::{Projection, WatchEvent};
 
 use crate::api::{CloudError, ControlPlane, Ctx, Ledger, Origin, Request, codes, upstream_key};
 use serde_json::Value;
@@ -27,6 +27,7 @@ enum Kind {
 const OPS: &[(&str, Kind)] = &[
     ("cloud.auth.status", Kind::Read),
     ("cloud.machine.list", Kind::Read),
+    ("cloud.machine.watch", Kind::Read),
     ("cloud.machine.get", Kind::Read),
     ("cloud.machine.create", Kind::Mutation),
     ("cloud.machine.rename", Kind::Mutation),
@@ -110,6 +111,20 @@ fn relay_args(called: &str, name: &str, args: &Value) -> Value {
     Value::Object(out)
 }
 
+/// Machine mutations whose result carries the projection `revision` its
+/// change reached, so a client settles its intent when its mirror has seen
+/// that revision on `cloud.machine.watch` (no refetch). Deletes keep their
+/// `{ok: true}` result; the `removed` event for the id settles them.
+const REVISION_RESULTS: &[&str] = &[
+    "cloud.machine.create",
+    "cloud.machine.rename",
+    "cloud.machine.start",
+    "cloud.machine.pause",
+    "cloud.machine.resize",
+    "cloud.snapshot.restore",
+    "cloud.snapshot.fork",
+];
+
 fn kind_of(name: &str) -> Kind {
     OPS.iter().find(|(n, _)| *n == name).map_or(Kind::Read, |(_, k)| *k)
 }
@@ -160,8 +175,9 @@ impl<C: ControlPlane> Server<C> {
         &self.projection
     }
 
-    /// Projection changes since the last call, in order, for the host.
-    pub fn take_events(&mut self) -> Vec<ProjectionEvent> {
+    /// `cloud.machine.watch` events since the last call, in order, for the
+    /// host.
+    pub fn take_events(&mut self) -> Vec<WatchEvent> {
         self.projection.take_events()
     }
 
@@ -210,7 +226,14 @@ impl<C: ControlPlane> Server<C> {
         self.ledger.attempt(key, name, &args);
         let upstream = upstream_key(name, &args, key);
         match self.run(name, &args, request.origin, Some(&upstream)) {
-            Ok(result) => {
+            Ok(mut result) => {
+                // Recorded with the result, so a same-key replay answers the
+                // same revision and emits nothing new.
+                if REVISION_RESULTS.contains(&name)
+                    && let Value::Object(fields) = &mut result
+                {
+                    fields.insert("revision".into(), self.projection.revision().into());
+                }
                 self.ledger.succeed(key, result.clone());
                 Ok(result)
             }
