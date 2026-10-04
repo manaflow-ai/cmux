@@ -93,6 +93,10 @@ final class AppServices {
     private(set) lazy var tasks = TasksPageService(services: self)
     /// Diff viewer tabs (plans/cmux-next/diff-host.md S4).
     private(set) lazy var diffPages = DiffPageService(services: self)
+    /// Markdown page tabs (diff-host S6).
+    private(set) lazy var markdownPages = FilePageService(services: self, kind: .markdown)
+    /// Code editor page tabs (diff-host S7).
+    private(set) lazy var editorPages = FilePageService(services: self, kind: .editor)
     /// The viewers' recents, the cmux picker and the file viewer page (R89).
     private(set) lazy var viewers = ViewerService(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).

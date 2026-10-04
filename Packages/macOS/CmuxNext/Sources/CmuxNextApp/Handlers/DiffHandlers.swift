@@ -17,6 +17,8 @@ enum DiffHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let service = context.services.diffPages
         context.services.pages.register(service)
+        // R89's viewer actions open diffs through this service.
+        context.services.viewers.diffViewer = service
         registry.bind("openDiffViewer", run: { invocation in
             let pane = try focusedPane(context, invocation)
             let focus = invocation.allowsViewChange

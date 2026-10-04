@@ -367,6 +367,9 @@ final class FocusEffectApplier: FocusEffectApplying {
         if context.agent { next.insert(.agentPaneFocused) }
         if case .addressBar = controller.focus.state.resolved { next.insert(.omnibarFocused) }
         if context.diff { next.insert(.diffViewerFocused) }
+        // The same rule as `KeyRouter.keyContext`: the focused page is the markdown page (its id).
+        if services.keyRouter?.focusedPage(in: controller)?.descriptor.id == KeyRouter.markdownPageID { next.insert(.markdownFocused) }
+        if context.filePreview { next.insert(.filePreviewFocused) }
         if registry.context != next { registry.context = next }
     }
 

@@ -2,23 +2,6 @@ import AppKit
 import CmuxNextActions
 import CmuxNextPalette
 
-/// Until cmux.editor: `file.open` with the path, in a tab of the pane.
-@MainActor
-final class BrowserTabFileOpener: FileOpening {
-    private let registry: ActionRegistry
-
-    init(registry: ActionRegistry) {
-        self.registry = registry
-    }
-
-    func open(_ file: URL, in pane: PaneController?) -> String? {
-        var invocation = ActionInvocation(arguments: ["path": .string(file.path), "where": .string("tab")])
-        if let pane { invocation.target = ActionTargetRef(kind: .pane, id: pane.paneKey) }
-        let registry = registry
-        return registry.capturingRefusal { _ = registry.perform("file.open", invocation: invocation) }
-    }
-}
-
 /// The viewers' shared parts (R89): the recents store, the cmux picker,
 /// and the seams to the diff host and the code editor.
 @MainActor
@@ -26,6 +9,8 @@ final class ViewerService {
     let recents: ViewerRecents
     let picker: CmuxPicker
     var diffViewer: any DiffViewerOpening = UnavailableDiffViewer()
+    /// The file pages (diff-host S6, S7): markdown files open the markdown page, other files the
+    /// code editor page, images and PDFs the browser tab's preview.
     var fileOpener: any FileOpening
     /// The diff open a picker choice started (one at a time; the next
     /// choice cancels it).
@@ -35,7 +20,7 @@ final class ViewerService {
     init(services: AppServices, recents: ViewerRecents = ViewerRecents()) {
         self.services = services
         picker = CmuxPicker(services: services, recents: recents)
-        fileOpener = BrowserTabFileOpener(registry: services.registry)
+        fileOpener = FilePageOpener(services: services)
         self.recents = recents
     }
 
@@ -88,8 +73,8 @@ final class ViewerService {
         }
     }
 
-    /// Opens `file` through ``fileOpener`` (a tab of `pane`). A Markdown
-    /// file opens there too until the Markdown page (S6) lands. False when
+    /// Opens `file` through ``fileOpener`` (a tab of `pane`: the markdown
+    /// page, the code editor page or the browser tab's preview). False when
     /// it did not open (the refusal shows).
     @discardableResult
     func openFile(_ file: URL, in pane: PaneController?, markdown: Bool) -> Bool {

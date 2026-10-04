@@ -219,6 +219,15 @@ enum AgentHandlers {
         // an in-app caller that passes another place is refused, not ignored.
         let place = invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue
         guard let target = AgentPaneFileTarget(rawValue: place) else { throw ActionFailure(message: MiscHandlerStrings.invalidPlace(place)) }
+        // A tab is the file pages (diff-host S6, S7): any regular file shows there as text (never
+        // run), so the tab check for WebKit page types no longer applies.
+        if target == .tab {
+            guard path.hasPrefix("/") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
+            guard let url = AgentPaneFileOpen.resolve(path) else { throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path)) }
+            guard let pane = context.paneController(invocation) else { return }
+            if let reason = context.services.viewers.fileOpener.open(url, in: pane) { throw ActionFailure(message: reason) }
+            return
+        }
         let opening: AgentPaneFileOpening
         do {
             opening = try AgentPaneFileOpening.plan(path: path, target: target)
@@ -233,8 +242,6 @@ enum AgentHandlers {
         }
         if let editor = opening.editor {
             NSWorkspace.shared.open([opening.url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
-        } else if let pane = context.paneController(invocation) {
-            pane.newBrowserTab(url: opening.url)
         }
     }
 

@@ -13,6 +13,9 @@ import Testing
 @Suite(.serialized)
 struct FilePageTabTests {
     /// A disk change reaches the page once per burst, after the debounce on the injected clock.
+    /// The test drives the events itself (`noteEvent`, as the kernel watcher does) and awaits the
+    /// watch (`settled`), so no wall time and no kernel event timing take part; the file reads
+    /// are real.
     @Test func aBurstOfDiskChangesPushesOneChangeAfterTheDebounce() async throws {
         let folder = try FileDocumentTests.folder()
         let file = folder.appending(path: "a.txt")
@@ -21,25 +24,41 @@ struct FilePageTabTests {
         var pushed: [FileSnapshot?] = []
         let watch = FileChangeWatch(url: file, inWorkspace: { true }, clock: clock, debounce: .milliseconds(150)) { pushed.append($0) }
         watch.knownHash = FileDocument.hash(Data("v1".utf8))
-        watch.start()
-        defer { watch.stop() }
-        // The initial arming reports once; an unchanged file pushes nothing.
-        await clock.sleepers(atLeast: 1)
-        clock.advance(by: .milliseconds(150))
-        #expect(await DiffSidecarProcessTests.becomesTrue { watch.pendingCount == 0 })
+        func fire() async {
+            await clock.sleepers(atLeast: 1)
+            #expect(watch.pendingCount == 1)
+            clock.advance(by: .milliseconds(150))
+            await watch.settled()
+        }
+        // An event with the file unchanged pushes nothing.
+        watch.noteEvent()
+        await fire()
         #expect(pushed.isEmpty)
+        // A burst: the second event restarts the debounce; nothing is read before it passes.
         try Data("v2".utf8).write(to: file)
-        try Data("v3".utf8).write(to: file)
+        watch.noteEvent()
         await clock.sleepers(atLeast: 1)
-        clock.advance(by: .milliseconds(150))
-        #expect(await DiffSidecarProcessTests.becomesTrue { !pushed.isEmpty })
+        try Data("v3".utf8).write(to: file)
+        // Cancelling the first debounce removes its sleeper at once (ManualClock's cancel handler).
+        watch.noteEvent()
+        await clock.sleepers(atLeast: 1)
+        clock.advance(by: .milliseconds(149))
+        #expect(pushed.isEmpty)
+        clock.advance(by: .milliseconds(1))
+        await watch.settled()
         #expect(pushed.count == 1)
         #expect(pushed.last??.text == "v3")
+        // An event that changes nothing on disk (the read's own access time) pushes nothing.
+        watch.noteEvent()
+        await fire()
+        #expect(pushed.count == 1)
+        // Deleted: one push with no snapshot.
         try FileManager.default.removeItem(at: file)
-        await clock.sleepers(atLeast: 1)
-        clock.advance(by: .milliseconds(150))
-        #expect(await DiffSidecarProcessTests.becomesTrue { pushed.count == 2 })
+        watch.noteEvent()
+        await fire()
+        #expect(pushed.count == 2)
         #expect(pushed.last.map { $0 == nil } == true, "deleted")
+        watch.stop()
     }
 
     @Test func markdownFilesOpenTheMarkdownPageTextTheEditorAndImagesThePreview() {

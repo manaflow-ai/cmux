@@ -53,10 +53,12 @@ import Testing
         #expect(page.hierarchy != nil)
     }
 
-    /// Until diff-host S4 lands the seam refuses, and nothing is recorded.
-    @Test func theDiffSeamRefusesUntilTheDiffHostLands() throws {
+    /// The diff host (S4) is the app's diff seam; a ViewerService made
+    /// without the app's handlers refuses, and records nothing.
+    @Test func theDiffSeamIsTheDiffHost() throws {
         let defaults = try #require(UserDefaults(suiteName: "viewer-recents-\(UUID().uuidString)"))
         let services = ActionBindingCoverageTests.boundServices()
+        #expect(services.viewers.diffViewer is DiffPageService)
         let viewers = ViewerService(services: services, recents: ViewerRecents(defaults: defaults))
         #expect(viewers.diffViewer is UnavailableDiffViewer)
         #expect(ViewerStrings.noDiffViewer == "cmux-next has no diff viewer yet.")
@@ -102,12 +104,12 @@ import Testing
         #expect(recents.paths(.file).count == ViewerRecents.limit)
     }
 
-    /// cmux-next has no file viewer surface: until the code editor page
-    /// (cmux.editor) lands, a chosen file opens as `file.open` opens it.
+    /// A chosen file opens through the file pages (diff-host S6, S7);
+    /// a missing file is refused, not dropped.
     @Test func aChosenFileOpensThroughTheEditorSeam() throws {
         let services = ActionBindingCoverageTests.boundServices()
-        #expect(services.viewers.fileOpener is BrowserTabFileOpener)
+        #expect(services.viewers.fileOpener is FilePageOpener)
         let reason = services.viewers.fileOpener.open(URL(fileURLWithPath: "/nope-\(UUID().uuidString)/a.md"), in: nil)
-        #expect(reason?.isEmpty == false, "a missing file is refused by file.open, not dropped")
+        #expect(reason?.isEmpty == false)
     }
 }
