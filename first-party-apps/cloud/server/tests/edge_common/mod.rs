@@ -8,7 +8,7 @@ use crate::attach_common::{FakeSpawner, FakeTransport, attach};
 use crate::common::FakeControlPlane;
 use cmux_cloud::Server;
 use cmux_cloud::connector::iface::Carrier;
-use cmux_cloud::fs::{Transfer, TransferError, TransferJob, TransferKey};
+use cmux_cloud::fs::{Direction, Transfer, TransferError, TransferJob, TransferKey};
 use cmux_cloud::ports::{Edge, PortTunnel, TunnelAbort, TunnelConn, TunnelError, TunnelWrite};
 use std::io::{Read, Write};
 use std::net::Shutdown;
@@ -140,8 +140,19 @@ impl Transfer for FakeTransfer {
         log.jobs.push(job.clone());
         log.public_keys.push(key.public_openssh());
         match log.fail_with.take() {
-            Some(message) => Err(TransferError { message, retryable: false }),
-            None => Ok(42),
+            Some(message) => {
+                if job.direction == Direction::Pull {
+                    // A failed copy can leave a partial file behind.
+                    let _ = std::fs::write(&job.local, b"part");
+                }
+                Err(TransferError { message, retryable: true })
+            }
+            None => {
+                if job.direction == Direction::Pull {
+                    std::fs::write(&job.local, b"pulled").unwrap();
+                }
+                Ok(42)
+            }
         }
     }
 }

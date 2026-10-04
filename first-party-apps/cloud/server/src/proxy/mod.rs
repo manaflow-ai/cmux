@@ -31,9 +31,12 @@ const HEAD_DEADLINE: Duration = Duration::from_secs(10);
 
 /// True when `host` names the machine itself (literal rule, no DNS).
 pub fn is_machine_host(host: &str) -> bool {
-    let host = host.strip_suffix('.').unwrap_or(host).to_ascii_lowercase();
+    let host = normal_host(host);
     if host == "localhost" || host.ends_with(".localhost") {
-        return true;
+        // Names: letter, digit and hyphen labels only.
+        return host.split('.').all(|label| {
+            !label.is_empty() && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        });
     }
     let bare = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(&host);
     match bare.parse::<IpAddr>() {
@@ -43,6 +46,11 @@ pub fn is_machine_host(host: &str) -> bool {
         }
         Err(_) => false,
     }
+}
+
+/// The host as the daemon gets it: lower case, no trailing dot.
+pub fn normal_host(host: &str) -> String {
+    host.strip_suffix('.').unwrap_or(host).to_ascii_lowercase()
 }
 
 /// A parsed request target.
@@ -168,13 +176,18 @@ fn read_head(tcp: &mut TcpStream) -> Result<(Vec<u8>, Vec<u8>), Refusal> {
 
 /// The connection handler of a machine's proxy route.
 pub fn handler(tunnel: Arc<dyn PortTunnel>, carrier: Carrier) -> Handler {
+    let identity = crate::ports::LinkIdentity::of(&carrier);
     Arc::new(move |mut tcp: TcpStream, session: &Session| {
         let target = read_head(&mut tcp).and_then(|(head, rest)| Ok((parse_head(&head)?, rest)));
         let (target, rest) = match target {
             Ok(found) => found,
             Err(refusal) => return answer(&mut tcp, refusal.status, &refusal.reason),
         };
-        let conn = match tunnel.open(&carrier, &target.host, target.port) {
+        if !identity.still(&carrier) {
+            let why = format!("cmux Cloud machine {}: the link was replaced", carrier.target);
+            return answer(&mut tcp, 502, &why);
+        }
+        let conn = match tunnel.open(&carrier, &normal_host(&target.host), target.port) {
             Ok(conn) => conn,
             Err(e) => {
                 let why = format!("cmux Cloud machine {}: {e}", carrier.target);

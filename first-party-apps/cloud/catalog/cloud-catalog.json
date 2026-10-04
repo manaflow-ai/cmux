@@ -2759,7 +2759,7 @@
       },
       "cli": {
         "path": "file push",
-        "visible": true,
+        "visible": false,
         "positional": [
           "machine",
           "localPath",
@@ -2767,10 +2767,11 @@
         ]
       },
       "mcp": {
-        "expose": "opt_in",
+        "expose": "never",
         "group": "cloud"
       },
-      "docs": "Copy a local file to a machine over SSH through the machine's link. The server makes a new key in memory for each transfer and sends only its public half to the Cloud API; the guest host key is pinned from the Cloud API answer. Needs fs:write.",
+      "gesture": "required",
+      "docs": "Copy a local file to a machine over SSH through the machine's link. The server makes a new key in memory for each transfer and sends only its public half to the Cloud API; the guest host key is pinned from the Cloud API answer. Needs fs:write. Only a person may transfer: the local path reaches any file this Mac's user can read or write, so the host stamps origin user only after a native file panel; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP.",
       "since": "cloud/1"
     },
     {
@@ -2845,7 +2846,7 @@
       },
       "cli": {
         "path": "file pull",
-        "visible": true,
+        "visible": false,
         "positional": [
           "machine",
           "path",
@@ -2853,10 +2854,11 @@
         ]
       },
       "mcp": {
-        "expose": "opt_in",
+        "expose": "never",
         "group": "cloud"
       },
-      "docs": "Copy a file from a machine to this Mac, like cloud.file.push in the other direction. Never overwrites: an existing local path gets cmux.cloud.local_exists.",
+      "gesture": "required",
+      "docs": "Copy a file from a machine to this Mac, like cloud.file.push in the other direction. Never overwrites: an existing local path gets cmux.cloud.local_exists. Only a person may transfer: the local path reaches any file this Mac's user can read or write, so the host stamps origin user only after a native file panel; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP.",
       "since": "cloud/1"
     },
     {
