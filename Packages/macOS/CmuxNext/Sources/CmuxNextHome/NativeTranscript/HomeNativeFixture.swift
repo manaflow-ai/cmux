@@ -31,8 +31,10 @@ public final class HomeNativeFixture {
     }
 
     private func load() async {
+        let chief = await source.chief.id
         guard let inbox = try? await source.inbox(), !Task.isCancelled,
-              let id = (inbox.conversations.first { $0.kind(me: inbox.me.id) == .chief } ?? inbox.conversations.first)?.id else { return }
+              let id = (inbox.conversations.first { $0.participants.contains { $0.id == chief } && $0.participants.count == 2 }
+                  ?? inbox.conversations.first)?.id else { return }
         let me = inbox.me.id
         await store.open(id)
         let view = HomeNativeTranscriptView(store: store, conversation: id, me: me)

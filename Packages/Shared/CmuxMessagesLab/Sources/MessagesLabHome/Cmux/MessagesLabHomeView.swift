@@ -74,10 +74,13 @@ public final class MessagesLabHomeView: NSView {
     /// per app: the palette is process-wide (`Fixture.theme`).
     public func applyTheme(active: HomePalette, inactive: HomePalette) {
         let theme = FixtureTheme(active: active, inactive: inactive)
+        defer {
+            // Per view: a second Home tab finds the process-wide theme set.
+            controller.host.headerBackdrop.setTint(Fixture.background)
+        }
         guard Fixture.theme != theme else { return }
         Fixture.theme = theme
         RowBitmaps.shared.removeAll()
-        controller.host.headerBackdrop.setTint(Fixture.background)
         if let demo = controller.demo {
             let inactiveNow = Fixture.inactive
             demo.setInactive(!inactiveNow)

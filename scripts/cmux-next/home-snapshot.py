@@ -76,6 +76,8 @@ try:
     print("fixture:", rpc("debug.home_native_fixture.open"), flush=True)
     time.sleep(4)
     print("snapshot:", rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"home-fixture-{opts.tag}.png")}), flush=True)
+    time.sleep(2)
+    print("snapshot:", rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"home-fixture-{opts.tag}-2.png")}), flush=True)
     # Close the fixture tab: the home workspace's Chief tab shows.
     rpc("debug.key", {"key": "w", "modifiers": ["cmd"]})
     rpc("debug.key", {"key": "1", "modifiers": ["cmd"]})
