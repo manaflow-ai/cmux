@@ -24,6 +24,9 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         return resolved.url
     }
 
+    /// Red-test stub.
+    func resolvedFeedURL() -> String { "" }
+
     /// cmux-next appcast items carry `sparkle:channel` cmux-next; only a build whose baked
     /// feed is the cmux-next feed accepts them. Every other build allows no extra channel,
     /// so it ignores those items even if a wrong feed URL served them.

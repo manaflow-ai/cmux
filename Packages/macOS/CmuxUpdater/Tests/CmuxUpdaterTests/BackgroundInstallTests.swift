@@ -204,4 +204,15 @@ import Testing
         #expect(readyBox.choice == nil)
         #expect(harness.controller.stagedUpdate?.displayVersionString == "0.64.17")
     }
+
+    /// A test feed (cmux-next NIGHTLY/DEV, "Use Test Update Feed") replaces the baked feed for
+    /// every check; clearing it returns to the baked feed. Signatures are unchanged.
+    @Test func aFeedOverrideReplacesTheBakedFeed() {
+        let harness = Harness()
+        let baked = harness.controller.driver.resolvedFeedURL()
+        harness.controller.feedOverride = "https://example.com/test/appcast.xml"
+        #expect(harness.controller.driver.resolvedFeedURL() == "https://example.com/test/appcast.xml")
+        harness.controller.feedOverride = nil
+        #expect(harness.controller.driver.resolvedFeedURL() == baked)
+    }
 }

@@ -52,4 +52,11 @@ extension UpdateController {
         if updater.automaticallyChecksForUpdates != automaticChecks { updater.automaticallyChecksForUpdates = automaticChecks }
         if updater.updateCheckInterval != interval { updater.updateCheckInterval = interval }
     }
+
+    /// A feed URL that replaces the baked `SUFeedURL` for every check (test feeds); nil uses
+    /// the baked feed. Sparkle still requires the app's EdDSA key on every item.
+    public var feedOverride: String? {
+        get { driver.feedOverride }
+        set { driver.feedOverride = newValue }
+    }
 }

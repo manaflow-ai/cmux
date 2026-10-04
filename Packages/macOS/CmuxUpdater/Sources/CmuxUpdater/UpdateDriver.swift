@@ -39,6 +39,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     var installsInBackground = false
     /// With background installs: whether a found update downloads without a click.
     var downloadsInBackground = true
+    /// Replaces the baked feed when set (``UpdateController/feedOverride``).
+    var feedOverride: String?
     /// The update a background check accepted, and its held install once it is ready.
     var backgroundItem: SUAppcastItem?
     var stagedInstall: (() -> Void)?

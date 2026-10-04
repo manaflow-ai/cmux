@@ -39,6 +39,8 @@ public final class UpdaterService {
     }
     /// The R114 install gate over ``indicatorPhase``.
     public internal(set) var flow = UpdateFlow()
+    /// The test feed in use ("Use Test Update Feed"), or nil.
+    public internal(set) var testFeedURL: String?
     /// The `updates.*` settings the gate reads (set by the App).
     public var preferences = UpdatePreferences.defaults {
         didSet { if preferences.quietHours != oldValue.quietHours { scheduleQuietBoundary() } }
