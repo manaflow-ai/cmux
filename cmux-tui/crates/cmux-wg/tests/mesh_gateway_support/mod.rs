@@ -137,7 +137,8 @@ pub async fn forwarder(
                             let _ = relay.send_to(datagram, a_udp).await;
                         }
                         Toward::Gateway => {
-                            let _ = vpc.send_to(datagram, client_target, Priority::Interactive).await;
+                            let _ =
+                                vpc.send_to(datagram, client_target, Priority::Interactive).await;
                         }
                     }
                 }

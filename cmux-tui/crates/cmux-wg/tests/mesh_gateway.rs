@@ -175,7 +175,10 @@ async fn a_packet_from_outside_allowed_ips_through_a_gateway_is_dropped() {
     assert_eq!(remote.ip(), overlay(2), "the accepted remote is inside the key's allowed IPs");
     echo_round_trip(&mut stream, 4096).await;
     assert!(
-        matches!(within(a.mesh.peer_route(b.public)).await.unwrap(), Some(PeerRoute::Gateway { .. })),
+        matches!(
+            within(a.mesh.peer_route(b.public)).await.unwrap(),
+            Some(PeerRoute::Gateway { .. })
+        ),
         "the session ran through the gateway"
     );
 }

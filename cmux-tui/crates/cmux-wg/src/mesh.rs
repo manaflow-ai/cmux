@@ -18,6 +18,12 @@
 //!   address of the peer whose key [`WgMeshListener::accept`] reports. That
 //!   key is the key of the session that delivered the SYN, never one looked
 //!   up from the source address.
+//!
+//! A peer may also be reached through a gateway tunnel
+//! ([`WgMesh::add_gateway`]): its datagrams then ride the datagram service
+//! of a [`crate::WgNet`] session to the peer's VPC endpoint, and every rule
+//! above applies to them unchanged. A peer's route follows its latest
+//! authenticated datagram, across UDP and gateways.
 
 use std::fmt;
 use std::io;
