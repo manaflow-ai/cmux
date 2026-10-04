@@ -51,6 +51,25 @@ fn new_cat_tab(harness: &RecoveryHarness, id: u64, pane: u64) -> (serde_json::Va
     (reply, terminal_id)
 }
 
+/// The resource (public) id of the terminal with this hex terminal id.
+fn public_terminal_id(harness: &RecoveryHarness, terminal: &str) -> String {
+    let terminals = resource_request(
+        &harness.socket,
+        "accept-terminal-list",
+        "terminal.list",
+        serde_json::json!({"machine": "current", "session": "current"}),
+        None,
+    );
+    terminals
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row.to_string().contains(terminal))
+        .and_then(|row| row["id"].as_str())
+        .expect("the terminal is listed")
+        .to_string()
+}
+
 fn daemon_pid(harness: &RecoveryHarness) -> libc::pid_t {
     harness.child.as_ref().unwrap().id() as libc::pid_t
 }
@@ -139,7 +158,7 @@ fn input_over_the_launch_budget_is_refused_whole() {
 
 /// Test 4 and R5: a launch that fails after accept keeps the tab, the
 /// cause and the queued input; relaunch starts a clean shell with no
-/// replay; `send-kept-input` sends the kept bytes once.
+/// replay; `terminal.input.send_kept` sends the kept bytes once.
 #[test]
 fn a_launch_that_fails_after_accept_keeps_the_tab_and_its_input() {
     let harness =
@@ -167,14 +186,18 @@ fn a_launch_that_fails_after_accept_keeps_the_tab_and_its_input() {
     assert_eq!(exited["kept_input_bytes"], kept.len(), "{exited}");
     assert!(tree_terminal_ids(&harness.socket).contains(&terminal), "the tab stays");
 
-    let relaunched = request(
+    let public = public_terminal_id(&harness, &terminal);
+    let relaunched = resource_request(
         &harness.socket,
+        "accept-relaunch",
+        "terminal.relaunch",
         serde_json::json!({
-            "id": 5, "cmd": "relaunch-terminal", "terminal_id": terminal,
+            "machine": "current", "session": "current", "terminal": public,
             "env": {"SHELL": "/bin/sh"}, "shell_args": ["-c", "exec /bin/cat"],
         }),
+        Some("accept-relaunch"),
     );
-    assert_ne!(relaunched["terminal_incarnation"], exited["terminal_incarnation"]);
+    assert_ne!(relaunched["value"]["terminal_incarnation"], exited["terminal_incarnation"]);
     wait_for_terminal_lifecycle(&harness.socket, &terminal, "running");
     std::thread::sleep(Duration::from_millis(300));
     let clean = request(
@@ -182,15 +205,19 @@ fn a_launch_that_fails_after_accept_keeps_the_tab_and_its_input() {
         serde_json::json!({"id": 6, "cmd": "read-screen", "surface": surface}),
     );
     assert!(!clean.to_string().contains("kept-marker"), "relaunch replayed kept input");
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 7, "cmd": "send-kept-input", "terminal_id": terminal}),
-    );
+    let send_kept = |id: &str| {
+        request_response(
+            &harness.socket,
+            serde_json::json!({
+                "protocol": "cmux.protocol/2", "type": "request", "id": id,
+                "operation": "terminal.input.send_kept", "idempotency_key": id,
+                "params": {"machine": "current", "session": "current", "terminal": public},
+            }),
+        )
+    };
+    assert_eq!(send_kept("accept-send-kept-1")["ok"], true);
     assert!(wait_for_screen(&harness.socket, surface, "kept-marker").contains("kept-marker"));
-    let again = request_response(
-        &harness.socket,
-        serde_json::json!({"id": 8, "cmd": "send-kept-input", "terminal_id": terminal}),
-    );
+    let again = send_kept("accept-send-kept-2");
     assert_eq!(again["ok"], false, "kept input is sent once: {again}");
 }
 
@@ -367,4 +394,28 @@ fn a_close_during_adoption_leaves_no_host_and_no_running_row() {
         serde_json::json!({"id": 5, "cmd": "resolve-terminal", "terminal_id": terminal}),
     );
     assert_ne!(resolved["data"]["lifecycle"], "running", "{resolved}");
+}
+
+/// G1: while a terminal launches, an op that names an incarnation is
+/// refused, and an op that names none (closing its tab) is accepted.
+#[test]
+fn a_launching_terminal_refuses_ops_that_name_an_incarnation() {
+    let harness = start_with_env("accept-g1", &[("CMUX_TUI_TEST_LAUNCH_JOB_DELAY_MS", "3000")]);
+    let pane = cat_pane(&harness);
+    let (reply, terminal) = new_cat_tab(&harness, 3, pane);
+    assert!(reply["terminal_incarnation"].is_null(), "{reply}");
+    let named = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "id": 4, "cmd": "close-terminal", "terminal_id": terminal,
+            "terminal_incarnation": TerminalId::random().unwrap().to_hex(),
+        }),
+    );
+    assert_eq!(named["ok"], false, "{named}");
+    let surface = reply["surface"].as_u64().unwrap();
+    let closed = request_response(
+        &harness.socket,
+        serde_json::json!({"id": 5, "cmd": "close-surface", "surface": surface}),
+    );
+    assert_eq!(closed["ok"], true, "{closed}");
 }

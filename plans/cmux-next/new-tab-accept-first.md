@@ -243,7 +243,17 @@ path. The next marks go into the host's Launch step (PTY open, terminal setup).
 11. A1: a close during adoption (a test hook holds the launch job between adopt and the `running`
     commit) leaves no host process and no `running` row.
 
-## 8a. Gaps found while writing the red tests (2026-10-04, need a decision)
+## 8a. Gaps found while writing the red tests (2026-10-04)
+
+Decided by the reviewer the same day: G1 yes, plus the rule that while a terminal is launching an
+op that names an incarnation is refused (stale-incarnation error) and an op that names none (for
+example closing its tab) is accepted. G2 yes as cmux.protocol/2 operations `terminal.relaunch`
+(only on an exited or launch-failed terminal; always a new incarnation) and
+`terminal.input.send_kept` (refused when nothing is kept; the clear and the send are one step; the
+normal input path, so origin rules apply); raw commands only if the app needs them. G3 yes; the
+spec says `queued` is not durable, and `terminal.launch_input_budget` carries
+`{budget_bytes, queued_bytes}`. G4 yes only under `#[cfg(any(test, debug_assertions))]` behind the
+crate's test seam; release builds ignore the variables.
 
 - G1, incarnation in the reply (A2): the host picks the incarnation during Bootstrap, so at accept
   time the daemon does not know it. Stage A without a host wire change: the reply carries
