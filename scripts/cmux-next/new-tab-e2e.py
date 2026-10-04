@@ -19,6 +19,7 @@ parser.add_argument("--tag", required=True)
 parser.add_argument("--runs", type=int, default=20)
 parser.add_argument("--budget-ms", type=float, default=16)
 parser.add_argument("--text", default="hello")
+parser.add_argument("--app", help="the tagged app bundle (a fleet-built artifact); default: the tag's DerivedData build")
 parser.add_argument("--bench", action="store_true",
                     help="R81: Cmd-W and ! latency (main-thread ms, missed frames, span breakdown) instead of the open test")
 parser.add_argument("--budget-close-ms", type=float, default=10)
@@ -28,7 +29,7 @@ parser.add_argument("--trace", action="store_true",
                     help="with --bench: record a Time Profiler trace during the runs and print the main thread's heaviest frames")
 opts = parser.parse_args()
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
-APP = next(iter(sorted(glob.glob(os.path.expanduser(
+APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
     f"~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV {opts.tag}.app")))), None)
 if not APP:
     sys.exit(f"no tagged app for {opts.tag}")
