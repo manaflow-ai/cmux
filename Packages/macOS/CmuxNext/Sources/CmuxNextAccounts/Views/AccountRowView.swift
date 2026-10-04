@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 import CmuxNextCodeRouter
 import CmuxNextDesign
 import SwiftUI
@@ -10,10 +11,20 @@ struct AccountRowView: View {
     let row: AccountRowState
     let palette: AccountsPalette
 
+    /// The provider's brand mark (design/agent-icons), or its symbol when it has none.
+    @ViewBuilder private var providerIcon: some View {
+        if AgentBrandCatalog.brand(for: row.provider.rawValue) != nil {
+            AgentBrandMark(agent: row.provider.rawValue, size: Metrics.iconSize)
+        } else {
+            Image(systemName: row.provider.symbol)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.space2) {
             HStack(alignment: .firstTextBaseline, spacing: Metrics.space4) {
-                Image(systemName: row.provider.symbol).foregroundStyle(palette.secondary).frame(width: Metrics.iconSize + Metrics.space2)
+                providerIcon
+                    .foregroundStyle(palette.secondary).frame(width: Metrics.iconSize + Metrics.space2)
                 VStack(alignment: .leading, spacing: Metrics.space1) {
                     Text(row.provider.displayName).font(palette.emphasized).foregroundStyle(palette.text)
                     if let detail { Text(detail).font(palette.caption).foregroundStyle(palette.secondary).lineLimit(1).truncationMode(.middle) }

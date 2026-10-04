@@ -12,6 +12,7 @@ namespace, plus the native UI op `cmux.app.action.run`.
 | `store.ts`                                      | Page-side state: machine mirror (list once, then `cmux.cloud.machine.watch` events), the pending intent log, create draft, account.                |
 | `detail.ts`                                     | Reads and changes for the selected machine (stats, snapshots, publications, domains, network, firewall, ports, browser route).                     |
 | `files.ts`                                      | The Files section: list on demand, stat then read for a small text preview, mkdir and write; remove, push and pull as native actions.              |
+| `transfers.ts`                                  | Push and pull transfers: a running row per transfer, settled by the `cmux.cloud.file.transfer.changed` event (subscribed before the first action). |
 | `model.ts`                                      | Pure logic: events into the mirror, intent settlement, visible rows, labels.                                                                       |
 | `mockProvider.ts`, `mockData.ts`, `mockEdge.ts` | In-memory provider for tests and the dev loop, shaped like the server's fixtures; it refuses args the catalog does not list. Creates nothing real. |
 | `Localizable.xcstrings`                         | String source (21 languages). `node webviews/scripts/pages/gen-strings.mjs` writes `generated/strings.json`.                                       |
@@ -46,8 +47,19 @@ namespace, plus the native UI op `cmux.app.action.run`.
 Team list and select, sign-in and sign-out, billing and the idle policy. The server answers
 `cmux.cloud.unsupported` or an unknown-op error; the page records the op in `unavailable` and shows
 "Not available yet" for it, never the error banner. The mock answers the same way (`SERVER_GAPS`);
-`/cloud/?mock=all` serves them all for design work. Domains, publications, network, tunnel,
-firewall (R71 C6), files, ports and the browser route (R71 C5) are served.
+`/cloud/?mock=all` serves them all for design work.
+
+A Cloud API route that does not exist answers a 404. The server maps it to `cmux.cloud.not_found`
+with `status` 404 and no `upstream_code`. The page reads both from the error's `details`
+(ops.ts `isRouteMissing`): a bare 404, or a 404 whose code is none of the Cloud API's not-found codes
+(`vm_not_found` machine, `vm_snapshot_not_found`, `vm_firewall_rule_not_found`, `vm_file_not_found`
+for `fs` and `file`, `vm_publication_not_found`), shows "Not available yet" for that op and keeps no
+stale rows. A `not_found` without details counts as bare, except on a machine delete, which keeps its
+old answer (gone, no error). A delete answered with its kind's own code found the item gone: the row
+goes and no error shows (`isGone`). Another kind's code (`vm_not_found` on a firewall list, when the
+machine is gone) is an error, not a missing route. Production has no `/api/vm/:id/fs/*`, firewall,
+network or tunnel routes today, so those sections show "Not available yet" there. The mock answers a
+bare 404 for the ops in `routeMissing`.
 
 ## Host gaps
 
@@ -64,6 +76,15 @@ machineName, proxy: {kind, host, port}}, engine: "cef"}}` with the route from
 - File push: the page sends `{machine, path: <current folder>}`. The host's file panel picks
   `localPath` and the host appends the file's name to `path`. File pull: the page sends
   `{machine, path}`; the host's save panel picks `localPath`.
+- Push and pull answer at once: the page expects the op's answer `{transfer, state: running, path}`
+  as the top-level fields of the `cmux.app.action.run` result, and the server's
+  `cloud.file.transfer.changed` lines as page events of `cmux.cloud.file.transfer.changed` with the
+  line's fields (`transfer`, `machine`, `direction`, `path`, `state`, `bytes` or `error`) as the event
+  data. More than 4 transfers answer `cmux.cloud.transfer_busy`: the page shows a message with Retry,
+  which runs the action again with a new key. A host that does not deliver the event stream leaves no
+  running row (a push then re-reads the folder at once).
+- The host must put the server error's `status` and `upstream_code` into the page error's `details`;
+  without them every `cmux.cloud.not_found` reads as a missing route.
 
 ## Platform gaps
 

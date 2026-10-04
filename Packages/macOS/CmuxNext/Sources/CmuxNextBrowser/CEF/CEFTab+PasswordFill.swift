@@ -6,6 +6,7 @@ extension CEFTab {
         guard !isAgentDriven else { return }
         isAgentDriven = true
         applyPasswordFill()
+        CEFAgentURLGuard.applyShimGuard(self)
         CEFAgentURLGuard.leave(self, committedURL ?? state.url)
     }
 

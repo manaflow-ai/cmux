@@ -75,6 +75,8 @@ import {
   VmFreeAccessExpiredError,
   VmFileNotFoundError,
   VmFirewallRuleNotFoundError,
+  VmFirewallRuleInvalidError,
+  VmFirewallRuleLimitError,
   VmModelPlaneError,
   VmNotFoundError,
   VmResizeInvalidError,
@@ -3586,6 +3588,8 @@ export function execVm(input: {
 type VmFirewallInput = {
   readonly userId: string;
   readonly provider?: ProviderId;
+  /** The account scope that owns the VMs named by vmId (new VMs are team-owned). */
+  readonly billingTeamId?: string | null;
 };
 
 function firewallProvider(input: VmFirewallInput) {
@@ -3598,30 +3602,104 @@ function firewallProvider(input: VmFirewallInput) {
   });
 }
 
-function ensureOwnedFirewallEndpoint(repo: VmRepositoryShape, input: VmFirewallInput, endpoint: VMFirewallEndpoint) {
+const FIREWALL_IDENTITY_KEYS = ["vmId", "vpcId", "tunnelId"] as const;
+const FIREWALL_ENDPOINT_KEYS: ReadonlySet<string> = new Set([...FIREWALL_IDENTITY_KEYS, "cidr", "public", "port", "protocol"]);
+
+/** Whether the caller owns the resource one endpoint names; a CIDR or public end names none. */
+function ownsFirewallEndpoint(repo: VmRepositoryShape, input: VmFirewallInput, networkId: string, endpoint: VMFirewallEndpoint) {
   return Effect.gen(function* () {
     const provider = input.provider ?? "freestyle";
+    // The provider adds selectors as new optional fields; one this code does not know could name
+    // another tenant's resource, so it makes the endpoint not the caller's.
+    if (Object.keys(endpoint).some((key) => !FIREWALL_ENDPOINT_KEYS.has(key))) return false;
+    if (endpoint.vpcId && endpoint.vpcId !== networkId) return false;
     if (endpoint.vmId) {
       if (!repo.findUserVm) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider, reason: "firewall VM ownership lookup is unavailable" }));
-      const vm = yield* repo.findUserVm({ userId: input.userId, providerVmId: endpoint.vmId, provider });
-      if (!vm) return yield* Effect.fail(new VmNotFoundError({ vmId: endpoint.vmId }));
+      const vm = yield* repo.findUserVm({ userId: input.userId, billingTeamId: input.billingTeamId, providerVmId: endpoint.vmId, provider });
+      // The firewall edits the caller's own network, which holds only the VMs the caller created;
+      // a teammate's VM in the same team scope is on the teammate's network.
+      if (!vm || vm.userId !== input.userId) return false;
     }
     if (endpoint.tunnelId) {
       if (!repo.findTunnelsByProviderTunnelIds) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider, reason: "firewall tunnel ownership lookup is unavailable" }));
       const [tunnel] = yield* repo.findTunnelsByProviderTunnelIds(provider, [endpoint.tunnelId]);
-      if (!tunnel || tunnel.userId !== input.userId || tunnel.revokedAt) return yield* Effect.fail(new VmNotFoundError({ vmId: endpoint.tunnelId }));
+      if (!tunnel || tunnel.userId !== input.userId || tunnel.revokedAt) return false;
     }
+    return true;
   });
+}
+
+/**
+ * The provider account is shared by every cmux user, so the provider cannot say whose a rule is.
+ * A rule is the caller's (to read or delete) when it names at least one resource and every
+ * resource it names is the caller's. Creation is stricter: see createVmFirewallRule.
+ */
+function ownsFirewallRule(repo: VmRepositoryShape, input: VmFirewallInput, networkId: string, rule: Pick<VMFirewallRule, "source" | "destination">) {
+  return Effect.gen(function* () {
+    if (!FIREWALL_IDENTITY_KEYS.some((key) => rule.source[key] || rule.destination[key])) return false;
+    return (yield* ownsFirewallEndpoint(repo, input, networkId, rule.source)) && (yield* ownsFirewallEndpoint(repo, input, networkId, rule.destination));
+  });
+}
+
+/** Fails VmNotFoundError naming the endpoint's resource when the caller does not own it. */
+function ensureOwnedFirewallEndpoint(repo: VmRepositoryShape, input: VmFirewallInput, networkId: string, endpoint: VMFirewallEndpoint) {
+  return Effect.gen(function* () {
+    if (yield* ownsFirewallEndpoint(repo, input, networkId, endpoint)) return;
+    return yield* Effect.fail(new VmNotFoundError({ vmId: endpoint.vmId ?? endpoint.vpcId ?? endpoint.tunnelId ?? "endpoint" }));
+  });
+}
+
+/** Most rules one caller may hold on the shared provider account. */
+export const VM_FIREWALL_RULE_LIMIT = 100;
+/** Most VMs an unfiltered list reads (one provider call each); older VMs list with ?vmId. */
+export const VM_FIREWALL_LIST_VM_LIMIT = 10;
+
+/** The caller's live provider VM ids in the account scope, newest first, at most the list limit. */
+function callerProviderVmIds(repo: VmRepositoryShape, input: VmFirewallInput, provider: ProviderId) {
+  return repo.listUserVms(input.userId, input.billingTeamId).pipe(
+    Effect.map((rows) => rows
+      .filter((row) => row.userId === input.userId && row.provider === provider && row.providerVmId && row.status !== "destroyed" && row.status !== "failed")
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, VM_FIREWALL_LIST_VM_LIMIT)
+      .map((row) => row.providerVmId as string)),
+  );
 }
 
 export function listVmFirewallRules(input: VmFirewallInput & { readonly vpcId?: string; readonly vmId?: string; readonly tunnelId?: string }): VmWorkflowProgram<VMFirewallRule[]> {
   return Effect.gen(function* () {
     const { provider, providers, repo, network } = yield* firewallProvider(input);
-    if (input.vpcId && input.vpcId !== network.providerNetworkId) return yield* Effect.fail(new VmNotFoundError({ vmId: input.vpcId }));
-    if (input.vmId) yield* ensureOwnedFirewallEndpoint(repo, input, { vmId: input.vmId });
-    if (input.tunnelId) yield* ensureOwnedFirewallEndpoint(repo, input, { tunnelId: input.tunnelId });
-    if (!providers.listFirewallRules) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "listFirewallRules" }));
-    return yield* providers.listFirewallRules(provider, { vmId: input.vmId, vpcId: input.vpcId ?? network.providerNetworkId, tunnelId: input.tunnelId });
+    const networkId = network.providerNetworkId;
+    if (input.vpcId && input.vpcId !== networkId) return yield* Effect.fail(new VmNotFoundError({ vmId: input.vpcId }));
+    if (input.vmId) yield* ensureOwnedFirewallEndpoint(repo, input, networkId, { vmId: input.vmId });
+    if (input.tunnelId) yield* ensureOwnedFirewallEndpoint(repo, input, networkId, { tunnelId: input.tunnelId });
+    const filter = input.vmId || input.tunnelId || input.vpcId ? { vmId: input.vmId, vpcId: input.vpcId, tunnelId: input.tunnelId } : undefined;
+    return yield* readOwnedFirewallRules({ provider, providers, repo, input, networkId, filter });
+  });
+}
+
+/**
+ * The caller's rules. A provider vmId listing holds the rules naming the VM plus those naming its
+ * networks; a network listing misses rules that name only a VM, so no filter means the network
+ * plus the newest live VMs (bounded: each is one call to the shared provider account).
+ */
+function readOwnedFirewallRules(args: {
+  readonly provider: ProviderId;
+  readonly providers: VmProviderGatewayShape;
+  readonly repo: VmRepositoryShape;
+  readonly input: VmFirewallInput;
+  readonly networkId: string;
+  readonly filter?: { readonly vmId?: string; readonly vpcId?: string; readonly tunnelId?: string };
+}) {
+  return Effect.gen(function* () {
+    const { provider, providers, repo, input, networkId } = args;
+    const list = providers.listFirewallRules;
+    if (!list) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "listFirewallRules" }));
+    const filters = args.filter
+      ? [args.filter]
+      : [{ vpcId: networkId }, ...(yield* callerProviderVmIds(repo, input, provider)).map((vmId) => ({ vmId }))];
+    const listed = yield* Effect.forEach(filters, (filter) => list(provider, filter), { concurrency: 4 });
+    const unique = [...new Map(listed.flat().map((rule) => [rule.id, rule])).values()];
+    return yield* Effect.filter(unique, (rule) => ownsFirewallRule(repo, input, networkId, rule));
   });
 }
 
@@ -3635,37 +3713,49 @@ export function listVmNetworks(input: VmFirewallInput): VmWorkflowProgram<Array<
   });
 }
 
-export function getVmFirewallRule(input: VmFirewallInput & { readonly ruleId: string }): VmWorkflowProgram<VMFirewallRule> {
+/** The caller's rule by id; a missing rule and another tenant's rule are the same not-found. */
+function ownedFirewallRule(input: VmFirewallInput & { readonly ruleId: string }) {
   return Effect.gen(function* () {
-    const { provider, providers, network } = yield* firewallProvider(input);
-    if (!providers.listFirewallRules) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "listFirewallRules" }));
-    const rules = yield* providers.listFirewallRules(provider, { vpcId: network.providerNetworkId });
-    const rule = rules.find((candidate) => candidate.id === input.ruleId);
-    if (!rule) return yield* Effect.fail(new VmFirewallRuleNotFoundError({ ruleId: input.ruleId }));
-    return rule;
+    const { provider, providers, repo, network } = yield* firewallProvider(input);
+    if (!providers.getFirewallRule) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "getFirewallRule" }));
+    const rule = yield* providers.getFirewallRule(provider, input.ruleId).pipe(
+      Effect.catchAll((err): Effect.Effect<never, VmProviderOperationError | VmFirewallRuleNotFoundError> =>
+        isProviderNotFoundError(err.cause) ? Effect.fail(new VmFirewallRuleNotFoundError({ ruleId: input.ruleId })) : Effect.fail(err),
+      ),
+    );
+    if (!(yield* ownsFirewallRule(repo, input, network.providerNetworkId, rule))) return yield* Effect.fail(new VmFirewallRuleNotFoundError({ ruleId: input.ruleId }));
+    return { provider, providers, rule };
   });
+}
+
+export function getVmFirewallRule(input: VmFirewallInput & { readonly ruleId: string }): VmWorkflowProgram<VMFirewallRule> {
+  return ownedFirewallRule(input).pipe(Effect.map(({ rule }) => rule));
 }
 
 export function createVmFirewallRule(input: VmFirewallInput & VMFirewallRuleInput): VmWorkflowProgram<VMFirewallRule> {
   return Effect.gen(function* () {
     const { provider, providers, repo, network } = yield* firewallProvider(input);
-    const referencesOwnerNetwork = [input.source.vpcId, input.destination.vpcId].filter(Boolean);
-    if (referencesOwnerNetwork.some((id) => id !== network.providerNetworkId)) return yield* Effect.fail(new VmNotFoundError({ vmId: referencesOwnerNetwork[0] ?? "network" }));
-    yield* ensureOwnedFirewallEndpoint(repo, input, input.source);
-    yield* ensureOwnedFirewallEndpoint(repo, input, input.destination);
+    // Rules allow traffic into their destination. A destination of only an address range or the
+    // public Internet would reach other tenants' machines on the shared account, so the destination
+    // must be one of the caller's resources.
+    if (!FIREWALL_IDENTITY_KEYS.some((key) => input.destination[key])) {
+      return yield* Effect.fail(new VmFirewallRuleInvalidError({ reason: "A firewall rule's destination must be your Cloud VM, network, or tunnel." }));
+    }
+    yield* ensureOwnedFirewallEndpoint(repo, input, network.providerNetworkId, input.source);
+    yield* ensureOwnedFirewallEndpoint(repo, input, network.providerNetworkId, input.destination);
+    const existing = yield* readOwnedFirewallRules({ provider, providers, repo, input, networkId: network.providerNetworkId });
+    if (existing.length >= VM_FIREWALL_RULE_LIMIT) return yield* Effect.fail(new VmFirewallRuleLimitError({ limit: VM_FIREWALL_RULE_LIMIT }));
     if (!providers.createFirewallRule) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "createFirewallRule" }));
-    return yield* providers.createFirewallRule(provider, input);
+    // Only the rule goes to the provider: the driver spreads it into the request body.
+    return yield* providers.createFirewallRule(provider, { source: input.source, destination: input.destination, ...(input.description ? { description: input.description } : {}) });
   });
 }
 
 export function deleteVmFirewallRule(input: VmFirewallInput & { readonly ruleId: string }): VmWorkflowProgram<void> {
   return Effect.gen(function* () {
-    const { provider, providers, network } = yield* firewallProvider(input);
-    if (!providers.listFirewallRules) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "listFirewallRules" }));
-    const rules = yield* providers.listFirewallRules(provider, { vpcId: network.providerNetworkId });
-    if (!rules.some((candidate) => candidate.id === input.ruleId)) return yield* Effect.fail(new VmFirewallRuleNotFoundError({ ruleId: input.ruleId }));
+    const { provider, providers } = yield* ownedFirewallRule(input);
     if (!providers.deleteFirewallRule) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "deleteFirewallRule" }));
-    // Deleted by someone else between the list and the delete: the same not-found, so a retry is correct.
+    // Deleted by someone else between the read and the delete: the same not-found, so a retry is correct.
     yield* providers.deleteFirewallRule(provider, input.ruleId).pipe(
       Effect.catchAll((err): Effect.Effect<never, VmProviderOperationError | VmFirewallRuleNotFoundError> =>
         isProviderNotFoundError(err.cause) ? Effect.fail(new VmFirewallRuleNotFoundError({ ruleId: input.ruleId })) : Effect.fail(err),
@@ -3698,14 +3788,14 @@ function fileVm<A>(input: VmFileInput, run: (provider: VmProviderGatewayShape, v
 export function listVmFiles(input: VmFileInput, path: string): VmWorkflowProgram<VMFileEntry[]> {
   return fileVm(input, (providers, vm) => {
     if (!providers.listFiles) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "listFiles" }));
-    return providers.listFiles(vm.provider, input.providerVmId, path);
+    return providers.listFiles(vm.provider, input.providerVmId, path).pipe(missingFileAsNotFound(path));
   });
 }
 
 export function readVmFile(input: VmFileInput, path: string): VmWorkflowProgram<VMFileContents> {
   return fileVm(input, (providers, vm) => {
     if (!providers.readFile) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "readFile" }));
-    return providers.readFile(vm.provider, input.providerVmId, path);
+    return providers.readFile(vm.provider, input.providerVmId, path).pipe(missingFileAsNotFound(path));
   });
 }
 
@@ -3733,11 +3823,7 @@ export function removeVmFile(input: VmFileInput, path: string): VmWorkflowProgra
     const remove = providers.removeFile
     if (!remove) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "removeFile" }));
     const stat: Effect.Effect<unknown, VmProviderOperationError | VmFileNotFoundError> = providers.statFile
-      ? providers.statFile(vm.provider, input.providerVmId, path).pipe(
-          Effect.catchAll((err): Effect.Effect<never, VmProviderOperationError | VmFileNotFoundError> =>
-            isMissingFileError(err.cause) ? Effect.fail(new VmFileNotFoundError({ path })) : Effect.fail(err),
-          ),
-        )
+      ? providers.statFile(vm.provider, input.providerVmId, path).pipe(missingFileAsNotFound(path))
       : Effect.void
     return stat.pipe(Effect.flatMap(() => remove(vm.provider, input.providerVmId, path)));
   });
@@ -3750,10 +3836,20 @@ function isMissingFileError(cause: unknown): boolean {
   return /No such file or directory|os error 2\b/.test(message)
 }
 
+/** Maps the guest's ENOENT to VmFileNotFoundError (404 vm_file_not_found); other failures pass through. */
+function missingFileAsNotFound(path: string) {
+  return <A>(effect: Effect.Effect<A, VmProviderOperationError>): Effect.Effect<A, VmProviderOperationError | VmFileNotFoundError> =>
+    effect.pipe(
+      Effect.catchAll((err): Effect.Effect<never, VmProviderOperationError | VmFileNotFoundError> =>
+        isMissingFileError(err.cause) ? Effect.fail(new VmFileNotFoundError({ path })) : Effect.fail(err),
+      ),
+    )
+}
+
 export function statVmFile(input: VmFileInput, path: string): VmWorkflowProgram<VMFileStat> {
   return fileVm(input, (providers, vm) => {
     if (!providers.statFile) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "statFile" }));
-    return providers.statFile(vm.provider, input.providerVmId, path);
+    return providers.statFile(vm.provider, input.providerVmId, path).pipe(missingFileAsNotFound(path));
   });
 }
 

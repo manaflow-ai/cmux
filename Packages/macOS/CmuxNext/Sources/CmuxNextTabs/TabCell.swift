@@ -235,6 +235,10 @@ final class TabCell {
             return TabSymbolCache.shared.image(named: "circle.fill", tint: tint, pointSize: Metrics.smallIconSize * 0.6,
                                                size: metrics.iconSize, scale: scale)
         case .image(let image): return image.cgImage
+        case .agentMark(let brand):
+            return TabAgentMarkCache.shared.image(brand: brand, tint: tint, size: metrics.iconSize, scale: scale)
+                ?? TabSymbolCache.shared.image(named: "terminal", tint: tint, pointSize: Metrics.smallIconSize,
+                                               size: metrics.iconSize, scale: scale)
         case .symbol(let name):
             return TabSymbolCache.shared.image(
                 named: name,
