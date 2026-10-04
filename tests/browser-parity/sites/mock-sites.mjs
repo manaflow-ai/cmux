@@ -37,8 +37,10 @@ export const COOKIES = [
   { name: "tenant.session.token", value: SECRETS.jiraSession, domain: "acme.atlassian.net", path: "/", secure: true, httpOnly: true },
   { name: "cloud.session.token", value: "atl-session-secret", domain: ".atlassian.com", path: "/", secure: true, httpOnly: true },
   { name: "auth_token", value: SECRETS.xSession, domain: ".x.com", path: "/", secure: true, httpOnly: true },
-  // X's signed-in user id, readable by the page (u=<id>).
+  // X's signed-in user id, readable (and writable) by the page (u=<id>).
   { name: "twid", value: "u%3D1001", domain: ".x.com", path: "/", secure: true },
+  // X's CSRF value, which its API calls send back as x-csrf-token.
+  { name: "ct0", value: "x-ct0-csrf", domain: ".x.com", path: "/", secure: true },
   { name: "asset_session", value: "asset-session-secret", domain: "assets.example", path: "/", secure: true, httpOnly: true },
 ];
 
@@ -59,8 +61,12 @@ export function createState() {
   // googleSwitchOnLoad: ListAccounts rows another session's sign-in makes
   // current when a Gmail, Calendar or editor page loads; notionUser: the Notion user
   // the session holds; notionSwitchOnSync: the user another session signs
-  // in as when Notion next answers syncRecordValues.
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, composerSuffix: null, gmailSignature: null, calendarTamper: null };
+  // in as when Notion next answers syncRecordValues; xAccount: the X
+  // account the session cookie authenticates (X's account endpoint);
+  // xSwitchOnCompose: the account another session signs in as when X's
+  // post composer loads, while the page's twid cookie still names the
+  // drafted user; xAccountUnknown: X's account endpoint fails.
+  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, xAccount: null, xSwitchOnCompose: null, xAccountUnknown: false, composerSuffix: null, gmailSignature: null, calendarTamper: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -662,6 +668,13 @@ function x(req, url, body, state) {
     state.xPosts.push(JSON.parse(body));
     return { json: { ok: true } };
   }
+  // As live: X's web client reads the signed-in account from its account
+  // settings endpoint, with its public bearer token and the ct0 CSRF value.
+  if (url.pathname === "/i/api/1.1/account/settings.json") {
+    if (state.xAccountUnknown || !/^Bearer \S+$/.test(req.headers.authorization || "") || req.headers["x-csrf-token"] !== cookieOf(req, "ct0")) return { status: 403, json: { errors: [{ code: 353 }] } };
+    return { json: { screen_name: state.xAccount || "ada", language: "en" } };
+  }
+  if (url.pathname === "/intent/post" && state.xSwitchOnCompose) (state.xAccount = state.xSwitchOnCompose), (state.xSwitchOnCompose = null);
   if (url.pathname === "/intent/post")
     return {
       html: html(`<div data-testid="tweetTextarea_0" contenteditable="true"></div><button data-testid="tweetButton">Post</button>
