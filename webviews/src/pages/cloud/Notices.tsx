@@ -51,8 +51,8 @@ export function refusalText(refusal: PlanRefusal, t: (key: string) => string): s
 }
 
 /**
- * A plan refusal with "See plans". The checkout needs a plan id: the one the backend named in the
- * error, else none is known (CloudPlan carries no upgrade target yet) and the sentence shows alone.
+ * A plan refusal with "See plans". The checkout needs a plan id: the error's `details.plan`, else
+ * `CloudPlan.upgrade_plan` (`planRefusal`). When neither names one, the sentence shows alone.
  */
 export function PlanNotice({
   store,

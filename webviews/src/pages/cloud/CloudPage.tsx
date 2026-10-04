@@ -54,6 +54,14 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
         {snap.refusal && (
           <PlanNotice store={store} refusal={snap.refusal} strings={strings} onDismiss={() => store.dismissError()} />
         )}
+        {snap.blocked === "no_snapshot_configured" && (
+          <div className="cloud-error cloud-blocked" role="alert">
+            <span className="cloud-error-text">{t(L.noSnapshotConfigured)}</span>
+            <button type="button" className="cloud-link-button" onClick={() => store.dismissError()}>
+              {t(L.dismissError)}
+            </button>
+          </div>
+        )}
         <div className={`cloud-body layout-${snap.layout}`}>
           <section className="cloud-machines" aria-label={t(L.machines)}>
             <div className="cloud-section-header">

@@ -120,6 +120,10 @@ export class MockCloudProvider implements PageClient {
   goneNext?: string;
   /** The account has no paid plan: create and restore answer `plan_required`. */
   planRequired = false;
+  /** `details.plan` of quota and size refusals: the plan that lifts the limit (null = none does). */
+  liftingPlan: string | null = null;
+  /** No machine image is configured yet: create and restore answer `no_snapshot_configured`. */
+  noSnapshotConfigured = false;
   holdTransfers: boolean;
   pageSize: number;
   /** The owner's normalization of a new name (the echo then differs from the intent). */
@@ -197,6 +201,7 @@ export class MockCloudProvider implements PageClient {
     const p = this.account.plan;
     return {
       plan_id: p.plan_id,
+      upgrade_plan: p.upgrade_plan,
       limits: {
         max_active: p.max_active,
         max_saved: p.max_saved,
@@ -289,12 +294,16 @@ export class MockCloudProvider implements PageClient {
     if (this.planRequired)
       throw pageError(CloudErrors.planRequired, "Cloud machines need a paid plan", false, { plan: "pro" });
     if (typeof memoryMb === "number" && this.account.plan.locked_memory_options_mb.includes(memoryMb))
-      throw pageError(CloudErrors.sizeLocked, "this size needs another plan", false, { memory_mb: memoryMb });
+      throw pageError(CloudErrors.sizeLocked, "this size needs another plan", false, {
+        memory_mb: memoryMb,
+        plan: this.liftingPlan,
+      });
     const { limits, usage } = this.plan;
     if (activeDelta > 0 && usage.active + activeDelta > limits.max_active)
       throw pageError(CloudErrors.quotaExceeded, `this plan allows ${limits.max_active} active machines`, false, {
         limit: limits.max_active,
         used: usage.active,
+        plan: this.liftingPlan,
       });
   }
 
@@ -378,6 +387,8 @@ export class MockCloudProvider implements PageClient {
         if (!size || typeof size !== "object") throw pageError("cmux.cloud.invalid_args", "size is required");
         if (typeof p.from_snapshot === "string" && !this.snapshots.some((s) => s.id === p.from_snapshot))
           throw notFound(`no snapshot ${p.from_snapshot}`);
+        if (this.noSnapshotConfigured)
+          throw pageError(CloudErrors.noSnapshotConfigured, "no machine image is configured yet", false);
         this.checkPlan(size.memory_mb, 1);
         return this.create(p.name, size.memory_mb);
       }
@@ -431,6 +442,7 @@ export class MockCloudProvider implements PageClient {
           throw pageError(CloudErrors.quotaExceeded, `this plan keeps ${limits.max_saved} saved snapshots`, false, {
             limit: limits.max_saved,
             used: usage.saved,
+            plan: this.liftingPlan,
           });
         const snapshot: CloudSnapshot = {
           id: `snap_new${this.nextId++}`,
@@ -449,6 +461,8 @@ export class MockCloudProvider implements PageClient {
         // A new machine from the snapshot; the source machine does not change.
         const snapshot = this.snapshots.find((s) => s.id === p.snapshot);
         if (!snapshot) throw notFound(`no snapshot ${String(p.snapshot)}`);
+        if (this.noSnapshotConfigured)
+          throw pageError(CloudErrors.noSnapshotConfigured, "no machine image is configured yet", false);
         this.checkPlan(undefined, 1);
         return this.create(typeof p.name === "string" ? p.name : (snapshot.name ?? null), undefined);
       }

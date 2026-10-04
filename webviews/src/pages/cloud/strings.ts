@@ -66,6 +66,7 @@ export const L = {
   planRequired: "error.planRequired",
   quotaExceeded: "error.quotaExceeded",
   sizeLocked: "error.sizeLocked",
+  noSnapshotConfigured: "error.noSnapshotConfigured",
   seePlans: "plan.seePlans",
   createLimit: "create.limit",
   createLimitReached: "create.limitReached",

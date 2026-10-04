@@ -129,6 +129,10 @@ pub struct PlanUsage {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Plan {
     pub plan_id: String,
+    /// The plan that lifts this plan's limits ("See plans"); `None` (null)
+    /// when no plan does.
+    #[serde(default)]
+    pub upgrade_plan: Option<String>,
     pub limits: PlanLimits,
     pub usage: PlanUsage,
 }
