@@ -8,6 +8,7 @@
 //! nothing and may open no stream.
 
 use std::collections::BTreeMap;
+use std::sync::PoisonError;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -125,17 +126,17 @@ pub(crate) struct RemoteRelayState {
 
 impl RemoteRelayState {
     pub(crate) fn peer(&self, client: u64) -> Option<LinkPeer> {
-        self.peers.lock().unwrap().get(&client).cloned()
+        self.peers.lock().unwrap_or_else(PoisonError::into_inner).get(&client).cloned()
     }
 
     pub(crate) fn owner_user(&self) -> Option<String> {
-        let pairing = self.pairing.lock().unwrap().clone();
+        let pairing = self.pairing.lock().unwrap_or_else(PoisonError::into_inner).clone();
         pairing.and_then(|records| records.owner_user())
     }
 
     /// The remote connections of `install`.
     pub(crate) fn clients_of(&self, install: &str) -> Vec<u64> {
-        let peers = self.peers.lock().unwrap();
+        let peers = self.peers.lock().unwrap_or_else(PoisonError::into_inner);
         peers.iter().filter(|(_, peer)| peer.install == install).map(|(c, _)| *c).collect()
     }
 }

@@ -6,6 +6,7 @@
 //! (section 6) join this step when those exist.
 
 use std::sync::Arc;
+use std::sync::PoisonError;
 
 use crate::remote_relay_state::{RevocationClock, StreamPolicy};
 
@@ -15,7 +16,11 @@ impl Mux {
     /// The control plane confirmed `install` (the 5-minute recheck or a new
     /// stream's check).
     pub fn record_remote_check(&self, install: &str) {
-        self.remote_relay().revocation.lock().unwrap().record_good_check(install);
+        self.remote_relay()
+            .revocation
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .record_good_check(install);
     }
 
     /// Revoke `install` in one step: mark it revoked, delete its pairing
@@ -24,11 +29,13 @@ impl Mux {
         // Mark revoked and collect the streams under the revocation lock
         // (then peers), so no new stream of the install can slip between.
         let clients = {
-            let mut revocation = self.remote_relay().revocation.lock().unwrap();
+            let mut revocation =
+                self.remote_relay().revocation.lock().unwrap_or_else(PoisonError::into_inner);
             revocation.record_revoked(install);
             self.remote_relay().clients_of(install)
         };
-        let pairing = self.remote_relay().pairing.lock().unwrap().clone();
+        let pairing =
+            self.remote_relay().pairing.lock().unwrap_or_else(PoisonError::into_inner).clone();
         if let Some(records) = pairing {
             records.delete(install);
         }
@@ -41,8 +48,9 @@ impl Mux {
     /// closes nothing before the limit.
     pub fn enforce_remote_limits(self: &Arc<Self>) -> Vec<String> {
         let (closing, clients) = {
-            let revocation = self.remote_relay().revocation.lock().unwrap();
-            let peers = self.remote_relay().peers.lock().unwrap();
+            let revocation =
+                self.remote_relay().revocation.lock().unwrap_or_else(PoisonError::into_inner);
+            let peers = self.remote_relay().peers.lock().unwrap_or_else(PoisonError::into_inner);
             let mut closing: Vec<String> = peers
                 .values()
                 .filter(|peer| revocation.policy(&peer.install) == StreamPolicy::Close)
@@ -63,7 +71,11 @@ impl Mux {
 
     /// Replace the revocation clock (the recheck driver and tests).
     pub fn set_remote_revocation_clock(&self, clock: Arc<dyn RevocationClock>) {
-        self.remote_relay().revocation.lock().unwrap().set_clock(clock);
+        self.remote_relay()
+            .revocation
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .set_clock(clock);
     }
 
     fn close_remote_clients(self: &Arc<Self>, clients: Vec<u64>) {
