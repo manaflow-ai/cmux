@@ -14,8 +14,7 @@ const DAEMON_PATH: &str = "/daemon/cmux-tui/shims:/usr/bin:/bin";
 /// The values the daemon sets at startup (`main.rs`,
 /// `agent_browser_provider.rs`), so the children start from the daemon env.
 fn daemon_options() -> crate::SurfaceOptions {
-    let mut options = crate::SurfaceOptions::default();
-    options.extra_env = [
+    let extra_env = [
         ("CMUX_TUI_SOCKET", "/daemon/cmux-tui.sock"),
         ("CMUX_MUX_SOCKET", "/daemon/cmux-tui.sock"),
         ("CMUX_TUI_HOOK", "/daemon/cmux-tui-hook"),
@@ -27,8 +26,11 @@ fn daemon_options() -> crate::SurfaceOptions {
     .into_iter()
     .map(|(key, value)| (key.to_string(), value.to_string()))
     .collect();
-    options.claude_shim_dir = Some(SHIM_DIR.to_string());
-    options
+    crate::SurfaceOptions {
+        extra_env,
+        claude_shim_dir: Some(SHIM_DIR.to_string()),
+        ..crate::SurfaceOptions::default()
+    }
 }
 
 struct Spawned {
