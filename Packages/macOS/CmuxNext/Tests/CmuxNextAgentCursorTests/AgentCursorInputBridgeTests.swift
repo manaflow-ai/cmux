@@ -138,14 +138,20 @@ import Testing
         #expect(a.events.count == 52)
     }
 
+    /// Gap sizes come from the wire: two sessions that each skip almost
+    /// 2^64 events saturate the count instead of trapping.
     @Test func hugeGapsDoNotOverflow() {
-        let (bridge, recorder, _) = bridge()
-        bridge.receive(Self.event(seq: 0))
-        bridge.receive(Data(#"{"v":1,"session_id":"s1","target_id":"tab_7","seq":9000000000000000000,"kind":"key","space":"viewport","t_ms":1}"#.utf8))
-        bridge.receive(Data(#"{"v":1,"session_id":"s1","target_id":"tab_7","seq":18000000000000000000,"kind":"key","space":"viewport","t_ms":2}"#.utf8))
+        let (bridge, a, b) = bridge()
+        func huge(_ session: String, _ target: String) -> Data {
+            Data(#"{"v":1,"session_id":"\#(session)","target_id":"\#(target)","seq":18000000000000000000,"kind":"key","space":"viewport","t_ms":1}"#.utf8)
+        }
+        bridge.receive(Self.event(session: "s1", target: "tab_7", seq: 0))
+        bridge.receive(huge("s1", "tab_7"))
+        bridge.receive(Self.event(session: "s3", target: "tab_9", seq: 0))
+        bridge.receive(huge("s3", "tab_9"))
         #expect(bridge.counts.gaps == 2)
         #expect(bridge.counts.missing == .max, "saturates")
-        #expect(recorder.events.count == 3)
+        #expect(a.events.count == 2 && b.events.count == 2)
     }
 
     @Test func aTargetNoContentOwnsIsCountedNotDrawn() {
