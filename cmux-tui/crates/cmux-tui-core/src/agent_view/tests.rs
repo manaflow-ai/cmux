@@ -152,3 +152,87 @@ fn exclusions_come_before_approval() {
     };
     assert_eq!(agent_view(&closed, &everything()), Exposure::Excluded(Exclusion::NotOffered));
 }
+
+fn standard(_: &str) -> ScopeClass {
+    ScopeClass::Standard
+}
+
+fn enabled(_: &str) -> bool {
+    true
+}
+
+#[test]
+fn an_ir_op_gives_its_exposure_fields() {
+    let ir = serde_json::json!({ "name": "cmux.git.status", "kind": "read", "scope": "git:read",
+        "owner": "first-party", "mcp": { "expose": "default", "group": "git" }, "secret_output": false });
+    let restricted = |scope: &str| {
+        if scope == "git:read" { ScopeClass::Restricted } else { ScopeClass::Standard }
+    };
+    assert_eq!(
+        OpExposure::from_ir(&ir, restricted, enabled),
+        Some(OpExposure {
+            name: "cmux.git.status".to_owned(),
+            scope: "git:read".to_owned(),
+            scope_class: ScopeClass::Restricted,
+            risk: Risk::Read,
+            mcp: McpExpose::Default,
+            gesture_required: false,
+            secret_output: false,
+            app_disabled: false,
+        })
+    );
+}
+
+#[test]
+fn ir_exposure_fails_closed() {
+    // No mcp block: never offered.
+    let silent = serde_json::json!({ "name": "cmux.x.y", "kind": "read", "scope": "x:read", "owner": "first-party" });
+    let op = OpExposure::from_ir(&silent, standard, enabled).expect("op");
+    assert_eq!(op.mcp, McpExpose::Never);
+    // A mutation without a declared risk needs approval.
+    let mutation = serde_json::json!({ "name": "cmux.x.set", "kind": "mutation", "scope": "x:write",
+        "owner": "first-party", "mcp": { "expose": "opt_in" } });
+    let op = OpExposure::from_ir(&mutation, standard, enabled).expect("op");
+    assert_eq!((op.mcp, op.risk), (McpExpose::OptIn, Risk::Destructive));
+    let declared = serde_json::json!({ "name": "cmux.x.set", "kind": "mutation", "scope": "x:write",
+        "owner": "first-party", "risk": "mutate-own", "gesture": "required" });
+    let op = OpExposure::from_ir(&declared, standard, enabled).expect("op");
+    assert_eq!((op.risk, op.gesture_required), (Risk::MutateOwn, true));
+    // An unknown expose value is never offered; a missing scope is no op.
+    let odd = serde_json::json!({ "name": "cmux.x.z", "kind": "read", "scope": "x:read", "mcp": { "expose": "always" } });
+    assert_eq!(OpExposure::from_ir(&odd, standard, enabled).expect("op").mcp, McpExpose::Never);
+    let no_scope = serde_json::json!({ "name": "cmux.x.z", "kind": "read" });
+    assert_eq!(OpExposure::from_ir(&no_scope, standard, enabled), None);
+}
+
+#[test]
+fn an_app_op_is_disabled_when_its_app_is() {
+    let ir = serde_json::json!({ "name": "com.example.hello.greet", "kind": "read", "scope": "hello:read",
+        "owner": "app:com.example.hello", "mcp": { "expose": "default" } });
+    let only_notes = |app: &str| app == "cmux/notes";
+    let op = OpExposure::from_ir(&ir, standard, only_notes).expect("op");
+    assert!(op.app_disabled);
+    let op =
+        OpExposure::from_ir(&ir, standard, |app: &str| app == "com.example.hello").expect("op");
+    assert!(!op.app_disabled);
+}
+
+#[test]
+fn every_op_in_the_committed_ir_has_an_agent_answer() {
+    let ir: serde_json::Value =
+        serde_json::from_str(include_str!("../../../cmux-pane-protocol/spec/pane-protocol.json"))
+            .expect("IR is JSON");
+    let ops = ir["ops"].as_array().expect("ops");
+    assert!(!ops.is_empty());
+    for raw in ops {
+        let op =
+            OpExposure::from_ir(raw, standard, enabled).expect("every IR op has a name and scope");
+        let answer = agent_view(&op, &everything());
+        if raw["secret_output"] == true {
+            assert_eq!(answer, Exposure::Excluded(Exclusion::Secret), "{}", op.name);
+        }
+        if raw["mcp"]["expose"] == "never" {
+            assert!(matches!(answer, Exposure::Excluded(_)), "{}", op.name);
+        }
+    }
+}

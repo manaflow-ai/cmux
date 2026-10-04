@@ -57,6 +57,20 @@ pub struct OpExposure {
     pub app_disabled: bool,
 }
 
+impl OpExposure {
+    /// Reads one op of the IR (`cmux-pane-protocol/spec/pane-protocol.json`,
+    /// `ops[]`). `scope_class` classifies a scope with `scope-classes.json`;
+    /// `app_enabled` says whether an `app:<id>` owner is installed and
+    /// enabled. Returns `None` for an op without a name or scope.
+    pub fn from_ir(
+        _op: &serde_json::Value,
+        _scope_class: impl Fn(&str) -> ScopeClass,
+        _app_enabled: impl Fn(&str) -> bool,
+    ) -> Option<Self> {
+        None
+    }
+}
+
 /// An agent principal's grant, as the owner of the grant reports it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AgentGrant {
