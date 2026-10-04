@@ -21,8 +21,20 @@ enum BrowserHitMenu {
     /// A link without known text has no Copy Link Text; a selection inside
     /// an editable field keeps the engine's edit rows instead.
     static func sections(for target: BrowserContextMenuTarget) -> [Section] {
-        // Red: no rows yet.
-        []
+        var sections: [Section] = []
+        if let link = target.linkURL {
+            let text = target.linkText.trimmingCharacters(in: .whitespacesAndNewlines)
+            var arguments: [String: ActionValue] = ["url": .string(link.absoluteString)]
+            if !text.isEmpty { arguments["text"] = .string(text) }
+            sections.append(Section(context: .browserLink, arguments: arguments, hidden: text.isEmpty ? ["browser.link.copyText"] : []))
+        }
+        if let image = target.imageURL {
+            sections.append(Section(context: .browserImage, arguments: ["url": .string(image.absoluteString)], hidden: []))
+        }
+        if !target.isEditable, !target.selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sections.append(Section(context: .browserSelection, arguments: ["text": .string(target.selection)], hidden: []))
+        }
+        return sections
     }
 
     /// The rows for `target` on the page of tab `tab`, a separator between
