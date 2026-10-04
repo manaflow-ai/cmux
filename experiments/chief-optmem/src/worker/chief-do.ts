@@ -111,7 +111,8 @@ export class ChiefDO extends DurableObject<Env> {
    * (`/v1/chiefs/:id/stream?after=N`): the backlog after N on connect, then
    * every new message as it is recorded. No Agent protocol frames; the only
    * frame is `{"messages": [...]}`. Idle sockets cost nothing while the
-   * object sleeps.
+   * object sleeps. A turn also sends `{"typing": true}` and `{"typing": false}`
+   * around it; harnesses show that as the agent typing.
    */
   readonly webSockets = new WebSockets({
     protocol: () => false,
@@ -300,6 +301,15 @@ export class ChiefDO extends DurableObject<Env> {
         },
       ],
     });
+    this.broadcastText(frame);
+  }
+
+  /** A frame that is not stored (typing). A client that reconnects mid-turn sees the next one. */
+  private broadcast(frame: { readonly typing: boolean }): void {
+    this.broadcastText(JSON.stringify(frame));
+  }
+
+  private broadcastText(frame: string): void {
     for (const connection of this.webSockets.getConnections()) {
       try {
         connection.send(frame);
@@ -335,6 +345,7 @@ export class ChiefDO extends DurableObject<Env> {
       }));
       const turnId = events[0]!.id;
       console.log("chief turn start", turnId, events.length);
+      this.broadcast({ typing: true });
       try {
         const result = await runTurn(turnId, events, this.memory(), this.model(turnId));
         if (result.reply.trim()) this.record(`reply:${turnId}`, "chief", "Chief", result.reply.trim());
@@ -342,6 +353,7 @@ export class ChiefDO extends DurableObject<Env> {
         console.error("chief turn failed", e);
         this.record(`error:${turnId}`, "error", "Chief", `This turn failed: ${(e as Error).message}`);
       }
+      this.broadcast({ typing: false });
       const ids = events.map((e) => e.id);
       sql.exec(`UPDATE chief_event SET done = 1 WHERE id IN (${ids.map(() => "?").join(",")})`, ...ids);
     }
