@@ -36,9 +36,20 @@ public final class BrowserNativeInputDeliveryOwner {
 
     func withDispatch<T>(_ body: () -> T) -> T {
         dispatchDepth += 1
-        defer { dispatchDepth = max(0, dispatchDepth - 1) }
+        Self.activeDispatchCount += 1
+        defer {
+            dispatchDepth = max(0, dispatchDepth - 1)
+            Self.activeDispatchCount = max(0, Self.activeDispatchCount - 1)
+        }
         return body()
     }
+
+    /// Native key deliveries in progress in any web view.
+    private static var activeDispatchCount = 0
+
+    /// Whether any web view is delivering an automated key right now. WebKit's
+    /// resend of an unhandled key runs on a later turn, outside every delivery.
+    public static var isAnyDispatchActive: Bool { activeDispatchCount > 0 }
 
     /// Key codes of modifiers currently held by automation.
     public var heldModifierKeyCodes: [UInt16] {
@@ -150,13 +161,15 @@ extension WKWebView {
             specification: specification,
             keyDown: true,
             timestamp: timestamp,
-            characters: characters
+            characters: characters,
+            marksBrowserAutomation: true
         )
         let up = SyntheticKeyEventFactory.keyEvent(
             specification: specification,
             keyDown: false,
             timestamp: timestamp,
-            characters: characters
+            characters: characters,
+            marksBrowserAutomation: true
         )
 
         switch action {
@@ -303,5 +316,30 @@ extension WKWebView {
         case .function: return .function
         default: return nil
         }
+    }
+}
+
+/// Keys browser automation (the REPL, `cmux browser press`, the mobile
+/// browser stream) delivers to a web view. When no page handles such a key,
+/// WebKit sends it back through `NSApp.sendEvent` (WebViewImpl's
+/// doneWithKeyEvent), which hands it to the key window: the user's window,
+/// whose first responder (a terminal) would receive the text and whose menus
+/// would run Command shortcuts. The page has already received the key, so the
+/// app drops that resend (``isResentBrowserAutomationKeyEvent``).
+extension NSEvent {
+    /// `CGEventField.eventSourceUserData` of an automated browser key ("cmuxkeys").
+    static let browserAutomationKeyMark: Int64 = 0x636D_7578_6B65_7973
+
+    /// Whether browser automation created this key event for a web view.
+    public var isBrowserAutomationKeyEvent: Bool {
+        guard type == .keyDown || type == .keyUp || type == .flagsChanged, let cgEvent else { return false }
+        return cgEvent.getIntegerValueField(.eventSourceUserData) == Self.browserAutomationKeyMark
+    }
+
+    /// Whether this is an automated browser key reaching the app outside the
+    /// web view's own delivery: WebKit's resend of a key no page handled.
+    @MainActor
+    public var isResentBrowserAutomationKeyEvent: Bool {
+        isBrowserAutomationKeyEvent && !BrowserNativeInputDeliveryOwner.isAnyDispatchActive
     }
 }

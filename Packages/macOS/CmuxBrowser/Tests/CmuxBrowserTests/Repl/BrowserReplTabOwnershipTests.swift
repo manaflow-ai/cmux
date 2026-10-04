@@ -85,6 +85,50 @@ import Testing
         #expect(ownership.recipient(for: .download) == "creator")
     }
 
+    // An agent's click in a user's tab that opens an alert or a file panel
+    // must not put cmux's UI in front of the user (a file panel opened over
+    // their work from a hidden workspace) or hang the agent on a dialog only
+    // the user can see. What the agent's own input opens goes to the agent.
+    @Test func whatASessionsInputOpensInAUsersTabGoesToThatSession() {
+        var ownership = BrowserReplTabOwnership()
+        ownership.attach(sessionID: "agent")
+        ownership.attach(sessionID: "other")
+        ownership.beginInput(sessionID: "agent")
+        #expect(ownership.recipient(for: .dialog) == "agent")
+        #expect(ownership.recipient(for: .fileChooser) == "agent")
+        #expect(ownership.recipient(for: .download) == nil, "a download keeps the user's download location")
+        #expect(!ownership.isSessionOwned, "the tab stays the user's")
+        ownership.endInput(sessionID: "agent")
+        #expect(ownership.recipient(for: .dialog) == nil, "after the input, the user's UI again")
+        #expect(ownership.recipient(for: .fileChooser) == nil)
+    }
+
+    @Test func aHandlerStillWinsOverTheSessionWhoseInputOpenedTheEvent() {
+        var ownership = BrowserReplTabOwnership()
+        ownership.attach(sessionID: "agent")
+        ownership.attach(sessionID: "watcher")
+        ownership.setHandledEvents([.dialog], for: "watcher")
+        ownership.beginInput(sessionID: "agent")
+        #expect(ownership.recipient(for: .dialog) == "watcher")
+        #expect(ownership.recipient(for: .fileChooser) == "agent")
+    }
+
+    @Test func inputEndsWithTheSessionAndNests() {
+        var ownership = BrowserReplTabOwnership()
+        ownership.attach(sessionID: "a")
+        ownership.attach(sessionID: "b")
+        ownership.beginInput(sessionID: "a")
+        ownership.beginInput(sessionID: "b")
+        #expect(ownership.recipient(for: .dialog) == "b", "the latest input")
+        ownership.endInput(sessionID: "b")
+        #expect(ownership.recipient(for: .dialog) == "a")
+        ownership.detach(sessionID: "a")
+        #expect(ownership.recipient(for: .dialog) == nil, "a session that left gets nothing")
+        // Input from a session that is not attached routes nothing.
+        ownership.beginInput(sessionID: "ghost")
+        #expect(ownership.recipient(for: .dialog) == nil)
+    }
+
     @Test func eventNamesParseStrictly() {
         #expect(BrowserReplTabOwnership.events(named: ["dialog", "filechooser", "download"]) == Set(BrowserReplTabEvent.allCases))
         #expect(BrowserReplTabOwnership.events(named: []) == [])

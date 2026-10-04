@@ -127,6 +127,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     private var currentPolicy: BrowserReplDomainPolicy { lock.withLock { domainPolicy } }
 
+    /// The session's own input and navigations: a dialog or file chooser the
+    /// page opens while it handles one goes to the session.
+    private static func isActionOnPage(_ method: String) -> Bool {
+        method.hasPrefix("input.") || method == "tab.navigate" || method == "tab.reload" || method == "tab.history"
+    }
+
     /// Methods that read or act on a page or its cookies; refused while the
     /// page is one the policy blocks.
     private static func isGuarded(_ method: String) -> Bool {
@@ -210,14 +216,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         if let pending = lock.withLock({ policyTask }) { await pending.value }
         if let policyFailure { return .failure(policyFailure) }
         let params = JSONSerialization.browserReplObject(paramsJSON)
-        // Every call on a tab first waits until the tab renders like a focused
-        // foreground page; input must not race WebKit's focus update.
-        if let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
+        // Every call on a tab first wakes a hibernated tab and waits until
+        // the tab renders like a focused foreground page; input must not race
+        // WebKit's focus update. Closing or keeping a tab leaves it as it is.
+        var tabToPrepare: BrowserPanel?
+        if BrowserReplTabWaker.wakesHibernatedTab(method),
+           let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
            let panel = try? reachablePanel(id) {
-            let attachment = attach(panel)
-            // WebKit signals the update; the bound only guards a web process
-            // that goes away before answering.
-            _ = await withTimeout(milliseconds: 2_000) { await attachment.renderingSettled() }
+            // Attaching keeps the tab rendering, which starts the restore of
+            // a hibernated page (BrowserReplTabAttachment.keepRendering).
+            attach(panel)
+            tabToPrepare = panel
         }
         defer {
             // A pane that shows a mirror of this tab gets the page's new look.
@@ -226,9 +235,34 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             }
         }
         do {
+            if let panel = tabToPrepare {
+                let preparation = try await prepareTab(panel, for: method)
+                let attachment = attachment(panel)
+                // WebKit signals the update; the bound only guards a web process
+                // that goes away before answering.
+                _ = await withTimeout(milliseconds: 2_000) { await attachment.renderingSettled() }
+                if preparation == .reloaded {
+                    // Loading the crashed or hibernated tab again was the reload.
+                    var result: [String: Any] = [:]
+                    if let status = attachment.mainDocumentStatus { result["status"] = status }
+                    guard let json = JSONSerialization.browserReplString(result.isEmpty ? nil : result as Any?) else {
+                        return .success("null")
+                    }
+                    return .success(json)
+                }
+            }
             try checkPagePolicy(method: method, params: params)
             try await checkFramePolicy(method: method, params: params)
-            let value = try await handle(method: method, params: params)
+            let value: Any?
+            if Self.isActionOnPage(method), let panel = tabToPrepare {
+                // What the page opens while it handles this session's input
+                // goes to this session, never to cmux's UI in front of the user.
+                value = try await attachment(panel).withInput(sessionID: sessionID) {
+                    try await handle(method: method, params: params)
+                }
+            } else {
+                value = try await handle(method: method, params: params)
+            }
             if let raw = value as? BrowserReplRawJSON { return .success(raw.text) }
             guard let json = JSONSerialization.browserReplString(value) else {
                 return .failure(Self.error("invalid", "Driver result for \(method) is not JSON"))
@@ -291,9 +325,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 throw Self.error("blocked", "the sign-in fields are in a frame showing \(frame.url), which the domain policy blocks: \(reason)")
             }
             try await frameGate.authorize(frame, in: panel.webView)
+            let workspaceTitle = allBrowserPanels().first { $0.panel.id == panel.id }?.workspace.title ?? ""
             return await BrowserReplCredentialRequest.run(
                 webView: panel.webView, frameInfo: frame.info, params: params,
-                fillSource: bundle.readResource("sites/auth-fill.js")
+                fillSource: bundle.readResource("sites/auth-fill.js"),
+                requester: (tab: Self.title(panel), workspace: workspaceTitle)
             )
         default:
             throw Self.error("unsupported", "Unsupported driver method \(method)")
@@ -393,13 +429,20 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// Resolves `targetId` to an attached browser panel.
     @MainActor
     private func panel(_ params: [String: Any]) throws -> BrowserPanel {
+        let panel = try existingPanel(params)
+        attach(panel).keepRendering()
+        return panel
+    }
+
+    /// Resolves `targetId` without attaching to it or waking it.
+    @MainActor
+    private func existingPanel(_ params: [String: Any]) throws -> BrowserPanel {
         guard let raw = params["targetId"] as? String, let id = UUID(uuidString: raw) else {
             throw Self.error("invalid", "targetId is required")
         }
         guard let panel = try reachablePanel(id) else {
             throw Self.error("closed", "Tab \(raw) is closed")
         }
-        attach(panel).keepRendering()
         return panel
     }
 
@@ -426,7 +469,107 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func reachablePanel(_ id: UUID) throws -> BrowserPanel? {
         if let own = try browserPanels().first(where: { $0.id == id }) { return own }
-        return allBrowserPanels().first(where: { $0.panel.id == id })?.panel
+        if let other = allBrowserPanels().first(where: { $0.panel.id == id })?.panel { return other }
+        // A tab a relaunch restored but has not loaded yet is a placeholder
+        // until first use; using it creates its browser, which then loads
+        // like a hibernated tab (prepareTab). Creating it shows nothing.
+        for workspace in allWorkspaces() {
+            if let deferred = workspace.panels[id] as? DeferredBrowserPanel {
+                return workspace.materializeDeferredBrowserPanel(deferred)
+            }
+        }
+        return nil
+    }
+
+    /// Every workspace of every window, the session's own first.
+    @MainActor
+    private func allWorkspaces() -> [Workspace] {
+        let own = try? workspace()
+        var out: [Workspace] = own.map { [$0] } ?? []
+        guard let app = AppDelegate.shared else { return out }
+        for context in app.mainWindowContexts.values.sorted(by: { $0.windowId.uuidString < $1.windowId.uuidString }) {
+            for workspace in context.tabManager.tabs where !out.contains(where: { $0.id == workspace.id }) {
+                out.append(workspace)
+            }
+        }
+        return out
+    }
+
+    /// `tabs.list` rows for a relaunch's not-yet-loaded tabs of `workspace`,
+    /// by panel id: they list as hibernated, and listing does not load them.
+    @MainActor
+    private static func deferredTabRows(_ workspace: Workspace) -> [UUID: [String: Any]] {
+        var rows: [UUID: [String: Any]] = [:]
+        for id in workspace.orderedPanelIds {
+            guard let deferred = workspace.panels[id] as? DeferredBrowserPanel else { continue }
+            rows[id] = [
+                "targetId": id.uuidString,
+                "title": deferred.sessionPanelSnapshot.title ?? "",
+                "url": deferred.sessionPanelSnapshot.browser?.urlString ?? "",
+                "active": false,
+                "windowId": workspace.id.uuidString,
+                "state": BrowserReplTabState.hibernated.rawValue,
+            ]
+        }
+        return rows
+    }
+
+    /// What the REPL reports about the tab's web content (`tabs.list`, `tab.info`).
+    @MainActor
+    private func tabCondition(_ panel: BrowserPanel) -> BrowserReplTabCondition {
+        let discard = panel.hiddenWebViewDiscardManager
+        let isHibernated = discard.isDiscardedForMemory
+        return BrowserReplTabCondition(
+            isHibernated: isHibernated,
+            isWaking: isHibernated && (discard.isRestoreNavigationPending || panel.hasPendingRemoteNavigation || panel.webView.isLoading),
+            isCrashed: panel.webContentState.isTerminated,
+            restoreStoppedByUser: panel.userStoppedLoadSinceWebViewReplacement
+        )
+    }
+
+    /// The tab's title for the agent: the page's, else the one cmux kept
+    /// while the page is unloaded.
+    @MainActor
+    private static func title(_ panel: BrowserPanel) -> String {
+        if let title = panel.webView.title, !title.isEmpty { return title }
+        return panel.pageTitle
+    }
+
+    @MainActor
+    private static func url(_ panel: BrowserPanel) -> String {
+        panel.webView.url?.absoluteString ?? panel.currentURL?.absoluteString ?? ""
+    }
+
+    /// Wakes a hibernated tab before `method` and waits, at most
+    /// ``BrowserReplTabWaker/defaultTimeout``, for its page to load again,
+    /// or fails with why the tab cannot run it (crashed, a restore the user
+    /// stopped). Waking renders the tab off screen; it never shows or
+    /// focuses it.
+    @MainActor
+    private func prepareTab(_ panel: BrowserPanel, for method: String) async throws -> BrowserReplTabPreparation {
+        let label = BrowserReplTabLabel(id: panel.id.uuidString, title: Self.title(panel), url: Self.url(panel))
+        return try await BrowserReplTabWaker(sleeper: sleeper).prepare(
+            method: method,
+            tab: label,
+            condition: { self.tabCondition(panel) },
+            wake: { self.attachment(panel).keepRendering() },
+            recoverCrash: {
+                // As the pane's Reload does: a new web content process loads
+                // the page into a new web view, off screen.
+                _ = panel.recoverTerminatedWebContent(reason: "browser.repl.reload")
+                self.attachment(panel).keepRendering()
+            },
+            waitUntilLoaded: { [self] in
+                // The page commits into the web view the discard or the crash
+                // recovery put in place; one replaced again meanwhile is waited for too.
+                while !Task.isCancelled {
+                    let outcome = await panel.automationDocumentReadiness.waitForCommit(instanceID: panel.webViewInstanceID)
+                    guard outcome == .superseded else { break }
+                }
+                guard !panel.hiddenWebViewDiscardManager.isDiscardedForMemory, !Task.isCancelled else { return }
+                try? await self.waitForLoadState(panel, "domcontentloaded", remainingMilliseconds: Int(BrowserReplTabWaker.defaultTimeout.components.seconds) * 1000)
+            }
+        )
     }
 
     @MainActor
@@ -573,29 +716,48 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         if all {
             // The session's own workspace first, then every other workspace.
             let own = try listTabs()
-            let others: [[String: Any]] = allBrowserPanels()
-                .filter { $0.workspace.id != workspace.id }
-                .map { entry in
-                    [
-                        "targetId": entry.panel.id.uuidString,
-                        "title": entry.panel.webView.title ?? entry.panel.pageTitle,
-                        "url": entry.panel.webView.url?.absoluteString ?? entry.panel.currentURL?.absoluteString ?? "",
-                        "active": false,
-                        "windowId": entry.workspace.id.uuidString,
-                        "dataStore": Self.dataStoreID(entry.panel.webView.configuration.websiteDataStore),
-                    ]
+            var others: [[String: Any]] = []
+            for other in allWorkspaces() where other.id != workspace.id {
+                let deferred = Self.deferredTabRows(other)
+                for id in other.orderedPanelIds {
+                    if let row = deferred[id] {
+                        others.append(row)
+                    } else if let panel = other.panels[id] as? BrowserPanel {
+                        others.append([
+                            "targetId": panel.id.uuidString,
+                            "title": Self.title(panel),
+                            "url": Self.url(panel),
+                            "active": false,
+                            "windowId": other.id.uuidString,
+                            "state": tabCondition(panel).state.rawValue,
+                            "dataStore": Self.dataStoreID(panel.webView.configuration.websiteDataStore),
+                        ])
+                    }
                 }
+            }
             return own + others
         }
         let active = activeTargetID.flatMap(UUID.init(uuidString:)).flatMap { id in panels.first { $0.id == id } }
             ?? panels.first { $0.id == workspace.focusedPanelId }
-        return panels.map { panel in
+        let deferred = Self.deferredTabRows(workspace)
+        guard deferred.isEmpty else {
+            // A relaunch's not-yet-loaded tabs list in their places, hibernated.
+            let live = Dictionary(uniqueKeysWithValues: listTabsLoaded(panels, workspace: workspace, active: active).map { ($0["targetId"] as? String ?? "", $0) })
+            return workspace.orderedPanelIds.compactMap { live[$0.uuidString] ?? deferred[$0] }
+        }
+        return listTabsLoaded(panels, workspace: workspace, active: active)
+    }
+
+    @MainActor
+    private func listTabsLoaded(_ panels: [BrowserPanel], workspace: Workspace, active: BrowserPanel?) -> [[String: Any]] {
+        panels.map { panel in
             var entry: [String: Any] = [
                 "targetId": panel.id.uuidString,
-                "title": panel.webView.title ?? panel.pageTitle,
-                "url": panel.webView.url?.absoluteString ?? panel.currentURL?.absoluteString ?? "",
+                "title": Self.title(panel),
+                "url": Self.url(panel),
                 "active": panel.id == active?.id,
                 "windowId": workspace.id.uuidString,
+                "state": tabCondition(panel).state.rawValue,
                 "dataStore": Self.dataStoreID(panel.webView.configuration.websiteDataStore),
             ]
             if let opener = BrowserReplTabAttachments.shared.attachment(for: panel.id)?.openerTargetID {
@@ -696,7 +858,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     @MainActor
     private func closeTab(_ params: [String: Any]) throws -> Any? {
-        let panel = try panel(params)
+        let panel = try existingPanel(params)
         if params["runBeforeUnload"] as? Bool == true {
             let selector = NSSelectorFromString("_tryClose")
             if panel.webView.responds(to: selector) {
@@ -730,7 +892,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// `tab.keep`: the tab stays open after the session ends.
     @MainActor
     private func keepTab(_ params: [String: Any]) throws -> Any? {
-        let panel = try panel(params)
+        let panel = try existingPanel(params)
         openedTargetIDs.removeAll { $0 == panel.id }
         return nil
     }
@@ -963,8 +1125,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             "viewport": ["width": Int(fallbackSize.width), "height": Int(fallbackSize.height)],
             "deviceScaleFactor": 1,
         ]
-        result["url"] = webView.url?.absoluteString ?? panel.currentURL?.absoluteString ?? ""
-        result["title"] = webView.title ?? panel.pageTitle
+        result["url"] = Self.url(panel)
+        result["title"] = Self.title(panel)
+        result["state"] = tabCondition(panel).state.rawValue
         // The web content process's pid (WKWebView SPI), so a test can end
         // that process and check crash recovery.
         let pidSelector = NSSelectorFromString("_webProcessIdentifier")
@@ -1660,15 +1823,20 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             try refuseClipboardCommandInUserTab(command, panel: panel)
         }
         try await withWindow(panel) { [self] webView, _ in
-            let result = webView.replayBrowserReplKeyStroke(stroke, keyDown: type == "down")
-            guard result == .delivered else {
-                throw Self.error("invalid", "Could not deliver key \"\(keyName)\"")
+            // Tab past the page's last control must not move the user's
+            // AppKit focus (WKWebView+AutomationFocusContainment). WebKit asks
+            // for that before it answers the round trip below.
+            try await webView.withAutomationFocusContainment {
+                let result = webView.replayBrowserReplKeyStroke(stroke, keyDown: type == "down")
+                guard result == .delivered else {
+                    throw Self.error("invalid", "Could not deliver key \"\(keyName)\"")
+                }
+                self.attachment(panel).heldKeys.record(stroke, keyDown: type == "down")
+                if type == "down", let command = stroke.editingCommand {
+                    try await self.performEditingCommand(command, panel: panel, webView: webView)
+                }
+                await BrowserReplNativeInput.roundTrip(webView)
             }
-            self.attachment(panel).heldKeys.record(stroke, keyDown: type == "down")
-            if type == "down", let command = stroke.editingCommand {
-                try await self.performEditingCommand(command, panel: panel, webView: webView)
-            }
-            await BrowserReplNativeInput.roundTrip(webView)
         }
         return nil
     }

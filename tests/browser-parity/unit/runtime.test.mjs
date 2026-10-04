@@ -310,6 +310,35 @@ async function settledState(promise) {
   return probe.state;
 }
 
+// cmux replaces a tab's web view when it unloads a hidden page to save
+// memory and later restores it: the new page has new frame ids. Seen live: a
+// call after a forced unload addressed the old main frame and timed out with
+// "Frame ... is detached" instead of running on the restored page.
+test("tab.replaced: calls stop naming the frames of the web view cmux replaced", async () => {
+  const listeners = new Map();
+  const calls = [];
+  const host = { setTimeout: () => 0, clearTimeout: () => {}, now: Date.now, print: () => {} };
+  const driver = {
+    call: async (method, params) => {
+      calls.push({ method, params });
+      if (method === "tab.info") return { url: "https://example.com/", title: "T", viewport: { width: 1, height: 1 } };
+      if (method === "frame.evaluate") return 2;
+      return null;
+    },
+    on: (event, handler) => (listeners.set(event, handler), () => {}),
+    capabilities: () => [],
+  };
+  const session = new ns.core.Session({ driver, host });
+  const page = session.pageFor("t1");
+  page._mainFrame._id = "old-main";
+  const child = page._frameFor("old-child", page._mainFrame);
+  listeners.get("tab.replaced")({ targetId: "t1" });
+  assert.equal(child._detached, true);
+  assert.equal(await page.evaluate(() => 1 + 1), 2, "the page is not treated as crashed");
+  const evaluation = calls.find((c) => c.method === "frame.evaluate");
+  assert.notEqual(evaluation.params.frameId, "old-main");
+});
+
 test("handled events: a tab update that never settles holds later calls at most until the bound", async () => {
   const { session, calls, fire } = fakeSession();
   const page = session.pageFor("t1");

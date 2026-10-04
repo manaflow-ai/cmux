@@ -8696,6 +8696,17 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         decisionHandler(attachment?.grants("geolocation") == true ? .grant : .deny)
     }
 
+    /// Focus leaving the page (`WKUIDelegatePrivate`): Tab or Shift+Tab past
+    /// the page's last or first control. Moves AppKit focus to the next or
+    /// previous key view as WebKit does without this method, except for a
+    /// REPL session's keys, whose focus stays in the web view so they never
+    /// move the user's first responder.
+    @objc(_webView:takeFocus:)
+    func _webView(_ webView: WKWebView, takeFocus direction: Int) {
+        // _WKFocusDirection: 0 backward, 1 forward.
+        webView.browserTakeFocus(forward: direction != 0)
+    }
+
     /// Notification permission (`WKUIDelegatePrivate`), answered like
     /// geolocation.
     @objc(_webView:requestNotificationPermissionForSecurityOrigin:decisionHandler:)

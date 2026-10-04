@@ -20,6 +20,12 @@ public enum BrowserReplTabEvent: String, CaseIterable, Sendable {
 /// `waitForEvent("download")` and the like); only that event goes to the
 /// sessions.
 ///
+/// A dialog or file chooser the page opens while it handles a session's own
+/// input (a click, key, drag or navigation the session sent) goes to that
+/// session too, also in a user's tab: the agent caused it, so cmux's UI
+/// must neither come up in front of the user nor leave the agent waiting
+/// for an answer only the user can give. Downloads keep the user's location.
+///
 /// A routed event goes to one session (``recipient(for:)``), and only that
 /// session may answer it: a second session driving the same tab never sees
 /// or answers a dialog, file chooser or download routed to another.
@@ -30,6 +36,8 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
     private var handledEvents: [String: Set<BrowserReplTabEvent>] = [:]
     /// Sessions with a handler, in the order they registered one.
     private var handlerOrder: [String] = []
+    /// Sessions whose input the page is handling, latest last.
+    private var inputSessionIDs: [String] = []
 
     public init() {}
 
@@ -50,7 +58,23 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         attachedSessionIDs.remove(sessionID)
         handledEvents.removeValue(forKey: sessionID)
         handlerOrder.removeAll { $0 == sessionID }
+        inputSessionIDs.removeAll { $0 == sessionID }
         if creatorSessionID == sessionID { creatorSessionID = nil }
+    }
+
+    /// Records that the page is handling input `sessionID` sent; dialogs and
+    /// file choosers it opens until ``endInput(sessionID:)`` go to that
+    /// session. Ignored for a session that is not attached.
+    public mutating func beginInput(sessionID: String) {
+        guard attachedSessionIDs.contains(sessionID) else { return }
+        inputSessionIDs.append(sessionID)
+    }
+
+    /// Ends one ``beginInput(sessionID:)``.
+    public mutating func endInput(sessionID: String) {
+        if let index = inputSessionIDs.lastIndex(of: sessionID) {
+            inputSessionIDs.remove(at: index)
+        }
     }
 
     /// Replaces the events `sessionID` handles on this tab. Ignored for a
@@ -81,14 +105,17 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
     /// The one session `event` goes to, or `nil` when it keeps the user's
     /// UI: a session with a handler for it (the creator's first, then the
     /// session that registered its handler first), else the attached
-    /// creator of a tab a session created.
+    /// creator of a tab a session created, else, for a dialog or file
+    /// chooser, the session whose input the page is handling.
     public func recipient(for event: BrowserReplTabEvent) -> String? {
         let creator = isSessionOwned ? creatorSessionID : nil
         if let creator, handledEvents[creator]?.contains(event) == true { return creator }
         if let handler = handlerOrder.first(where: { handledEvents[$0]?.contains(event) == true }) {
             return handler
         }
-        return creator
+        if let creator { return creator }
+        guard event != .download else { return nil }
+        return inputSessionIDs.last
     }
 
     /// Parses `tab.handleEvents` names.

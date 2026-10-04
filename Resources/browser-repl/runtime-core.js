@@ -789,6 +789,7 @@
       route("tab.created", (p) => this._onTabCreated(p));
       route("tab.closed", (p) => this._page(p.targetId, false) && this._page(p.targetId)._onClosed());
       route("tab.crashed", (p) => this._forward(p, "_onCrashed"));
+      route("tab.replaced", (p) => this._forward(p, "_onReplaced"));
       route("tab.navigated", (p) => this._forward(p, "_onNavigated"));
       route("tab.loadState", (p) => this._forward(p, "_onLoadState"));
       route("dialog.opened", (p) => this._forward(p, "_onDialog"));
@@ -2499,6 +2500,13 @@
       for (const [, frame] of this._frames) frame._detached = true;
       this._frames.clear();
       this.emit("crash", this);
+    }
+    // cmux replaced the tab's web view (it restored a page it had unloaded
+    // to save memory, or recovered a crashed one): frames have new ids.
+    _onReplaced() {
+      this._mainFrame._id = null;
+      for (const [, frame] of this._frames) frame._detached = true;
+      this._frames.clear();
     }
     _onClosed() {
       if (this._closed) return;

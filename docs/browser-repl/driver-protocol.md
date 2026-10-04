@@ -15,7 +15,8 @@ same way Playwright builds its API on a browser protocol. Drivers:
 In the app, calls are synchronous-looking JSON messages between the REPL's
 JavaScriptCore context and Swift; results are JSON. Errors are
 `{ code, message }`, with codes `not_found`, `stale`, `timeout`,
-`unsupported`, `invalid`, `closed`.
+`unsupported`, `invalid`, `closed`, `blocked`, `hibernated` and `crashed`
+(see [Hibernated and crashed tabs](#hibernated-and-crashed-tabs)).
 
 Coordinates are CSS pixels relative to the top-left of the tab's viewport
 (main frame), matching Playwright `page.mouse` and screenshots at scale 1.
@@ -24,7 +25,7 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `tabs.list` | `{ all? }` | `[{ targetId, title, url, active, windowId, dataStore, openerTargetId? }]` in window order; with `all`, then the browser tabs of every other workspace and window (`windowId` names the workspace). Any listed tab is a valid `targetId` for the other methods. Tabs with equal `dataStore` (an opaque id) share cookies and storage |
+| `tabs.list` | `{ all? }` | `[{ targetId, title, url, active, windowId, state, dataStore, openerTargetId? }]` in window order (`state`: `live`, `hibernated`, `waking` or `crashed`; listing never wakes a tab); with `all`, then the browser tabs of every other workspace and window (`windowId` names the workspace). Any listed tab is a valid `targetId` for the other methods. Tabs with equal `dataStore` (an opaque id) share cookies and storage; a hibernated tab not yet loaded since a relaunch has none |
 | `tabs.dataStore` | `{ targetId? }` | `{ dataStore }`: the store `cookies.get` uses with the same params |
 | `tabs.open` | `{ url?, background?, dataStore? }` | `{ targetId }`; resolves after commit of `url`. With `dataStore`, the tab opens in that store (and the profile of a tab that uses it); one no reachable tab uses fails with `invalid` |
 | `tabs.close` | `{ targetId, runBeforeUnload? }` | |
@@ -32,7 +33,7 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 | `tab.navigate` | `{ targetId, url, waitUntil: "commit"\|"domcontentloaded"\|"load"\|"networkidle", timeoutMs }` | `{ url, status? }` |
 | `tab.history` | `{ targetId, delta: -1\|1, waitUntil, timeoutMs }` | `{ url }`, or `null` when no entry (the blank page a tab opened on is not an entry) |
 | `tab.reload` | `{ targetId, waitUntil, timeoutMs }` | `{ status? }` |
-| `tab.info` | `{ targetId }` | `{ url, title, loadState, viewport: { width, height }, deviceScaleFactor, webProcessId? }` |
+| `tab.info` | `{ targetId }` | `{ url, title, state, loadState, viewport: { width, height }, deviceScaleFactor, webProcessId? }` |
 | `tab.setViewport` | `{ targetId, width, height }` or `{ targetId, reset: true }` | |
 | `tab.bringToFront` | `{ targetId }` | |
 | `tab.keep` | `{ targetId }` | |
@@ -55,10 +56,18 @@ sessions instead. The runtime sends `tab.handleEvents` whenever a page's
 `dialog`, `filechooser` or `download` listeners change, and its next call on
 the tab waits for it. A download keeps the route it started with.
 
+A dialog or file chooser the page opens while it handles a session's
+`input.*`, `tab.navigate`, `tab.reload` or `tab.history` call is sent to
+that session too, also in a user's tab (the call caused it, so cmux's own
+dialog or Open panel must not come up in front of the user, and the call
+must not wait for an answer only the user can give); downloads keep the
+user's location.
+
 Each such event goes to one session, never to every session driving the
 tab: a session with a handler for it in its last `tab.handleEvents` (the
 creating session's first, then the session that registered first), else the
-creating session of a tab a session created. Only that session gets
+creating session of a tab a session created, else, for a dialog or file
+chooser, the session whose call the page is handling. Only that session gets
 `dialog.opened`, `filechooser.opened` and the download's `download.*` events,
 and `dialog.respond` and `filechooser.respond` from any other session fail
 with `not_found`, leaving the dialog or chooser open. When that session
@@ -79,6 +88,42 @@ responder there, so the page is focused (`document.hasFocus()`, focus and blur
 events) without changing the user's key window or first responder.
 
 `tab.info.url` is the live document URL, including `history.pushState` changes.
+
+No driver method moves the user's focus or selection except
+`tabs.activate` and `tab.bringToFront`, which select the tab in its pane
+(`tabs.open` adds the tab behind the pane's selected tab), and
+`auth.request`, whose sheet names the tab and workspace that ask. While
+`input.key` runs, WebKit's request to move AppKit focus out of the page
+(`_webView:takeFocus:`, Tab past the last control) is refused, so the focus
+stays in the web view and the window's first responder stays the user's.
+A key-down no page handles is not passed on: WebKit resends such a key
+through `NSApp.sendEvent` to the key window (the user's terminal, menus), so
+keys a web view replays carry a mark (`eventSourceUserData`) and the app
+drops a marked key that arrives outside the web view's own delivery.
+
+## Hibernated and crashed tabs
+
+A tab a relaunch restored but no pane has shown yet lists as `hibernated`
+too; the first call on it creates its browser, which then wakes the same
+way. Every call with a `targetId` except `tabs.close`, `tab.keep`,
+`tab.navigate` and `tab.history` first wakes a hibernated tab
+(the driver starts the restore of the page cmux unloaded, off screen) and
+waits, at most 30 s on the injected clock, until the restore commits and
+the document reaches `DOMContentLoaded`. Then the call runs. On a crashed
+tab (web content process ended, Reload offered in the pane) every call but
+`tabs.close`, `tab.keep`, `tab.navigate`, `tab.reload`, `tab.history`,
+`tab.info`, `tabs.activate`, `tab.bringToFront` and `tab.handleEvents`
+fails at once. `tab.reload` on a crashed tab loads the page in a new web
+content process (as the pane's Reload does) and waits for it like a wake;
+on a hibernated tab the wake is the reload. A hidden tab whose process
+ended is restored like a hibernated one. Errors, where `<tab>` is `tab <id> ("<title>", <url>)`:
+
+| Condition | Code | Message |
+| --- | --- | --- |
+| Crashed | `crashed` | `<method>: <tab> crashed: its web content process ended (a WebKit crash, or macOS reclaimed its memory). Call page.reload() or page.goto(url) to load it again; until then only navigation, tab.info and page.close() work on it` |
+| The user stopped the tab from loading | `hibernated` | `<method>: <tab> is hibernated (cmux unloaded it to save memory while it was hidden) and the user stopped it from loading, so cmux does not load it again on its own. Call page.reload() to load it, then retry` |
+| The restore ended without a page | `hibernated` | `<method>: <tab> is hibernated (cmux unloaded it to save memory while it was hidden) and loading it again did not finish with a page. Call page.reload() to load it, then retry` |
+| Still loading after 30 s | `timeout` | `<method>: <tab> was hibernated (cmux unloaded it to save memory while it was hidden) and did not load again within 30 s, so the call did not run. It is still loading: retry the call, or call page.reload()` |
 
 ## Frames and scripts
 
@@ -139,6 +184,7 @@ Every event carries `targetId`.
 | `tab.created` | `{ targetId, openerTargetId?, url }` (popups and `target=_blank`) |
 | `tab.closed` | |
 | `tab.crashed` | (the web content process ended; calls other than navigation fail until a reload or navigation starts a new one) |
+| `tab.replaced` | (cmux gave the tab a new web view: it restored a page it had unloaded to save memory, or recovered a crashed one; frame ids and element handles from before are gone) |
 | `tab.navigated` | `{ frameId, url, sameDocument }` |
 | `navigation.blocked` | `{ url, reason }`: the driver cancelled a main-frame navigation of a tab the session created because the domain policy blocks `url` |
 | `tab.loadState` | `{ state: "domcontentloaded"\|"load"\|"networkidle" }` |

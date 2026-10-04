@@ -19279,6 +19279,11 @@ private extension NSApplication {
     }
 
     @objc func cmux_applicationSendEvent(_ event: NSEvent) {
+        // WebKit sends a key no page handled back through here, to the key
+        // window. For a key browser automation typed into a tab that is the
+        // user's window: its terminal would get the text and its menus the
+        // Command shortcuts. The page already received the key.
+        if event.isResentBrowserAutomationKeyEvent { return }
 #if DEBUG
         let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil
         let phaseTotalStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0

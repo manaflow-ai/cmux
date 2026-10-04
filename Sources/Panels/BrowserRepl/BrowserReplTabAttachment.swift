@@ -114,6 +114,8 @@ final class BrowserReplTabAttachment {
     private var resourceObserver: BrowserReplResourceLoadObserver?
     private var consoleHandler: BrowserReplConsoleMessageHandler?
     private weak var instrumentedWebView: WKWebView?
+    /// Whether a web view of this tab was instrumented while attached.
+    private var hasInstrumentedWebView = false
     private var networkIdleWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// An automated left-button press and the HTML5 drag it may have started.
@@ -260,6 +262,15 @@ final class BrowserReplTabAttachment {
     /// `tab.handleEvents`: the events `sessionID` has a handler for here.
     func setHandledEvents(_ events: Set<BrowserReplTabEvent>, sessionID: String) {
         ownership.setHandledEvents(events, for: sessionID)
+    }
+
+    /// Runs `body`, a session's input or navigation on this tab: a dialog or
+    /// file chooser the page opens meanwhile goes to that session, also in
+    /// a user's tab (``BrowserReplTabOwnership/beginInput(sessionID:)``).
+    func withInput<T>(sessionID: String, _ body: () async throws -> T) async rethrows -> T {
+        ownership.beginInput(sessionID: sessionID)
+        defer { ownership.endInput(sessionID: sessionID) }
+        return try await body()
     }
 
     /// Whether `event` goes to a session instead of cmux's UI.
@@ -640,7 +651,12 @@ final class BrowserReplTabAttachment {
         if isAttached { applyContextToWebView() }
         guard let webView = panel?.webView, webView !== instrumentedWebView, isAttached else { return }
         uninstrument()
+        // A web view after the first is a replacement (a restore of a page
+        // cmux unloaded, a crash recovery): its frames have new ids.
+        let isReplacement = hasInstrumentedWebView
+        hasInstrumentedWebView = true
         instrumentedWebView = webView
+        if isReplacement { emit("tab.replaced", [:]) }
         let observer = BrowserReplResourceLoadObserver { [weak self] event, payload in
             guard let self else { return }
             if event == "request" { self.requestGeneration += 1 }
