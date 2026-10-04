@@ -50,6 +50,8 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
             "scripts/normalize-pbxproj.py",
+            "scripts/lint_swift_namespaces.py",
+            "scripts/swift_source_mask.py",
         ):
             source, target = SOURCE / relative, root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -62,8 +64,8 @@ class InstallGitHooksTests(unittest.TestCase):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
                               text=True, capture_output=True, check=check)
 
-    def install(self, root=None):
-        return subprocess.run(["bash", INSTALLER], cwd=root or self.repo, env=self.env,
+    def install(self, root=None, *args):
+        return subprocess.run(["bash", INSTALLER, *args], cwd=root or self.repo, env=self.env,
                               text=True, capture_output=True)
 
     def local_hooks_path(self):
@@ -126,6 +128,22 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_trusted_hooks_installed()
         self.assert_merge_driver_installed()
+
+    def test_namespace_fix_option_installs_trusted_pre_push_hook(self):
+        result = self.install(None, "--namespace-fix")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        installed = Path(self.local_hooks_path())
+        self.assertTrue((installed / "pre-push").is_file())
+        self.assertTrue(os.access(installed / "pre-push", os.X_OK))
+        self.assertTrue((installed / "lint_swift_namespaces.py").is_file())
+        self.assertTrue((installed / "swift_source_mask.py").is_file())
+        hook = (installed / "pre-push").read_text(encoding="utf-8")
+        self.assertNotIn("scripts/lint_swift_namespaces.py", hook)
+
+    def test_default_install_does_not_enable_namespace_fix_hook(self):
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((Path(self.local_hooks_path()) / "pre-push").exists())
 
     def test_installed_hooks_do_not_follow_checked_out_hook_changes(self):
         result = self.install()
