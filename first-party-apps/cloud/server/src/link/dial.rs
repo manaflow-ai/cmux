@@ -1,7 +1,10 @@
 //! The one adapter to `cmux link dial` (lane 12, link slice 2): the argv
 //! of one dial, and the reply line the dial writes on its stderr. Only
-//! this file knows that seam; lane 12 confirms it (argv, stderr reply line,
-//! exit status), and a change there changes only this file.
+//! this file knows that seam (confirmed by lane 12, 2026-10-04): argv
+//! `link dial --host <host_…>` (service is always daemon; `--service` comes
+//! later), one JSON reply line on stderr (any key order), a missing line =
+//! the link is not running. Exit codes are NOT used until lane 12 fixes
+//! them (0 ok, 2..6, 64).
 //!
 //! `cmux link dial --host <host_…>` is a stdio bridge to the host's daemon
 //! service: after one JSON reply line on stderr (`{"ok":true,
@@ -46,6 +49,8 @@ impl DialCode {
             "not_authorized" => Self::NotAuthorized,
             "unreachable" => Self::Unreachable,
             "bad_request" => Self::BadRequest,
+            // Coming in lane 12's next slice: the link always writes a line.
+            "link_unavailable" => Self::Unavailable("cmux link is not running".into()),
             other => Self::Unavailable(format!("cmux link answered {other:?}")),
         }
     }

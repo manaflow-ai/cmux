@@ -34,7 +34,11 @@ fn two_connects_for_one_machine_give_one_carrier_and_one_spawn() {
     let tag = LinkTag { machine: "vm-alpha01".into(), generation: 1 };
     assert_eq!(first["socket"], socket_for(&tag));
     assert_eq!(spawner.spawns(), 1, "one link process");
-    assert_eq!(s.control_plane().ops(), ["cloud.machine.get"], "one machine read, no route call");
+    assert_eq!(
+        s.control_plane().ops(),
+        ["cloud.machine.get", "cloud.machine.connect_info"],
+        "one machine read and one connect_info read, no route call and no token"
+    );
 }
 
 #[test]
@@ -43,7 +47,11 @@ fn a_paused_machine_is_started_first() {
     let mut s = server(&["vm-list", "vm-resume"], &spawner);
     s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
     s.handle(&connect("vm-beta02", "c-1")).expect("connect");
-    assert_eq!(s.control_plane().ops(), ["cloud.machine.list", "cloud.machine.start"], "start");
+    assert_eq!(
+        s.control_plane().ops(),
+        ["cloud.machine.list", "cloud.machine.start", "cloud.machine.connect_info"],
+        "start, then the readiness read"
+    );
     assert_eq!(spawner.spawns(), 1);
 }
 
@@ -253,33 +261,57 @@ mod real_process {
         supervisor.disconnect("vm-real01");
     }
 
+    /// Opens one stream on the carrier, writes nothing, reads to the end.
+    fn one_stream(socket: &std::path::Path) -> Vec<u8> {
+        let mut stream = std::os::unix::net::UnixStream::connect(socket).expect("dial");
+        stream.shutdown(std::net::Shutdown::Write).expect("half close");
+        let mut out = Vec::new();
+        let _ = stream.read_to_end(&mut out);
+        out
+    }
+
+    /// Waits (tests may sleep) until generation 1 of `machine` ended.
+    fn ended(supervisor: &mut LinkSupervisor, machine: &str) -> LinkFailure {
+        for _ in 0..500 {
+            supervisor.pump();
+            if let Some(Err(failure)) = supervisor.outcome(machine, 1) {
+                return failure;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("the link of {machine} did not end");
+    }
+
     #[test]
-    fn a_refused_probe_is_a_typed_dial_failure() {
+    fn a_refused_stream_ends_the_link_with_the_typed_code() {
         let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner));
         let script = r#"printf '%s\n' '{"ok":false,"error_code":"host_paused","path_state":"unreachable","relay_available":false}' >&2; exit 1"#;
-        let err = supervisor.spawn_and_wait("vm-real02", &command(script, "paused")).unwrap_err();
-        assert_eq!(err, LinkFailure::Dial(DialCode::HostPaused));
+        let carrier =
+            supervisor.spawn_and_wait("vm-real02", &command(script, "paused")).expect("listening");
+        assert!(one_stream(&carrier.socket).is_empty(), "the refused stream carries nothing");
+        assert_eq!(ended(&mut supervisor, "vm-real02"), LinkFailure::Dial(DialCode::HostPaused));
     }
 
     #[test]
-    fn an_exit_before_any_reply_is_unavailable() {
+    fn a_dial_that_exits_before_any_reply_is_unavailable() {
         let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner));
-        let err = supervisor.spawn_and_wait("vm-real03", &command("exit 7", "exit")).unwrap_err();
-        assert!(matches!(err, LinkFailure::Dial(DialCode::Unavailable(_))), "{err:?}");
+        let carrier =
+            supervisor.spawn_and_wait("vm-real03", &command("exit 7", "exit")).expect("listening");
+        one_stream(&carrier.socket);
+        let failure = ended(&mut supervisor, "vm-real03");
+        assert!(matches!(failure, LinkFailure::Dial(DialCode::Unavailable(_))), "{failure:?}");
     }
 
     #[test]
-    fn a_probe_that_never_answers_is_ended_and_down() {
-        let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner))
-            .with_ready_deadline(std::time::Duration::from_millis(300));
-        let err =
-            supervisor.spawn_and_wait("vm-real04", &command("exec sleep 30", "stall")).unwrap_err();
-        match err {
-            LinkFailure::Down { retryable: true, reason } => {
-                assert!(reason.contains("no connection"), "{reason}");
-            }
-            other => panic!("{other:?}"),
-        }
+    fn the_carrier_is_ready_without_any_dial() {
+        // No probe: a dial would mint a link token for nothing.
+        let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner));
+        let marker = std::env::temp_dir().join(format!("cx-dialed-marker-{}", std::process::id()));
+        let script = format!("touch {}", marker.display());
+        let carrier = supervisor.spawn_and_wait("vm-real04", &command(&script, "noprobe"));
+        assert!(carrier.is_ok(), "{carrier:?}");
+        assert!(!marker.exists(), "no dial ran before a stream");
+        supervisor.disconnect("vm-real04");
     }
 
     #[test]
@@ -287,10 +319,12 @@ mod real_process {
         // cargo sets CARGO_MANIFEST_DIR for this test process; the dial must not inherit it.
         assert!(std::env::var_os("CARGO_MANIFEST_DIR").is_some());
         let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner));
-        let script =
-            format!(r#"test -z "${{CARGO_MANIFEST_DIR:-}}" && test -n "$CMUX_TEST_DIAL" && {OK}"#);
-        let carrier = supervisor.spawn_and_wait("vm-real05", &command(&script, "env"));
-        assert!(carrier.is_ok(), "{carrier:?}");
+        let script = format!(
+            r#"test -z "${{CARGO_MANIFEST_DIR:-}}" && test -n "$CMUX_TEST_DIAL" && {OK} && printf clean"#
+        );
+        let carrier =
+            supervisor.spawn_and_wait("vm-real05", &command(&script, "env")).expect("carrier");
+        assert_eq!(one_stream(&carrier.socket), b"clean", "the dial saw only the command's env");
         supervisor.disconnect("vm-real05");
     }
 }

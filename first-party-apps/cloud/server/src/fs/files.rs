@@ -1,17 +1,19 @@
-//! `cloud.fs.*` over the Cloud API file routes (`/api/vm/:id/fs/<op>`).
-//!
-//! Every byte goes through the host credential relay as base64 in JSON, so
-//! reads and writes are bounded ([`MAX_READ_BYTES`], [`MAX_WRITE_BYTES`]).
-//! The VM daemon path over the link (`workspace-rpc` file ops) is a later
-//! improvement (cloud-app.md 3.5); it needs no change to these op shapes.
+//! `cloud.fs.*` on the machine's cmux daemon over the link
+//! (super::link_files: the `fs-v1` gate and the daemon call). The op
+//! shapes the Cloud page uses stay; each maps to one finder `fs.*` op.
 
+use super::link_files;
 use super::path::{GuestPath, guest_arg};
 use super::{FILE_TOO_LARGE, MAX_READ_BYTES, MAX_WRITE_BYTES};
-use crate::api::{CloudError, ControlPlane, Ctx, args, codes, decode_answer};
+use crate::api::{CloudError, ControlPlane, args, codes};
+use crate::ops::Server;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+
+/// The largest listing one `cloud.fs.list` returns (one daemon batch).
+pub const MAX_LIST_ENTRIES: u64 = 1000;
 
 /// One directory entry or stat answer (`cmux.fs.provider/1` `Entry`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -33,120 +35,154 @@ pub struct Entry {
     pub modified_at: Option<f64>,
 }
 
-#[derive(Deserialize)]
-struct Listing {
-    entries: Vec<Entry>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Contents {
-    data_base64: String,
-}
-
-fn route(machine: &str, op: &str, path: &GuestPath) -> String {
-    format!("/api/vm/{machine}/fs/{op}?path={}", path.query_value())
+impl Entry {
+    /// A daemon entry (finder.md 4.1: `{name, kind: file|dir|symlink|other,
+    /// size, mtime}`) in this server's shape.
+    fn from_daemon(value: &Value) -> Self {
+        let kind = match value["kind"].as_str().unwrap_or("other") {
+            "dir" | "directory" => "directory",
+            "file" => "file",
+            "symlink" => "symlink",
+            _ => "other",
+        };
+        Self {
+            name: value["name"].as_str().map(str::to_owned),
+            path: None,
+            kind: kind.into(),
+            size: value["size"].as_u64(),
+            mode: None,
+            modified_at: value["mtime"].as_f64(),
+        }
+    }
 }
 
 fn too_large(what: &str, size: u64, bound: usize) -> CloudError {
-    CloudError::new(
-        FILE_TOO_LARGE,
-        format!("{what} is {size} bytes; the limit through the Cloud API is {bound} bytes"),
-    )
+    CloudError::new(FILE_TOO_LARGE, format!("{what} is {size} bytes; the limit is {bound} bytes"))
 }
 
 pub(crate) fn list<C: ControlPlane>(
-    ctx: &mut Ctx<'_, C>,
+    server: &mut Server<C>,
     machine: &str,
     path: &GuestPath,
 ) -> Result<Vec<Entry>, CloudError> {
-    let at = route(machine, "dir", path);
-    let listing: Listing = decode_answer(&at, ctx.call("GET", at.clone(), None)?)?;
-    Ok(listing.entries)
+    let page = link_files::call(
+        server,
+        machine,
+        "fs.list",
+        json!({ "path": path.as_str(), "limit": MAX_LIST_ENTRIES }),
+    )?;
+    let entries = page["entries"].as_array().map(Vec::as_slice).unwrap_or_default();
+    Ok(entries.iter().map(Entry::from_daemon).collect())
 }
 
 pub(crate) fn stat<C: ControlPlane>(
-    ctx: &mut Ctx<'_, C>,
+    server: &mut Server<C>,
     machine: &str,
     path: &GuestPath,
 ) -> Result<Entry, CloudError> {
-    let at = route(machine, "stat", path);
-    decode_answer(&at, ctx.call("GET", at.clone(), None)?)
+    let answer = link_files::call(server, machine, "fs.stat", json!({ "path": path.as_str() }))?;
+    let mut entry = Entry::from_daemon(&answer);
+    entry.path = Some(path.as_str().to_owned());
+    Ok(entry)
+}
+
+/// Bytes of one daemon `fs.read` answer (`text` or `bytes_base64`).
+pub(crate) fn read_bytes(answer: &Value) -> Result<Vec<u8>, CloudError> {
+    if let Some(text) = answer["text"].as_str() {
+        return Ok(text.as_bytes().to_vec());
+    }
+    let encoded = answer["bytes_base64"].as_str().unwrap_or_default();
+    STANDARD
+        .decode(encoded)
+        .map_err(|e| CloudError::new(codes::BAD_RESPONSE, format!("fs.read: {e}")))
 }
 
 /// Reads a whole file of at most [`MAX_READ_BYTES`]. A stat comes first, so
-/// a large file is refused before its bytes cross the relay; the answer is
-/// checked again (the file can grow between the two calls).
+/// a large file is refused before its bytes cross the link; a truncated
+/// answer (the file grew) is refused too.
 pub(crate) fn read<C: ControlPlane>(
-    ctx: &mut Ctx<'_, C>,
+    server: &mut Server<C>,
     machine: &str,
     path: &GuestPath,
 ) -> Result<Vec<u8>, CloudError> {
-    let entry = stat(ctx, machine, path)?;
+    let entry = stat(server, machine, path)?;
     if entry.kind == "directory" {
         return Err(CloudError::invalid(format!("{} is a directory", path.as_str())));
     }
     if let Some(size) = entry.size.filter(|s| *s > MAX_READ_BYTES as u64) {
         return Err(too_large(path.as_str(), size, MAX_READ_BYTES));
     }
-    let at = route(machine, "read", path);
-    let contents: Contents = decode_answer(&at, ctx.call("GET", at.clone(), None)?)?;
-    // Refuse an oversized answer before decoding it (4 base64 chars = 3 bytes).
-    let estimate = contents.data_base64.len() / 4 * 3;
-    if estimate > MAX_READ_BYTES + 2 {
-        return Err(too_large(path.as_str(), estimate as u64, MAX_READ_BYTES));
+    let params = json!({ "path": path.as_str(), "offset": 0, "max_bytes": MAX_READ_BYTES });
+    let answer = link_files::call(server, machine, "fs.read", params)?;
+    if answer["truncated"].as_bool() == Some(true) {
+        let size = answer["size"].as_u64().unwrap_or_default();
+        return Err(too_large(path.as_str(), size, MAX_READ_BYTES));
     }
-    let bytes = STANDARD
-        .decode(contents.data_base64.as_bytes())
-        .map_err(|e| CloudError::new(codes::BAD_RESPONSE, format!("{at}: {e}")))?;
+    let bytes = read_bytes(&answer)?;
     if bytes.len() > MAX_READ_BYTES {
         return Err(too_large(path.as_str(), bytes.len() as u64, MAX_READ_BYTES));
     }
     Ok(bytes)
 }
 
-/// Writes a whole file (the Cloud API writes it atomically). There is no
-/// revision on the route, so a base revision cannot be checked.
+/// Writes a whole file (atomic on the daemon). With `base_revision` the
+/// write replaces only that revision (`fs.revision_mismatch` otherwise).
 pub(crate) fn write<C: ControlPlane>(
-    ctx: &mut Ctx<'_, C>,
+    server: &mut Server<C>,
     machine: &str,
     path: &GuestPath,
     bytes: &[u8],
-    mode: Option<u32>,
-) -> Result<(), CloudError> {
+    base_revision: Option<&str>,
+) -> Result<Option<String>, CloudError> {
     if bytes.len() > MAX_WRITE_BYTES {
         return Err(too_large("the data", bytes.len() as u64, MAX_WRITE_BYTES));
     }
-    let mut body = json!({ "path": path.as_str(), "dataBase64": STANDARD.encode(bytes) });
-    if let Some(mode) = mode {
-        body["mode"] = json!(mode);
+    let mut params = json!({ "path": path.as_str(), "bytes_base64": STANDARD.encode(bytes) });
+    match base_revision {
+        Some(expected) => {
+            params["mode"] = json!("replace");
+            params["expected"] = json!(expected);
+        }
+        None => params["mode"] = json!("overwrite"),
     }
-    ctx.call("POST", format!("/api/vm/{machine}/fs/write"), Some(body))?;
-    Ok(())
+    let answer = link_files::call(server, machine, "fs.write", params)?;
+    Ok(answer["entry"]["revision"].as_str().map(str::to_owned))
+}
+
+/// `path` as the daemon's `{path: parent, name}`.
+fn parent_and_name(path: &GuestPath) -> Result<(String, String), CloudError> {
+    let text = path.as_str().trim_end_matches('/');
+    match text.rsplit_once('/') {
+        Some((parent, name)) if !name.is_empty() => {
+            Ok((if parent.is_empty() { "/".into() } else { parent.to_owned() }, name.to_owned()))
+        }
+        _ => Err(CloudError::invalid(format!("{} has no name to create", path.as_str()))),
+    }
 }
 
 pub(crate) fn mkdir<C: ControlPlane>(
-    ctx: &mut Ctx<'_, C>,
+    server: &mut Server<C>,
     machine: &str,
     path: &GuestPath,
 ) -> Result<(), CloudError> {
-    let body = json!({ "path": path.as_str() });
-    ctx.call("POST", format!("/api/vm/{machine}/fs/mkdir"), Some(body))?;
+    let (parent, name) = parent_and_name(path)?;
+    link_files::call(server, machine, "fs.mkdir", json!({ "path": parent, "name": name }))?;
     Ok(())
 }
 
 pub(crate) fn remove<C: ControlPlane>(
-    ctx: &mut Ctx<'_, C>,
+    server: &mut Server<C>,
     machine: &str,
     path: &GuestPath,
 ) -> Result<(), CloudError> {
-    ctx.call("DELETE", route(machine, "remove", path), None)?;
+    let params = json!({ "paths": [path.as_str()], "permanent": true });
+    link_files::call(server, machine, "fs.delete", params)?;
     Ok(())
 }
 
 /// The catalog ops `cloud.fs.list|stat|read|write|mkdir|remove`.
 pub(crate) fn run<C: ControlPlane>(
-    ctx: &mut Ctx<'_, C>,
+    server: &mut Server<C>,
     name: &str,
     raw: &Value,
 ) -> Result<Value, CloudError> {
@@ -155,46 +191,51 @@ pub(crate) fn run<C: ControlPlane>(
         _ => &["machine", "path"],
     };
     let map = args::object(raw, allowed)?;
-    let machine = args::id(map, "machine")?;
+    let machine = args::id(map, "machine")?.to_owned();
+    let machine = machine.as_str();
     let path = guest_arg(map, "path")?;
     match name {
         "cloud.fs.list" => {
-            Ok(json!({ "path": path.as_str(), "entries": list(ctx, machine, &path)? }))
+            Ok(json!({ "path": path.as_str(), "entries": list(server, machine, &path)? }))
         }
-        "cloud.fs.stat" => {
-            let mut entry = stat(ctx, machine, &path)?;
-            entry.path.get_or_insert_with(|| path.as_str().to_owned());
-            Ok(json!(entry))
-        }
+        "cloud.fs.stat" => Ok(json!(stat(server, machine, &path)?)),
         "cloud.fs.read" => {
-            let bytes = read(ctx, machine, &path)?;
+            let bytes = read(server, machine, &path)?;
             Ok(json!({ "path": path.as_str(), "dataBase64": STANDARD.encode(&bytes),
                 "size": bytes.len() }))
         }
         "cloud.fs.write" => {
-            let (bytes, mode) = write_args(map)?;
-            write(ctx, machine, &path, &bytes, mode)?;
-            Ok(json!({ "ok": true, "path": path.as_str(), "size": bytes.len() }))
+            let (bytes, base) = write_args(map)?;
+            let revision = write(server, machine, &path, &bytes, base.as_deref())?;
+            Ok(json!({ "ok": true, "path": path.as_str(), "size": bytes.len(),
+                "revision": revision }))
         }
         "cloud.fs.mkdir" => {
-            mkdir(ctx, machine, &path)?;
+            mkdir(server, machine, &path)?;
             Ok(json!({ "ok": true, "path": path.as_str() }))
         }
         "cloud.fs.remove" => {
-            remove(ctx, machine, &path)?;
+            remove(server, machine, &path)?;
             Ok(json!({ "ok": true, "path": path.as_str() }))
         }
         _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
     }
 }
 
-fn write_args(map: &Map<String, Value>) -> Result<(Vec<u8>, Option<u32>), CloudError> {
-    if map.get("baseRevision").is_some_and(|v| !v.is_null()) {
+fn write_args(map: &Map<String, Value>) -> Result<(Vec<u8>, Option<String>), CloudError> {
+    if map.get("mode").is_some_and(|v| !v.is_null()) {
         return Err(CloudError::new(
             codes::UNSUPPORTED,
-            "The cmux Cloud API file route has no revision, so baseRevision cannot be checked",
+            "The machine's daemon write keeps the file's mode; it cannot set one",
         ));
     }
+    let base = match map.get("baseRevision") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(revision)) if !revision.is_empty() && revision.len() <= 128 => {
+            Some(revision.clone())
+        }
+        Some(_) => return Err(CloudError::invalid("baseRevision must be a revision string")),
+    };
     let data = map
         .get("dataBase64")
         .and_then(Value::as_str)
@@ -204,6 +245,5 @@ fn write_args(map: &Map<String, Value>) -> Result<(Vec<u8>, Option<u32>), CloudE
     }
     let bytes =
         STANDARD.decode(data).map_err(|_| CloudError::invalid("dataBase64 must be base64"))?;
-    let mode = args::int(map, "mode", 0, 0o7777, 1)?.map(|m| m as u32);
-    Ok((bytes, mode))
+    Ok((bytes, base))
 }

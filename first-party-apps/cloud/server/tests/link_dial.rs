@@ -1,7 +1,7 @@
 //! The link slice (contract 1.7 and 2.4): attach dials the machine's
 //! overlay host id through `cmux link dial`, and files go to the machine's
-//! daemon on the link behind the `fs-v1` capability. No op reaches a classic
-//! Cloud API route.
+//! daemon on the link behind the `fs-v1` capability. The classic Cloud API
+//! channel no longer exists, so no op can reach it.
 
 mod attach_common;
 mod common;
@@ -23,17 +23,12 @@ fn connect(machine: &str, key: &str) -> Request {
     Request::new("cloud.machine.connect", json!({ "machine": machine })).key(key)
 }
 
-fn no_classic_call(s: &Server<FakeControlPlane>) {
-    assert!(s.control_plane().calls.is_empty(), "classic calls: {:?}", s.control_plane().calls);
-}
-
 #[test]
 fn connect_dials_the_machine_host_id_through_cmux_link() {
     let spawner = FakeSpawner::default();
     let mut s = server(&["vm-get"], &spawner);
     let carrier = s.handle(&connect("vm-alpha01", "c-1")).expect("connect");
     assert_eq!(carrier["state"], "up");
-    no_classic_call(&s);
     let log = spawner.log();
     assert_eq!(log.commands.len(), 1, "one carrier");
     assert_eq!(
@@ -50,7 +45,6 @@ fn a_machine_with_no_host_yet_is_not_bound_and_starts_no_carrier() {
     let err = s.handle(&connect("vm-alpha01", "c-1")).unwrap_err();
     assert_eq!(err.code, "cmux.cloud.not_bound");
     assert_eq!(spawner.spawns(), 0);
-    no_classic_call(&s);
 }
 
 #[test]
@@ -63,7 +57,6 @@ fn host_paused_starts_the_machine_once_and_dials_again() {
     let starts = s.control_plane().ops().iter().filter(|op| *op == "cloud.machine.start").count();
     assert_eq!(starts, 1, "one start");
     assert_eq!(spawner.spawns(), 2, "a second dial after the start");
-    no_classic_call(&s);
 }
 
 #[test]
@@ -98,7 +91,6 @@ fn files_need_the_daemon_fs_capability_and_never_use_classic_routes() {
         assert_eq!(err.code, "cmux.cloud.unsupported", "{name}");
         assert!(err.message.contains("fs-v1"), "{name}: names the capability: {}", err.message);
     }
-    no_classic_call(&s);
     assert_eq!(spawner.spawns(), 0, "no dial without the capability");
 }
 
@@ -124,6 +116,5 @@ fn transfers_need_the_daemon_fs_capability() {
         assert!(err.message.contains("fs-v1"), "{name}: {}", err.message);
     }
     assert!(!pulled.exists(), "a refused pull writes nothing");
-    no_classic_call(&s);
     let _ = std::fs::remove_dir_all(&folder);
 }

@@ -3,9 +3,10 @@
 //! `cloud.rescue.open`) and [`Attach`], the attach state the server owns.
 
 mod argv;
-mod carrier;
+pub(crate) mod carrier;
 pub mod config;
 pub mod dial;
+pub(crate) mod info;
 pub(crate) mod ops;
 mod park;
 mod spawner;

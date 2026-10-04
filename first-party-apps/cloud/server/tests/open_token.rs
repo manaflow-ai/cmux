@@ -24,10 +24,7 @@ fn token(tag: &str) -> String {
 }
 
 fn server(spawner: &FakeSpawner, transport: &FakeTransport) -> Server<FakeControlPlane> {
-    Server::with_attach(
-        FakeControlPlane::with(&["vm-get", "attach_endpoint_alpha"]),
-        attach(spawner, transport),
-    )
+    Server::with_attach(FakeControlPlane::with(&["vm-get"]), attach(spawner, transport))
 }
 
 fn connect(kind_token: &str) -> ConnectRequest {
@@ -55,7 +52,7 @@ fn sent(
     format!(
         "{:?}\n{:?}\n{frames:?}\n{:?}",
         spawner.log().commands,
-        s.control_plane().calls,
+        s.control_plane().wire.calls,
         transport.log().opened
     )
 }

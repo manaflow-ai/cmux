@@ -304,11 +304,9 @@ impl LinkSupervisor {
         }
         match event {
             LinkProcessEvent::Line { tag, line } => {
-                if link.state != LinkState::Connecting {
-                    return;
-                }
+                let live = matches!(link.state, LinkState::Connecting | LinkState::Up(_));
                 match parse_line(&line) {
-                    LinkLine::Connected { local_socket } => {
+                    LinkLine::Connected { local_socket } if link.state == LinkState::Connecting => {
                         let carrier = Carrier {
                             id: channel_id(CONNECTOR_KIND, &tag.machine, tag.generation),
                             target: tag.machine.clone(),
@@ -319,8 +317,10 @@ impl LinkSupervisor {
                         link.deadline = None;
                         self.events.push(CarrierEvent::Up { carrier });
                     }
-                    LinkLine::DialFailed(code) => self.refuse(&tag, code),
-                    LinkLine::Other => {}
+                    // A stream's dial was refused: the link of this
+                    // generation ends with the typed refusal.
+                    LinkLine::DialFailed(code) if live => self.refuse(&tag, code),
+                    _ => {}
                 }
             }
             LinkProcessEvent::Exited { tag, code } => {
@@ -368,8 +368,8 @@ impl LinkSupervisor {
         }
     }
 
-    /// The probe dial of a connecting link was refused: this generation
-    /// ends with the typed refusal. A refusal that ends access (unknown
+    /// A dial of this generation was refused: the generation ends with the
+    /// typed refusal. A refusal that ends access (unknown
     /// host, not authorized) also revokes the machine's link.
     fn refuse(&mut self, tag: &LinkTag, code: DialCode) {
         let reason = match &code {
@@ -378,6 +378,7 @@ impl LinkSupervisor {
         };
         let revokes = code.revokes();
         let Some(link) = self.links.get_mut(&tag.machine) else { return };
+        let opened = matches!(link.state, LinkState::Up(_));
         link.deadline = None;
         if let Some(mut process) = link.process.take() {
             process.terminate();
@@ -389,7 +390,7 @@ impl LinkSupervisor {
             self.events.push(CarrierEvent::Revoked {
                 target: tag.machine.clone(),
                 reason,
-                generation: None,
+                generation: opened.then_some(tag.generation),
             });
         } else {
             self.events.push(CarrierEvent::Down {
@@ -397,7 +398,7 @@ impl LinkSupervisor {
                 generation: tag.generation,
                 retryable: true,
                 reason,
-                opened: false,
+                opened,
             });
         }
     }
