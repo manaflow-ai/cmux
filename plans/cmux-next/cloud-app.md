@@ -220,6 +220,15 @@ Cloud app server.
 
 ## 5. Interface needs (for the ghostty-next lead, through the coordinator)
 
+Chosen by the ghostty-next lead (2026-10-04, via the coordinator; text in plans/cmux-next/ghostty-next-switch.md
+after the freeze): two interfaces. `cmux.terminal.connector/1` (host mode): the far end runs its own
+session host; the local host relays the viewer protocol (GHOSTSNP snapshot + bytes, size state,
+input, presence) and does not parse. `cmux.terminal.backend/1` (bytes mode): `open`, `resume`,
+`write`, `resize`, `signal`, `close`; events `output`, `exit`, `lost`; the local host parses and owns
+snapshots and the journal. Rust traits `TerminalConnector` and `TerminalBackend`, one registry with ids
+`app:<app>/<id>`, `options.kinds` (1 to 16 unique localIds) on both, default deny. The lists below are
+our original needs; where they differ, the chosen shape wins.
+
 ### 5.1 `cmux.terminal.connector/1`
 
 1. `register {kinds}` from an app server; the daemon refuses kinds outside the app's manifest.
