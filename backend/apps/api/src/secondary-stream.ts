@@ -1,4 +1,4 @@
-import { EVENT_RETENTION_MS, LEDGER_RETENTION_MS, OwnerEngine, type Domain, type OpFrame, type OwnerFrame, type Principal, type SqlStore } from "@cmux/ownership"
+import { LEDGER_RETENTION_MS, OwnerEngine, type Domain, type OpFrame, type OwnerFrame, type Principal, type SqlStore } from "@cmux/ownership"
 import type { Attachment, OwnerEngineOptions } from "./owner-do.ts"
 
 /**
@@ -95,7 +95,7 @@ export class SecondaryStream<S> {
   prune(now: number): void {
     if (!this.engine) return
     this.engine.pruneLedger(now - LEDGER_RETENTION_MS)
-    this.engine.pruneEvents(now - EVENT_RETENTION_MS)
+    this.engine.pruneEventWindow(now)
   }
 
   /** When this stream next needs the alarm (pruning), or null. */
