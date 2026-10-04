@@ -44,13 +44,28 @@ pub(super) fn put(mux: &Mux, params: PutParams) -> anyhow::Result<Value> {
         .map_err(|_| invalid_asset("data must be standard base64"))?;
     // Sanitize and hash before the registry lock: neither needs the store.
     let blob = prepare_blob(&params.media_type, &data)?;
-    let blob = mux.workspace_registry.lock().unwrap().put_blob(blob)?;
+    let blob = mux.with_icon_registry(|registry| registry.put_blob(blob))?;
     Ok(blob.to_json(false))
 }
 
 pub(super) fn get(mux: &Mux, params: GetParams) -> anyhow::Result<Value> {
-    let blob = mux.workspace_registry.lock().unwrap().get_blob(&params.blob)?;
+    let blob = mux.with_icon_registry(|registry| registry.get_blob(&params.blob))?;
     Ok(blob.to_json(true))
+}
+
+impl Mux {
+    /// Run one icon asset operation on the workspace registry. A poisoned
+    /// lock is a refused request, not a panic.
+    pub(crate) fn with_icon_registry<T>(
+        &self,
+        operation: impl FnOnce(&mut crate::workspace_registry::WorkspaceRegistry) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        let mut registry = self
+            .workspace_registry
+            .lock()
+            .map_err(|_| anyhow::anyhow!("the workspace registry lock is poisoned"))?;
+        operation(&mut registry)
+    }
 }
 
 #[cfg(test)]
