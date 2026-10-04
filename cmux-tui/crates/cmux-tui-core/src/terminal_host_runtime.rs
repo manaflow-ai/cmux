@@ -2309,6 +2309,9 @@ mod unix {
         load_terminal_host_records_with_policy(root, false)
     }
 
+    pub mod unadoptable;
+    use unadoptable::process_definitely_absent;
+
     pub(crate) fn load_terminal_host_records_for_reset(
         root: &Path,
     ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
@@ -6464,16 +6467,6 @@ mod unix {
         decode_hex_array(text)
     }
 
-    fn process_definitely_absent(pid: u32) -> bool {
-        let Ok(pid) = libc::pid_t::try_from(pid) else { return true };
-        // SAFETY: signal zero performs a liveness/permission probe and does
-        // not deliver a signal to the target process.
-        if unsafe { libc::kill(pid, 0) } == 0 {
-            return false;
-        }
-        std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
-    }
-
     struct PayloadDecoder<'a> {
         payload: &'a [u8],
         offset: usize,
@@ -10138,6 +10131,8 @@ mod unix {
     }
 }
 
+#[cfg(unix)]
+pub use unix::unadoptable::*;
 #[cfg(unix)]
 pub(crate) use unix::{
     ControlResponses, DecodedHostResize, DeferredCellPixelResolution,

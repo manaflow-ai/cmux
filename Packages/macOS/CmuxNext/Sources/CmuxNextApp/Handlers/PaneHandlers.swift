@@ -161,7 +161,7 @@ enum PaneHandlers {
             guard let content = ctx.content(invocation), let screen = content.layoutModel.activeScreen else { return }
             let trees: [SplitNode] = switch screen.layout {
             case .splits(let root): [root]
-            case .columns(let columns): columns.map(\.root)
+            case .columns(let columns): columns.flatMap(\.trees)
             }
             let splits = trees.flatMap(\.splits)
             guard !splits.isEmpty else { return ctx.refuse(RefusalStrings.screenHasNoSplits) }

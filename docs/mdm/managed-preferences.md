@@ -11,6 +11,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | Key | Type | Default | Allowed values | Description |
 | --- | --- | --- | --- | --- |
 | `history.terminalCommands` | boolean | `false` |  | Record Terminal Commands. Lists finished shell commands in History. Command lines can contain secrets. |
+| `navigation.historyScope` | string | `"workspace"` | `workspace`, `window`, `surface` | Back and Forward. What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history. |
 | `window.titlebar` | string | `"minimal"` | `minimal`, `standard` | Titlebar. Minimal has no titlebar strip; the top row moves the window. |
 | `tabs.newTabKind` | string | `"same-kind"` | `same-kind`, `terminal`, `browser`, `agent`, `page`, `auto` | New Tab Opens. What Cmd-T and the + button open. Auto picks the kind you last opened in that folder. |
 | `newTerminal.opensWorkspace` | boolean | `false` |  | New Terminal Opens a Workspace. Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click. |
@@ -24,6 +25,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `layout.stickyColumnEdge` | string | `"nearest"` | `nearest`, `right`, `left`, `top`, `bottom` | Sticky Column Edge |
 | `layout.stickyColumnMode` | string | `"docked"` | `docked`, `overlay` | Sticky Column Mode |
 | `layout.frameOrientation` | string | `"columnMajor"` | `columnMajor`, `rowMajor` | Dock Corners |
+| `layout.rows` | boolean | `true` |  | Rows. Off hides New Row and fits a column's existing rows into it without scrolling. |
 | `layout.minimumPaneWidth` | real | `200` | 80 to 800 | Minimum Pane Width |
 | `layout.minimumPaneHeight` | real | `64` | 32 to 600 | Minimum Pane Height |
 | `palette.scopes.tabs.prefix` | string | `"@"` | `@`, `#`, `>`, `,`, `?`, `!`, `/`, `;`, `:`, `%`, `&`, `+`, `=`, `~`, `$`, `^`, `*`, `.`, `none` | Tabs Prefix. Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope. |

@@ -251,7 +251,7 @@ public final class ActionRegistry {
     /// `isAvailable(_:in:)` with the facts the invocation's explicit target
     /// implies (`ActionContext.implied(by:)`).
     public func isAvailable(_ id: ActionID, for invocation: ActionInvocation) -> Bool {
-        isAvailable(id, in: context.union(ActionContext.implied(by: invocation)))
+        isAvailable(id, in: (invocation.keyContext ?? context).union(ActionContext.implied(by: invocation)))
     }
 
     public static func isAvailable(_ descriptor: ActionDescriptor, in context: ActionContext) -> Bool {

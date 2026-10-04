@@ -78,16 +78,52 @@ final class LocationTrailService {
 
     enum Direction { case back, forward, last }
 
-    /// Moves the trail and focuses the entry. False when there is nowhere
-    /// to go.
+    /// What Back and Forward walk (`navigation.historyScope`; history.md 4.2a).
+    var scope: HistoryScope { services.settings.flatMap { HistoryScope(rawValue: $0.snapshot.navigationHistoryScope) } ?? .default }
+
+    /// Moves the trail within the scope and focuses the entry. False when there is nowhere to go.
+    /// With the `surface` scope the focused surface walks its own list (a browser page's back and
+    /// forward); a surface without one does nothing.
     @discardableResult
     func navigate(_ direction: Direction) -> Bool {
+        let scope = scope
+        if scope == .surface {
+            switch direction {
+            case .back, .last: return services.registry.perform("browserBack")
+            case .forward: return services.registry.perform("browserForward")
+            }
+        }
         let entry: LocationTrail.Entry? = switch direction {
-        case .back: trail.back(isAvailable: isAvailable)
-        case .forward: trail.forward(isAvailable: isAvailable)
-        case .last: trail.last(isAvailable: isAvailable)
+        case .back: trail.back(scope: scope, isAvailable: isAvailable)
+        case .forward: trail.forward(scope: scope, isAvailable: isAvailable)
+        case .last: trail.last(scope: scope, isAvailable: isAvailable)
         }
         guard let entry else { return false }
+        changed()
+        if !focus(entry.location) { trail.cancelPending() }
+        return true
+    }
+
+    /// Whether Back or Forward has somewhere to go now (the titlebar buttons' enabled state).
+    func canNavigate(_ direction: LocationTrailDirection) -> Bool {
+        let scope = scope
+        guard scope != .surface else { return true }
+        return direction == .back ? trail.canGoBack(scope: scope, isAvailable: isAvailable)
+            : trail.canGoForward(scope: scope, isAvailable: isAvailable)
+    }
+
+    /// The long-press / right-click list of a Back or Forward button, nearest first (the sidebar
+    /// lead renders it; each row runs `history.goTo {index}`). Empty with the `surface` scope: the
+    /// page's own entry menu is the list there.
+    func list(_ direction: LocationTrailDirection) -> [LocationTrailListItem] {
+        trail.list(direction, scope: scope, isAvailable: isAvailable)
+    }
+
+    /// Goes to a listed entry (`history.goTo`). False when the index is gone or not focusable.
+    @discardableResult
+    func go(toIndex index: Int) -> Bool {
+        guard trail.entries.indices.contains(index), isAvailable(trail.entries[index].location),
+              let entry = trail.go(to: index) else { return false }
         changed()
         if !focus(entry.location) { trail.cancelPending() }
         return true

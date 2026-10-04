@@ -7,6 +7,9 @@ final class HomeFieldView: NSView {
     let glass = NSGlassEffectView()
     let textView = HomeFieldTextView(usingTextLayoutManager: true)
     private let placeholder = NSTextField(labelWithString: "")
+    /// The glass's content: the glass sizes its content view to the field,
+    /// so the text view sits inside this holder at the field's insets.
+    private let textHolder = NSView()
     /// Reports the new height after every edit (the host relayouts).
     var onHeightChange: () -> Void = {}
     var onSend: () -> Void = {}
@@ -50,7 +53,8 @@ final class HomeFieldView: NSView {
         textView.setAccessibilityLabel(HomeStrings.messagePlaceholder)
         placeholder.stringValue = HomeStrings.messagePlaceholder
         placeholder.textColor = .placeholderTextColor
-        glass.contentView = textView
+        textHolder.addSubview(textView)
+        glass.contentView = textHolder
         addSubview(placeholder)
         applyFont()
     }

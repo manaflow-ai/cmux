@@ -81,6 +81,12 @@ extension SidebarItemInfo {
     /// look, else its raw reference, dimmed.
     public static func fallback(for ref: LayoutItemRef) -> SidebarItemInfo {
         if let builtIn = ref.builtIn { return builtIn.defaultInfo }
+        // First-party apps read as their former built-ins until the app
+        // registry answers (R63/R64): Home stays "Home" at launch.
+        if ref.kind == LayoutItemRef.appKind,
+           let builtIn = SidebarLayoutDocument.firstPartyApps.first(where: { $0.value == ref.value })?.key {
+            return builtIn.defaultInfo
+        }
         let symbol = switch ref.kind {
         case LayoutItemRef.workspaceKind: "square.stack"
         case LayoutItemRef.tabKind: "terminal"

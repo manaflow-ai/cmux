@@ -55,6 +55,11 @@ public final class MockLayoutSource {
             push()
             model.settleTransaction(transaction)
             return
+        case let .setRowHeights(column, heights, _):
+            mutateLayouts { $0.settingRowHeights(heights, for: column) }
+        case .newRow:
+            // The demo's mock daemon has no rows.
+            return
         case let .newColumn(after, width):
             let pane = PaneID(makeID("p"))
             insertColumn(LayoutColumn(id: ColumnID(makeID("c")), width: width, root: .leaf(pane)), afterColumnContaining: after)

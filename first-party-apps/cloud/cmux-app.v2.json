@@ -16,6 +16,7 @@
   "keywords": ["cloud", "vm", "machine", "snapshot", "remote"],
   "engines": { "cmux": "^2.0" },
   "catalog": "catalog/cloud-catalog.json",
+  "cli": { "name": "cloud" },
   "presentation": {
     "sidebarItem": { "section": "top", "order": 30 },
     "screen": "app",

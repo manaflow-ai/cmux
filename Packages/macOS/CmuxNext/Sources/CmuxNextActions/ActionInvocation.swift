@@ -48,6 +48,9 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     public var origin: ActionOrigin
     /// The run asked to change this client's view (`action.run` `focus: true`).
     public var focusRequested: Bool
+    /// The context of the window whose key-down runs this (the key
+    /// dispatcher), checked instead of the registry's process-wide context.
+    public var keyContext: ActionContext?
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
                 focusRequested: Bool = false) {

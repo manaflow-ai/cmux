@@ -21,6 +21,7 @@ extension SettingsSchema {
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
+        "navigation.historyScope",
         "sidebar.minimalMode",
         "tabs.newTabKind",
         "newTerminal.opensWorkspace",
@@ -39,6 +40,7 @@ extension SettingsSchema {
         "layout.stickyColumnEdge",
         "layout.stickyColumnMode",
         "layout.frameOrientation",
+        "layout.rows",
         "layout.minimumPaneWidth",
         "layout.minimumPaneHeight",
         "appearance.theme",

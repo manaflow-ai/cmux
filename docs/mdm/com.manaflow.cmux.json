@@ -579,6 +579,12 @@
       "title" : "Padding",
       "type" : "number"
     },
+    "layout.rows" : {
+      "default" : true,
+      "description" : "Off hides New Row and fits a column's existing rows into it without scrolling.",
+      "title" : "Rows",
+      "type" : "boolean"
+    },
     "layout.splitSizing" : {
       "default" : "even",
       "description" : "Even gives every pane in the column the same size after a split.",
@@ -631,6 +637,17 @@
     "MinimumVersion" : {
       "description" : "Oldest cmux version allowed to sign in, for example 1.2.0.",
       "title" : "MinimumVersion",
+      "type" : "string"
+    },
+    "navigation.historyScope" : {
+      "default" : "workspace",
+      "description" : "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history.",
+      "enum" : [
+        "workspace",
+        "window",
+        "surface"
+      ],
+      "title" : "Back and Forward",
       "type" : "string"
     },
     "newTerminal.opensWorkspace" : {

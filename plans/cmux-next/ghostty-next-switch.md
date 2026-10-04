@@ -183,21 +183,60 @@ connector or a backend.
 ```rust
 pub trait TerminalBackend: Send + Sync + 'static {          // cmux.terminal.backend/1
     fn id(&self) -> &BackendId;
-    fn kinds(&self) -> &[LocalId];                           // options.kinds; others refused
+    fn kinds(&self) -> &[LocalId];                           // options.kinds; others refused. LocalId: ^[a-z][a-zA-Z0-9-]{0,63}$
     fn capabilities(&self) -> BackendCapabilities;
     async fn open(&self, req: OpenRequest) -> Result<Box<dyn ByteTerminal>, BackendError>;
     async fn resume(&self, token: &ResumeToken) -> Result<Box<dyn ByteTerminal>, BackendError>;
 }
 
 pub trait ByteTerminal: Send {
-    fn events(&mut self) -> BoxStream<'static, ByteEvent>;   // Output(Bytes) | Exit(ExitStatus) | Lost(reason)
-    async fn write(&self, input: Bytes) -> Result<(), BackendError>;   // ordered; bounded queue = backpressure
-    async fn resize(&self, grid: Grid) -> Result<(), BackendError>;    // cols, rows, cell px
-    async fn signal(&self, signal: Signal) -> Result<(), BackendError>; // capability `signals`
+    fn events(&mut self) -> BoxStream<'static, ByteEvent>;
+    async fn write(&self, seq: u64, input: Bytes) -> Result<(), BackendError>; // seq orders chunks; bounded queue = backpressure
+    async fn resize(&self, grid: Grid) -> Result<(), BackendError>;            // cols, rows, cell px
+    async fn signal(&self, signal: Signal) -> Result<(), BackendError>;         // capability `signals`
     async fn close(&self, how: Close) -> Result<(), BackendError>;
-    fn resume_token(&self) -> Option<ResumeToken>;                     // capability `resume`
+    fn resume_token(&self) -> Option<ResumeToken>;                             // capability `resume`
 }
 
+pub enum ByteEvent {
+    /// `offset` is the stream offset after this chunk (running byte total
+    /// since open). The session host checks continuity: a gap or overlap
+    /// is `Lost`, never silently spliced. A resumed terminal continues the
+    /// same offsets.
+    Output { offset: u64, bytes: Bytes },
+    Exit(ExitStatus),
+    Lost { reason: String, retryable: bool },
+}
+
+pub struct ExitStatus {
+    pub code: Option<i32>,      // exit code, when the far end sent one
+    pub signal: Option<String>, // signal name without "SIG" ("INT", "KILL"), SSH exit-signal or POSIX
+    pub core_dumped: bool,
+    pub message: Option<String>, // bounded (4 KiB) far-end text, shown, never parsed
+}
+
+pub enum BackendError {
+    Unsupported,
+    Unavailable { reason: String, retryable: bool },
+    /// Typed host-key refusal: the host shows its accept sheet from these
+    /// fields, never by parsing text. Nothing reached the far shell.
+    HostKey { decision: HostKeyRefusal /* Unknown | Changed */, fingerprint: String /* "SHA256:…" */ },
+    Denied { reason: String },  // a handle was revoked or a check failed
+    Invalid { reason: String },
+}
+
+pub struct BackendCapabilities {
+    pub resize: bool, pub signals: bool, pub exit_status: bool, pub resume: bool,
+    pub cwd_reports: bool, pub max_write_bytes: u32,
+    /// True only when the far end answers terminal queries itself (DA, DSR,
+    /// OSC color queries). Then the local session host parses but does not
+    /// reply, or the far end would get two answers. A plain shell over SSH
+    /// or a PTY is false: the session host answers.
+    pub answers_queries: bool,
+}
+```
+
+```rust
 pub trait TerminalConnector: Send + Sync + 'static {        // cmux.terminal.connector/1
     fn id(&self) -> &BackendId;
     fn kinds(&self) -> &[LocalId];
@@ -255,6 +294,32 @@ pub trait HostLink: Send {
   own session host) and `cmux.terminal.backend/1` for its rescue shell; the
   sample `samples/apps/ssh-terminal` implements `cmux.terminal.backend/1`
   with kind `ssh`.
+
+### 3.5 Handle operations that use secrets (security first)
+
+A backend never receives a secret and no host op signs or decrypts bytes
+that the app chose. A generic `sign(bytes)` on a credential handle would be
+a signing oracle, and even a narrow SSH user-auth signature op leaves a
+login-elsewhere risk (the host cannot prove that the session id belongs to
+a key exchange with the handle's host while the app runs the transport).
+Decision 8 (coordinator, 2026-10-04): the host owns the SSH transport.
+
+For a `connection` handle of kind `ssh`, the backend calls the host op
+`connection.channel.open {connection, open_token, pty: {term, cols, rows},
+command?}`. The host resolves the handle, dials, checks the host key that
+the user pinned for that handle (an unknown or changed key fails with the
+typed `hostKey {decision, fingerprint}` error, before any byte reaches the
+shell), authenticates with the user's credential, opens a session channel
+with a PTY and returns a byte channel (data, window change, signal, exit
+status; `connection.channel.resize|signal|close`). The backend maps its own
+`open`, `write`, `resize`, `signal` and `close` onto that channel. The host
+issues `open_token` per open or resume after the user's gesture; host ops
+refuse a missing, expired or reused token. There is no signing op in the
+interface.
+
+What an SSH app still adds: picking and grouping hosts, jump-host and
+provisioning flows, per-host defaults; never transport or keys. The cmux
+Cloud SSH sample moves to this channel model.
 
 ## 4. Mac switch plan
 
@@ -316,6 +381,8 @@ pub trait HostLink: Send {
    `cmux.terminal.connector/1`, both with `options.kinds` and default deny.
 7. No window-opening tests on the laptop. S2 Mac dogfood runs on
    cmux-lawrence-2.
+8. The host owns the SSH transport for `ssh` connection handles; the
+   backend gets a channel; the interface has no signing op (section 3.5).
 
 Shortcuts taken in this proposal: no build ran; the Mac API gap is a token
 scan, not a link; group counts reuse the 2026-10-02 inventory; D5/D7

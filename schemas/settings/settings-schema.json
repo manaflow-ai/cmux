@@ -45,6 +45,74 @@
     },
     {
       "accepts" : [
+        "workspace",
+        "window",
+        "surface"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.navigation.historyScope.workspace",
+            "text" : "Workspace"
+          },
+          "value" : "workspace"
+        },
+        {
+          "title" : {
+            "key" : "settings.navigation.historyScope.window",
+            "text" : "Window"
+          },
+          "value" : "window"
+        },
+        {
+          "title" : {
+            "key" : "settings.navigation.historyScope.surface",
+            "text" : "Focused Page"
+          },
+          "value" : "surface"
+        }
+      ],
+      "default" : "workspace",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.history",
+        "text" : "History"
+      },
+      "help" : {
+        "key" : "settings.navigation.historyScope.help",
+        "text" : "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "navigation.historyScope",
+      "keywords" : [
+        "history",
+        "back",
+        "forward",
+        "navigation",
+        "location",
+        "scope"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "navigation",
+        "historyScope"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.navigation.historyScope",
+        "text" : "Back and Forward"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "minimal",
         "standard"
       ],
@@ -846,6 +914,48 @@
       "title" : {
         "key" : "settings.layout.frameOrientation",
         "text" : "Dock Corners"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.rows.help",
+        "text" : "Off hides New Row and fits a column's existing rows into it without scrolling."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.rows",
+      "keywords" : [
+        "row",
+        "column",
+        "scroll",
+        "vertical"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "layout",
+        "rows"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.layout.rows",
+        "text" : "Rows"
       },
       "validation" : "portable"
     },
@@ -6814,7 +6924,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "3cc807c8149dab1ba4a3d905decc3f2582cf73fb017e55047220e0f0eb90c4fa",
+  "schema_hash" : "b03fe6ca592a979537afa10afd0ee1a4258087636643405eef30272c790dd69c",
   "sections" : [
     {
       "id" : "general",

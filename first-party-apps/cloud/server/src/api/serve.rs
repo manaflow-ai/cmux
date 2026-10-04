@@ -1,5 +1,5 @@
 //! The op loop of `cmux-cloud`: one host message at a time; each op gets one
-//! result line, then the projection events it caused.
+//! result line, then the `cloud.machine.watch` events it caused.
 
 use super::relay::HostRelay;
 use super::wire::Request;
@@ -34,13 +34,10 @@ pub fn serve<R: BufRead, W: Write>(relay: HostRelay<R, W>) -> io::Result<()> {
             _ => invalid(id, "expected a message of type op"),
         };
         server.control_plane_mut().send(&answer)?;
+        // `data` is the stream item (`{type: upsert|removed, revision, ...}`);
+        // it is nested because `type` names the line kind here.
         for event in server.take_events() {
-            let mut line = json!({ "type": "event", "event": "cloud.machine.changed" });
-            if let (Some(target), Ok(Value::Object(fields))) =
-                (line.as_object_mut(), serde_json::to_value(&event))
-            {
-                target.extend(fields);
-            }
+            let line = json!({ "type": "event", "event": "cloud.machine.watch", "data": event });
             server.control_plane_mut().send(&line)?;
         }
         // Carrier changes (up, down, revoked) that arrived by now.

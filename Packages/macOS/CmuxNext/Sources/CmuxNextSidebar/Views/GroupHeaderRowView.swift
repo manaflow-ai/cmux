@@ -172,7 +172,8 @@ final class GroupHeaderRowView: SidebarRowView {
             count.frame = NSRect(x: trailing - cw, y: (b.height - ch) / 2, width: cw, height: ch)
             trailing -= cw + Metrics.space2
         }
-        let nx = SidebarStyle.horizontalInset + Metrics.space1
+        // The name starts where workspace titles start (FlatSidebarTests).
+        let nx = SidebarStyle.horizontalInset
         let nh = ceil(name.intrinsicContentSize.height)
         let dotSide = SidebarStyle.dotSize
         let dotRoom = color == .grey ? 0 : dotSide + Metrics.space3
