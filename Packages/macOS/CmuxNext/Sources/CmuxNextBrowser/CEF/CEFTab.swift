@@ -119,7 +119,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     var initialURLString: String {
         // An empty URL creates the browser without navigating, which
         // `cmux_tab_restore_navigation` needs.
-        pendingRestore != nil ? "" : pendingURL?.absoluteString ?? "about:blank"
+        pendingRestore != nil ? "" : CEFAgentURLGuard.creationURL(pendingURL, agentDriven: isAgentDriven)
     }
 
     // MARK: Lifetime (called by CEFPaneHost / CEFRuntime)
@@ -127,6 +127,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func attach(browser: Int32) {
         browserID = browser
         isCreationPending = false
+        CEFAgentURLGuard.applyShimGuard(self)
         applyPageBackground()
         applyPasswordFill()
         let zoom = machine.state.zoom
@@ -156,7 +157,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             host.lifecycleTrace.record(id, "restore-navigation \(restored ? "ok" : "failed")")
             if !restored, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
         }
-        if navigationGuard != .none { runtime.shim?.setNavigationGuard(browser, navigationGuard.rawValue) }
         refreshExtensionActions()
     }
 
