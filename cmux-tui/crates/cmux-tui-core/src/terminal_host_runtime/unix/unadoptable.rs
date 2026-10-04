@@ -24,6 +24,23 @@ pub struct UnadoptableTerminalHostRecord {
     pub reason: String,
 }
 
+impl UnadoptableTerminalHostRecord {
+    /// A valid record whose live host refuses every protocol this build
+    /// offers ([`NoCommonHostProtocol`]). Its live marker and PID come from
+    /// the record, so the host is watched and ended with the same proof as a
+    /// record this build cannot read.
+    pub fn with_no_common_protocol(record_path: &Path, record: &TerminalHostRecord) -> Self {
+        Self {
+            terminal_id: record.terminal_id.clone(),
+            record_path: record_path.to_path_buf(),
+            record_version: Some(u64::from(record.record_version)),
+            host_pid: Some(record.host_pid),
+            marker: Some(liveness_path(record_path, record)),
+            reason: NoCommonHostProtocol.to_string(),
+        }
+    }
+}
+
 /// Every `<terminal id>.json` record under `root` that
 /// [`load_terminal_host_records`] skips because it cannot be read,
 /// decoded or validated.
@@ -199,4 +216,98 @@ pub(super) fn process_definitely_absent(pid: u32) -> bool {
         return false;
     }
     std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+}
+
+/// A live host closed every owner hello this build offered without a
+/// HostHello: it shares no protocol version with this build, for example
+/// a newer build's host after a rollback. Retrying cannot adopt it; the
+/// terminal is unadoptable (plans/cmux-next/durable-sessions.md section 7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NoCommonHostProtocol;
+
+impl std::fmt::Display for NoCommonHostProtocol {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("terminal host shares no protocol version with this build")
+    }
+}
+
+impl std::error::Error for NoCommonHostProtocol {}
+
+/// Whether an adoption error proves the host shares no protocol version
+/// with this build ([`NoCommonHostProtocol`]).
+pub fn is_no_common_host_protocol(error: &anyhow::Error) -> bool {
+    // `downcast_ref` also finds a type attached with `.context`, which
+    // `chain()` items do not expose; `chain()` finds a typed `source`.
+    error.downcast_ref::<NoCommonHostProtocol>().is_some()
+        || error.chain().any(|cause| cause.downcast_ref::<NoCommonHostProtocol>().is_some())
+}
+
+/// The error of an adoption whose every protocol attempt failed. A host
+/// closes an owner hello without HostHello only when it shares no version
+/// with this build, so when every attempt was refused the error carries
+/// [`NoCommonHostProtocol`]; any other failure leaves it out.
+pub(super) fn adoption_failed(failures: &[String], every_attempt_refused: bool) -> anyhow::Error {
+    let failed = anyhow::anyhow!("terminal-host adoption failed: {}", failures.join("; "));
+    if every_attempt_refused {
+        anyhow::Error::new(NoCommonHostProtocol).context(failed)
+    } else {
+        failed
+    }
+}
+
+/// A host that writes a current record is at least this build's version,
+/// so it refuses the current protocol only when its oldest supported
+/// version is newer: no version is common.
+pub(super) fn no_common_protocol_if_refused(error: anyhow::Error) -> anyhow::Error {
+    if is_refused_host_hello(&error) { error.context(NoCommonHostProtocol) } else { error }
+}
+
+/// One owner hello closed without a HostHello.
+#[derive(Debug)]
+pub(super) struct RefusedHostHello;
+
+impl std::fmt::Display for RefusedHostHello {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("terminal host closed the owner hello without HostHello")
+    }
+}
+
+impl std::error::Error for RefusedHostHello {}
+
+pub(super) fn is_refused_host_hello(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<RefusedHostHello>().is_some()
+        || error.chain().any(|cause| cause.downcast_ref::<RefusedHostHello>().is_some())
+}
+
+/// Read the HostHello. The host reads the whole hello before it refuses
+/// one, so a clean EOF (or a reset) here is a refusal, not a torn frame.
+pub(super) fn read_host_hello(stream: &mut UnixStream) -> anyhow::Result<Frame> {
+    match read_frame(stream, MAX_FRAME_PAYLOAD) {
+        Ok(Some(frame)) => Ok(frame),
+        Ok(None) => Err(anyhow::Error::new(RefusedHostHello)),
+        Err(crate::terminal_host_protocol::ProtocolError::Io(error))
+            if error.kind() == std_io::ErrorKind::ConnectionReset =>
+        {
+            Err(anyhow::Error::new(RefusedHostHello))
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_hello_refusals_stay_typed_through_context() {
+        let refused = anyhow::Error::new(RefusedHostHello).context("connect terminal host");
+        assert!(is_refused_host_hello(&refused));
+        assert!(is_no_common_host_protocol(&no_common_protocol_if_refused(refused)));
+        let every_version = adoption_failed(&["protocol 4: refused".into()], true).context("adopt");
+        assert!(is_no_common_host_protocol(&every_version));
+        let other = anyhow::anyhow!("terminal host did not send an initial snapshot");
+        assert!(!is_refused_host_hello(&other));
+        assert!(!is_no_common_host_protocol(&no_common_protocol_if_refused(other)));
+        assert!(!is_no_common_host_protocol(&adoption_failed(&[], false)));
+    }
 }

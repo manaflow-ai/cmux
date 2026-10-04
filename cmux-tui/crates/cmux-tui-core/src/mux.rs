@@ -30,6 +30,8 @@ mod tab_workspace_name;
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
 mod pending_terminals;
+#[cfg(unix)]
+use pending_terminals::terminal_host_record_liveness;
 mod terminal_directory;
 mod terminal_exit;
 mod terminal_move_topology;
@@ -4158,6 +4160,7 @@ impl Mux {
             .name(format!("terminal-adopt-{terminal_id}"))
             .spawn(move || {
                 let mut delay = Duration::from_millis(100);
+                let mut refusals = 0;
                 loop {
                     if mux.shutting_down.load(Ordering::Acquire) {
                         break;
@@ -4281,6 +4284,9 @@ impl Mux {
                         &record,
                         &record_path,
                     );
+                    if mux.refused_all(&mut refusals, &adopted, &options, &record_path, &record) {
+                        break;
+                    }
                     if let Ok(surface) = adopted {
                         if mux
                             .finish_terminal_adoption(
@@ -18751,8 +18757,7 @@ fn terminate_host_record(
     record: crate::terminal_host_runtime::TerminalHostRecord,
     record_path: std::path::PathBuf,
 ) -> bool {
-    let Ok(mut host) = crate::terminal_host_runtime::adopt_terminal_host(record, record_path)
-    else {
+    let Some(mut host) = pending_terminals::adopt_host_to_terminate(record, record_path) else {
         return false;
     };
     let exit_path = host.exit_record_path();
@@ -18831,15 +18836,6 @@ fn retry_terminal_host_record_cleanup(
         }
         delay = (delay * 2).min(Duration::from_secs(5));
     }
-}
-
-#[cfg(unix)]
-fn terminal_host_record_liveness(
-    record_path: &Path,
-    record: &crate::terminal_host_runtime::TerminalHostRecord,
-) -> TerminalHostLiveness {
-    crate::terminal_host_runtime::terminal_host_record_liveness(record_path, record)
-        .unwrap_or(TerminalHostLiveness::Indeterminate)
 }
 
 /// Ask a host to terminate first; if its admin socket is unavailable, remove

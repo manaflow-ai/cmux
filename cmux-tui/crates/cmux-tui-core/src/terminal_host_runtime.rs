@@ -2310,7 +2310,7 @@ mod unix {
     }
 
     pub mod unadoptable;
-    use unadoptable::process_definitely_absent;
+    use unadoptable::*;
 
     pub(crate) fn load_terminal_host_records_for_reset(
         root: &Path,
@@ -2500,6 +2500,7 @@ mod unix {
                 .with_context(|| format!("connect terminal host at {}", endpoint.display()))?,
         );
         let mut failures = Vec::new();
+        let mut every_attempt_refused = true;
         let attempts = std::iter::once((PROTOCOL_VERSION, true)).chain(
             (LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).rev().map(|version| (version, false)),
         );
@@ -2531,10 +2532,12 @@ mod unix {
                         }
                         Err(reconnect_error) => {
                             failures.push(format!("protocol retry reconnect: {reconnect_error:#}"));
+                            every_attempt_refused = false;
                             break 'protocols;
                         }
                     }
                 }
+                every_attempt_refused &= is_refused_host_hello(&error);
                 failures.push(format!("protocol {protocol_version}: {error:#}"));
                 break;
             }
@@ -2542,11 +2545,12 @@ mod unix {
                 Ok(next_stream) => stream = Some(next_stream),
                 Err(error) => {
                     failures.push(format!("protocol fallback reconnect: {error:#}"));
+                    every_attempt_refused = false;
                     break;
                 }
             }
         }
-        anyhow::bail!("terminal-host adoption failed: {}", failures.join("; "))
+        Err(adoption_failed(&failures, every_attempt_refused))
     }
 
     fn connect_current_record_with_timeout(
@@ -2571,7 +2575,8 @@ mod unix {
                 PROTOCOL_VERSION,
                 true,
                 stream,
-            );
+            )
+            .map_err(no_common_protocol_if_refused);
         }
         connect_record_with_timeout(record, record_path, handshake_timeout)
     }
@@ -2624,7 +2629,7 @@ mod unix {
             hello_frame.flags |= FLAG_TERMINAL_METADATA;
         }
         write_frame(&mut stream, &hello_frame)?;
-        let hello_frame = read_required_frame(&mut stream, "host hello")?;
+        let hello_frame = read_host_hello(&mut stream)?;
         if hello_frame.kind != MessageKind::HostHello
             || hello_frame.version != protocol_version
             || hello_frame.flags
