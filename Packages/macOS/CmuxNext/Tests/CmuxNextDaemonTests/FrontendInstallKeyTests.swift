@@ -114,14 +114,12 @@ import Testing
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         _ = FileFrontendInstallKeyStore(file: dir.appendingPathComponent("frontend-install-key")).loadOrCreate()
-        let signed = FrontendInstallKeyStores.forApp(session: "cmux-app-t", stateDirectory: dir,
-                                                     bundleID: "com.cmuxterm.app.debug.t", team: "ABCDE12345")
+        let signed = FrontendInstallKeyStores.forApp(stateDirectory: dir, team: "ABCDE12345")
         #expect(signed == nil)
-        let unsigned = FrontendInstallKeyStores.forApp(session: "cmux-app-t", stateDirectory: dir,
-                                                       bundleID: nil, team: nil)
+        let unsigned = FrontendInstallKeyStores.forApp(stateDirectory: dir, team: nil)
         #expect((unsigned as? FileFrontendInstallKeyStore)?.file == dir.appendingPathComponent("frontend-install-key"))
         // No tag state directory: an unsigned build has no key at all.
-        #expect(FrontendInstallKeyStores.forApp(session: "cmux-app", stateDirectory: nil, bundleID: nil, team: nil) == nil)
+        #expect(FrontendInstallKeyStores.forApp(stateDirectory: nil, team: nil) == nil)
     }
 
     /// The file is created 0600 in one step (no chmod after) and is refused

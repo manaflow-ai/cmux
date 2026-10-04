@@ -116,8 +116,7 @@ public struct DaemonLauncher: Sendable {
         DaemonLaunchTimings.shared.mark("daemon.binary_resolved")
         let session = try sessionName(tag: tag)
         let stateDirectory = tag.map { tagStateDirectory(tag: $0) }
-        let keyStore = FrontendInstallKeyStores.forApp(session: session, stateDirectory: stateDirectory,
-                                                       bundleID: bundle.bundleIdentifier)
+        let keyStore = FrontendInstallKeyStores.forApp(stateDirectory: stateDirectory)
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           rememberedSocket: socketMemory.socket(session: session),
                                           installKey: keyStore?.loadOrCreate())

@@ -1,35 +1,23 @@
 public import Foundation
 import Security
 
-/// Where the app keeps its `FrontendInstallKey`, one per daemon session.
-///
-/// - Signed builds (a Team ID): a generic-password item in the login
-///   Keychain, `<bundle id>.frontend-install-key` / `<session>`, this device
-///   only. Its default access list trusts only the app that created it (its
-///   designated requirement: bundle id and team), so another process of the
-///   user cannot read it without a prompt; the app itself never shows one
-///   (`interactionNotAllowed`), it goes without the key instead.
-/// - Unsigned or ad-hoc development builds: a 0600 file in the tag's 0700
-///   state directory. The Keychain gives an ad-hoc build no protection
-///   either (and would prompt on every rebuild); this is the known DEV gap
-///   in identity.md.
+/// Where the app keeps its `FrontendInstallKey`, one per tagged daemon
+/// session. Only unsigned or ad-hoc development builds have one: a 0600 file
+/// in the tag's 0700 state directory (the known DEV gap in identity.md).
+/// A signed build has none: its daemon accepts only the code signature, so
+/// a key would grant nothing, and no Keychain item or file is created.
 public protocol FrontendInstallKeyStore: Sendable {
-    /// The stored key, created on first use. Nil when it cannot be read
-    /// without user interaction or written: the app then proves nothing.
+    /// The stored key, created on first use. Nil when it cannot be read or
+    /// written: the app then proves nothing.
     func loadOrCreate() -> FrontendInstallKey?
 }
 
 public enum FrontendInstallKeyStores {
-    /// The store for this app process (see `FrontendInstallKeyStore`).
-    /// `team` is this process's Team ID: a signed build never reads or
-    /// writes the DEV file, whatever sits in its state directory.
-    public static func forApp(session: String, stateDirectory: URL?, bundleID: String?,
+    /// The store for this app process, or nil. `team` is this process's Team
+    /// ID: a signed build gets no store, whatever sits in its state directory.
+    public static func forApp(stateDirectory: URL?,
                               team: String? = CodeSigningTeam.current()) -> (any FrontendInstallKeyStore)? {
-        if team != nil {
-            let service = "\(bundleID?.isEmpty == false ? bundleID ?? "" : "com.cmuxterm.app").frontend-install-key"
-            return KeychainFrontendInstallKeyStore(service: service, account: session)
-        }
-        guard let stateDirectory else { return nil }
+        guard team == nil, let stateDirectory else { return nil }
         return FileFrontendInstallKeyStore(file: stateDirectory.appendingPathComponent("frontend-install-key"))
     }
 }
