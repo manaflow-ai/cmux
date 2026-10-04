@@ -66,7 +66,7 @@ import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
 import { Counts } from "./changes/Counts";
 import { ChevronDown, DiffFile } from "./changeIcons";
-import { Markdown } from "./conversation/Markdown";
+import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { Undo } from "./conversation/icons";
@@ -217,7 +217,7 @@ const MessageRow = memo(
           <div className="cv-user__bubble">{row.text ?? ""}</div>
         </div>
       );
-    return <Markdown>{row.text ?? ""}</Markdown>;
+    return <RevealedMarkdown text={row.text ?? ""} streaming={row.streaming === true} />;
   },
   (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version,
 );
@@ -445,6 +445,34 @@ const defaultRegistry: NativeRegistry = {
 type DrawnHeight = { version: number; width: number; height: number };
 type ReportDrawn = (id: string, version: number, height: number) => void;
 
+/// Slides the thread from `step` px below to its place over 180 ms, so content that grew at the
+/// latest row glides in. Glides stack (`composite: "add"`). None under Reduce Motion.
+function glide(node: HTMLElement | null, step: number): void {
+  if (!node || typeof node.animate !== "function") return;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  node.animate([{ transform: `translateY(${step}px)` }, { transform: "translateY(0px)" }], {
+    duration: GLIDE_MS,
+    easing: "cubic-bezier(0.2, 0, 0, 1)",
+    composite: "add",
+  });
+}
+const GLIDE_MS = 180;
+
+/// Whether `updates` change any drawn height in `current`.
+function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, DrawnHeight>): boolean {
+  for (const [id, entry] of updates) {
+    const old = current.get(id);
+    if (
+      !old ||
+      old.version !== entry.version ||
+      old.width !== entry.width ||
+      Math.abs(old.height - entry.height) >= 0.5
+    )
+      return true;
+  }
+  return false;
+}
+
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
 /// (a font that loads, a custom renderer that grows).
@@ -458,6 +486,8 @@ function RowFrame({
   expanded,
   observer,
   report,
+  enter,
+  onEntered,
   children,
 }: {
   row: AcpmuxRow;
@@ -469,9 +499,18 @@ function RowFrame({
   expanded: boolean;
   observer: ResizeObserver | undefined;
   report: ReportDrawn;
+  /// The row arrived live: it enters with the shared motion on this, its first mount.
+  enter: boolean;
+  onEntered: (id: string) => void;
   children: React.ReactNode;
 }) {
   const ref = useRef<HTMLElement>(null);
+  const [entering] = useState(enter);
+  useLayoutEffect(() => {
+    if (entering) onEntered(row.id);
+    // Only the first mount enters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node || !observer) return;
@@ -486,7 +525,7 @@ function RowFrame({
     <article
       ref={ref}
       data-row-id={row.id}
-      className={`acpmux-row acpmux-${kind}`}
+      className={`acpmux-row acpmux-${kind}${entering ? " acpmux-row--enter" : ""}`}
       aria-label={speaker(kind)}
       aria-posinset={index + 1}
       aria-setsize={setSize}
@@ -520,6 +559,8 @@ const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
 /// A scroll commits from its event, a frame after the offset moved, so without the
 /// lead a fling shows a blank edge on every frame.
 const SCROLL_LEAD_STEPS = 2;
+/// More new rows than this in one update are a load (a session switch, older history), not live rows.
+const LIVE_ROWS_PER_UPDATE = 3;
 const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 
 export function VirtualTranscript({
@@ -546,10 +587,23 @@ export function VirtualTranscript({
   // Rows place by their drawn height once drawn, and by the estimate until then.
   const [drawn, setDrawn] = useState(new Map<string, DrawnHeight>());
   const pendingDrawn = useRef(new Map<string, DrawnHeight>());
+  const drawnRef = useRef(drawn);
+  drawnRef.current = drawn;
   const rowWidthRef = useRef(transcriptRowWidth(width));
   rowWidthRef.current = transcriptRowWidth(width);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
+  // Rows that arrive live (a reply, a tool call, a status line) enter once. The rows at the first
+  // render, and many at once (a session switch, older history), are a load and do not.
+  const knownRows = useRef<Set<string> | null>(null);
+  const enteringRows = useRef(new Set<string>());
+  if (knownRows.current === null) knownRows.current = new Set(rows.map((row) => row.id));
+  else {
+    const arrived = rows.filter((row) => !knownRows.current!.has(row.id));
+    for (const row of arrived) knownRows.current.add(row.id);
+    if (arrived.length <= LIVE_ROWS_PER_UPDATE) for (const row of arrived) enteringRows.current.add(row.id);
+  }
+  const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
   const reportDrawn = useCallback<ReportDrawn>((id, version, drawnHeight) => {
     // Zero is a row not laid out (hidden, or no layout at all), not a height.
     if (drawnHeight > 0) pendingDrawn.current.set(id, { version, width: rowWidthRef.current, height: drawnHeight });
@@ -587,8 +641,11 @@ export function VirtualTranscript({
               if (row && row.id === target.dataset.rowId)
                 reportDrawn(row.id, row.version, target.getBoundingClientRect().height);
             }
-            // A late size change (a font loading) must not paint a frame of overlap first.
-            flushSync(flushDrawn);
+            // A late size change (a font loading) must not paint a frame of overlap first. Sizes
+            // that did not change render nothing: a synchronous render here for nothing was the
+            // "ResizeObserver loop completed with undelivered notifications" while streaming.
+            if (!changesDrawn(drawnRef.current, pendingDrawn.current)) pendingDrawn.current = new Map();
+            else flushSync(flushDrawn);
           }),
     [reportDrawn, flushDrawn],
   );
@@ -619,6 +676,21 @@ export function VirtualTranscript({
     return () => observer.disconnect();
   }, []);
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
+  const previousRows = useRef<AcpmuxRow[]>(rows);
+  const thread = useRef<HTMLDivElement>(null);
+  // The reader scrolls: a glide in flight ends at once, so the view goes where they scroll.
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const endGlide = () => {
+      for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
+    };
+    const events = ["wheel", "touchstart", "keydown"] as const;
+    for (const name of events) node.addEventListener(name, endGlide, { passive: true });
+    return () => {
+      for (const name of events) node.removeEventListener(name, endGlide);
+    };
+  }, []);
   const scrolledTo = useRef({ top: 0, atLatest: false });
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
@@ -667,8 +739,9 @@ export function VirtualTranscript({
   });
   useLayoutEffect(() => {
     const old = previousLayout.current;
+    const oldRows = previousRows.current;
     const node = ref.current;
-    if (old && node && old.tops.length === layout.tops.length) {
+    if (old && node) {
       // Content that shrank under the viewport has already clamped the live offset to
       // the new end; the offset recorded before this commit is where the reader was.
       // A clamp lands exactly on the scroller's own end, which rounds the layout's
@@ -685,12 +758,21 @@ export function VirtualTranscript({
       if (top > 0 && didOpenAtLatest.current && atLatest) {
         // At the latest row: stay there as rows settle to their drawn heights.
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-        if (Math.abs(latest - node.scrollTop) > 0.5) node.scrollTop = latest;
+        const step = latest - node.scrollTop;
+        if (Math.abs(step) > 0.5) node.scrollTop = latest;
+        // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll").
+        if (step > 0.5 && step < node.clientHeight) glide(thread.current, step);
       } else if (top > 0) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
+        // Rows that arrived or left (a new reply segment below, older history above) move indexes,
+        // so the row is found again by its id.
         const anchor = visibleLayoutRange(old, top, 0, 0).first;
-        const delta = layout.tops[anchor] - old.tops[anchor];
-        if (clamped || Math.abs(delta) > 0.5) node.scrollTop = top + delta;
+        const id = oldRows[anchor]?.id;
+        const now = rows[anchor]?.id === id ? anchor : rows.findIndex((row) => row.id === id);
+        if (now >= 0) {
+          const delta = layout.tops[now] - old.tops[anchor];
+          if (clamped || Math.abs(delta) > 0.5) node.scrollTop = top + delta;
+        }
       }
     }
     // Runs on height too: rows that fit and then overflow on a height-only shrink keep the same memoized layout.
@@ -701,8 +783,9 @@ export function VirtualTranscript({
       didOpenAtLatest.current = true;
     }
     previousLayout.current = layout;
+    previousRows.current = rows;
     if (node) scrolledTo.current = scrollPosition(node, layout.totalHeight);
-  }, [layout, range.first, height]);
+  }, [layout, rows, range.first, height]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
   const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
@@ -720,7 +803,7 @@ export function VirtualTranscript({
   return (
     <div ref={ref} className="acpmux-scroll" role="feed" aria-label="Transcript" onScroll={onScroll}>
       <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
-        <div className="acpmux-thread">
+        <div ref={thread} className="acpmux-thread">
           {rows.slice(range.first, range.last).map((row, index) => {
             const absoluteIndex = range.first + index;
             const kind = rowKind(row);
@@ -738,6 +821,8 @@ export function VirtualTranscript({
                 expanded={isExpanded}
                 observer={observer}
                 report={reportDrawn}
+                enter={enteringRows.current.has(row.id)}
+                onEntered={onEntered}
               >
                 <Component
                   row={row}

@@ -42,8 +42,8 @@ public final class SettingsApplier {
         if design.sidebarSections != snapshot.sidebarSections { design.sidebarSections = snapshot.sidebarSections }
         if design.splitSizing != snapshot.splitSizing { design.splitSizing = snapshot.splitSizing }
         if design.newColumnWidth != snapshot.newColumnWidth { design.newColumnWidth = snapshot.newColumnWidth }
-        if design.stickyColumnEdge != snapshot.stickyColumnEdge { design.stickyColumnEdge = snapshot.stickyColumnEdge }
-        if design.stickyColumnMode != snapshot.stickyColumnMode { design.stickyColumnMode = snapshot.stickyColumnMode }
+        if design.dockColumnEdge != snapshot.dockColumnEdge { design.dockColumnEdge = snapshot.dockColumnEdge }
+        if design.dockColumnMode != snapshot.dockColumnMode { design.dockColumnMode = snapshot.dockColumnMode }
         if design.frameOrientation != snapshot.frameOrientation { design.frameOrientation = snapshot.frameOrientation }
         if design.layoutRows != snapshot.layoutRows { design.layoutRows = snapshot.layoutRows }
         if design.minimumPaneContentSize != snapshot.minimumPaneContentSize { design.minimumPaneContentSize = snapshot.minimumPaneContentSize }

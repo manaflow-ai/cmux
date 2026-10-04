@@ -28,8 +28,9 @@ class H(http.server.BaseHTTPRequestHandler):
         if self.path == f"/v1/artifacts/sha256:{sha}/url":
             if self.headers.get("Authorization"):
                 self.send_response(400); self.end_headers(); return
-            body = json.dumps({"url": f"http://127.0.0.1:{self.server.server_port}/blob", "sha256": "sha256:" + sha}).encode()
-        elif self.path == "/blob":
+            signed = f"http://127.0.0.1:{self.server.server_port}/blob?X-Amz-Credential=FAKEKEY%2Fscope&X-Amz-Signature=fakesignature0123"
+            body = json.dumps({"url": signed, "sha256": "sha256:" + sha}).encode()
+        elif self.path.split("?")[0] == "/blob":
             body = open(os.path.join(root, "serve"), "rb").read()
         else:
             self.send_response(404); self.end_headers(); return
@@ -70,4 +71,16 @@ out=$(env -u GH_TOKEN -u GITHUB_TOKEN PATH=/usr/bin:/bin CMUX_CEF_MANIFEST="$TMP
   CMUX_CEF_CACHE_DIR="$TMP/cache3" CMUX_CEF_NO_R2=1 CMUX_CEF_NO_STORE=1 CMUX_CEF_STORE_URL="http://127.0.0.1:$port" \
   bash "$ROOT/scripts/cmux-next/ensure-cef.sh" 2>&1) || status=$?
 [[ "$status" == 1 ]] && ! grep -q 'controller artifact store' <<<"$out" || { printf 'CMUX_CEF_NO_STORE=1 still used the store:\n%s\n' "$out" >&2; exit 1; }
+# A traced run (bash -x, as a debugging agent runs it) never prints the signed URL: it is a
+# read capability for the archive.
+cp "$TMP/good.tar.xz" "$TMP/serve"
+status=0
+out=$(env -u GH_TOKEN -u GITHUB_TOKEN PATH=/usr/bin:/bin CMUX_CEF_MANIFEST="$TMP/manifest.json" \
+  CMUX_CEF_CACHE_DIR="$TMP/cache4" CMUX_CEF_NO_R2=1 CMUX_CEF_STORE_URL="http://127.0.0.1:$port" \
+  bash -x "$ROOT/scripts/cmux-next/ensure-cef.sh" 2>&1) || status=$?
+[[ "$status" == 0 ]] || { printf 'traced run failed (exit %s):\n%s\n' "$status" "$out" >&2; exit 1; }
+if grep -E 'X-Amz-Signature|X-Amz-Credential' <<<"$out" >/dev/null; then
+  echo "a traced run printed the signed URL" >&2; exit 1
+fi
+grep -q '^+' <<<"$out" || { echo "the run was not traced" >&2; exit 1; }
 printf 'ensure-cef store tests: ok\n'

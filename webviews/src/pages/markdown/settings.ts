@@ -54,6 +54,10 @@ export const MARKDOWN_STYLE_DEFAULTS = {
   "--cmux-md-accent-background": "color-mix(in srgb, var(--page-text) 8%, transparent)",
   "--cmux-md-banner-background": "light-dark(rgb(255 196 0 / 0.16), rgb(255 196 0 / 0.12))",
   "--cmux-md-error-color": "light-dark(#b42318, #ff8a80)",
+  "--cmux-md-link-broken-color": "var(--cmux-md-error-color)",
+  "--cmux-md-popover-background": "var(--page-elevated)",
+  "--cmux-md-popover-shadow": "0 6px 24px rgb(0 0 0 / 0.18)",
+  "--cmux-md-popover-font-size": "12px",
 } as const;
 
 export type MarkdownStyleVariable = keyof typeof MARKDOWN_STYLE_DEFAULTS;

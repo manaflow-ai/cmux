@@ -12970,264 +12970,264 @@
         }
       }
     },
-    "handlers.refusal.columnAlreadySticky": {
+    "handlers.refusal.columnAlreadyDocked": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "the column is already sticky there"
+            "value": "the column is already docked there"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "العمود مثبت هناك بالفعل"
+            "value": "العمود مُرسى هناك بالفعل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kolona je već ljepljiva tamo"
+            "value": "kolona je već usidrena tamo"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kolonnen er allerede fastgjort der"
+            "value": "kolonnen er allerede dokket der"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "die Spalte ist dort bereits angeheftet"
+            "value": "die Spalte ist dort bereits angedockt"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "la columna ya está fijada ahí"
+            "value": "la columna ya está acoplada ahí"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "la colonne est déjà épinglée là"
+            "value": "la colonne est déjà ancrée là"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "la colonna è già fissata lì"
+            "value": "la colonna è già agganciata lì"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "カラムはすでにそこに固定されています"
+            "state": "translated",
+            "value": "カラムはすでにそこにドックされています"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ជួរឈរត្រូវបានខ្ទាស់នៅទីនោះរួចហើយ"
+            "value": "ជួរឈរត្រូវបានចតនៅទីនោះរួចហើយ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "열이 이미 그곳에 고정되어 있습니다"
+            "value": "열이 이미 그곳에 도킹되어 있습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kolonnen er allerede festet der"
+            "value": "kolonnen er allerede dokket der"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kolumna jest już tam przypięta"
+            "value": "kolumna jest już tam zadokowana"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "a coluna já está fixada aí"
+            "value": "a coluna já está encaixada aí"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "колонка уже закреплена там"
+            "value": "колонка уже закреплена у этого края"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คอลัมน์ถูกปักหมุดไว้ที่นั่นแล้ว"
+            "value": "คอลัมน์เชื่อมต่ออยู่ที่นั่นแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "sütun zaten orada sabit"
+            "value": "sütun zaten orada yerleşik"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "колонку вже закріплено там"
+            "value": "колонку вже закріплено біля цього краю"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cột đã được ghim ở đó"
+            "value": "cột đã được neo ở đó"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "该分栏已固定在那里"
+            "value": "该分栏已停靠在那里"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "該分欄已固定在那裡"
+            "value": "該分欄已停靠在那裡"
           }
         }
       }
     },
-    "handlers.refusal.columnNotSticky": {
+    "handlers.refusal.columnNotDocked": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "the column is not sticky"
+            "value": "the column is not docked"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "العمود غير مثبت"
+            "value": "العمود غير مُرسى"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kolona nije ljepljiva"
+            "value": "kolona nije usidrena"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kolonnen er ikke fastgjort"
+            "value": "kolonnen er ikke dokket"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "die Spalte ist nicht angeheftet"
+            "value": "die Spalte ist nicht angedockt"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "la columna no está fijada"
+            "value": "la columna no está acoplada"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "la colonne n'est pas épinglée"
+            "value": "la colonne n'est pas ancrée"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "la colonna non è fissata"
+            "value": "la colonna non è agganciata"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "カラムは固定されていません"
+            "state": "translated",
+            "value": "カラムはドックされていません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ជួរឈរមិនត្រូវបានខ្ទាស់ទេ"
+            "value": "ជួរឈរមិនត្រូវបានចតទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "열이 고정되어 있지 않습니다"
+            "value": "열이 도킹되어 있지 않습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kolonnen er ikke festet"
+            "value": "kolonnen er ikke dokket"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kolumna nie jest przypięta"
+            "value": "kolumna nie jest zadokowana"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "a coluna não está fixada"
+            "value": "a coluna não está encaixada"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "колонка не закреплена"
+            "value": "колонка не закреплена у края"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คอลัมน์ไม่ได้ปักหมุด"
+            "value": "คอลัมน์ไม่ได้เชื่อมต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "sütun sabit değil"
+            "value": "sütun yerleşik değil"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "колонку не закріплено"
+            "value": "колонку не закріплено біля краю"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cột chưa được ghim"
+            "value": "cột chưa được neo"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "该分栏未固定"
+            "value": "该分栏未停靠"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "該分欄未固定"
+            "value": "該分欄未停靠"
           }
         }
       }

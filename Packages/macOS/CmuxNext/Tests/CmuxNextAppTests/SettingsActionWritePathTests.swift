@@ -55,7 +55,7 @@ import Testing
         AppearanceHandlers.bind(into: registry, context: context)
         FocusRingHandlers.bind(into: registry, context: context)
         NotificationSettingsHandlers.bind(into: registry, context: context)
-        StickyColumnHandlers.bind(into: registry, context: context)
+        ColumnDocking.bind(into: registry, context: context)
 
         for (action, key) in Self.table {
             let descriptor = try #require(SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: key)), "\(key) is not a schema key")

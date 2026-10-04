@@ -554,6 +554,37 @@ public final class ResourceApiTest {
             "layout result is recursively typed"
         );
 
+        java.util.function.Function<Object, Map<String, Object>> viewport = sticky -> {
+            Map<String, Object> first = new LinkedHashMap<>();
+            first.put("column_id", "split_" + HEX);
+            first.put("width", 0.5);
+            first.put("root", Map.of("kind", "leaf", "pane_id", "pane_" + HEX, "tab_ids", List.of()));
+            first.put("sticky", sticky);
+            Map<String, Object> second = new LinkedHashMap<>(first);
+            second.remove("sticky");
+            Map<String, Object> fields = new LinkedHashMap<>(layoutFields);
+            fields.put("root", Map.of("kind", "viewport", "base_width", 0.5,
+                "columns", List.of(first, second)));
+            return fields;
+        };
+        Layout.Document pinned = Client.decodeLayoutDocument(
+            viewport.apply(Map.of("edge", "top", "mode", "docked")));
+        require(
+            pinned.root() instanceof Layout.Viewport view &&
+                view.columns().get(0).sticky().equals(
+                    Optional.of(new Layout.Sticky("top", "docked"))) &&
+                view.columns().get(1).sticky().isEmpty(),
+            "viewport columns decode their sticky flag"
+        );
+        boolean refused = false;
+        try {
+            Client.decodeLayoutDocument(
+                viewport.apply(Map.of("edge", "diagonal", "mode", "docked")));
+        } catch (ProtocolError expected) {
+            refused = true;
+        }
+        require(refused, "an unknown sticky edge is a protocol error");
+
         Snapshots.TerminalSnapshot terminal = Client.decodeTerminal(Map.of(
             "id", "term_" + HEX,
             "tab_id", "tab_" + HEX,

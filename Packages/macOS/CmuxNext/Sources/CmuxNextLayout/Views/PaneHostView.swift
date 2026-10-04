@@ -47,7 +47,7 @@ final class PaneHostView: NSView {
 
     override var isFlipped: Bool { true }
 
-    /// Whether the pane sits in a sticky (docked) column: it then shows the
+    /// Whether the pane sits in a docked (docked) column: it then shows the
     /// user's docks background under its content (`appearance.surfaces.docks`).
     var isDocked = false {
         didSet { if isDocked != oldValue { applyDockFill() } }
@@ -118,7 +118,7 @@ final class PaneHostView: NSView {
         reporter.paneFrameInWindowDidChange()
     }
 
-    /// Clips the host to `rect` (its own coordinates) where a docked sticky
+    /// Clips the host to `rect` (its own coordinates) where a docked docked
     /// column covers it; nil removes the clip.
     func setStripClip(_ rect: CGRect?) {
         guard let layer else { return }

@@ -100,7 +100,7 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case screenBar
     /// A row of the notifications panel.
     case notification
-    /// An item of a sticky sidebar section (Home, Settings, a pinned row).
+    /// An item of a docked sidebar section (Home, Settings, a pinned row).
     case sidebarItem
     /// The header of a titled sidebar section.
     case sidebarSection

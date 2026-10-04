@@ -106,7 +106,7 @@ public final class LayoutRootView: NSView {
         return view.splitPlacement(splitting: pane, axis: axis, removing: removing)
     }
 
-    /// Pane frames of the active screen for directional focus: sticky
+    /// Pane frames of the active screen for directional focus: docked
     /// columns placed before and after the strip (one logical line).
     public var navigationFrames: [PaneID: CGRect] {
         guard let active = model.activeScreenID, let view = screenViews[active] else { return [:] }

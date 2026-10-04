@@ -612,13 +612,27 @@ function markdownHost(): Plugin {
       if (outcome.ok) return { status: 200, body: { hash: outcome.hash } };
       return pageError(409, outcome.code, outcome.code, "details" in outcome ? outcome.details : undefined);
     }
+    if (op === "cmux.markdown.resolveLinks") {
+      const paths = Array.isArray(params.paths)
+        ? params.paths.filter((entry): entry is string => typeof entry === "string")
+        : [];
+      return {
+        status: 200,
+        body: { links: Object.fromEntries(paths.slice(0, 500).map((entry) => [entry, files.target(file, entry)])) },
+      };
+    }
+    if (op === "cmux.markdown.listFiles") {
+      return {
+        status: 200,
+        body: { entries: files.list(file, typeof params.prefix === "string" ? params.prefix : "") },
+      };
+    }
     if (op === "cmux.markdown.openLink") {
-      // The dev stand-in for the app: a markdown file below the root opens in this page, anything
-      // else the browser opens.
+      // The dev stand-in for the app: the browser opens http(s) and mailto: links. Markdown files
+      // open in the page itself (cmux.markdown.open); other files have no viewer in dev.
       const href = typeof params.href === "string" ? params.href : "";
-      if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return { status: 200, body: { url: href } };
-      const target = files.link(file, href);
-      return { status: 200, body: target ? { navigate: `/markdown?file=${encodeURIComponent(target)}` } : {} };
+      if (params.kind === "external" || params.kind === "mail") return { status: 200, body: { url: href } };
+      return { status: 200, body: {} };
     }
     return pageError(404, "cmux.protocol.unknown_op", op);
   };

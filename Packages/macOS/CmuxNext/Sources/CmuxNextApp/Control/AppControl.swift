@@ -45,6 +45,7 @@ final class AppControl {
         service.router.register(BookmarkControl.methods(services: services))
         service.router.register(FeedControl.methods(services: services))
         service.router.register(KeybindingControl.methods(services: services))
+        service.router.register(SettingsControl.methods(services: services))
         service.router.register([
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
@@ -104,11 +105,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugPaneChrome.report(services: services))
             },
-            // Sticky columns, the strip range and its scrollbar; `pane` +
-            // `sticky` changes a column (plans/cmux-next/sticky-column.md).
-            .mainActor("debug.sticky") { [weak services] call in
+            // Docked columns, the strip range and its scrollbar; `pane` +
+            // `dock` changes a column (plans/cmux-next/dock-column.md).
+            .mainActor("debug.dock") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(DebugStickyColumns.handle(call.params, services: services))
+                return .value(DebugDockColumns.handle(call.params, services: services))
             },
             .mainActor("debug.screens") { [weak services] _ in
                 guard let services else { return .value(.null) }
@@ -200,6 +201,10 @@ final class AppControl {
             .mainActor("debug.drop_highlight") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugLayers.dropHighlight(call.params, services: services))
+            },
+            .mainActor("debug.sidebar_rows") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugSidebarRows.report(services: services))
             },
             .mainActor("debug.sidebar_rename") { [weak services] call in
                 guard let services else { return .value(.null) }

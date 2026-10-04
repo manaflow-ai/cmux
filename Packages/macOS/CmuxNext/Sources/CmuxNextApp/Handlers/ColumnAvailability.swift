@@ -20,8 +20,8 @@ enum ColumnAvailability {
             ActionTargetReasons.set(id, in: registry) { invocation in loneColumnReason(invocation, ctx) }
         }
         ActionTargetReasons.set("column.undock", in: registry) { invocation in
-            guard let (_, column) = resolved(invocation, ctx), column.sticky == nil else { return nil }
-            return RefusalStrings.columnNotSticky
+            guard let (_, column) = resolved(invocation, ctx), column.dock == nil else { return nil }
+            return RefusalStrings.columnNotDocked
         }
     }
 

@@ -12,6 +12,7 @@ import {
   type AcpmuxRow,
   type AcpmuxSnapshot,
   type ConversationLayout,
+  type PreparedRow,
 } from "./model";
 
 const row = (id: string, version: number): AcpmuxRow => ({ id, version, at: 0, kind: "assistant", text: id });
@@ -209,5 +210,40 @@ describe("turn row estimates", () => {
     expect(estimate({ id: "e:fold", version: 1, at: 0, kind: "activity", settled: true, items })).toBe(36);
     // Outside the fold it is the edited-files card: two diffless files listed under its head.
     expect(estimate({ id: "e", version: 1, at: 0, kind: "activity", items })).toBe(14 + editedCardHeight(0, 2));
+  });
+});
+
+/// R104 (hq-48's audit): the estimate re-lexed a streaming row's whole text on every delta,
+/// quadratic over a turn. Only the text after the last safe block boundary is lexed again.
+describe("streaming row estimate", () => {
+  const reply =
+    "# Plan\n\nFirst paragraph with `code` and **bold** words that wrap over a line or two in a pane.\n\n" +
+    "- one\n- two\n\n- three after a blank\n\n```ts\nconst a = 1;\n\nconst b = 2;\n```\n\n" +
+    "| a | b |\n| --- | --- |\n| 1 | 2 |\n\nClosing words.\n";
+
+  test("every streamed prefix estimates exactly like a row estimated from scratch", () => {
+    const cache = new Map<string, PreparedRow>();
+    for (let length = 1; length <= reply.length; length += 3) {
+      const row: AcpmuxRow = {
+        id: "r",
+        version: length,
+        at: 1,
+        kind: "assistant",
+        text: reply.slice(0, length),
+        streaming: true,
+      };
+      const streamed = layoutConversation([row], 600, cache).heights[0];
+      const fresh = layoutConversation([row], 600, new Map()).heights[0];
+      expect({ length, height: streamed }).toEqual({ length, height: fresh });
+    }
+  });
+
+  test("a delta lexes the tail, not the whole reply", () => {
+    const cache = new Map<string, PreparedRow>();
+    const long = "A paragraph of words that the estimator measures.\n\n".repeat(300);
+    const row = (text: string, version: number): AcpmuxRow => ({ id: "r", version, at: 1, kind: "assistant", text });
+    layoutConversation([row(long + "tail", 1)], 600, cache);
+    layoutConversation([row(long + "tail grows", 2)], 600, cache);
+    expect(cache.get("r")!.lexedLength).toBeLessThan(200);
   });
 });

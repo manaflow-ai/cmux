@@ -67,7 +67,7 @@ import Testing
 
     @Test func aDockedColumnsPaneUsesItsTabBarToo() {
         let layout = ScreenLayout.columns([
-            LayoutColumn(id: "c0", width: 0.3, root: .leaf("p0"), sticky: StickyColumn(edge: .left, mode: .docked)),
+            LayoutColumn(id: "c0", width: 0.3, root: .leaf("p0"), dock: DockColumn(edge: .left, mode: .docked)),
             LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1")),
             LayoutColumn(id: "c2", width: 0.5, root: .leaf("p2")),
         ])

@@ -53,6 +53,7 @@ members = [
     "crates/cmux-local-auth",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
+    "crates/cmux-app-host",
 ]
 default-members = [
     "crates/acpmux",
@@ -88,6 +89,7 @@ default-members = [
     "crates/cmux-local-auth",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
+    "crates/cmux-app-host",
 ]
 exclude = ["vendor/crossterm", "crates/cmux-rd-host"]
 
@@ -125,6 +127,8 @@ cmux-remote = { path = "crates/cmux-remote", default-features = false, features 
 cmux-wg = { path = "crates/cmux-wg" }
 cmux-tui-machine-agent-protocol = { path = "crates/cmux-tui-machine-agent-protocol" }
 cmux-tui-machine-protocol = { path = "crates/cmux-tui-machine-protocol" }
+cmux-app-manifest = { path = "crates/cmux-app-manifest" }
+cmux-app-host = { path = "crates/cmux-app-host", default-features = false }
 anyhow = "1"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws"] }
@@ -165,6 +169,10 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls-no-p
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 time = { version = "0.3", default-features = false, features = ["parsing", "std"] }
 jsonschema = { version = "0.30", default-features = false }
+# QuickJS-ng for the app host (one VM per app process). Exact pin: the app
+# host is a sandbox boundary, so engine upgrades are deliberate. `allocator`
+# lets the host count every byte the VM allocates (32 MiB limit per app).
+rquickjs = { version = "=0.14.0", default-features = false, features = ["std", "allocator"] }
 flate2 = "1"
 bindgen = "0.72"
 smallvec = "1"

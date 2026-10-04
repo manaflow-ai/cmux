@@ -72,7 +72,7 @@ extension ScreenContentView {
     func rowScrollColumn(at localPoint: NSPoint, modifierHeld: Bool) -> ColumnID? {
         guard context.style.rowsEnabled else { return nil }
         for (id, stack) in baseGeometry.rowStacks where stack.scrolls && rowScrolls[id] != nil {
-            let fixed = geometry.sticky.contains { $0.column == id }
+            let fixed = geometry.dock.contains { $0.column == id }
             let window = stack.frame.offsetBy(dx: fixed ? 0 : stripShift, dy: 0)
             guard window.contains(localPoint) else { continue }
             if fixed == false, !uncoveredRect.contains(localPoint) { continue }
