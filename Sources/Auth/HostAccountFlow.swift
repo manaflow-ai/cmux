@@ -250,10 +250,11 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         // stale the user signs in again (full browser round trip).
     }
 
-    func refreshBillingPlan() async {
+    @discardableResult
+    func refreshBillingPlan() async -> Bool {
         guard coordinator.currentUser != nil, let identityID = currentIdentity?.id else {
             billingPlanState = .unknown
-            return
+            return false
         }
         let requestID = UUID()
         billingPlanRequestID = requestID
@@ -269,17 +270,19 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
                 accessToken: tokens?.accessToken,
                 refreshToken: tokens?.refreshToken
             )
-            guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return }
+            guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return false }
             billingPlanState = billingPlanState.applyingSuccess(
                 for: identityID,
                 isPro: details.isPro,
                 canManageBilling: details.canManageBilling
             )
+            return true
         } catch {
             // A cancelled request (the panel went away) says nothing about the plan.
-            if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
-            guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return }
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { return false }
+            guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return false }
             billingPlanState = billingPlanState.applyingFailure(for: identityID)
+            return false
         }
     }
 
