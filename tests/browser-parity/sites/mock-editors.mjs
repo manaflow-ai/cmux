@@ -179,7 +179,7 @@ ${body}
 <script>
 // As in the editors: the Share button (no id) renders a moment after the title.
 // As live: an unlabeled wrapper carries the id; the inner button the label.
-setTimeout(() => { document.getElementById("share-slot").innerHTML = '<div id="docs-titlebar-share-client-button"><div role="button" aria-label="Share. ${file.shared ? "Anyone with the link can view" : "Private to only me"}. "> <span>Share</span></div></div>'; }, 600);
+setTimeout(() => { document.getElementById("share-slot").innerHTML = '<div id="docs-titlebar-share-client-button"><div role="button" aria-label="Share. ${esc(file.shareText || (file.shared ? "Anyone with the link can view" : "Private to only me"))}. "> <span>Share</span></div></div>'; }, 600);
 const post = (path, data) => fetch(location.pathname.replace(/\\/edit$/, "") + "/__mock/" + path, { method: "POST", body: JSON.stringify(data) });
 // As live in Docs: a rename typed while the editor is still loading is lost.
 const loadedAt = Date.now();
@@ -337,6 +337,8 @@ nw.addEventListener("keydown", (e) => {
     }
     if (op === "htmlview" && file.kind === "spreadsheets") return { html: `<html><head><title>${esc(file.title)} - Google Sheets</title></head><body><ul>${file.sheets.map((s) => `<li id="sheet-button-${s.gid}"><a href="#">${esc(s.name)}</a></li>`).join("")}</ul></body></html>` };
     if (op === "export") {
+      // A collaborator shares the file around the time a tool reads it.
+      if (file.shareOnExport) (file.shared = true), (file.shareOnExport = false);
       // As live: Google answers 429 to exports requested in quick succession.
       const now = Date.now();
       const last = file.lastExport || 0;
