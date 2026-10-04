@@ -58,11 +58,27 @@ where
     }
     let hello =
         read_line(&mut stream, MAX_LINE_BYTES).await.map_err(|_| InboundRefused::BadHello)?;
-    let Some(ServiceHello { service: Service::Daemon }) = parse_line::<ServiceHello>(&hello) else {
+    // A paired peer reaches only the daemon entry, and carries no token.
+    let Some(ServiceHello { service: Service::Daemon, link_token: None, epoch: None }) =
+        parse_line::<ServiceHello>(&hello)
+    else {
         return Err(InboundRefused::BadHello);
     };
-    let stamp =
-        cmux_link::stamp::encode(&record.peer()).map_err(|_| InboundRefused::UnknownPeer)?;
+    hand_to_entry(stream, &record.peer(), session_socket).await
+}
+
+/// Splice `stream` into the session's remote entry with `peer` stamped as
+/// the first line, after the entry proved it is one (same user and cmux
+/// code, then the entry banner).
+pub(super) async fn hand_to_entry<S>(
+    mut stream: S,
+    peer: &cmux_link::stamp::LinkPeer,
+    session_socket: &Path,
+) -> Result<(), InboundRefused>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let stamp = cmux_link::stamp::encode(peer).map_err(|_| InboundRefused::UnknownPeer)?;
     let mut entry = tokio::net::UnixStream::connect(daemon_entry(session_socket))
         .await
         .map_err(|_| InboundRefused::EntryUnavailable)?;

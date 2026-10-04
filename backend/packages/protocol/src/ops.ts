@@ -30,6 +30,7 @@ import { serverOps } from "./server-ops.ts"
 import { usageOps } from "./usage.ts"
 import { teamVmOps } from "./team-vm-ops.ts"
 import { teamSshOps } from "./team-ssh-ops.ts"
+import { cloudMachineOps } from "./cloud-machine-ops.ts"
 
 export { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
@@ -242,6 +243,7 @@ export const cloudOps = [
   ...serverOps,
   ...teamVmOps,
   ...teamSshOps,
+  ...cloudMachineOps,
   ...homeOps
 ] as const
 

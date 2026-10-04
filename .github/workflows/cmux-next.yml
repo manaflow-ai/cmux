@@ -309,6 +309,7 @@ jobs:
           bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
           bash scripts/cmux-next/tests/embed-cef.test.sh
           bash scripts/cmux-next/tests/ensure-cef-store.test.sh
+          bash scripts/cmux-next/tests/cef-build-flags.test.sh
 
       - name: Checks job structure
         id: checks-structure
@@ -446,13 +447,13 @@ jobs:
 
       # Like the steps below, runs whenever the build succeeded, even after a
       # failed test step, so one red step does not hide the others.
-      - name: Run control package tests
+      - name: Run control package tests and callback regressions
         if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
         timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextControlTests --skip CLISurfaceParityTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter 'CmuxNextControlTests|MobileReadinessRelayTests' --skip CLISurfaceParityTests
 
       # These socket/readiness and CLI parity tests assert routing, not scheduler
       # throughput. Concurrent app/catalog setup can occupy the main actor longer

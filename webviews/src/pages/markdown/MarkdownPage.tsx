@@ -2,10 +2,15 @@
 // file renders it: a toolbar (file, save status, rich text or source), the conflict banner, and the
 // editor or the source text. The editor mounts through a callback ref. Cmd/Ctrl chords (Cmd-S)
 // come from the app's key dispatcher as page commands, never from page key handlers.
-import { useSyncExternalStore, type ChangeEvent, type ReactNode } from "react";
+import { lazy, Suspense, useSyncExternalStore, type ChangeEvent, type ReactNode } from "react";
 import type { Strings } from "../shared/i18n";
+import { Toolbar, ToolbarButton, ToolbarGroup, ToolbarToggleGroup } from "../../ui/Toolbar";
+import type { LinkOverlays } from "./overlays";
 import { L } from "./strings";
 import type { MarkdownMode, MarkdownStore } from "./store";
+
+// The hover card and link popover load after the page (their Base UI parts are not on the open path).
+const LinkOverlayHost = lazy(() => import("./linkOverlays").then((module) => ({ default: module.LinkOverlayHost })));
 
 export interface MarkdownPageProps {
   store: MarkdownStore;
@@ -14,6 +19,8 @@ export interface MarkdownPageProps {
   editorRef: (element: HTMLDivElement | null) => void;
   /** The page with no file (store phase `empty`): the viewer empty state. */
   emptyState?: () => ReactNode;
+  /** The editor's link hover card and popover, rendered here so they share the page's root. */
+  overlays?: LinkOverlays;
   /** The link history (the same as the `back` and `forward` page commands). */
   onBack?(): void;
   onForward?(): void;
@@ -23,7 +30,15 @@ function fileName(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
 }
 
-export function MarkdownPage({ store, strings, editorRef, emptyState, onBack, onForward }: MarkdownPageProps) {
+export function MarkdownPage({
+  store,
+  strings,
+  editorRef,
+  emptyState,
+  overlays,
+  onBack,
+  onForward,
+}: MarkdownPageProps) {
   const state = useSyncExternalStore(store.subscribe, store.getState);
   const { t } = strings;
 
@@ -48,54 +63,41 @@ export function MarkdownPage({ store, strings, editorRef, emptyState, onBack, on
 
   return (
     <div className="md-page" data-mode={state.mode} data-status={state.status} data-read-only={state.readOnly}>
-      <header className="md-toolbar">
-        {state.canBack || state.canForward ? (
-          <span className="md-history">
-            <button
-              type="button"
-              className="md-history-button"
-              aria-label={t(L.back)}
-              title={t(L.back)}
-              disabled={!state.canBack}
-              onClick={onBack}
-            >
-              ‹
-            </button>
-            <button
-              type="button"
-              className="md-history-button"
-              aria-label={t(L.forward)}
-              title={t(L.forward)}
-              disabled={!state.canForward}
-              onClick={onForward}
-            >
-              ›
-            </button>
+      <header className="md-toolbar-host">
+        <Toolbar className="md-toolbar" label={t(L.toolbarLabel)}>
+          {state.canBack || state.canForward ? (
+            <ToolbarGroup>
+              <ToolbarButton className="md-history-button" label={t(L.back)} disabled={!state.canBack} onPress={onBack}>
+                ‹
+              </ToolbarButton>
+              <ToolbarButton
+                className="md-history-button"
+                label={t(L.forward)}
+                disabled={!state.canForward}
+                onPress={onForward}
+              >
+                ›
+              </ToolbarButton>
+            </ToolbarGroup>
+          ) : null}
+          <span className="md-file" title={path}>
+            {state.phase === "loading" ? t(L.loading) : fileName(path)}
           </span>
-        ) : null}
-        <span className="md-file" title={path}>
-          {state.phase === "loading" ? t(L.loading) : fileName(path)}
-        </span>
-        <span
-          className={`md-status md-status-${state.readOnly ? "read-only" : state.status}`}
-          title={state.readOnly ? t(L.readOnlyHelp) : state.status === "failed" ? t(L.saveFailed) : undefined}
-          aria-live="polite"
-        >
-          {state.phase === "ready" ? status : ""}
-        </span>
-        <fieldset className="md-mode" aria-label={t(L.modeLabel)}>
-          {modes.map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              aria-pressed={state.mode === mode}
-              className="md-mode-button"
-              onClick={() => store.setMode(mode)}
-            >
-              {t(mode === "rich" ? L.rich : L.source)}
-            </button>
-          ))}
-        </fieldset>
+          <span
+            className={`md-status md-status-${state.readOnly ? "read-only" : state.status}`}
+            title={state.readOnly ? t(L.readOnlyHelp) : state.status === "failed" ? t(L.saveFailed) : undefined}
+            aria-live="polite"
+          >
+            {state.phase === "ready" ? status : ""}
+          </span>
+          <ToolbarToggleGroup
+            className="md-mode"
+            label={t(L.modeLabel)}
+            value={state.mode}
+            options={modes.map((mode) => ({ value: mode, label: t(mode === "rich" ? L.rich : L.source) }))}
+            onValueChange={(mode) => store.setMode(mode as MarkdownMode)}
+          />
+        </Toolbar>
       </header>
       {state.conflict ? (
         <div className="md-banner" role="alert">
@@ -123,6 +125,11 @@ export function MarkdownPage({ store, strings, editorRef, emptyState, onBack, on
           />
         ) : null}
       </main>
+      {overlays ? (
+        <Suspense fallback={null}>
+          <LinkOverlayHost overlays={overlays} />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

@@ -11,6 +11,7 @@ import {
   devStateDirectory,
   gitTopLevel,
   listPickerDirectory,
+  pickerLocations,
   sourceKind,
   sourceQuery,
 } from "../dev-server/viewerEmptyHost";
@@ -104,5 +105,25 @@ describe("diff open", () => {
     expect(sourceKind({ kind: "branch", baseRef: "HEAD" })).toBe("uncommitted");
     expect(sourceKind({ kind: "branch", baseRef: "main" })).toBe("branch");
     expect(sourceKind({ kind: "unstaged" })).toBe("unstaged");
+  });
+});
+
+describe("picker locations", () => {
+  test("workspace folders, Home, its standard folders, iCloud Drive, then pinned; only folders, each once", () => {
+    fs.mkdirSync(path.join(home, "Desktop"), { recursive: true });
+    fs.mkdirSync(path.join(home, "Library/Mobile Documents/com~apple~CloudDocs"), { recursive: true });
+    const answer = pickerLocations({
+      home,
+      workspace: [path.join(home, "fun/repo"), "/does/not/exist"],
+      pinned: ["~/fun/plain", home, "relative/x"],
+    });
+    expect(answer.locations.map((place) => `${place.kind}:${path.relative(home, place.path) || "~"}`)).toEqual([
+      "workspace:fun/repo",
+      "home:~",
+      "desktop:Desktop",
+      "documents:Documents",
+      "iCloudDrive:Library/Mobile Documents/com~apple~CloudDocs",
+      "pinned:fun/plain",
+    ]);
   });
 });

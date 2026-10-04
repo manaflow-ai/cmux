@@ -10,8 +10,6 @@ import { bootPageDiff } from "../diff/pageBoot";
 import { createWebviewsRouter } from "../router";
 import { applyDiffViewerStatusToDocument, initialDiffViewerStatus } from "../status";
 import diffViewerStyles from "../styles.css?inline";
-import { pickDiffConfig } from "../viewer-empty/mount";
-import viewerEmptyStyles from "../viewer-empty/styles.css?inline";
 import type { DiffViewerConfig } from "../types";
 import { installWebviewStyles } from "./installWebviewStyles";
 
@@ -48,13 +46,16 @@ export function mountDiffSurface(rootElement: HTMLElement): Promise<void> {
     (config, languages) => renderDiffSurface(rootElement, config, languages),
     undefined,
     undefined,
-    (config) => {
-      // The empty state paints with the viewer's look until the user opens a repository.
+    async (config) => {
+      // The empty state paints with the viewer's look until the user opens a repository. It loads
+      // on demand (with the ui wrapper and Base UI), so an open repository never evaluates it.
       installWebviewStyles("diff", diffViewerStyles);
-      installWebviewStyles("viewer-empty", viewerEmptyStyles);
+      const empty = await import("../viewer-empty/emptySurface");
+      installWebviewStyles("viewer-empty", empty.viewerEmptyStyles);
+      installWebviewStyles("ui", empty.uiStyles);
       applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance));
       installSolidBackdrop();
-      return pickDiffConfig(rootElement, page, { labels: config.payload?.labels });
+      return empty.pickDiffConfig(rootElement, page, { labels: config.payload?.labels });
     },
   ).then(() => undefined);
 }

@@ -10,6 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadRuntime, createNodeHost } from "../lib/dev-driver.mjs";
+import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
 
 const ns = loadRuntime();
 const { shape, render, diffLines, condense, Snapshot, PRINT_BUDGET } = ns.snapshot;
@@ -116,7 +117,7 @@ test("diff: stays near-linear on huge trees", () => {
 });
 
 test("repl output: a call over its cap prints the head and spills everything to a file", async () => {
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "cap-"));
+  const workDir = makeTestDir("cap-");
   const printed = [];
   const host = createNodeHost({ workDir, sessionId: `cap-${process.pid}`, print: (level, t) => printed.push(t) });
   const gate = ns.replHost.createOutputGate(host, { maxOutput: 5000 });
@@ -145,7 +146,35 @@ test("repl output: a call over its cap prints the head and spills everything to 
   for (let i = 0; i < 100; i++) open.print("log", line(i));
   open.finish();
   assert.equal(printed.length, 100);
-  fs.rmSync(workDir, { recursive: true, force: true });
+  removeTestDir(workDir);
+});
+
+test("repl output: no limit (0) still spills past a hard ceiling instead of printing everything", () => {
+  const workDir = makeTestDir("cap-");
+  let printedChars = 0;
+  const notes = [];
+  const host = createNodeHost({
+    workDir,
+    sessionId: `hard-${process.pid}`,
+    print: (level, t) => {
+      printedChars += t.length + 1;
+      if (t.startsWith("# output")) notes.push(t);
+    },
+  });
+  const line = "w".repeat(9999);
+  for (const maxOutput of [0, Infinity, 1e12]) {
+    printedChars = 0;
+    notes.length = 0;
+    const gate = ns.replHost.createOutputGate(host, { maxOutput });
+    for (let i = 0; i < 600; i++) gate.print("log", line);
+    gate.finish();
+    // 6,000,000 characters printed; at most the ceiling (4,000,000) reaches the caller.
+    assert.ok(printedChars <= 4_000_000 + 1000, `maxOutput ${maxOutput}: printed ${printedChars}`);
+    const full = /full output: (\S+)$/.exec(notes.at(-1) || "");
+    assert.ok(full, `maxOutput ${maxOutput}: ${notes.join(" | ")}`);
+    assert.equal(fs.statSync(full[1]).size, 600 * 10000);
+  }
+  removeTestDir(workDir);
 });
 
 test("frames: a frame that never answers is left out and marked, and the rest of the page reads", async () => {
@@ -163,6 +192,27 @@ test("frames: a frame that never answers is left out and marked, and the rest of
   assert.ok(Date.now() - t < 2000);
   assert.deepEqual(render(shape(nodes, {}), {}), [
     '- iframe "Hung" [ref=e1] [not read: timed out]',
+    '- iframe "Fine" [ref=e2]:',
+    '  - button "Inside" [ref=f2e1]',
+  ]);
+});
+
+test("frames: a frame the domain policy blocks is left out and marked", async () => {
+  // The driver refuses to read a frame that shows a blocked page (code
+  // "blocked"); the snapshot says why the iframe is empty.
+  const host = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (t) => clearTimeout(t) };
+  const refusal = Object.assign(new Error("Frame 7 shows https://blocked.example, which the domain policy blocks"), { code: "blocked" });
+  const blocked = { p: "f1", _detached: false, _agent: async () => { throw refusal; } };
+  const ok = { p: "f2", _detached: false, _agent: async () => ({ nodes: [{ role: "button", name: "Inside", ref: "e1", act: 1 }], max: 1 }) };
+  const main = {
+    p: "",
+    _agent: async () => ({ nodes: [{ role: "iframe", name: "Ad", ref: "e1", frame: "h1" }, { role: "iframe", name: "Fine", ref: "e2", frame: "h2" }], max: 2 }),
+    _contentFrame: async (handle) => (handle === "h1" ? blocked : ok),
+  };
+  const page = { _session: { host }, _refMaxFor: () => 0, _noteRefMax() {}, _prefixFor: (f) => f.p };
+  const nodes = await ns.snapshot.frameNodes(page, main, null, {}, true);
+  assert.deepEqual(render(shape(nodes, {}), {}), [
+    '- iframe "Ad" [ref=e1] [not read: blocked by the domain policy]',
     '- iframe "Fine" [ref=e2]:',
     '  - button "Inside" [ref=f2e1]',
   ]);

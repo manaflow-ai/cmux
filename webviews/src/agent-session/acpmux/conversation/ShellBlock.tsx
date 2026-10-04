@@ -7,7 +7,7 @@ export function ShellBlock({ command, output, exitCode }: { command?: string; ou
   return (
     <div className="cv-shell">
       <div className="cv-shell__label">{t("shell.label")}</div>
-      <pre className="cv-shell__body">
+      <pre className="cv-shell__body selectable">
         {command && <span className="cv-shell__command">$ {command}</span>}
         {output && <span className="cv-shell__output">{output}</span>}
       </pre>

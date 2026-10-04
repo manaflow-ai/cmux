@@ -19,6 +19,7 @@ import QuartzCore
     /// The space a release switched to, until the model shows it.
     private(set) var pendingTarget: ProfileKey?
     private var snapshot: NSView?
+    var snapshotView: NSView? { snapshot }
 
     init(host: SidebarView) { self.host = host }
 
@@ -104,15 +105,10 @@ import QuartzCore
         neighbor?.view.removeFromSuperview()
         neighbor = nil
         guard let index else { return }
-        let model = SidebarModel(sections: host.model.spaceSections?(profiles[index]) ?? [])
-        model.showWorkspaceTabs = host.model.showWorkspaceTabs
-        let list = SidebarListView(model: model)
-        let container = NSView(frame: page.frame)
-        container.wantsLayer = true
-        list.frame = container.bounds
-        list.autoresizingMask = [.width, .height]
-        container.addSubview(list)
-        host.addSubview(container, positioned: .above, relativeTo: page)
+        let container = makePage(host.model.spaceSections?(profiles[index]) ?? [])
+        // The list sits in the edge fade view: pages are its siblings there.
+        (page.superview ?? host).addSubview(container, positioned: .above, relativeTo: page)
+        guard let list = container.list else { return }
         list.reload(animated: false)
         neighbor = (index, container, list)
     }
@@ -139,25 +135,34 @@ import QuartzCore
 
     // MARK: Switch by dot, key or a new space
 
-    /// What the list shows now, kept for a slide (call before the reload).
-    func prepareSlide() {
+    /// The old space's rows as a page for a slide (call before the reload):
+    /// real row views, so text and badges show as they were.
+    func prepareSlide(oldSections: [SidebarSection]) {
         finishSlide()
-        guard pendingTarget == nil, pager == nil, let rep = page.bitmapImageRepForCachingDisplay(in: page.bounds) else { return }
-        page.cacheDisplay(in: page.bounds, to: rep)
-        let image = NSImage(size: page.bounds.size)
-        image.addRepresentation(rep)
-        let view = NSImageView(frame: page.frame)
-        view.image = image
-        view.imageScaling = .scaleNone
-        view.wantsLayer = true
-        snapshot = view
+        guard pendingTarget == nil, pager == nil else { return }
+        snapshot = makePage(oldSections)
+    }
+
+    private func makePage(_ sections: [SidebarSection]) -> SpacePageView {
+        let model = SidebarModel(sections: sections)
+        model.showWorkspaceTabs = host.model.showWorkspaceTabs
+        model.activeWorkspaceID = host.model.activeWorkspaceID
+        let list = SidebarListView(model: model)
+        let container = SpacePageView(frame: page.frame)
+        container.wantsLayer = true
+        list.frame = container.bounds
+        list.autoresizingMask = [.width]
+        container.addSubview(list)
+        container.list = list
+        return container
     }
 
     /// Slides the kept page out and the reloaded list in from `direction`
     /// (+1: the trailing edge, a later dot); reduced motion cross-fades.
     func slide(direction: Int) {
         guard let snapshot, direction != 0 else { return finishSlide() }
-        host.addSubview(snapshot, positioned: .above, relativeTo: page)
+        (page.superview ?? host).addSubview(snapshot, positioned: .above, relativeTo: page)
+        (snapshot as? SpacePageView)?.list?.reload(animated: false)
         host.clipsToBounds = true
         page.wantsLayer = true
         CATransaction.begin()
@@ -181,4 +186,12 @@ import QuartzCore
             host.clipsToBounds = false
         }
     }
+}
+
+/// A swipe page or the kept page of a slide: drawn only, never hit (the
+/// gesture and clicks stay on the list).
+final class SpacePageView: NSView {
+    var list: SidebarListView?
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

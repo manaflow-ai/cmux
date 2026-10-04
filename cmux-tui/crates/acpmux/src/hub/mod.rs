@@ -9,6 +9,8 @@
 
 mod adoption;
 mod handoff;
+mod idle;
+mod launchers;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 mod hosts;
 mod lifecycle;
@@ -45,6 +47,10 @@ use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::{Mutex, Notify, RwLock, broadcast, mpsc, oneshot};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// How long a session's harness may sit unused (no client, no turn, no
+/// activity) before it exits; the session resumes on its next prompt.
+pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 /// Git hash and date stamped at build time (see build.rs).
 pub const BUILD: &str = env!("ACPMUX_BUILD");
 
@@ -185,6 +191,9 @@ pub struct Session {
     /// Bumped when a record failed to reach the store; an agent host entry
     /// is acknowledged only when its record was stored.
     pub(super) append_errors: AtomicU64,
+    /// The hub clock's time (`Hub::clock_now`) of the last record or
+    /// attach change; the idle harness exit counts from it (`idle.rs`).
+    pub(super) last_active: AtomicU64,
 }
 
 impl Session {
@@ -253,6 +262,21 @@ pub struct Hub {
     /// Turns a shutdown with `endAgents` settled as cancelled: their prompt
     /// futures must not write a second result when the agent ends.
     pub(super) settled_by_shutdown: StdMutex<std::collections::HashSet<String>>,
+    /// `npx -y PACKAGE` launches resolved to their bin: (npx, package) to path.
+    pub(super) launchers: StdMutex<HashMap<(String, String), String>>,
+    /// Harnesses whose last model probe failed, with the reason; reported in
+    /// `_acpmux/models` and `_acpmux/harnesses` (`probeError`).
+    pub probe_errors: StdMutex<HashMap<String, String>>,
+    /// Lifecycle timers (the idle harness exit) run on this clock.
+    pub(super) clock: StdMutex<Arc<dyn crate::clock::Clock>>,
+    /// A session harness unused for this long exits (`idle.rs`); None: never.
+    pub(super) idle_child: StdMutex<Option<std::time::Duration>>,
+    pub(super) idle_wake: Arc<Notify>,
+    pub(super) idle_reaper: AtomicBool,
+    /// Set when `shutdown_all` starts: the idle reaper stops for good.
+    pub(super) stopping: AtomicBool,
+    /// Held by one idle reaper pass; shutdown waits for it after `stopping`.
+    pub(super) idle_pass: Mutex<()>,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -314,6 +338,14 @@ impl Hub {
             end_agents_on_shutdown: AtomicBool::new(false),
             keep_on_shutdown: StdMutex::new(Default::default()),
             settled_by_shutdown: StdMutex::new(Default::default()),
+            launchers: StdMutex::new(HashMap::new()),
+            probe_errors: StdMutex::new(HashMap::new()),
+            clock: StdMutex::new(crate::clock::TokioClock::new()),
+            idle_child: StdMutex::new(Some(IDLE_CHILD)),
+            idle_wake: Arc::new(Notify::new()),
+            idle_reaper: AtomicBool::new(false),
+            stopping: AtomicBool::new(false),
+            idle_pass: Mutex::new(()),
         });
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {
@@ -324,6 +356,18 @@ impl Hub {
             }
         }
         hub
+    }
+
+    /// Drive lifecycle timers from `clock` (tests pass a `ManualClock`).
+    pub fn set_clock(&self, clock: Arc<dyn crate::clock::Clock>) {
+        *self.clock.lock().unwrap() = clock;
+        self.idle_wake.notify_one();
+    }
+
+    /// How long an unused session harness lives; None keeps it forever.
+    pub fn set_idle_child(&self, idle: Option<std::time::Duration>) {
+        *self.idle_child.lock().unwrap() = idle;
+        self.idle_wake.notify_one();
     }
 
     /// Points adopt at other harness stores (tests use fixture stores).
@@ -470,6 +514,7 @@ impl Hub {
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
+            last_active: AtomicU64::new(self.clock_now()),
         })
     }
 
@@ -532,6 +577,7 @@ impl Hub {
         if session.purged.load(Ordering::SeqCst) {
             return record;
         }
+        self.touch(session);
         if let Err(e) = self.store.append(&session.id, &record) {
             session.append_errors.fetch_add(1, Ordering::SeqCst);
             tracing::warn!(session = %session.id, "append failed: {e}");
@@ -572,6 +618,8 @@ impl Hub {
 
     /// A client attached or detached. Attaching clears the unread bit.
     pub fn attach_count(&self, session: &Session, delta: i32) {
+        // A client letting go starts the idle period; one arriving resets it.
+        self.touch(session);
         use std::sync::atomic::AtomicUsize;
         let _ = AtomicUsize::new(0);
         if delta > 0 {

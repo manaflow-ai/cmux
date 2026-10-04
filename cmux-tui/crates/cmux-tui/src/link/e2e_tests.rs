@@ -49,9 +49,9 @@ fn mesh(node: Node) -> MeshOverlay {
             address: IpAddr::V6(overlay_address(node.install)),
             prefix: 128,
         }],
-        mtu: super::state::DIRECT_MTU,
+        mtu: super::state::LINK_MTU,
     };
-    MeshOverlay::new(WgMesh::start(config, node.socket).unwrap())
+    MeshOverlay::new(WgMesh::start(config, node.socket).unwrap(), Zeroizing::new(node.private))
 }
 
 async fn within<T>(future: impl Future<Output = T>) -> T {

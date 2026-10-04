@@ -19,6 +19,11 @@
 
 pub mod host;
 pub mod link;
+mod wait;
+pub use wait::{
+    BOOTSTRAP_BUDGET, HostTimeout, QUERY_BUDGET, death_watches, wait_dead_async, wait_dead_within,
+    within,
+};
 
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
@@ -378,7 +383,6 @@ pub fn terminate_unadoptable(
     start_nonce: Option<&str>,
     host_pid: Option<u32>,
 ) -> Result<bool> {
-    use std::os::fd::AsRawFd;
     const TERM_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
     let Some(nonce) = start_nonce else { return Ok(false) };
     if liveness(dir, session_id, nonce) == Liveness::Dead {
@@ -386,58 +390,23 @@ pub fn terminate_unadoptable(
     }
     let Some(pid) = host_pid else { return Ok(false) };
     let pid = i32::try_from(pid).context("pid")?;
-    let lock = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(live_path(dir, session_id, nonce))?;
-    // The death proof: a blocking lock that returns when the host's
-    // descriptor closes, on its own thread so the wait has a deadline.
-    let (done_tx, done_rx) = std::sync::mpsc::channel();
-    let fd = lock.try_clone()?;
-    std::thread::spawn(move || {
-        loop {
-            // SAFETY: a blocking lock on a descriptor this thread owns.
-            if unsafe { libc::flock(fd.as_raw_fd(), libc::LOCK_EX) } == 0 {
-                let _ = done_tx.send(());
-                return;
-            }
-            if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
-                return;
-            }
-        }
-    });
+    // The death proof: the host's lock drops when it exits. A watch that
+    // starts after the exit takes the free lock at once, so none is missed;
+    // waits on one host share one watch thread.
+    let dead_within = |budget| wait_dead_within(dir, session_id, nonce, budget);
+    if liveness(dir, session_id, nonce) != Liveness::Live {
+        return Ok(liveness(dir, session_id, nonce) == Liveness::Dead);
+    }
     // SAFETY: the held lock proves `pid` is this session's live host.
     unsafe { libc::kill(pid, libc::SIGTERM) };
-    if done_rx.recv_timeout(TERM_GRACE).is_ok() {
+    if dead_within(TERM_GRACE) {
         return Ok(true);
     }
     if liveness(dir, session_id, nonce) == Liveness::Live {
         // SAFETY: as above, re-proven just now.
         unsafe { libc::kill(pid, libc::SIGKILL) };
     }
-    Ok(done_rx.recv_timeout(TERM_GRACE).is_ok())
-}
-
-/// Block until this incarnation's host is dead (its lock drops). Returns at
-/// once when the lock file is gone. Call it off the async runtime.
-pub fn wait_dead(dir: &Path, session_id: &str, start_nonce: &str) {
-    use std::os::fd::AsRawFd;
-    let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(live_path(
-        dir,
-        session_id,
-        start_nonce,
-    )) else {
-        return;
-    };
-    loop {
-        // SAFETY: a blocking lock on a descriptor this function owns; it
-        // returns when the host's descriptor closes at its death.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0
-            || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
-        {
-            return;
-        }
-    }
+    Ok(dead_within(TERM_GRACE))
 }
 
 /// Remove a dead host's record, lock and socket.

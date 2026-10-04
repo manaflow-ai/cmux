@@ -12,6 +12,7 @@ import "../styles.css";
 import { diffViewerLabelsFor, diffViewerLanguage } from "../labels";
 import type { DiffViewerConfig } from "../types";
 import "../viewer-empty/styles.css";
+import "../ui/ui.css";
 import { devDiffClient } from "../viewer-empty/dev";
 import { pickDiffConfig } from "../viewer-empty/mount";
 

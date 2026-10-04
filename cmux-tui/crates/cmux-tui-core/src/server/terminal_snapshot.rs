@@ -10,6 +10,18 @@
 //! seconds after output goes idle the viewer gets `digest {generation, offset,
 //! version, sha256}` of the host's READY encoding.
 //!
+//! Capability `terminal-snapshot-history-v1`: every READY is followed by
+//! `snapshot {phase: "history", generation, offset, version, compression:
+//! "deflate", raw_bytes, data, done}` chunks at that READY's generation and
+//! offset. Each chunk is at most [`HISTORY_CHUNK_BYTES`] of history,
+//! compressed alone as raw DEFLATE (level 1) on the worker thread, outside
+//! the terminal lock. The inflated chunks concatenated are the rest of the
+//! same COMPLETE encode (HISTORY manifests, scrollback pages, FINISH), which
+//! a viewer feeds to its restore after READY. History has lower priority than live
+//! output: a chunk goes out only while the viewer's queue is empty, so live
+//! `output` frames pass between chunks. A newer READY drops the rest of the
+//! older history on the host.
+//!
 //! `snapshot-request {surface, reason?, have?, request_id?}` is the raw v12
 //! form of the channel message `snapshot_request` (sync-and-transport.md):
 //! requests collapse while a snapshot is pending, and a viewer gets at most
@@ -39,6 +51,11 @@ use crate::surface::{AttachFrame, AttachFrameReceiver, AttachLifecycle, ViewerEv
 use crate::{Mux, Surface, SurfaceId};
 
 pub const TERMINAL_SNAPSHOT_CAPABILITY: &str = "terminal-snapshot-v1";
+/// READY is followed by its history chunks (scrollback, then FINISH).
+pub const TERMINAL_SNAPSHOT_HISTORY_CAPABILITY: &str = "terminal-snapshot-history-v1";
+/// Largest uncompressed history chunk. Its compressed base64 stays far under
+/// the per-stream outbound byte cap with a live frame pending.
+pub(crate) const HISTORY_CHUNK_BYTES: usize = 1 << 20;
 /// The only snapshot encoding the host speaks.
 pub const SNAPSHOT_ENCODING_GHOSTSNP: &str = "ghostsnp";
 
@@ -276,6 +293,61 @@ fn snapshot_json(surface: SurfaceId, frame: &TerminalSnapshotFrame) -> Value {
     })
 }
 
+/// The history of one READY still to send.
+struct PendingHistory {
+    generation: u64,
+    offset: u64,
+    version: u16,
+    data: Vec<u8>,
+    sent: usize,
+}
+
+impl PendingHistory {
+    fn of(frame: &mut TerminalSnapshotFrame) -> Self {
+        Self {
+            generation: frame.generation,
+            offset: frame.offset,
+            version: frame.version,
+            data: std::mem::take(&mut frame.history),
+            sent: 0,
+        }
+    }
+
+    /// The next chunk event, and whether it is the last one.
+    fn next_chunk(&mut self, surface: SurfaceId) -> (Value, bool) {
+        let end = (self.sent + HISTORY_CHUNK_BYTES).min(self.data.len());
+        let done = end == self.data.len();
+        let raw = &self.data[self.sent..end];
+        let value = json!({
+            "event": "snapshot",
+            "surface": surface,
+            "phase": "history",
+            "generation": self.generation,
+            "offset": self.offset,
+            "version": self.version,
+            "compression": "deflate",
+            "raw_bytes": raw.len(),
+            "data": base64(&deflate(raw)),
+            "done": done,
+        });
+        self.sent = end;
+        (value, done)
+    }
+}
+
+/// Raw DEFLATE (RFC 1951, no zlib or gzip framing) at level 1: about 8% of
+/// the history at about 0.7 ms per MiB (the 2026-10-04 Testbox measurement).
+fn deflate(raw: &[u8]) -> Vec<u8> {
+    use std::io::Write as _;
+    let mut encoder = flate2::write::DeflateEncoder::new(
+        Vec::with_capacity(raw.len() / 8),
+        flate2::Compression::new(1),
+    );
+    // Writing to a Vec cannot fail.
+    encoder.write_all(raw).expect("deflate into memory");
+    encoder.finish().expect("deflate into memory")
+}
+
 fn digest_json(surface: SurfaceId, digest: &TerminalSnapshotDigest) -> Value {
     let sha256: String = digest.sha256.iter().map(|byte| format!("{byte:02x}")).collect();
     json!({
@@ -336,6 +408,8 @@ struct SnapshotWorker {
     gate: SnapshotRequestGate,
     generation: u64,
     offset: u64,
+    /// History of the last READY not yet sent; a newer READY replaces it.
+    history: Option<PendingHistory>,
 }
 
 impl SnapshotWorker {
@@ -351,10 +425,12 @@ impl SnapshotWorker {
 
     fn send_snapshot(&mut self) -> bool {
         match self.surface.take_viewer_snapshot(&self.receiver) {
-            Ok(frame) => {
+            Ok(mut frame) => {
                 self.gate.sent(Instant::now());
                 self.generation = frame.generation;
                 self.offset = frame.offset;
+                // The older READY's history no longer applies: drop it.
+                self.history = Some(PendingHistory::of(&mut frame));
                 self.send(&snapshot_json(self.surface_id, &frame))
             }
             Err(_) => {
@@ -368,8 +444,19 @@ impl SnapshotWorker {
         }
     }
 
+    /// One history chunk; the last one ends the pending history.
+    fn send_history_chunk(&mut self) -> bool {
+        let Some(history) = self.history.as_mut() else { return true };
+        let (value, done) = history.next_chunk(self.surface_id);
+        if done {
+            self.history = None;
+        }
+        self.send(&value)
+    }
+
     /// Block on the viewer's queue; the only timed wait is the one-shot idle
-    /// digest deadline set by the last output.
+    /// digest deadline set by the last output. While history is pending the
+    /// queue is only polled: a queued event goes first, else one chunk.
     fn run(mut self) {
         let interrupt = StreamInterrupt::new();
         self.writer.register_interrupt(&interrupt);
@@ -381,7 +468,8 @@ impl SnapshotWorker {
             && self.outbound_stream.is_open()
             && !self.lifecycle.is_canceled()
         {
-            let event = self.receiver.recv_viewer_event(&interrupt, digest_at);
+            let deadline = if self.history.is_some() { Some(Instant::now()) } else { digest_at };
+            let event = self.receiver.recv_viewer_event(&interrupt, deadline);
             let sent = match event {
                 Ok(ViewerEvent::Snapshot) => {
                     digest_at = None;
@@ -396,6 +484,9 @@ impl SnapshotWorker {
                         Some(value) => self.send(&value),
                         None => true,
                     }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) if self.history.is_some() => {
+                    self.send_history_chunk()
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     if digest_at.is_some_and(|deadline| Instant::now() >= deadline) {
@@ -502,8 +593,10 @@ fn attach(
     // encoded yet (an unfinished escape sequence over the continuation
     // budget), the attach still succeeds and the worker sends it at the next
     // output.
+    let mut history = None;
     let (generation, offset) = match surface.take_viewer_snapshot(&stream.receiver) {
-        Ok(first) => {
+        Ok(mut first) => {
+            history = Some(PendingHistory::of(&mut first));
             stream.requests.sent(Instant::now());
             let initial = snapshot_json(surface_id, &first);
             if let Err(error) = writer.send_initial(&initial, &outbound_stream) {
@@ -548,6 +641,7 @@ fn attach(
         gate: stream.requests,
         generation,
         offset,
+        history,
     };
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let spawned =

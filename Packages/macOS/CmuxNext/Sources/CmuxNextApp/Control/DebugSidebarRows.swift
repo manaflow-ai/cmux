@@ -9,15 +9,17 @@ import CmuxNextSidebar
 enum DebugSidebarRows {
     static func report(services: AppServices) -> JSONValue {
         .object(["windows": .array(services.windows.controllers.map { controller in
-            let (rows, selection, dragging) = controller.sidebar.container.sidebarView.debugRows()
+            let sidebar = controller.sidebar.container.sidebarView
+            let (rows, selection, dragging) = sidebar.debugRows()
             return .object([
                 "window": .string(controller.state.id),
                 "selection": .array(selection.map(JSONValue.string)),
                 "dragging": .array(dragging.map(JSONValue.string)),
+                "paging": .object(sidebar.debugPaging().mapValues(JSONValue.string)),
                 "rows": .array(rows.map { row in
                     .object([
                         "key": .string(row.key), "title": row.title.map(JSONValue.string) ?? .null,
-                        "frame": rect(row.frame), "view_frame": row.viewFrame.map(rect) ?? .null,
+                        "frame": rect(row.frame), "window_frame": rect(row.windowFrame), "view_frame": row.viewFrame.map(rect) ?? .null,
                         "view_alpha": row.viewAlpha.map { .number(Double($0)) } ?? .null,
                         "in_list": .bool(row.inList), "suppressed": .bool(row.suppressed),
                     ])

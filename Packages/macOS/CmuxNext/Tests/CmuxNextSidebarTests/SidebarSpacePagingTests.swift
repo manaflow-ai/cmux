@@ -66,4 +66,51 @@ import Testing
         #expect(intents.isEmpty)
         #expect(paging.neighbor == nil)
     }
+
+    /// Live run (sbr99-v1): the neighbor page took the hit tests, so the
+    /// rest of the swipe went to it and the list stopped following. The
+    /// pages never take events; the gesture stays on the list's scroll view.
+    @Test func theNeighborPageNeverTakesTheGesture() throws {
+        let (view, window) = Self.sidebar()
+        defer { window.close() }
+        let paging = view.spacePaging
+        paging.scroll(.began, deltaX: -20, time: 1.0)
+        #expect(paging.neighbor != nil)
+        let inList = view.scrollView.convert(NSPoint(x: 60, y: view.scrollView.bounds.midY), to: view.superview)
+        let hit = try #require(view.hitTest(inList))
+        #expect(hit.isDescendant(of: view.scrollView), "hit \(type(of: hit))")
+    }
+
+    /// Live run (sbr99-v1): the list's scroll view sits inside the edge
+    /// fade view, so a page added to the sidebar itself had the wrong
+    /// coordinates and stayed under the fade: the next space never showed.
+    /// Pages are siblings of the list, on its frame, above it.
+    @Test func theNeighborPageIsASiblingOfTheListOnItsFrame() throws {
+        let (view, window) = Self.sidebar()
+        defer { window.close() }
+        let paging = view.spacePaging
+        paging.scroll(.began, deltaX: -20, time: 1.0)
+        let page = try #require(paging.neighbor?.view)
+        let list = view.scrollView
+        #expect(page.superview === list.superview)
+        #expect(page.frame == list.frame)
+        // Live run: the page was not flipped, so its rows sat at the bottom.
+        let rows = try #require(paging.neighbor?.list)
+        #expect(page.isFlipped && rows.frame.minY == 0, "the next space's rows start at the top")
+        let siblings = list.superview?.subviews ?? []
+        #expect((siblings.firstIndex(of: page) ?? -1) > (siblings.firstIndex(of: list) ?? Int.max))
+    }
+
+    /// Live run (sbr99-v1): the kept page of a slide drew no text (an image
+    /// of layer-backed rows). It is now a page of the old space's real rows.
+    @Test func aSlideKeepsTheOldSpacesRealRows() throws {
+        let (view, window) = Self.sidebar()
+        defer { window.close() }
+        let old = view.model.sections
+        view.model.sections = view.model.spaceSections?(Self.keys[2]) ?? []
+        view.switchSpace(from: Self.keys[1], to: Self.keys[2], profiles: view.model.profiles, oldSections: old)
+        let kept = try #require(view.spacePaging.snapshotView as? SpacePageView)
+        #expect(kept.list?.displayed.row(for: .workspace(WorkspaceID("ws-b"))) != nil, "the old space's rows")
+        #expect(kept.superview === view.scrollView.superview)
+    }
 }

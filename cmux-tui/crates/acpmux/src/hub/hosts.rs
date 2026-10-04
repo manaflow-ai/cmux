@@ -68,19 +68,35 @@ impl Hub {
         // still holds the open requests, prompts and turn; recovery would
         // handle them a second time.
         let current = session.child.lock().await.clone();
-        // The harness exited and its host is finishing: wait (bounded) for
-        // the host's lock to drop, then let the caller start a fresh agent.
-        if let Some(record) = current
-            .as_ref()
-            .filter(|c| c.host_record().is_some() && !c.is_broken())
-            .and_then(|c| c.host_record())
+        // The link closed. Either the harness exited and its host is
+        // finishing (wait, bounded, for the host's lock to drop, then let the
+        // caller start a fresh agent), or the link alone was lost while the
+        // host lives on (another owner took it over and left): reconnect to
+        // it like a broken link, so the session is never locked.
+        if let Some(child) =
+            current.as_ref().filter(|c| c.host_record().is_some() && !c.is_broken())
+            && let Some(record) = child.host_record()
         {
-            let dir = agent_host::hosts_dir();
-            let waited = tokio::task::spawn_blocking(move || {
-                agent_host::wait_dead(&dir, &record.session_id, &record.start_nonce)
-            });
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(2), waited).await;
-            return None;
+            let dead = agent_host::wait_dead_async(
+                agent_host::hosts_dir(),
+                record.session_id.clone(),
+                record.start_nonce.clone(),
+                std::time::Duration::from_secs(2),
+            )
+            .await;
+            if dead || child.has_exited() {
+                return None;
+            }
+            match child.reattach().await {
+                Ok(()) => {
+                    self.append(session, "mux", "host_reattached", json!({"reason": "link_lost"}));
+                    return Some(child.clone());
+                }
+                Err(e) => {
+                    tracing::warn!(session = %session.id, "agent host reattach after a lost link failed: {e:#}");
+                    return None;
+                }
+            }
         }
         if let Some(child) = current.filter(|c| c.is_broken()) {
             if let Err(e) = child.reattach().await {
@@ -213,6 +229,7 @@ impl Hub {
             }
         };
         *session.child.lock().await = Some(child.clone());
+        self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {
             let hub = self.clone();
             let s = session.clone();

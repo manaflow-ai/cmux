@@ -129,29 +129,37 @@ extension WebKitTab: PageInfoProviding {
 
     /// Records the server's certificate when WebKit's own evaluation fails,
     /// so Page Info can show "Certificate is not valid" on the error page.
+    /// HTTP authentication and a host the user proceeded to past its
+    /// certificate are answered in WebKitTab+Challenges.swift.
     public func webView(
         _ webView: WKWebView,
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping @MainActor (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
-        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-           let trust = challenge.protectionSpace.serverTrust {
-            // Evaluation can fetch intermediates or revocation data: never
-            // on the main thread (architecture.md 5a).
-            let box = ServerTrustBox(trust: trust)
-            Task.detached { [weak self] in
-                let result = box.evaluate()
-                await MainActor.run {
-                    guard let activity = self?.pageInfoActivity else { return }
-                    if let failure = result {
-                        activity.recordCertificateFailure(chain: failure.chain, reason: failure.reason)
-                    } else {
-                        activity.clearCertificateFailure()
-                    }
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust = challenge.protectionSpace.serverTrust else {
+            return answer(challenge, completionHandler: completionHandler)
+        }
+        // Evaluation can fetch intermediates or revocation data: never
+        // on the main thread (architecture.md 5a).
+        let box = ServerTrustBox(trust: trust)
+        let excepted = isCertificateExcepted(challenge.protectionSpace.host)
+        if !excepted { completionHandler(.performDefaultHandling, nil) }
+        Task.detached { [weak self] in
+            let result = box.evaluate()
+            await MainActor.run {
+                if excepted {
+                    let trusted = result == nil
+                    completionHandler(trusted ? .performDefaultHandling : .useCredential, trusted ? nil : URLCredential(trust: box.trust))
+                }
+                guard let activity = self?.pageInfoActivity else { return }
+                if let failure = result {
+                    activity.recordCertificateFailure(chain: failure.chain, reason: failure.reason)
+                } else {
+                    activity.clearCertificateFailure()
                 }
             }
         }
-        completionHandler(.performDefaultHandling, nil)
     }
 }
 

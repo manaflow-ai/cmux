@@ -15,9 +15,6 @@
 # expected; 1 when a check fails that is not on the expected-fail list.
 #
 # EXPECTED FAILURES (remove a line when its fix lands; an XPASS is reported):
-#   agent-tab-restored         durable-sessions owner + tabs owner (G4, plan Q6): agent tabs are app-session only
-#   quit-ends-agents           durable-sessions owner (G3, plan Q5): no End choice stops acpmux or cancels a turn
-#   prompt-counts-agents       dialogs lead + app lifecycle (G5, plan Q3): QuitFacts has no agents
 #   prompt-is-cmux-dialog      dialogs lead (G1/G6, plan Q2): the prompt is an NSAlert, not a CmuxDialog (no debug.dialog)
 #   second-quit-keeps          dialogs lead + app lifecycle (D2, plan Q3): a second Cmd-Q is ignored today
 #   dock-quit-inactive         dialogs lead + app lifecycle (G7, plan Q3): no inactive-app quit hook (debug.quit inactive)
@@ -26,7 +23,7 @@
 # must pass (the home_not_closable fix).
 set -euo pipefail
 
-XFAIL=(agent-tab-restored quit-ends-agents prompt-counts-agents prompt-is-cmux-dialog
+XFAIL=(prompt-is-cmux-dialog
        second-quit-keeps dock-quit-inactive update-relaunch-no-prompt)
 
 app="" zip="" tag="" out=""
@@ -152,7 +149,11 @@ check prompt-shown "$(cond grep -q '"asking": *true' "$out/prompt.json")"
 check prompt-default-keep "$(cond grep -q '"default": *"keep"' "$out/prompt.json")"
 # The app was launched with open -g: it is not active, so its window is not key.
 check prompt-attached-window-not-key "$(cond grep -q '"attached": *true' "$out/prompt.json")"
-check prompt-counts-agents "$(cond grep -q '"agents"' "$out/prompt.json")"
+# The agent in its turn is counted (the Home Chief never is).
+check prompt-counts-agents "$(cond python3 -c "
+import json,sys
+d=json.load(open('$out/prompt.json')); p=(d.get('result') or d)['prompt']
+sys.exit(0 if (p.get('agents') or 0)>=1 and p.get('agents_in_turn',0)>=1 and p.get('busy_agents') else 1)")" "$(tr -d '\n' <"$out/prompt.json" | cut -c1-300)"
 dialog="$(rpc_ok debug.dialog '{}')"
 check prompt-is-cmux-dialog "$(cond grep -q '"ok": *true' <<<"$dialog")"
 rpc_ok debug.quit '{"press":"quit"}' >/dev/null || true
@@ -210,8 +211,15 @@ HOSTS="$(pgrep -f "^$BIN/cmux-tui __terminal-host" | tr '\n' ' ' || true)"
 quit_with end end-keep-layout
 check quit-everything-app-quits "$(cond wait_exit "$APP_PID" 70)"
 for p in $HOSTS "$SHELL_PID" "$LOOP_PID" "$TUI_PID"; do check "quit-everything-ends-$p" "$(cond wait_exit "$p" 20)"; done
-check quit-ends-agents "$(cond test "$(agent_running && echo yes)" != yes)"
+# Every End choice ends the agents (acpmux _acpmux/shutdown endAgents) before
+# the terminals: the acpmux daemon exits and the turn is settled as cancelled.
+check quit-ends-agents "$(cond wait_exit "$ACP_PID" 20)" "acpmux $ACP_PID"
 launch
+check quit-ends-agents-turn-cancelled "$(cond python3 -c "
+import json,subprocess,sys
+d=json.loads(subprocess.run(['$BIN/acpmux','ls','--json'],capture_output=True,text=True).stdout)
+s=[x for x in d['sessions'] if x['name']=='qp-agent']
+sys.exit(0 if s and s[0]['status'] not in ('running','waiting') else 1)")"
 TUI_PID="$(pgrep -f "^$BIN/cmux-tui --headless --session cmux-app-$slug " | head -1 || true)"
 DSOCK="$(daemon_sock)"
 sleep 3

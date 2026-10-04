@@ -7,15 +7,18 @@
 //! first (cheap, and rate-limited), then one Diffie-Hellman decrypts the
 //! initiator's static key. A key that is not a configured peer is dropped
 //! there, before any session state exists, and gets no answer.
-
-use std::net::SocketAddr;
+//!
+//! A datagram's source is a route: a UDP address, or a gateway and the
+//! address inside its tunnel. Both are handled the same way, and roaming
+//! moves a peer to the route of its latest authenticated datagram.
 
 use boringtun::noise::handshake::parse_handshake_anon;
 use boringtun::noise::{Packet, Tunn, TunnResult};
 use cmux_transport::{DatagramClass, classify};
 use tokio::time::Instant;
 
-use super::{MeshDriver, transmit};
+use super::MeshDriver;
+use crate::mesh_route::PeerRoute;
 use crate::tcp_stack::PeerKey;
 use crate::wire::packet_source;
 
@@ -23,7 +26,7 @@ use crate::wire::packet_source;
 const COOKIE_REPLY_BYTES: usize = 64;
 
 impl MeshDriver {
-    pub(crate) fn handle_datagram(&mut self, datagram: &[u8], source: Option<SocketAddr>) {
+    pub(crate) fn handle_datagram(&mut self, datagram: &[u8], source: Option<PeerRoute>) {
         let key = match Tunn::parse_incoming_packet(datagram) {
             Ok(Packet::HandshakeInit(_)) => self.initiator(datagram, source),
             Ok(Packet::HandshakeResponse(response)) => {
@@ -43,14 +46,18 @@ impl MeshDriver {
     /// rate the initiator must prove its address with a cookie first
     /// (WireGuard's under-load rule), which reveals nothing it did not
     /// already know and keeps no state.
-    fn initiator(&mut self, datagram: &[u8], source: Option<SocketAddr>) -> Option<PeerKey> {
+    fn initiator(&mut self, datagram: &[u8], source: Option<PeerRoute>) -> Option<PeerKey> {
         self.gate.reset_count();
         let mut cookie = [0u8; COOKIE_REPLY_BYTES];
-        let verified = self.gate.verify_packet(source.map(|addr| addr.ip()), datagram, &mut cookie);
+        let verified = self.gate.verify_packet(
+            source.map(|route| route.address().ip()),
+            datagram,
+            &mut cookie,
+        );
         let initiation = match verified {
             Ok(Packet::HandshakeInit(initiation)) => initiation,
             Err(TunnResult::WriteToNetwork(reply)) => {
-                transmit(&mut self.udp, self.local, source, reply);
+                self.out.send(source, reply);
                 return None;
             }
             _ => return None,
@@ -62,12 +69,13 @@ impl MeshDriver {
     }
 
     /// Hand `datagram` to `key`'s session and act on the result.
-    fn receive(&mut self, key: PeerKey, datagram: &[u8], source: Option<SocketAddr>) {
+    fn receive(&mut self, key: PeerKey, datagram: &[u8], source: Option<PeerRoute>) {
         let Some(peer) = self.table.get_mut(&key) else { return };
         let now = Instant::now();
         let mut input = datagram;
         loop {
-            match peer.tunn.decapsulate(source.map(|addr| addr.ip()), input, &mut self.scratch) {
+            let from = source.map(|route| route.address().ip());
+            match peer.tunn.decapsulate(from, input, &mut self.scratch) {
                 TunnResult::Done => {
                     // A data message that decrypts to nothing is a keepalive:
                     // authenticated, so it moves the peer like any packet.
@@ -83,11 +91,11 @@ impl MeshDriver {
                     // reply from the session's own rate limiter, which goes
                     // to the sender without moving the peer.
                     if classify(packet) == DatagramClass::WireGuardCookieReply {
-                        transmit(&mut self.udp, self.local, source, packet);
+                        self.out.send(source, packet);
                         break;
                     }
                     peer.authenticated(source, now);
-                    transmit(&mut self.udp, self.local, peer.endpoint, packet);
+                    self.out.send(peer.route, packet);
                     input = &[];
                 }
                 TunnResult::WriteToTunnelV4(packet, _) | TunnResult::WriteToTunnelV6(packet, _) => {
@@ -110,7 +118,7 @@ impl MeshDriver {
             while let TunnResult::WriteToNetwork(packet) =
                 peer.tunn.decapsulate(None, &[], &mut self.scratch)
             {
-                transmit(&mut self.udp, self.local, peer.endpoint, packet);
+                self.out.send(peer.route, packet);
             }
         }
     }

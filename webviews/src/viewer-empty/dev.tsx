@@ -14,9 +14,11 @@ import {
   EDITOR_RECENTS_OP,
   MARKDOWN_RECENTS_OP,
   PICKER_LIST_OP,
+  PICKER_LOCATIONS_OP,
   parseRecents,
   type PickerMode,
 } from "./ops";
+import { UiProvider, languageDirection } from "../ui/UiProvider";
 import { PathPickerDialog } from "./PathPicker";
 import { viewerEmptyStrings } from "./strings";
 
@@ -44,6 +46,7 @@ export async function showDevPicker(
   );
   const host = document.createElement("div");
   host.className = "ve-sheet-host";
+  // ui-allow: this host is the container the picker dialog portals into (UiProvider below).
   document.body.append(host);
   const root = createRoot(host);
   const previous = document.activeElement as HTMLElement | null;
@@ -56,17 +59,21 @@ export async function showDevPicker(
         resolve(path ? { path } : null);
       });
     };
+    const strings = options.strings ?? viewerEmptyStrings();
     root.render(
-      <PathPickerDialog
-        mode={mode}
-        strings={options.strings ?? viewerEmptyStrings()}
-        recents={recents}
-        start={options.start ?? null}
-        labels={options.labels}
-        list={(path, list) => devOp("/__cmux-viewer/op", PICKER_LIST_OP, { path, ...list })}
-        onChoose={(path) => done(path)}
-        onCancel={() => done(null)}
-      />,
+      <UiProvider container={host} dir={languageDirection(strings.language)}>
+        <PathPickerDialog
+          mode={mode}
+          strings={strings}
+          recents={recents}
+          start={options.start ?? null}
+          labels={options.labels}
+          list={(path, list) => devOp("/__cmux-viewer/op", PICKER_LIST_OP, { path, ...list })}
+          locations={() => devOp("/__cmux-viewer/op", PICKER_LOCATIONS_OP, {})}
+          onChoose={(path) => done(path)}
+          onCancel={() => done(null)}
+        />
+      </UiProvider>,
     );
   });
 }

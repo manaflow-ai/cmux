@@ -15,6 +15,7 @@ pub mod agent_host;
 pub mod claude_stdio;
 pub mod cli;
 pub mod client;
+pub mod clock;
 pub mod config;
 pub mod daemon;
 pub mod hub;

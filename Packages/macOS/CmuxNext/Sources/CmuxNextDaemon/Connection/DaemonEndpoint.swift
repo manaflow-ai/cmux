@@ -164,6 +164,10 @@ public struct DaemonCapabilities: Sendable {
     public let creationReceipts = "creation-receipts-v1"
     public let creationAttemptKeys = "creation-attempt-keys-v1"
     public let terminalColorOverrides = "terminal-color-overrides-v1"
+    /// Snapshot attach with scrollback: READY snapshots followed by their
+    /// history as raw-DEFLATE `snapshot {phase: "history"}` chunks
+    /// (`TerminalAttachment`; plans/cmux-next/ghostty-next.md 2.2).
+    public let terminalSnapshotHistory = "terminal-snapshot-history-v1"
 
     /// Capabilities the bundled daemon must serve. The bundled cmux-tui is
     /// built from this checkout's own cmux-tui tree
@@ -180,7 +184,7 @@ public struct DaemonCapabilities: Sendable {
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, conversationTabs, conversationSearch,
-                                            tabWorkspaceName] }
+                                            tabWorkspaceName, terminalSnapshotHistory] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
