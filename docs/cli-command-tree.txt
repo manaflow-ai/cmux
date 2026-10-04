@@ -4,6 +4,7 @@ command  __codex-teams-watch  aliases=-
   arg  arguments  kind=argument  completion=-
 command  __complete-candidates  aliases=-
   arg  kind  kind=argument  completion=-
+  arg  words  kind=argument  completion=-
 command  __dump-command-tree  aliases=-
 command  __internal_flags  aliases=-
   arg  arguments  kind=argument  completion=-
@@ -603,10 +604,10 @@ command  guide  aliases=-
 command  help  aliases=-
   arg  arguments  kind=argument  completion=-
 command  hooks  aliases=-
-  arg  --agent  kind=option  completion=list(amp,antigravity,campfire,codebuddy,codex,copilot,cursor,factory,gemini,grok,hermes-agent,kimi,kiro,omp,opencode,pi,qoder,rovodev)
+  arg  --agent  kind=option  completion=list(agy,amp,antigravity,campfire,codebuddy,codex,copilot,cursor,factory,gemini,grok,hermes-agent,kimi,kiro,omp,opencode,pi,qoder,rovo,rovodev)
   arg  --project  kind=flag  completion=-
   arg  --yes  kind=flag  completion=-
-  arg  arguments  kind=argument  completion=list(amp,antigravity,campfire,codebuddy,codex,copilot,cursor,factory,gemini,grok,hermes-agent,kimi,kiro,omp,opencode,pi,qoder,rovodev,setup,uninstall)
+  arg  arguments  kind=argument  completion=list(agy,amp,antigravity,campfire,codebuddy,codex,copilot,cursor,factory,gemini,grok,hermes-agent,kimi,kiro,omp,opencode,pi,qoder,rovo,rovodev,setup,uninstall)
 command  identify  aliases=-
   arg  --no-caller  kind=flag  completion=-
   arg  --surface  kind=option  completion=custom-deprecated
@@ -713,6 +714,37 @@ command  local-tmux start  aliases=create
   arg  --name  kind=option  completion=-
   arg  arguments  kind=argument  completion=-
 command  local-tmux status  aliases=info
+  arg  --id  kind=option  completion=-
+  arg  --json  kind=flag  completion=-
+  arg  --name  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  local-zellij  aliases=-
+command  local-zellij attach  aliases=open
+  arg  --focus  kind=option  completion=-
+  arg  --headless  kind=flag  completion=-
+  arg  --id  kind=option  completion=-
+  arg  --name  kind=option  completion=-
+  arg  --new-client  kind=flag  completion=-
+  arg  --no-focus  kind=flag  completion=-
+  arg  --pane  kind=option  completion=custom-deprecated
+  arg  --surface  kind=option  completion=custom-deprecated
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  local-zellij close  aliases=delete,kill
+  arg  --id  kind=option  completion=-
+  arg  --name  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  local-zellij list  aliases=ls
+  arg  --json  kind=flag  completion=-
+  arg  arguments  kind=argument  completion=-
+command  local-zellij start  aliases=create
+  arg  --command  kind=option  completion=-
+  arg  --cwd  kind=option  completion=directory
+  arg  --detached  kind=flag  completion=-
+  arg  --name  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  local-zellij status  aliases=info
   arg  --id  kind=option  completion=-
   arg  --json  kind=flag  completion=-
   arg  --name  kind=option  completion=-
@@ -1468,6 +1500,10 @@ command  vm agent  aliases=-
   arg  --timeout  kind=option  completion=-
   arg  --wait  kind=flag  completion=-
   arg  arguments  kind=argument  completion=-
+command  vm agent-updates  aliases=-
+  arg  arguments  kind=argument  completion=-
+  arg  id  kind=argument  completion=custom-deprecated
+  arg  setting  kind=argument  completion=list(image,latest)
 command  vm base  aliases=-
 command  vm base open  aliases=-
   arg  --base  kind=flag  completion=-
@@ -1594,6 +1630,9 @@ command  vm layout export  aliases=get,show
   arg  machine  kind=argument  completion=custom-deprecated
 command  vm ls  aliases=list
   arg  arguments  kind=argument  completion=-
+command  vm network  aliases=-
+  arg  arguments  kind=argument  completion=-
+  arg  id  kind=argument  completion=custom-deprecated
 command  vm new  aliases=create
   arg  --base  kind=flag  completion=-
   arg  --desktop  kind=flag  completion=-
