@@ -104,11 +104,23 @@ struct WindowKeyTable {
 }
 
 extension AppServices {
-    /// The window the key window acts for, its close semantics, and
-    /// whether the key window is a sheet or panel over it. Nil when there
-    /// is no key window of ours (a parentless Chromium page window) and for
-    /// the palette opened with no window to sit on (it acts for the active
-    /// main window, as it does over one).
+    /// The key window's role (`KeyWindowRole.resolve`).
+    var keyWindowRole: KeyWindowRole? {
+        guard let key = keyWindowSource() else { return nil }
+        return KeyWindowRole.resolve(key, ownedByMain: windows.owner(of: key) != nil, isPalette: palette?.owns(key) == true)
+    }
+}
+
+/// The window the key window acts for, its close semantics, and whether
+/// the key window is a sheet or panel over it.
+struct KeyWindowRole {
+    let root: NSWindow
+    let close: WindowCloseSemantics
+    let overRoot: Bool
+
+    /// Nil when there is no key window of ours (a parentless Chromium page
+    /// window) and for the palette opened with no window to sit on (it
+    /// acts for the active main window, as it does over one).
     ///
     /// The kind comes from the window kit (`NSWindow.windowKindRoot`). A
     /// window no owner installed acts as a main window when a main window
@@ -119,19 +131,19 @@ extension AppServices {
     /// actions are off. It never falls through to the main window behind
     /// it. Debug builds log a fault once per such window (the owner must
     /// call `install(kind:content:scope:)`).
-    var keyWindowRole: (root: NSWindow, close: WindowCloseSemantics, overRoot: Bool)? {
-        guard let key = keyWindowSource() else { return nil }
+    @MainActor
+    static func resolve(_ key: NSWindow, ownedByMain: Bool, isPalette: Bool) -> KeyWindowRole? {
         let root = key.windowKindRoot
         // A Chromium page window inside the root (an undocked inspector's
         // page, a popup's page) acts for it.
-        let inside = key === root || (key.sheetParent == nil && Self.isChromiumPageWindow(key))
-        if let kind = root.windowKind { return (root, kind.traits.close, !inside) }
-        if windows.owner(of: key) != nil { return (root, .contentFirst, !inside) }
-        if root === key, Self.isChromiumPageWindow(key) { return nil }
-        if palette?.owns(key) == true { return nil }
+        let inside = key === root || (key.sheetParent == nil && isChromiumPageWindow(key))
+        if let kind = root.windowKind { return KeyWindowRole(root: root, close: kind.traits.close, overRoot: !inside) }
+        if ownedByMain { return KeyWindowRole(root: root, close: .contentFirst, overRoot: !inside) }
+        if root === key, isChromiumPageWindow(key) { return nil }
+        if isPalette { return nil }
         KindlessWindowAudit.note(root)
         let closable = root.styleMask.isSuperset(of: [.titled, .closable])
-        return (root, .window, !inside || !closable)
+        return KeyWindowRole(root: root, close: .window, overRoot: !inside || !closable)
     }
 
     /// `CefNSWindow`: a Chromium page window.
