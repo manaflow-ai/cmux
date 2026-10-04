@@ -136,6 +136,9 @@ void ApplyContextProxy(CefRefPtr<CefRequestContext> context, const std::string& 
 bool IsLoopbackHost(const std::string& host);
 // True when a main-frame navigation of browser_id to url breaks its guard.
 bool NavigationViolatesGuard(int browser_id, const std::string& url);
+// True when browser_id is agent-driven (guard bit 4) and url is a Chromium
+// page agents may not reach (AgentURLPolicy.swift).
+bool NavigationRefusedForAgent(int browser_id, const std::string& url);
 void ForgetNavigationGuard(int browser_id);
 
 // One client per Chromium window. The first OnAfterCreated through it reports

@@ -114,13 +114,55 @@ static bool WebURL(const std::string& url, bool* loopback) {
   return true;
 }
 
+constexpr int kStoreGuardMask = 3;
+constexpr int kAgentGuardBit = 4;
+
 bool NavigationViolatesGuard(int browser_id, const std::string& url) {
   auto it = guards().find(browser_id);
-  if (it == guards().end() || it->second == 0) return false;
+  if (it == guards().end()) return false;
+  int store = it->second & kStoreGuardMask;
+  if (store == 0) return false;
   bool loopback = false;
   // Non-web URLs (about:blank, data:, chrome://) never switch stores.
   if (!WebURL(url, &loopback)) return false;
-  return it->second == 1 ? !loopback : loopback;
+  return store == 1 ? !loopback : loopback;
+}
+
+// AgentURLPolicy.swift in C++: keep the two in step.
+static bool AgentRefusesURL(std::string text, int depth = 0) {
+  if (depth > 2) return true;
+  text.erase(std::remove_if(text.begin(), text.end(), [](char c) { return c == '\t' || c == '\n' || c == '\r'; }),
+             text.end());
+  size_t start = 0;
+  while (start < text.size() && static_cast<unsigned char>(text[start]) <= 0x20) ++start;
+  size_t colon = text.find(':', start);
+  if (colon == std::string::npos || colon == start) return false;
+  std::string scheme = text.substr(start, colon - start);
+  if (!std::isalpha(static_cast<unsigned char>(scheme[0]))) return false;
+  for (char& c : scheme) {
+    unsigned char u = static_cast<unsigned char>(c);
+    if (!std::isalnum(u) && c != '+' && c != '-' && c != '.') return false;
+    c = static_cast<char>(std::tolower(u));
+  }
+  static const char* const kRefused[] = {"chrome", "chrome-extension", "chrome-untrusted", "chrome-search",
+                                         "devtools", "chrome-devtools", "view-source"};
+  for (const char* refused : kRefused) {
+    if (scheme == refused) return true;
+  }
+  std::string rest = text.substr(colon + 1);
+  if (scheme == "blob" || scheme == "filesystem") return AgentRefusesURL(rest, depth + 1);
+  if (scheme == "about") {
+    std::string page = rest.substr(0, rest.find_first_of("?#"));
+    for (char& c : page) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return page != "blank" && page != "srcdoc";
+  }
+  return false;
+}
+
+bool NavigationRefusedForAgent(int browser_id, const std::string& url) {
+  auto it = guards().find(browser_id);
+  if (it == guards().end() || (it->second & kAgentGuardBit) == 0) return false;
+  return AgentRefusesURL(url);
 }
 
 void ForgetNavigationGuard(int browser_id) {
