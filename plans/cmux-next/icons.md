@@ -12,6 +12,12 @@ daemon's blob store for daemon-owned objects, so iOS and the CLI see them).
 
 Wire form: the existing `icon` string fields, so stored rows and old readers stay valid.
 
+The same personal blob store also holds Home attachments on the local owner (proposal,
+home-messaging.md 10.2): rows carry `purpose` (`icon` | `attachment`) and `storage` (`inline` |
+`file`). Icon rows and limits do not change. An icon field accepts only a png, jpeg, webp or svg
+row, whatever its purpose. The sweep also reads the conversation store's `attachment_refs` once the
+mux installs that source; before it (the registry open sweep) it never deletes `attachment` rows.
+
 | Wire string | Value |
 | --- | --- |
 | one RGI emoji, at most 32 bytes | emoji |

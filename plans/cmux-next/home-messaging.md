@@ -458,6 +458,135 @@ sends an upsert with the new body. No raw address, token or token hash is ever p
   `attachment.drop.dead_letter` with ids only. Follow-up (tracked): an admin op that lists the dead
   drops of a conversation and resets them for another attempt.
 
+### 10.2 Local owner attachments (proposal, lane 16, 2026-10-04; capability `home-attachments-v1`)
+
+Goal: the Mac's local owner (`cmux-conversation` in the daemon, `DaemonHomeSource` in the app)
+takes the same `attachment` part as the cloud. No second blob store: attachments use the daemon's
+personal blob store of icons (`icon-assets-v1`, sidebar-sections.md 9a, icons.md 1), extended
+with a purpose, file storage for large bytes and a second reference source.
+
+Store (`personal_blobs`, additive columns, same digest key):
+
+- `purpose TEXT NOT NULL DEFAULT 'icon'`: `icon` or `attachment` (posters and previews are
+  `attachment`). A purpose only moves `icon` to `attachment` (an upload of bytes already stored
+  as an icon keeps the row and upgrades it); never back.
+- `storage TEXT NOT NULL DEFAULT 'inline'`: `inline` (bytes in `data`) or `file` (`data` NULL,
+  bytes in `<state dir>/blobs/sha256/<first 2 hex>/<64 hex>`, 0600 in 0700 directories). Icons
+  stay inline. Attachment-purpose bytes are always `file`, whatever their size.
+- Recommendation: digest-keyed files beside the database, with the table as the only index.
+  Why not 100 MB rows in SQLite: the registry connection is behind the mux registry mutex, so a
+  100 MB insert (plus `fullfsync`) or read stalls every workspace command; a row is read whole
+  into memory; the WAL grows by the file size until a checkpoint; the registry file (backups,
+  copies, migrations) grows by every attachment. Strongest objection: two stores without one
+  transaction (a crash can leave a file without a row, or a row without a file). Answer: write
+  order makes both cases safe and repairable. Commit: stage file, fsync, hash, rename into the
+  digest path (idempotent: same name, same bytes), then insert the row. Delete: delete the row,
+  commit, then unlink. Open: unlink files that have no row and are older than 1 h; a row whose
+  file is missing reads as `not_found` and the sweep deletes it. Other costs: any same-user
+  process can change a file, so `get-blob` hashes as it streams and fails the last chunk with
+  `blob_corrupt` on a mismatch; a state-directory export must carry `blobs/`.
+- Rejected: one table, inline, `purpose` + per-purpose limits (simplest, one transaction, but
+  every cost above); a separate attachment store owned by the conversation store (a second
+  blob store, which the coordinator ruled out).
+
+Limits (decimal, as `HomeAttachmentPolicy` and home-core `ATTACHMENT_LIMITS`):
+
+| Purpose | Types | Per blob | Store total |
+| --- | --- | --- | --- |
+| icon (unchanged) | png, jpeg, webp; svg (sanitized) | 256 KiB; svg 64 KiB | 64 MiB inline |
+| attachment | the client allow list (`HomeAttachmentPolicy.allowedTypes` = home-core `ATTACHMENT_TYPES`; never svg, html, xml) | 100,000,000 bytes | 10,000,000,000 bytes and 1 GB free disk after the upload |
+| attachment used as poster | image/jpeg, image/webp | 2,000,000 bytes | (attachment total) |
+| attachment used as preview | image/jpeg, image/webp | 512,000 bytes | (attachment total) |
+
+Image types are checked by signature at commit (as icons are today); other types are stored as
+declared and the app shows them only as files (never rendered inline). Open uploads: at most 8
+per connection; staged bytes count toward the store total.
+
+Upload (chunks; works on every transport, no path on the wire):
+
+- `blob-upload-begin {purpose: "attachment", media_type, sha256, byte_count}` ->
+  `{upload, exists, received, chunk_bytes: 1048576}`. `exists: true` (the digest is stored with
+  this media type and size) touches the row and moves no bytes; the client goes to its message.
+  Stored bytes declared with another media type or size are `invalid_params`.
+  A begin for an open upload of the same digest on the same connection returns that upload and
+  its `received` (resume after a reconnect is a new connection: a new upload).
+- `blob-upload-chunk {upload, offset, data}`: base64, at most `chunk_bytes` raw bytes, `offset`
+  must equal `received` -> `{received}`. The daemon appends to its own staging file
+  `<state dir>/blobs/staging/<upload>` (0600). A chunk past `byte_count` is refused.
+- `blob-upload-commit {upload}` -> `{ref: "blob:sha256-<hex>", media_type, size}`: the daemon
+  checks size, SHA-256 and the image signature, then stores the file and the row (write order
+  above). A staging file with no chunk for 15 minutes is deleted with its upload.
+- One message line stays far below the 16 MiB line limit, and other commands on the same
+  connection interleave between chunks.
+- Local fast path (deferred; `home-attachments-staged-v1` if measured as needed): begin with
+  `mode: "staged"` returns `staged_path`, a file the daemon itself created in its staging
+  directory; the app clones its cache file there (APFS clone, no copy) and commits. The client
+  never names a path: a request field that held a path would let any client that reaches the
+  socket (an agent, a forwarded remote link) make the daemon read or import an arbitrary local
+  file. Only a trusted Unix connection whose principal is `user_local` gets `staged_path`; the
+  daemon opens it with `O_NOFOLLOW`, requires a regular file with one link owned by the daemon's
+  uid, and hashes what it reads. A remote client gets no path and could not write one anyway.
+
+Download: `get-blob {blob, offset?, length?}` -> `{ref, media_type, size, offset, data}`, at most
+1 MiB raw per reply (`length` default 1 MiB; inline icon blobs answer whole as today). The client
+writes a temp file in its blob cache, checks the SHA-256, then renames it (cancel-safe). Variants
+are resolved on the client from the part: `original` = `hash`, `poster` = `poster.hash` (none:
+`invalid("no_poster")`), `preview` = `preview.hash` (none: `invalid("no_preview")`), `thumbnail` =
+the client downsamples the preview or original (ImageIO, as the `HomeSource.fetch` contract allows).
+Reads need a trusted local connection (as every `conversation-*` read); knowing a hash is the
+read right on this Mac, which is the same user.
+
+Message part (`message.send`, `message.edit`): the cloud shape, unchanged:
+`{"type":"attachment", hash, name, mime_type, byte_count, width?, height?, duration_ms?,
+poster?: {hash, mime_type, byte_count}, preview?: {hash, mime_type, byte_count}}`.
+
+- The reducer stays pure: the host loads the store rows for every `hash`, `poster.hash` and
+  `preview.hash` in the op and passes them in `OpRequest.attachments` (a lookup, as home-core
+  `AttachmentLookup`).
+- `invalid_parts`: a bad shape (hash not 64 lowercase hex; name rules of `validAttachmentName`;
+  denied extension; type off the allow list; `byte_count` outside 1..=100,000,000; `width`,
+  `height` outside 1..=100,000; `duration_ms` outside 0..=86,400,000; a poster off a video part, a
+  preview off an image part; a derived image not jpeg or webp or over its cap).
+- `unknown_attachment`: a named hash is not in the store (with any purpose).
+- `attachment_mismatch`: a stored row's media type or size differs from the part's.
+- Both are new `Reject` codes (22 in all) with `error_code: conversation_rejected`, the same
+  reasons as the cloud owner. Local differs on purpose: any stored blob is usable (one user per
+  Mac); the cloud's uploader and history-floor rule has no local counterpart.
+- The host touches every named row in the registry before it commits the message, so no sweep
+  can remove a blob between the check and the commit (sweeps keep rows touched within their grace;
+  the shortest grace is 10 minutes).
+
+Retention (the icon rule, with one more reference source):
+
+- The conversation store keeps `attachment_refs(digest, message_id)` (hash, poster and preview
+  of each live part), written in the same transaction as the message row: send adds, edit
+  replaces, retract deletes.
+- A blob is kept while any `ICON_REFERENCE_FIELDS` field or any `attachment_refs` row names it,
+  or while it was touched within its grace: 7 days for `icon`, 24 hours for `attachment` (home-core
+  `unreferencedGraceMs`); 10 minutes when a put does not fit (`FULL_STORE_GRACE_MS`).
+- One sweep (`sweep_blobs`), two reference sources: the icon fields, and a conversation
+  reference source the mux installs on the registry once both stores are open (it reads
+  `attachment_refs`). A sweep without that source (the registry open sweep) never deletes an
+  `attachment` row. Lock order is registry, then conversation store; the send path takes them one
+  after the other, never nested the other way.
+- The reference scan reads the indexed `attachment_refs` table, never message JSON.
+
+Errors (`error_code`): `invalid_params` (shape, type, size, signature), `upload_not_found`,
+`upload_offset_mismatch` (with `received`), `blob_size_mismatch`, `blob_hash_mismatch`,
+`blob_store_full`, `not_found`, `blob_corrupt`; conversation rejects `unknown_attachment`,
+`attachment_mismatch`, `invalid_parts`.
+
+Capability: `home-attachments-v1` (requires `icon-assets-v1` and `local-conversations-v1`). The
+app enables the attach button on a local conversation only when the daemon advertises it;
+otherwise `DaemonHomeSource` keeps today's `invalid("attachments unsupported")`.
+
+Corpus: the shared `conversation-cases.json` gains attachment cases with a lookup fixture (send
+accepted; `unknown_attachment`; `attachment_mismatch`; poster on an image is `invalid_parts`), run
+by both owners.
+
+Open (needs a decision): `conversation.import` of a local conversation with attachments (C-13)
+must upload each blob to the cloud owner first; the local store does not change for it.
+
 ## 11. Self-hosted implementation (cmux server, team VM)
 
 - D-H2: `home-core` is TypeScript, and the self-hosted owner may run the same TypeScript (the

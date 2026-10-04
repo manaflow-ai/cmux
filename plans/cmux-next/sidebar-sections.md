@@ -277,7 +277,8 @@ switch (descriptor titles are built once at launch).
   `get-blob {blob}`, capability `icon-assets-v1`): png/jpeg/webp at most 256 KiB (the picker scales
   images to 256 px PNG), SVG at most 64 KiB after the allowlist sanitizer, content addressed and
   idempotent. GC: a sweep at open and before each put deletes blobs no icon field references and
-  older than 7 days; a 64 MiB cap refuses a put the sweep cannot make room for. A replica without
+  older than 7 days; a 64 MiB cap refuses a put the sweep cannot make room for. The same store holds
+  local Home attachments (`purpose: attachment`, file storage; home-messaging.md 10.2). A replica without
   the blob draws the kind's default icon (coordination/icons.md). Picker: the one icon picker
   (Set Workspace Icon from the palette, the context menu or `cmux workspace set-icon`).
 - Home is a workspace with `kind: home` (Home lead, plans/cmux-next/home.md section 7): created once
