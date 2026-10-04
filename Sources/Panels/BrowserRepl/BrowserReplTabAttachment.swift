@@ -1216,13 +1216,16 @@ final class BrowserReplTabAttachment {
     ///     download came from (``downloadStarter(of:)``).
     ///   - url: The response's URL.
     func downloadDidStart(id: String, startedBy starter: String?, url: URL?, suggestedFilename: String) {
-        guard isAttached, let owner = ownership.downloadRecipient(startedBy: starter), sinks[owner] != nil else { return }
+        guard isAttached, let delivery = ownership.downloadDelivery(startedBy: starter), sinks[delivery.sessionID] != nil else { return }
+        let owner = delivery.sessionID
         sessionDownloads[id] = owner
-        emit("download.started", [
+        let payload: [String: Any] = [
             "downloadId": id,
             "url": url?.absoluteString ?? "",
             "suggestedFilename": suggestedFilename,
-        ], to: owner)
+        ]
+        // Only the tab's creator gets the URL's credential values.
+        emit("download.started", delivery.seesCredentials ? payload : payload.redactingBrowserReplCredentials(), to: owner)
     }
 
     func downloadDidFinish(id: String, path: String?, error: String?) {

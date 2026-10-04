@@ -425,6 +425,17 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         return startedBy
     }
 
+    /// The session a download goes to (``downloadRecipient(startedBy:)``),
+    /// and whether it gets the download's URL as written: only the tab's
+    /// live creator does. Any other recipient (a session whose own input
+    /// started a download in a user's tab) gets it with its credential
+    /// values replaced, as network events give it
+    /// (``Swift/Dictionary/redactingBrowserReplCredentials()``).
+    public func downloadDelivery(startedBy: String?) -> BrowserReplNetworkRecipient? {
+        guard let recipient = downloadRecipient(startedBy: startedBy) else { return nil }
+        return BrowserReplNetworkRecipient(sessionID: recipient, seesCredentials: true)
+    }
+
     /// Parses `tab.handleEvents` names.
     /// - Returns: `nil` when a name is not a ``BrowserReplTabEvent``.
     public static func events(named names: [String]) -> Set<BrowserReplTabEvent>? {

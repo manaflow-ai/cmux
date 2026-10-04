@@ -241,6 +241,26 @@ import Testing
         #expect(ownership.takeDownloadStarter(navigation: 5, at: start + .seconds(9)) == "agent")
     }
 
+    /// A download the session's input started in a user's tab reaches it
+    /// with the URL's credential values replaced (a signed or bearer URL
+    /// can be replayed); the creator of a tab gets its own as written.
+    @Test func onlyTheCreatorSeesADownloadsURLCredentials() throws {
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        users.setHandledEvents([.download], for: "agent")
+        let delivery = try #require(users.downloadDelivery(startedBy: "agent"))
+        #expect(delivery.sessionID == "agent")
+        #expect(!delivery.seesCredentials, "a session saw the credentials of a download in a user's tab")
+        let payload: [String: Any] = ["downloadId": "1", "url": "https://files.example/a.zip?X-Amz-Signature=s1g&token=t0k", "suggestedFilename": "a.zip"]
+        let shown = try #require(payload.redactingBrowserReplCredentials()["url"] as? String)
+        #expect(!shown.contains("s1g") && !shown.contains("t0k"))
+        #expect(users.downloadDelivery(startedBy: nil) == nil, "the user's download stays the user's")
+
+        var own = BrowserReplTabOwnership()
+        own.markCreated(by: "creator")
+        #expect(own.downloadDelivery(startedBy: nil) == BrowserReplNetworkRecipient(sessionID: "creator", seesCredentials: true))
+    }
+
     @Test func aSessionTabsDownloadsStillGoToItsCreator() {
         var ownership = BrowserReplTabOwnership()
         ownership.markCreated(by: "creator")
