@@ -175,11 +175,11 @@ mod unix {
         let cwd =
             std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_else(|_| "/".into());
         let engines = Arc::new(HostEngines::new(agent_bundle()));
-        if let Some(fd) = options.provider_secret_fd {
-            if let Err(error) = start_provider_listener(&options.socket, owns_dir, fd, &engines) {
-                eprintln!("cmux-browser-host: provider listener: {error}");
-                return 1;
-            }
+        if let Some(fd) = options.provider_secret_fd
+            && let Err(error) = start_provider_listener(&options.socket, owns_dir, fd, &engines)
+        {
+            eprintln!("cmux-browser-host: provider listener: {error}");
+            return 1;
         }
         let host = Arc::new(Host::new(engines, cwd));
         match serve(listener, host) {

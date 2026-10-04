@@ -318,7 +318,9 @@ mod tests {
         app.access(&provider, "C");
         let cef = engine(&provider, "cef");
         let info = cef.call("tab.info", &json!({"targetId": "C", "timeoutMs": 5000})).unwrap();
-        assert_eq!(info["targetId"], "C", "{info}");
+        assert_eq!(info["url"], "https://a.test/", "{info}");
+        // Results name the app's tab, never the page's CDP target id.
+        assert!(!info.to_string().contains("CDP-C"), "{info}");
         assert_eq!(app.attaches("C"), 1);
         let sent = app.cdp_messages("C");
         assert_eq!(sent[0]["method"], "Target.getTargetInfo");
