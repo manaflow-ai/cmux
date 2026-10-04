@@ -123,6 +123,18 @@ import Testing
         return bad
     }
 
+    /// Fresh row names do not change the viewport rules. Rename by position
+    /// before deduplicating so inserting and removing a row cannot create an
+    /// otherwise identical state with a larger nextID on every path.
+    static func canonical(_ world: World) -> World {
+        let ids = Dictionary(uniqueKeysWithValues: world.order.enumerated().map { ($1, $0) })
+        return World(
+            heights: Dictionary(uniqueKeysWithValues: world.order.enumerated().map { ($0, world.heights[$1]!) }),
+            order: Array(world.order.indices), viewport: world.viewport, offset: world.offset,
+            focused: world.focused.flatMap { ids[$0] }, nextID: world.order.count
+        )
+    }
+
     static func explore(depth: Int, settle: Settle, stopAfterViolation: Bool = false) -> (states: Int, transitions: Int, violations: [String]) {
         var frontier: Set<World> = []
         func lists(_ n: Int) -> [[Int]] {
@@ -158,7 +170,8 @@ import Testing
                         violations.append("\(world.order) h\(world.heights) vp\(world.viewport) off\(world.offset) f\(String(describing: world.focused)) \(step): \(bad)")
                         if stopAfterViolation { return (seen.count, transitions, violations) }
                     }
-                    if seen.insert(after).inserted { next.insert(after) }
+                    let key = canonical(after)
+                    if seen.insert(key).inserted { next.insert(key) }
                 }
             }
             frontier = next
