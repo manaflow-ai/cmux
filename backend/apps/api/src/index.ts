@@ -24,6 +24,7 @@ export { DomainDO } from "./domain-do.ts"
 export { PairingDO } from "./pairing-do.ts"
 export { HostDO } from "./host-do.ts"
 export { TeamVmDO } from "./team-vm-do.ts"
+export { CloudDO } from "./cloud-do.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
 export { AutomationTail } from "./automation-tail.ts"
 export { AutomationEgress } from "./automation-egress.ts"
@@ -35,7 +36,7 @@ export { UserDO } from "./user-do.ts"
 export { UsageMeterDO } from "./usage-meter-do.ts"
 
 /**
- * WebSocket gateway: `GET /v1/wire/{user|team|feed}` and `/v1/wire/conv/<conversation>` with subprotocols
+ * WebSocket gateway: `GET /v1/wire/{user|team|feed|cloud}` and `/v1/wire/conv/<conversation>` with subprotocols
  * `cmux.wire.v1, bearer.<token>` (browsers cannot set headers; the token stays
  * out of the URL and logs). The Worker authenticates and passes the principal
  * to the owner DO; frames never carry identity.
@@ -62,6 +63,8 @@ const wire = async (request: Request, env: Env, scope: string, conversation?: st
         ? [env.TEAM_DO, principal.team]
         : scope === "feed"
           ? [env.FEED_DO, principal.user]
+          : scope === "cloud"
+            ? [env.CLOUD_DO, principal.team]
           : scope === "conv"
             ? [env.CONVERSATION_DO, conversation]
             : scope === "mux"
@@ -100,7 +103,7 @@ const PROJECTION_COMPARE_CRON = "*/15 * * * *"
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
-    const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed)$/)
+    const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed|cloud)$/)
     if (m && request.headers.get("Upgrade") === "websocket") return wire(request, env, m[1]!)
     // Home (E5): one socket per conversation; the ConversationDO admits current participants only.
     const conv = url.pathname.match(/^\/v1\/wire\/conv\/(conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26})$/)

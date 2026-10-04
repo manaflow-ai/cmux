@@ -199,7 +199,7 @@ describe("cloud driver prefix guard", () => {
     const calls: Array<string> = []
     const raw: RawCloudDriver = {
       find: async (name) => (calls.push(`find:${name}`), null),
-      create: async (name) => (calls.push(`create:${name}`), { id: "fs-1", tag: {} }),
+      create: async (name) => (calls.push(`create:${name}`), { id: "fs-1", tag: null }),
       delete: async (id) => void calls.push(`delete:${id}`)
     }
     return { calls, raw }
