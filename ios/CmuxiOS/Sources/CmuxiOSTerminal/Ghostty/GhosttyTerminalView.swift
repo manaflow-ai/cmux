@@ -1,5 +1,4 @@
 import Foundation
-import GameController
 import GhosttyNextKit
 import UIKit
 
@@ -34,7 +33,6 @@ public final class GhosttyTerminalView: UIView, TerminalRenderer {
         set { input.optionAsMeta = newValue }
     }
     private var keyBarView: TerminalKeyBar?
-    private var keyboardObservers: [any NSObjectProtocol] = []
     private var app: GhosttyNextApp?
     /// The output functions (process_output, set_grid, restore and encode
     /// snapshot) run here: one serial queue, never the main thread
@@ -50,19 +48,12 @@ public final class GhosttyTerminalView: UIView, TerminalRenderer {
         isAccessibilityElement = true
         accessibilityLabel = TerminalText.terminalLabel
         accessibilityTraits = .allowsDirectInteraction
-        // The key bar hides while a hardware keyboard is attached.
-        for name in [NSNotification.Name.GCKeyboardDidConnect, .GCKeyboardDidDisconnect] {
-            keyboardObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) {
-                [weak self] _ in MainActor.assumeIsolated { self?.reloadInputViews() }
-            })
-        }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     isolated deinit {
-        for observer in keyboardObservers { NotificationCenter.default.removeObserver(observer) }
         guard let surface else { return }
         // Free only after every queued process_output returned (contract), and
         // keep the input box alive until free returns (io_write_cb may run).
@@ -193,9 +184,12 @@ public final class GhosttyTerminalView: UIView, TerminalRenderer {
         return resigned
     }
 
-    /// The key bar over the software keyboard; none with a hardware keyboard.
+    /// The key bar over the software keyboard. With a hardware keyboard UIKit
+    /// shows it alone at the bottom edge (Esc and sticky keys for keyboards
+    /// without them). GameController reports the simulator's and some
+    /// devices' keyboards as attached while the software keyboard shows, so
+    /// it is not a reliable signal to hide the bar.
     public override var inputAccessoryView: UIView? {
-        guard GCKeyboard.coalesced == nil else { return nil }
         if let keyBarView { return keyBarView }
         let bar = TerminalKeyBar(keys: keyBarKeys)
         bar.onKey = { [weak self] key in self?.keyBarKey(key) }

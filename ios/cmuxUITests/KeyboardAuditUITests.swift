@@ -246,7 +246,7 @@ final class KeyboardAuditUITests: XCTestCase {
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
         let keyboard = KeyboardUITest.keyboard(app)
         let shown = keyboard.waitForExistence(timeout: 4)
-        let escKey = app.buttons["Escape"].exists
+        let escKey = app.buttons["Escape"].waitForExistence(timeout: 3)
         let ctrlKey = app.buttons["Control"].exists
         KeyboardUITest.record("terminal", ["keyboardOnTap": shown, "escKey": escKey, "ctrlKey": ctrlKey,
                                            "keyboard": keyboard.frame.short])
