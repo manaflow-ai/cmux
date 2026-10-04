@@ -1,4 +1,5 @@
 public import Foundation
+import CryptoKit
 
 /// The release notes published with each build (R114 changelog):
 /// `<feed base>/notes/<build>.json` plus `<build>.json.sig`, an Ed25519
@@ -45,7 +46,9 @@ nonisolated public enum ContentSignature {
 
     /// Whether `signature` (base64) signs `data` with `publicKey` (raw base64).
     public static func verify(_ data: Data, signature: String, publicKey: String = ContentSignature.publicKey) -> Bool {
-        false
+        guard let signatureBytes = Data(base64Encoded: signature), let keyBytes = Data(base64Encoded: publicKey),
+              let key = try? Curve25519.Signing.PublicKey(rawRepresentation: keyBytes) else { return false }
+        return key.isValidSignature(signatureBytes, for: data)
     }
 }
 
@@ -54,6 +57,7 @@ nonisolated public enum WhatsNew {
     /// Once per build, after an update to it (`lastSeenBuild` older), and
     /// only when the build has human-written highlights.
     public static func shows(currentBuild: String, lastSeenBuild: String?, notes: ReleaseNotes?) -> Bool {
-        false
+        guard let lastSeenBuild, let notes, notes.build == currentBuild, !notes.highlights.isEmpty else { return false }
+        return currentBuild.compare(lastSeenBuild, options: .numeric) == .orderedDescending
     }
 }
