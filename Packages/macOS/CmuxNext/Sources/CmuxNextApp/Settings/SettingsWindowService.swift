@@ -39,7 +39,7 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
     private var pendingRoute: String?
 
     /// Sections only the Swift window draws (R82 B, interim).
-    static let swiftSections: Set<SettingsSection> = [.accounts, .rooms, .machines]
+    static let swiftSections: Set<SettingsSection> = [.accounts]
 
     /// Shows Settings on `section`, or on `setting` (a cmux.json key path, card or button
     /// `SettingsAnchor(key:)` knows) with its highlight. An unknown setting is refused and opens

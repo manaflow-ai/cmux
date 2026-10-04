@@ -38,7 +38,7 @@ struct PageFactory {
         guard let settings = services.settings else { return nil }
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
             ["themes": services?.themes?.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds]
-        })
+        }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null })
         let native = AppPageNativeProvider(services: services, page: .settings)
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         let page = PageWebView(descriptor: .settings, routes: routes, route: route)
