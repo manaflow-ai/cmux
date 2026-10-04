@@ -323,7 +323,9 @@ impl<C: ControlPlane> Server<C> {
         self.ledger.attempt(key, name, &args);
         let upstream = upstream_key(name, &args, key);
         let outcome = match self.run(name, &args, request.origin, Some(&upstream)) {
-            Err(error) if gone_is_done && error.code == codes::NOT_FOUND => {
+            Err(error)
+                if gone_is_done && error.code == codes::NOT_FOUND && error.status == Some(404) =>
+            {
                 delete_retry::gone_answer(name, &args).ok_or(error)
             }
             other => other,
@@ -344,10 +346,12 @@ impl<C: ControlPlane> Server<C> {
                 // Bad args never changed anything: the key stays free for the fix.
                 let refused = NO_UPSTREAM_DEDUP.contains(&name)
                     && error.status.is_some_and(|s| (400..500).contains(&s));
-                if error.code == codes::INVALID_ARGS || refused {
+                // A delete key whose earlier attempt may have acted is kept,
+                // so its retry still knows that (delete_retry.rs).
+                if (error.code == codes::INVALID_ARGS || refused) && !gone_is_done {
                     self.ledger.forget(key);
-                } else {
-                    self.ledger.failed(key, !delete_retry::outcome_unknown(&error));
+                } else if delete_retry::outcome_unknown(&error) {
+                    self.ledger.failed_unknown(key);
                 }
                 Err(error)
             }
