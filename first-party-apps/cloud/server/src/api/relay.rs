@@ -50,7 +50,7 @@ use super::control_plane::{
 };
 use super::error::{CloudError, codes};
 use serde_json::{Value, json};
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::io::{BufRead, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -148,12 +148,27 @@ pub struct HostRelay<R, W> {
     host_events: usize,
     /// `team.event` lines in `queued` (they get no result line).
     team_events: usize,
+    /// Frame lines (`data`, `credit`, `end`) in `queued`.
+    frame_lines: usize,
+    /// Channels with a [`FRAME_OVERFLOW`] marker in `queued`.
+    frame_overflows: BTreeSet<String>,
 }
 
 /// Team wire events a relay call keeps waiting. They are kept in order and
 /// never answered; one more is dropped (the projection compares revisions,
 /// and the next listing repairs a dropped change).
 const TEAM_EVENT_LINES: usize = 256;
+
+/// Frame lines a relay call keeps waiting (all frame links together).
+const FRAME_LINES: usize = 4096;
+
+/// Channels whose frames overflowed during a relay call, at most (the
+/// host's link bound per app).
+const FRAME_OVERFLOWS: usize = 64;
+
+/// The internal line that ends a frame link whose lines overflowed during
+/// a relay call (never sent by the host; the serve loop handles it).
+pub(crate) const FRAME_OVERFLOW: &str = "cmux.cloud.internal.frame_overflow";
 
 impl<R: BufRead, W: Write> HostRelay<R, W> {
     pub fn new(reader: R, writer: W) -> Self {
@@ -166,6 +181,8 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
             host_answers: 0,
             host_events: 0,
             team_events: 0,
+            frame_lines: 0,
+            frame_overflows: BTreeSet::new(),
         }
     }
 
@@ -202,6 +219,10 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
             Some("host.result" | "host.error") => self.host_answers -= 1,
             Some("host.event") => self.host_events -= 1,
             _ if super::host::is_host_frame(&m) => {}
+            _ if crate::connector::is_frame_line(&m) => self.frame_lines -= 1,
+            _ if m["type"] == FRAME_OVERFLOW => {
+                self.frame_overflows.remove(m["channel"].as_str().unwrap_or_default());
+            }
             _ if m["type"] == "team.event" => self.team_events -= 1,
             _ => self.waiting_ops -= 1,
         }
@@ -286,7 +307,15 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
             match message["t"].as_str() {
                 Some("host.event") => {
                     let op = message["op"].clone();
-                    let same = |m: &Value| m["t"] == "host.event" && m["op"] == op;
+                    // A frame link close names its channel: only the same
+                    // channel's close is the same event.
+                    let data = (op == crate::connector::frames::CONNECTOR_CLOSE)
+                        .then(|| message["data"].clone());
+                    let same = |m: &Value| {
+                        m["t"] == "host.event"
+                            && m["op"] == op
+                            && data.as_ref().is_none_or(|d| &m["data"] == d)
+                    };
                     // In place: the newest event keeps the older one's turn.
                     if let Some(waiting) = self.queued.iter_mut().find(|m| same(m)) {
                         *waiting = message;
@@ -305,6 +334,26 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
                 // frame type the server does not know: the loop would drop
                 // it anyway.
                 _ => eprintln!("cmux-cloud: dropped a host frame that came during a relay call"),
+            }
+            return Ok(());
+        }
+        if crate::connector::is_frame_line(&message) {
+            // The host sends data only inside the credit this server
+            // granted, so these stay within the windows; past the bound a
+            // line is dropped, and the pump ends its channel (gap).
+            if self.frame_lines < FRAME_LINES {
+                self.frame_lines += 1;
+                self.queued.push_back(message);
+                return Ok(());
+            }
+            // Past the bound a dropped line would break the channel's
+            // offsets or credit: the channel ends instead (one marker per
+            // channel; its later lines find no link and are dropped).
+            let channel = message["channel"].as_str().unwrap_or_default().to_owned();
+            if self.frame_overflows.len() < FRAME_OVERFLOWS && self.frame_overflows.insert(channel.clone()) {
+                self.queued.push_back(json!({ "type": FRAME_OVERFLOW, "channel": channel }));
+            } else {
+                eprintln!("cmux-cloud: dropped a frame line that came during a relay call");
             }
             return Ok(());
         }

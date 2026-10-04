@@ -2,7 +2,7 @@
 //! state. It blocks on one inbox that carries the host's lines (from a
 //! reader thread) and wakes from link processes. Each op gets one result
 //! line, then the events it caused; a wake sends the link and forward
-//! events at once, with no op after the change. A connect never blocks the
+//! events and the frame links' frames at once, with no op after the change. A connect never blocks the
 //! loop: its result goes out when its link is up or ended. No polling; the
 //! only timer is the link's ready deadline (`READY_DEADLINE`, crate::clock).
 
@@ -59,6 +59,12 @@ fn answer<R: BufRead, W: Write>(
     server: &mut Server<HostRelay<R, W>>,
     message: Value,
 ) -> Option<Value> {
+    if crate::connector::is_frame_line(&message) {
+        // A frame of a frame link (`data`, `credit`, `end`): it moves bytes,
+        // it gets no line; the pump's own frames go out from `send_events`.
+        server.frame_line(&message);
+        return None;
+    }
     if super::host::is_host_frame(&message) {
         // A host answer or event: it changes state, it gets no line.
         server.host_frame(&message);
@@ -91,6 +97,13 @@ fn answer<R: BufRead, W: Write>(
             if let Err(error) = server.team_event(event, &data) {
                 eprintln!("cmux-cloud: ignored a team event: {error}");
             }
+            return None;
+        }
+        // Frame lines overflowed during a relay call (relay::FRAME_OVERFLOW):
+        // that frame link ends.
+        Some(super::relay::FRAME_OVERFLOW) => {
+            let channel = message.get("channel").and_then(Value::as_str).unwrap_or_default();
+            server.frame_overflow(channel);
             return None;
         }
         // A relay answer that no call waits for (late or unknown): never
@@ -127,9 +140,20 @@ fn send_events<R: BufRead, W: Write>(
     for (id, outcome) in server.take_settled() {
         server.control_plane_mut().send(&result_line(id, outcome))?;
     }
+    // Host requests a settled connect queued (a frame link open), after its
+    // result line.
+    for frame in server.take_host_frames() {
+        server.control_plane_mut().send(&frame)?;
+    }
     // Carrier changes (up, down, revoked) that arrived by now. This pumps
     // the supervisor; the reconcile below reads that same state.
     for line in crate::link::ops::take_event_lines(server) {
+        server.control_plane_mut().send(&line)?;
+    }
+    // Frame links (crate::connector::frames): bytes the carriers and the
+    // host's frames moved, inside the credit; a link that went down above
+    // sends its one `end` here.
+    for line in server.take_frame_lines() {
         server.control_plane_mut().send(&line)?;
     }
     // A link that went down (or was replaced) closes its forwards now.

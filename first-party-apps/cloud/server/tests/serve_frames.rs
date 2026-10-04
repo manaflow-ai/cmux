@@ -270,3 +270,14 @@ fn a_refused_open_leaves_the_connect_and_its_socket_working() {
     host.answer_of("4", "cloud.port.list", json!({}));
     assert_eq!(ports.count(), 0);
 }
+
+#[test]
+fn a_link_that_goes_down_ends_its_frame_link() {
+    let (mut host, ports) = start();
+    open_link(&mut host, &ports);
+    host.spawner.exit("vm-beta02", 1);
+    let end = frame(&mut host, "end");
+    assert_eq!(end["channel"], "link-1");
+    assert_eq!(end["lost"]["retryable"], true, "a reconnect may work: {end}");
+    assert!(ports.port(0).lock().unwrap().shutdown);
+}

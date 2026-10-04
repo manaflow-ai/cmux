@@ -25,7 +25,10 @@ fn socket_path(name: &str) -> PathBuf {
 fn waker() -> (LinkWake, Receiver<()>) {
     let (tx, rx) = channel();
     let tx = std::sync::Mutex::new(tx);
-    (Arc::new(move || drop(tx.lock().unwrap().send(()))), rx)
+    let wake: LinkWake = Arc::new(move || {
+        let _ = tx.lock().unwrap().send(());
+    });
+    (wake, rx)
 }
 
 /// Events until one arrives (each wait bounded by [`WAIT`]).

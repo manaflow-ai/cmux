@@ -77,6 +77,8 @@ pub struct Attach {
     pub(crate) parked: Option<(String, u64)>,
     /// Ops of the serve loop that wait for a link (bounded).
     pub(crate) parked_ops: Vec<park::Parked>,
+    /// Frame links on the host channel (`DataPlane::Frames`, crate::connector).
+    pub(crate) frames: crate::connector::frames::FrameLinks,
     next_terminal: u64,
     next_attempt: u64,
 }
@@ -111,6 +113,9 @@ impl Attach {
             park_link_waits: false,
             parked: None,
             parked_ops: Vec::new(),
+            frames: crate::connector::frames::FrameLinks::new(Box::new(
+                crate::connector::port::UnixPortOpener,
+            )),
             next_terminal: 0,
             next_attempt: 0,
         }
@@ -130,6 +135,13 @@ impl Attach {
     /// The clock of the `connect_info` cache (tests set their own time).
     pub fn with_info_clock(mut self, clock: std::sync::Arc<dyn crate::clock::Clock>) -> Self {
         self.infos.set_clock(clock);
+        self
+    }
+
+    /// The opener of frame links' carrier ports (tests give a fake; the
+    /// default connects to the carrier's local socket).
+    pub fn with_carrier_ports(mut self, opener: Box<dyn crate::connector::port::PortOpener>) -> Self {
+        self.frames = crate::connector::frames::FrameLinks::new(opener);
         self
     }
 
@@ -153,8 +165,15 @@ impl Attach {
         for event in self.supervisor.take_events() {
             // A link that went down or was revoked: its facts may be stale.
             match &event {
-                CarrierEvent::Down { target, .. } | CarrierEvent::Revoked { target, .. } => {
+                CarrierEvent::Down { target, generation, retryable, reason, .. } => {
                     self.infos.forget(target);
+                    let lost = cmux_terminal_iface::Lost::new(reason.clone(), *retryable);
+                    self.frames.link_down(target, Some(*generation), &lost);
+                }
+                CarrierEvent::Revoked { target, reason, generation } => {
+                    self.infos.forget(target);
+                    let lost = cmux_terminal_iface::Lost::new(reason.clone(), false);
+                    self.frames.link_down(target, *generation, &lost);
                 }
                 CarrierEvent::Up { .. } => {}
             }

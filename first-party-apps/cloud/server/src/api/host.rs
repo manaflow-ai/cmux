@@ -1,7 +1,7 @@
 //! Host-only ops on the server's JSON-lines channel: requests this server
 //! sends to its host (the app supervisor) and the host's answers and
-//! events. One frame shape for every host-only op (`cmux.host.link.get`
-//! now; `cmux.credential.relay` later):
+//! events. One frame shape for every host-only op (`cmux.host.link.get`,
+//! `cmux.terminal.connector.open`; `cmux.credential.relay` later):
 //!
 //! - server -> host: `{"t":"host.request","id":n,"op":"...","params":{}}`
 //! - host -> server: `{"t":"host.result","id":n,"value":{...}}` or
@@ -11,7 +11,8 @@
 //! Each op the server uses must be a server scope in the manifest
 //! (`op:<name>` in `server.scopes`). At most one request per op waits at a
 //! time, so the waiting set and the outbox are bounded by the number of
-//! ops. Host frames arrive through the serve loop's inbox; only the loop
+//! ops; the one exception, [`HostRequests::request_each`], is bounded by
+//! its caller (frame link opens: crate::connector::frames::MAX_FRAME_LINKS). Host frames arrive through the serve loop's inbox; only the loop
 //! thread reads or changes this state. No timer: an answer that never
 //! comes leaves the op waiting, and the op's users report it unavailable.
 
@@ -42,10 +43,10 @@ pub struct HostError {
 /// One decoded host frame.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HostFrame {
-    /// The answer to a request of `op`.
-    Result { op: String, value: Value },
-    /// The error answer to a request of `op`.
-    Error { op: String, error: HostError },
+    /// The answer to request `id` of `op`.
+    Result { op: String, id: u64, value: Value },
+    /// The error answer to request `id` of `op`.
+    Error { op: String, id: u64, error: HostError },
     /// An event the host sends unasked.
     Event { op: String, data: Value },
 }
@@ -82,6 +83,17 @@ impl HostRequests {
         true
     }
 
+    /// Queues one `host.request` for `op` even when others of `op` wait
+    /// (one per target, such as `cmux.terminal.connector.open`); the caller
+    /// bounds how many wait. Returns the request id.
+    pub fn request_each(&mut self, op: &str, params: Value) -> u64 {
+        self.next_id += 1;
+        self.waiting.insert(self.next_id, op.to_owned());
+        self.outbox
+            .push(json!({ "t": "host.request", "id": self.next_id, "op": op, "params": params }));
+        self.next_id
+    }
+
     /// Whether a request of `op` waits for its answer.
     pub fn is_waiting(&self, op: &str) -> bool {
         self.waiting.values().any(|waiting| waiting == op)
@@ -116,6 +128,7 @@ impl HostRequests {
                 // waits forever): it becomes a typed, final error.
                 let malformed = |op: String, why: &str| HostFrame::Error {
                     op,
+                    id,
                     error: HostError {
                         code: MALFORMED.to_owned(),
                         message: why.to_owned(),
@@ -124,7 +137,7 @@ impl HostRequests {
                 };
                 if kind == "host.result" {
                     return Ok(match line.get("value") {
-                        Some(value) => HostFrame::Result { op, value: value.clone() },
+                        Some(value) => HostFrame::Result { op, id, value: value.clone() },
                         None => malformed(op, "a host.result without a value"),
                     });
                 }
@@ -135,6 +148,7 @@ impl HostRequests {
                 let message = line.get("message").and_then(Value::as_str).unwrap_or_default();
                 Ok(HostFrame::Error {
                     op,
+                    id,
                     error: HostError {
                         code: cut(code, MAX_CODE),
                         message: cut(message, MAX_MESSAGE),
