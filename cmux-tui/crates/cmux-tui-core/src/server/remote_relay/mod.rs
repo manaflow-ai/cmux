@@ -103,7 +103,12 @@ impl Mux {
     /// at all. An unregistered id fails closed: it is never trusted as
     /// local (a frame racing its connection's disconnect, a stray id).
     pub(super) fn is_remote_client(&self, client: u64) -> bool {
-        self.control_clients.is_remote(client) || self.remote_relay().peer(client).is_some()
+        match self.control_clients.transport_of(client) {
+            Some(ClientTransport::Unix | ClientTransport::WebSocket) => {
+                self.remote_relay().peer(client).is_some()
+            }
+            Some(ClientTransport::Remote) | None => true,
+        }
     }
 
     /// Record the verified link peer of remote connection `client` and bind
@@ -120,8 +125,8 @@ impl Mux {
             return false;
         }
         self.remote_relay().peers.lock().unwrap().insert(client, peer.clone());
-        drop(revocation);
         self.bind_conversation_principal(client, remote_participant(&peer.install));
+        drop(revocation);
         true
     }
 
