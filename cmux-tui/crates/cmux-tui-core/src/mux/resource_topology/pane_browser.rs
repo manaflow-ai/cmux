@@ -83,10 +83,8 @@ impl Mux {
         url: String,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let _creation_handoff = self
-            .resource_creation_handoff
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _creation_handoff =
+            self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(width) = viewport_width
             && (!width.is_finite()
                 || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width))
@@ -183,7 +181,7 @@ impl Mux {
             SpawnedPaneSurface::Browser { surface, .. } => {
                 self.state
                     .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .unwrap_or_else(PoisonError::into_inner)
                     .surfaces
                     .remove(&surface.id);
                 surface.kill();
