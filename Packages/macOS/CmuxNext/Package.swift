@@ -650,10 +650,8 @@ let package = Package(
             ],
             swiftSettings: daemonSwiftSettings
         ),
-        // Links the real libghostty only inside the Xcode app target. SwiftPM
-        // can compile against the GhosttyKit module but cannot link the macOS
-        // archive (it lacks the lib prefix), so this target has no test target
-        // until it gets the C-stub pattern used by CmuxTerminalCore.
+        // Links libghostty (GhosttyNextKit, whose macOS archive has the lib
+        // prefix, so SwiftPM test bundles link it too).
         .target(
             name: "CmuxNextTerminal",
             dependencies: [
@@ -674,6 +672,16 @@ let package = Package(
         // tests; CmuxNextTerminal applies it to the live surface.
         .target(
             name: "CmuxNextTerminalGeometry",
+            swiftSettings: uiSwiftSettings
+        ),
+        // Live libghostty surfaces without a window (snapshot restore, S2b).
+        .testTarget(
+            name: "CmuxNextTerminalTests",
+            dependencies: [
+                "CmuxNextTerminal",
+                "CmuxNextTerminalGeometry",
+                .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
