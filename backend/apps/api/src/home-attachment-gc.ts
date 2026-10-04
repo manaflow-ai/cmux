@@ -116,6 +116,8 @@ export const deleteAttachmentStorage = async (deps: AttachmentGcDeps, entity: st
   // Refunds first (idempotent by slot id): a failure throws before anything is forgotten, so a retry refunds again.
   for (const slot of store.allSlots(deps.sql)) if (slot.state !== "tombstone") await deps.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
   const { records, slots } = store.forgetAll(deps.sql)
+  // Also the slots forgetAll returns: one opened during the awaits above is refunded too (refunds are idempotent).
+  for (const slot of slots) if (slot.state !== "tombstone") await deps.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
   if (slots.length) {
     store.schedulePurge(deps.sql, Math.max(...slots.map((s) => s.expires_at)) + store.UPLOADING_GRACE_MS)
     deps.scheduleAlarm()
