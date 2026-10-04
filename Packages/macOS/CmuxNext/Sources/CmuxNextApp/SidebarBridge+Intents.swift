@@ -103,6 +103,11 @@ extension SidebarBridge {
             sendPinned(ids, pinned)
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
+        case .activateItemAccessory(let id):
+            // The update badge on Settings opens the updater sheet.
+            if model.itemInfo[id]?.accessory == .update || model.layout.item(id)?.ref == .builtIn(.settings) {
+                services.updater.presentUpdateUI?()
+            }
         case .layout(let op):
             applyLayoutOp(op)
         case .toggleLayoutSection:
@@ -186,8 +191,8 @@ extension SidebarBridge {
     /// Puts daemon truth back after a refused or rejected intent.
     func resync() {
         guard let state else { return }
-        model.sections = Self.sections(services.machines,
-                                       members: services.windows.registry.members(of: state.id), profile: state.profileID)
+        model.sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id),
+                                       profile: state.profileID, hidesHome: Self.hidesHome(services.sidebarLayout.document))
         model.profiles = Self.profiles(services.machines.local.store)
     }
 

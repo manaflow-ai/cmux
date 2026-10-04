@@ -16,6 +16,16 @@ React Compiler is enabled in `vite.config.ts` with the React 19 runtime target. 
 ./scripts/check-webviews-react-compiler.mjs
 ```
 
+## Dev server
+
+`bun run dev` serves every surface from one Vite+ server with hot reload; `http://127.0.0.1:4200/` lists them (`CMUX_WEBVIEWS_DEV_PORT` moves it):
+
+- `/diff/`: the diff viewer against the real `cmux-diff-sidecar` (`$CMUX_DIFF_SIDECAR`, else the newest one in a built app), on this repo. Query: `?source=branch&base=HEAD~5` (default), `?source=unstaged|staged`, `&layout=unified`.
+- `/markdown?file=<path>`: the markdown viewer shell (`Resources/markdown-viewer/shell.html`) on a markdown file under the repo. Saving the file or a shell stylesheet updates the page in place.
+- `/agent-pane/` (and `/agent-pane/prototype.html`): the agent pane, `?mock` for the in-page daemon. See [its README](src/agent-session/acpmux/README.md#dev-server); `bun run dev:agent-pane` still serves the pane alone on 4176.
+
+The hosts are `apply: "serve"` plugins in `dev-server/`, so `vp build` output does not change; `test/dev-server.test.ts` covers their path and request checks. `scripts/agent-pane/dev-slot.sh up N` runs this server on port 4180+N next to a standalone acpmux daemon and prints one URL per surface (sidecar from `$CMUX_DIFF_SIDECAR_BIN`, else the newest built app).
+
 Static checks run through Vite+ (`vp check`: Oxlint, Oxfmt and a TypeScript Go type check). The rules and formatting live in `config/vite-plus/check.ts`, shared with `cmux-tui/frontends/web`:
 
 ```sh

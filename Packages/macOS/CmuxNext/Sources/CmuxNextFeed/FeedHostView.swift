@@ -14,10 +14,16 @@ public final class FeedHostView: NSView {
     public let model: FeedModel
     let appearanceState = FeedAppearance()
 
+    /// `floating`: the host is a panel of its own (the Feed panel), with no
+    /// pane under it, so it paints the content background itself; as a page
+    /// tab it paints the pane's fill (`Palette.paneFill`).
+    let floating: Bool
+
     /// `layoutOverride` pins a prototype (demos and screenshots); nil
     /// follows the Debug Settings switch `feed.layout`.
-    public init(model: FeedModel, layoutOverride: FeedLayout? = nil) {
+    public init(model: FeedModel, layoutOverride: FeedLayout? = nil, floating: Bool = false) {
         self.model = model
+        self.floating = floating
         super.init(frame: .zero)
         wantsLayer = true
         let root = FeedRoot(model: model, appearance: appearanceState, layoutOverride: layoutOverride)
@@ -45,8 +51,9 @@ public final class FeedHostView: NSView {
 
     private func resolveColors() {
         let colors = performWithTheme {
-            layer?.backgroundColor = Palette.contentBackground.cgColor
-            return FeedColors.resolved(background: Palette.contentBackground)
+            let background = floating ? Palette.contentBackground : Palette.paneFill
+            layer?.backgroundColor = floating ? background.cgColor : nil
+            return FeedColors.resolved(background: background)
         }
         if appearanceState.colors != colors { appearanceState.colors = colors }
     }

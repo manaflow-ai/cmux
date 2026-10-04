@@ -86,9 +86,10 @@ public nonisolated enum DropZoneGeometry {
                                   topInset: CGFloat = 0) -> DropTarget? {
         let size = geometry.viewport
         let band = min(style.dockDropBand, size.height / 4)
+        let topBand = min(style.dockTopDropBand, size.height / 4)
         let side = min(style.dockDropBand / 2, size.width / 8)
         let free = { (edge: StickyEdge) in !geometry.sticky.contains { $0.sticky.edge == edge } }
-        if point.y >= topInset, point.y <= topInset + band, free(.top) { return .newDock(screen: screen, edge: .top) }
+        if point.y >= topInset, point.y <= topInset + topBand, free(.top) { return .newDock(screen: screen, edge: .top) }
         if point.y >= size.height - band, free(.bottom) { return .newDock(screen: screen, edge: .bottom) }
         if point.x <= side, free(.left) { return .newDock(screen: screen, edge: .left) }
         if point.x >= size.width - side, free(.right) { return .newDock(screen: screen, edge: .right) }

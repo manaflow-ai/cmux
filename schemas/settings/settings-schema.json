@@ -101,73 +101,6 @@
     },
     {
       "accepts" : [
-        "off",
-        "leading",
-        "afterSidebar"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.off",
-            "text" : "Off"
-          },
-          "value" : "off"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.railLeading",
-            "text" : "Window Edge"
-          },
-          "value" : "leading"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.railAfterSidebar",
-            "text" : "After Sidebar"
-          },
-          "value" : "afterSidebar"
-        }
-      ],
-      "default" : "leading",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.window",
-        "text" : "Window"
-      },
-      "help" : {
-        "key" : "settings.window.rail.help",
-        "text" : "Shows the sidebar's pinned sections as a column of icons beside it."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "window.rail",
-      "keywords" : [
-        "rail",
-        "toolbar",
-        "buttons",
-        "inbox",
-        "accounts"
-      ],
-      "kind" : "choice",
-      "path" : [
-        "window",
-        "rail"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "title" : {
-        "key" : "settings.window.rail",
-        "text" : "Action Rail"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "same-kind",
         "terminal",
         "browser",
@@ -4213,6 +4146,82 @@
     },
     {
       "accepts" : [
+        "off",
+        "bottom",
+        "top",
+        "both"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.minimalBottom",
+            "text" : "Settings and Account Row"
+          },
+          "value" : "bottom"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.minimalTop",
+            "text" : "Top Sections"
+          },
+          "value" : "top"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.minimalBoth",
+            "text" : "Top and Bottom"
+          },
+          "value" : "both"
+        }
+      ],
+      "default" : "off",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.minimalMode.help",
+        "text" : "Hides the chosen sections until the pointer is over the sidebar."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.minimalMode",
+      "keywords" : [
+        "sidebar",
+        "minimal",
+        "hide",
+        "hover",
+        "settings",
+        "account"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "sidebar",
+        "minimalMode"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.minimalMode",
+        "text" : "Minimal Mode"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "chromium",
         "webkit"
       ],
@@ -5878,7 +5887,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "a4361c12286577c0810a7120ca322a7271cbeaa63345dd39ab2a55c4057e7e9b",
+  "schema_hash" : "2fb252b0a500b775bc1e730bf753ae68eabf87fbf7da6f7f792f7e3f67c2d280",
   "sections" : [
     {
       "id" : "general",

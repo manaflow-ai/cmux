@@ -300,6 +300,16 @@
                 "kind": "ref",
                 "name": "CodeRef"
               }
+            },
+            "egress": {
+              "required": false,
+              "type": {
+                "kind": "array",
+                "items": {
+                  "kind": "ref",
+                  "name": "EgressHost"
+                }
+              }
             }
           }
         }
@@ -693,6 +703,12 @@
           }
         }
       }
+    },
+    "EgressHost": {
+      "kind": "primitive",
+      "name": "string",
+      "max_length": 253,
+      "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$"
     },
     "EmailAddress": {
       "kind": "primitive",
@@ -3363,6 +3379,27 @@
                   "kind": "primitive",
                   "name": "string"
                 }
+              },
+              "parent_run": {
+                "required": false,
+                "type": {
+                  "kind": "ref",
+                  "name": "RunId"
+                }
+              },
+              "root_run": {
+                "required": false,
+                "type": {
+                  "kind": "ref",
+                  "name": "RunId"
+                }
+              },
+              "depth": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
               }
             }
           }
@@ -3746,6 +3783,40 @@
                 "kind": "primitive",
                 "name": "string",
                 "max_length": 2000
+              }
+            }
+          }
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "type": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "op"
+                ]
+              }
+            },
+            "op": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "automation.list",
+                  "automation.get",
+                  "automation.runs.list",
+                  "automation.run",
+                  "usage.summary"
+                ]
+              }
+            },
+            "params": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "json"
               }
             }
           }
@@ -5971,6 +6042,34 @@
                   "text"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "op"
+                    ]
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "automation.list",
+                      "automation.get",
+                      "automation.runs.list",
+                      "automation.run",
+                      "usage.summary"
+                    ]
+                  },
+                  "params": {}
+                },
+                "required": [
+                  "type",
+                  "op",
+                  "params"
+                ],
+                "additionalProperties": true
               }
             ]
           },
@@ -5998,6 +6097,11 @@
               "path"
             ],
             "additionalProperties": true
+          },
+          "EgressHost": {
+            "type": "string",
+            "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$",
+            "maxLength": 253
           },
           "Body": {
             "anyOf": [
@@ -6106,6 +6210,13 @@
                   },
                   "ref": {
                     "$ref": "#/$defs/CodeRef"
+                  },
+                  "egress": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/EgressHost"
+                    },
+                    "maxItems": 20
                   }
                 },
                 "required": [
@@ -6542,6 +6653,34 @@
                   "text"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "op"
+                    ]
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "automation.list",
+                      "automation.get",
+                      "automation.runs.list",
+                      "automation.run",
+                      "usage.summary"
+                    ]
+                  },
+                  "params": {}
+                },
+                "required": [
+                  "type",
+                  "op",
+                  "params"
+                ],
+                "additionalProperties": true
               }
             ]
           },
@@ -6569,6 +6708,11 @@
               "path"
             ],
             "additionalProperties": true
+          },
+          "EgressHost": {
+            "type": "string",
+            "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$",
+            "maxLength": 253
           },
           "Body": {
             "anyOf": [
@@ -6677,6 +6821,13 @@
                   },
                   "ref": {
                     "$ref": "#/$defs/CodeRef"
+                  },
+                  "egress": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/EgressHost"
+                    },
+                    "maxItems": 20
                   }
                 },
                 "required": [
@@ -7432,6 +7583,34 @@
                   "text"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "op"
+                    ]
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "automation.list",
+                      "automation.get",
+                      "automation.runs.list",
+                      "automation.run",
+                      "usage.summary"
+                    ]
+                  },
+                  "params": {}
+                },
+                "required": [
+                  "type",
+                  "op",
+                  "params"
+                ],
+                "additionalProperties": true
               }
             ]
           },
@@ -7459,6 +7638,11 @@
               "path"
             ],
             "additionalProperties": true
+          },
+          "EgressHost": {
+            "type": "string",
+            "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$",
+            "maxLength": 253
           },
           "Body": {
             "anyOf": [
@@ -7567,6 +7751,13 @@
                   },
                   "ref": {
                     "$ref": "#/$defs/CodeRef"
+                  },
+                  "egress": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/EgressHost"
+                    },
+                    "maxItems": 20
                   }
                 },
                 "required": [
@@ -8163,6 +8354,34 @@
                   "text"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "op"
+                    ]
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "automation.list",
+                      "automation.get",
+                      "automation.runs.list",
+                      "automation.run",
+                      "usage.summary"
+                    ]
+                  },
+                  "params": {}
+                },
+                "required": [
+                  "type",
+                  "op",
+                  "params"
+                ],
+                "additionalProperties": true
               }
             ]
           },
@@ -8190,6 +8409,11 @@
               "path"
             ],
             "additionalProperties": true
+          },
+          "EgressHost": {
+            "type": "string",
+            "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$",
+            "maxLength": 253
           },
           "Body": {
             "anyOf": [
@@ -8298,6 +8522,13 @@
                   },
                   "ref": {
                     "$ref": "#/$defs/CodeRef"
+                  },
+                  "egress": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/EgressHost"
+                    },
+                    "maxItems": 20
                   }
                 },
                 "required": [
@@ -8927,6 +9158,34 @@
                   "text"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "op"
+                    ]
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "automation.list",
+                      "automation.get",
+                      "automation.runs.list",
+                      "automation.run",
+                      "usage.summary"
+                    ]
+                  },
+                  "params": {}
+                },
+                "required": [
+                  "type",
+                  "op",
+                  "params"
+                ],
+                "additionalProperties": true
               }
             ]
           },
@@ -8954,6 +9213,11 @@
               "path"
             ],
             "additionalProperties": true
+          },
+          "EgressHost": {
+            "type": "string",
+            "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$",
+            "maxLength": 253
           },
           "Body": {
             "anyOf": [
@@ -9062,6 +9326,13 @@
                   },
                   "ref": {
                     "$ref": "#/$defs/CodeRef"
+                  },
+                  "egress": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/EgressHost"
+                    },
+                    "maxItems": 20
                   }
                 },
                 "required": [
@@ -9450,6 +9721,15 @@
                   },
                   "delivery_id": {
                     "type": "string"
+                  },
+                  "parent_run": {
+                    "$ref": "#/$defs/RunId"
+                  },
+                  "root_run": {
+                    "$ref": "#/$defs/RunId"
+                  },
+                  "depth": {
+                    "type": "integer"
                   }
                 },
                 "required": [
@@ -9744,6 +10024,15 @@
                   },
                   "delivery_id": {
                     "type": "string"
+                  },
+                  "parent_run": {
+                    "$ref": "#/$defs/RunId"
+                  },
+                  "root_run": {
+                    "$ref": "#/$defs/RunId"
+                  },
+                  "depth": {
+                    "type": "integer"
                   }
                 },
                 "required": [
@@ -10486,6 +10775,34 @@
                   "text"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "op"
+                    ]
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "automation.list",
+                      "automation.get",
+                      "automation.runs.list",
+                      "automation.run",
+                      "usage.summary"
+                    ]
+                  },
+                  "params": {}
+                },
+                "required": [
+                  "type",
+                  "op",
+                  "params"
+                ],
+                "additionalProperties": true
               }
             ]
           },
@@ -10513,6 +10830,11 @@
               "path"
             ],
             "additionalProperties": true
+          },
+          "EgressHost": {
+            "type": "string",
+            "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$",
+            "maxLength": 253
           },
           "Body": {
             "anyOf": [
@@ -10621,6 +10943,13 @@
                   },
                   "ref": {
                     "$ref": "#/$defs/CodeRef"
+                  },
+                  "egress": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/EgressHost"
+                    },
+                    "maxItems": 20
                   }
                 },
                 "required": [
@@ -11057,6 +11386,34 @@
                   "text"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "op"
+                    ]
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "automation.list",
+                      "automation.get",
+                      "automation.runs.list",
+                      "automation.run",
+                      "usage.summary"
+                    ]
+                  },
+                  "params": {}
+                },
+                "required": [
+                  "type",
+                  "op",
+                  "params"
+                ],
+                "additionalProperties": true
               }
             ]
           },
@@ -11084,6 +11441,11 @@
               "path"
             ],
             "additionalProperties": true
+          },
+          "EgressHost": {
+            "type": "string",
+            "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$",
+            "maxLength": 253
           },
           "Body": {
             "anyOf": [
@@ -11192,6 +11554,13 @@
                   },
                   "ref": {
                     "$ref": "#/$defs/CodeRef"
+                  },
+                  "egress": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/EgressHost"
+                    },
+                    "maxItems": 20
                   }
                 },
                 "required": [
@@ -17201,6 +17570,7 @@
       "errors": [
         "auth.forbidden",
         "auth.unauthenticated",
+        "feed.adopt_cancelled",
         "feed.closed",
         "feed.full",
         "feed.moving",
@@ -17774,6 +18144,645 @@
         },
         "required": [
           "item"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "FeedItemId": {
+            "type": "string",
+            "pattern": "^fi_[a-z0-9]{20}$",
+            "description": "A feed item; stable when its home moves from a local owner to the cloud."
+          },
+          "FeedKind": {
+            "type": "string",
+            "pattern": "^(notice|question|choice|approve|confirm|sign-in|passkey|review|input|file|handoff|x-[a-z0-9][a-z0-9-]{0,39}\\.[a-z0-9][a-z0-9-]{0,39})$",
+            "description": "notice, a built-in request kind, or a custom kind x-<publisher>.<name>."
+          },
+          "FeedPriority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "normal",
+              "high",
+              "urgent"
+            ]
+          },
+          "FeedContext": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "workspace": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "tab": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "terminal": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "browser_tab": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "acp_session": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "task": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              }
+            },
+            "additionalProperties": true,
+            "description": "What the item is about; clients open it and use it for the visibility rule."
+          },
+          "FeedAttachment": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "mime": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 52428800
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "mime",
+              "size",
+              "sha256",
+              "ref"
+            ],
+            "additionalProperties": true,
+            "description": "A file attached to a feed item or an answer."
+          },
+          "FeedAction": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              },
+              "style": {
+                "type": "string",
+                "enum": [
+                  "default",
+                  "primary",
+                  "destructive"
+                ]
+              },
+              "answer": {}
+            },
+            "required": [
+              "id",
+              "label"
+            ],
+            "additionalProperties": true
+          },
+          "FeedOpen": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "tab.focus",
+                  "workspace.focus",
+                  "browser.open",
+                  "browser.duplicateRight",
+                  "url.open",
+                  "task.open",
+                  "acp.session.open",
+                  "app.open"
+                ]
+              },
+              "args": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "action",
+              "args"
+            ],
+            "additionalProperties": true
+          },
+          "FeedPosterKind": {
+            "type": "string",
+            "enum": [
+              "agent",
+              "harness",
+              "app",
+              "server",
+              "vm",
+              "automation",
+              "integration",
+              "system",
+              "user"
+            ]
+          },
+          "FeedPoster": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "$ref": "#/$defs/FeedPosterKind"
+              },
+              "scope": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "install": {
+                "type": "string"
+              },
+              "agent": {
+                "type": "string"
+              },
+              "harness": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              }
+            },
+            "required": [
+              "kind",
+              "scope",
+              "label"
+            ],
+            "additionalProperties": true
+          },
+          "FeedState": {
+            "type": "string",
+            "enum": [
+              "open",
+              "answered",
+              "cancelled",
+              "expired"
+            ]
+          },
+          "FeedCancelReason": {
+            "type": "string",
+            "enum": [
+              "poster",
+              "declined",
+              "answered_elsewhere",
+              "superseded",
+              "poster_gone"
+            ]
+          },
+          "FeedItem": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/FeedItemId"
+              },
+              "home": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "notice",
+                  "request"
+                ]
+              },
+              "kind": {
+                "$ref": "#/$defs/FeedKind"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "body": {
+                "type": "string",
+                "maxLength": 4096
+              },
+              "prompt": {},
+              "answer_schema": {},
+              "priority": {
+                "$ref": "#/$defs/FeedPriority"
+              },
+              "dedupe_key": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "thread": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "context": {
+                "$ref": "#/$defs/FeedContext"
+              },
+              "attachments": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/FeedAttachment"
+                }
+              },
+              "actions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/FeedAction"
+                }
+              },
+              "open": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/FeedOpen"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "poster": {
+                "$ref": "#/$defs/FeedPoster"
+              },
+              "state": {
+                "$ref": "#/$defs/FeedState"
+              },
+              "answer": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {},
+                      "by": {
+                        "type": "string"
+                      },
+                      "device": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "at": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "value",
+                      "by",
+                      "device",
+                      "at"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cancel": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "reason": {
+                        "$ref": "#/$defs/FeedCancelReason"
+                      },
+                      "by": {
+                        "type": "string"
+                      },
+                      "at": {
+                        "type": "integer"
+                      },
+                      "note": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "reason",
+                      "by",
+                      "at",
+                      "note"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "needs_mac": {
+                "type": "boolean"
+              },
+              "expires_at": {
+                "type": "integer"
+              },
+              "read_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "seen_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "archived_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "snoozed_until": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "push_due_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pushed_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "count": {
+                "type": "integer"
+              },
+              "order": {
+                "type": "integer"
+              },
+              "revision": {
+                "type": "integer"
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "updated_at": {
+                "type": "integer"
+              },
+              "closed_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "home",
+              "type",
+              "kind",
+              "title",
+              "body",
+              "priority",
+              "dedupe_key",
+              "thread",
+              "context",
+              "attachments",
+              "actions",
+              "open",
+              "poster",
+              "state",
+              "answer",
+              "cancel",
+              "needs_mac",
+              "expires_at",
+              "read_at",
+              "seen_at",
+              "archived_at",
+              "snoozed_until",
+              "push_due_at",
+              "pushed_at",
+              "count",
+              "order",
+              "revision",
+              "created_at",
+              "updated_at",
+              "closed_at"
+            ],
+            "additionalProperties": true,
+            "description": "One notice or request in a user's feed."
+          }
+        }
+      }
+    },
+    "feed.adopt.cancel": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "feed_item",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^adopt:fi_[a-z0-9]{20}$"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "cancelled": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              },
+              "item": {
+                "required": false,
+                "type": {
+                  "kind": "ref",
+                  "name": "FeedItem"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "feed.closed",
+        "feed.full",
+        "feed.moving",
+        "feed.rate_limited",
+        "idempotency.conflict",
+        "owner.moved",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:FeedDO",
+      "risk": "mutate-own",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "feed"
+      },
+      "docs": "Handoff abort: a daemon's local feed owner withdraws `feed.adopt` with key `adopt:<item>`. Not adopted: a tombstone refuses a later adopt with that key and the reply is cancelled true. Adopted: cancelled false with the cloud item.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^adopt:fi_[a-z0-9]{20}$"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "cancelled": {
+            "type": "boolean"
+          },
+          "item": {
+            "$ref": "#/$defs/FeedItem"
+          }
+        },
+        "required": [
+          "cancelled"
         ],
         "additionalProperties": true,
         "$defs": {

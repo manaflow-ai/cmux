@@ -12,6 +12,8 @@ export interface Principal {
   readonly team?: string
   readonly install?: string
   readonly agent?: string
+  /** Automation principals only (built by the API Worker): the run that is calling. */
+  readonly run?: string
   readonly grant?: string
   /**
    * How the connection authenticated: a human session or an install token.

@@ -18,10 +18,11 @@ import Testing
         LayoutItem(id: LayoutItemID(id), ref: .url(id), showsLabel: label)
     }
 
-    /// Settings at the leading edge, the avatar (icon only) at the trailing
-    /// edge (the bottom line before the rail defaults, which users may keep).
-    @Test func preRailBottomLineIsSettingsLeadingAndTheIconsTrailing() throws {
-        let bottom = try #require(SidebarLayoutDocument.preRailDefaults.section(SidebarLayoutDocument.bottomSectionID))
+    /// An inline bottom line (the default before R53, which users may
+    /// keep): Settings at the leading edge, the avatar (icon only) at the
+    /// trailing edge.
+    @Test func inlineBottomLineIsSettingsLeadingAndTheIconsTrailing() throws {
+        let bottom = try #require(SidebarLayoutDocument.inlineBottomDefaults.section(SidebarLayoutDocument.bottomSectionID))
         #expect(bottom.arrangement == SectionArrangement(layout: .inline, align: .fill))
         #expect(bottom.items.map(\.showsLabel) == [true, false])
         let layout = SidebarRegionLayout.make(sections: [bottom], width: 260, look: .quiet, collapsed: [], metrics: m,

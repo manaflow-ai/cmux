@@ -2,10 +2,11 @@ import { hashInviteSecret } from "../invites/token.ts"
 import { apply, targetMessageId } from "./apply.ts"
 import { isOpen } from "./cloud.ts"
 import { create, summary } from "./create.ts"
-import type { Domain, Principal, ReduceContext, ReduceResult, RowWrite } from "./engine-types.ts"
+import type { Domain, Principal, ReduceContext, ReduceResult, RowReader, RowWrite } from "./engine-types.ts"
 import { rowsOf } from "./engine-types.ts"
 import { formatRfc3339Millis } from "./ids.ts"
 import { IMPORT_OPS, reduceImport } from "./import.ts"
+import { mentionsOf, type UnreadCounts } from "./fanout.ts"
 import { commitOutbox, createOutbox } from "./outbox.ts"
 import { actorOf, defaultParticipantPolicy, FALLBACK_NAME, stampParticipant, type ParticipantPolicy } from "./policy.ts"
 import type { OpRequest } from "./request.ts"
@@ -38,6 +39,10 @@ export const TABLE_MSG = "msg"
 export const TABLE_MSGKEY = "msgkey"
 export const TABLE_INV = "inv"
 export const TABLE_INVHASH = "invhash"
+/** Per-user unread and mention counts (key = user id), kept by the owner for inbox bumps; private. */
+export const TABLE_UNREAD = "unread"
+/** A recount (a cursor moved back, or a conversation older than the table) reads at most this many messages. */
+export const UNREAD_RECOUNT_LIMIT = 1000
 
 export type ConversationState = ConversationHead | null
 export type ConversationParams = Readonly<Record<string, unknown>>
@@ -170,6 +175,32 @@ const prepare = (
   return { op: { ...rest, kind: op } as unknown as Op }
 }
 
+/** Unread and mentions of `user` after `cursor`, from the message rows (at most UNREAD_RECOUNT_LIMIT). */
+const recount = (rows: RowReader, user: string, cursor: number): UnreadCounts => {
+  let unread = 0
+  let mentions = 0
+  for (const { row } of rows.range<Message>(TABLE_MSG, { after: cursor, limit: UNREAD_RECOUNT_LIMIT })) {
+    if (row.author === user || row.retracted_at !== undefined) continue
+    unread += 1
+    if (mentionsOf(row).has(user)) mentions += 1
+  }
+  return { unread, mentions }
+}
+
+/**
+ * Counts per human before this commit, for fanOut: the stored row, or a recount from the read
+ * cursor when there is none (a conversation older than the table). A cursor moved back recounts.
+ */
+const unreadBefore = (before: ConversationHead, after: ConversationHead, op: Op, rows: RowReader): Record<string, UnreadCounts> => {
+  const counts: Record<string, UnreadCounts> = {}
+  const humans = new Set([...before.participants, ...after.participants].filter((p) => p.kind === "human").map((p) => p.id))
+  for (const user of humans) {
+    counts[user] = rows.get<UnreadCounts>(TABLE_UNREAD, user)?.row ?? recount(rows, user, before.read_cursors[user] ?? 0)
+  }
+  if (op.kind === "read_cursor.set") for (const user of humans) if (after.read_cursors[user] !== before.read_cursors[user]) counts[user] = recount(rows, user, after.read_cursors[user] ?? 0)
+  return counts
+}
+
 export const makeConversationDomain = (options: ConversationDomainOptions = {}): Domain<ConversationState, ConversationParams> => ({
   initial: () => null,
   reduce: (state, op, params, ctx) => {
@@ -212,12 +243,21 @@ export const makeConversationDomain = (options: ConversationDomainOptions = {}):
     }
     writes.push(...inviteWrites(head.invites ?? [], commit.head.invites ?? []))
     const next: ConversationHead = commit.head.invites ? { ...commit.head, invites: commit.head.invites.filter(isOpen) } : commit.head
+    const counts = unreadBefore(head, commit.head, coreOp, rowsOf(ctx))
+    const outbox = commitOutbox(head, request, commit, counts)
+    // The counts each bump carries become the stored counts (the next commit starts from them).
+    for (const item of outbox) {
+      const p = item.payload as { user?: string; unread?: number; mentions?: number }
+      if (item.kind === "inbox.bump" && p.user !== undefined && p.unread !== undefined && p.mentions !== undefined) {
+        writes.push({ table: TABLE_UNREAD, op: "upsert", key: p.user, n: null, row: { unread: p.unread, mentions: p.mentions } })
+      }
+    }
     return {
       ok: true,
       state: next,
       value: { rev: commit.head.rev, ...(commit.message ? { seq: commit.message.seq, message_id: commit.message.id } : {}), change: commit.change },
       writes,
-      outbox: commitOutbox(head, request, commit)
+      outbox
     }
   }
 })

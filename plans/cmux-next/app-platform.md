@@ -278,3 +278,53 @@ Apps reach system features only through ops owned by the native host of the mach
 | Power assertions | `power.assertion.create {kinds: display|idle|disk|system|user, reason, until: {pid|terminal|task|deadline}}` -> `pwr_…`, `power.assertion.release {assertion|all}`, `power.assertion.list`, stream `power.assertion.watch` | the native host on that machine (IOKit power assertions; no process spawn) | scope `power:write` (list: `power:read`); an agent may bind an assertion only to its own terminal and for at most 4 h; `until-stopped` and releasing another actor's assertion need origin user; every assertion ends with its binding (pid exit, terminal idle, task done, deadline) | Caffeinate app (PR 16998), cmux server health, CLI `cmux power keep-awake\|list\|stop\|watch` (accepted by the Rust CLI owner: global `--session` routing, `$CMUX_TUI_TERMINAL_ID`, verbs generated from the catalog, `watch` CLI only, host checks origin user) |
 
 The app supervisor lane adds the power ops after PR 16872 lands; the catalog generates the CLI verbs and MCP tools.
+
+## 15. App Store backend: `cmux.apps.*` (R62 UI-STACK, 2026-10-04)
+
+The App Store page moves to React (webviews) with a Rust backend; the Swift App Store UI is deleted after parity and gets no new features. The app supervisor (apps-v1) owns these ops; they are Rust types with `schemars` in `cmux-tui-core/src/apps/store.rs` and enter the one IR through emit-ir (pane-protocol.md; one catalog for panes and apps, full names canonical, old wire names as `aliases`). The page, the CLI and MCP use the generated client.
+
+| Op | Scope | Rule |
+| --- | --- | --- |
+| `cmux.apps.catalog.list {query?, category?, tier?, cursor?, limit?}` | apps:read | bundled, sample, local and registry apps in one list, with install state and mirror revision |
+| `cmux.apps.catalog.get {app, version?}` | apps:read | detail: scopes with risk class (scope-classes.json) and reason, handles, notices, versions, interfaces |
+| `cmux.apps.asset.get {app, path}` | apps:read | only paths the manifest names (icon, screenshots, notices), as a byte stream; the page never reads bundle folders |
+| `cmux.apps.installed.list` | apps:read | installed, enabled, hidden, sandboxed, source (default, user, bundled, local), version, update, grants |
+| `cmux.apps.install {app, version?, grant_optional}` / `cmux.apps.uninstall {app}` | apps:write | origin user with a gesture; agents refused until the actor stamp |
+| `cmux.apps.set {app, enabled?, hidden?, sandboxed?}` | apps:write | hidden from any origin (D55); the rest origin user; replaces the `app.hide`/`app.unhide` actions |
+| `cmux.apps.grants.get {app}` / `cmux.apps.grant.set {app, scope, granted}` | apps:read / apps:write | grant changes origin user with a gesture |
+| `cmux.apps.updates.list` / `cmux.apps.update {app}` | apps:read / apps:write | an update that adds scopes asks first; update origin user |
+| `cmux.apps.local.add {path}` / `cmux.apps.local.remove {app}` | apps:write | dev apps start sandboxed; origin user |
+| `cmux.apps.validate {path}` | apps:read | `cmux-app-manifest` issues |
+| `cmux.apps.logs {app, follow?}` | apps:read | stream of log lines |
+| `cmux.apps.watch` | apps:read | typed stream `{revision, app?}` so the page never polls |
+| `cmux.apps.open {app, as?: "screen"\|"tab", target?, command?, focus?}` | apps:write | `as` defaults to `presentation.screen` (section 16); `as: "screen"` calls the layout owner's `workspace.ensure_app {app, kind}`; `as: "tab"` opens a page tab, `target` = a tab drop zone; replaces the `app.open` action |
+
+Confirmation (coordinator decision, React UIs plan): install, uninstall, update and grant.set always show a native Swift confirmation sheet (app name, scopes with their risk class). Only that sheet stamps origin user; user activation in page JavaScript is not proof of a gesture. The supervisor asks the client that shows the page for the sheet and runs the op only after the user confirms there; a refusal answers `apps.confirmation_declined`.
+
+Icons: cmux never ships SF Symbols as web SVGs (Apple license). `cmux.apps.asset.get` renders a manifest symbol name to a PNG on a Mac host; other clients show a generic glyph. The validator warns (`icon.noImage`) when a manifest has no image icon.
+
+The CodeRouter entry needs no op of its own: a first-party listing plus `cmux.apps.open`. Third-party namespaces are `<publisher>.<name>` ('-' becomes '_'); the store registry (AppDO) keeps publisher ids unique.
+
+## 16. App screens: `presentation` for every app (R63/R64, spec app-screens.md 4)
+
+Every app, built-in or third-party, says how it appears with one manifest v2 block. Home, App Store and CodeRouter use the same fields (`first-party-apps/home`, `app-store`, `coderouter`); no code path reads them specially. A Gmail web app is a manifest with a top sidebar item, `screen: "app"`, a web URL and an icon (`schema/v2/fixtures/valid/gmail.json`).
+
+```json
+"presentation": {
+  "sidebarItem": {"section": "top", "title": "Gmail", "icon": "icon.png", "order": 130},
+  "screen": "app",
+  "tab": true,
+  "primaryInput": "div[role=search] input",
+  "web": {"url": "https://mail.google.com/mail/u/0/", "profile": "app", "origins": ["https://accounts.google.com"]}
+}
+```
+
+| Field | Meaning | Validator |
+| --- | --- | --- |
+| `sidebarItem {section, title?, icon?, order?}` | a sidebar item that opens the app; title and icon default to the app's; the user may hide or move it (R53) | `order` 0-99 is first-party only (`presentation.orderReserved`), so no app sits above Home (Home 0, App Store 10, CodeRouter 20) |
+| `screen` | `app` (the app fills the screen) or `appColumn` (a sticky app column next to the normal columns, like Home) | |
+| `tab` | the app may also open as a page tab (Open as Tab, drag into a workspace) | |
+| `primaryInput` | where typing goes when nothing has focus: a CSS selector in a web page, or a scene node id | |
+| `web {url, profile?, origins?}` | a web app shown in the browser engine with its own profile (`app`: cookies stay per app) and the browser's network policy; the native install confirmation lists `url` and `origins` | `https` only; a sidebar item, screen or tab needs content: `implements["cmux.pane/1"]` or `web` (`presentation.noContent`); not both (`presentation.twoContents`) |
+
+A sidebar item and a screen need no scope. Owners: the layout lead implements the screen kinds from `screen`; the sidebar lead builds the top band from `sidebarItem` of the installed, visible apps (replacing the hard-coded default items); the App Store confirmation shows the web URL list.

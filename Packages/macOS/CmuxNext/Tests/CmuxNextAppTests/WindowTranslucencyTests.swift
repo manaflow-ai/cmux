@@ -73,7 +73,6 @@ struct WindowTranslucencyTests {
         let blurs = BlurLog()
         let model = SidebarModel()
         let root = WindowRootView(sidebar: SidebarContainerView(model: model),
-                                  rail: WindowRailView(model: model, registry: ActionBindingCoverageTests.boundServices().registry),
                                   reduceTransparency: { false },
                                   applyWindowBlur: { window, _ in blurs.windows.append(window) })
         // WindowController's order: backdrop, content view, room scope.
@@ -122,7 +121,6 @@ struct WindowTranslucencyTests {
         room.setOverride(ThemeSpec("Catppuccin Mocha")!, input: Self.mocha(opacity: 0.85, blur: blur), animated: false)
         let model = SidebarModel()
         let root = WindowRootView(sidebar: SidebarContainerView(model: model),
-                                  rail: WindowRailView(model: model, registry: ActionBindingCoverageTests.boundServices().registry),
                                   reduceTransparency: { false },
                                   applyWindowBlur: { _, _ in })
         let window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 1100, height: 720),

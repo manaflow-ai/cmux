@@ -12,12 +12,14 @@ import path from "node:path";
 const webviewsRoot = path.resolve(fileURLToPath(new URL(".", import.meta.url)));
 const paneRoot = path.join(webviewsRoot, "src/agent-session/acpmux");
 const sharedStyles = path.join(webviewsRoot, "src/agent-session/shared/styles.css");
+// scripts/agent-pane/dev-slot.sh gives each slot its own port, so several worktrees serve at once.
+const port = Number(process.env.CMUX_AGENT_PANE_DEV_PORT) || 4176;
 
 export default defineConfig({
   root: paneRoot,
   server: {
     host: "127.0.0.1",
-    port: 4176,
+    port,
     strictPort: true,
     fs: { allow: [webviewsRoot] },
   },
