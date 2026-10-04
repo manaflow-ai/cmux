@@ -427,3 +427,7 @@
     padding: 0 4px;
   }
 }
+
+.keys-spacer {
+  flex: 1;
+}
