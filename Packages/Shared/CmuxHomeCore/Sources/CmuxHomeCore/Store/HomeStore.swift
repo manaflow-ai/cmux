@@ -47,6 +47,14 @@ public final class HomeStore {
     @ObservationIgnored private var sendQueue: [ConversationID: [IdempotencyKey]] = [:]
     @ObservationIgnored private var turnWaiters: [IdempotencyKey: CheckedContinuation<Void, Never>] = [:]
 
+    /// Paces resends and cache pruning (tests pass a manual clock).
+    @ObservationIgnored private let clock: any Clock<Duration>
+    /// A send or op the owner refused after the call that made it returned
+    /// (a resumed upload, a resend): the host says why. On the main actor.
+    @ObservationIgnored public var onRefusal: ((HomeIntent, HomeRejection) -> Void)?
+    /// Test seam: awaited before the prune deletes each blob directory.
+    @ObservationIgnored var pruneWillDelete: (@Sendable (String) async -> Void)?
+
     /// When this store was created: temp files older than this are crash leftovers.
     @ObservationIgnored private let createdAt = Date()
 
@@ -59,6 +67,8 @@ public final class HomeStore {
     /// cap is the only bound there, and on iOS it keeps the app well clear
     /// of the purge the OS does under disk pressure.
     public static let blobCacheMaxBytes = 1_000_000_000
+    /// The cache is pruned at `start` and then this often while the store runs.
+    public static let blobCachePruneInterval: Duration = .seconds(6 * 3_600)
 
     /// Attachment uploads in flight at once, per send.
     public static let uploadConcurrency = 3
@@ -67,9 +77,11 @@ public final class HomeStore {
     public static let tailSize = 60
     public static let pageSize = 80
 
-    public init(source: any HomeSource, blobCacheDirectory: URL = HomeStore.defaultBlobCacheDirectory) {
+    public init(source: any HomeSource, blobCacheDirectory: URL = HomeStore.defaultBlobCacheDirectory,
+                clock: any Clock<Duration> = ContinuousClock()) {
         self.source = source
         self.blobCacheDirectory = blobCacheDirectory
+        self.clock = clock
     }
 
     /// `Caches/cmux-home-blobs`.
@@ -672,7 +684,7 @@ public final class HomeStore {
             if let preview = files.previewHash { keep.insert(preview) }
         }
         await Self.pruneBlobCache(at: blobCacheDirectory, keeping: keep, now: now, maxAge: Self.blobCacheMaxAge,
-                                  maxBytes: Self.blobCacheMaxBytes, tempsBefore: createdAt)
+                                  maxBytes: Self.blobCacheMaxBytes, tempsBefore: createdAt, willDelete: pruneWillDelete)
     }
 
     /// One pass over `<root>/<hash>/`: deletes `.incoming-*` files older
@@ -682,7 +694,8 @@ public final class HomeStore {
     /// date, which a local fetch refreshes.
     @concurrent
     public nonisolated static func pruneBlobCache(at root: URL, keeping keep: Set<String>, now: Date,
-                                                  maxAge: TimeInterval, maxBytes: Int, tempsBefore: Date) async {
+                                                  maxAge: TimeInterval, maxBytes: Int, tempsBefore: Date,
+                                                  willDelete: (@Sendable (String) async -> Void)? = nil) async {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: root.path) else { return }
         var blobs: [(name: String, url: URL, used: Date, bytes: Int)] = []
@@ -700,6 +713,7 @@ public final class HomeStore {
         var total = blobs.reduce(0) { $0 + $1.bytes }
         for blob in blobs.sorted(by: { $0.used < $1.used }) where !keep.contains(blob.name) {
             guard now.timeIntervalSince(blob.used) > maxAge || total > maxBytes else { continue }
+            await willDelete?(blob.name)
             try? fm.removeItem(at: blob.url)
             total -= blob.bytes
         }

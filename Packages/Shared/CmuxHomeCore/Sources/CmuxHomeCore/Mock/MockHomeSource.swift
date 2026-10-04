@@ -65,6 +65,8 @@ public actor MockHomeSource: HomeSource {
     /// Paused uploads whose task was cancelled before they registered.
     private var cancelledPauses: Set<UUID> = []
     private var failingUploads: [String: HomeRejection] = [:]
+    /// Submits of these keys fail before the ledger, `times` more times.
+    private var failingSubmits: [IdempotencyKey: (times: Int, error: HomeRejection)] = [:]
     /// The progress callback of every upload call, in call order (tests
     /// replay late callbacks with `replayProgress`).
     private var progressCallbacks: [@Sendable (Double) -> Void] = []
@@ -138,6 +140,10 @@ public actor MockHomeSource: HomeSource {
     public func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
         if options.latency > .zero { try? await clock.sleep(for: options.latency) }
         guard online else { throw HomeRejection.ownerUnreachable }
+        if let failing = failingSubmits[intent.key] {
+            failingSubmits[intent.key] = failing.times > 1 ? (failing.times - 1, failing.error) : nil
+            throw failing.error
+        }
         if let decided = ledger[intent.key] {
             guard decided.op == intent.op else { throw HomeRejection.invalid("idempotency_conflict") }
             var replay = try decided.outcome.get()
@@ -366,6 +372,12 @@ public actor MockHomeSource: HomeSource {
     public func replayProgress(ofCall index: Int, _ fraction: Double) {
         guard progressCallbacks.indices.contains(index) else { return }
         progressCallbacks[index](fraction)
+    }
+
+    /// The next `times` submits of `key` fail with `error` before the owner
+    /// looks at them (an answer lost in flight, by default); 0 clears it.
+    public func failNextSubmits(of key: IdempotencyKey, times: Int, with error: HomeRejection = .indeterminate) {
+        failingSubmits[key] = times > 0 ? (times, error) : nil
     }
 
     /// The next `times` submits that reference `hash` drop its record first,

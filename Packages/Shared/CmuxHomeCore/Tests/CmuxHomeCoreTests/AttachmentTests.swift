@@ -8,18 +8,18 @@ import Testing
 import UniformTypeIdentifiers
 @testable import CmuxHomeCore
 
-private func temporaryDirectory() throws -> URL {
+func temporaryDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-home-attach-tests-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
 }
 
-private func sha256Hex(_ data: Data) -> String {
+func sha256Hex(_ data: Data) -> String {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 }
 
 /// A `width` x `height` JPEG whose EXIF orientation is `orientation`.
-private func makeJPEG(width: Int, height: Int, orientation: Int) throws -> Data {
+func makeJPEG(width: Int, height: Int, orientation: Int) throws -> Data {
     let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                          space: CGColorSpaceCreateDeviceRGB(),
                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
@@ -34,7 +34,7 @@ private func makeJPEG(width: Int, height: Int, orientation: Int) throws -> Data 
 }
 
 /// A `width` x `height` image of `type` (TIFF, HEIF), with or without alpha.
-private func makeImage(type: UTType, width: Int, height: Int, alpha: Bool) throws -> Data {
+func makeImage(type: UTType, width: Int, height: Int, alpha: Bool) throws -> Data {
     let info = alpha ? CGImageAlphaInfo.premultipliedLast : CGImageAlphaInfo.noneSkipLast
     let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                          space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: info.rawValue))
@@ -49,7 +49,7 @@ private func makeImage(type: UTType, width: Int, height: Int, alpha: Bool) throw
 }
 
 /// A JPEG with EXIF orientation 6 and a GPS position.
-private func makeJPEGWithLocation(width: Int, height: Int) throws -> Data {
+func makeJPEGWithLocation(width: Int, height: Int) throws -> Data {
     let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                          space: CGColorSpaceCreateDeviceRGB(),
                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
@@ -67,13 +67,13 @@ private func makeJPEGWithLocation(width: Int, height: Int) throws -> Data {
     return data as Data
 }
 
-private func hasGPS(_ url: URL) throws -> Bool {
+func hasGPS(_ url: URL) throws -> Bool {
     let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
     let properties = try #require(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
     return properties[kCGImagePropertyGPSDictionary] != nil
 }
 
-private func movieHasLocation(_ url: URL) async throws -> Bool {
+func movieHasLocation(_ url: URL) async throws -> Bool {
     let items = try await AVURLAsset(url: url).load(.metadata)
     return items.contains { $0.identifier == .quickTimeMetadataLocationISO6709 || $0.identifier == .commonIdentifierLocation
         || $0.identifier == .quickTimeUserDataLocationISO6709 }
@@ -81,15 +81,40 @@ private func movieHasLocation(_ url: URL) async throws -> Bool {
 
 /// A one-second H.264 movie, `width` x `height` encoded, rotated 90 degrees
 /// by its track transform (display size is `height` x `width`).
-private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, fps: Int32 = 10,
-                       location: String? = nil) async throws {
+func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, fps: Int32 = 10,
+                       location: String? = nil, locationName: String? = nil, trackLocation: String? = nil,
+                       timedLocation: String? = nil) async throws {
     let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
-    if let location {
+    func item(_ identifier: AVMetadataIdentifier, _ value: String) -> AVMutableMetadataItem {
         let item = AVMutableMetadataItem()
-        item.identifier = .quickTimeMetadataLocationISO6709
+        item.identifier = identifier
         item.dataType = kCMMetadataBaseDataType_UTF8 as String
-        item.value = location as NSString
-        writer.metadata = [item]
+        item.value = value as NSString
+        return item
+    }
+    var assetItems: [AVMetadataItem] = []
+    if let location { assetItems.append(item(.quickTimeMetadataLocationISO6709, location)) }
+    if let locationName { assetItems.append(item(.quickTimeMetadataLocationName, locationName)) }
+    writer.metadata = assetItems
+    // A timed metadata track of positions (a GoPro or drone GPS track).
+    var timedInput: AVAssetWriterInput?
+    var timedAdaptor: AVAssetWriterInputMetadataAdaptor?
+    if timedLocation != nil {
+        let spec: [String: Any] = [
+            kCMMetadataFormatDescriptionMetadataSpecificationKey_Identifier as String:
+                AVMetadataIdentifier.quickTimeMetadataLocationISO6709.rawValue,
+            kCMMetadataFormatDescriptionMetadataSpecificationKey_DataType as String:
+                kCMMetadataDataType_QuickTimeMetadataLocation_ISO6709 as String,
+        ]
+        var description: CMFormatDescription?
+        CMMetadataFormatDescriptionCreateWithMetadataSpecifications(allocator: nil, metadataType: kCMMetadataFormatType_Boxed,
+                                                                    metadataSpecifications: [spec] as CFArray,
+                                                                    formatDescriptionOut: &description)
+        let input = AVAssetWriterInput(mediaType: .metadata, outputSettings: nil, sourceFormatHint: description)
+        input.expectsMediaDataInRealTime = false
+        timedAdaptor = AVAssetWriterInputMetadataAdaptor(assetWriterInput: input)
+        writer.add(input)
+        timedInput = input
     }
     let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
         AVVideoCodecKey: AVVideoCodecType.h264,
@@ -98,6 +123,7 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
     ])
     input.expectsMediaDataInRealTime = false
     input.transform = CGAffineTransform(rotationAngle: .pi / 2)
+    if let trackLocation { input.metadata = [item(.quickTimeMetadataLocationISO6709, trackLocation)] }
     let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
         kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
         kCVPixelBufferWidthKey as String: width,
@@ -106,6 +132,17 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
     writer.add(input)
     #expect(writer.startWriting(), "AVAssetWriter could not start: \(String(describing: writer.error))")
     writer.startSession(atSourceTime: .zero)
+    if let timedLocation, let timedInput, let timedAdaptor {
+        let point = AVMutableMetadataItem()
+        point.identifier = .quickTimeMetadataLocationISO6709
+        point.dataType = kCMMetadataDataType_QuickTimeMetadataLocation_ISO6709 as String
+        point.value = timedLocation as NSString
+        let group = AVTimedMetadataGroup(items: [point], timeRange: CMTimeRange(start: .zero,
+                                                                                duration: CMTime(value: CMTimeValue(frames), timescale: fps)))
+        while !timedInput.isReadyForMoreMediaData { await Task.yield() }
+        #expect(timedAdaptor.append(group))
+        timedInput.markAsFinished()
+    }
     for frame in 0..<frames {
         while !input.isReadyForMoreMediaData { await Task.yield() }
         var buffer: CVPixelBuffer?
@@ -729,9 +766,9 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         await source.setUploadsPaused(true)
         let photoKey = IdempotencyKey("attach-order-photo")
         let textKey = IdempotencyKey("attach-order-text")
-        let photo = Task { try await store.send(conversation: conversation, text: "", attachments: [a], key: photoKey) }
-        await waitUntil { store.transcript(for: self.conversation).last?.attachmentProgress[a.ref.hash] == 0.5 }
         let conversation = self.conversation
+        let photo = Task { try await store.send(conversation: conversation, text: "", attachments: [a], key: photoKey) }
+        await waitUntil { store.transcript(for: conversation).last?.attachmentProgress[a.ref.hash] == 0.5 }
         let text = Task { try await store.perform(.sendMessage(conversation: conversation, parts: [.text("after")]), key: textKey) }
         await drainTasks()
         #expect(store.transcript(for: conversation).suffix(2).map(\.id) == [photoKey, textKey])
