@@ -606,6 +606,67 @@ struct BrowserReplSessionResourceTests {
         }
     }
 
+    /// Cells run one at a time; callers that share a session wait for the
+    /// running one. The waiting cells and their source are bounded, so a
+    /// caller past either bound gets an error at once instead of waiting.
+    @Test("A session holds at most 64 waiting cells; one more is refused at once")
+    func waitingCellsAreBounded() async {
+        let driver = HeldCookiesDriver()
+        let session = makeSession(driver)
+        defer {
+            session.close()
+            driver.releaseAll()
+        }
+        let running = Task { await session.evaluate(code: "await driverOnce('cookies.get'); console.log('first');", timeout: .seconds(60)) }
+        let started = await browserReplWithDeadline(seconds: 30) { await driver.waitForEntries(1) }
+        #expect(started != nil)
+
+        let waiting = 64  // the documented bound
+        let (results, sink) = AsyncStream.makeStream(of: BrowserReplEvalResult.self)
+        for _ in 0...waiting {
+            Task { sink.yield(await session.evaluate(code: "console.log('ran');", timeout: .seconds(60))) }
+        }
+        // The running cell holds every other one, so the first result is
+        // the refusal of the one past the bound.
+        let first = await browserReplWithDeadline(seconds: 30) { () -> BrowserReplEvalResult? in
+            for await result in results { return result }
+            return nil
+        }
+        #expect(first??.error?.contains("64 cells are already waiting") == true, "\(String(describing: first))")
+
+        driver.releaseAll()
+        #expect(await running.value.lines.map(\.text) == ["first"])
+        let rest = await browserReplWithDeadline(seconds: 60) { () -> [BrowserReplEvalResult] in
+            var collected: [BrowserReplEvalResult] = []
+            for await result in results {
+                collected.append(result)
+                if collected.count == waiting { break }
+            }
+            return collected
+        }
+        #expect(rest?.count == waiting)
+        #expect(rest?.allSatisfy { $0.error == nil && $0.lines.map(\.text) == ["ran"] } == true)
+    }
+
+    @Test("Cells waiting to run hold at most 64 MiB of source; more is refused at once")
+    func waitingCellSourceIsBounded() async {
+        let driver = HeldCookiesDriver()
+        let session = makeSession(driver)
+        defer {
+            session.close()
+            driver.releaseAll()
+        }
+        let running = Task { await session.evaluate(code: "await driverOnce('cookies.get');", timeout: .seconds(60)) }
+        let started = await browserReplWithDeadline(seconds: 30) { await driver.waitForEntries(1) }
+        #expect(started != nil)
+
+        let large = "//" + String(repeating: "x", count: 64 << 20)
+        let refused = await browserReplWithDeadline(seconds: 30) { await session.evaluate(code: large, timeout: .seconds(60)) }
+        #expect(refused?.error?.contains("64 MiB") == true, "\(String(describing: refused?.error))")
+        driver.releaseAll()
+        _ = await running.value
+    }
+
     @Test("A cell that times out cancels the driver calls it started")
     func timeoutCancelsTheCellsDriverCalls() async {
         let driver = HeldCookiesDriver()
