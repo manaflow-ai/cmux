@@ -43,7 +43,7 @@ impl KnownHosts {
     pub fn load(path: PathBuf) -> (Self, Vec<String>) {
         let mut pins = BTreeMap::new();
         let mut warnings = Vec::new();
-        match std::fs::read(&path) {
+        match read_regular(&path) {
             Ok(bytes) => {
                 for (index, line) in bytes.split(|b| *b == b'\n').enumerate() {
                     if line.iter().all(u8::is_ascii_whitespace) {
@@ -53,11 +53,12 @@ impl KnownHosts {
                         Some((machine, key)) => {
                             pins.insert(machine, key);
                         }
-                        None => warnings.push(format!(
+                        None if warnings.len() < MAX_WARNINGS => warnings.push(format!(
                             "{}: line {} is not a pinned host key; it was skipped",
                             path.display(),
                             index + 1
                         )),
+                        None => {}
                     }
                 }
             }
@@ -106,6 +107,26 @@ impl KnownHosts {
         self.pins = pins;
         Ok(())
     }
+}
+
+/// The largest known_hosts file read; the rest is ignored. One pin is
+/// about 110 bytes, so this holds thousands of machines.
+const MAX_BYTES: u64 = 1024 * 1024;
+/// Warnings kept (and logged) per load.
+const MAX_WARNINGS: usize = 16;
+
+/// The bytes of `path` when it is a regular file (not a symlink, FIFO or
+/// device, which could point elsewhere or block the start), at most
+/// [`MAX_BYTES`]. A missing file is `NotFound`.
+fn read_regular(path: &Path) -> io::Result<Vec<u8>> {
+    use std::io::Read as _;
+    let meta = std::fs::symlink_metadata(path)?;
+    if !meta.is_file() {
+        return Err(io::Error::other("not a regular file"));
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?.take(MAX_BYTES).read_to_end(&mut bytes)?;
+    Ok(bytes)
 }
 
 /// `cmux-scp-<machine> ssh-ed25519 <base64>` with a valid machine id and

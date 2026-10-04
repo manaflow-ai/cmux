@@ -4341,7 +4341,7 @@
               "cancelling",
               "ended"
             ],
-            "description": "cancelling: the copy is being stopped and one cloud.file.transfer.changed event with state cancelled follows. ended: the transfer had already ended; nothing changes and no event follows."
+            "description": "cancelling: the copy is being stopped; one cloud.file.transfer.changed event follows, state cancelled (or done for a push whose copy had already finished). ended: the transfer had already ended; no cancelled event follows."
           }
         }
       },
@@ -4356,7 +4356,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Stop a running file transfer of this server. The copy stops (its OpenSSH child is killed) and a cancelled pull leaves no file. The op answers at once with state cancelling; the end is one cloud.file.transfer.changed event with state cancelled (a push that had already finished its copy reports done). Idempotent: a transfer that already ended answers state ended and emits nothing; an id this server never issued answers cmux.cloud.not_found. Never on MCP: agents cannot start transfers.",
+      "docs": "Stop a running file transfer of this server. The copy stops (its OpenSSH child is killed) and a cancelled pull leaves no file. The op answers at once with state cancelling; the end is one cloud.file.transfer.changed event with state cancelled (a push that had already finished its copy reports done). Idempotent: a transfer that already ended answers state ended and no cancelled event follows (its own done or failed event goes out after the answer when the server had not sent it yet); an id this server never issued answers cmux.cloud.not_found. Never on MCP: agents cannot start transfers.",
       "since": "cloud/1"
     },
     {

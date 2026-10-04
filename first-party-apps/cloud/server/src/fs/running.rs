@@ -60,8 +60,25 @@ pub(crate) struct Running {
 pub(crate) enum CancelAnswer {
     /// It was running: it is being stopped; one `cancelled` event follows.
     Cancelling,
-    /// It had already ended: nothing changes, no event follows.
+    /// It had already ended: the cancel changes nothing. Its own end event
+    /// (`done` or `failed`) goes out after this answer when the loop had not
+    /// sent it yet; no `cancelled` event follows.
     Ended,
+}
+
+impl Drop for Transfers {
+    /// The server stops with transfers running: each copy is killed and a
+    /// pull's hidden landing file is removed, so no partial file stays next
+    /// to the user's target. No end event goes out (the channel is gone).
+    fn drop(&mut self) {
+        for running in self.running.values_mut() {
+            running.cancel.cancel();
+            running.route.close();
+            if running.direction == Direction::Pull {
+                let _ = std::fs::remove_file(&running.landing);
+            }
+        }
+    }
 }
 
 struct Done {
@@ -150,8 +167,12 @@ impl Transfers {
         // A worker that already ended is finished first: its real outcome
         // (a published pull, a done push) stands.
         self.settle();
-        if let Some(running) = self.running.get(id) {
+        if let Some(running) = self.running.get_mut(id) {
             running.cancel.cancel();
+            // The one-shot route closes now: scp's own ssh child loses its
+            // connection at once, so the worker returns without waiting for
+            // ssh's keepalive timeout. Closing again at the end is a no-op.
+            running.route.close();
             return Ok(CancelAnswer::Cancelling);
         }
         let issued = id
