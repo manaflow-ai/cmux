@@ -20,7 +20,10 @@ pub use anthropic::AnthropicModel;
 pub use cap::cap_tool_result;
 pub use chat::{Cancel, Error, Failure, OptChat, Status};
 pub use clock::{Clock, ManualClock, SystemClock};
-pub use config::{Config, BASE_URL_ENV, DEFAULT_BASE_URL, DEFAULT_FALLBACK_MODEL, DEFAULT_MODEL};
+pub use config::{
+    api_key, Config, API_KEY_ENV, BASE_URL_ENV, DEFAULT_BASE_URL, DEFAULT_FALLBACK_MODEL,
+    DEFAULT_MODEL, SUBROUTER_KEY,
+};
 pub use model::{CompactModel, Followup, ModelError, Reply};
 pub use report::{Report, Reporter};
 

@@ -293,6 +293,12 @@ impl OptChat {
         st.store.date(id)
     }
 
+    /// The text of node `id`, if it is built (for browsing the tree, section 10).
+    pub fn node(&self, id: NodeId) -> Option<String> {
+        let st = self.shared.lock();
+        st.store.node(id)
+    }
+
     /// Kind and whole text of message `id`, if it exists.
     pub fn message(&self, id: u64) -> Option<(Kind, String)> {
         let st = self.shared.lock();

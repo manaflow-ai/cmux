@@ -9,8 +9,6 @@ use optchat_core::CompactRequest;
 use crate::config::Config;
 use crate::model::{CompactModel, Followup, ModelError, Reply};
 
-/// The subrouter ignores the key; the header keeps the request well formed.
-const API_KEY: &str = "subrouter";
 const API_VERSION: &str = "2023-06-01";
 /// How much of an error body a failure report keeps.
 const ERROR_BODY: usize = 600;
@@ -21,6 +19,7 @@ const SERVER_FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
 pub struct AnthropicModel {
     agent: ureq::Agent,
     url: String,
+    key: String,
     model: String,
     effort: Option<String>,
     max_tokens: u32,
@@ -40,6 +39,7 @@ impl AnthropicModel {
                 .timeout(config.http_timeout)
                 .build(),
             url: format!("{}/v1/messages", config.base_url.trim_end_matches('/')),
+            key: config.api_key.clone(),
             model: model.to_owned(),
             effort: config.effort.clone(),
             max_tokens: config.max_tokens,
@@ -95,7 +95,7 @@ impl CompactModel for AnthropicModel {
         let response = self
             .agent
             .post(&self.url)
-            .set("x-api-key", API_KEY)
+            .set("x-api-key", &self.key)
             .set("anthropic-version", API_VERSION);
         let response = if self.server_fallback {
             response.set("anthropic-beta", SERVER_FALLBACK_BETA)
@@ -153,6 +153,7 @@ fn parse(value: Value) -> Result<Reply, ModelError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::api_key;
     use optchat_core::NodeId;
 
     fn request() -> CompactRequest {
@@ -223,6 +224,69 @@ mod tests {
         assert_eq!(breakpoints, 4, "at most 4 per request");
         assert!(blocks[4].get("cache_control").is_none());
         assert_eq!(blocks[4]["text"], "STEP");
+    }
+
+    /// Audit round 2: the key was the constant "subrouter", so any other
+    /// base URL answered every compactor call with a 401, forever.
+    #[test]
+    fn the_configured_key_is_sent() {
+        use std::io::{BufRead, BufReader, Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut key = String::new();
+            let mut length = 0usize;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                let line = line.trim_end();
+                if line.is_empty() {
+                    break;
+                }
+                let lower = line.to_ascii_lowercase();
+                if let Some(v) = lower.strip_prefix("x-api-key:") {
+                    key = line[line.len() - v.trim_start().len()..].to_owned();
+                }
+                if let Some(v) = lower.strip_prefix("content-length:") {
+                    length = v.trim().parse().unwrap();
+                }
+            }
+            let mut body = vec![0; length];
+            reader.read_exact(&mut body).unwrap();
+            let reply = json!({"stop_reason": "end_turn", "content": [{"type": "text", "text": "user: hi"}]}).to_string();
+            write!(
+                &stream,
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}",
+                reply.len()
+            )
+            .unwrap();
+            key
+        });
+        let config = Config {
+            api_key: api_key(&base_url, |k| {
+                (k == "ANTHROPIC_API_KEY").then(|| "sk-real".to_string())
+            }),
+            base_url,
+            ..Config::default()
+        };
+        let reply = AnthropicModel::new(&config).call(&request(), &[]).unwrap();
+        assert_eq!(reply.text, "user: hi");
+        assert_eq!(server.join().unwrap(), "sk-real");
+    }
+
+    #[test]
+    fn a_real_key_never_goes_to_the_subrouter() {
+        let env = |k: &str| (k == "ANTHROPIC_API_KEY").then(|| "sk-real".to_string());
+        assert_eq!(api_key(crate::DEFAULT_BASE_URL, env), crate::SUBROUTER_KEY);
+        assert_eq!(api_key("https://api.anthropic.com", env), "sk-real");
+        let explicit = |k: &str| (k == crate::API_KEY_ENV).then(|| "sk-mine".to_string());
+        assert_eq!(api_key(crate::DEFAULT_BASE_URL, explicit), "sk-mine");
+        assert_eq!(
+            api_key("https://api.anthropic.com", |_| None),
+            crate::SUBROUTER_KEY
+        );
     }
 
     #[test]
