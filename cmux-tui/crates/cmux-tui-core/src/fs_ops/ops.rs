@@ -105,6 +105,11 @@ impl FsService {
         &self.roots
     }
 
+    /// Removes leftover write temporaries older than an hour (daemon start).
+    pub fn sweep_stale_temporaries(&self) -> usize {
+        super::sweep::remove_stale_temporaries(&self.roots, std::time::SystemTime::now())
+    }
+
     /// Runs the op `cmd` with the request object `params` (flat, next to
     /// `id` and `cmd`). `owner` keys the caller's listing snapshots.
     pub fn call(&self, owner: &str, cmd: &str, params: Value) -> Result<Value, FsError> {
