@@ -231,7 +231,9 @@ final class AgentTabStore {
             self?.newTabPages[key] = nil
             self?.views[key]?.applyTheme() // now the agent chat surface (R55)
         }
-        model.onOpenTab = { [weak self] kind, text, cwd in self?.newTabPages[key]?.handler.open(key, kind, text, cwd) }
+        model.onOpenTab = { [weak self] request in self?.newTabPages[key]?.handler.open(key, request) }
+        model.onTypeAhead = { [weak self] text in self?.newTabPages[key]?.handler.typeAhead(key, text) }
+        model.onRememberNewTab = { [weak self] mode, agent in self?.newTabPages[key]?.handler.remember(mode, agent) }
         model.onJump = { [weak self] target, id in self?.newTabPages[key]?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPages[key]?.handler.editShortcut(kind) }
         model.onSetDefaultKind = { [weak self] kind in self?.newTabPages[key]?.handler.setDefaultKind(kind) }
