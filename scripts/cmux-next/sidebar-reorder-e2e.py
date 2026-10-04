@@ -102,10 +102,13 @@ def frames(prefix, seconds):
 
 def record_spaces():
     os.makedirs(os.path.join(opts.out, "r99"), exist_ok=True)
-    print("space.new:", cli("action", "run", "space.new"), flush=True)
-    frames("new-space", 1.0)
-    print("space.newWorkspace:", cli("action", "run", "space.newWorkspace"), flush=True)
-    time.sleep(1)  # test harness: let the row appear
+    made = cli("--json", "workspace", "create", "--name", "Delta")
+    delta = json.loads(made.splitlines()[-1]).get("value", {}).get("workspace_id") if made else None
+    print("room:", cli("room", "create", "--name", "Work"), flush=True)
+    print("pin:", cli("room", "Work", "pin", "--workspace", str(delta)), flush=True)
+    time.sleep(1)  # test harness: let the rooms settle
+    print("space.next:", cli("action", "run", "space.next"), flush=True)
+    frames("next", 1.0)
     print("space.previous:", cli("action", "run", "space.previous"), flush=True)
     frames("previous", 1.0)
     # A two-finger swipe toward the next space, 1:1, then a flick release.
@@ -155,11 +158,15 @@ try:
         print(cli("workspace", "create", "--name", name), flush=True)
     time.sleep(2)  # test harness: let the rows appear
     shot("r77-0-start")
-    rpc("debug.mouse", {"x": 60, "y": 172, "action": "drag", "to_x": 60, "to_y": 122, "steps": 12, "release": False})
+    rows = {r["title"]: r["window_frame"] for w in (rpc("debug.sidebar_rows") or {}).get("windows", []) for r in w["rows"] if r.get("title")}
+    gamma, alpha = rows["Gamma"], rows["Alpha"]
+    gx, gy = gamma["x"] + 40, gamma["y"] + gamma["height"] / 2
+    ty = alpha["y"] + alpha["height"] / 2 + 2.5  # just below Alpha's middle, as nxdog30 held it
+    rpc("debug.mouse", {"x": gx, "y": gy, "action": "drag", "to_x": gx, "to_y": ty, "steps": 12, "release": False})
     for delay, name in ((0.05, "r77-1-held-50ms"), (0.45, "r77-2-held-500ms"), (1.5, "r77-3-held-2s")):
         time.sleep(delay)  # test harness: snapshot points during the hold
         shot(name)
-    rpc("debug.mouse", {"x": 60, "y": 122, "action": "up"})
+    rpc("debug.mouse", {"x": gx, "y": ty, "action": "up"})
     time.sleep(1.5)  # test harness: let the drop land
     shot("r77-4-dropped")
     print("daemon order after drop:", cli("workspace", "list"), flush=True)

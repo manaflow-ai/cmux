@@ -6,6 +6,8 @@ public struct SidebarDebugRow: Sendable {
     public var key: String
     public var title: String?
     public var frame: CGRect
+    /// The row in window points from the top-left (as `debug.mouse` takes them).
+    public var windowFrame: CGRect
     public var viewFrame: CGRect?
     public var viewAlpha: CGFloat?
     public var inList: Bool
@@ -19,7 +21,10 @@ extension SidebarView {
             let view = list.rowViews[row.key]
             var title: String?
             if case let .workspace(id) = row.key { title = model.workspace(id)?.title }
-            return SidebarDebugRow(key: String(describing: row.key), title: title, frame: list.frame(for: row),
+            let inWindow = list.convert(list.frame(for: row), to: nil)
+            let height = window?.contentView?.bounds.height ?? 0
+            let windowFrame = CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
+            return SidebarDebugRow(key: String(describing: row.key), title: title, frame: list.frame(for: row), windowFrame: windowFrame,
                                    viewFrame: view?.frame, viewAlpha: view?.alphaValue, inList: view?.superview === list,
                                    suppressed: list.suppressed.contains(row.key))
         }
