@@ -316,7 +316,13 @@ native (`BrowserReplBoundary` in the session, and the driver):
   once the typing session ends, also for a later session of the same name.
   A capture takes those masks before it waits for the page, so one during
   which another session recorded a value to type (in any tab) fails with
-  `stale` instead of returning pixels that may show it.
+  `stale` instead of returning pixels that may show it. The session's own
+  masks are the values it holds when it makes the call, and its calls run
+  concurrently, so it can set a secret (or a domain of one) and type it
+  while the capture is taken: when the capture returns, every value the
+  session holds, and every TOTP code of a window since the masks were
+  taken, must be among the masks with each of its domains, or the capture
+  fails with `stale` as well.
   The driver hands those sessions the same values as a store
   (`typedSecretRedaction()`, Swift only), and each session masks them
   wherever it masks its own secrets: fetch responses (read with the tab's

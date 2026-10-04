@@ -769,7 +769,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         // The task finishes itself; it waits for the lock held here, so the
         // entry exists before the removal runs.
         let task = Task { [weak self] in
-            let result = boundary.redact(method: call.method, await driver.call(method: call.method, paramsJSON: call.paramsJSON))
+            let answer = await driver.call(method: call.method, paramsJSON: call.paramsJSON)
+            let result = boundary.redact(method: call.method, boundary.checkCaptureMasks(method: call.method, paramsJSON: call.paramsJSON, answer))
             guard let self else { return }
             self.thread.perform { [weak self] in self?.resolveCall(call.callID, result) }
             self.driverCallFinished(taskID)

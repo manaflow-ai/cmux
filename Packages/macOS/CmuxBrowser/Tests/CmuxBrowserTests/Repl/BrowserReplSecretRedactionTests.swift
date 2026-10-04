@@ -225,6 +225,21 @@ struct BrowserReplSecretRedactionTests {
         #expect(output.hasPrefix("refused stale"), "the capture returned pixels taken while a secret its masks lacked was typed: \(output)")
     }
 
+    @Test("A capture taken while the session's secrets stay as they were returns its pixels")
+    func aCaptureWithTheSameSecretsReturnsItsPixels() async throws {
+        let driver = ScriptedPageDriver()
+        let session = try #require(makeSession(driver))
+        defer { session.close() }
+        let result = await run(session, """
+        secrets.set("a", "\(Self.value)", { domains: ["example.com", "*.example.org", "https://login.example.net:8443"] });
+        secrets.set("otp", "\(Self.totpSeed)", { domains: ["example.com"], totp: true });
+        await page.goto("https://example.com/login");
+        console.log(await page.screenshot().then(() => "captured", (e) => "refused " + (e.code || e.message)));
+        """)
+        let output = result?.lines.map(\.text).joined(separator: "\n") ?? ""
+        #expect(output == "captured", "\(output)")
+    }
+
     private func currentCode() -> String {
         BrowserReplSecretStore.totp(key: BrowserReplSecretStore.base32Decode(Self.totpSeed) ?? Data(), time: Date().timeIntervalSince1970)
     }

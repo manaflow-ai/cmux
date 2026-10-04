@@ -226,6 +226,22 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         captureMasks(at: Date())
     }
 
+    /// The values the session could type between `start` and `end`: every
+    /// plain value it holds (current and retired), and each TOTP secret's
+    /// codes of the windows from `start`'s to `end`'s (at most a day's).
+    func typeableValues(from start: Date, to end: Date) -> [(value: String, domains: [BrowserReplDomainPattern])] {
+        let (plain, keys) = lock.withLock {
+            ((order.compactMap { entries[$0] } + retired).filter { !$0.totp }.map { ($0.value, $0.domains) }, totpKeys)
+        }
+        guard !keys.isEmpty else { return plain }
+        let first = Int64(floor(start.timeIntervalSince1970 / Self.totpPeriod))
+        let last = max(first, Int64(floor(end.timeIntervalSince1970 / Self.totpPeriod)))
+        let windows = first...min(last, first + Int64(86_400 / Self.totpPeriod))
+        return plain + keys.flatMap { entry in
+            windows.map { (Self.totp(key: entry.key, time: Double($0) * Self.totpPeriod), entry.domains) }
+        }
+    }
+
     func captureMasks(at date: Date) -> [(value: String, domains: [BrowserReplDomainPattern])] {
         let plain = lock.withLock { (order.compactMap { entries[$0] } + retired).filter { !$0.totp }.map { ($0.value, $0.domains) } }
         return plain + validCodes(at: date).flatMap { entry in entry.codes.map { ($0, entry.domains) } }
