@@ -4360,7 +4360,20 @@
                 },
                 "error": {
                   "type": "object",
-                  "description": "The typed error of a failed transfer (code, message, retryable)."
+                  "additionalProperties": false,
+                  "required": [
+                    "code",
+                    "retryable"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    }
+                  },
+                  "description": "The typed error of a failed transfer, without its message."
                 }
               }
             }
@@ -4382,7 +4395,7 @@
           "ja": "クラウドのファイル転送を一覧表示"
         }
       },
-      "docs": "The file transfers of this server: every running one (oldest start first), then the most recent finished ones (newest end first), so a new page session can show them again. The history keeps at most 32 finished transfers and none older than one hour (by the server's clock; nothing runs on a timer). Each entry: transfer, machine, direction (push or pull), state (running, done, failed or cancelled), started_at and, once ended, ended_at (epoch milliseconds), and error for a failed one. Local paths are not listed.",
+      "docs": "The file transfers of this server: every running one (oldest start first), then the most recent finished ones (newest end first), so a new page session can show them again. The history keeps at most 32 finished transfers and none older than one hour (by the server's clock; nothing runs on a timer). Each entry: transfer, machine, direction (push or pull), state (running, done, failed or cancelled), started_at and, once ended, ended_at (epoch milliseconds), and error {code, retryable} for a failed one. Local paths and error messages are not listed (they can name local files).",
       "since": "cloud/1"
     },
     {
