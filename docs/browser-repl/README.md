@@ -298,6 +298,25 @@ rest. Measurements: [performance.md](performance.md).
   most `maxChars` characters, 20,000 by default (about 6,000 tokens; five
   of the nine frozen corpus pages, median 16,616 characters, print whole).
   `snapshot({ maxChars: Infinity })` prints everything.
+- **Every other page read has the same budget.** What a helper reads
+  from the page and returns crosses to the session before any output
+  limit, so `page.markdown()`, `page.extract()`,
+  `page.dropdownOptions()`, `tabs.content()` and the composer check
+  before a site's Send or Post read at most 250,000 nodes and 2,000,000
+  characters, for 8 s, with one budget in the page agent
+  (`A.budget()`), and say where they stopped. Markdown ends with
+  `<!-- the page is too large to read whole: Markdown stopped after
+  2,000,000 characters; … -->` (or `nodes`, `8 s`, and `100 frames`:
+  it reads at most 100 iframes, one after another, each with what the
+  ones before it left). `extract` and `dropdownOptions` return what they
+  read and print `# page.extract: the page is too large to read whole: it
+  stopped after …`; `extract` keeps element handles only for the
+  matches it returns. `tabs.content` reads 2,000,000 characters per call
+  over all its URLs (each batch of four splits what is left); a cut row
+  has `truncated` with the note, and a URL after the budget is used up is
+  not read. Composer text is compared whole, so a composer past the
+  budget fails the send (`The composer holds more than 2,000,000
+  characters`) and nothing crosses.
 - **Condensing keeps, in order:** controls on screen and the focused element
   with their ancestors; the outline (landmarks, frames, then headings level
   by level while the outline fits in half the budget); then the page in
