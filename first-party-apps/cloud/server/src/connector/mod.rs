@@ -99,30 +99,29 @@ impl<C: ControlPlane> TerminalConnector for CloudConnector<'_, C> {
     }
 
     fn take_events(&mut self) -> Vec<ConnectorEvent> {
-        let supervisor = self.server.attach_mut().supervisor_mut();
-        supervisor.pump();
-        supervisor
-            .take_events()
-            .into_iter()
-            .filter_map(|event| match event {
-                // A connect answers the channel; `up` is not an event here.
-                CarrierEvent::Up { .. } => None,
-                // Only a channel a connect answered gets its one `end`.
-                CarrierEvent::Down { opened: false, .. } => None,
-                CarrierEvent::Down { target, generation, retryable, reason, opened: true } => {
-                    Some(ConnectorEvent::End {
-                        channel: channel_id(CONNECTOR_KIND, &target, generation),
-                        lost: Lost { reason, retryable },
-                    })
-                }
-                CarrierEvent::Revoked { target, reason, generation: Some(generation) } => {
-                    Some(ConnectorEvent::End {
-                        channel: channel_id(CONNECTOR_KIND, &target, generation),
-                        lost: Lost { reason, retryable: false },
-                    })
-                }
-                CarrierEvent::Revoked { generation: None, .. } => None,
+        // The connector reads its own side of the one drain: the host lines
+        // keep every event this takes (crate::link::Attach::drain_link_events).
+        self.server.attach_mut().take_connector_events()
+    }
+}
+
+/// The connector's `end` for a carrier event: only a channel a connect
+/// answered gets its one `end` (`up` is the connect's answer, not an event).
+pub(crate) fn end_event(event: &CarrierEvent) -> Option<ConnectorEvent> {
+    match event {
+        CarrierEvent::Up { .. } | CarrierEvent::Down { opened: false, .. } => None,
+        CarrierEvent::Down { target, generation, retryable, reason, opened: true } => {
+            Some(ConnectorEvent::End {
+                channel: channel_id(CONNECTOR_KIND, target, *generation),
+                lost: Lost { reason: reason.clone(), retryable: *retryable },
             })
-            .collect()
+        }
+        CarrierEvent::Revoked { target, reason, generation: Some(generation) } => {
+            Some(ConnectorEvent::End {
+                channel: channel_id(CONNECTOR_KIND, target, *generation),
+                lost: Lost { reason: reason.clone(), retryable: false },
+            })
+        }
+        CarrierEvent::Revoked { generation: None, .. } => None,
     }
 }

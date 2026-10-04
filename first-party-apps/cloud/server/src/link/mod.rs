@@ -13,11 +13,23 @@ pub use spawner::{
 };
 pub use supervisor::{CONNECTOR_KIND, LinkFailure, LinkState, LinkSupervisor, READY_DEADLINE};
 
-use crate::connector::iface::{BackendId, LocalId, check_kinds};
+use crate::connector::iface::{BackendId, CarrierEvent, ConnectorEvent, LocalId, check_kinds};
 use crate::rescue::iface::ByteTerminal;
 use crate::rescue::{MissingRescueRoute, RescueBackend, RescueTransport};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
+
+/// Link events each side holds until it takes them. A side that never
+/// takes them (no daemon connector) loses the oldest, never memory.
+const MAX_HELD_LINK_EVENTS: usize = 1024;
+
+fn hold<T>(queue: &mut VecDeque<T>, item: T, side: &str) {
+    if queue.len() == MAX_HELD_LINK_EVENTS {
+        queue.pop_front();
+        eprintln!("cmux-cloud: dropped the oldest held link event of the {side}");
+    }
+    queue.push_back(item);
+}
 
 /// The connector's implementation id (`app:cmux/cloud/machine`).
 pub const CONNECTOR_ID: &str = "machine";
@@ -33,6 +45,10 @@ pub struct Attach {
     pub(crate) rescue_terminals: BTreeMap<String, Box<dyn ByteTerminal>>,
     pub(crate) connector_id: BackendId,
     pub(crate) connector_kinds: Vec<LocalId>,
+    /// Link events for the host lines (`cloud.link.changed`), not taken yet.
+    host_link_events: VecDeque<CarrierEvent>,
+    /// `end` events for the connector, not taken yet.
+    connector_events: VecDeque<ConnectorEvent>,
     next_terminal: u64,
     next_attempt: u64,
 }
@@ -55,6 +71,8 @@ impl Attach {
                 &LocalId::new(CONNECTOR_ID).expect("valid id"),
             ),
             connector_kinds: kinds,
+            host_link_events: VecDeque::new(),
+            connector_events: VecDeque::new(),
             next_terminal: 0,
             next_attempt: 0,
         }
@@ -92,6 +110,32 @@ impl Attach {
             _ => None,
         };
         Self::new(Box::new(ProcessSpawner), paths, Box::new(MissingRescueRoute))
+    }
+
+    /// The one consumer of the supervisor's event queue: applies the link
+    /// process events that arrived and gives each carrier event to both
+    /// sides, the host lines and the connector. Only the loop thread (the
+    /// owner of the server) calls it.
+    pub(crate) fn drain_link_events(&mut self) {
+        self.supervisor.pump();
+        for event in self.supervisor.take_events() {
+            if let Some(end) = crate::connector::end_event(&event) {
+                hold(&mut self.connector_events, end, "connector");
+            }
+            hold(&mut self.host_link_events, event, "host lines");
+        }
+    }
+
+    /// Carrier events for the host lines since the last call, in order.
+    pub(crate) fn take_host_link_events(&mut self) -> Vec<CarrierEvent> {
+        self.drain_link_events();
+        self.host_link_events.drain(..).collect()
+    }
+
+    /// `end` events for the connector since the last call, in order.
+    pub(crate) fn take_connector_events(&mut self) -> Vec<ConnectorEvent> {
+        self.drain_link_events();
+        self.connector_events.drain(..).collect()
     }
 
     pub fn supervisor(&self) -> &LinkSupervisor {

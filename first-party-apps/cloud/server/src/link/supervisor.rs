@@ -96,7 +96,9 @@ impl LinkSupervisor {
         self.spawns
     }
 
-    pub fn take_events(&mut self) -> Vec<CarrierEvent> {
+    /// The queue's one consumer is [`super::Attach::drain_link_events`],
+    /// which gives each event to the host lines and to the connector.
+    pub(crate) fn take_events(&mut self) -> Vec<CarrierEvent> {
         std::mem::take(&mut self.events)
     }
 

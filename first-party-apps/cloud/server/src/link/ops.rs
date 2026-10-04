@@ -24,10 +24,9 @@ pub(crate) const RESCUE_OPEN: &str = "cloud.rescue.open";
 /// call, in order. The serve loop takes them after each op and whenever a
 /// link process event wakes it (`LinkSupervisor::set_wake`).
 pub(crate) fn take_event_lines<C: ControlPlane>(server: &mut Server<C>) -> Vec<Value> {
-    let supervisor = server.attach_mut().supervisor_mut();
-    supervisor.pump();
-    supervisor
-        .take_events()
+    server
+        .attach_mut()
+        .take_host_link_events()
         .into_iter()
         .map(|event| match event {
             CarrierEvent::Up { carrier } => json!({ "type": "event", "event": "cloud.link.changed",
