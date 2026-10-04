@@ -35,7 +35,13 @@ public actor MockHomeSource: HomeSource {
     /// Materialized messages; the generated Chief history before `generatedUpTo` is computed on read.
     private var stored: [ConversationID: [Message]] = [:]
     private var generated: [ConversationID: Seq] = [:]
-    private var ledger: [IdempotencyKey: HomeOpResult] = [:]
+    /// Decided keys, like the owner's request ledger: a result or a refusal
+    /// that is not retryable. The same key answers the same again; with
+    /// another op it is refused `idempotency_conflict`.
+    private var ledger: [IdempotencyKey: (op: HomeOp, outcome: Result<HomeOpResult, HomeRejection>)] = [:]
+    /// Hashes whose record the next submits drop first (an unreferenced
+    /// upload swept after 24 hours, an expired slot), with the count left.
+    private var forgetOnSubmit: [String: Int] = [:]
     private var subscribers: [UUID: AsyncStream<HomeEvent>.Continuation] = [:]
     private var people: [ParticipantID: Participant] = [:]
     private var members: [ContactAddress: ParticipantID] = [:]
@@ -126,12 +132,27 @@ public actor MockHomeSource: HomeSource {
     public func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
         if options.latency > .zero { try? await clock.sleep(for: options.latency) }
         guard online else { throw HomeRejection.ownerUnreachable }
-        if var replay = ledger[intent.key] {
+        if let decided = ledger[intent.key] {
+            guard decided.op == intent.op else { throw HomeRejection.invalid("idempotency_conflict") }
+            var replay = try decided.outcome.get()
             replay.replayed = true
             return replay
         }
-        let result = try apply(intent)
-        ledger[intent.key] = result
+        if case .sendMessage(_, let parts) = intent.op {
+            for case .attachment(let ref) in parts {
+                guard let left = forgetOnSubmit[ref.hash] else { continue }
+                blobs[ref.hash] = nil
+                forgetOnSubmit[ref.hash] = left > 1 ? left - 1 : nil
+            }
+        }
+        let result: HomeOpResult
+        do {
+            result = try apply(intent)
+        } catch let rejection as HomeRejection where !rejection.isRetryable {
+            ledger[intent.key] = (intent.op, .failure(rejection))
+            throw rejection
+        }
+        ledger[intent.key] = (intent.op, .success(result))
         if case .sendMessage(let conversation, _) = intent.op { scheduleReplies(in: conversation) }
         return result
     }
@@ -270,6 +291,12 @@ public actor MockHomeSource: HomeSource {
     /// The next upload of this hash fails as unreachable (once).
     public func failNextUpload(hash: String) {
         failingUploads.insert(hash)
+    }
+
+    /// The next `times` submits that reference `hash` drop its record first,
+    /// so the owner answers `unknown_attachment`.
+    public func forgetBlobBeforeNextSubmits(_ hash: String, times: Int = 1) {
+        forgetOnSubmit[hash] = times
     }
 
     /// True once the blob store holds this hash.

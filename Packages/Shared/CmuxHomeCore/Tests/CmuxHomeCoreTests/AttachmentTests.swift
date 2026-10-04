@@ -477,6 +477,51 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         }
     }
 
+    /// The owner swept the upload before the send reached it (an
+    /// unreferenced upload after 24 hours, an expired slot): the store
+    /// uploads again (an exists answer when the bytes are still there) and
+    /// sends again under a new key, since the owner's ledger keeps the
+    /// refused one.
+    @Test func unknownAttachmentUploadsAgainAndResends() async throws {
+        let (store, source) = try await started()
+        let (a, _) = try await twoAttachments(store)
+        await source.forgetBlobBeforeNextSubmits(a.ref.hash)
+        let before = store.transcript(for: conversation).count
+        try await store.send(conversation: conversation, text: "swept", attachments: [a], key: IdempotencyKey("attach-swept"))
+        await waitUntil { store.log.isEmpty }
+        let rows = store.transcript(for: conversation)
+        #expect(rows.count == before + 1)
+        #expect(rows.last?.delivery == .committed)
+        #expect(rows.last?.parts == [.attachment(a.ref), .text("swept")])
+        #expect(store.log.isEmpty)
+        #expect(await source.uploadCalls.filter { $0 == a.ref.hash }.count == 2)
+        let page = try await source.snapshot(of: conversation, tail: 5)
+        #expect(page.messages.filter { $0.parts == [.attachment(a.ref), .text("swept")] }.count == 1)
+    }
+
+    /// Refused again after the automatic upload: "Not Delivered", and
+    /// `retry` still holds the upload job, so it uploads before sending.
+    @Test func retryAfterUnknownAttachmentUploadsAgain() async throws {
+        let (store, source) = try await started()
+        let (a, _) = try await twoAttachments(store)
+        await source.forgetBlobBeforeNextSubmits(a.ref.hash, times: 2)
+        let key = IdempotencyKey("attach-swept-twice")
+        await #expect(throws: HomeRejection.invalid("unknown_attachment")) {
+            try await store.send(conversation: conversation, text: "", attachments: [a], key: key)
+        }
+        let failed = try #require(store.transcript(for: conversation).last)
+        #expect(failed.delivery == .notDelivered(.invalid("unknown_attachment")))
+        #expect(failed.parts == [.attachment(a.ref)])
+        #expect(await !source.hasBlob(a.ref.hash))
+
+        try await store.retry(failed.id)
+        await waitUntil { store.log.isEmpty }
+        #expect(store.transcript(for: conversation).last?.delivery == .committed)
+        #expect(store.transcript(for: conversation).last?.parts == [.attachment(a.ref)])
+        #expect(await source.hasBlob(a.ref.hash))
+        #expect(await source.uploadCalls.filter { $0 == a.ref.hash }.count == 3)
+    }
+
     @Test func fetchWithoutALocalCopyNamesTheMessagePart() async throws {
         let (store, source) = try await started()
         let (a, b) = try await twoAttachments(store)
