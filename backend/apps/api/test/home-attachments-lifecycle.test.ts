@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 import type { PresignInput } from "../src/r2-presign.ts"
 import { attachmentPart, bytesOf, group, intent, op, post, runInDurableObject, sha, signIn, testEnv, upload } from "./home-attachments-support.ts"
 import { fireAlarm, quiesce } from "./setup/alarm.ts"
+import { attachmentWakeAt } from "../src/home-attachment-gc.ts"
 
 type Inst = { nextWakeAt(s: unknown, now: number): number | null }
 const VIDEO = { mime_type: "video/mp4", name: "slow.mp4", width: undefined, height: undefined }
@@ -346,5 +347,38 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
     const wakeAt = await runInDurableObject(stub, async (i) => i.nextWakeAt(i.boundEngine.currentState, Date.now()))
     expect(wakeAt === null || wakeAt > Date.now() + 3_600_000).toBe(true)
     await restore()
+  })
+
+  it("with a drop queued, the attachment wake time is a real time and every setAlarm call gets a finite time > 0", async () => {
+    const alice = await signIn("att-gc-setalarm-alice")
+    const g = await group(alice)
+    const stub = doOf(g.id)
+    await upload(alice, g.id, bytesOf("its release fails, so its drop stays queued"))
+    const restore = await failReleases(stub)
+    const result = await runInDurableObject(stub, async (i, state) => {
+      const times: Array<number> = []
+      const setAlarm = state.storage.setAlarm.bind(state.storage)
+      state.storage.setAlarm = (t: number | Date, o?: unknown) => {
+        times.push(t instanceof Date ? t.getTime() : t)
+        return setAlarm(t, o as never)
+      }
+      try {
+        // The deletion queues a drop whose release fails (older code threw here; either way the drop stays).
+        await i.deleteAttachmentStorage(g.id).catch(() => undefined)
+        await quiesce(i, state)
+        const wakeAt = attachmentWakeAt(i.sqlStore)
+        // A commit with the drop queued: afterCommit reads the alarm, then sets it.
+        await i.submit(g.id, alice.principal, { t: "op", op: "message.send", params: { client_msg_id: "after", parts: [{ type: "text", text: "hi" }] }, idempotency_key: "after" })
+        await state.storage.getAlarm()
+        return { wakeAt, alarm: await state.storage.getAlarm(), times }
+      } finally {
+        state.storage.setAlarm = setAlarm
+      }
+    })
+    await restore()
+    expect(result.wakeAt).toBeGreaterThan(0)
+    expect(result.times.length).toBeGreaterThan(0)
+    for (const t of result.times) expect(Number.isFinite(t) && t > 0).toBe(true)
+    expect(result.alarm).not.toBeNull()
   })
 })
