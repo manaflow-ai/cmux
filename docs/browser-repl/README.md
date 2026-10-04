@@ -280,11 +280,14 @@ rest. Measurements: [performance.md](performance.md).
   always hold everything read, so code can search them for free. Reading
   is bounded too, because a hostile page can hold millions of nodes and the
   walk runs on the page's main thread: one snapshot reads at most 250,000
-  nodes over all its frames (frames inside a frame split what it left, and
-  one past the budget prints `[not read: the snapshot's node budget is used
-  up]`), and a frame's walk stops after 8 s. A cut snapshot ends with
-  `# the page is too large to read whole: the snapshot stopped after
-  250,000 nodes; …`; snapshot a part of the page (`snapshot(ref)`, a
+  nodes and 2,000,000 characters of text, names, values and URLs (one text
+  node or field value can hold megabytes) over all its frames (frames
+  inside a frame split what it left, and one past the budget prints
+  `[not read: the snapshot's node budget is used up]`, or `size budget`),
+  and a frame's walk stops after 8 s. The string that passes the size
+  budget is cut with `…`. A cut snapshot ends with `# the page is too large
+  to read whole: the snapshot stopped after 250,000 nodes; …` (or `after
+  2,000,000 characters`); snapshot a part of the page (`snapshot(ref)`, a
   locator) to read further. Printing a
   snapshot (the REPL's auto-print, `String(s)`, `console.log(s)`) shows at
   most `maxChars` characters, 20,000 by default (about 6,000 tokens; five
