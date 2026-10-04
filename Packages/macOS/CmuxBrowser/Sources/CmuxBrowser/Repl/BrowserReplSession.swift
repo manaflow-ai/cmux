@@ -122,11 +122,25 @@ public final class BrowserReplSession: @unchecked Sendable {
 
     private enum HeldCallback {
         case timer(Int)
-        case event(name: String, payload: String)
+        /// `reserved`: what the event holds of the queued-event budget.
+        case event(name: String, payload: String, reserved: Int)
     }
 
     /// The most page events held back at once; past it the oldest go.
     static let maxHeldEvents = 10_000
+
+    /// The most page events queued for the session's thread or held back
+    /// at once, and the most bytes they hold; an event past either is
+    /// dropped where it arrives, before it is queued.
+    static let maxQueuedEvents = 10_000
+    static let maxQueuedEventBytes = 64 << 20
+
+    /// Page events queued or held, their bytes, and those dropped where
+    /// they arrived since the last cell's notice; guarded by `eventLock`.
+    private let eventLock = NSLock()
+    private var queuedEvents = 0
+    private var queuedEventBytes = 0
+    private var eventsDroppedOnArrival = 0
 
     /// One evaluation's result. It is finished exactly once: by the JS
     /// thread when the cell settles, or from outside it by the timeout or
@@ -889,7 +903,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         if case .event = callback {
             if heldEventCount >= Self.maxHeldEvents,
                let oldest = heldCallbacks.firstIndex(where: { if case .event = $0 { true } else { false } }) {
-                heldCallbacks.remove(at: oldest)
+                if case .event(_, _, let reserved) = heldCallbacks.remove(at: oldest) { releaseEvent(reserved) }
                 heldEventCount -= 1
                 eventsDropped += 1
             }
@@ -920,6 +934,7 @@ public final class BrowserReplSession: @unchecked Sendable {
     private func releaseOneHeldCallback() {
         guard !heldCallbacks.isEmpty else { return }
         guard let context, !isClosedNow, let entryPoints else {
+            for case .event(_, _, let reserved) in heldCallbacks { releaseEvent(reserved) }
             heldCallbacks.removeAll()
             heldEventCount = 0
             return
@@ -934,8 +949,9 @@ public final class BrowserReplSession: @unchecked Sendable {
             if let handler = entryPoints.onTimer {
                 enter(context, firedTimer: id) { _ = handler.call(withArguments: [id]) }
             }
-        case .event(let name, let payload):
+        case .event(let name, let payload, let reserved):
             heldEventCount -= 1
+            releaseEvent(reserved)
             if let handler = entryPoints.onEvent {
                 enter(context) { _ = handler.call(withArguments: [name, payload]) }
             }
@@ -979,8 +995,15 @@ public final class BrowserReplSession: @unchecked Sendable {
         if callbacksHeld > 0 {
             lines.append("cmux browser repl: \(callbacksHeld) timer or event callbacks between cells waited, because callbacks outside a cell may use at most 10% of the session's JavaScript time (and \(limit) at once); those still waiting run during this cell")
         }
+        let droppedOnArrival = eventLock.withLock {
+            defer { eventsDroppedOnArrival = 0 }
+            return eventsDroppedOnArrival
+        }
         if eventsDropped > 0 {
             lines.append("cmux browser repl: \(eventsDropped) page events were dropped because \(Self.maxHeldEvents) were already waiting")
+        }
+        if droppedOnArrival > 0 {
+            lines.append("cmux browser repl: \(droppedOnArrival) page events were dropped because \(Self.maxQueuedEvents) events or \(Self.maxQueuedEventBytes >> 20) MiB of them were already waiting for the session's thread")
         }
         callbacksStopped = 0
         callbacksHeld = 0
@@ -1387,22 +1410,55 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
     }
 
+    /// Queues a page event for the session's thread. Past
+    /// `maxQueuedEvents` events or `maxQueuedEventBytes` bytes queued or
+    /// held, it is dropped here, before anything holds it, and the next
+    /// cell says so; a finished download still becomes readable.
     private func deliverEvent(name: String, payloadJSON: String) {
-        thread.perform { [weak self] in
-            guard let self else { return }
-            if name == "download.finished",
-               let path = JSONSerialization.browserReplObject(payloadJSON)["path"] as? String {
-                self.fileSystem.sandbox.allowReading(path)
+        let reserved = name.utf8.count + payloadJSON.utf8.count
+        let admitted: Bool = eventLock.withLock {
+            guard queuedEvents < Self.maxQueuedEvents, queuedEventBytes + reserved <= Self.maxQueuedEventBytes else {
+                eventsDroppedOnArrival += 1
+                return false
             }
-            guard let context = self.context, !self.isClosedNow, let handler = self.entryPoints?.onEvent else { return }
+            queuedEvents += 1
+            queuedEventBytes += reserved
+            return true
+        }
+        let downloadPath = name == "download.finished"
+            ? JSONSerialization.browserReplObject(payloadJSON)["path"] as? String
+            : nil
+        guard admitted else {
+            if let downloadPath {
+                thread.perform { [weak self] in self?.fileSystem.sandbox.allowReading(downloadPath) }
+            }
+            return
+        }
+        let queued = thread.perform { [weak self] in
+            guard let self else { return }
+            if let downloadPath { self.fileSystem.sandbox.allowReading(downloadPath) }
+            guard let context = self.context, !self.isClosedNow, let handler = self.entryPoints?.onEvent else {
+                self.releaseEvent(reserved)
+                return
+            }
             // An event masking would grow past the limit arrives without its payload.
             let payload = (try? self.boundary.redactJSON(payloadJSON))
                 ?? (JSONSerialization.browserReplString(["withheld": BrowserReplSecretStore.limitMessage(payloadJSON.utf8.count)]) ?? "{}")
             if self.mustHoldCallback {
-                self.hold(.event(name: name, payload: payload))
+                self.hold(.event(name: name, payload: payload, reserved: reserved))
                 return
             }
+            self.releaseEvent(reserved)
             self.enter(context) { _ = handler.call(withArguments: [name, payload]) }
+        }
+        if !queued { releaseEvent(reserved) }
+    }
+
+    /// An event left the queue (delivered or dropped): its budget is free.
+    private func releaseEvent(_ reserved: Int) {
+        eventLock.withLock {
+            queuedEvents -= 1
+            queuedEventBytes -= reserved
         }
     }
 }

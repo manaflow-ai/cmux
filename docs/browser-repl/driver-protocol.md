@@ -644,7 +644,10 @@ Entry points the runtime defines, called by the app:
   credit left when it starts. While the credit is in debt, timer and event
   callbacks wait in order (at most 10,000 events; past that the oldest
   event is dropped) until it recovers or a cell runs, when they run during
-  that cell; driver results are never held. When the limit ends a call,
+  that cell; driver results are never held. Page events queued for the
+  session's thread or waiting are bounded where they arrive, before they
+  are queued: past 10,000 events or 64 MiB of them, a new one is dropped
+  (a finished download still becomes readable). When the limit ends a call,
   the timers it set (an interval re-arming itself) are cancelled. The next
   cell's output starts with `error` lines saying how many callbacks were
   stopped, waited or were dropped. After the session closes
