@@ -29,6 +29,10 @@
     return wrapped;
   })();
   const AGENT = 'globalThis[Symbol.for("cmux.browserRepl.agent")]';
+  // The page-agent methods frame.observe allows (browser lead contract v1).
+  // hitTarget, scrollIntoViewIfNeeded, clickPoint and the other acts are not
+  // among them.
+  const OBSERVE_METHODS = new Set(["ping", "snapshot", "stats", "refState", "refForHandle", "elementAt", "splitFrames", "queryAll", "describe", "strictError", "elementState", "checkStates", "rect", "contentBox", "iframeHandles", "retarget", "read", "activeHandle"]);
   const DEFAULT_TIMEOUT = 30000;
   const UNDEFINED_MARK = "__cmuxUndefined__";
 
@@ -1012,8 +1016,31 @@
       const r = await this._call("page", wrapped, args, handles);
       return r && typeof r === "object" && !Array.isArray(r) && r[UNDEFINED_MARK] === 1 && Object.keys(r).length === 1 ? undefined : r;
     }
+    // Page-agent calls. Reads go through frame.observe, the host's read-only
+    // allowlist, so a lease never counts them as acts; acts and every other
+    // method stay frame.evaluate in the agent world. A host without
+    // frame.observe answers `unsupported` once and the session uses
+    // frame.evaluate from then on; any other error (a refusal included) is
+    // the call's error.
     _agent(method, ...args) {
+      if (OBSERVE_METHODS.has(method) && !this._session._observeUnsupported) return this._observe(method, args);
       return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args]);
+    }
+    async _observe(method, args) {
+      const blocked = this._page._blockedError();
+      if (blocked) throw blocked;
+      try {
+        return await this._page._raceDialog(this._session.call("frame.observe", {
+          targetId: this._page._targetId,
+          frameId: this._id || undefined,
+          method,
+          args,
+        }), true);
+      } catch (e) {
+        if (!e || e.code !== "unsupported") throw e;
+        this._session._observeUnsupported = true;
+        return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args]);
+      }
     }
     async _contentFrame(handle) {
       try {
@@ -1416,6 +1443,15 @@
     async fill(value, options = {}) {
       if (typeof value !== "string" && !this._page._isSecret(value)) throw new Error(`locator.fill: value: expected string, got ${typeof value}`);
       await this._withElement(options, "locator.fill", ["visible", "enabled", "editable"], async (frame, handle) => {
+        if (this._page._isSecretName(value)) {
+          // Select the field's text with a stand-in value that passes the
+          // field checks, then let the host type the secret over it.
+          const r = await frame._agent("fill", handle, "0");
+          if (r === "error:notconnected") throw Object.assign(new Error("Element is not attached to the DOM"), { code: "stale" });
+          if (r !== "needsinput") throw new Error("locator.fill: a secret can only be typed into a text field");
+          await this._page._insertSecret(value, "locator.fill");
+          return;
+        }
         value = await this._page._inputText(frame, value, "locator.fill");
         const r = await frame._agent("fill", handle, value);
         if (r === "error:notconnected") throw Object.assign(new Error("Element is not attached to the DOM"), { code: "stale" });
@@ -1443,6 +1479,7 @@
     // that receives it.
     async _typeInto(text, options, title) {
       if (typeof text !== "string" && !this._page._isSecret(text)) throw new Error(`${title}: text: expected string, got ${typeof text}`);
+      if (this._page._isSecretName(text)) return this._focusThen(options, title, () => this._page._insertSecret(text, title));
       return this._focusThen(options, title, async (frame) => {
         const value = await this._page._inputText(frame, text, title);
         // A secret handle goes to the host whole; it resolves the value for
@@ -2428,6 +2465,24 @@
     }
     _isSecret(value) {
       return !!(this._session.agentTools && this._session.agentTools.isSecret(value));
+    }
+    // main's secret(name): a name only, no handle object, typed by the host
+    // from `input.insertText { secret }` (hosts with the "secret.insert"
+    // capability). Other hosts get a {__secret: name} handle (below).
+    _isSecretName(value) {
+      return this._isSecret(value) && typeof value.__secret !== "string";
+    }
+    // Types a secret(name) into the focused element. The value never enters
+    // this context: the host substitutes it and types it only when the
+    // focused frame's own origin matches the secret's domains, checked again
+    // on every call (so on every retry).
+    async _insertSecret(secret, title) {
+      try {
+        await this._input("input.insertText", { targetId: this._targetId, secret: secret.name });
+      } catch (e) {
+        if (e && /^secret /.test(e.message || "")) throw new Error(`${title}: ${e.message}`);
+        throw e;
+      }
     }
     // A secret(name) value stays a {__secret: name} handle: the host resolves
     // it for the frame that receives it, after its domain check.

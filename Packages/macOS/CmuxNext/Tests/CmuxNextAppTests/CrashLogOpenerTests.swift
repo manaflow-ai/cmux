@@ -88,5 +88,11 @@ import Testing
         #expect(descriptor.surfaces.contains(.palette))
         #expect(descriptor.surfaces.contains(.menu))
         #expect(descriptor.mainMenu == .help)
+        // `cmux settings show-crash-logs` is a CLI verb (not only
+        // `cmux action run help.showCrashLogs`); agents do not get it as an
+        // MCP tool (it opens an app window on the user's desktop).
+        #expect(descriptor.cliName == "settings show-crash-logs")
+        #expect(descriptor.surfacePlan.cli == .offered)
+        #expect(descriptor.surfacePlan.mcpExemption == .systemChange)
     }
 }

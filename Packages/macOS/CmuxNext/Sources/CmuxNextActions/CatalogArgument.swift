@@ -99,6 +99,12 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "path", title: String(localized: "argument.path", defaultValue: "Path", bundle: .module), kind: .string)
     }
 
+    /// A file to open; without one the action asks with the cmux picker.
+    static var optionalPathString: ActionArgument {
+        ActionArgument(name: "path", title: String(localized: "argument.path", defaultValue: "Path", bundle: .module), kind: .string,
+                       isRequired: false)
+    }
+
     static var contentsString: ActionArgument {
         ActionArgument(name: "contents", title: String(localized: "argument.contents", defaultValue: "Contents", bundle: .module), kind: .string)
     }

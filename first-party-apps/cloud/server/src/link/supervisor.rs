@@ -6,6 +6,7 @@
 //! reconnects by itself, nothing queues).
 
 use super::argv::{LinkCommand, LinkLine, parse_line};
+use super::dial::DialCode;
 use super::spawner::{LinkEvents, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag, LinkWake};
 use crate::clock::{Clock, SystemClock, Timer};
 use crate::connector::iface::{Carrier, CarrierEvent, channel_id};
@@ -31,14 +32,21 @@ struct Link {
     /// The ready deadline of a connecting link; dropped (cancelled) when
     /// the link is up or ended.
     deadline: Option<Timer>,
+    /// The typed `link.dial` refusal that ended this generation, if any.
+    refused: Option<DialCode>,
 }
 
 /// Why a connect did not give a carrier.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkFailure {
     Revoked(String),
-    Down { retryable: bool, reason: String },
+    Down {
+        retryable: bool,
+        reason: String,
+    },
     Spawn(String),
+    /// `cmux link dial` refused the machine's host (super::dial).
+    Dial(DialCode),
 }
 
 pub struct LinkSupervisor {
@@ -55,7 +63,7 @@ pub struct LinkSupervisor {
     clock: Arc<dyn Clock>,
 }
 
-/// The Swift link's bound on the first `connection-snapshot` line.
+/// The bound on the carrier's first `carrier-ready` line (it binds, then answers).
 pub const READY_DEADLINE: Duration = Duration::from_secs(60);
 
 impl LinkSupervisor {
@@ -124,7 +132,7 @@ impl LinkSupervisor {
     }
 
     /// Starts the link process and blocks until its first
-    /// `connection-snapshot` line, its exit or its ready deadline. A link
+    /// `carrier-ready` line, its exit or its ready deadline. A link
     /// that already connects is waited for, not replaced.
     pub fn spawn_and_wait(
         &mut self,
@@ -171,6 +179,9 @@ impl LinkSupervisor {
         };
         if link.generation != generation {
             return Some(replaced());
+        }
+        if let Some(code) = &link.refused {
+            return Some(Err(LinkFailure::Dial(code.clone())));
         }
         Some(match &link.state {
             LinkState::Connecting => return None,
@@ -249,6 +260,7 @@ impl LinkSupervisor {
                 state: LinkState::Connecting,
                 process: Some(process),
                 deadline: Some(deadline),
+                refused: None,
             },
         );
         Ok(tag.generation)
@@ -292,19 +304,23 @@ impl LinkSupervisor {
         }
         match event {
             LinkProcessEvent::Line { tag, line } => {
-                if link.state != LinkState::Connecting {
-                    return;
-                }
-                if let LinkLine::Connected { local_socket } = parse_line(&line) {
-                    let carrier = Carrier {
-                        id: channel_id(CONNECTOR_KIND, &tag.machine, tag.generation),
-                        target: tag.machine.clone(),
-                        generation: tag.generation,
-                        socket: local_socket,
-                    };
-                    link.state = LinkState::Up(carrier.clone());
-                    link.deadline = None;
-                    self.events.push(CarrierEvent::Up { carrier });
+                let live = matches!(link.state, LinkState::Connecting | LinkState::Up(_));
+                match parse_line(&line) {
+                    LinkLine::Connected { local_socket } if link.state == LinkState::Connecting => {
+                        let carrier = Carrier {
+                            id: channel_id(CONNECTOR_KIND, &tag.machine, tag.generation),
+                            target: tag.machine.clone(),
+                            generation: tag.generation,
+                            socket: local_socket,
+                        };
+                        link.state = LinkState::Up(carrier.clone());
+                        link.deadline = None;
+                        self.events.push(CarrierEvent::Up { carrier });
+                    }
+                    // A stream's dial was refused: the link of this
+                    // generation ends with the typed refusal.
+                    LinkLine::DialFailed(code) if live => self.refuse(&tag, code),
+                    _ => {}
                 }
             }
             LinkProcessEvent::Exited { tag, code } => {
@@ -352,6 +368,46 @@ impl LinkSupervisor {
         }
     }
 
+    /// A dial of this generation was refused: the generation ends with the
+    /// typed refusal. A refusal that ends access (unknown
+    /// host, not authorized) also revokes the machine's link.
+    fn refuse(&mut self, tag: &LinkTag, code: DialCode) {
+        let reason = match &code {
+            DialCode::Unavailable(why) => why.clone(),
+            other => format!("cmux link refused the dial: {}", other.as_str()),
+        };
+        let revokes = code.revokes();
+        let Some(link) = self.links.get_mut(&tag.machine) else { return };
+        let opened = matches!(link.state, LinkState::Up(_));
+        link.deadline = None;
+        if let Some(mut process) = link.process.take() {
+            process.terminate();
+        }
+        link.refused = Some(code);
+        link.state = LinkState::Down { retryable: !revokes, reason: reason.clone() };
+        if revokes {
+            link.state = LinkState::Revoked { reason: reason.clone() };
+            self.events.push(CarrierEvent::Revoked {
+                target: tag.machine.clone(),
+                reason,
+                generation: opened.then_some(tag.generation),
+            });
+        } else {
+            self.events.push(CarrierEvent::Down {
+                target: tag.machine.clone(),
+                generation: tag.generation,
+                retryable: true,
+                reason,
+                opened,
+            });
+        }
+    }
+
+    /// The refusal that ended the last generation of `machine`, if any.
+    pub fn refusal(&self, machine: &str) -> Option<&DialCode> {
+        self.links.get(machine).and_then(|l| l.refused.as_ref())
+    }
+
     fn stop_process(&mut self, machine: &str) {
         if let Some(mut process) = self.links.get_mut(machine).and_then(|l| l.process.take()) {
             process.terminate();
@@ -390,6 +446,7 @@ impl LinkSupervisor {
                 state: LinkState::Revoked { reason: reason.to_owned() },
                 process: None,
                 deadline: None,
+                refused: None,
             },
         );
         if !already {

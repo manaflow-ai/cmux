@@ -29,6 +29,9 @@ final class PaletteFooterView: NSView {
     var onPrimary: (() -> Void)?
     var onActions: (() -> Void)?
     var onClose: (() -> Void)?
+    /// A click on footer segment `index` (`PalettePageSpec.crumbs`).
+    var onCrumb: ((Int) -> Void)?
+    private var crumbs: [(button: PaletteClickView, label: NSTextField)] = []
 
     private let pageIcon = NSImageView()
     private let pageLabel = PaletteText.label(Typography.caption, tone: .secondary)
@@ -66,7 +69,10 @@ final class PaletteFooterView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    func update(pageTitle: String, pageSymbol: String, primaryTitle: String?, actionsEnabled: Bool, closeTitle: String? = nil) {
+    func update(pageTitle: String, pageSymbol: String, primaryTitle: String?, actionsEnabled: Bool, closeTitle: String? = nil,
+                crumbs titles: [String] = []) {
+        if titles != crumbs.map(\.label.stringValue) { setCrumbs(titles) }
+        pageLabel.isHidden = !titles.isEmpty
         closeLabel.stringValue = closeTitle ?? ""
         closeButton.isHidden = closeTitle == nil
         pageIcon.image = PaletteText.symbol(pageSymbol, size: Metrics.smallIconSize)
@@ -110,6 +116,39 @@ final class PaletteFooterView: NSView {
         let labelX = pageIcon.frame.maxX + Metrics.space3
         let height = pageLabel.intrinsicContentSize.height
         pageLabel.frame = NSRect(x: labelX, y: midY - height / 2, width: max(0, right - Metrics.space4 - labelX), height: height)
+        if !crumbs.isEmpty { layoutCrumbs(from: labelX, to: right - Metrics.space4) }
+    }
+
+    private func setCrumbs(_ titles: [String]) {
+        crumbs.forEach { $0.button.removeFromSuperview() }
+        crumbs = titles.enumerated().map { index, title in
+            let button = PaletteClickView()
+            let label = PaletteText.label(Typography.caption, tone: index == titles.count - 1 ? .primary : .secondary)
+            label.stringValue = index == 0 ? title : "\u{203A} " + title
+            button.addSubview(label)
+            button.onClick = { [weak self] in self?.onCrumb?(index) }
+            button.setAccessibilityRole(.button)
+            button.setAccessibilityLabel(title)
+            addSubview(button)
+            return (button, label)
+        }
+    }
+
+    /// The segments left to right from `x`; leading ones hide when the
+    /// path is wider than `right` (the folder shown stays visible).
+    private func layoutCrumbs(from x: CGFloat, to right: CGFloat) {
+        let widths = crumbs.map { PaletteText.fittingWidth($0.label) + Metrics.space2 }
+        var first = 0
+        while first < crumbs.count - 1, widths[first...].reduce(0, +) > right - x { first += 1 }
+        var left = x
+        for (index, crumb) in crumbs.enumerated() {
+            crumb.button.isHidden = index < first
+            guard index >= first else { continue }
+            let height = crumb.label.intrinsicContentSize.height
+            crumb.button.frame = NSRect(x: left, y: bounds.midY - height / 2, width: widths[index], height: height)
+            crumb.label.frame = NSRect(x: 0, y: 0, width: widths[index], height: height)
+            left += widths[index]
+        }
     }
 
     private func layoutButton(_ button: NSView, label: NSTextField, keys: PaletteKeycapsView, right: CGFloat) -> CGFloat {

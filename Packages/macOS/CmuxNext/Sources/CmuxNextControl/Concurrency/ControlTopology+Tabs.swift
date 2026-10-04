@@ -46,6 +46,8 @@ public struct ControlTabInfo: Sendable, Hashable {
     /// host terminal id there (data-model.md 1.2b).
     public var remoteSessionID: String?
     public var remoteTerminalID: String?
+    /// A browser tab's browser profile id (`default` or a lowercase UUID); nil for other tabs.
+    public var browserProfileID: String?
 
     public init(id: String, surface: String, kind: String, title: String, name: String? = nil, terminalID: String? = nil,
                 columns: Int? = nil, rows: Int? = nil, cwd: String? = nil, url: String? = nil, gitBranch: String? = nil,

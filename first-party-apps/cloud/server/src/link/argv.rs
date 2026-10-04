@@ -1,63 +1,21 @@
-//! The link process command, ported from the Swift `CloudMachineLink`
-//! (Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link): `cmux-tui remote
-//! connect <route> … --headless --json --exit-with-parent --lanes single
-//! [--carrier] --wireguard-hub <sock>`. Flags checked against
-//! `cmux-tui/crates/cmux-tui/src/remote_cli.rs`.
+//! The link carrier command: the per-machine local socket and the `cmux
+//! link dial --host <host_…>` each stream runs (super::dial, super::carrier).
 //!
-//! No credential is ever on argv: the attach token is not used (the
-//! machine's daemon grants carrier authentication on its private route) and
-//! is not even kept (see [`AttachEndpoint`]).
+//! No credential is ever on argv or in the environment: `cmux link`
+//! resolves the host and mints its own dial token (contract 1.7).
 
-use crate::api::{CloudError, codes};
-use serde::Deserialize;
+use super::dial::{DialCode, dial_args};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
-/// `POST /api/vm/:id/attach-endpoint {transport: "cmux-remote"}`, minus the
-/// token: serde drops unknown fields, so the token never reaches a struct,
-/// a log line or argv.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AttachEndpoint {
-    pub transport: String,
-    pub route: String,
-    #[serde(default)]
-    pub trusted_carrier: bool,
-}
-
-impl AttachEndpoint {
-    /// Decodes and checks the answer. The route is a positional argument, so
-    /// it must be a `ws://` or `wss://` URL that cannot read as a flag.
-    pub fn decode(answer: Value) -> Result<Self, CloudError> {
-        let endpoint: Self = serde_json::from_value(answer)
-            .map_err(|e| CloudError::new(codes::BAD_RESPONSE, format!("attach-endpoint: {e}")))?;
-        if endpoint.transport != "cmux-remote" {
-            return Err(CloudError::new(
-                codes::BAD_RESPONSE,
-                format!("attach-endpoint answered transport {:?}", endpoint.transport),
-            ));
-        }
-        let route = endpoint.route.as_str();
-        let scheme_ok = route.starts_with("ws://") || route.starts_with("wss://");
-        let clean =
-            route.len() <= 2048 && !route.chars().any(|c| c.is_whitespace() || c.is_control());
-        if !scheme_ok || !clean {
-            return Err(CloudError::new(
-                codes::BAD_RESPONSE,
-                "attach-endpoint answered a bad route",
-            ));
-        }
-        Ok(endpoint)
-    }
-}
-
 /// Where the link keeps its state and socket, and what it runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkPaths {
-    /// The `cmux-tui` binary (injected by the host).
+    /// The `cmux` binary that runs `link dial` (injected by the host).
     pub binary: PathBuf,
-    /// The WireGuard hub's SOCKS socket (`cmux-tui wg hub`).
+    /// The live `cmux link` socket the host reported (`hub_socket`); a null
+    /// one means no link runs (super::config::LinkConfig::NoHub).
     pub hub_socket: PathBuf,
     /// The remote client's state directory (owner only, 0700).
     pub state_dir: PathBuf,
@@ -76,81 +34,80 @@ impl LinkPaths {
     }
 }
 
-/// A fully built link process command.
+/// A fully built carrier command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkCommand {
+    /// The `cmux` binary; each stream runs `binary args`.
     pub binary: PathBuf,
+    /// The argv of one dial (super::dial::dial_args).
     pub args: Vec<String>,
-    /// The child's whole environment: the spawner clears everything else.
+    /// The dial child's whole environment: the carrier clears everything else.
     pub env: Vec<(String, String)>,
     pub state_dir: PathBuf,
+    /// The carrier's local socket: each connection to it is one dial.
     pub local_socket: PathBuf,
 }
 
-fn arg(path: &Path) -> String {
-    path.to_string_lossy().into_owned()
-}
-
-/// The `remote connect` argv for one machine. `child_env` is the whole
-/// environment of the child apart from its state folder
+/// The carrier command for `machine`, whose overlay host id is `host`.
+/// `child_env` is the whole environment of each dial child
 /// (crate::app_env::AppEnv::child_env).
 pub fn link_command(
     paths: &LinkPaths,
     machine: &str,
-    endpoint: &AttachEndpoint,
+    host: &str,
     child_env: &[(String, String)],
 ) -> LinkCommand {
-    let local_socket = paths.link_socket(machine);
-    let mut args: Vec<String> = vec![
-        "remote".into(),
-        "connect".into(),
-        endpoint.route.clone(),
-        "--device-name".into(),
-        paths.device_name.clone(),
-        "--state-dir".into(),
-        arg(&paths.state_dir),
-        "--local-socket".into(),
-        arg(&local_socket),
-        "--headless".into(),
-        "--json".into(),
-        "--exit-with-parent".into(),
-        "--lanes".into(),
-        "single".into(),
-        // The link's own bound on the first connection; the server has no timer.
-        "--connect-timeout-seconds".into(),
-        "20".into(),
-    ];
-    if endpoint.trusted_carrier {
-        args.push("--carrier".into());
-    }
-    args.push("--wireguard-hub".into());
-    args.push(arg(&paths.hub_socket));
     LinkCommand {
         binary: paths.binary.clone(),
-        args,
-        env: child_env
-            .iter()
-            .cloned()
-            .chain([("CMUX_REMOTE_STATE_DIR".to_owned(), arg(&paths.state_dir))])
-            .collect(),
+        args: dial_args(host),
+        env: child_env.to_vec(),
         state_dir: paths.state_dir.clone(),
-        local_socket,
+        local_socket: paths.link_socket(machine),
     }
 }
 
-/// The JSON lines `remote connect --headless --json` prints. The first
-/// `connection-snapshot` names the local socket.
+/// The carrier's event lines (super::carrier): ready with its socket, or
+/// a stream's typed dial refusal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkLine {
     Connected { local_socket: PathBuf },
+    DialFailed(DialCode),
     Other,
+}
+
+/// `{"event":"carrier-ready","local_socket":...}`.
+pub fn ready_line(local_socket: &Path) -> String {
+    serde_json::json!({ "event": "carrier-ready", "local_socket": local_socket.to_string_lossy() })
+        .to_string()
+}
+
+/// `{"event":"dial-failed","error_code":...,"reason":...}`.
+pub fn dial_failed_line(code: &DialCode) -> String {
+    let reason = match code {
+        DialCode::Unavailable(why) => why.as_str(),
+        _ => "",
+    };
+    serde_json::json!({ "event": "dial-failed", "error_code": code.as_str(), "reason": reason })
+        .to_string()
 }
 
 pub fn parse_line(line: &str) -> LinkLine {
     let Ok(value) = serde_json::from_str::<Value>(line) else { return LinkLine::Other };
-    match (value["event"].as_str(), value["local_socket"].as_str()) {
-        (Some("connection-snapshot"), Some(socket)) if !socket.is_empty() => {
-            LinkLine::Connected { local_socket: PathBuf::from(socket) }
+    match value["event"].as_str() {
+        Some("carrier-ready") => match value["local_socket"].as_str() {
+            Some(socket) if !socket.is_empty() => {
+                LinkLine::Connected { local_socket: PathBuf::from(socket) }
+            }
+            _ => LinkLine::Other,
+        },
+        Some("dial-failed") => {
+            let code = value["error_code"].as_str().unwrap_or_default();
+            LinkLine::DialFailed(match code {
+                "unavailable" => DialCode::Unavailable(
+                    value["reason"].as_str().unwrap_or("cmux link is unavailable").to_owned(),
+                ),
+                other => DialCode::parse(other),
+            })
         }
         _ => LinkLine::Other,
     }

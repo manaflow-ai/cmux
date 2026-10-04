@@ -32,6 +32,9 @@ public enum PaletteEffect {
     case performKeepingOpen(@MainActor () -> Void)
     /// Open a nested list inside the palette.
     case push(PalettePageSpec)
+    /// Show this page in the current one's place, keeping the palette open
+    /// (a tree page's step, ``PaletteHierarchy``).
+    case replace(PalettePageSpec)
     /// Replace the list with inline text entry ("Rename Tab…").
     case textInput(PaletteTextInputSpec)
     /// Decided when the command runs, not when the row is built: rows are

@@ -53,8 +53,19 @@ impl FakeSpawner {
         let index = log.tags.iter().rposition(|t| t.machine == machine).expect("spawned");
         let tag = log.tags[index].clone();
         let ready =
-            serde_json::json!({ "event": "connection-snapshot", "local_socket": socket_for(&tag) });
+            serde_json::json!({ "event": "carrier-ready", "local_socket": socket_for(&tag) });
         log.senders[index].send(LinkProcessEvent::Line { tag, line: ready.to_string() }).unwrap();
+    }
+
+    /// A stream of the last carrier of `machine` is refused with this
+    /// `link.dial` error code (as the real carrier reports it).
+    pub fn refuse(&self, machine: &str, code: &str) {
+        let log = self.log();
+        let index = log.tags.iter().rposition(|t| t.machine == machine).expect("spawned");
+        let failed = serde_json::json!({ "event": "dial-failed", "error_code": code });
+        log.senders[index]
+            .send(LinkProcessEvent::Line { tag: log.tags[index].clone(), line: failed.to_string() })
+            .unwrap();
     }
 
     /// The last link process of `machine` exits with `code`.
@@ -102,7 +113,7 @@ impl LinkSpawner for FakeSpawner {
             Script::Ready => {
                 events.send(line(r#"{"event":"starting"}"#)).unwrap();
                 let ready = serde_json::json!({
-                    "event": "connection-snapshot",
+                    "event": "carrier-ready",
                     "local_socket": socket_for(&tag),
                 });
                 events.send(line(&ready.to_string())).unwrap();

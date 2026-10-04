@@ -72,6 +72,10 @@ nonisolated public struct PaletteNavReducer: Sendable {
         case .refresh:
             let top = state.levels.count - 1
             return [reload(&state.levels[top])]
+        case .restart(let query):
+            let top = state.levels.count - 1
+            state.levels[top].rows = []
+            return [edit(&state.levels[top], to: query)]
         }
     }
 

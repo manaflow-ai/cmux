@@ -247,12 +247,8 @@ impl<C: ControlPlane> Server<C> {
     pub fn with_parts(
         control_plane: C,
         attach: crate::link::Attach,
-        mut edge: crate::ports::Edge,
+        edge: crate::ports::Edge,
     ) -> Self {
-        // The pinned host keys are read once, at start.
-        if let Some(path) = attach.env().known_hosts_path() {
-            edge.load_known_hosts(path);
-        }
         Self {
             control_plane,
             projection: Projection::default(),
@@ -301,17 +297,25 @@ impl<C: ControlPlane> Server<C> {
     /// Wakes the serve loop after each link event and each transfer end.
     pub(crate) fn set_wake(&mut self, wake: crate::link::LinkWake) {
         self.attach.supervisor_mut().set_wake(Arc::clone(&wake));
-        self.edge.transfers.set_wake(wake);
+        self.edge.transfers.set_wake(Arc::clone(&wake));
+        self.edge.file_jobs.set_wake(wake);
+    }
+
+    /// Records the end of a file op that ran on a worker under `key`: a
+    /// result is replayed for a same-key retry; refused arguments free the
+    /// key; any other error leaves the attempt open (a retry runs again).
+    pub(crate) fn settle_key(&mut self, key: Option<&str>, outcome: &Result<Value, CloudError>) {
+        let Some(key) = key else { return };
+        match outcome {
+            Ok(result) => self.ledger.succeed(key, result.clone()),
+            Err(error) if error.code == codes::INVALID_ARGS => self.ledger.forget(key),
+            Err(_) => {}
+        }
     }
 
     /// Forwards and routes closed by link state since the last call.
     pub fn take_edge_events(&mut self) -> Vec<crate::ports::EdgeDown> {
         self.edge.take_events()
-    }
-
-    /// One Cloud API call context for an attach op.
-    pub(crate) fn ctx<'a>(&'a mut self, op: &'a str, key: Option<&'a str>) -> Ctx<'a, C> {
-        Ctx::new(&mut self.control_plane, &mut self.projection, op, key)
     }
 
     pub fn control_plane(&self) -> &C {
@@ -342,11 +346,26 @@ impl<C: ControlPlane> Server<C> {
     /// `cloud.machine.removed`; other Cloud events change no machine) to
     /// the projection by revision (`crate::api::events`).
     pub fn team_event(&mut self, event: &str, data: &Value) -> Result<(), CloudError> {
+        // Any change of a machine record may change its link facts.
+        let machine = data["machine"].as_str().or_else(|| data["machine"]["id"].as_str());
+        if let Some(machine) = machine {
+            self.attach.infos.forget(machine);
+        }
         crate::api::events::apply(&mut self.projection, event, data)
     }
 
-    /// Runs one request.
+    /// Runs one request. A signed-out answer also forgets every
+    /// replayable result and every cached link fact of the old session.
     pub fn handle(&mut self, request: &Request) -> Result<Value, CloudError> {
+        let outcome = self.handle_signed(request);
+        if outcome.as_ref().is_err_and(|e| e.code == codes::AUTH_REQUIRED) {
+            self.ledger.clear();
+            self.attach.infos.clear();
+        }
+        outcome
+    }
+
+    fn handle_signed(&mut self, request: &Request) -> Result<Value, CloudError> {
         let Admitted { name, args, key } = admit(request)?;
         let Some(key) = key.as_deref() else {
             return self.run(name, &args, request, None);
@@ -418,7 +437,7 @@ impl<C: ControlPlane> Server<C> {
         if crate::ports::serves(name) {
             return crate::ports::run(self, name, args, origin, key);
         }
-        let mut ctx = Ctx::new(&mut self.control_plane, &mut self.projection, name, key)
+        let mut ctx = Ctx::new(&mut self.control_plane, &mut self.projection, key)
             .with_origin(request.origin);
         let group = name.split('.').nth(1).unwrap_or_default();
         match group {

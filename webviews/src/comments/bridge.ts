@@ -41,10 +41,14 @@ export function diffCommentsBridgeAvailable(): boolean {
   return diffCommentsHandler() != null || pageComments != null;
 }
 
-export async function callDiffComments<T>(method: string, params: Record<string, unknown>): Promise<T> {
+export async function callDiffComments<T>(
+  method: string,
+  params: Record<string, unknown>,
+  options: { opid?: string } = {},
+): Promise<T> {
   const handler = diffCommentsHandler();
   if (handler == null) {
-    if (pageComments != null) return callPageDiffComments<T>(pageComments, method, params);
+    if (pageComments != null) return callPageDiffComments<T>(pageComments, method, params, options.opid);
     throw new DiffCommentsBridgeError("Diff comments bridge is unavailable.");
   }
   const reply = (await handler.postMessage({
@@ -58,9 +62,15 @@ export async function callDiffComments<T>(method: string, params: Record<string,
   return reply.value;
 }
 
-async function callPageDiffComments<T>(page: PageClient, method: string, params: Record<string, unknown>): Promise<T> {
+async function callPageDiffComments<T>(
+  page: PageClient,
+  method: string,
+  params: Record<string, unknown>,
+  opid?: string,
+): Promise<T> {
   try {
-    return await page.call<T>(DIFF_PAGE_COMMENTS_OP, { method, params });
+    // Decision 31: a write carries its intent's opid, so the host applies a resend once.
+    return await page.call<T>(DIFF_PAGE_COMMENTS_OP, { method, params }, opid === undefined ? undefined : { opid });
   } catch (error) {
     if (isPageError(error))
       throw new DiffCommentsBridgeError(error.message || "Diff comments request failed.", error.code);

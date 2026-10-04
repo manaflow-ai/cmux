@@ -39,6 +39,13 @@ bun run check      # what CI runs
 bun run check:fix  # format and apply lint fixes
 ```
 
+Interaction latency (plans/cmux-next/zero-latency.md): `bun run latency` builds the harness pages
+(`test/latency/`) for production and measures every page's named actions (input to paint) in
+headless Chromium and WebKit; it fails when a response does not paint within the input's frame or
+the next one, drops a frame, or has a long task on the input path. `--page`, `--action`,
+`--engine`, `--runs`, `--dev`, `--cpu-throttle 4` and `--ci` (a non-blocking scoreboard) narrow or
+change the run.
+
 Large public stress samples are available through:
 
 ```sh

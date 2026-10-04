@@ -491,6 +491,8 @@ impl Policy {
     }
 }
 
+mod cookies;
+
 /// Parses a list of patterns.
 pub fn parse_patterns(list: &[String]) -> Result<Vec<DomainPattern>, PolicyError> {
     list.iter().map(|raw| DomainPattern::parse(raw)).collect()

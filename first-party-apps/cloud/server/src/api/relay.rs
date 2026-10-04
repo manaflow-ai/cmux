@@ -22,9 +22,6 @@
 //!   or `{"type":"relay.result","id","ok":false,"error":{"code","message","retryable","details"?}}`
 //!   (a `/v1/ops` `OpResponse` as is; a non-200 HTTP answer's `{code, message}` body
 //!   as the error, retryable on 503).
-//! - TRANSITIONAL (attach, scp and file routes until the link slice):
-//!   server -> host `{"type":"relay.request","id","op","method","path","body","idempotency_key"}`;
-//!   host -> server `{"type":"relay.response","id","status","body","error_code"}`.
 //! - host -> server, for any relay call: `{"type":"relay.error","id",
 //!   "code":"not_signed_in"|"unavailable","message"}`
 //! - server -> host: `{"type":"relay.session","id"}`; host -> server:
@@ -49,8 +46,7 @@
 //! on one channel and sends a link change at once, with no op after it.
 
 use super::control_plane::{
-    ControlPlane, HttpCall, HttpReply, RelayError, SessionStatus, WireCall, WireError, WireReply,
-    WireResult,
+    ControlPlane, RelayError, SessionStatus, WireCall, WireError, WireReply, WireResult,
 };
 use super::error::{CloudError, codes};
 use serde_json::{Value, json};
@@ -265,8 +261,7 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
             }
             let expected = match kind.as_str() {
                 Some("relay.session") => "relay.session",
-                Some("relay.op") => "relay.result",
-                _ => "relay.response",
+                _ => "relay.result",
             };
             if message["type"] != expected {
                 return Err(RelayError::Unavailable("unexpected relay answer".into()));
@@ -407,21 +402,6 @@ impl<R: BufRead, W: Write> ControlPlane for HostRelay<R, W> {
                 }),
             None => Err(RelayError::Unavailable("relay result has no ok".into())),
         }
-    }
-
-    fn classic(&mut self, call: &HttpCall) -> Result<HttpReply, RelayError> {
-        let mut request = serde_json::to_value(call).expect("HttpCall serializes");
-        request["type"] = json!("relay.request");
-        let answer = self.exchange(request)?;
-        let status = answer["status"]
-            .as_u64()
-            .and_then(|s| u16::try_from(s).ok())
-            .ok_or_else(|| RelayError::Unavailable("relay answer has no status".into()))?;
-        Ok(HttpReply {
-            status,
-            body: answer.get("body").cloned().unwrap_or(Value::Null),
-            error_code: answer["error_code"].as_str().map(str::to_owned),
-        })
     }
 
     fn session(&mut self) -> Result<SessionStatus, RelayError> {

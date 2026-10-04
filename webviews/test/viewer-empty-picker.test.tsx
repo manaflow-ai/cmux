@@ -14,6 +14,7 @@ import {
   unmount,
 } from "./viewer-empty-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { act } from "react";
 import type { PickerEntry, PickerListing, PickerMode } from "../src/viewer-empty/ops";
 import { PathPicker } from "../src/viewer-empty/PathPicker";
 import { viewerEmptyStrings } from "../src/viewer-empty/strings";
@@ -348,7 +349,8 @@ describe("path picker", () => {
   test("a query starting with . lists hidden folders", async () => {
     const picker = await mountPicker();
     await type(picker.field(), ".");
-    expect(picker.calls.at(-1)).toEqual({ path: HOME, mode: "folder", hidden: true });
+    // The level is listed again with hidden entries (later calls prefetch the next levels).
+    expect(picker.calls).toContainEqual({ path: HOME, mode: "folder", hidden: true });
     expect(picker.names()).toEqual([".config"]);
     await type(picker.field(), "");
     expect(picker.names()).toEqual(["Documents", "fun", "zeta"]);
@@ -365,6 +367,27 @@ describe("path picker", () => {
     )!;
     await click(choose);
     expect(picker.chosen).toEqual([`${HOME}/fun`]);
+  });
+
+  test("zero latency: Tab into a prefetched folder and Backspace back show the level at once", async () => {
+    const picker = await mountPicker();
+    // The highlighted folder and the parent were prefetched when the level appeared.
+    expect(picker.calls).toContainEqual({ path: `${HOME}/Documents`, mode: "folder", hidden: false });
+    const before = picker.calls.length;
+    picker.field().focus();
+    // No await between the key and the check: the level must be there in the key's own frame.
+    act(() => {
+      picker.field().dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    });
+    expect(picker.crumbs()).toEqual(["~", "Documents"]);
+    expect(picker.calls.length).toBeGreaterThanOrEqual(before);
+    // Showing Documents prefetched its parent; let that answer, then go up with no await again.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    act(() => {
+      picker.field().dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true }));
+    });
+    expect(picker.crumbs()).toEqual(["~"]);
+    expect(picker.names()).toEqual(["Documents", "fun", "zeta"]);
   });
 
   test("Enter in an empty folder chooses it", async () => {

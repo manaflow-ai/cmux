@@ -80,7 +80,7 @@ extension SettingDescriptor {
         case .color: return .string("#336699")
         case .sound: return .string("default")
         case .url: return .string("")
-        case .hostList: return .array([])
+        case .hostList, .folderList: return .array([])
         case .timeRange: return .object(["start": .string("22:00"), "end": .string("07:00")])
         case .theme: return .string("Dracula")
         case .fontFamily: return .string("Menlo")

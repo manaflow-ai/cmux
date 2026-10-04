@@ -147,4 +147,31 @@ import Testing
         let refused = await thumbnails.resource(for: PageResourceRequest(prefix: "backdrop", path: ["system:/etc/hosts"], url: url))
         #expect(refused == nil, "only catalog ids are served")
     }
+
+    /// R82 commit 5: a live preview applies without writing the file; preview.end restores; a
+    /// managed key or a refused value is not previewed.
+    @Test func livePreviewAppliesWithoutAWriteAndEnds() async throws {
+        let (provider, settings, directory) = try await make()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let descriptor = try #require(SettingsSchema.all.first { $0.id == "appearance.density" })
+        let answer = try await provider.call("cmux.settings.preview", params: ["key": "appearance.density", "value": "compact"], context: context)
+        #expect(answer["previewing"] == "appearance.density")
+        #expect(settings.previewingKey == "appearance.density")
+        #expect(try await settings.file.value(at: descriptor.path) == nil, "a preview never writes")
+        _ = try await provider.call("cmux.settings.preview.end", params: ["key": "appearance.density"], context: context)
+        #expect(settings.previewingKey == nil)
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.settings.preview", params: ["key": "appearance.density", "value": .object(["x": 1])],
+                                        context: context)
+        }
+        let (managedProvider, managedSettings, managedDirectory) = try await make(managed: ManagedPreferences(forced: ["appearance.density": "compact"]))
+        defer { try? FileManager.default.removeItem(at: managedDirectory) }
+        await managedSettings.reload()
+        do {
+            _ = try await managedProvider.call("cmux.settings.preview", params: ["key": "appearance.density", "value": "comfortable"], context: context)
+            Issue.record("a managed key was previewed")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.settings.managed")
+        }
+    }
 }

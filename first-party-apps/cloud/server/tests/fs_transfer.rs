@@ -1,21 +1,17 @@
-//! `cloud.file.push` and `cloud.file.pull`: a fresh in-memory key per
-//! transfer, the host key pinned from the endpoint answer, and no key text in
-//! argv, logs or errors. No network: the transfer is a fake, or the real one
-//! with binaries that do not exist.
+//! `cloud.file.push` and `cloud.file.pull` through the machine's daemon on
+//! the link (behind `fs-v1`). No network: the transfer is a fake, or the
+//! real one against fake daemon file ops.
 
 mod attach_common;
 mod common;
 mod edge_common;
 
-use cmux_cloud::fs::{
-    Direction, OpenSshTransfer, ScpEndpoint, Transfer, TransferJob, TransferKey, scp_args,
-};
 use cmux_cloud::{Origin, Request};
 use edge_common::rig;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 
-const FIXTURES: &[&str] = &["vm-get", "attach_endpoint_alpha", "scp-endpoint"];
+const FIXTURES: &[&str] = &["vm-get", "connect-info-fs"];
 
 fn scratch_file(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("cmux-cloud-test-{}-{name}", std::process::id()));
@@ -34,147 +30,20 @@ fn push(local: &Path, key: &str) -> Request {
     .origin(Origin::User)
 }
 
-/// Every form of the private key that could leak.
-fn secrets(key: &TransferKey) -> Vec<String> {
-    let text = key.private_openssh();
-    let body: String = text.lines().filter(|l| !l.starts_with("-----")).collect();
-    let mut out = vec![text.to_string(), body];
-    out.extend(text.lines().filter(|l| !l.starts_with("-----") && l.len() > 16).map(str::to_owned));
-    out
-}
-
 #[test]
-fn each_push_uses_a_fresh_key_and_sends_only_its_public_half() {
-    let local = scratch_file("fresh");
-    let mut rig = rig(FIXTURES);
-    rig.server.handle(&push(&local, "p-1")).expect("first push");
-    rig.server.handle(&push(&local, "p-2")).expect("second push");
-    rig.server.wait_transfers();
-    let log = rig.transfer.log();
-    assert_eq!(log.public_keys.len(), 2);
-    assert_ne!(log.public_keys[0], log.public_keys[1], "a new key per transfer");
-    let bodies: Vec<String> = rig
-        .server
-        .control_plane()
-        .calls
-        .iter()
-        .filter(|c| c.path == "/api/vm/vm-alpha01/scp-endpoint")
-        .map(|c| c.body.as_ref().unwrap()["publicKey"].as_str().unwrap().to_owned())
-        .collect();
-    assert_eq!(
-        bodies, log.public_keys,
-        "the endpoint authorized exactly the key the transfer used"
-    );
-    for call in &rig.server.control_plane().calls {
-        if call.path.ends_with("/scp-endpoint") {
-            assert_eq!(call.idempotency_key, None, "a retry must authorize its own key");
-            let body = call.body.as_ref().unwrap().as_object().unwrap();
-            assert_eq!(body.keys().collect::<Vec<_>>(), ["publicKey"]);
-        }
-    }
-    let job = &log.jobs[0];
-    assert_eq!(job.direction, Direction::Push);
-    assert_eq!(job.guest, "/home/cmux/upload.txt");
-    assert_eq!(job.route.ip().to_string(), "127.0.0.1", "the guest SSH port rides the link");
-    assert!(
-        job.endpoint.host_public_key.starts_with("ssh-ed25519 "),
-        "host key pinned from the answer"
-    );
-    let opened = rig.tunnel.log().opened.clone();
-    assert!(opened.is_empty() || opened.iter().all(|o| o.port == 22 && o.host == "localhost"));
-}
-
-#[test]
-fn the_key_is_never_in_argv_debug_or_errors() {
-    let key = TransferKey::generate().unwrap();
-    let debug = format!("{key:?}");
-    let endpoint = ScpEndpoint {
-        host: "10.200.0.2".into(),
-        port: 22,
-        username: "cmux".into(),
-        host_public_key:
-            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBERERERERERERERERERERERERERERERERERERERERER"
-                .into(),
-        expires_at_unix: 4_102_444_800,
-    };
-    let job = TransferJob {
-        machine: "vm-alpha01".into(),
-        direction: Direction::Pull,
-        local: "/tmp/cmux-test/out.txt".into(),
-        guest: "/home/cmux/notes.txt".into(),
-        endpoint,
-        route: "127.0.0.1:40022".parse().unwrap(),
-        env: Vec::new(),
-        ssh: cmux_cloud::app_env::SshFiles {
-            config: "/tmp/x/ssh/config".into(),
-            known_hosts: "/tmp/x/ssh/known_hosts".into(),
-        },
-        temp_dir: std::env::temp_dir(),
-    };
-    let argv =
-        scp_args(&job, Path::new("/tmp/x/agent.sock"), Path::new("/tmp/x/transfer.pub")).join(" ");
-    assert!(argv.contains("StrictHostKeyChecking=yes") && argv.contains("HostKeyAlias=cmux-scp"));
-    assert!(argv.contains("cmux@127.0.0.1:/home/cmux/notes.txt") && argv.contains(" -- "));
-    assert!(!argv.contains(" -i "), "no identity file");
-    assert!(argv.starts_with("-s "), "SFTP protocol: no remote shell reads the path");
-    assert!(argv.contains("IdentitiesOnly=yes"));
-    assert!(argv.contains("IdentityFile=\"/tmp/x/transfer.pub\""));
-    assert!(argv.starts_with("-s "), "SFTP protocol: no remote shell reads the path");
-    // The real transfer with missing binaries fails on its real error path.
-    let real = OpenSshTransfer {
-        ssh: "/nonexistent/ssh".into(),
-        ssh_agent: "/nonexistent/ssh-agent".into(),
-        ssh_add: "/nonexistent/ssh-add".into(),
-        scp: "/nonexistent/scp".into(),
-    };
-    let error = real.run(&job, &key, &cmux_cloud::fs::Cancel::default()).unwrap_err();
-    for secret in secrets(&key) {
-        assert!(!argv.contains(&secret), "argv");
-        assert!(!debug.contains(&secret), "Debug");
-        assert!(!error.message.contains(&secret), "error");
-    }
-    assert!(debug.contains("<redacted>") && debug.contains(&key.public_openssh()));
-}
-
-#[test]
-fn the_private_key_text_is_a_valid_openssh_container_for_its_public_key() {
-    use base64::Engine as _;
-    let key = TransferKey::generate().unwrap();
-    let text = key.private_openssh();
-    assert!(text.starts_with("-----BEGIN OPENSSH PRIVATE KEY-----\n"));
-    let body: String = text.lines().filter(|l| !l.starts_with("-----")).collect();
-    let raw = base64::engine::general_purpose::STANDARD.decode(body).unwrap();
-    assert!(raw.starts_with(b"openssh-key-v1\0"));
-    let public = key.public_openssh();
-    let blob =
-        base64::engine::general_purpose::STANDARD.decode(&public["ssh-ed25519 ".len()..]).unwrap();
-    assert!(raw.windows(blob.len()).any(|w| w == blob.as_slice()), "public blob inside");
-    assert_ne!(TransferKey::generate().unwrap().public_openssh(), public);
-}
-
-#[test]
-fn a_failed_transfer_is_a_typed_error_and_endpoint_answers_are_checked() {
+fn a_failed_transfer_is_a_typed_error_and_the_job_names_the_host() {
     let local = scratch_file("fail");
     let mut rig = rig(FIXTURES);
-    rig.transfer.log().fail_with = Some("scp failed: connection closed".into());
+    rig.transfer.log().fail_with = Some("the daemon link closed".into());
     let started = rig.server.handle(&push(&local, "p-1")).expect("the transfer starts");
     rig.server.wait_transfers();
     let ended = rig.server.take_transfer_events();
     assert_eq!(ended.len(), 1);
     assert_eq!(ended[0].transfer, started["transfer"].as_str().unwrap());
     assert_eq!(ended[0].outcome.as_ref().map_err(|e| e.code), Err("cmux.cloud.transfer_failed"));
-    let mut bad = common::FakeControlPlane::fixture_body("scp-endpoint");
-    bad["hostPublicKey"] = json!("ssh-rsa AAAAB3NzaC1yc2E");
-    rig.server.control_plane_mut().respond("POST", "/api/vm/vm-alpha01/scp-endpoint", 200, bad);
-    let err = rig.server.handle(&push(&local, "p-2")).unwrap_err();
-    assert_eq!(err.code, "cmux.cloud.bad_response", "only one Ed25519 host key is accepted");
-    let mut unpinned = common::FakeControlPlane::fixture_body("scp-endpoint");
-    unpinned.as_object_mut().unwrap().remove("hostPublicKey");
-    let err = ScpEndpoint::decode(unpinned, 1_791_100_000).unwrap_err();
-    assert_eq!(err.code, "cmux.cloud.host_key_unpinned", "never a transfer to an unpinned key");
-    let mut expired = common::FakeControlPlane::fixture_body("scp-endpoint");
-    expired["expiresAtUnix"] = json!(1);
-    assert!(ScpEndpoint::decode(expired, 1_791_100_000).is_err());
+    let job = rig.transfer.log().jobs.last().cloned().expect("a job");
+    assert_eq!(job.target.host, "host-vm-alpha01", "the job dials the machine's host id");
+    assert_eq!(job.target.binary.to_str(), Some("/opt/cmux/bin/cmux-tui"));
 }
 
 #[test]
@@ -206,7 +75,7 @@ fn local_paths_are_checked_and_pull_never_overwrites() {
     .origin(Origin::User);
     assert_eq!(rig.server.handle(&glob).unwrap_err().code, "cmux.cloud.invalid_args");
     assert!(rig.transfer.log().jobs.is_empty());
-    assert!(rig.server.control_plane().no_calls(), "refused before any Cloud API call");
+    assert!(rig.server.control_plane().no_calls(), "refused before any backend call");
 }
 
 #[test]
@@ -248,7 +117,7 @@ fn a_pull_lands_in_a_hidden_name_and_is_published_without_overwrite() {
             .filter(|e| e.file_name().to_string_lossy().contains("cmux-pull"))
             .count()
     };
-    rig.transfer.log().fail_with = Some("scp failed".into());
+    rig.transfer.log().fail_with = Some("the daemon link closed".into());
     rig.server.handle(&pull("u-1")).expect("the pull starts");
     rig.server.wait_transfers();
     let failed = rig.server.take_transfer_events();
@@ -260,7 +129,73 @@ fn a_pull_lands_in_a_hidden_name_and_is_published_without_overwrite() {
     assert_eq!(std::fs::read(&target).unwrap(), b"pulled");
     assert_eq!(leftovers(&dir), 0);
     let landed = rig.transfer.log().jobs.last().unwrap().local.clone();
-    assert_ne!(landed, target, "scp never writes the target name itself");
+    assert_ne!(landed, target, "a pull never writes the target name itself");
     assert_eq!(landed.parent(), target.parent());
     let _ = std::fs::remove_file(&target);
+}
+
+/// The real daemon transfer against the fake daemon files: a pull reads
+/// ranges until the answer is not truncated; a push is one create write.
+#[test]
+fn the_daemon_transfer_pulls_in_ranges_and_pushes_with_create() {
+    use cmux_cloud::fs::{Cancel, DaemonTransfer, DialTarget, Direction, Transfer, TransferJob};
+    use std::sync::Arc;
+    let files = edge_common::FakeFiles::default();
+    let transfer = DaemonTransfer::new(Arc::new(files.clone()));
+    let target = DialTarget {
+        binary: PathBuf::from("/opt/cmux/bin/cmux"),
+        host: "host-vm-alpha01".into(),
+        env: Vec::new(),
+    };
+    let dir = scratch_file("daemon").parent().unwrap().to_path_buf();
+    let landing = dir.join(".pulled.cmux-pull-test");
+    let _ = std::fs::remove_file(&landing);
+    files.answer(
+        "fs.read",
+        json!({ "text": "abc", "truncated": false, "size": 3,
+        "encoding": "utf-8" }),
+    );
+    let pull = TransferJob {
+        machine: "vm-alpha01".into(),
+        direction: Direction::Pull,
+        local: landing.clone(),
+        guest: "/home/cmux/a.txt".into(),
+        target,
+    };
+    assert_eq!(transfer.run(&pull, &Cancel::default()), Ok(3));
+    assert_eq!(std::fs::read(&landing).unwrap(), b"abc");
+    let (_, op, params) = files.log().calls[0].clone();
+    assert_eq!(op, "fs.read");
+    assert_eq!(params, json!({ "path": "/home/cmux/a.txt", "offset": 0, "max_bytes": 1048576 }));
+    let cancel = Cancel::default();
+    cancel.cancel();
+    let _ = std::fs::remove_file(&landing);
+    assert!(transfer.run(&pull, &cancel).is_err(), "a cancelled pull stops before a read");
+    let push = TransferJob {
+        direction: Direction::Push,
+        local: scratch_file("daemon-push"),
+        guest: "/home/cmux/upload.txt".into(),
+        ..pull
+    };
+    assert_eq!(transfer.run(&push, &Cancel::default()), Ok(7));
+    let (_, op, params) = files.log().calls.last().cloned().unwrap();
+    assert_eq!(op, "fs.write");
+    assert_eq!(params["mode"], "create", "a push never overwrites");
+    assert_eq!(params["bytes_base64"], "cGF5bG9hZA==");
+    let _ = std::fs::remove_file(&landing);
+}
+
+/// A push above one daemon write (12 MiB raw, decision D2) is refused before
+/// any backend call, with a reason that names the missing write stream.
+#[test]
+fn a_push_above_twelve_mib_needs_the_write_stream() {
+    let dir = scratch_file("big").parent().unwrap().to_path_buf();
+    let big = dir.join("big.bin");
+    std::fs::write(&big, vec![0u8; 12 * 1024 * 1024 + 1]).unwrap();
+    let mut rig = rig(FIXTURES);
+    let err = rig.server.handle(&push(&big, "b-1")).unwrap_err();
+    assert_eq!(err.code, "cmux.cloud.file_too_large");
+    assert!(err.message.contains("write stream"), "{}", err.message);
+    assert!(rig.server.control_plane().no_calls());
+    let _ = std::fs::remove_file(&big);
 }

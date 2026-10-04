@@ -697,11 +697,34 @@
     // context: main's natives host.secrets(op, args) and host.policy(op,
     // args) answer with names, never values. A secret set here is
     // agent-known (the agent has the value anyway) and only masked.
-    // cmux-next: secret(name) is a {__secret: name} handle that the host
-    // resolves after checking the receiving frame's origin (TOTP included);
-    // locator.fill and type send the handle, not main's {secret: name}.
+    // secret(name) is main's name object, typed by the host from
+    // input.insertText { secret } after it checks the focused frame's
+    // origin (TOTP included). cmux-next: a host without the "secret.insert"
+    // capability gets a {__secret: name} handle in the text instead.
     const secretsHost = (op, args) => host.secrets(op, args || {});
-    const isSecret = (v) => v !== null && typeof v === "object" && !Array.isArray(v) && typeof v.__secret === "string" && Object.keys(v).length === 1;
+    // main's secret(name) object: a branded name the host resolves from
+    // input.insertText { secret }, where the host has that capability.
+    const SecretBrand = new WeakSet();
+    class Secret {
+      constructor(name) {
+        this.name = name;
+        SecretBrand.add(this);
+        Object.freeze(this);
+      }
+      toString() {
+        return `<secret:${this.name}>`;
+      }
+      toJSON() {
+        return this.toString();
+      }
+    }
+    Object.freeze(Secret.prototype);
+    const hostTypesSecrets = () => {
+      const caps = session.driver && typeof session.driver.capabilities === "function" ? session.driver.capabilities() : [];
+      return Array.isArray(caps) && caps.includes("secret.insert");
+    };
+    const isHandle = (v) => v !== null && typeof v === "object" && !Array.isArray(v) && typeof v.__secret === "string" && Object.keys(v).length === 1;
+    const isSecret = (v) => (v !== null && typeof v === "object" && SecretBrand.has(v)) || isHandle(v);
     function makeHandle(name) {
       const h = { __secret: name };
       Object.defineProperty(h, "toString", { value: () => `<secret:${name}>`, enumerable: false });
@@ -744,7 +767,7 @@
     });
     function secret(name) {
       if (!secrets.has(name)) throw new Error(`secret(${JSON.stringify(name)}): no such secret; register it with secrets.set(name, value, { domains }) or secrets.load(file)`);
-      return makeHandle(name);
+      return hostTypesSecrets() ? new Secret(name) : makeHandle(name);
     }
 
     // ---- domain policy -------------------------------------------------------
@@ -807,13 +830,13 @@
     const NAVIGATIONS = new Set(["tab.navigate", "tab.history", "tab.reload"]);
     // A secret handle is recorded by name; other text as given (the host
     // masks agent-known secret values in every file it writes).
-    const traceText = (t) => (isSecret(t) ? `<secret:${t.__secret}>` : t);
+    const traceText = (t) => (isHandle(t) ? `<secret:${t.__secret}>` : isSecret(t) ? String(t) : t);
     function traceParams(method, p) {
       const o = {};
       if (p.url !== undefined) o.url = p.url;
       if (method === "input.mouse") Object.assign(o, { type: p.type, x: p.x, y: p.y, button: p.button, deltaX: p.deltaX, deltaY: p.deltaY });
       if (method === "input.key") Object.assign(o, { type: p.type, modifiers: p.modifiers, key: traceText(p.key) });
-      if (method === "input.insertText") o.text = traceText(p.text);
+      if (method === "input.insertText") o.text = p.secret ? `<secret:${p.secret}>` : traceText(p.text);
       if (method === "input.setFiles") o.files = (p.files || []).map((f) => f.name);
       if (method === "tab.history") o.delta = p.delta;
       if (method === "dialog.respond") o.accept = p.accept;
