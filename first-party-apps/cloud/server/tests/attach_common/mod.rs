@@ -235,9 +235,10 @@ pub fn attach(spawner: &FakeSpawner, transport: &FakeTransport) -> Attach {
 /// A clock the test fires by hand: `after` records the callback, a dropped
 /// timer marks it cancelled.
 #[derive(Clone, Default)]
-pub struct ManualClock(Arc<Mutex<Vec<(Arc<std::sync::atomic::AtomicBool>, ManualFire)>>>);
+pub struct ManualClock(Arc<Mutex<Vec<ManualTimer>>>);
 
-type ManualFire = Option<Box<dyn FnOnce() + Send>>;
+/// A recorded timer: still live (not cancelled), and its callback.
+type ManualTimer = (Arc<std::sync::atomic::AtomicBool>, Option<Box<dyn FnOnce() + Send>>);
 
 impl ManualClock {
     /// Fires every timer that was not cancelled; returns how many fired.
