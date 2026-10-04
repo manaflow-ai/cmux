@@ -29,6 +29,11 @@ enum DebugNewTab {
             return openAndType(params, services: services)
         case "field":
             return await field(params, services)
+        case "bench_close", "bench_bang":
+            guard let controller = controller(params, services) else { return .object(["error": .string("no such window")]) }
+            return params["action"]?.stringValue == "bench_close"
+                ? await DebugNewTabBench.close(params, controller, services)
+                : await DebugNewTabBench.bang(params, controller, services)
         case "retarget":
             // What a key-window change does, for no-activate runs whose windows never become key.
             guard let window = controller(params, services)?.window else { return .object(["error": .string("no such window")]) }
@@ -55,6 +60,7 @@ enum DebugNewTab {
             "likely": .bool(pool.isLikely), "spares": .array(spares), "openings": .array(pool.openings.map(opening)),
             "target_window": pool.target.map { .number(Double($0.windowNumber)) } ?? .null,
             "last_retarget_ms": pool.lastRetargetMilliseconds.map { .number($0) } ?? .null,
+            "last_recycle_refusal": pool.lastRecycleRefusal.map { .string($0) } ?? .null,
         ])
     }
 
