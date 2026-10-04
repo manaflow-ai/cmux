@@ -172,6 +172,7 @@ struct CloudDesktopAccessTests {
         state.didFinish(url: local)
         state.desktopConnectionDidChange(url: URL(string: "http://127.0.0.1:46902/vnc.html")!, isConnected: false)
         #expect(!state.showsFailureAlert, "A stale listener cannot fail the new page")
+        await exhaustQuietDesktopRetries(state, url: local)
         state.desktopConnectionDidChange(url: local, isConnected: false)
         #expect(state.showsFailureAlert && state.showsPage)
         state.dismissFailure()
@@ -181,12 +182,47 @@ struct CloudDesktopAccessTests {
         #expect(await wait { model.isReady && starts == 2 })
         #expect(state.desktopFailure == nil && state.nextURL() == local)
         state.didCommit(url: local)
+        await exhaustQuietDesktopRetries(state, url: local)
         state.desktopConnectionDidChange(url: local, isConnected: false)
         #expect(state.showsFailureAlert, "A failed explicit retry is a new attempt")
         state.desktopConnectionDidChange(url: local, isConnected: true)
         #expect(!state.showsFailureAlert)
         browser.hardReload()
         #expect(await wait { model.isReady && starts == 3 })
+        await model.retire()
+    }
+
+    /// A route's first desktop connection retries quietly (noVNC itself gives
+    /// up after an initial failure); each retry reissues the same document.
+    private func exhaustQuietDesktopRetries(_ state: CloudBrowserAccessState, url: URL) async {
+        for _ in CloudBrowserAccessState.desktopRetryDelays {
+            state.desktopConnectionDidChange(url: url, isConnected: false)
+            #expect(!state.showsFailureAlert, "An initial connect failure retries before failing")
+            #expect(await wait(timeout: 10) { !state.hasCommittedNavigation && state.navigationURL == url })
+            state.didCommit(url: url)
+        }
+    }
+
+    @Test("A restored display's failed first connection retries instead of stopping at Connect")
+    func initialDesktopFailureRetries() async throws {
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6902), coordinator: nil,
+            wake: {}, startForward: { _ in 46_902 }, stopForward: {}, route: .loopback)
+        let state = CloudBrowserAccessState()
+        var navigations: [URL] = []
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6902/vnc.html?path=websockify")!)
+        state.automaticallyNavigate { navigations.append($0) }
+        model.connect()
+        #expect(await wait { navigations.count == 1 })
+        let url = try #require(navigations.first)
+        state.didCommit(url: url)
+        state.desktopConnectionDidChange(url: url, isConnected: false)
+        #expect(!state.showsFailureAlert)
+        #expect(await wait(timeout: 10) { navigations.count == 2 })
+        #expect(navigations[1] == url, "The retry reloads the same display")
+        state.didCommit(url: url)
+        state.desktopConnectionDidChange(url: url, isConnected: true)
+        #expect(state.desktopConnected && !state.showsFailureAlert)
+        state.leave()
         await model.retire()
     }
 
@@ -479,8 +515,8 @@ struct CloudDesktopAccessTests {
         )
     }
 
-    private func wait(_ predicate: @MainActor () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    private func wait(timeout: Int = 5, _ predicate: @MainActor () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
         while !predicate(), ContinuousClock.now < deadline { await Task.yield() }
         return predicate()
     }
