@@ -41,6 +41,8 @@ import { compareCodePoints as compare, plain } from "./text.ts";
 
 /** The timer key of the one-shot outbox retry. */
 export const OUTBOX_TIMER = "outbox";
+/** The timer key prefix of a rejected prompt's retry (`prompt:<prompt id>`). */
+export const PROMPT_TIMER_PREFIX = "prompt:";
 /** The timer key of the session-list retry. */
 export const SESSIONS_TIMER = "sessions";
 /** Retry backoff of a failed session list or a rejected prompt: 1 s, doubling to 30 s. */
@@ -97,8 +99,13 @@ export type Input =
   | { kind: "sessions"; sessions: SessionSummary[]; failed?: boolean }
   /** The answer to `fetch_child_events` (an empty list when the request failed). */
   | { kind: "child_events"; session_id: string; events: AcpmuxEvent[] }
-  /** A `prompt` request returned (accepted or failed; a failed one is sent again on the next acpmux connect). */
-  | { kind: "prompt_settled"; prompt_id: string }
+  /**
+   * A `prompt` request returned. `rejected`: acpmux answered it with an error;
+   * the core sends it again on the clock (`arm_timer prompt:<id>`, 1 s
+   * doubling to 30 s). A prompt lost with its connection is sent again on the
+   * next acpmux connect.
+   */
+  | { kind: "prompt_settled"; prompt_id: string; rejected?: boolean }
   | { kind: "timer"; key: string }
   | { kind: "disconnected"; port: Port };
 
@@ -170,6 +177,8 @@ export class Core {
   private readonly pendingChildren = new Map<string, SessionSummary>();
   /** Later `session_changed` inputs of a child with a pending finish, in order (replayed after it). */
   private readonly heldChanges = new Map<string, SessionSummary[]>();
+  /** Rejections per outstanding prompt (the retry backoff), until acpmux accepts it. */
+  private readonly promptRejections = new Map<string, number>();
   /** Failed session lists in a row (the retry backoff). */
   private sessionsFailures = 0;
   /** Permission requests from sessions not known as children yet, waiting for `sessions`. */
@@ -259,11 +268,21 @@ export class Core {
       }
       case "prompt_settled":
         this.accept(input.prompt_id);
+        if (input.rejected === true && this.state.prompts[input.prompt_id]) {
+          const rejections = (this.promptRejections.get(input.prompt_id) ?? 0) + 1;
+          this.promptRejections.set(input.prompt_id, rejections);
+          const delay = retryDelay(rejections);
+          this.log(`prompt ${input.prompt_id} rejected; sending again in ${delay} ms`);
+          this.emit({ kind: "arm_timer", key: `${PROMPT_TIMER_PREFIX}${input.prompt_id}`, at: this.now + delay });
+        }
         break;
       case "timer":
         if (input.key === OUTBOX_TIMER) {
           this.outboxTimerAt = undefined;
           this.flushOutbox();
+        } else if (input.key.startsWith(PROMPT_TIMER_PREFIX)) {
+          // Answered or dropped meanwhile: nothing to send.
+          this.sendPrompt(input.key.slice(PROMPT_TIMER_PREFIX.length));
         } else if (input.key === SESSIONS_TIMER) {
           if (this.pendingPermissions.length > 0 && this.acpmuxUp) this.emit({ kind: "fetch_sessions" });
         }
@@ -660,6 +679,7 @@ export class Core {
     }
     for (const output of this.folder.apply(event)) {
       if (output.type === "accepted") {
+        this.promptRejections.delete(output.promptId);
         this.accept(output.promptId);
         continue;
       }
@@ -681,7 +701,10 @@ export class Core {
           op: { kind: "message.send", client_msg_id: key, parts: [{ type: "text", text }] },
         });
       }
-      if (output.turn.promptId) markAnswered(this.state, output.turn.promptId);
+      if (output.turn.promptId) {
+        markAnswered(this.state, output.turn.promptId);
+        this.promptRejections.delete(output.turn.promptId);
+      }
       this.state.acpmuxSeq = Math.max(this.state.acpmuxSeq, output.seq);
       this.dirty = true;
       this.flushOutbox();

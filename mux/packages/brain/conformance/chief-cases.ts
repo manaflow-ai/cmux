@@ -1008,7 +1008,8 @@ function promptRetryCases(): CorpusCase[] {
     boot(c);
     const m1 = msg("conv_a", 1, USER_LOCAL, "hello");
     c.step(live(m1), ["persist", "prompt"]);
-    c.step({ kind: "prompt_settled", prompt_id: m1.id, rejected: true } as Input, ["arm_timer"], (e) => {
+    // The inbox moves on (the read cursor) and the retry is armed.
+    c.step({ kind: "prompt_settled", prompt_id: m1.id, rejected: true } as Input, ["conversation_op", "arm_timer"], (e) => {
       const timer = c.get(e, "arm_timer");
       c.check(timer.key === `prompt:${m1.id}` && timer.at === c.now + 1_000, `retry in 1 s, got ${JSON.stringify(timer)}`);
     });
@@ -1017,7 +1018,8 @@ function promptRetryCases(): CorpusCase[] {
       c.check(c.get(e, "arm_timer").at === c.now + 2_000, "then in 2 s"),
     );
     c.step({ kind: "timer", key: `prompt:${m1.id}` }, ["prompt"], undefined, 2_000);
-    c.step(mux(ev(1, "user_message", { promptId: m1.id })), ["conversation_op"]);
+    // Accepted (the read cursor moved at the first settle already).
+    c.step(mux(ev(1, "user_message", { promptId: m1.id })), []);
     c.step(mux(ev(2, "turn_started")), ["typing"]);
     c.step(mux(chunk(3, "hi")), []);
     c.step(mux(ev(4, "turn_end")), ["persist", "conversation_op", "typing"]);
