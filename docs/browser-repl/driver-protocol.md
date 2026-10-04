@@ -275,8 +275,19 @@ native (`BrowserReplBoundary` in the session, and the driver):
   is not subtracted, and a blocked frame whose box it cannot find refuses
   every point), `input.key` and `input.insertText` while a blocked frame
   holds the focus (its document has it or holds a focused element, or its
-  parent's focused element is its frame; a frame that cannot answer counts
-  as focused), PDFs while any frame shows a blocked page, and file
+  parent's focused element, also inside a shadow tree, is its frame element,
+  found by the frame's own position in `window.frames`; a frame that cannot
+  answer, or whose element cannot be told, counts as focused). Meta+C,
+  Meta+X and Meta+V check the focus again after the key, on a fresh tree
+  right before WebKit's Copy, Cut or Paste runs (the page's key handlers
+  can move the focus into a blocked frame meanwhile), and Copy and Cut
+  once more after it, before the tab's clipboard takes what they copied;
+  either fails with `blocked` and leaves the tab's clipboard unchanged.
+  A page script's write to the tab's clipboard (`page-clipboard.js`) from
+  a frame the creating session's policy blocks, judged by WebKit's record
+  of the frame that sent it, is rejected, so `clipboard.read` never hands
+  the agent what a blocked frame wrote.
+  The driver refuses PDFs while any frame shows a blocked page, and file
   chooser answers other than `cancel` when the chooser's own frame (as
   WebKit recorded it when the chooser opened, and the document it shows
   now) is blocked. A screenshot blanks, in gray, the box of each main-frame
@@ -323,14 +334,28 @@ native (`BrowserReplBoundary` in the session, and the driver):
   schemes, and the page controls its URL. So it goes to the sessions
   (`tab.created`) only when it is an `http`, `https`, `about:blank` or
   `blob:` (of such an origin) page that the browser's URL allowlist and
-  the creating session's domain policy allow; otherwise it opens nothing. When WebKit refuses to compile the policy's
+  the creating session's domain policy allow; otherwise it opens nothing.
+  Such a tab carries the session's content rules and page clipboard guard
+  before it loads anything: the web view WebKit asks for loads the popup's
+  request only after the session attached and put them on it, and a popup
+  tab cmux loads itself is created blank, handed to the session, and only
+  then navigated (`BrowserReplPopupOpening`). When WebKit refuses to compile the policy's
   content rules, every driver call of the session fails with `invalid`
   (`the domain policy could not be applied: ...`) until the session sets a
   policy that compiles (a locked one needs a reset); the tabs keep the last
-  rule list that compiled. The policy setters (`session.allowedDomains`
-  and the like) return once the native session holds the policy, before
-  WebKit compiles it, so the error reaches the agent on the session's next
-  call.
+  rule list that compiled, and every navigation (of any frame) in a tab the
+  session created is cancelled (`navigation.blocked`). The policy setters
+  (`session.allowedDomains` and the like) return once the native session
+  holds the policy, before WebKit compiles it, so the error reaches the
+  agent on the session's next call. The navigation and popup checks use the
+  new policy from the moment the setter returns (the driver publishes it
+  synchronously to `BrowserReplPolicyBoard`), and until its content rules
+  are on the session's tabs, the session's driver calls wait and every
+  navigation in a tab the session created (its popups included) waits
+  before WebKit's navigation policy decision, then is judged under the new
+  policy: no page loads its subresources under the previous rules. A page
+  already loaded keeps running meanwhile, so its own script can still
+  start subresource loads under the previous rules until they are replaced.
 - Page clipboard: in a tab a session created, no page script writes the
   system clipboard. An agent's click, key or evaluated script gives the
   page a user gesture, and WebKit lets a page holding one write the system
@@ -522,7 +547,17 @@ The dev driver implements all of them.
   for frame locators, DOM-order frame prefixes and snapshot stitching. Without
   it (`unsupported`) the runtime finds no frame for an iframe: matching the
   iframe's box against each child's `frame.ownerBox` would guess, and
-  overlapping iframes share a box.
+  overlapping iframes share a box. The app's driver binds by each frame's
+  own word (`BrowserReplFrameBinding`): the parent's script reads the
+  handle's position in `window.frames`, and each child frame, in the
+  driver's content world, reports its own position there (or none, in a
+  shadow tree), between two tree reads that must name the same children;
+  lengths must agree at every read. A page that adds or removes frames
+  meanwhile gets two more tries, then `null`, never a sibling's frame; a
+  child that does not answer within 2 s leaves the handles `null` unless
+  the others fill `window.frames` (then it is in a shadow tree).
+  `frame.ownerBox` finds the owner element the same way, and fails with
+  `stale` when it cannot.
 - `frame.contentFrames { targetId, frameId, elements: [handle] }` returns one
   `{ frameId }` or `null` per handle, in order: every iframe of a frame in one
   call. Snapshots use it; without it (`unsupported`) they call
