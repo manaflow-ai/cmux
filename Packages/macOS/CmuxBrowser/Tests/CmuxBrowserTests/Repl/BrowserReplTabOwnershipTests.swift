@@ -208,6 +208,27 @@ import Testing
         #expect(ownership.takeDownloadStarter(urls: ["https://site.example/again.pdf"], at: start + .seconds(120)) == nil)
     }
 
+    // The claim belongs to the navigation the session's input started, not
+    // to its URL: a later navigation of the same URL that the user or the
+    // page starts in the tab (no session input in flight) is the user's,
+    // and so is the download it becomes.
+    @Test func aLaterSameURLNavigationTheUserStartsKeepsItsDownload() {
+        let start = ContinuousClock.now
+        var ownership = BrowserReplTabOwnership()
+        ownership.attach(sessionID: "agent")
+        ownership.setHandledEvents([.download], for: "agent")
+        // The agent clicks a link to report.pdf (it may never become a download).
+        ownership.beginInput(sessionID: "agent")
+        ownership.noteNavigationAction(url: "https://site.example/report.pdf", at: start)
+        ownership.endInput(sessionID: "agent")
+        // Seconds later the user clicks a link to the same URL, which
+        // becomes a download.
+        ownership.noteNavigationAction(url: "https://site.example/report.pdf", at: start + .seconds(5))
+        let starter = ownership.takeDownloadStarter(urls: ["https://site.example/report.pdf"], at: start + .seconds(6))
+        #expect(starter == nil, "the user's same-URL download was attributed to the session")
+        #expect(ownership.downloadRecipient(startedBy: starter) == nil)
+    }
+
     @Test func aSessionTabsDownloadsStillGoToItsCreator() {
         var ownership = BrowserReplTabOwnership()
         ownership.markCreated(by: "creator")
