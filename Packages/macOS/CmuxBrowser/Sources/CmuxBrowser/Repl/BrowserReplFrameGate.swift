@@ -243,6 +243,10 @@ extension BrowserReplDomainPolicy {
 public final class BrowserReplFrameGate {
     /// The session's policy; only the native session sets it.
     public var policy = BrowserReplDomainPolicy()
+    /// For a tab the session did not create, the directories whose local
+    /// files the session may read (its working and temporary directories);
+    /// nil for the session's own tabs. Set by the driver.
+    public var localDocumentRoots: @MainActor (WKWebView) -> [String]? = { _ in nil }
     private let world: WKContentWorld
     /// Bounds each of the gate's own probes (a frame's document, its focus,
     /// the frame boxes); one that does not answer in time refuses the call
