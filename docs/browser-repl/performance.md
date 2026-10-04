@@ -254,7 +254,8 @@ concurrent calls in 25 ms. Now:
   the next one, so at most one read is in flight and a burst costs at most
   two. `frames.list` reads frame names in parallel.
 - `frame.contentFrames` resolves all iframes of a frame in one call (one
-  evaluation, one tree read) instead of one call per iframe.
+  evaluation in the parent, two tree reads and one concurrent position
+  probe per child frame) instead of one call per iframe.
 - Frame trees are read concurrently, up to 256 calls in flight, and stitched
   in document order, so ref prefixes (`f1`, `f2`) do not depend on which
   frame answered first. On `iframes-300` the app takes 137 ms at 256 in

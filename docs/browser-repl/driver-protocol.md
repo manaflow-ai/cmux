@@ -526,7 +526,17 @@ The dev driver implements all of them.
   for frame locators, DOM-order frame prefixes and snapshot stitching. Without
   it (`unsupported`) the runtime finds no frame for an iframe: matching the
   iframe's box against each child's `frame.ownerBox` would guess, and
-  overlapping iframes share a box.
+  overlapping iframes share a box. The app's driver binds by each frame's
+  own word (`BrowserReplFrameBinding`): the parent's script reads the
+  handle's position in `window.frames`, and each child frame, in the
+  driver's content world, reports its own position there (or none, in a
+  shadow tree), between two tree reads that must name the same children;
+  lengths must agree at every read. A page that adds or removes frames
+  meanwhile gets two more tries, then `null`, never a sibling's frame; a
+  child that does not answer within 2 s leaves the handles `null` unless
+  the others fill `window.frames` (then it is in a shadow tree).
+  `frame.ownerBox` finds the owner element the same way, and fails with
+  `stale` when it cannot.
 - `frame.contentFrames { targetId, frameId, elements: [handle] }` returns one
   `{ frameId }` or `null` per handle, in order: every iframe of a frame in one
   call. Snapshots use it; without it (`unsupported`) they call

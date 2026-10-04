@@ -37,6 +37,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// WebKit's record of the frame and its document read in the driver's
     /// own content world.
     @MainActor private lazy var frameGate = BrowserReplFrameGate(world: BrowserReplDriverWorld.world)
+    /// Ties `<iframe>` elements to their child frames' ids.
+    @MainActor private lazy var frameBinding = BrowserReplFrameBinding(world: BrowserReplDriverWorld.world)
 
     // Main-actor state.
     private var activeTargetID: String?
@@ -1550,7 +1552,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func ownerBox(_ params: [String: Any]) async throws -> Any? {
         let panel = try panel(params)
-        let frames = await BrowserReplFrameTree.frames(of: panel.webView)
+        let webView = panel.webView
+        let frames = await BrowserReplFrameTree.frames(of: webView)
         guard let frameID = params["frameId"] as? String,
               let child = frames.first(where: { $0.frameID == frameID }) else {
             throw Self.error("stale", "Frame is detached")
@@ -1558,39 +1561,103 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         guard let parentID = child.parentFrameID, let parent = frames.first(where: { $0.frameID == parentID }) else {
             return ["x": 0, "y": 0, "width": 0, "height": 0]
         }
+        // The child's own position in its parent's window.frames, which it
+        // reports itself (BrowserReplFrameBinding), names its frame element
+        // there; a tree index would name a sibling once a frame in a shadow
+        // tree or a removed frame shifts the lists.
         let script = """
-        const target = window.frames[__index];
+        const target = __index >= 0 ? window.frames[__index] : null;
+        const length = window.frames.length;
         const find = (root) => {
           for (const el of root.querySelectorAll("iframe, frame")) if (el.contentWindow === target) return el;
           for (const el of root.querySelectorAll("*")) if (el.shadowRoot) { const found = find(el.shadowRoot); if (found) return found; }
           return null;
         };
         const el = target ? find(document) : null;
-        if (!el) return null;
+        if (!el) return { box: null, length };
         const r = el.getBoundingClientRect();
         const cs = getComputedStyle(el);
         const px = (v) => parseFloat(v) || 0;
         return {
-          x: r.left + el.clientLeft + px(cs.paddingLeft),
-          y: r.top + el.clientTop + px(cs.paddingTop),
-          width: el.clientWidth - px(cs.paddingLeft) - px(cs.paddingRight),
-          height: el.clientHeight - px(cs.paddingTop) - px(cs.paddingBottom),
+          box: {
+            x: r.left + el.clientLeft + px(cs.paddingLeft),
+            y: r.top + el.clientTop + px(cs.paddingTop),
+            width: el.clientWidth - px(cs.paddingLeft) - px(cs.paddingRight),
+            height: el.clientHeight - px(cs.paddingTop) - px(cs.paddingBottom),
+          },
+          length,
         };
         """
         do {
-            let value = try await frameGate.callAsyncJavaScript(
-                script,
-                arguments: ["__index": child.indexInParent],
-                in: panel.webView,
-                frame: parent,
-                contentWorld: BrowserReplAgentWorld.world
+            let bound = try await frameBinding.bind(
+                parentID: parent.frameID,
+                in: webView,
+                readTree: { await BrowserReplFrameTree.frames(of: webView) },
+                body: { [frameGate] positions in
+                    let value = try await frameGate.callAsyncJavaScript(
+                        script,
+                        arguments: ["__index": positions[child.frameID] ?? -1],
+                        in: webView,
+                        frame: parent,
+                        contentWorld: BrowserReplAgentWorld.world
+                    ) as? [String: Any]
+                    return (value?["box"], (value?["length"] as? NSNumber)?.intValue ?? -1)
+                }
             )
-            return value ?? NSNull()
+            guard let bound else {
+                throw Self.error("stale", "The page kept changing its frames, so frame \(frameID)'s element is unknown; try again")
+            }
+            return bound.value ?? NSNull()
         } catch let error as BrowserReplDriverError {
             throw error
         } catch {
             throw Self.translate(error)
         }
+    }
+
+    /// Binds `<iframe>` handles of `frame` to their child frames' ids: one
+    /// evaluation maps every handle to its position in `window.frames`,
+    /// and each child frame reports its own position there
+    /// (``BrowserReplFrameBinding``), so a frame in a shadow tree, or one
+    /// the page adds or removes meanwhile, never binds a handle to a
+    /// sibling's frame. A handle that cannot be bound gets `nil`.
+    @MainActor
+    private func childFrameIDs(_ panel: BrowserPanel, _ frame: BrowserReplFrame, elements: [String]) async throws -> [String?] {
+        let body = Self.evaluationBody(
+            source: """
+            (...els) => {
+              const index = new Map();
+              for (let i = 0; i < window.frames.length; i++) index.set(window.frames[i], i);
+              return {
+                positions: els.map((el) => {
+                  const w = el && el.contentWindow;
+                  return w && index.has(w) ? index.get(w) : -1;
+                }),
+                length: window.frames.length,
+              };
+            }
+            """,
+            requiresAgent: true,
+            elementsExpression: "__handles.map((h) => { try { return __agent.element(h); } catch { return null; } })"
+        )
+        let webView = panel.webView
+        let bound = try await frameBinding.bind(
+            parentID: frame.info == nil ? nil : frame.frameID,
+            in: webView,
+            readTree: { await BrowserReplFrameTree.frames(of: webView) },
+            body: { [self] _ in
+                let raw = try await runEvaluation(panel, frame, body: body, world: BrowserReplAgentWorld.world, args: [], handles: elements)
+                guard let text = (raw as? BrowserReplRawJSON)?.text,
+                      let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+                      let positions = object["positions"] as? [NSNumber],
+                      let length = (object["length"] as? NSNumber)?.intValue else {
+                    return (elements.map { _ in -1 }, -1)
+                }
+                return (positions.map(\.intValue), length)
+            }
+        )
+        guard let bound else { return elements.map { _ in nil } }
+        return bound.value.map { bound.children[$0] }
     }
 
     @MainActor
@@ -1600,67 +1667,21 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         guard let element = params["element"] as? String else {
             throw Self.error("invalid", "element is required")
         }
-        let body = Self.evaluationBody(
-            source: """
-            (el) => {
-              const w = el && el.contentWindow;
-              if (!w) return -1;
-              for (let i = 0; i < window.frames.length; i++) if (window.frames[i] === w) return i;
-              return -1;
-            }
-            """,
-            requiresAgent: true,
-            elementsExpression: "__handles.map((h) => __agent.element(h))"
-        )
-        let raw = try await runEvaluation(panel, frame, body: body, world: BrowserReplAgentWorld.world, args: [], handles: [element])
-        guard let text = (raw as? BrowserReplRawJSON)?.text, let index = Int(text), index >= 0 else { return nil }
-        let frames = await BrowserReplFrameTree.frames(of: panel.webView)
-        // The main-frame fast path has no tree id; the tree's root is the main frame.
-        let parentID = frame.info == nil ? frames.first?.frameID : frame.frameID
-        guard let child = frames.first(where: { $0.parentFrameID == parentID && $0.indexInParent == index }) else {
-            return nil
-        }
-        return ["frameId": child.frameID]
+        guard let id = try await childFrameIDs(panel, frame, elements: [element]).first ?? nil else { return nil }
+        return ["frameId": id]
     }
 
     /// The child frames of many `<iframe>` handles of one frame, in one
-    /// call: one evaluation maps every handle to its index in
-    /// `window.frames`, and one tree read (shared with concurrent callers)
-    /// maps indexes to frames. A page of 300 iframes needed 300 calls.
-    /// Returns one `{ frameId }` or `null` per handle, in order.
+    /// binding (``childFrameIDs(_:_:elements:)``). A page of 300 iframes
+    /// needed 300 calls. Returns one `{ frameId }` or `null` per handle, in order.
     @MainActor
     private func contentFrames(_ params: [String: Any]) async throws -> Any? {
         let panel = try panel(params)
         let frame = try await frame(panel, params)
         let elements = params["elements"] as? [String] ?? []
         if elements.isEmpty { return [Any]() }
-        let body = Self.evaluationBody(
-            source: """
-            (...els) => {
-              const index = new Map();
-              for (let i = 0; i < window.frames.length; i++) index.set(window.frames[i], i);
-              return els.map((el) => {
-                const w = el && el.contentWindow;
-                return w && index.has(w) ? index.get(w) : -1;
-              });
-            }
-            """,
-            requiresAgent: true,
-            elementsExpression: "__handles.map((h) => { try { return __agent.element(h); } catch { return null; } })"
-        )
-        let raw = try await runEvaluation(panel, frame, body: body, world: BrowserReplAgentWorld.world, args: [], handles: elements)
-        guard let text = (raw as? BrowserReplRawJSON)?.text,
-              let data = text.data(using: .utf8),
-              let indexes = (try? JSONSerialization.jsonObject(with: data)) as? [NSNumber] else {
-            return elements.map { _ in NSNull() }
-        }
-        let frames = await BrowserReplFrameTree.frames(of: panel.webView)
-        let parentID = frame.info == nil ? frames.first?.frameID : frame.frameID
-        var childAt: [Int: String] = [:]
-        for child in frames where child.parentFrameID == parentID { childAt[child.indexInParent] = child.frameID }
-        return indexes.map { number -> Any in
-            guard let id = childAt[number.intValue] else { return NSNull() }
-            return ["frameId": id]
+        return try await childFrameIDs(panel, frame, elements: elements).map { id -> Any in
+            id.map { ["frameId": $0] } ?? NSNull()
         }
     }
 

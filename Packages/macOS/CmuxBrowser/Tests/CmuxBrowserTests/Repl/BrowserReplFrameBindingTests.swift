@@ -83,8 +83,8 @@ struct BrowserReplFrameBindingTests {
         )
         // The first read sees z before a; z is gone before the tree is read.
         let hosts = try await bound(page, ids: ["a"], after: #"const z = document.getElementById("z"); if (z) z.remove();"#)
-        #expect(hosts == ["a.test"] || hosts == nil, "\(String(describing: hosts))")
-        #expect(hosts != ["b.test"])
+        // The second try reads a settled page and binds a to its own frame.
+        #expect(hosts == ["a.test"], "\(String(describing: hosts))")
     }
 
     @Test("A page that keeps changing its frames gets no binding, never a sibling's")
