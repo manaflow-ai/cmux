@@ -71,4 +71,11 @@ nonisolated public struct ReleaseNotesIndexEntry: Codable, Equatable, Sendable {
     public var shortVersion: String
     public var date: String
     public var highlights: Int
+
+    public init(build: String, shortVersion: String, date: String, highlights: Int) {
+        self.build = build
+        self.shortVersion = shortVersion
+        self.date = date
+        self.highlights = highlights
+    }
 }
