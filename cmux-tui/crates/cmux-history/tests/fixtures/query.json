@@ -8,6 +8,7 @@
     {"id": "page:2", "kind": "page", "at_ms": 1799992800000, "title": "Résumé tips", "detail": "https://example.com/resume", "available": true, "url": "https://example.com/resume", "profile": "default"},
     {"id": "agent:s-1", "kind": "agent", "at_ms": 1799999970000, "title": "claude", "detail": "/Users/me/api", "workspace": "api", "available": true, "running": true, "cwd": "/Users/me/api", "session_id": "s-1", "provider": "claude"},
     {"id": "page:3", "kind": "page", "at_ms": 1796544000000, "title": "Old page", "detail": "https://old.example.com", "available": true, "url": "https://old.example.com", "profile": "default"},
+    {"id": "page:4", "kind": "page", "at_ms": 1790000000000, "title": "Straße ΟΔΟΣ ｶﾞイド", "detail": "https://de.example/x", "available": true, "url": "https://de.example/x", "profile": "default"},
     {"id": "page:history", "kind": "page", "at_ms": 1799999999000, "title": "History", "detail": "cmux://history", "available": true, "url": "cmux://history", "profile": "default"},
     {"id": "page:blank", "kind": "page", "at_ms": 1799999998000, "title": "about:blank", "detail": "about:blank", "available": true, "url": "about:blank", "profile": "default"},
     {"id": "page:dir", "kind": "page", "at_ms": 1799999000000, "title": "project", "available": true, "url": "file:///tmp/project/", "profile": "default"},
@@ -20,7 +21,7 @@
   ],
   "cases": [
     {"name": "empty query is everything displayable, newest first", "query": {},
-     "expected_ids": ["agent:s-1", "page:1", "location:home:tab3:2", "command:home/t/1799999300000", "closed:tab_9", "page:file", "page:2", "page:3"]},
+     "expected_ids": ["agent:s-1", "page:1", "location:home:tab3:2", "command:home/t/1799999300000", "closed:tab_9", "page:file", "page:2", "page:3", "page:4"]},
     {"name": "tokens match in any order across fields", "query": {"text": "forums SWIFT"}, "expected_ids": ["page:1"]},
     {"name": "agent provider and cwd", "query": {"text": "api claude"}, "expected_ids": ["agent:s-1"]},
     {"name": "diacritics fold", "query": {"text": "resume"}, "expected_ids": ["page:2"]},
@@ -33,6 +34,9 @@
     {"name": "location search matches machine", "query": {"kinds": ["location"], "text": "BOX"}, "expected_ids": ["location:home:tab3:2"]},
     {"name": "commands", "query": {"kinds": ["command"], "text": "cargo"}, "expected_ids": ["command:home/t/1799999300000"]},
     {"name": "closed by url", "query": {"kinds": ["closed", "agent"], "text": "docs.example"}, "expected_ids": ["closed:tab_9"]},
+    {"name": "sharp s folds to ss", "query": {"text": "STRASSE"}, "expected_ids": ["page:4"]},
+    {"name": "greek final sigma folds to sigma", "query": {"text": "οδος"}, "expected_ids": ["page:4"]},
+    {"name": "halfwidth kana with dakuten matches fullwidth kana", "query": {"text": "ガイド"}, "expected_ids": ["page:4"]},
     {"name": "no match", "query": {"text": "zzz"}, "expected_ids": []}
   ]
 }
