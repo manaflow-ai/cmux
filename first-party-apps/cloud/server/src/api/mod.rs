@@ -19,6 +19,6 @@ pub use control_plane::{
 pub use error::{CloudError, codes};
 pub(crate) use ledger::Ledger;
 pub use ledger::upstream_key;
-pub use relay::{HostRelay, RELAY_QUEUE_LINES};
+pub use relay::{HOST_FRAME_LINES, HostRelay, RELAY_QUEUE_LINES};
 pub use serve::{OP_CANCELLED, serve, serve_with};
 pub use wire::{Origin, Request};

@@ -170,7 +170,7 @@ const FRAME_LINES: usize = 4096;
 
 /// Host answers and events a relay call keeps: one per frame link (its
 /// `connector.open` answer or its `connector.close`) plus the link details.
-const HOST_FRAME_LINES: usize = crate::connector::frames::MAX_FRAME_LINKS + 2;
+pub const HOST_FRAME_LINES: usize = crate::connector::frames::MAX_FRAME_LINKS + 2;
 
 /// The internal line that ends every frame link after frame lines
 /// overflowed during a relay call. The same line from the host is read as
