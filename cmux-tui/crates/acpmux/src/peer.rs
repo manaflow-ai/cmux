@@ -437,21 +437,32 @@ pub fn ssh_target(url: &str) -> Result<SshTarget, &'static str> {
 }
 
 fn check_ssh_part(part: &str, what: &'static str) -> Result<(), &'static str> {
+    let host = what == "host";
     if part.is_empty() {
-        return Err(if what == "host" { "the host is empty" } else { "the user is empty" });
+        return Err(if host { "the host is empty" } else { "the user is empty" });
     }
     if part.starts_with('-') {
-        return Err(if what == "host" {
+        return Err(if host {
             "the host starts with - (an ssh option)"
         } else {
             "the user starts with - (an ssh option)"
         });
     }
-    if part.chars().any(|c| c.is_whitespace() || c.is_control()) {
-        return Err(if what == "host" {
-            "the host has whitespace or a control character"
+    // Names only: a user's ssh_config may put %h or %r into a shell command
+    // (ProxyCommand, Match exec), and scp reads `/` and `:` itself.
+    let name = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-');
+    let plain = if let Some(inner) = part.strip_prefix('[').and_then(|p| p.strip_suffix(']')) {
+        // A bracketed IPv6 address (scp strips the brackets).
+        host && !inner.is_empty()
+            && inner.bytes().all(|b| b.is_ascii_hexdigit() || matches!(b, b':' | b'.' | b'%'))
+    } else {
+        part.bytes().all(name)
+    };
+    if !plain {
+        return Err(if host {
+            "the host is not a plain name or [IPv6] address"
         } else {
-            "the user has whitespace or a control character"
+            "the user is not a plain name"
         });
     }
     Ok(())
@@ -525,6 +536,17 @@ mod ssh_tests {
             "ssh://host:99999",
             "ssh://host:+22",
             "ssh://a@b@c",
+            "ssh://[-oProxyCommand=x]",
+            "ssh://u@[-oProxyCommand=x]:22",
+            "ssh://[]",
+            "ssh://a/b@h",
+            "ssh://u:p@h",
+            "ssh://h;id",
+            "ssh://$(id)",
+            "ssh://`id`",
+            "ssh://h|x",
+            "ssh://h'x",
+            "ssh://[::1",
         ] {
             assert!(ssh_target(bad).is_err(), "{bad:?} must be refused");
         }
@@ -541,6 +563,10 @@ mod ssh_tests {
         assert_eq!(t("ssh://box/"), SshTarget { destination: "box".into(), port: 47811 });
         assert_eq!(t("ssh://[::1]"), SshTarget { destination: "[::1]".into(), port: 47811 });
         assert_eq!(t("ssh://[::1]:9"), SshTarget { destination: "[::1]".into(), port: 9 });
+        assert_eq!(
+            t("ssh://a_b@h-1.x"),
+            SshTarget { destination: "a_b@h-1.x".into(), port: 47811 }
+        );
     }
 
     #[test]
