@@ -81,10 +81,8 @@ extension RemoteTmuxWindowMirror {
         paneIndex: Int,
         paneTitleMetadata: RemoteTmuxPaneTitleMetadata?
     ) -> String {
-        let paneTitle = paneTitleMetadata?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return paneTitle.isEmpty
-            ? windowPaneTitle(windowTitle, paneIndex: paneIndex)
-            : paneTitle
+        paneTitleMetadata?.intentionalTitle
+            ?? windowPaneTitle(windowTitle, paneIndex: paneIndex)
     }
 
     /// Copies one changed pane's title metadata and refreshes only its tab.

@@ -1,3 +1,4 @@
+import Bonsplit
 import Foundation
 
 /// Local title ownership; Cloud requests enter the catalog before any UI mutation.
@@ -15,8 +16,11 @@ extension Workspace {
         propagateToRemoteTmux: Bool = true,
         propagateToCloud: Bool = true
     ) -> Bool {
-        guard panels[panelId] != nil else { return false }
         let remoteTmuxPane = remoteTmuxControlPane(surfaceID: panelId)
+        // Projected tmux panes are represented by their mirror, rather than in
+        // the workspace's ordinary panel dictionary. They are still valid
+        // title targets and must reach `select-pane -T`.
+        guard panels[panelId] != nil || remoteTmuxPane != nil else { return false }
         // A remote tmux projection owns its title on tmux. Do not let the
         // cloud-title bridge consume this local edit before it can be sent to
         // the pane's `select-pane -T` control mutation.
@@ -38,7 +42,16 @@ extension Workspace {
         }
         var sameText = false
         if trimmed.isEmpty {
-            guard previous != nil else { return false }
+            // `select-pane -T ''` is meaningful even when cmux has no local
+            // custom-title record: tmux may still hold a title set outside cmux.
+            // Do not suppress this reset merely because there is no local state.
+            guard previous != nil else {
+                if propagateToRemoteTmux, let remoteTmuxPane {
+                    _ = remoteTmuxPane.requestRename(title: "")
+                    return true
+                }
+                return false
+            }
             if previous != nil {
                 panelCustomTitles.removeValue(forKey: panelId)
                 panelCustomTitleSources.removeValue(forKey: panelId)
@@ -63,7 +76,10 @@ extension Workspace {
         // the daemon, because the earlier request may have failed or been lost.
         if sameText, source != .user { return true }
 
-        guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return true }
+        let tabId = surfaceIdFromPanelId(panelId)
+            ?? (remoteTmuxPane == nil ? nil : TabID(uuid: panelId))
+        guard let panel = panels[panelId] ?? remoteTmuxPane?.pane.panel,
+              let tabId else { return true }
         let baseTitle = panelTitles[panelId] ?? panel.displayTitle
         bonsplitController.updateTab(
             tabId,
