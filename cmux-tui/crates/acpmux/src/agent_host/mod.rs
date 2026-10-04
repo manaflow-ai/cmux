@@ -473,10 +473,16 @@ pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
         .mode(0o600)
         .open(&tmp)
         .with_context(|| format!("create {}", tmp.display()))?;
-    f.write_all(&serde_json::to_vec(record)?)?;
-    f.sync_all()?;
-    std::fs::rename(&tmp, path)?;
-    Ok(())
+    let written = (|| -> Result<()> {
+        f.write_all(&serde_json::to_vec(record)?)?;
+        f.sync_all()?;
+        std::fs::rename(&tmp, path)?;
+        Ok(())
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
 }
 
 pub async fn write_frame<W: AsyncWriteExt + Unpin, T: Serialize>(

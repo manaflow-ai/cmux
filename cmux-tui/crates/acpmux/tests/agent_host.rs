@@ -339,3 +339,25 @@ async fn paced_output_left_in_the_pipe_at_exit_is_kept() {
     drop(link);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A host whose start fails (here the harness cannot be spawned) leaves no
+/// liveness lock file behind: a stale `.live` file would outlive the session.
+#[tokio::test]
+async fn a_failed_start_leaves_no_live_file() {
+    let dir = scratch("nolive");
+    let mut spec = spec(&dir, "s-nolive");
+    spec.program = "/nonexistent/harness".into();
+    assert!(link::spawn(&launcher(), &spec).await.is_err(), "a missing harness started");
+    let left: Vec<_> = std::fs::read_dir(dir.join("hosts"))
+        .expect("the host created its hosts dir")
+        .filter_map(|e| e.ok().map(|e| e.file_name()))
+        .collect();
+    assert!(
+        !left
+            .iter()
+            .any(|n| n.to_string_lossy().ends_with(".live")
+                || n.to_string_lossy().ends_with(".sock")),
+        "a failed start left {left:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
