@@ -67,12 +67,20 @@ nonisolated enum WebKitContextHit {
     /// Removes WebKit's rows that the host's rows replace for `hit`, with
     /// no leading, trailing or doubled separators left behind.
     @MainActor static func removeEngineRows(from menu: NSMenu, for hit: BrowserContextMenuTarget) {
-        // Red: WebKit's rows stay.
+        var dropped = linkRows.union(imageRows)
+        if !hit.isEditable { dropped.formUnion(selectionRows) }
+        for item in menu.items where item.identifier.map({ dropped.contains($0.rawValue) }) == true {
+            menu.removeItem(item)
+        }
+        trimSeparators(menu)
     }
 
     /// Puts `rows` at the top of `menu`, a separator after them.
     @MainActor static func insert(_ rows: [NSMenuItem], into menu: NSMenu) {
-        // Red: nothing is inserted.
+        guard !rows.isEmpty else { return }
+        if menu.numberOfItems > 0 { menu.insertItem(.separator(), at: 0) }
+        for (index, row) in rows.enumerated() { menu.insertItem(row, at: index) }
+        trimSeparators(menu)
     }
 
     @MainActor private static func trimSeparators(_ menu: NSMenu) {

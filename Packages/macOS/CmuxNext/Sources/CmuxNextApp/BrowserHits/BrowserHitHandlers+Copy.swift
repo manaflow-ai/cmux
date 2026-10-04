@@ -7,7 +7,23 @@ extension BrowserHitHandlers {
 
     static func bindCopy(_ registry: ActionRegistry, _ context: AppActionContext,
                          _ pasteboard: @escaping @MainActor () -> any BrowserPasteboard) {
-        // Red: the copy rows are not bound yet.
+        registry.bind("browser.link.copy", run: { pasteboard().writePageURL(try Self.url($0)) })
+        registry.bind("browser.image.copyAddress", run: { pasteboard().writePageURL(try Self.url($0)) })
+        registry.bind("browser.link.copyText", run: { pasteboard().writeText(try Self.text($0)) })
+        registry.bind("browser.selection.copy", run: { pasteboard().writeText(try Self.text($0)) })
+        registry.bind("browser.image.copy", run: { invocation in
+            let url = try Self.url(invocation)
+            let board = pasteboard()
+            let registry = context.services.registry
+            registry.track(Task {
+                guard let data = try? await BrowserImageData.load(url), let image = NSImage(data: data) else {
+                    registry.refuse(BrowserHitStrings.imageCopyFailed)
+                    return ActionWorkFailure(BrowserHitStrings.imageCopyFailed)
+                }
+                board.writeImage(image, source: url)
+                return nil
+            })
+        })
     }
 
     // MARK: Save

@@ -44,8 +44,15 @@ extension BrowserContextMenuItem {
     /// trailing or doubled separators. Extension, spelling, Inspect and
     /// every other row stay.
     public static func withoutHitItems(_ items: [BrowserContextMenuItem], for target: BrowserContextMenuTarget) -> [BrowserContextMenuItem] {
-        // Red: Chromium's rows stay.
-        items
+        var dropped = ChromiumCommand.link.union(ChromiumCommand.image)
+        if !target.isEditable { dropped.formUnion(ChromiumCommand.selection) }
+        var result: [BrowserContextMenuItem] = []
+        for item in items where !(item.kind != .separator && dropped.contains(item.id)) {
+            if item.kind == .separator, result.last.map({ $0.kind == .separator }) ?? true { continue }
+            result.append(item)
+        }
+        if result.last?.kind == .separator { result.removeLast() }
+        return result
     }
 
     /// The save commands Chromium's full model offers, for the hand-off.
