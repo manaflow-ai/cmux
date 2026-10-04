@@ -26,6 +26,8 @@ nonisolated public struct UpdaterStatus: Sendable, Equatable {
     public var channelSwitchTarget: AppChannelSwitchTarget?
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public var testFeedURL: String? = nil
+    /// The card above Settings (R114), or nil when none shows.
+    public var card: UpdateCard? = nil
 }
 
 /// The Sparkle flow's phase as a stable name for scripts.

@@ -100,4 +100,13 @@ import Testing
         #expect(service.card == nil)
         #expect(service.showsSettingsBadge)
     }
+
+    /// Scripts (update-e2e, `cmux update status`) read the card from the status.
+    @Test func statusCarriesTheCard() {
+        let (service, _) = service()
+        #expect(service.status.card == nil)
+        service.debugIndicatorPhase = .ready(version: "2")
+        #expect(service.status.card == .ready(version: "2"))
+        #expect(UpdateCard.ready(version: "2").kind == "ready")
+    }
 }

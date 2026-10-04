@@ -44,3 +44,10 @@ extension UpdateCardPresentation.Button {
         }
     }
 }
+
+extension UpdateCard {
+    /// A stable name for scripts (`updates.status.card.kind`).
+    public var kind: String {
+        ""
+    }
+}
