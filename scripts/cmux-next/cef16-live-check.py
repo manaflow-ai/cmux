@@ -125,7 +125,8 @@ started = time.time()
 try:
     if not wait(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), 90):
         sys.exit("tagged app did not come up")
-    rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": PAGE}})
+    # focus: true, so the new tab is the focused one (a socket run never moves focus by itself).
+    evidence["open"] = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": PAGE}, "focus": True})
 
     # 1. CEF started with fork API 17 and the expected shim ABI.
     info = wait(lambda: (lambda r: r if "fork_api" in r else None)(rpc("debug.cef.raw", {"action": "info"})), 60)
