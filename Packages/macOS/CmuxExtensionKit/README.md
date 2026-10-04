@@ -9,6 +9,9 @@ workspace snapshot and typed action channels:
 - create, select, navigate, and close workspaces
 - create, select, navigate, split, zoom, and close surfaces
 - ask CMUX to open a URL
+- rename workspaces, surfaces, and native groups through native prompts
+- manage pinning, importance, grouping, notification state, descriptions, colors,
+  and workspace ordering
 
 The snapshot includes workspace identity, title, detail text, paths, git branch, unread state, listening ports, pull request URLs, and shared surface metadata. It does not expose terminal buffers, shell history, environment variables, secrets, or arbitrary filesystem access.
 
@@ -16,6 +19,72 @@ Host-side lifecycle, discovery, and display belong in
 `Packages/macOS/CmuxSidebar/Sources/CmuxSidebar/ExtensionHost`.
 Internal cmux-owned sidebar provider/render models live in `Packages/macOS/CmuxSidebarProviderKit`.
 They are separate from the public extension-author SDK.
+
+## Sidebar API 2.1
+
+New manifests and snapshots default to API 2.1. A host supporting only 2.0 rejects
+a 2.1 manifest before granting data or actions. Explicitly declaring 2.0 remains
+possible for an extension using only the older capabilities; requesting a new 2.1
+scope with a declared minimum of 2.0 is rejected. Do not downgrade a manifest to
+make unsupported management UI appear available.
+
+`snapshot.workspaceGroups` contains the native folder groups and their current
+membership, pinning, collapse state, and live anchor. `workspace.groupID` names
+the native assignment. Both require `workspaceGroups` plus workspace identity or
+metadata access. A native group is a sidebar organization record, not a filesystem
+directory. Ungroup keeps workspaces; delete requests native confirmation to close
+the exact members confirmed by the user and does not remove filesystem content.
+
+`workspace.importance` is `none`, `priority`, or `followUp`; it is independent of
+pinning and agent lifecycle. The existing `detail` remains the native custom
+description. `isMuted` and `customColorHex` reflect native display preferences.
+
+`surface.runtime` requires both `surfaceMetadata` and `agentRuntime`. It contains
+lifecycle evidence (`unknown`, `running`, `idle`, `needsInput`, or `error`), its
+timestamp and native provenance, plus optional session/tool/process-generation
+identifiers. Missing evidence stays nil or unknown. `observedAt` is evidence
+time, never delivery time; consumers must not infer idle from stale or missing
+observations. No transcript text is included.
+
+Management helpers on `context.host` use explicit IDs from the current snapshot:
+
+```swift
+if context.grantedActionScopes.contains(.renameWorkspace) {
+    // Nil title asks CMUX to display its native prompt for this exact workspace.
+    try await context.host.renameWorkspace(workspaceID: workspace.id)
+}
+if context.grantedActionScopes.contains(.setWorkspaceImportance) {
+    try await context.host.setWorkspaceImportance(
+        workspaceID: workspace.id,
+        importance: .priority
+    )
+}
+```
+
+The extension shows only permitted actions and reconciles its display from the
+authoritative snapshot after completion. It does not remove a row optimistically
+after a close request; native pin guards, running-process warnings, and user
+cancellation remain authoritative. The SDK surfaces rejection and cancellation
+through `CmuxSidebarActionError`.
+
+Use `renameWorkspace`, `renameSurface`, and `renameWorkspaceGroup` scopes for
+renaming; `pinWorkspace`, `setWorkspaceImportance`, `collapseWorkspaceGroup`,
+`moveWorkspaceToGroup`, and `ungroupWorkspaceGroup` for organization;
+`manageNotifications` and `muteWorkspace` for native notification state;
+`editWorkspaceDescription`, `colorWorkspace`, and `reorderWorkspace` for display
+and ordering. `createWorkspaceGroup` additionally requires `createWorkspace` for
+the native anchor; `deleteWorkspaceGroup` additionally requires `closeWorkspace`.
+Nil rename titles open native prompts; empty workspace/surface titles clear a
+custom name, while group names must remain nonempty. `moveWorkspaceToGroup` with
+a nil group removes the assignment, and `moveWorkspace` with a nil neighbor
+requests the end of the workspace's valid ordering tier.
+
+The standalone package tests exercise permission filtering, strict manifest
+validation, XPC encoding and a fake host transport without launching CMUX:
+
+```sh
+swift test --package-path Packages/macOS/CmuxExtensionKit --jobs 2 --disable-xctest --enable-swift-testing
+```
 
 ## Five-Minute Sidebar Extension
 

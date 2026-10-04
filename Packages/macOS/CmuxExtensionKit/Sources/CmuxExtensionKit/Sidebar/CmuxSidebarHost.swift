@@ -133,7 +133,11 @@ public struct CmuxSidebarHost {
         try await send(.toggleSurfaceZoom(workspaceID: workspaceID, surfaceID: surfaceID))
     }
 
-    private func send(_ action: CmuxSidebarAction) async throws {
+    /// Sends one typed action and preserves host rejection and cancellation.
+    ///
+    /// Internal management extensions use the same transport and reply gate as
+    /// existing public helpers rather than adding a second action path.
+    func send(_ action: CmuxSidebarAction) async throws {
         let result = await perform(action)
         guard result.accepted else {
             let message = result.message ?? "cmux did not allow that action"

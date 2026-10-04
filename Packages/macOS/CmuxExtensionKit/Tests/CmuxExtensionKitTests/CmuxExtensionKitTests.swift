@@ -34,7 +34,7 @@ struct CMUXExtensionKitTests {
         let decoded = try JSONDecoder().decode(CmuxSidebarSnapshot.self, from: encoded)
 
         #expect(decoded == snapshot)
-        #expect(decoded.apiVersion == CmuxExtensionAPIVersion.sidebarV2)
+        #expect(decoded.apiVersion == CmuxExtensionAPIVersion.sidebarV2_1)
         #expect(decoded.grantedReadScopes.contains(.workspaceMetadata))
         #expect(decoded.grantedActionScopes == [.selectWorkspace])
     }
@@ -148,7 +148,7 @@ struct CMUXExtensionKitTests {
 
         let filtered = snapshot.filtered(for: [CmuxExtensionScope]())
 
-        #expect(filtered.apiVersion == .sidebarV2)
+        #expect(filtered.apiVersion == .sidebarV2_1)
         #expect(filtered.sequence == 45)
         #expect(filtered.windowID == nil)
         #expect(filtered.selectedWorkspaceID == nil)
@@ -489,7 +489,7 @@ struct CMUXExtensionKitTests {
         {
           "id": "dev.example.sidebar",
           "displayName": "Example Sidebar",
-          "minimumAPIVersion": { "major": 2, "minor": 1 },
+          "minimumAPIVersion": { "major": 2, "minor": 2 },
           "readScopes": []
         }
         """.utf8)
@@ -501,8 +501,8 @@ struct CMUXExtensionKitTests {
         } catch {
             #expect(
                 error as? CmuxExtensionValidationError == .unsupportedAPIVersion(
-                    requested: CmuxExtensionAPIVersion(major: 2, minor: 1),
-                    supported: .sidebarV2
+                    requested: CmuxExtensionAPIVersion(major: 2, minor: 2),
+                    supported: .sidebarV2_1
                 )
             )
         }
@@ -527,7 +527,7 @@ struct CMUXExtensionKitTests {
             #expect(
                 error as? CmuxExtensionValidationError == .unsupportedAPIVersion(
                     requested: CmuxExtensionAPIVersion(major: 1, minor: 0),
-                    supported: .sidebarV2
+                    supported: .sidebarV2_1
                 )
             )
         }

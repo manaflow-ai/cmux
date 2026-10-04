@@ -24,6 +24,40 @@ public enum CmuxSidebarAction: Codable, Equatable, Sendable {
     case splitBrowser(workspaceID: UUID, surfaceID: UUID, direction: CmuxSidebarSplitDirection, url: String?)
     case toggleSurfaceZoom(workspaceID: UUID, surfaceID: UUID)
     case openURL(String)
+    /// Prompts natively when `title` is nil; an empty title clears the custom name.
+    case renameWorkspace(workspaceID: UUID, title: String?)
+    /// Prompts natively when `title` is nil; an empty title clears the custom name.
+    case renameSurface(workspaceID: UUID, surfaceID: UUID, title: String?)
+    /// Prompts natively when `title` is nil; a group name must remain nonempty.
+    case renameWorkspaceGroup(groupID: UUID, title: String?)
+    /// Creates a native group from existing workspaces or with a new anchor.
+    case createWorkspaceGroup(name: String, workspaceIDs: [UUID])
+    /// Applies a workspace pin state through the host's native model.
+    case setWorkspacePinned(workspaceID: UUID, isPinned: Bool)
+    /// Applies a user-selected importance marker without changing agent activity.
+    case setWorkspaceImportance(workspaceID: UUID, importance: CmuxSidebarWorkspaceImportance)
+    /// Applies the native group expansion state.
+    case setWorkspaceGroupCollapsed(groupID: UUID, isCollapsed: Bool)
+    /// Assigns a workspace to a group, or removes its assignment when the ID is nil.
+    case moveWorkspaceToGroup(workspaceID: UUID, groupID: UUID?)
+    /// Removes native grouping while retaining all member workspaces.
+    case ungroupWorkspaceGroup(groupID: UUID)
+    /// Confirms natively before deleting a group and closing its confirmed members.
+    case deleteWorkspaceGroup(groupID: UUID)
+    /// Marks the target workspace's notification state as read.
+    case markWorkspaceRead(workspaceID: UUID)
+    /// Marks the target workspace's notification state as unread.
+    case markWorkspaceUnread(workspaceID: UUID)
+    /// Clears the target workspace's latest notification.
+    case clearWorkspaceNotifications(workspaceID: UUID)
+    /// Applies the target workspace's notification mute state.
+    case setWorkspaceMuted(workspaceID: UUID, isMuted: Bool)
+    /// Sets or clears the native custom description; nil clears it.
+    case setWorkspaceDescription(workspaceID: UUID, description: String?)
+    /// Sets or clears the native custom color; nil restores the default.
+    case setWorkspaceColor(workspaceID: UUID, colorHex: String?)
+    /// Moves a workspace before another workspace, or to the end when nil.
+    case moveWorkspace(workspaceID: UUID, beforeWorkspaceID: UUID?)
 
     public var requiredScopes: Set<CmuxExtensionActionScope> {
         switch self {
@@ -53,6 +87,36 @@ public enum CmuxSidebarAction: Codable, Equatable, Sendable {
             return [.zoomSurface]
         case .openURL:
             return [.openURL]
+        case .renameWorkspace:
+            return [.renameWorkspace]
+        case .renameSurface:
+            return [.renameSurface]
+        case .renameWorkspaceGroup:
+            return [.renameWorkspaceGroup]
+        case .createWorkspaceGroup:
+            return [.createWorkspaceGroup, .createWorkspace]
+        case .setWorkspacePinned:
+            return [.pinWorkspace]
+        case .setWorkspaceImportance:
+            return [.setWorkspaceImportance]
+        case .setWorkspaceGroupCollapsed:
+            return [.collapseWorkspaceGroup]
+        case .moveWorkspaceToGroup:
+            return [.moveWorkspaceToGroup]
+        case .ungroupWorkspaceGroup:
+            return [.ungroupWorkspaceGroup]
+        case .deleteWorkspaceGroup:
+            return [.deleteWorkspaceGroup, .closeWorkspace]
+        case .markWorkspaceRead, .markWorkspaceUnread, .clearWorkspaceNotifications:
+            return [.manageNotifications]
+        case .setWorkspaceMuted:
+            return [.muteWorkspace]
+        case .setWorkspaceDescription:
+            return [.editWorkspaceDescription]
+        case .setWorkspaceColor:
+            return [.colorWorkspace]
+        case .moveWorkspace:
+            return [.reorderWorkspace]
         }
     }
 }
