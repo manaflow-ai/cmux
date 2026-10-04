@@ -8,25 +8,25 @@ import CmuxNextBrowser
 ///
 /// | button | action |
 /// | --- | --- |
-/// | design mode | `browser.designMode.toggle` (`toggleBrowserDesignMode`) |
+/// | design mode | `toggleBrowserDesignMode` |
 /// | profile | `browser.profile.choose`, a menu of `browserProfile.moveTab` per profile |
-/// | theme | a menu of `browser.theme.set` (`browserTheme`) system, light, dark |
-/// | DevTools | `browser.devtools.toggle` (`toggleBrowserDeveloperTools`) |
+/// | theme | a menu of `browserTheme` system, light, dark |
+/// | DevTools | `toggleBrowserDeveloperTools` |
 /// | More | `browser.overflow.menu` |
 enum BrowserToolbarHandlers {
-    /// The action a press runs. The theme button runs `browser.theme.set`
-    /// from its menu, one item per scheme.
+    /// The action a press runs. The theme button runs `browserTheme` from
+    /// its menu, one item per scheme.
     static func actionID(for button: BrowserToolbarButton) -> ActionID {
         switch button {
-        case .designMode: "browser.designMode.toggle"
+        case .designMode: "toggleBrowserDesignMode"
         case .profile: "browser.profile.choose"
-        case .theme: "browser.theme.set"
-        case .devTools: "browser.devtools.toggle"
+        case .theme: "browserTheme"
+        case .devTools: "toggleBrowserDeveloperTools"
         case .overflow: "browser.overflow.menu"
         }
     }
 
-    /// The `theme` argument of `browser.theme.set`; a missing or unknown
+    /// The `theme` argument of `browserTheme`; a missing or unknown
     /// value follows the app.
     static func colorScheme(_ invocation: ActionInvocation) -> BrowserColorScheme {
         invocation["theme"]?.stringValue.flatMap(BrowserColorScheme.init(rawValue:)) ?? .system
@@ -74,7 +74,7 @@ enum BrowserToolbarHandlers {
         ActionTargetRef(kind: .tab, id: entry.tab.id.rawValue)
     }
 
-    /// System, Light and Dark, each running `browser.theme.set`; the
+    /// System, Light and Dark, each running `browserTheme`; the
     /// current scheme is checked (`ThemeCoordinator.currentChoice`).
     static func themeMenu(target: ActionTargetRef, registry: ActionRegistry) -> NSMenu {
         let built = registry.makeContextMenu(for: .browserPage, target: target, entries: [.choices("browserTheme")])

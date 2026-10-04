@@ -59,8 +59,18 @@ public final class BrowserToolbarButtonsView: NSStackView {
         observation = ObservationLoop { [weak self] in self?.render() }
     }
 
-    /// Reads the states again (WebKit's inspector visibility is not observable).
-    public func refresh() { render() }
+    /// Reads the states again, WebKit's inspector visibility included
+    /// (`WebKitInspectorWatch` misses an inspector hidden without a view or
+    /// window change): on a press, a menu, and when the toolbar is shown.
+    public func refresh() {
+        (tab as? WebKitTab)?.inspectorWatch.refresh()
+        render()
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { refresh() }
+    }
 
     /// The button's view, the anchor for its menu.
     public func button(_ button: BrowserToolbarButton) -> NSView? { buttons[button] }
@@ -72,6 +82,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// collapsed, at the top of the view when the toolbar is hidden) on the
     /// next run-loop turn, so a CLI or palette caller returns first.
     public func present(_ menu: NSMenu, from button: BrowserToolbarButton) {
+        refresh()
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self, let anchor = self.anchor(for: button) else { return }
@@ -101,6 +112,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
 
     @objc private func pressed(_ sender: NSButton) {
         guard BrowserToolbarButton.allCases.indices.contains(sender.tag) else { return }
+        refresh()
         onPress?(BrowserToolbarButton.allCases[sender.tag])
     }
 
