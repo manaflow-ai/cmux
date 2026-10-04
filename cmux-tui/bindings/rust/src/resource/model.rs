@@ -7,6 +7,13 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+#[path = "model_layout_column.rs"]
+mod layout_column;
+#[path = "model_tab.rs"]
+mod tab;
+pub use layout_column::{LayoutColumn, LayoutColumnSticky};
+pub use tab::{TabContentId, TabContentKind, TabSnapshot};
+
 /// JSON retained only where the catalog explicitly declares a JSON or extension value.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(transparent)]
@@ -183,38 +190,6 @@ impl<'de> Deserialize<'de> for LayoutStack {
     }
 }
 
-/// One stable horizontal viewport column.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct LayoutColumn {
-    pub column_id: SplitId,
-    pub width: f64,
-    pub root: Box<LayoutNode>,
-}
-
-impl<'de> Deserialize<'de> for LayoutColumn {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Wire {
-            column_id: SplitId,
-            width: f64,
-            root: Box<LayoutNode>,
-        }
-
-        let wire = Wire::deserialize(deserializer)?;
-        if !wire.width.is_finite() || !(0.1..=1.0).contains(&wire.width) {
-            return Err(serde::de::Error::custom(
-                "layout column width must be finite and between 0.1 and 1",
-            ));
-        }
-        Ok(Self { column_id: wire.column_id, width: wire.width, root: wire.root })
-    }
-}
-
 /// Horizontally scrolling viewport with stable columns.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -366,75 +341,6 @@ pub struct PaneSnapshot {
 #[serde(deny_unknown_fields)]
 pub struct PaneNeighborResult {
     pub pane: Option<PaneSnapshot>,
-}
-
-/// Kind of resource hosted by a tab.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum TabContentKind {
-    Terminal,
-    Browser,
-}
-
-/// Typed content ID hosted by a tab.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TabContentId {
-    Terminal(TerminalId),
-    Browser(BrowserId),
-}
-
-/// Catalog snapshot for one tab.
-#[derive(Clone, Debug, PartialEq)]
-pub struct TabSnapshot {
-    pub id: TabId,
-    pub pane_id: PaneId,
-    pub name: Option<String>,
-    pub index: u32,
-    pub focused: bool,
-    pub content_kind: TabContentKind,
-    pub content_id: TabContentId,
-    pub extra: BTreeMap<String, Value>,
-}
-
-impl<'de> Deserialize<'de> for TabSnapshot {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Wire {
-            id: TabId,
-            pane_id: PaneId,
-            #[serde(deserialize_with = "deserialize_nullable")]
-            name: Option<String>,
-            index: u32,
-            focused: bool,
-            content_kind: TabContentKind,
-            content_id: String,
-            #[serde(default)]
-            extra: BTreeMap<String, Value>,
-        }
-
-        let wire = Wire::deserialize(deserializer)?;
-        let content_id = match wire.content_kind {
-            TabContentKind::Terminal => {
-                TerminalId::parse(wire.content_id).map(TabContentId::Terminal)
-            }
-            TabContentKind::Browser => BrowserId::parse(wire.content_id).map(TabContentId::Browser),
-        }
-        .map_err(serde::de::Error::custom)?;
-        Ok(Self {
-            id: wire.id,
-            pane_id: wire.pane_id,
-            name: wire.name,
-            index: wire.index,
-            focused: wire.focused,
-            content_kind: wire.content_kind,
-            content_id,
-            extra: wire.extra,
-        })
-    }
 }
 
 /// Durable process outcome retained for a terminal.

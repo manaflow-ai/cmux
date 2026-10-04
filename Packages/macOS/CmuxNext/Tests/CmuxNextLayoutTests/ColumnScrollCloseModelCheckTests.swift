@@ -9,7 +9,7 @@ import Testing
 /// of up to 4 columns (widths 30, 55 or 100 percent of the viewport, two
 /// viewport widths), every focused column and every reachable scroll
 /// offset, every step to depth 6. The focus successor is
-/// `FocusAfterClose.pane` (one pane per column). Sticky columns are not
+/// `FocusAfterClose.pane` (one pane per column). Docked columns are not
 /// in `ColumnStrip` (they never scroll), so they cannot affect this math.
 ///
 /// After each step the spring settles (`animated: false` targets the same

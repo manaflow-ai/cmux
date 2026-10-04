@@ -4,7 +4,7 @@ import CmuxNextSettings
 import Testing
 
 /// `sidebar.sectionLook`, `sidebar.topBandMaxShare`, `sidebar.bottomBandMaxShare`
-/// and `sidebar.stickyBandsScroll` (plans/cmux-next/sidebar-sections.md 7).
+/// and `sidebar.pinnedBandsScroll` (plans/cmux-next/sidebar-sections.md 7).
 @Suite struct SidebarSectionsSettingsTests {
     func parse(_ text: String) throws -> CmuxConfigSnapshot {
         CmuxConfigSnapshot.parse(try JSONC.parse(text), validDensities: [], validMetrics: [])
@@ -13,20 +13,29 @@ import Testing
     @Test func defaultsAreQuietWithAThirdAndAQuarter() throws {
         let snapshot = try parse("{}")
         #expect(snapshot.sidebarSections == SidebarSectionsPreferences(look: "quiet", topBandMaxShare: 1.0 / 3.0,
-                                                                         bottomBandMaxShare: 0.25, stickyBandsScroll: true))
+                                                                         bottomBandMaxShare: 0.25, pinnedBandsScroll: true))
         #expect(snapshot.diagnostics.isEmpty)
     }
 
     @Test func readsEveryKey() throws {
-        let snapshot = try parse(#"{"sidebar": {"sectionLook": "lines", "topBandMaxShare": 0.5, "bottomBandMaxShare": 0.2, "stickyBandsScroll": false, "showWorkspaceTabs": true}}"#)
+        let snapshot = try parse(#"{"sidebar": {"sectionLook": "lines", "topBandMaxShare": 0.5, "bottomBandMaxShare": 0.2, "pinnedBandsScroll": false, "showWorkspaceTabs": true}}"#)
         #expect(snapshot.sidebarSections == SidebarSectionsPreferences(look: "lines", topBandMaxShare: 0.5, bottomBandMaxShare: 0.2,
-                                                                         stickyBandsScroll: false, showWorkspaceTabs: true))
+                                                                         pinnedBandsScroll: false, showWorkspaceTabs: true))
     }
 
     @Test func badValuesKeepDefaultsWithDiagnostics() throws {
-        let snapshot = try parse(#"{"sidebar": {"sectionLook": "fancy", "topBandMaxShare": 2, "stickyBandsScroll": "no", "showWorkspaceTabs": "yes"}}"#)
+        let snapshot = try parse(#"{"sidebar": {"sectionLook": "fancy", "topBandMaxShare": 2, "pinnedBandsScroll": "no", "showWorkspaceTabs": "yes"}}"#)
         #expect(snapshot.sidebarSections == .defaults)
-        #expect(Set(snapshot.diagnostics.map(\.path)) == ["sidebar.sectionLook", "sidebar.topBandMaxShare", "sidebar.stickyBandsScroll", "sidebar.showWorkspaceTabs"])
+        #expect(Set(snapshot.diagnostics.map(\.path)) == ["sidebar.sectionLook", "sidebar.topBandMaxShare", "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs"])
+    }
+
+    /// R87: nightly-next builds wrote `sidebar.stickyBandsScroll`; it is
+    /// read for one release, and the new key wins when both are set.
+    @Test func theOldStickyBandsKeyIsReadForOneRelease() throws {
+        #expect(try parse(#"{"sidebar": {"stickyBandsScroll": false}}"#).sidebarSections.pinnedBandsScroll == false)
+        #expect(try parse(#"{"sidebar": {"stickyBandsScroll": false, "pinnedBandsScroll": true}}"#).sidebarSections.pinnedBandsScroll)
+        let bad = try parse(#"{"sidebar": {"stickyBandsScroll": "no"}}"#)
+        #expect(bad.diagnostics.map(\.path) == ["sidebar.stickyBandsScroll"])
     }
 
     @MainActor @Test func appliesToDesignSettings() throws {

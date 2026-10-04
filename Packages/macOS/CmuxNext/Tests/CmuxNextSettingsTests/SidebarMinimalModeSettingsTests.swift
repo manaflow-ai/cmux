@@ -2,7 +2,7 @@ import CmuxNextDesign
 import CmuxNextSettings
 import Testing
 
-/// R54 (Lawrence 2026-10-03): minimal mode hides chosen sticky sections
+/// R54 (Lawrence 2026-10-03): minimal mode hides chosen pinned sections
 /// (the first choice: the Settings and account row at the bottom) until the
 /// pointer is over the sidebar. A cmux.json setting in the schema that
 /// agents may set.

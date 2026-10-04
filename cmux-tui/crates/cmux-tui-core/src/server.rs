@@ -10524,7 +10524,7 @@ fn send_resource_stream_item(
                 "stream_id":stream_id,
                 "sequence":sequence.to_string(),
                 "cursor":cursor,
-                "item":item,
+                "item":writer.project_conversation_tab_item(item),
             }),
             outbound,
         )

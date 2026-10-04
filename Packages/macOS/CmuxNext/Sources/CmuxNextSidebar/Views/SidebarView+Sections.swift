@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-// Sticky item sections above and below the workspace list
+// Pinned item sections above and below the workspace list
 // (plans/cmux-next/sidebar-sections.md).
 extension SidebarView {
     func buildBands() {
@@ -35,7 +35,7 @@ extension SidebarView {
     /// list's frame between them.
     func layoutBands(top y: CGFloat, footerHeight: CGFloat) -> NSRect {
         let b = bounds
-        // Sticky item sections above and below the list, each capped at
+        // Pinned item sections above and below the list, each capped at
         // its share of the height (then it scrolls inside).
         let available = max(0, b.height - y - footerHeight)
         let hidden = Set(model.itemInfo.filter(\.value.isHidden).keys)

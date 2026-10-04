@@ -163,49 +163,49 @@ public abstract class GeneratedCmuxClient {
         return WorkspaceMutationResult.fromWire(result);
     }
 
-    public final Object conversationAgentToken(ConversationAgentTokenRequest request) throws CmuxException {
+    public final ConversationAgentTokenResult conversationAgentToken(ConversationAgentTokenRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_AGENT_TOKEN, request.toWire());
-        return Wire.immutableJson(result);
+        return ConversationAgentTokenResult.fromWire(result);
     }
 
-    public final Object conversationBind(ConversationBindRequest request) throws CmuxException {
+    public final ConversationBindResult conversationBind(ConversationBindRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_BIND, request.toWire());
-        return Wire.immutableJson(result);
+        return ConversationBindResult.fromWire(result);
     }
 
-    public final Object conversationCreate(ConversationCreateRequest request) throws CmuxException {
+    public final ConversationCreateResult conversationCreate(ConversationCreateRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_CREATE, request.toWire());
-        return Wire.immutableJson(result);
+        return ConversationCreateResult.fromWire(result);
     }
 
-    public final Object conversationHistory(ConversationHistoryRequest request) throws CmuxException {
+    public final ConversationHistoryResult conversationHistory(ConversationHistoryRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_HISTORY, request.toWire());
-        return Wire.immutableJson(result);
+        return ConversationHistoryResult.fromWire(result);
     }
 
-    public final Object conversationList() throws CmuxException {
+    public final ConversationListResult conversationList() throws CmuxException {
         Object result = execute(Commands.CONVERSATION_LIST, Map.of());
-        return Wire.immutableJson(result);
+        return ConversationListResult.fromWire(result);
     }
 
-    public final Object conversationOp(ConversationOpRequest request) throws CmuxException {
+    public final ConversationOpResult conversationOp(ConversationOpRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_OP, request.toWire());
-        return Wire.immutableJson(result);
+        return ConversationOpResult.fromWire(result);
     }
 
-    public final Object conversationSearch(ConversationSearchRequest request) throws CmuxException {
+    public final ConversationSearchResult conversationSearch(ConversationSearchRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_SEARCH, request.toWire());
-        return Wire.immutableJson(result);
+        return ConversationSearchResult.fromWire(result);
     }
 
-    public final Object conversationSnapshot(ConversationSnapshotRequest request) throws CmuxException {
+    public final ConversationSnapshotResult conversationSnapshot(ConversationSnapshotRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_SNAPSHOT, request.toWire());
-        return Wire.immutableJson(result);
+        return ConversationSnapshotResult.fromWire(result);
     }
 
-    public final Object conversationTyping(ConversationTypingRequest request) throws CmuxException {
+    public final EmptyResult conversationTyping(ConversationTypingRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_TYPING, request.toWire());
-        return Wire.immutableJson(result);
+        return EmptyResult.fromWire(result);
     }
 
     public final CopyResult copy(CopyRequest request) throws CmuxException {
@@ -558,9 +558,9 @@ public abstract class GeneratedCmuxClient {
         return SurfaceResult.fromWire(result);
     }
 
-    public final Object newConversationTab(NewConversationTabRequest request) throws CmuxException {
+    public final NewConversationTabResult newConversationTab(NewConversationTabRequest request) throws CmuxException {
         Object result = execute(Commands.NEW_CONVERSATION_TAB, request.toWire());
-        return Wire.immutableJson(result);
+        return NewConversationTabResult.fromWire(result);
     }
 
     public final Object newFrontendBrowserTab(NewFrontendBrowserTabRequest request) throws CmuxException {

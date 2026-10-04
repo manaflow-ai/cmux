@@ -643,6 +643,7 @@ export function VirtualTranscript({
     return () => observer.disconnect();
   }, []);
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
+  const previousRows = useRef<AcpmuxRow[]>(rows);
   const scrolledTo = useRef({ top: 0, atLatest: false });
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
@@ -691,8 +692,9 @@ export function VirtualTranscript({
   });
   useLayoutEffect(() => {
     const old = previousLayout.current;
+    const oldRows = previousRows.current;
     const node = ref.current;
-    if (old && node && old.tops.length === layout.tops.length) {
+    if (old && node) {
       // Content that shrank under the viewport has already clamped the live offset to
       // the new end; the offset recorded before this commit is where the reader was.
       // A clamp lands exactly on the scroller's own end, which rounds the layout's
@@ -712,9 +714,15 @@ export function VirtualTranscript({
         if (Math.abs(latest - node.scrollTop) > 0.5) node.scrollTop = latest;
       } else if (top > 0) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
+        // Rows that arrived or left (a new reply segment below, older history above) move indexes,
+        // so the row is found again by its id.
         const anchor = visibleLayoutRange(old, top, 0, 0).first;
-        const delta = layout.tops[anchor] - old.tops[anchor];
-        if (clamped || Math.abs(delta) > 0.5) node.scrollTop = top + delta;
+        const id = oldRows[anchor]?.id;
+        const now = rows[anchor]?.id === id ? anchor : rows.findIndex((row) => row.id === id);
+        if (now >= 0) {
+          const delta = layout.tops[now] - old.tops[anchor];
+          if (clamped || Math.abs(delta) > 0.5) node.scrollTop = top + delta;
+        }
       }
     }
     // Runs on height too: rows that fit and then overflow on a height-only shrink keep the same memoized layout.
@@ -725,8 +733,9 @@ export function VirtualTranscript({
       didOpenAtLatest.current = true;
     }
     previousLayout.current = layout;
+    previousRows.current = rows;
     if (node) scrolledTo.current = scrollPosition(node, layout.totalHeight);
-  }, [layout, range.first, height]);
+  }, [layout, rows, range.first, height]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
   const renderRate = useMemo(() => new AdaptiveRenderRate(), []);

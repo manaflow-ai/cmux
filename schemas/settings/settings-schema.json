@@ -783,16 +783,16 @@
       },
       "help" : null,
       "kept_on_reset_all" : false,
-      "key" : "layout.stickyColumnEdge",
+      "key" : "layout.dockColumnEdge",
       "keywords" : [
-        "sticky",
+        "dock",
         "pin",
         "column"
       ],
       "kind" : "choice",
       "path" : [
         "layout",
-        "stickyColumnEdge"
+        "dockColumnEdge"
       ],
       "refuses" : [
         "__not_a_choice__",
@@ -801,8 +801,8 @@
       ],
       "section" : "general",
       "title" : {
-        "key" : "settings.layout.stickyColumnEdge",
-        "text" : "Sticky Column Edge"
+        "key" : "settings.layout.dockColumnEdge",
+        "text" : "Dock Column Edge"
       },
       "validation" : "portable"
     },
@@ -837,9 +837,8 @@
       },
       "help" : null,
       "kept_on_reset_all" : false,
-      "key" : "layout.stickyColumnMode",
+      "key" : "layout.dockColumnMode",
       "keywords" : [
-        "sticky",
         "floating",
         "overlay",
         "dock"
@@ -847,7 +846,7 @@
       "kind" : "choice",
       "path" : [
         "layout",
-        "stickyColumnMode"
+        "dockColumnMode"
       ],
       "refuses" : [
         "__not_a_choice__",
@@ -856,8 +855,8 @@
       ],
       "section" : "general",
       "title" : {
-        "key" : "settings.layout.stickyColumnMode",
-        "text" : "Sticky Column Mode"
+        "key" : "settings.layout.dockColumnMode",
+        "text" : "Dock Column Mode"
       },
       "validation" : "portable"
     },
@@ -897,8 +896,7 @@
         "dock",
         "frame",
         "orientation",
-        "corner",
-        "sticky"
+        "corner"
       ],
       "kind" : "choice",
       "path" : [
@@ -5328,7 +5326,7 @@
       "keywords" : [
         "sidebar",
         "sections",
-        "sticky",
+        "pinned",
         "height",
         "scroll"
       ],
@@ -5379,7 +5377,7 @@
       "keywords" : [
         "sidebar",
         "sections",
-        "sticky",
+        "pinned",
         "height",
         "scroll"
       ],
@@ -5421,21 +5419,21 @@
         "text" : "Sidebar"
       },
       "help" : {
-        "key" : "settings.sidebar.stickyBandsScroll.help",
+        "key" : "settings.sidebar.pinnedBandsScroll.help",
         "text" : "Off: the top and bottom sections never scroll and the workspace list gets smaller."
       },
       "kept_on_reset_all" : false,
-      "key" : "sidebar.stickyBandsScroll",
+      "key" : "sidebar.pinnedBandsScroll",
       "keywords" : [
         "sidebar",
         "sections",
-        "sticky",
+        "pinned",
         "scroll"
       ],
       "kind" : "toggle",
       "path" : [
         "sidebar",
-        "stickyBandsScroll"
+        "pinnedBandsScroll"
       ],
       "refuses" : [
         "true",
@@ -5444,7 +5442,7 @@
       ],
       "section" : "appearance",
       "title" : {
-        "key" : "settings.sidebar.stickyBandsScroll",
+        "key" : "settings.sidebar.pinnedBandsScroll",
         "text" : "Scroll Tall Sections"
       },
       "validation" : "portable"
@@ -7233,7 +7231,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "de3d4ccbc727d92d9db549e77670bf342ba5345b4f4ada26acaa83909bd64424",
+  "schema_hash" : "bbc12ac893dd1c48d61e1550ef8effbff4179798a686b91a9b74674698fdebbb",
   "sections" : [
     {
       "id" : "general",

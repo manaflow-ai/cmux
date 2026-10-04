@@ -7,6 +7,7 @@
 import { Fragment, memo, useMemo, useRef, type ReactNode } from "react";
 import { safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
+import { CodeHandoff, PlainCode } from "./StreamingCode";
 import { ArxivMark, Check, FileDoc, GitHubMark, Globe } from "./icons";
 import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
@@ -247,12 +248,16 @@ function Block({
   opts,
   depth,
   enter = false,
+  code = "final",
 }: {
   block: MdBlock;
   opts: InlineOptions;
   depth: number;
   /** The block appeared while the reply streams: it enters with the shared motion (`.cv-enter`). */
   enter?: boolean;
+  /** A code block's stage: still open (plain lines), closed while streaming (highlighted once,
+   * faded in), or drawn finished (highlighted). */
+  code?: "open" | "handoff" | "final";
 }): ReactNode {
   const motion = enter ? " cv-enter" : "";
   switch (block.type) {
@@ -327,6 +332,8 @@ function Block({
       );
     }
     case "code":
+      if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
+      if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} />;
       return <CodeBlock code={block.code} lang={block.lang} />;
     case "math":
       return <MathDisplay tex={block.tex} />;
@@ -361,22 +368,32 @@ export type MarkdownProps = InlineOptions & {
 export function Markdown({ children, className = "", linkIcon, streaming = false }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
-  const blocks = parser.current.update(children);
+  const blocks = parser.current.update(children, { streaming });
   // Blocks there at the first render (history, a row scrolled into view) never animate.
   const atMount = useRef<Set<string> | null>(null);
   atMount.current ??= new Set(blocks.map((entry) => entry.key));
   const opts = useMemo(() => ({ linkIcon }), [linkIcon]);
+  // Fences this reply drew open: they hand over to the highlighted card once, when they close.
+  const streamedFences = useRef(new Set<string>());
+  // An odd number of fence lines: the last block is a fence still arriving.
+  const openFence = streaming && (children.match(/^\s*```/gm)?.length ?? 0) % 2 === 1;
   return (
     <div className={`cv-md ${className}`}>
-      {blocks.map((entry) => (
-        <BlockView
-          key={entry.key}
-          block={entry.block}
-          opts={opts}
-          depth={0}
-          enter={streaming && !atMount.current!.has(entry.key)}
-        />
-      ))}
+      {blocks.map((entry, index) => {
+        const live = !atMount.current!.has(entry.key);
+        const open = openFence && index === blocks.length - 1;
+        if (open) streamedFences.current.add(entry.key);
+        return (
+          <BlockView
+            key={entry.key}
+            block={entry.block}
+            opts={opts}
+            depth={0}
+            enter={streaming && live}
+            code={open ? "open" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
+          />
+        );
+      })}
     </div>
   );
 }
