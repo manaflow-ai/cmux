@@ -125,7 +125,7 @@ import Testing
     /// terminal, regardless of an action's routing tier. Bind every handler
     /// so an unimplemented action cannot hide a forbidden default. The old
     /// Control-Shift H/J/K/L resize defaults are included deliberately.
-    @Test func neverTakeFromTerminalDefaultsStayOutOfTheResolver() {
+    @MainActor @Test func neverTakeFromTerminalDefaultsStayOutOfTheResolver() {
         let registry = ActionRegistry.standard()
         for descriptor in registry.descriptors {
             _ = registry.bind(descriptor.id) {}
