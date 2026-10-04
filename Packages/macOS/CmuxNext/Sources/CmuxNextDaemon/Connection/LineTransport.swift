@@ -83,6 +83,9 @@ final class LineTransport: Sendable {
         self.path = path
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw .connectFailed(path: path, errno: errno) }
+        // Close-on-exec: a program the app execs must not inherit a daemon connection, whose
+        // peer key is this process's audit token (request-origin.md, peer key caveat).
+        _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
         var on: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         var address = sockaddr_un()
