@@ -202,7 +202,7 @@ pub(crate) fn is_catalog_error_code(code: &str) -> bool {
 pub(super) fn error_catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
     CATALOG.get_or_init(|| {
-        serde_json::from_str(include_str!("../../../spec/resource-operations-v2.json"))
+        serde_json::from_str(include_str!("../../../../spec/resource-operations-v2.json"))
             .expect("checked-in resource operation catalog")
     })
 }
