@@ -150,25 +150,43 @@ struct BrowserReplSessionResourceTests {
         defer { session.close() }
 
         // Zero-delay timers fire at once, but this loop keeps the JS thread
-        // busy, so every callback is still waiting to run.
+        // busy, so every callback is still waiting to run. The last callback
+        // to run settles `floodRan`.
         let flood = await browserReplWithDeadline(seconds: 60) {
             await session.evaluate(code: """
             let n = 0;
-            try {
-              for (let i = 0; i < 20001; i++) { setTimeout(() => {}, 0); n++; }
-            } catch (e) {
-              console.log(e.name, n);
-            }
+            globalThis.floodRan = new Promise((resolve) => {
+              let ran = 0;
+              try {
+                for (let i = 0; i < 20001; i++) { setTimeout(() => { if (++ran === n) resolve(ran); }, 0); n++; }
+              } catch (e) {
+                console.log(e.name, n);
+              }
+            });
+            // The cell's value is not the promise, so the cell does not wait for it.
+            undefined;
             """)
         }
         #expect(flood?.error == nil)
         #expect(flood?.lines.map(\.text) == ["RangeError 10000"])
 
-        // Once those callbacks ran, timers work again.
-        let next = await browserReplWithDeadline(seconds: 60) {
-            await session.evaluate(code: "await new Promise((r) => setTimeout(r, 1)); console.log('alive');")
+        let ran = await browserReplWithDeadline(seconds: 60) {
+            await session.evaluate(code: "console.log(await globalThis.floodRan)")
         }
-        #expect(next?.lines.map(\.text) == ["alive"])
+        #expect(ran?.lines.map(\.text) == ["10000"])
+
+        // Once those callbacks ran, every slot is free again: the session
+        // takes 10,000 timers (none of which comes due) once more.
+        let refill = await browserReplWithDeadline(seconds: 60) {
+            await session.evaluate(code: """
+            const ids = [];
+            for (let i = 0; i < 10000; i++) ids.push(setTimeout(() => {}, 3600000));
+            ids.forEach(clearTimeout);
+            console.log(ids.length);
+            """)
+        }
+        #expect(refill?.error == nil, "\(String(describing: refill?.error))")
+        #expect(refill?.lines.map(\.text) == ["10000"])
     }
 
     @Test("Output past the native ceiling goes to a file in the session's temporary directory")

@@ -11,7 +11,8 @@ private struct ElapsedSleeper: BrowserReplSleeping {
 /// A deadline that never passes during a test (cancelled with its race).
 private struct DistantSleeper: BrowserReplSleeping {
     func sleep(for duration: Duration) async throws {
-        try await Task.sleep(for: .seconds(3600))
+        await browserReplWaitUntilCancelled()
+        throw CancellationError()
     }
 }
 
@@ -97,7 +98,8 @@ struct BrowserReplTabWakeTests {
 
     @Test func aWakeThatOutlastsItsBoundFailsWithATimeoutThatNamesTheTab() async {
         let tab = FakeTab(BrowserReplTabCondition(isHibernated: true))
-        tab.onWait = { _ in try? await Task.sleep(for: .seconds(3600)) }
+        // The restore never commits; the waker cancels the wait at its deadline.
+        tab.onWait = { _ in await browserReplWaitUntilCancelled() }
         let error = await driverError { try await tab.prepare("frame.evaluate", sleeper: ElapsedSleeper()) }
         #expect(error?.code == "timeout")
         #expect(error?.message.contains("tab T1 (\"Inbox\", https://mail.example.com/)") == true)

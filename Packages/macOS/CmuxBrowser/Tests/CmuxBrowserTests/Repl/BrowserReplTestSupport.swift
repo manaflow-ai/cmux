@@ -56,6 +56,42 @@ final class BrowserReplOnceBox<T: Sendable>: @unchecked Sendable {
     }
 }
 
+/// Suspends until the calling task is cancelled, and never resumes on its
+/// own: work that never finishes, without a timer standing in for it.
+func browserReplWaitUntilCancelled() async {
+    let gate = BrowserReplCancellationGate()
+    await withTaskCancellationHandler {
+        await withCheckedContinuation { gate.park($0) }
+    } onCancel: {
+        gate.open()
+    }
+}
+
+/// Holds a continuation until `open()`; one parked after `open()` resumes at once.
+private final class BrowserReplCancellationGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var opened = false
+
+    func park(_ continuation: CheckedContinuation<Void, Never>) {
+        let resumeNow: Bool = lock.withLock {
+            if opened { return true }
+            self.continuation = continuation
+            return false
+        }
+        if resumeNow { continuation.resume() }
+    }
+
+    func open() {
+        let parked: CheckedContinuation<Void, Never>? = lock.withLock {
+            opened = true
+            defer { continuation = nil }
+            return continuation
+        }
+        parked?.resume()
+    }
+}
+
 /// The repository's `Resources/browser-repl` runtime, as the app bundles it.
 func browserReplRepositoryBundle() throws -> BrowserReplRuntimeBundle {
     var directory = URL(fileURLWithPath: #filePath)
