@@ -8,15 +8,12 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
-description = "Sample cmux app server: plain SSH as a cmux.terminal.backend/1 (bytes mode) backend"
+description = "Sample cmux app server: plain SSH over host-owned channels as a cmux.terminal.backend/1 (bytes mode) backend"
 
 [workspace]
 
 [dependencies]
-# Pure-Rust SSH. `ring` instead of the default aws-lc-rs backend: ring is
-# Apache-2.0 AND ISC, which GPL-3.0-or-later can include.
-russh = { version = "=0.63.3", default-features = false, features = ["ring", "rsa"] }
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net", "macros"] }
+# No SSH crate: the host owns the SSH transport (connection.channel.*).
 # Resume token nonces.
 rand = "0.10"
 
@@ -24,11 +21,6 @@ rand = "0.10"
 # The one manifest validator (cmux-tui/crates/cmux-app-manifest), by path only.
 cmux-app-manifest = { path = "../../../../cmux-tui/crates/cmux-app-manifest" }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net", "io-util", "macros"] }
-
-# Optimized dependencies keep test key generation (RSA) and crypto fast.
-[profile.dev.package."*"]
-opt-level = 2
 
 [lints.rust]
 unsafe_code = "forbid"

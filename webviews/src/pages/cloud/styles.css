@@ -609,3 +609,86 @@ select {
     scroll-behavior: auto !important;
   }
 }
+
+/* Domains: the DNS records to add, one per line. */
+.cloud-dns {
+  display: grid;
+  gap: 2px;
+  flex-basis: 100%;
+  padding: 2px 0 4px;
+}
+
+.cloud-dns-record {
+  overflow-wrap: anywhere;
+  color: var(--cloud-text-2);
+}
+
+/* Files: path bar, entries, preview and editor. */
+.cloud-files-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding-bottom: 4px;
+}
+
+.cloud-files-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--cloud-text-2);
+}
+
+.cloud-file-name {
+  max-width: 60%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: start;
+}
+
+.cloud-file.kind-directory .cloud-file-name {
+  font-weight: 600;
+}
+
+.cloud-file-view {
+  padding-top: 6px;
+}
+
+.cloud-file-preview,
+.cloud-file-editor {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: 320px;
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  overflow: auto;
+  border: 1px solid var(--cloud-separator);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cloud-file-editor {
+  min-height: 160px;
+  resize: vertical;
+}
+
+/* Ports: forward state and the browser route. */
+.cloud-forward .forward-down {
+  color: var(--cloud-warn);
+}
+
+.cloud-browser-route {
+  display: grid;
+  gap: 2px;
+  padding-top: 6px;
+}
+
+.cloud-browser-url {
+  overflow-wrap: anywhere;
+}
+
+.cloud-browser-refused {
+  color: var(--cloud-bad);
+}

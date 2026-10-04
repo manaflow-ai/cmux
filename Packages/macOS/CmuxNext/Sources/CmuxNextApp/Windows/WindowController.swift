@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextHistory
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
@@ -47,8 +48,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
             _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
         }
-        root.toolbarBand.describeToggle(title: services.registry.descriptor(for: "toggleSidebar")?.title ?? "",
-                                        shortcut: services.registry.shortcutDisplay(for: "toggleSidebar"))
+        let registry = services.registry
+        root.toolbarBand.followToggleDescription(title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
+                                                 shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
         let window = ShellWindow(
             contentRect: frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -64,6 +66,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         super.init(window: window)
+        installHistoryButtons()
         // Kind, scope and backdrop before the content view (the root paints
         // the backdrop: `WindowSurfacePainting`).
         window.install(kind: .main, content: root, scope: themeScope)
@@ -303,6 +306,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         services.keyRouter.cancelChord()
+        removeHistoryObserver()
         services.windows.windowWillClose(self)
     }
 }

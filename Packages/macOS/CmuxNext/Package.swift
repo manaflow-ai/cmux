@@ -183,7 +183,7 @@ let package = Package(
         // token, session id). Everything above the handshake is TypeScript.
         .target(
             name: "CmuxNextAgentPane",
-            dependencies: ["CmuxNextDesign", "CmuxNextActions", "CmuxNextDictation"],
+            dependencies: ["CmuxNextDesign", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextSettings"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/agent-pane"),
@@ -192,7 +192,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAgentPaneTests",
-            dependencies: ["CmuxNextAgentPane", "CmuxNextActions", "CmuxNextDesign", "CmuxNextDictation"],
+            dependencies: ["CmuxNextAgentPane", "CmuxNextActions", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextPages", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         // Dictation (the composer's mic): the on-device speech engines and
@@ -333,7 +333,7 @@ let package = Package(
         .target(
             name: "CmuxNextPages",
             dependencies: ["CmuxNextDesign", "CmuxNextSettings"],
-            resources: [.copy("Resources/pages")],
+            resources: [.copy("Resources/pages"), .process("Localizable.xcstrings")],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(

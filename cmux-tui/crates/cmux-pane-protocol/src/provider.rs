@@ -122,11 +122,20 @@ pub async fn confine(roots: &[String], path: &str) -> Result<String, ErrorBody> 
 }
 
 /// Replace each string path param with its confined canonical form.
-async fn confine_params(
+/// Decisions 24-25: with no roots (a tokenless or unrooted caller), an op
+/// that has path params is refused even when the call omits them; with
+/// roots, an absent or null path param is not checked.
+pub async fn confine_params(
     roots: &[String],
     names: &[&str],
     mut params: Value,
 ) -> Result<Value, ErrorBody> {
+    if !names.is_empty() && roots.is_empty() {
+        return Err(ErrorBody::new(
+            error::FORBIDDEN,
+            "this op takes paths and the token names no roots",
+        ));
+    }
     for name in names {
         if let Some(slot) = params.get_mut(*name)
             && let Some(path) = slot.as_str()
@@ -289,5 +298,22 @@ impl Handler for Authorized {
             return Err(expired);
         }
         self.provider.subscribe(&self.claims, &stream, filter)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn unrooted_callers_cannot_use_path_ops_and_absent_paths_are_skipped() {
+        let refused = confine_params(&[], &["path"], json!({})).await.unwrap_err();
+        assert_eq!(refused.code, error::FORBIDDEN);
+        assert!(confine_params(&[], &[], json!({ "path": "/" })).await.is_ok());
+        let roots = ["/".to_owned()];
+        assert_eq!(confine_params(&roots, &["path"], json!({})).await, Ok(json!({})));
+        let null = json!({ "path": null });
+        assert_eq!(confine_params(&roots, &["path"], null.clone()).await, Ok(null));
     }
 }

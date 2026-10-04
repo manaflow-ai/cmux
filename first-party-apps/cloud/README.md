@@ -1,6 +1,6 @@
 # Cloud (`cmux/cloud`)
 
-Create, start, pause, resize and delete cmux Cloud machines, take and restore snapshots, and read the plan and usage. Plan: `plans/cmux-next/cloud-app.md` (package C1: manifest, catalog fragment, app server core).
+Create, start, pause, resize and delete cmux Cloud machines, take and restore snapshots, read the plan and usage, work with the files on a machine, and forward its ports to this Mac. Plan: `plans/cmux-next/cloud-app.md` (package C1: manifest, catalog fragment, app server core; C2: attach; C5: files, ports and the browser proxy route).
 
 Status: manifest v2 only (`cmux-app.v2.json`), like `remote-desktop/`, so `first-party-apps/build.ts` does not bundle it. `cargo test` in `server/` validates the manifest and the fragment with `cmux-app-manifest`, and `cmux-app-manifest`'s own first-party test covers it too.
 
@@ -23,6 +23,7 @@ The server never sees the sign-in. It sends each Cloud API call as `{op, method,
 | --- | --- | --- |
 | `cloud:read` | standard | list machines, stats, snapshots, plan, usage |
 | `cloud:write` | sensitive | create, rename, start, pause, resize, delete, snapshots |
+| `fs:write` | restricted (first-party) | write, make and copy files on a machine (`cloud.fs.write`, `cloud.fs.mkdir`, `cloud.file.push`) and copy files to this Mac (`cloud.file.pull`); `cloud.fs.remove` also needs a person |
 | `op:cmux.credential.relay` (server) | sensitive, server only | the host credential relay; the op does not exist yet (APP-R1) |
 
 ## Ops (`catalog/cloud-catalog.json`)
@@ -50,18 +51,74 @@ Fragment names are `cloud.<noun>.<verb>`; the full name is `cmux.cloud.<noun>.<v
 | `cloud.snapshot.delete` | mutation, destructive | never | `snapshot delete` (hidden) | `DELETE /api/vm/:id/snapshots/:sid` | origin `user` only, gesture required |
 | `cloud.plan.get` | read | default | `plan get` | `GET /api/vm` (`limits`) | no plan logic in cmux |
 | `cloud.usage.get` | read | default | `usage get` | `GET /api/vm` (`limits`) | |
+| `cloud.fs.list` | read | default | `fs list` | `GET /api/vm/:id/fs/dir?path=` | one batch (no cursor) |
+| `cloud.fs.stat` | read | default | `fs stat` | `GET /api/vm/:id/fs/stat?path=` | |
+| `cloud.fs.read` | read | default | `fs read` | `GET …/fs/stat`, then `GET …/fs/read?path=` | at most 16 MiB, else `file_too_large` before the bytes move |
+| `cloud.fs.write` | mutation, mutate-shared | opt_in | `fs write` | `POST /api/vm/:id/fs/write` | at most 16 MiB; `baseRevision` answers `unsupported` (the route has no revision) |
+| `cloud.fs.mkdir` | mutation, mutate-shared | opt_in | `fs mkdir` | `POST /api/vm/:id/fs/mkdir` | |
+| `cloud.fs.remove` | mutation, destructive | never | `fs remove` (hidden) | `DELETE /api/vm/:id/fs/remove?path=` | origin `user` only, gesture required |
+| `cloud.file.push` | mutation, mutate-shared | never | `file push` (hidden) | `POST /api/vm/:id/scp-endpoint`, then SSH through the link | origin `user` only, gesture required; a new key per transfer (below) |
+| `cloud.file.pull` | mutation, mutate-own | never | `file pull` (hidden) | the same | origin `user` only, gesture required; never overwrites a local file (`local_exists`) |
+| `cloud.port.list` | read | default | `port list` | none | this Mac's forwards, up or down |
+| `cloud.port.forward` | mutation, mutate-own | opt_in | `port forward` | the link (`loopback-forward-v1`) | 127.0.0.1 and a random port; one per (machine, port); never replayed |
+| `cloud.port.close` | mutation, mutate-own | default | `port close` | none | |
+| `cloud.browser.open` | mutation, mutate-own | opt_in | `browser open` | the link | a proxy route descriptor; opens no tab; never replayed |
 
-Every op has `remote_relay: deny` and `queue_offline: false`. Every mutation needs an idempotency key (it rides the `apps-run` envelope); a read with a key is refused. The server records each attempt before the Cloud API call and the result after a success, for the life of the process: the same key with the same op and args returns the recorded result with no call, the same key with another op or other args is `cmux.cloud.idempotency_conflict` (also after a failure), and refused args free the key. The Cloud API gets `Idempotency-Key = sha256(op, canonical args, key)`, because it matches keys per team without comparing the op or the body; a retry after a lost answer sends the same derived key, so the Cloud API returns the first machine. Ids are checked against `[A-Za-z0-9][A-Za-z0-9_-]{0,127}` before they enter a path; display names follow the Cloud API (1 to 64 characters, no control characters).
+Every op has `remote_relay: deny` and `queue_offline: false`. Every mutation needs an idempotency key (it rides the `apps-run` envelope); a read with a key is refused. The server records each attempt before the Cloud API call and the result after a success, for the life of the process: the same key with the same op and args returns the recorded result with no call, the same key with another op or other args is `cmux.cloud.idempotency_conflict` (also after a failure), and refused args free the key. The Cloud API gets `Idempotency-Key = sha256(op, canonical args, key)`, because it matches keys per team without comparing the op or the body; a retry after a lost answer sends the same derived key, so the Cloud API returns the first machine. A delete (`cloud.machine.delete`, `cloud.snapshot.delete`, `cloud.firewall.delete`, `cloud.publication.delete`, `cloud.fs.remove`) retried with the same key, op and args after an attempt whose outcome is unknown (the answer was lost, or a 5xx) answers its success result when the Cloud API now answers 404 with that kind's own not-found code: the resource is gone, which is what the caller asked for (a gone machine leaves the projection once). The codes are `vm_not_found` (machine), `vm_snapshot_not_found` (snapshot), `vm_firewall_rule_not_found` (firewall rule; planned by the backend, so firewall retries stay errors until it ships; `vm_not_found` there means the VM is missing), `vm_file_not_found` (fs remove; planned, not served yet) and `vm_publication_not_found` (publication; the Cloud API also uses it when the publication's VM is missing, and both count as gone). A bare 404 (a missing route), a 404 with no code or with another kind's code, a first delete of a missing resource, and a retry after a definite 4xx stay `cmux.cloud.not_found`, so a wrong id or a missing route is never hidden. Ids are checked against `[A-Za-z0-9][A-Za-z0-9_-]{0,127}` before they enter a path; display names follow the Cloud API (1 to 64 characters, no control characters).
 
 Delete ops need origin `user`. Origin is not the caller's claim: the app supervisor stamps `user` only after its native confirmation sheet (app-platform.md 13.1 and 15), so the delete ops are hidden on the CLI and never on MCP. This server trusts the stamped origin; it cannot check it.
 
-Errors are `cmux.cloud.*`: `auth_required` (401, or no sign-in at the host; the projection is cleared), `plan_limit` (402, or a plan error code), `forbidden`, `not_found`, `conflict`, `rate_limited`, `unsupported` (501), `upstream_error`, `bad_response`, `invalid_args`, `unknown_op`, `origin_refused`, `idempotency_key_required`, `idempotency_key_forbidden`, `idempotency_conflict`, `relay_unavailable`.
+Errors are `cmux.cloud.*`: `file_too_large`, `transfer_failed`, `local_exists`, `port_limit`, `proxy_refused`, `listen_failed`, `auth_required` (401, or no sign-in at the host; the projection is cleared), `plan_limit` (402, or a plan error code), `forbidden`, `not_found`, `conflict`, `rate_limited`, `unsupported` (501), `upstream_error`, `bad_response`, `invalid_args`, `unknown_op`, `origin_refused`, `idempotency_key_required`, `idempotency_key_forbidden`, `idempotency_conflict`, `relay_unavailable`.
 
 ## Projection and refresh
 
 The server is the only writer of the machine projection, and the projection is the only source of `cloud.machine.watch` events. A list refreshes it as a diff (records missing from the list are removed, new or changed records upserted; destroyed machines are not kept); a get, create, rename, start, pause, restore or fork answer is merged into the record (fields the answer does not carry are kept; for a machine the projection does not know, a rename, start or pause first reads the full record and writes both as one change); a delete, or a delete answered `not_found`, removes the record. `createdAt` is epoch milliseconds whether the API sends a number or an ISO string.
 
 Each write that changes at least one record raises the revision by one and queues one event per changed record, all with that revision: `{type: "upsert", revision, machine}` (the full record) or `{type: "removed", revision, id}`. A write that changes nothing (a no-op refresh, an answer equal to the record) raises nothing and emits nothing. After each op result the serve loop sends the queued events as `{"type":"event","event":"cloud.machine.watch","data":<event>}` lines. Machine mutation results (create, rename, start, pause, resize, snapshot restore and fork) carry a top-level `revision`: the revision the change reached (the current one when nothing changed). A client settles its intent when its mirror has seen that revision. The ledger records the result with its revision, so a same-key replay answers the same revision and emits nothing. A delete keeps its `{ok: true}` result; the `removed` event for the id settles it. There is no timer and no polling: the page and the sidebar read on open, on app activation and after a change (cloud-app.md DECISION 5).
+
+## Files, ports and the browser route (C5)
+
+Files go through the Cloud API file routes over the host relay (`cmux.fs.provider/1` with `server: true` and scheme `cloud-vm` in the manifest; the provider view is `Server::fs_provider`). The VM daemon path over the link (`workspace-rpc` file ops) is a later improvement; the op shapes do not change for it. Guest paths are checked before any call: absolute, at most 4096 bytes, no `..` segment, no NUL or control character; in a query every byte but unreserved characters and `/` is percent-encoded. Reads and writes are bounded at 16 MiB (the route's own write limit); a read states the file first, so a large file is refused before its bytes cross the relay, and the answer is checked again. The ledger keeps a SHA-256 of each mutation's args, not the args, so a 16 MiB write does not stay in memory.
+
+`cloud.file.push` and `cloud.file.pull`: the server makes an Ed25519 key in memory for each transfer (`TransferKey`; the seed is zeroed on drop, `Debug` shows only the public key) and sends only the public half to `POST /api/vm/:id/scp-endpoint` (no idempotency key: a retry authorizes its own key). The answer must name user `cmux`, one Ed25519 host key and a future expiry. The guest SSH port is reached through the link with a one-shot forward on 127.0.0.1, so this Mac needs no private-network route. `OpenSshTransfer` runs a private `ssh-agent`, gives it the key on `ssh-add -` stdin and runs `scp` with the agent, `StrictHostKeyChecking=yes` and the pinned host key under an alias; the key is never on disk, on argv, in a log or in an error. Push and pull are origin `user` only: the local path reaches any file this Mac's user can read or write, so a person picks it (the host's native file panel), never an agent; agents use `cloud.fs.read` and `cloud.fs.write`. Local paths are absolute without `.` or `..`; guest paths for a transfer have no glob characters. A pull lands in a hidden random name next to the target and is published with a hard link, which never overwrites and never follows a symlink placed at the target; a failed pull leaves nothing. `scp` runs in SFTP mode (`-s`) with `IdentitiesOnly=yes` and the transfer key's public half as `IdentityFile`, so the user's own keys are never offered to the guest.
+
+Ports: `cloud.port.forward {machine, port}` listens on 127.0.0.1 and a port the system picks, and each accepted connection opens one `loopback-forward-v1` stream to `localhost:<port>` on the machine through the link's local socket (`PortTunnel`; the real one is `LoopbackTunnel`). There is one forward per (machine, port) and one browser route per machine; `Edge` is their only writer and the op loop its only caller. A forward belongs to one link generation, and each new connection first checks that the link socket file is still the one the forward saw (a new generation binds a new file at the same path), so an old forward never reaches a new link. When the link goes down or is replaced, the serve loop closes the listener and its connections at once (a link process event wakes it; no op is needed) and the record shows `down` with a reason. The host gets the link change first, then one `{"type":"event","event":"cloud.port.changed","kind":"forward"|"browser","machine","port"?,"host","localPort","generation","state":"down","reason"}` line per closed forward or route, in (machine, port) order. Nothing is queued; a new `cloud.port.forward` opens a new listener on the new link. `POST /api/vm/:id/open-port` is a different feature (a public preview URL with a bearer token through the provider edge); these ops do not use it.
+
+`cloud.browser.open {machine, port, host?, path?}` answers `{proxy: {kind: "http", host: "127.0.0.1", port}, url}`. The route is an HTTP proxy for `CONNECT` and absolute-form HTTP/1.1 that reaches only the machine: `localhost`, a name under `.localhost` or a loopback literal, decided from the text without DNS. Other hosts get 403 (and `proxy_refused` at the op); origin-form requests get 400, so a page cannot use the route directly.
+
+## Test notes: rescue backend rules under mutation
+
+Each rule of the rescue backend (`server/src/rescue/backend.rs`, the local id and kind rules in `rescue/iface.rs`) was removed one at a time on a Testbox pinned to 097f7941743 (never committed; restored with `git checkout -- <file>`), and the rescue tests (`attach_rescue`, `rescue_conformance`, `rescue_rules`) ran. Every mutation fails at least one test on its assertion. The tests in `rescue_rules.rs` were added because no test failed under their mutation in the first run (bdc94453583); in that run the first R1 mutation (drop the stale-seq check) failed only on an integer overflow panic in the backend, not on an assertion, so the R1 MUTATION (not the rule) was changed: it now answers `Ok` for a stale seq.
+
+| Rule | Mutation | Fails (test, file:line) |
+| --- | --- | --- |
+| R1 each written seq once | a seq below the next one answers `Ok` | `write_order_is_kept_by_seq` attach_rescue.rs:50; `rescue_concurrent_writes_keep_seq_order` rescue_conformance.rs:185 |
+| R1b each held seq once | no check for a seq already held | `a_held_seq_is_written_once` rescue_rules.rs:48 |
+| R2 refusal after close | `close` does not mark the stream closed | `close_ends_the_terminal_at_once` attach_rescue.rs:103; `rescue_close_refuses_later_calls` rescue_conformance.rs:232 |
+| R2b refusal when not open | `open_stream` accepts any status | 6 tests, e.g. `rescue_far_exit_gives_exit_status` rescue_conformance.rs:210 |
+| R2c, R2d resize, signal refused when not open | no `open_stream` check | `rescue_close_refuses_later_calls` rescue_conformance.rs:233, 234 |
+| R3 lost on transport drop | a drop ends with `exit` | `transport_drop_gives_lost_and_no_input_queues` attach_rescue.rs:132; `rescue_transport_drop_gives_lost` rescue_conformance.rs:221 |
+| R4 output offsets contiguous | offset = chunk length, not the running total | `output_reaches_the_terminal` attach_rescue.rs:70; `rescue_output_offsets_are_contiguous` rescue_conformance.rs:96 |
+| R5 nothing after close | the pump delivers to any status | `close_ends_the_terminal_at_once` attach_rescue.rs:106 |
+| R5b one end event, then nothing | the pump delivers after `exit`/`lost` | `nothing_follows_the_end_event` rescue_rules.rs:62 |
+| R6 no empty output event | empty chunks become events | `empty_output_gives_no_event` rescue_rules.rs:72 |
+| R7 held seq at most 256 ahead | no distance check | `a_seq_too_far_ahead_is_refused` rescue_rules.rs:83 |
+| R8 held bytes at most 1 MiB | no byte check | `held_input_is_bounded` attach_rescue.rs:190 |
+| R9 one write at most `max_write_bytes` | no size check | `a_write_over_max_write_bytes_is_invalid` rescue_rules.rs:93 |
+| R10, R10b, R10c far-end text bounded | no cut of exit message, exit signal, lost reason | `far_end_text_is_bounded` attach_rescue.rs:122, 123; `a_lost_reason_from_the_far_end_is_bounded` rescue_rules.rs:109 |
+| R11 a failed write ends the terminal | the error returns, the stream stays open | `a_transport_failure_is_a_typed_error_and_ends_the_terminal` attach_rescue.rs:175 |
+| R12 a lost stream is closed once | close again on drop | the same test, attach_rescue.rs:178 |
+| R13 no close of a stream the far end freed | a far close does not mark it released | `a_stream_the_far_end_closed_is_never_closed_again` rescue_rules.rs:120 |
+| R14 drop closes the far shell | no close on drop | `dropping_an_open_terminal_closes_the_far_shell` rescue_rules.rs:128 |
+| R15 close closes the transport stream | no transport close | `close_ends_the_terminal_at_once` attach_rescue.rs:101 |
+| R16 close drops undelivered output | events kept at close | `close_drops_output_that_was_not_taken` rescue_rules.rs:137 |
+| R17 default deny of kinds | `allow_kind` accepts any kind | `the_backend_refuses_kind_ssh_and_resume` attach_rescue.rs:145; `rescue_other_kind_is_refused` rescue_conformance.rs:129 |
+| R18 login shell only | a command is accepted | `a_command_is_unsupported` rescue_rules.rs:147 |
+| R19 grid needs columns and rows | no zero check | `a_grid_without_columns_or_rows_is_invalid` rescue_rules.rs:155 |
+| R20 resume unsupported | resume answers `invalid` | `the_backend_refuses_kind_ssh_and_resume` attach_rescue.rs:156 |
+| R21 local ids up to 64 characters | 32-character limit | `local_ids_follow_the_interface_pattern` attach_rescue.rs:161 |
+
+Not a rule under test: `close` also clears held input, but held input never reaches the transport after close either way, so no test can see it (memory only).
 
 ## Gaps
 
@@ -72,7 +129,15 @@ Each write that changes at least one record raises the revision by one and queue
 - `POST /api/vm/:id/snapshot` takes no idempotency key: a snapshot whose answer was lost may be taken twice on retry.
 - `backend/catalog/cloud-relay-operations.json` binds `vm.snapshot.restore` to `POST /api/vm/:vm_id/restore`; the Cloud API route is `POST /api/vm/restore` with `{snapshotId}`. The server uses the route.
 - Plan and usage have no route of their own; both come from the `limits` of `GET /api/vm`. Hours are reported only for plans with an hour allowance.
-- Not declared yet (other packages): `auth.sign_in`, `auth.sign_out`, `team.list`, `team.select` (host credential owner), files and ports (C5), domains and network (C6).
+- Not declared yet (other packages): `auth.sign_in`, `auth.sign_out`, `team.list`, `team.select` (host credential owner), domains and network (C6).
+- Files: no list cursor, no read range, no write revision and no `watch` on the Cloud API file routes; each answers `unsupported` through the provider instead of pretending. A root is the scheme plus the machine id until `root_…` handles reach app servers.
+- `cloud.port.list` lists this Mac's forwards, not the ports that listen on the machine (no route for that).
+- The browser route opens no tab: the browser host needs a per-tab proxy op (`browser.tab.open {url, proxy}`, cloud-app.md 5.3). Any local process can use a forward or the route, like an SSH `-L` forward: the Swift proxy checks the peer process, which this server cannot do for browser helpers that are not its children.
+- `LoopbackTunnel` opens one link connection per TCP connection (three round trips), not one multiplexed connection per machine.
+- A transfer runs on the op loop with no overall deadline (`scp` has `ConnectTimeout` and keepalives only): a long copy delays other ops. Moving transfers to a worker with completion events is a follow-up.
+- After an absolute-form request the proxy pins the client connection to that target; a server that ignores `Connection: close` can answer a reused connection for another port of the same machine. Traffic stays inside the machine.
+- Browsers skip proxies for loopback by default: the browser host must set `<-loopback>` in the bypass list (remote-localhost.md 5), or a tab loads this Mac's localhost.
+- `OpenSshTransfer` and `LoopbackTunnel` are not verified against a live machine (no non-production Freestyle account).
 - The catalog fragment schema has no stream class (`class` is `read` or `mutation`). `cloud.machine.watch` is declared as a read that answers the current revision; the event name and shape are documented here and in its `docs`. The host must map `cloud.machine.watch` event lines to page subscriptions of `cmux.cloud.machine.watch` (not built yet).
 - The revision has no epoch: it starts at 0 in each server process. A host that restarts the server must restart its page sessions (a new list), or a page keeps its old revision and drops the new events. An instance id on the list and the events would remove this rule.
 - The projection sees only what this server does and what a list returns: a change made elsewhere (the web dashboard, another Mac) shows on the stream at the next list read (page open, app activation), not live. A live feed needs a Cloud API change feed (DECISION 5).

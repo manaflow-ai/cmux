@@ -10,6 +10,7 @@ describe("Home projection statements (migration 0006)", () => {
       "home.participant.upsert": "home_participants",
       "home.message.upsert": "home_message_search",
       "home.message.delete": "home_message_search",
+      "home.message.delete_through": "home_message_search",
       "home.invite.upsert": "home_invites"
     }
     for (const [kind, table] of Object.entries(kinds)) {
@@ -47,5 +48,12 @@ describe("Home projection statements (migration 0006)", () => {
     const [sql, params] = projectionStatement("home.message.delete", { conversation_id: conv.id, seq: 9 }, "conv:x", 12)!
     expect(sql).toContain("source_seq <= $4")
     expect(params).toEqual([conv.id, 9, "conv:x", 12])
+  })
+
+  it("retention deletes every search row of the conversation through a seq, one statement per sweep", () => {
+    const [sql, params] = projectionStatement("home.message.delete_through", { conversation_id: conv.id, seq: 40 }, "conv:x", 41)!
+    expect(sql).toContain("seq <= $2")
+    expect(sql).toContain("source_seq <= $4")
+    expect(params).toEqual([conv.id, 40, "conv:x", 41])
   })
 })

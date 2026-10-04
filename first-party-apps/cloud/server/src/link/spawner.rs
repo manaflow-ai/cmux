@@ -10,7 +10,7 @@ use super::argv::LinkCommand;
 use std::io::{BufRead as _, BufReader};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{SendError, Sender};
 use std::sync::{Arc, Mutex};
 
 /// One link process: the machine and the supervisor's generation for it.
@@ -28,6 +28,33 @@ pub enum LinkProcessEvent {
     Exited { tag: LinkTag, code: Option<i32> },
 }
 
+/// Wakes the owner of the link state (the serve loop) after an event was
+/// queued. Called on the thread that sent the event; it must not block.
+pub type LinkWake = Arc<dyn Fn() + Send + Sync>;
+
+/// Where a link process sends its events: the supervisor's queue, then a
+/// wake for the serve loop, so a link change reaches the host at once.
+#[derive(Clone)]
+pub struct LinkEvents {
+    sender: Sender<LinkProcessEvent>,
+    wake: Option<LinkWake>,
+}
+
+impl LinkEvents {
+    pub(crate) fn new(sender: Sender<LinkProcessEvent>, wake: Option<LinkWake>) -> Self {
+        Self { sender, wake }
+    }
+
+    /// Queues `event` for the supervisor. `Err` when the supervisor is gone.
+    pub fn send(&self, event: LinkProcessEvent) -> Result<(), SendError<LinkProcessEvent>> {
+        self.sender.send(event)?;
+        if let Some(wake) = &self.wake {
+            wake();
+        }
+        Ok(())
+    }
+}
+
 /// A running link process.
 pub trait LinkProcess: Send {
     fn pid(&self) -> Option<u32>;
@@ -40,7 +67,7 @@ pub trait LinkSpawner: Send {
         &mut self,
         tag: LinkTag,
         command: &LinkCommand,
-        events: Sender<LinkProcessEvent>,
+        events: LinkEvents,
     ) -> std::io::Result<Box<dyn LinkProcess>>;
 }
 
@@ -63,7 +90,7 @@ impl LinkSpawner for ProcessSpawner {
         &mut self,
         tag: LinkTag,
         command: &LinkCommand,
-        events: Sender<LinkProcessEvent>,
+        events: LinkEvents,
     ) -> std::io::Result<Box<dyn LinkProcess>> {
         private_dir(&command.state_dir)?;
         if let Some(dir) = command.local_socket.parent() {

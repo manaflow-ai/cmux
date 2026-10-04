@@ -11,6 +11,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | Key | Type | Default | Allowed values | Description |
 | --- | --- | --- | --- | --- |
 | `history.terminalCommands` | boolean | `false` |  | Record Terminal Commands. Lists finished shell commands in History. Command lines can contain secrets. |
+| `navigation.historyScope` | string | `"workspace"` | `workspace`, `window`, `surface` | Back and Forward. What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history. |
 | `window.titlebar` | string | `"minimal"` | `minimal`, `standard` | Titlebar. Minimal has no titlebar strip; the top row moves the window. |
 | `tabs.newTabKind` | string | `"same-kind"` | `same-kind`, `terminal`, `browser`, `agent`, `page`, `auto` | New Tab Opens. What Cmd-T and the + button open. Auto picks the kind you last opened in that folder. |
 | `newTerminal.opensWorkspace` | boolean | `false` |  | New Terminal Opens a Workspace. Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click. |
@@ -77,6 +78,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.surfaces.browserChrome.opacity` | real |  | 0 to 1 | Browser Toolbar Opacity |
 | `appearance.surfaces.docks.color` | string |  |  | Docked Columns Color |
 | `appearance.surfaces.docks.opacity` | real |  | 0 to 1 | Docked Columns Opacity |
+| `appearance.surfaces.diff.color` | string |  |  | Diff Viewer Color |
+| `appearance.surfaces.diff.opacity` | real |  | 0 to 1 | Diff Viewer Opacity |
 | `appearance.statusIndicator.style` | string | `"arc"` | `arc`, `native`, `dot`, `braille`, `none` | Style. How sidebar rows, tabs and panes show work in progress. |
 | `appearance.statusIndicator.size` | real | `1` | 0.5 to 1.5 | Size |
 | `appearance.statusIndicator.thickness` | real | `1.5` | 0.5 to 4 | Line Width |

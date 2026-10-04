@@ -125,6 +125,9 @@ refuse_dirty_source() {
     printf '%s\n' "$dirty" | head -n 20 | sed 's/^/  /'
     echo "  Commit and push them (see --help to publish the tree), bundle a local build with"
     echo "  CMUX_NEXT_TUI_BIN=<path>, or set CMUX_NEXT_TUI_ALLOW_DIRTY=1 to bundle the committed tree."
+    echo "  On an nx-remote host: warm trees are dirty by design (nx-remote copies your local"
+    echo "  worktree files over a warm tree whose git HEAD is older); for a tagged build that"
+    echo "  bundles cmux-tui, use \`nx-remote --ref <pushed sha>\` (a fresh tree)."
   } >&2
   exit 1
 }

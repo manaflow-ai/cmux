@@ -43,6 +43,9 @@ nonisolated enum SurfaceSettingsSchema {
             Titles(kind: .docks,
                    color: SettingsText.keyed("settings.appearance.surfaces.docks.color", "Docked Columns Color"),
                    opacity: SettingsText.keyed("settings.appearance.surfaces.docks.opacity", "Docked Columns Opacity")),
+            Titles(kind: .diff,
+                   color: SettingsText.keyed("settings.appearance.surfaces.diff.color", "Diff Viewer Color"),
+                   opacity: SettingsText.keyed("settings.appearance.surfaces.diff.opacity", "Diff Viewer Opacity")),
         ]
     }
 

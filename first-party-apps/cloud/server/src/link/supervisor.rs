@@ -5,8 +5,8 @@
 //! reconnects by itself, nothing queues).
 
 use super::argv::{LinkCommand, LinkLine, parse_line};
-use super::spawner::{LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag};
-use crate::connector::iface::{Carrier, CarrierEvent};
+use super::spawner::{LinkEvents, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag, LinkWake};
+use crate::connector::iface::{Carrier, CarrierEvent, channel_id};
 use std::collections::BTreeMap;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
@@ -40,6 +40,8 @@ pub struct LinkSupervisor {
     links: BTreeMap<String, Link>,
     sender: Sender<LinkProcessEvent>,
     receiver: Receiver<LinkProcessEvent>,
+    /// Wakes the serve loop after each process event (`None`: no loop).
+    wake: Option<LinkWake>,
     next_generation: u64,
     events: Vec<CarrierEvent>,
     spawns: u64,
@@ -57,11 +59,18 @@ impl LinkSupervisor {
             links: BTreeMap::new(),
             sender,
             receiver,
+            wake: None,
             next_generation: 0,
             events: Vec::new(),
             spawns: 0,
             ready_deadline: READY_DEADLINE,
         }
+    }
+
+    /// Wakes `wake` after each event of every link spawned from now on. The
+    /// serve loop sets it before its first op.
+    pub fn set_wake(&mut self, wake: LinkWake) {
+        self.wake = Some(wake);
     }
 
     /// The bound on the wait for the first ready line (tests use a short one).
@@ -117,7 +126,7 @@ impl LinkSupervisor {
         let tag = LinkTag { machine: machine.to_owned(), generation: self.next_generation };
         let process = self
             .spawner
-            .spawn(tag.clone(), command, self.sender.clone())
+            .spawn(tag.clone(), command, LinkEvents::new(self.sender.clone(), self.wake.clone()))
             .map_err(|e| LinkFailure::Spawn(e.to_string()))?;
         self.spawns += 1;
         self.links.insert(
@@ -165,6 +174,7 @@ impl LinkSupervisor {
                         generation: tag.generation,
                         retryable: true,
                         reason: reason.clone(),
+                        opened: false,
                     });
                     return Err(LinkFailure::Down { retryable: true, reason });
                 }
@@ -187,7 +197,7 @@ impl LinkSupervisor {
                 }
                 if let LinkLine::Connected { local_socket } = parse_line(&line) {
                     let carrier = Carrier {
-                        id: format!("{CONNECTOR_KIND}/{}#{}", tag.machine, tag.generation),
+                        id: channel_id(CONNECTOR_KIND, &tag.machine, tag.generation),
                         target: tag.machine.clone(),
                         generation: tag.generation,
                         socket: local_socket,
@@ -199,6 +209,7 @@ impl LinkSupervisor {
             LinkProcessEvent::Exited { tag, code } => {
                 link.process = None;
                 if matches!(link.state, LinkState::Connecting | LinkState::Up(_)) {
+                    let opened = matches!(link.state, LinkState::Up(_));
                     let reason = match code {
                         Some(code) => format!("the link process exited with status {code}"),
                         None => "the link process was stopped by a signal".into(),
@@ -209,6 +220,7 @@ impl LinkSupervisor {
                         generation: tag.generation,
                         retryable: true,
                         reason,
+                        opened,
                     });
                 }
             }
@@ -232,6 +244,7 @@ impl LinkSupervisor {
                 generation: link.generation,
                 retryable: true,
                 reason: "disconnected".into(),
+                opened: matches!(link.state, LinkState::Up(_)),
             });
         }
         true
@@ -243,6 +256,8 @@ impl LinkSupervisor {
         self.stop_process(machine);
         let generation = self.links.get(machine).map_or(0, |l| l.generation);
         let already = matches!(self.state(machine), Some(LinkState::Revoked { .. }));
+        // The open channel (an up link) this revocation ends, if any.
+        let ended = matches!(self.state(machine), Some(LinkState::Up(_))).then_some(generation);
         self.links.insert(
             machine.to_owned(),
             Link {
@@ -255,6 +270,7 @@ impl LinkSupervisor {
             self.events.push(CarrierEvent::Revoked {
                 target: machine.to_owned(),
                 reason: reason.to_owned(),
+                generation: ended,
             });
         }
     }
@@ -273,6 +289,7 @@ impl LinkSupervisor {
                     generation: link.generation,
                     retryable: true,
                     reason: reason.to_owned(),
+                    opened: matches!(link.state, LinkState::Up(_)),
                 });
             }
         }

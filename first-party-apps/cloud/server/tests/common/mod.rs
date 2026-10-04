@@ -14,11 +14,16 @@ pub struct FakeControlPlane {
     pub signed_in: bool,
     /// The next N calls fail as if the host or network did not answer.
     pub fail_next: usize,
+    /// The next N calls reach the Cloud API (the route answers and any
+    /// change happens), but the answer is lost on the way back.
+    pub lose_next: usize,
     /// Like the Cloud API (`beginCreate`): a POST with a known key replays
     /// the first answer and creates nothing.
     by_key: HashMap<String, (u16, Value)>,
     /// POSTs that reached the provider (not replayed by key).
     pub provider_posts: usize,
+    /// The `x-cmux-vm-error` header of every answer, when set.
+    pub error_header: Option<String>,
 }
 
 impl FakeControlPlane {
@@ -29,8 +34,10 @@ impl FakeControlPlane {
             calls: Vec::new(),
             signed_in: true,
             fail_next: 0,
+            lose_next: 0,
             by_key: HashMap::new(),
             provider_posts: 0,
+            error_header: None,
         };
         for name in names {
             fake.serve(name);
@@ -82,7 +89,7 @@ impl ControlPlane for FakeControlPlane {
         if let (Some(key), "POST") = (&call.idempotency_key, call.method)
             && let Some((status, body)) = self.by_key.get(key).cloned()
         {
-            return Ok(HttpReply { status, body, error_code: None });
+            return Ok(HttpReply { status, body, error_code: self.error_header.clone() });
         }
         let (status, body) = self
             .routes
@@ -95,7 +102,11 @@ impl ControlPlane for FakeControlPlane {
                 self.by_key.insert(key.clone(), (status, body.clone()));
             }
         }
-        Ok(HttpReply { status, body, error_code: None })
+        if self.lose_next > 0 {
+            self.lose_next -= 1;
+            return Err(RelayError::Unavailable("the answer was lost".into()));
+        }
+        Ok(HttpReply { status, body, error_code: self.error_header.clone() })
     }
 
     fn session(&mut self) -> Result<SessionStatus, RelayError> {

@@ -1,9 +1,15 @@
 //! Op dispatch: name and alias lookup, origin rules, idempotency, then the
-//! op group (`machine`, `snapshot`, `plan`, `auth`).
+//! op group (`machine`, `snapshot`, `plan`, `auth`, `network`, `domain`).
 
 mod auth;
+mod delete_retry;
+mod domain;
 mod machine;
 mod machine_projection;
+mod network;
+mod network_args;
+mod network_firewall;
+mod network_models;
 mod plan;
 mod snapshot;
 
@@ -49,6 +55,42 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.machine.connect", Kind::Mutation),
     ("cloud.machine.disconnect", Kind::Mutation),
     ("cloud.rescue.open", Kind::Mutation),
+    // Network, domains and publications (R71 C6). Firewall and publication
+    // changes decide what reaches a machine, so only a person makes them.
+    ("cloud.network.list", Kind::Read),
+    // Attach and a new key give a device a path into the network: a person
+    // only (any valid public key would let the caller join as that device).
+    ("cloud.tunnel.attach", Kind::UserOnly),
+    ("cloud.tunnel.detach", Kind::Mutation),
+    ("cloud.tunnel.rotate_key", Kind::UserOnly),
+    ("cloud.firewall.list", Kind::Read),
+    ("cloud.firewall.get", Kind::Read),
+    ("cloud.firewall.create", Kind::UserOnly),
+    ("cloud.firewall.delete", Kind::UserOnly),
+    ("cloud.domain.list", Kind::Read),
+    ("cloud.domain.verify", Kind::Mutation),
+    ("cloud.publication.list", Kind::Read),
+    ("cloud.publication.create", Kind::UserOnly),
+    ("cloud.publication.update", Kind::UserOnly),
+    ("cloud.publication.delete", Kind::UserOnly),
+    ("cloud.publication.verify", Kind::Mutation),
+    // Files (crate::fs): reads through the Cloud API file routes; remove is
+    // destructive, so only a person may run it.
+    ("cloud.fs.list", Kind::Read),
+    ("cloud.fs.stat", Kind::Read),
+    ("cloud.fs.read", Kind::Read),
+    ("cloud.fs.write", Kind::Mutation),
+    ("cloud.fs.mkdir", Kind::Mutation),
+    ("cloud.fs.remove", Kind::UserOnly),
+    // Transfers read or write any local file the server can: a person picks
+    // the path (native file panel), never an agent.
+    ("cloud.file.push", Kind::UserOnly),
+    ("cloud.file.pull", Kind::UserOnly),
+    // Ports and browser routes (crate::ports).
+    ("cloud.port.list", Kind::Read),
+    ("cloud.port.forward", Kind::Mutation),
+    ("cloud.port.close", Kind::Mutation),
+    ("cloud.browser.open", Kind::Mutation),
 ];
 
 /// Other names for ops: the `resume` verb and the old relay names
@@ -125,6 +167,17 @@ const REVISION_RESULTS: &[&str] = &[
     "cloud.snapshot.fork",
 ];
 
+/// Verify ops read fresh DNS and certificate state (and may take a waiting
+/// publication live): a same-key replay of an old answer would be stale, so
+/// they run every time, like the live link ops.
+const RERUN_OPS: &[&str] = &["cloud.domain.verify", "cloud.publication.verify"];
+
+/// Creates the Cloud API does not dedup by key. After an attempt with no
+/// answer (the relay failed), a same-key retry is refused with
+/// `outcome_unknown`: the caller lists first. A 4xx answer made nothing, so
+/// it frees the key.
+const NO_UPSTREAM_DEDUP: &[&str] = &["cloud.firewall.create", "cloud.publication.create"];
+
 fn kind_of(name: &str) -> Kind {
     OPS.iter().find(|(n, _)| *n == name).map_or(Kind::Read, |(_, k)| *k)
 }
@@ -136,6 +189,7 @@ pub struct Server<C> {
     projection: Projection,
     ledger: Ledger,
     attach: crate::link::Attach,
+    edge: crate::ports::Edge,
 }
 
 impl<C> Server<C> {
@@ -155,7 +209,41 @@ impl<C: ControlPlane> Server<C> {
     }
 
     pub fn with_attach(control_plane: C, attach: crate::link::Attach) -> Self {
-        Self { control_plane, projection: Projection::default(), ledger: Ledger::default(), attach }
+        Self::with_parts(control_plane, attach, crate::ports::Edge::real())
+    }
+
+    /// A server with its attach state and its files and ports edge (tests
+    /// pass fakes for the link, the tunnel and the transfer).
+    pub fn with_parts(
+        control_plane: C,
+        attach: crate::link::Attach,
+        edge: crate::ports::Edge,
+    ) -> Self {
+        Self {
+            control_plane,
+            projection: Projection::default(),
+            ledger: Ledger::default(),
+            attach,
+            edge,
+        }
+    }
+
+    /// The forward and route state with the link state it follows.
+    pub(crate) fn edge_parts(&mut self) -> (&mut crate::ports::Edge, &crate::link::LinkSupervisor) {
+        self.attach.supervisor.pump();
+        (&mut self.edge, &self.attach.supervisor)
+    }
+
+    /// Closes forwards and routes whose link went down or was replaced, by
+    /// the link state as last pumped: the serve loop pumps and sends the
+    /// link events first, so each close follows the change that caused it.
+    pub fn reconcile_edge(&mut self) {
+        self.edge.reconcile(&self.attach.supervisor);
+    }
+
+    /// Forwards and routes closed by link state since the last call.
+    pub fn take_edge_events(&mut self) -> Vec<crate::ports::EdgeDown> {
+        self.edge.take_events()
     }
 
     /// One Cloud API call context for an attach op.
@@ -213,19 +301,41 @@ impl<C: ControlPlane> Server<C> {
         if key.len() > 128 {
             return Err(CloudError::invalid("an idempotency key has at most 128 characters"));
         }
-        if crate::link::ops::live_state_op(name) {
-            // The answer is live link state: a replay of an old carrier would
-            // name a dead socket. These ops are idempotent by themselves
-            // (one carrier per machine), so they run every time.
+        if crate::link::ops::live_state_op(name)
+            || crate::ports::live_state_op(name)
+            || RERUN_OPS.contains(&name)
+        {
+            // The answer is live state (a carrier, a forward, or DNS and
+            // certificate state): a replay of an old answer would be stale.
+            // These ops are idempotent by themselves, so they run every time.
             let upstream = upstream_key(name, &args, key);
             return self.run(name, &args, request.origin, Some(&upstream));
+        }
+        if NO_UPSTREAM_DEDUP.contains(&name) && self.ledger.unfinished(key, name, &args) {
+            return Err(CloudError::new(
+                codes::OUTCOME_UNKNOWN,
+                format!(
+                    "an earlier {name} with this key got no answer: list first, then retry with a new key"
+                ),
+            ));
         }
         if let Some(done) = self.ledger.replay(key, name, &args)? {
             return Ok(done);
         }
+        // A delete retried after an attempt whose outcome is unknown: a 404
+        // with the kind's own not-found code now means that attempt (or
+        // another) deleted it (delete_retry.rs).
+        let gone_is_done =
+            delete_retry::is_delete(name) && self.ledger.outcome_unknown(key, name, &args);
         self.ledger.attempt(key, name, &args);
         let upstream = upstream_key(name, &args, key);
-        match self.run(name, &args, request.origin, Some(&upstream)) {
+        let outcome = match self.run(name, &args, request.origin, Some(&upstream)) {
+            Err(error) if gone_is_done && delete_retry::is_gone(name, &error) => {
+                delete_retry::gone_answer(name, &args).ok_or(error)
+            }
+            other => other,
+        };
+        match outcome {
             Ok(mut result) => {
                 // Recorded with the result, so a same-key replay answers the
                 // same revision and emits nothing new.
@@ -239,8 +349,14 @@ impl<C: ControlPlane> Server<C> {
             }
             Err(error) => {
                 // Bad args never changed anything: the key stays free for the fix.
-                if error.code == codes::INVALID_ARGS {
+                let refused = NO_UPSTREAM_DEDUP.contains(&name)
+                    && error.status.is_some_and(|s| (400..500).contains(&s));
+                // A delete key whose earlier attempt may have acted is kept,
+                // so its retry still knows that (delete_retry.rs).
+                if (error.code == codes::INVALID_ARGS || refused) && !gone_is_done {
                     self.ledger.forget(key);
+                } else if delete_retry::outcome_unknown(&error) {
+                    self.ledger.failed_unknown(key);
                 }
                 Err(error)
             }
@@ -257,6 +373,12 @@ impl<C: ControlPlane> Server<C> {
         if crate::link::ops::serves(name) {
             return crate::link::ops::run(self, name, args, origin, key);
         }
+        if crate::fs::serves(name) {
+            return crate::fs::run(self, name, args, origin, key);
+        }
+        if crate::ports::serves(name) {
+            return crate::ports::run(self, name, args, origin, key);
+        }
         let mut ctx = Ctx::new(&mut self.control_plane, &mut self.projection, name, key);
         let group = name.split('.').nth(1).unwrap_or_default();
         match group {
@@ -264,6 +386,8 @@ impl<C: ControlPlane> Server<C> {
             "machine" => machine::run(&mut ctx, name, args),
             "snapshot" => snapshot::run(&mut ctx, name, args),
             "plan" | "usage" => plan::run(&mut ctx, name, args),
+            "network" | "tunnel" | "firewall" => network::run(&mut ctx, name, args),
+            "domain" | "publication" => domain::run(&mut ctx, name, args),
             _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
         }
     }

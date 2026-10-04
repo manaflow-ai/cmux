@@ -3,14 +3,14 @@
 
 #![allow(dead_code)]
 
+use cmux_cloud::connector::iface::CarrierEvent;
 use cmux_cloud::link::{
-    Attach, LinkCommand, LinkPaths, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag,
+    Attach, LinkCommand, LinkEvents, LinkPaths, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag,
 };
 use cmux_cloud::rescue::iface::{BackendError, Grid, Signal};
 use cmux_cloud::rescue::{RescueTransport, StreamId, TransportEvent};
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
 /// What the next spawned link does right away.
@@ -26,7 +26,7 @@ pub enum Script {
 pub struct SpawnLog {
     pub commands: Vec<LinkCommand>,
     pub tags: Vec<LinkTag>,
-    pub senders: Vec<Sender<LinkProcessEvent>>,
+    pub senders: Vec<LinkEvents>,
     pub terminated: Vec<LinkTag>,
     pub script: VecDeque<Script>,
 }
@@ -77,7 +77,7 @@ impl LinkSpawner for FakeSpawner {
         &mut self,
         tag: LinkTag,
         command: &LinkCommand,
-        events: Sender<LinkProcessEvent>,
+        events: LinkEvents,
     ) -> std::io::Result<Box<dyn LinkProcess>> {
         let mut log = self.0.lock().unwrap();
         log.commands.push(command.clone());
@@ -121,6 +121,8 @@ pub struct TransportLog {
     pub signals: Vec<(StreamId, Signal)>,
     pub closes: Vec<StreamId>,
     pub events: Vec<(StreamId, TransportEvent)>,
+    /// Every write fails as if the network dropped.
+    pub fail_writes: bool,
     next: StreamId,
 }
 
@@ -155,7 +157,14 @@ impl RescueTransport for FakeTransport {
     }
 
     fn write(&mut self, stream: StreamId, bytes: &[u8]) -> Result<(), BackendError> {
-        self.log().writes.push((stream, bytes.to_vec()));
+        let mut log = self.log();
+        if log.fail_writes {
+            return Err(BackendError::Unavailable {
+                reason: "the network dropped".into(),
+                retryable: true,
+            });
+        }
+        log.writes.push((stream, bytes.to_vec()));
         Ok(())
     }
 
@@ -177,6 +186,14 @@ impl RescueTransport for FakeTransport {
     fn take_events(&mut self) -> Vec<(StreamId, TransportEvent)> {
         std::mem::take(&mut self.log().events)
     }
+}
+
+/// Link events of the server's supervisor since the last call (what the
+/// serve loop sends as `cloud.link.changed`).
+pub fn link_events<C>(server: &mut cmux_cloud::Server<C>) -> Vec<CarrierEvent> {
+    let supervisor = server.attach_mut().supervisor_mut();
+    supervisor.pump();
+    supervisor.take_events()
 }
 
 /// Attach with the fake spawner, test paths and the fake transport.

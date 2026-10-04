@@ -1,0 +1,414 @@
+{
+  "about": "Brand marks for the coding agents, harnesses and model providers cmux supports. svg/<brand>.svg is the monochrome mark (currentColor); `color` says how the brand style paints it. scripts/agent-icons/generate.py turns this file into the Swift catalog (Packages/Shared/CmuxAgentBrands) and the TS module (webviews/src/agent-session/shared/agentBrands.generated.ts); --check fails when they drift. Each mark is the owner's trademark and identifies the agent or provider a session uses; it implies no endorsement. Path data is the owner's artwork, minimized with svgo (merged paths, rounded coordinates); nothing is redrawn.",
+  "retrieved": "2026-10-04",
+  "sizeBudgetBytes": 4096,
+  "brands": [
+    {
+      "id": "claude",
+      "name": "Claude",
+      "owner": "Anthropic",
+      "kind": "mark",
+      "color": { "tone": "#D97757" },
+      "source": {
+        "url": "https://www.anthropic.com/press-kit",
+        "file": "press kit zip, Anthropic logos/Claude logos/3 Claude Spark/SVG/Claude Spark - Clay.svg",
+        "license": "Trademark of Anthropic; press-kit artwork, no stated usage rules."
+      }
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "owner": "Anthropic",
+      "kind": "mark",
+      "color": { "tone": ["#FFFFFF", "#191919"] },
+      "source": {
+        "url": "https://github.com/simple-icons/simple-icons/blob/16.34.0/icons/anthropic.svg",
+        "file": "simple-icons 16.34.0 icons/anthropic.svg (source https://www.anthropic.com)",
+        "license": "Simple Icons path data is CC0-1.0; the mark is a trademark of Anthropic."
+      }
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "owner": "OpenAI",
+      "kind": "mark",
+      "color": { "tone": ["#FFFFFF", "#000000"] },
+      "source": {
+        "url": "https://openai.com/brand/",
+        "file": "https://cdn.openai.com/brand/openai-logos.zip, OpenAI-logos/SVGs/OAI_OpenAI-Blossom_Black.svg; view box cropped from the 716-unit canvas to the glyph",
+        "license": "Trademark of OpenAI. The Blossom is black or white only (\"Don't add any colors to the Blossom\"). OpenAI publishes no separate Codex mark, so Codex and ChatGPT use the Blossom."
+      }
+    },
+    {
+      "id": "opencode",
+      "name": "OpenCode",
+      "owner": "OpenCode",
+      "kind": "mark",
+      "color": {
+        "tone": ["#F1ECEC", "#211E1E"],
+        "paths": { "1": { "tone": ["#4B4646", "#CFCECD"] } }
+      },
+      "source": {
+        "url": "https://opencode.ai/brand",
+        "file": "https://opencode.ai/opencode-brand-assets.zip, OpenCode Brand Assets/Logo/opencode-logo-light.svg (paths), opencode-logo-dark.svg (dark colors); the full-canvas mask wrapper is dropped and the frame uses evenodd, which renders the same",
+        "license": "Trademark of OpenCode; brand-kit artwork."
+      }
+    },
+    {
+      "id": "pi",
+      "name": "Pi",
+      "owner": "Pi (pi.dev)",
+      "kind": "mark",
+      "color": { "tone": ["#FFFFFF", "#000000"] },
+      "source": {
+        "url": "https://pi.dev/favicon.svg",
+        "file": "pi.dev favicon.svg (same mark as simple-icons icons/pi.svg)",
+        "license": "Trademark of its owner; site artwork."
+      }
+    },
+    {
+      "id": "omp",
+      "name": "oh-my-pi",
+      "owner": "oh-my-pi",
+      "kind": "mark",
+      "color": {
+        "tone": ["#FAFAFA", "#0D0D0D"],
+        "paths": { "1": { "tone": "#F97316" }, "2": { "tone": ["#0D0D0D", "#FAFAFA"] } }
+      },
+      "source": {
+        "url": "https://github.com/can1357/oh-my-pi/blob/HEAD/assets/icon.svg",
+        "file": "repo assets/icon.svg; rects and circles converted to paths; the connector's two slots are hidden in mono",
+        "license": "Repository artwork; trademark of its owner."
+      }
+    },
+    {
+      "id": "hermes",
+      "name": "Hermes Agent",
+      "owner": "Nous Research",
+      "kind": "mark",
+      "sizeBudgetBytes": 20000,
+      "color": { "tone": ["#FFFFFF", "#000000"] },
+      "source": {
+        "url": "https://github.com/NousResearch/hermes-agent/blob/HEAD/assets/icon-master.svg",
+        "file": "repo assets/icon-master.svg, the portrait path only (the white tile and clip are dropped); coordinates rounded to integers in its 4951-unit space",
+        "license": "Repository artwork; trademark of Nous Research. The traced portrait has no simpler official form, so it stays the largest mark."
+      }
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "owner": "DeepSeek",
+      "kind": "mark",
+      "color": { "tone": "#5786FE" },
+      "source": {
+        "url": "https://github.com/simple-icons/simple-icons/blob/16.34.0/icons/deepseek.svg",
+        "file": "simple-icons 16.34.0 icons/deepseek.svg (source https://www.deepseek.com)",
+        "license": "Simple Icons path data is CC0-1.0; the mark is a trademark of DeepSeek."
+      }
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini",
+      "owner": "Google",
+      "kind": "mark",
+      "color": {
+        "tone": "#3186FF",
+        "overlays": [
+          { "x1": 7, "y1": 15.5, "x2": 11, "y2": 12, "stops": [[0, "#08B962", 1], [1, "#08B962", 0]] },
+          { "x1": 8, "y1": 5.5, "x2": 11.5, "y2": 11, "stops": [[0, "#F94543", 1], [1, "#F94543", 0]] },
+          { "x1": 3.5, "y1": 13.5, "x2": 17.5, "y2": 12, "stops": [[0, "#FABC12", 1], [0.46, "#FABC12", 0]] }
+        ]
+      },
+      "source": {
+        "url": "https://github.com/simple-icons/simple-icons/blob/16.34.0/icons/googlegemini.svg",
+        "file": "simple-icons 16.34.0 icons/googlegemini.svg (source https://gemini.google.com); Google publishes no public SVG (the Partner Marketing Hub needs a login). Brand color and gradient highlights follow the current Gemini spark.",
+        "license": "Simple Icons path data is CC0-1.0; the mark is a trademark of Google."
+      }
+    },
+    {
+      "id": "cursor",
+      "name": "Cursor",
+      "owner": "Anysphere",
+      "kind": "mark",
+      "color": { "tone": ["#EDECEC", "#26251E"] },
+      "source": {
+        "url": "https://cursor.com/brand",
+        "file": "brand assets zip, General Logos/Cube/SVG/CUBE_2D_DARK.svg (paths); CUBE_2D_LIGHT.svg (light color)",
+        "license": "Trademark of Anysphere; brand-kit artwork."
+      }
+    },
+    {
+      "id": "amp",
+      "name": "Amp",
+      "owner": "Amp",
+      "kind": "wordmark",
+      "color": { "tone": ["#FFFFFF", "#000000"] },
+      "source": {
+        "url": "https://ampcode.com/press-kit",
+        "file": "https://ampcode.com/logo-light.svg. The press kit offers only this wordmark and a full-color app-icon tile, no separate symbol.",
+        "license": "Trademark of Amp; press-kit artwork."
+      }
+    },
+    {
+      "id": "copilot",
+      "name": "GitHub Copilot",
+      "owner": "GitHub",
+      "kind": "mark",
+      "color": { "tone": ["#FFFFFF", "#000000"] },
+      "source": {
+        "url": "https://primer.style/foundations/icons/copilot-24",
+        "file": "simple-icons 16.34.0 icons/githubcopilot.svg (GitHub Primer copilot-24 octicon)",
+        "license": "Primer Octicons are MIT; the mark is a trademark of GitHub."
+      }
+    },
+    {
+      "id": "grok",
+      "name": "Grok",
+      "owner": "xAI",
+      "kind": "mark",
+      "color": { "tone": ["#FFFFFF", "#000000"] },
+      "source": {
+        "url": "https://grok.com/images/favicon.svg",
+        "file": "grok.com favicon.svg, the two glyph paths only (tile, blur and stroke layers dropped); view box cropped to the glyph",
+        "license": "Trademark of xAI; site artwork."
+      }
+    },
+    {
+      "id": "kiro",
+      "name": "Kiro",
+      "owner": "Amazon Web Services",
+      "kind": "mark",
+      "color": {
+        "tone": "#FFFFFF",
+        "paths": { "1": { "tone": "#000000" } },
+        "tile": { "viewBox": "0 0 1200 1200", "radius": 260, "tone": "#9046FF" }
+      },
+      "source": {
+        "url": "https://kiro.dev/icon.svg",
+        "file": "kiro.dev icon.svg; the ghost and its eyes, the eyes cut out (evenodd) in mono and drawn black in brand, on the purple tile",
+        "license": "Trademark of Amazon Web Services; site artwork."
+      }
+    },
+    {
+      "id": "antigravity",
+      "name": "Antigravity",
+      "owner": "Google",
+      "kind": "mark",
+      "color": { "tone": ["#FFFFFF", "#000000"] },
+      "source": {
+        "url": "https://antigravity.google/favicon.svg",
+        "file": "antigravity.google favicon.svg, the mark's outline path. The official fill is blurred multi-color blobs (SVG filters), which the shared renderers do not draw, so the brand style paints it in one tone.",
+        "license": "Trademark of Google; site artwork."
+      }
+    },
+    {
+      "id": "factory",
+      "name": "Factory",
+      "owner": "Factory",
+      "kind": "mark",
+      "color": { "tone": ["#FAFAFA", "#020202"] },
+      "source": {
+        "url": "https://factory.ai/icon.svg",
+        "file": "factory.ai icon.svg, the glyph only (the black tile dropped); view box cropped to the glyph",
+        "license": "Trademark of Factory; site artwork."
+      }
+    },
+    {
+      "id": "qoder",
+      "name": "Qoder",
+      "owner": "Qoder",
+      "kind": "mark",
+      "sizeBudgetBytes": 6000,
+      "color": { "tone": ["#FFFFFF", "#0F0D0C"] },
+      "source": {
+        "url": "https://qoder.com/favIcon.svg",
+        "file": "qoder.com favIcon.svg, the filled glyph and its 3.5-unit stroked outline (the light tile dropped); view box cropped to the glyph",
+        "license": "Trademark of Qoder; site artwork."
+      }
+    },
+    {
+      "id": "kimi",
+      "name": "Kimi",
+      "owner": "Moonshot AI",
+      "kind": "mark",
+      "color": { "tone": ["#FFFFFF", "#000000"] },
+      "source": {
+        "url": "https://moonshotai.github.io/Branding-Guide",
+        "file": "simple-icons 16.34.0 icons/kimi.svg (from the Moonshot AI branding guide)",
+        "license": "Simple Icons path data is CC0-1.0; the mark is a trademark of Moonshot AI."
+      }
+    },
+    {
+      "id": "codebuddy",
+      "name": "CodeBuddy",
+      "owner": "Tencent",
+      "kind": "mark",
+      "color": { "tone": "#6C4DFF" },
+      "source": {
+        "url": "https://github.com/simple-icons/simple-icons/blob/16.34.0/icons/codebuddy.svg",
+        "file": "simple-icons 16.34.0 icons/codebuddy.svg (source https://www.codebuddy.cn)",
+        "license": "Simple Icons path data is CC0-1.0; the mark is a trademark of Tencent."
+      }
+    },
+    {
+      "id": "rovodev",
+      "name": "Rovo Dev",
+      "owner": "Atlassian",
+      "kind": "mark",
+      "color": {
+        "tone": "#101214",
+        "tile": { "viewBox": "0 0 24 24", "radius": 6, "tone": "#94C748" }
+      },
+      "source": {
+        "url": "https://www.npmjs.com/package/@atlaskit/logo",
+        "file": "@atlaskit/logo 23.3.1 dist/esm/artifacts/logo-components/rovo-dev/icon.js (RovoDevIcon); the tile becomes the brand tile",
+        "license": "@atlaskit/logo is Apache-2.0; the mark is a trademark of Atlassian."
+      }
+    },
+    {
+      "id": "goose",
+      "name": "goose",
+      "owner": "Block",
+      "kind": "mark",
+      "color": { "tone": ["#FFFFFF", "#101010"] },
+      "source": {
+        "url": "https://github.com/block/goose/blob/HEAD/documentation/static/img/goose.svg",
+        "file": "repo documentation/static/img/goose.svg, the goose path only; view box cropped to the glyph",
+        "license": "Repository artwork (Apache-2.0 repo); trademark of Block."
+      }
+    },
+    {
+      "id": "aider",
+      "name": "Aider",
+      "owner": "Aider",
+      "kind": "mark",
+      "color": { "tone": ["#FFFFFF", "#000000"] },
+      "source": {
+        "url": "https://aider.chat/assets/icons/safari-pinned-tab.svg",
+        "file": "aider.chat safari-pinned-tab.svg (the site's monochrome mark); its transform is applied to the paths",
+        "license": "Trademark of its owner; site artwork."
+      }
+    },
+    {
+      "id": "qwen",
+      "name": "Qwen",
+      "owner": "Alibaba Cloud",
+      "kind": "mark",
+      "color": { "tone": "#6950EF" },
+      "source": {
+        "url": "https://github.com/simple-icons/simple-icons/blob/16.34.0/icons/qwen.svg",
+        "file": "simple-icons 16.34.0 icons/qwen.svg (source https://qwen.ai)",
+        "license": "Simple Icons path data is CC0-1.0; the mark is a trademark of Alibaba Cloud."
+      }
+    },
+    {
+      "id": "mistral",
+      "name": "Mistral AI",
+      "owner": "Mistral AI",
+      "kind": "mark",
+      "color": { "tone": "#FA520F" },
+      "source": {
+        "url": "https://github.com/simple-icons/simple-icons/blob/16.34.0/icons/mistralai.svg",
+        "file": "simple-icons 16.34.0 icons/mistralai.svg (source https://chat.mistral.ai)",
+        "license": "Simple Icons path data is CC0-1.0; the mark is a trademark of Mistral AI."
+      }
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama",
+      "owner": "Ollama",
+      "kind": "mark",
+      "color": { "tone": ["#FFFFFF", "#000000"] },
+      "source": {
+        "url": "https://github.com/simple-icons/simple-icons/blob/16.34.0/icons/ollama.svg",
+        "file": "simple-icons 16.34.0 icons/ollama.svg (source https://github.com/ollama/ollama/issues/2152#issuecomment-1905286922)",
+        "license": "Simple Icons path data is CC0-1.0; the mark is a trademark of Ollama."
+      }
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "owner": "OpenRouter",
+      "kind": "mark",
+      "color": { "tone": "#94A3B8" },
+      "source": {
+        "url": "https://github.com/simple-icons/simple-icons/blob/16.34.0/icons/openrouter.svg",
+        "file": "simple-icons 16.34.0 icons/openrouter.svg (source https://openrouter.ai)",
+        "license": "Simple Icons path data is CC0-1.0; the mark is a trademark of OpenRouter."
+      }
+    },
+    {
+      "id": "lmstudio",
+      "name": "LM Studio",
+      "owner": "Element Labs",
+      "kind": "mark",
+      "color": { "tone": ["#FFFFFF", "#000000"] },
+      "source": {
+        "url": "https://files.lmstudio.ai/lmstudio_icon2.svg",
+        "file": "simple-icons 16.34.0 icons/lmstudio.svg (from the official LM Studio icon file)",
+        "license": "Simple Icons path data is CC0-1.0; the mark is a trademark of Element Labs."
+      }
+    }
+  ],
+  "agents": [
+    { "id": "claude", "name": "Claude Code", "brand": "claude", "aliases": ["claude-code", "claude_code", "claudecode", "claude-sr"] },
+    { "id": "codex", "name": "Codex", "brand": "openai", "aliases": ["codex-acp", "codex-cli"] },
+    { "id": "chatgpt", "name": "ChatGPT", "brand": "openai", "aliases": [] },
+    { "id": "opencode", "name": "OpenCode", "brand": "opencode", "aliases": ["opencode-v2", "opencode2", "opencode-go"] },
+    { "id": "pi", "name": "Pi", "brand": "pi", "aliases": ["pi-acp", "pi-agent"] },
+    { "id": "omp", "name": "oh-my-pi", "brand": "omp", "aliases": ["oh-my-pi"] },
+    { "id": "hermes-agent", "name": "Hermes Agent", "brand": "hermes", "aliases": ["hermes"] },
+    { "id": "deepseek", "name": "DeepSeek", "brand": "deepseek", "aliases": ["dsh", "deepseek-harness"] },
+    { "id": "gemini", "name": "Gemini CLI", "brand": "gemini", "aliases": ["gemini-cli"] },
+    { "id": "cursor", "name": "Cursor", "brand": "cursor", "aliases": ["cursor-agent", "cursor-cli"] },
+    { "id": "amp", "name": "Amp", "brand": "amp", "aliases": [] },
+    { "id": "copilot", "name": "GitHub Copilot", "brand": "copilot", "aliases": ["github-copilot", "copilot-cli"] },
+    { "id": "grok", "name": "Grok", "brand": "grok", "aliases": ["grok-cli"] },
+    { "id": "kiro", "name": "Kiro", "brand": "kiro", "aliases": ["kiro-cli"] },
+    { "id": "antigravity", "name": "Antigravity", "brand": "antigravity", "aliases": ["agy"] },
+    { "id": "factory", "name": "Factory Droid", "brand": "factory", "aliases": ["droid"] },
+    { "id": "qoder", "name": "Qoder", "brand": "qoder", "aliases": ["qodercli"] },
+    { "id": "kimi", "name": "Kimi", "brand": "kimi", "aliases": ["kimi-cli"] },
+    { "id": "codebuddy", "name": "CodeBuddy", "brand": "codebuddy", "aliases": [] },
+    { "id": "rovodev", "name": "Rovo Dev", "brand": "rovodev", "aliases": ["rovo-dev", "acli"] },
+    { "id": "goose", "name": "goose", "brand": "goose", "aliases": [] },
+    { "id": "aider", "name": "Aider", "brand": "aider", "aliases": [] },
+    { "id": "qwen", "name": "Qwen Code", "brand": "qwen", "aliases": ["qwen-code"] },
+    { "id": "campfire", "name": "Campfire", "brand": null, "aliases": [], "note": "Pi fork with no published mark; draws the generic agent glyph." },
+    { "id": "prime", "name": "Prime", "brand": null, "aliases": ["prime-agent"], "note": "Pi fork with no published mark; draws the generic agent glyph." },
+    { "id": "mux", "name": "mux", "brand": null, "aliases": [], "note": "cmux's own agent; draws the generic agent glyph until cmux picks its own mark." }
+  ],
+  "providers": [
+    { "id": "anthropic", "brand": "anthropic" },
+    { "id": "openai", "brand": "openai" },
+    { "id": "xai", "brand": "grok" },
+    { "id": "mistral", "brand": "mistral" },
+    { "id": "ollama", "brand": "ollama" },
+    { "id": "openrouter", "brand": "openrouter" },
+    { "id": "lmstudio", "brand": "lmstudio" },
+    { "id": "groq", "brand": null, "note": "No CC0 or official SVG found; generic glyph." },
+    { "id": "bedrock", "brand": null, "note": "AWS publishes its marks only behind a login; generic glyph." },
+    { "id": "vertex", "brand": null, "note": "Google Cloud marks need the Partner Marketing Hub; generic glyph." }
+  ],
+  "resolutionCases": [
+    ["Claude", "claude"],
+    ["  claude-code ", "claude"],
+    ["acp:claude", "claude"],
+    ["/usr/local/bin/codex", "openai"],
+    ["codex-acp", "openai"],
+    ["cursor-agent", "cursor"],
+    ["hermes-agent", "hermes"],
+    ["oh-my-pi", "omp"],
+    ["droid", "factory"],
+    ["rovo-dev", "rovodev"],
+    ["opencode-v2", "opencode"],
+    ["pi-acp", "pi"],
+    ["dsh", "deepseek"],
+    ["gemini cli", "gemini"],
+    ["xai", "grok"],
+    ["prime-agent", null],
+    ["campfire", null],
+    ["piper", null],
+    ["", null]
+  ]
+}

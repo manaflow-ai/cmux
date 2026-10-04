@@ -43,10 +43,10 @@ final class WhichKeyPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 
     /// Shows `rows` under `prefix` over `parent`, fading in unless shown.
-    func present(prefix: Shortcut, rows: [WhichKeyRow], on parent: NSWindow) {
+    func present(prefix: [String], rows: [WhichKeyRow], on parent: NSWindow) {
         let wasDismissing = isDismissing
         isDismissing = false
-        body.update(prefix: prefix.keycaps, rows: rows)
+        body.update(prefix: prefix, rows: rows)
         if parentWindowRef !== parent {
             parentWindowRef?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)

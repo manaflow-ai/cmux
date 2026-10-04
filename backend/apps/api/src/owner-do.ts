@@ -30,11 +30,8 @@ export interface SubmitResult {
 
 export type ReadResult = { readonly ok: true; readonly value: unknown; readonly revision: string } | ({ readonly ok: false } & Reject)
 
-/** Upper bound of the owner-wake retry backoff. */
-const MAX_BACKOFF_MS = 5 * 60_000
-/** How long hidden events coalesce before the filtered resync snapshot. */
-const RESYNC_BATCH_MS = 250
-const PRUNE_SLACK_MS = 60 * 60_000
+/** Owner-wake retry backoff cap; resync snapshot coalescing; prune slack. */
+const [MAX_BACKOFF_MS, RESYNC_BATCH_MS, PRUNE_SLACK_MS] = [5 * 60_000, 250, 60 * 60_000]
 
 /** A closing socket must not stop delivery to the others (events are committed already). */
 const safeSend = (ws: WebSocket, text: string) => {
@@ -89,10 +86,9 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return this.engine
   }
 
-  /** The entity this object is bound to, or null for an object that was never created (no write). */
-  protected boundEntity(): string | null {
-    return boundEntityOf(this.store)
-  }
+  /** The bound entity, or null for an object never created (no write). Memoized: an object never unbinds, so a warm check reads no SQLite. */
+  protected boundEntity = (): string | null => (this.boundMemo ??= boundEntityOf(this.store))
+  private boundMemo: string | null = null
 
   /** `{entity}` of a bound object, or undefined (the shape subclasses read before). Never writes. */
   protected boundRow(): { entity: string } | undefined {
@@ -107,7 +103,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
 
   /** Binds this object to its entity on first use (creates its storage); refuses any other entity. */
   protected bind(entity: string): OwnerEngine<S> {
-    if (!this.isBound(entity)) createBinding(this.store, entity)
+    if (!this.isBound(entity)) [createBinding(this.store, entity), (this.boundMemo = entity)]
     return this.open(entity)
   }
 
@@ -190,6 +186,12 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return JSON.stringify(this.subscriberSnapshot(engine.snapshot(principal.identity, pending), principal))
   }
 
+  /** RPC from UserDO (socket-registry.ts): an install was revoked; close its sockets here now. */
+  async closeInstall(entity: string, install: string, agent?: string): Promise<boolean> {
+    if (this.isBound(entity)) [agent ? null : this.gate.revoked(install), this.closeSockets((p) => p.install === install && (!agent || p.agent === agent), "revoked")]
+    return true
+  }
+
   /** Closes every socket whose principal matches (revocation). */
   protected closeSockets(match: (p: Principal) => boolean, reason: string) {
     for (const ws of this.ctx.getWebSockets()) {
@@ -198,8 +200,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     }
   }
 
-  /** Hook after each committed op (for example: close a revoked install's sockets). */
-  protected afterOp(_principal: Principal, _op: string, _frames: ReadonlyArray<OwnerFrame>) {}
+  /** Hook after each committed op (close a revoked install's sockets); `params` only for outbox-delivered system ops. */
+  protected afterOp(_principal: Principal, _op: string, _frames: ReadonlyArray<OwnerFrame>, _params?: unknown) {}
 
   /**
    * When this owner next needs its alarm for its own work (for example the next
@@ -281,7 +283,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
       )
       const reject = frames.find((f) => f.t === "reject")
       if (reject && reject.t === "reject") console.warn(JSON.stringify({ msg: "system op refused", target: engine.stream, source, op: item.op, code: reject.code }))
-      this.afterOp(principal, item.op, frames)
+      this.afterOp(principal, item.op, frames, item.params)
       done.push(item.id)
     }
     this.afterCommit()
@@ -391,7 +393,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     this.ctx.acceptWebSocket(server)
     server.serializeAttachment({ principal, subscribed: false } satisfies Attachment)
     // The Worker checked the install just now; the alarm closes the socket at its token's expiry.
-    this.gate.seed(principal)
+    this.gate.seed(server, principal, { cls: this.constructor.name, name: entity })
     this.afterCommit()
     safeSend(server, JSON.stringify({ t: "welcome", principal: { user: principal.user, team: principal.team, install: principal.install }, server_time: Date.now(), streams: [engine.stream] }))
     return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": "cmux.wire.v1" } })

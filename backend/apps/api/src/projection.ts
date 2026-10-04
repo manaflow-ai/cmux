@@ -23,6 +23,11 @@ const rawStatements: Record<string, (p: Record<string, unknown>, stream: string,
   "home.message.delete": (p, stream, seq) => [
     `DELETE FROM home_message_search WHERE conversation_id = $1 AND seq = $2 AND source_stream = $3 AND source_seq <= $4`,
     [p.conversation_id, p.seq, stream, seq]
+  ],
+  // Retention (conversation.sweep): every row of the conversation up to `seq`, one statement per sweep.
+  "home.message.delete_through": (p, stream, seq) => [
+    `DELETE FROM home_message_search WHERE conversation_id = $1 AND seq <= $2 AND source_stream = $3 AND source_seq <= $4`,
+    [p.conversation_id, p.seq, stream, seq]
   ]
 }
 
