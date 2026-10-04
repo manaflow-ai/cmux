@@ -30,13 +30,12 @@ const MUTATION: &[&str] = &[
     "validation.invalid",
 ];
 
-/// `cloud.machine.link_token`: a mutation with no revision input.
+/// `cloud.machine.link_token`: a mutation with no key and no revision input.
 const LINK_TOKEN: &[&str] = &[
     "auth.forbidden",
     "auth.sso_required",
     "auth.unauthenticated",
     "client.too_old",
-    "idempotency.conflict",
     "owner.unreachable",
     "validation.invalid",
 ];
