@@ -104,10 +104,36 @@ fn error_body(body: Value) -> Value {
 /// What the daemon knows about the registering connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProviderClaim {
-    /// The connection's stamped actor is `agent:<id>` (crate::actor).
+    /// The connection is bound to an agent (its conversation principal is
+    /// not the local user).
     pub agent: bool,
     /// The connection declared `set-client-info` kind `app`.
     pub app_kind: bool,
+}
+
+/// Whether the connection is the hosting cmux app: the one check behind
+/// `apps-provider-register` and behind origin `user` on every `apps-*`
+/// command. Today: not an agent connection, and kind `app` (self-declared).
+/// The daemon's peer code-signature check (audit token and team id) replaces
+/// the body of this function; callers do not change.
+pub fn hosting_app_connection(claim: &ProviderClaim) -> bool {
+    !claim.agent && claim.app_kind
+}
+
+/// Admits a request's `origin`. Origin `user` (installs, grants, gestures)
+/// is accepted only from the hosting app connection; any other connection
+/// that sends it gets `apps.origin_forbidden`, never a silent downgrade.
+/// The other origins are unchanged.
+pub fn admit_origin(origin: Origin, claim: &ProviderClaim) -> Result<(), ApiError> {
+    if origin != Origin::User || hosting_app_connection(claim) {
+        return Ok(());
+    }
+    let why = if claim.agent {
+        "an agent connection cannot act with origin user"
+    } else {
+        "only the cmux app (set-client-info kind app) can act with origin user"
+    };
+    Err(ApiError::new("apps.origin_forbidden", why))
 }
 
 impl Supervisor {
@@ -121,17 +147,13 @@ impl Supervisor {
         claim: ProviderClaim,
         families: Vec<String>,
     ) -> Result<Value, ApiError> {
-        if claim.agent {
-            return Err(ApiError::new(
-                "apps.provider.forbidden",
-                "agent connections cannot provide app ops",
-            ));
-        }
-        if !claim.app_kind {
-            return Err(ApiError::new(
-                "apps.provider.forbidden",
-                "only the cmux app (set-client-info kind app) can provide app ops",
-            ));
+        if !hosting_app_connection(&claim) {
+            let why = if claim.agent {
+                "agent connections cannot provide app ops"
+            } else {
+                "only the cmux app (set-client-info kind app) can provide app ops"
+            };
+            return Err(ApiError::new("apps.provider.forbidden", why));
         }
         if families.is_empty() {
             return Err(ApiError::new("bad-request", "families must not be empty"));
