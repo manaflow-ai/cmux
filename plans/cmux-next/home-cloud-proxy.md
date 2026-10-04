@@ -213,3 +213,10 @@ Typing (`ConversationDO` has no typing frame yet), inbox user ops (`inbox.pin`, 
 `inbox.archive`, `inbox.mark_unread`), `invite.revoke`, `invite.accept`, search (`home.search`), the
 on-disk cache and offline read-only view (home-scale.md A7), the daemon-held mirror and intent log
 (D2), app-signed envelopes (D3) and the Swift `HomeSource` (part 2).
+
+## 9. Open follow-ups
+
+`cloud-inbox-list` paging (backend owner review, 2026-10-04): once feat-cmux-next-home-inbox
+lands on feat-cmux-next, `cloud-inbox-list` takes `cursor?` and returns `next_cursor` so it matches
+`inbox.list`. The home-inbox branch had not landed when this branch merged feat-cmux-next, so part 1
+keeps the `{limit?, include_archived?}` request and `{entries, revision}` result.
