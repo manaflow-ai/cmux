@@ -1,11 +1,5 @@
 import { CodeView, WorkerPoolContextProvider, type CodeViewHandle, useWorkerPool } from "@pierre/diffs/react";
-import {
-  getFiletypeFromFileName,
-  parsePatchFiles,
-  preloadHighlighter,
-  processFile,
-  registerCustomTheme,
-} from "@pierre/diffs";
+import { parsePatchFiles, preloadHighlighter, processFile, registerCustomTheme } from "@pierre/diffs";
 import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
@@ -102,6 +96,7 @@ import { useDiffFind, type DiffFindController } from "./find/useDiffFind";
 import { useFindKeyboard } from "./find/useFindKeyboard";
 import type { DiffSource, DiffTransportConfig } from "./diff/generated/protocol";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
+import { diffLanguages } from "./diff-languages/registry";
 
 const statusIconName: Record<DiffFileStatus, IconName> = {
   added: "diffAdded",
@@ -158,6 +153,7 @@ type AppState = {
 
 type AppAction =
   | { type: "append-items"; items: DiffItem[] }
+  | { type: "relanguage-items" }
   | { type: "apply-persisted-options"; prefs: ViewerPrefs; allowLayout: boolean }
   | { type: "apply-viewed"; items: DiffItem[]; change: ViewedChange }
   | { type: "begin-viewed-load"; scopeKey: string }
@@ -347,6 +343,12 @@ function reducer(state: AppState, action: AppAction): AppState {
         status: state.status.loading ? createDiffViewerStatus("", { loading: false }) : state.status,
       };
     }
+    case "relanguage-items": {
+      const items = relanguagedItems(state.items);
+      return items.every((item, index) => item === state.items[index])
+        ? state
+        : { ...state, items, languages: mergeLanguages(state.languages, items.flatMap(diffItemPreloadLanguages)) };
+    }
     case "reset-diff":
       return {
         ...state,
@@ -486,6 +488,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const activeSessionRef = useRef<ActiveDiffSession | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
+  useDiffLanguageChanges(dispatch);
   const workerPoolOptions = createDiffWorkerPoolOptions();
   const highlighterOptions = workerHighlighterOptions(state.options, appearance, state.languages);
   const payloadRepoRoot = typeof payload.repoRoot === "string" && payload.repoRoot !== "" ? payload.repoRoot : null;
@@ -2239,6 +2242,11 @@ function useSyncedRef<T>(value: T): React.MutableRefObject<T> {
   return ref;
 }
 
+/// Re-detects every file's language when the host installs new user languages or overrides.
+function useDiffLanguageChanges(dispatch: React.Dispatch<AppAction>): void {
+  useEffect(() => diffLanguages.subscribe(() => dispatch({ type: "relanguage-items" })), [dispatch]);
+}
+
 function useWorkerRenderOptionsSync(
   highlighterOptions: ReturnType<typeof workerHighlighterOptions>,
   codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>,
@@ -2270,24 +2278,15 @@ function sameWorkerHighlighterOptions(
   next: ReturnType<typeof workerHighlighterOptions>,
 ): boolean {
   return (
+    // `langs` only seed the pool at creation; the pool loads each file's grammar with its task,
+    // so a newly seen language must not force a full re-render.
     previous?.lineDiffType === next.lineDiffType &&
-    sameStringArray(previous?.langs, next.langs) &&
     previous?.maxLineDiffLength === next.maxLineDiffLength &&
     previous?.preferredHighlighter === next.preferredHighlighter &&
     sameThemeOption(previous?.theme, next.theme) &&
     previous?.tokenizeMaxLineLength === next.tokenizeMaxLineLength &&
     previous?.useTokenTransformer === next.useTokenTransformer
   );
-}
-
-function sameStringArray(previous: readonly string[] | undefined, next: readonly string[] | undefined): boolean {
-  if (previous === next) {
-    return true;
-  }
-  if (previous == null || next == null || previous.length !== next.length) {
-    return false;
-  }
-  return previous.every((value, index) => value === next[index]);
 }
 
 function sameThemeOption(
@@ -2453,7 +2452,7 @@ function useRenderDiff(
               new Set(
                 items.flatMap((item) => {
                   const diff = item.fileDiff ?? {};
-                  return resolveDiffPreloadLanguages(fileName(diff, ""), diff.lang, diff, getFiletypeFromFileName);
+                  return resolveDiffPreloadLanguages(fileName(diff, ""), diff.lang, diff);
                 }),
               ),
             );
@@ -2597,13 +2596,36 @@ function repoSelectionWithActiveSource(source: DiffSource, active: DiffSource | 
   return { ...active, repoRoot };
 }
 
+/// Sets `fileDiff.lang` to the detected language. The language the parser chose and the
+/// worker cache key are kept beside it, so a later language change (the host pushed new user
+/// languages) detects from the same input and never reads a cached render of the old language.
 function resolveDiffItemLanguage(item: DiffItem): void {
   const diff = item.fileDiff;
   if (diff == null) {
     return;
   }
-  const lang = resolveDiffFileLanguage(fileName(diff, ""), diff.lang, getFiletypeFromFileName);
+  if (!("cmuxParsedLanguage" in diff)) {
+    diff.cmuxParsedLanguage = diff.lang;
+    diff.cmuxBaseCacheKey = diff.cacheKey;
+  }
+  const lang = resolveDiffFileLanguage(fileName(diff, ""), diff.cmuxParsedLanguage, diff);
   diff.lang = lang;
+  if (typeof diff.cmuxBaseCacheKey === "string") {
+    diff.cacheKey = `${diff.cmuxBaseCacheKey}:${lang}`;
+  }
+}
+
+/// The items whose language changed under the current language registry, as new objects.
+function relanguagedItems(items: DiffItem[]): DiffItem[] {
+  return items.map((item) => {
+    const diff = item.fileDiff;
+    if (diff == null) {
+      return item;
+    }
+    const next = { ...item, fileDiff: { ...diff } };
+    resolveDiffItemLanguage(next);
+    return next.fileDiff.lang === diff.lang ? item : { ...next, version: (item.version ?? 0) + 1 };
+  });
 }
 
 function diffItemPreloadLanguages(item: DiffItem): string[] {
@@ -2611,7 +2633,7 @@ function diffItemPreloadLanguages(item: DiffItem): string[] {
   if (diff == null) {
     return [];
   }
-  return resolveDiffPreloadLanguages(fileName(diff, ""), diff.lang, diff, getFiletypeFromFileName);
+  return resolveDiffPreloadLanguages(fileName(diff, ""), diff.lang, diff);
 }
 
 function mergeLanguages(current: string[], next: string[]): string[] {

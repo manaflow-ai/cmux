@@ -20,6 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Plugin, ViteDevServer } from "vite-plus";
 import { isLoopbackHost, payloadFor, readBody, resolveResource, rpcRequestStatus } from "./diffHost";
+import { diffLanguagesDirectory, readDiffLanguagePack } from "./diffLanguages";
 import { SHELL_LIBS, SHELL_PLACEHOLDERS, fillShell, markdownFiles, splitStyles } from "./markdownHost";
 
 const webviewsRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -315,6 +316,19 @@ function diffHost(): Plugin {
     configureServer(server) {
       const port = () => server.config.server.port ?? DEV_SERVER_PORT;
       server.httpServer?.on("close", () => cleanup());
+      // The languages folder hot-applies like the app's watcher: open pages get the new pack.
+      // fs.watch, not Vite's watcher, which does not report this folder outside the project. A
+      // folder created after the server started applies on the next page load.
+      const languagesDirectory = diffLanguagesDirectory();
+      try {
+        const watcher = fs.watch(languagesDirectory, { recursive: true }, () => {
+          const data = readDiffLanguagePack(languagesDirectory);
+          server.ws.send({ type: "custom", event: "cmux-diff-languages", data });
+        });
+        server.httpServer?.on("close", () => watcher.close());
+      } catch {
+        // No languages folder.
+      }
       server.middlewares.use(async (request, response, next) => {
         const url = new URL(request.url ?? "/", "http://localhost");
         if (url.pathname === "/diff" || url.pathname === "/diff/") {
@@ -335,6 +349,7 @@ function diffHost(): Plugin {
         try {
           if (url.pathname === "/__cmux-diff/config") {
             const config = payloadFor(sidecarHost(), repo, defaultBase, url.searchParams);
+            (config.payload as Record<string, unknown>).languages = readDiffLanguagePack(diffLanguagesDirectory());
             return send(response, 200, "application/json", JSON.stringify(config));
           }
           if (url.pathname === "/__cmux-diff/rpc") {
