@@ -16,7 +16,15 @@ const listing: WireListing = {
   icon: { asset: "assets/icon.png" },
   categories: ["productivity"],
   hide_only: false,
-  install: { installed: true, enabled: false, hidden: true, sandboxed: false, source: "user", version: "2.0.0", update: null },
+  install: {
+    installed: true,
+    enabled: false,
+    hidden: true,
+    sandboxed: false,
+    source: "user",
+    version: "2.0.0",
+    update: null,
+  },
 };
 
 describe("owner wire shapes", () => {
@@ -46,7 +54,15 @@ describe("owner wire shapes", () => {
       name: "Notes",
       tier: "first-party",
       hide_only: true,
-      state: { installed: true, enabled: true, hidden: false, sandboxed: true, source: "default", version: "1.0.0", update: null },
+      state: {
+        installed: true,
+        enabled: true,
+        hidden: false,
+        sandboxed: true,
+        source: "default",
+        version: "1.0.0",
+        update: null,
+      },
       grants: [],
     };
     expect(fromInstalled(row)).toMatchObject({
@@ -82,6 +98,7 @@ describe("owner wire shapes", () => {
     const store = new AppsStore(provider);
     store.subscribe(() => undefined);
     await store.start();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     const list = provider.calls.find((call) => call.op === AppsOps.catalogList);
     expect(list?.params).toEqual({ limit: 200 });
     expect(store.getSnapshot().catalog.find((app) => app.id === "cmux.github-prs")?.hide_only).toBe(true);

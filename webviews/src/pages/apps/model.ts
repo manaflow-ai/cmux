@@ -58,8 +58,8 @@ export function listedInStore(app: { id: string }): boolean {
  * Whether the page offers Remove for `app`. First-party apps are hidable, never removable
  * (FIRST-PARTY-APPS): the page offers Hide/Show instead, and the owner refuses an uninstall.
  */
-export function isRemovable(app: { tier?: AppTier }): boolean {
-  return app.tier !== "first-party";
+export function isRemovable(app: { tier?: AppTier; hide_only?: boolean }): boolean {
+  return app.hide_only === undefined ? app.tier !== "first-party" : !app.hide_only;
 }
 
 export function filterApps(apps: readonly CatalogApp[], query: string, category: string | undefined): CatalogApp[] {

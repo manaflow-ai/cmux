@@ -5,16 +5,15 @@
 // confirmation (coordinator Q4), so the page shows the owner's result, never its own guess.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
+import { fromDetail, listCatalog, listInstalled, type WireDetail } from "./wire";
 import { categories, filterApps, listedInStore, parseRoute, type StoreLayout, type StoreTab } from "./model";
 import {
   AppsOps,
   type AppDetail,
   type AppsChanged,
   type CatalogApp,
-  type CatalogListResult,
   type Grants,
   type InstalledApp,
-  type InstalledListResult,
   type LogLine,
 } from "./types";
 
@@ -149,10 +148,7 @@ export class AppsStore {
     if (!this.client) return;
     const generation = ++this.generation;
     try {
-      const [catalog, installed] = await Promise.all([
-        this.client.call<CatalogListResult>(AppsOps.catalogList, {}),
-        this.client.call<InstalledListResult>(AppsOps.installedList, {}),
-      ]);
+      const [catalog, installed] = await Promise.all([listCatalog(this.client), listInstalled(this.client)]);
       if (generation !== this.generation) return;
       const listed = catalog.apps.filter(listedInStore);
       this.set({
@@ -204,7 +200,7 @@ export class AppsStore {
     if (!this.client) return;
     const generation = ++this.detailGeneration;
     try {
-      const detail = await this.client.call<AppDetail>(AppsOps.catalogGet, { app });
+      const detail = fromDetail(await this.client.call<WireDetail>(AppsOps.catalogGet, { app }));
       if (generation === this.detailGeneration && this.snapshot.selection === app) this.set({ detail });
       if (detail.installed) await this.loadGrants(app);
     } catch (error) {

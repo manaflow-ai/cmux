@@ -7,12 +7,12 @@ import {
   AppsOps,
   type AppDetail,
   type AppsChanged,
-  type CatalogApp,
   type GrantRow,
   type Grants,
   type InstalledApp,
   type LogLine,
 } from "./types";
+import type { WireDetail, WireInstalledList, WireListing } from "./wire";
 
 export interface MockCall {
   op: string;
@@ -61,14 +61,45 @@ export class MockAppsProvider implements PageClient {
     const app = typeof params.app === "string" ? params.app : "";
     switch (op) {
       case AppsOps.catalogList:
-        return { apps: Object.values(this.details).map((detail) => this.row(detail)), revision: this.revision } as R;
+        return {
+          listings: Object.values(this.details).map((detail) => this.listing(detail)),
+          next_cursor: null,
+          revision: this.revision,
+        } as R;
       case AppsOps.catalogGet: {
         const detail = this.details[app];
         if (!detail) throw pageError("cmux.apps.not_found", app);
-        return { ...detail, ...this.row(detail) } as R;
+        const wire: WireDetail = {
+          ...this.listing(detail),
+          scopes: detail.scopes,
+          versions: detail.versions,
+          repository: detail.repository,
+          screenshots: detail.screenshots,
+        };
+        return wire as R;
       }
-      case AppsOps.installedList:
-        return { apps: Object.values(this.installed), revision: this.revision } as R;
+      case AppsOps.installedList: {
+        const list: WireInstalledList = {
+          revision: this.revision,
+          apps: Object.values(this.installed).map((row) => ({
+            app: row.id,
+            name: row.name,
+            tier: row.tier ?? "verified",
+            hide_only: row.tier === "first-party",
+            state: {
+              installed: true,
+              enabled: row.enabled,
+              hidden: row.hidden,
+              sandboxed: row.sandboxed,
+              source: row.source,
+              version: row.version,
+              update: row.update ?? null,
+            },
+            grants: [],
+          })),
+        };
+        return list as R;
+      }
       case AppsOps.grantsGet: {
         const grants = this.grants[app];
         if (!grants) throw pageError("cmux.apps.not_installed", app);
@@ -173,17 +204,32 @@ export class MockAppsProvider implements PageClient {
     return this.watchers.size;
   }
 
-  private row(detail: AppDetail): CatalogApp {
+  /** A sample listing in the owner's wire shape. */
+  private listing(detail: AppDetail): WireListing {
     const installed = this.installed[detail.id];
-    const {
-      scopes: _scopes,
-      versions: _versions,
-      repository: _repository,
-      screenshots: _screenshots,
-      notices: _notices,
-      ...row
-    } = detail;
-    return { ...row, installed: !!installed, enabled: installed?.enabled, hidden: installed?.hidden };
+    return {
+      app: detail.id,
+      name: detail.name,
+      summary: detail.description,
+      publisher: detail.publisher,
+      tier: detail.tier,
+      version: detail.latest_version,
+      icon: null,
+      categories: detail.categories,
+      keywords: detail.keywords,
+      hide_only: detail.tier === "first-party",
+      install: installed
+        ? {
+            installed: true,
+            enabled: installed.enabled,
+            hidden: installed.hidden,
+            sandboxed: installed.sandboxed,
+            source: installed.source,
+            version: installed.version,
+            update: installed.update ?? null,
+          }
+        : null,
+    };
   }
 
   private changed(app: string): { status: "done" } {
