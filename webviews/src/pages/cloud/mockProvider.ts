@@ -74,14 +74,16 @@ export class MockCloudProvider implements PageClient {
   failNext?: string;
   /** Runs after the list result is taken and before it is answered (an event during the list). */
   onList?: () => void;
+  /** The next delete finds the machine already gone: it is removed and answered `not_found`. */
+  notFoundOnDelete = false;
   /** The owner's normalization of a new name (the echo then differs from the intent). */
   renameTransform?: (name: string) => string;
   /** The projection revision: one step per change, shared by the events of that change. */
   revision = 10;
   private nextId = 1;
   private readonly memory = new Map<string, number>();
-  /** Idempotency ledger: key -> recorded result (a replay answers it and emits nothing). */
-  private readonly ledger = new Map<string, unknown>();
+  /** Idempotency ledger: key -> op, args and recorded result (a replay answers it and emits nothing). */
+  private readonly ledger = new Map<string, { op: string; args: string; result: unknown }>();
   private readonly subs = new Map<number, { listener: (data: unknown, seq: number) => void; seq: number }>();
   private nextSub = 1;
   private readonly handlers = new Map<string, PageHandler>();
@@ -207,11 +209,16 @@ export class MockCloudProvider implements PageClient {
   /** The server's ledger: a mutation key replays its recorded result and changes nothing. */
   private keyed(op: string, p: Params): unknown {
     const key = typeof p.idempotency_key === "string" ? p.idempotency_key : undefined;
-    if (key && this.ledger.has(key)) return this.ledger.get(key);
     const args = { ...p };
     delete args.idempotency_key;
+    const recorded = key ? this.ledger.get(key) : undefined;
+    if (recorded) {
+      if (recorded.op !== op || recorded.args !== JSON.stringify(args))
+        throw pageError("cmux.cloud.idempotency_conflict", "this key was used for another request");
+      return recorded.result;
+    }
     const result = this.serve(op, args);
-    if (key) this.ledger.set(key, result);
+    if (key) this.ledger.set(key, { op, args: JSON.stringify(args), result });
     return result;
   }
 
@@ -255,6 +262,10 @@ export class MockCloudProvider implements PageClient {
       case CloudOps.machineDelete:
         this.machine(p);
         this.emitRemoved(String(p.machine));
+        if (this.notFoundOnDelete) {
+          this.notFoundOnDelete = false;
+          throw pageError("cmux.cloud.not_found", "The Cloud API does not know this machine.");
+        }
         return { ok: true };
       case CloudOps.machineStats: {
         const machine = this.machine(p);

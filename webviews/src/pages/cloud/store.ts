@@ -281,13 +281,15 @@ export class CloudStore {
         if (draft.memoryMb) params.memoryMb = draft.memoryMb;
         result = await this.client!.call<MachineMutationResult>(CloudOps.machineCreate, params);
       }
-      if (session !== this.session) return;
+      // Recorded even after a session restart (stop, retry): the intent and the sheet must not
+      // stay pending. A cleared log (sign-out, team switch) makes these no-ops.
       this.updateIntent(draft.key, { result_id: result.id, replied: true, revision: revisionOf(result) });
-      this.set({ create: undefined });
+      if (this.state.create?.key === draft.key) this.set({ create: undefined });
     } catch (error) {
-      if (session !== this.session) return;
       this.dropIntent(draft.key);
-      this.set({ create: { ...draft, submitting: false, error: message(error) }, ...failure(error, false) });
+      if (this.state.create?.key === draft.key)
+        this.set({ create: { ...draft, submitting: false, error: message(error) } });
+      if (session === this.session) this.set(failure(error, false));
     }
   }
 
@@ -351,7 +353,8 @@ export class CloudStore {
       else this.replied(key, result);
     } catch (error) {
       this.dropIntent(key);
-      this.fail(CloudOps.machineDelete, error);
+      // The owner no longer knows the machine: it dropped it and sent `removed`. Nothing failed.
+      if (!isPageError(error) || error.code !== "cmux.cloud.not_found") this.fail(CloudOps.machineDelete, error);
     }
   }
 
@@ -492,13 +495,13 @@ export class CloudStore {
     this.pushIntent({ key, kind, machine, ...fields });
     const session = this.session;
     try {
+      // Recorded even after a session restart, so the intent cannot stay pending.
       const result = await this.client!.call(op, { machine, ...params, idempotency_key: key });
-      if (session !== this.session) return undefined;
       this.replied(key, result);
       return result;
     } catch (error) {
       this.dropIntent(key);
-      this.fail(op, error);
+      if (session === this.session) this.fail(op, error);
       return undefined;
     }
   }
@@ -510,12 +513,12 @@ export class CloudStore {
     this.pushIntent({ key, kind: "create", name });
     const session = this.session;
     try {
+      // Recorded even after a session restart, so the pending create row cannot stay.
       const result = await this.client!.call<MachineMutationResult>(op, { ...params, idempotency_key: key });
-      if (session !== this.session) return;
       this.updateIntent(key, { result_id: result.id, replied: true, revision: revisionOf(result) });
     } catch (error) {
       this.dropIntent(key);
-      this.fail(op, error);
+      if (session === this.session) this.fail(op, error);
     }
   }
 

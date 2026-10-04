@@ -74,6 +74,7 @@ Each write that changes at least one record raises the revision by one and queue
 - Plan and usage have no route of their own; both come from the `limits` of `GET /api/vm`. Hours are reported only for plans with an hour allowance.
 - Not declared yet (other packages): `auth.sign_in`, `auth.sign_out`, `team.list`, `team.select` (host credential owner), files and ports (C5), domains and network (C6).
 - The catalog fragment schema has no stream class (`class` is `read` or `mutation`). `cloud.machine.watch` is declared as a read that answers the current revision; the event name and shape are documented here and in its `docs`. The host must map `cloud.machine.watch` event lines to page subscriptions of `cmux.cloud.machine.watch` (not built yet).
+- The revision has no epoch: it starts at 0 in each server process. A host that restarts the server must restart its page sessions (a new list), or a page keeps its old revision and drops the new events. An instance id on the list and the events would remove this rule.
 - The projection sees only what this server does and what a list returns: a change made elsewhere (the web dashboard, another Mac) shows on the stream at the next list read (page open, app activation), not live. A live feed needs a Cloud API change feed (DECISION 5).
 - Events do not carry the request's transaction id and there is no `request-settled`; the app host protocol for native servers does not define them yet.
 - The icon is a symbol (`icon.noImage` warning), like `app-store`.

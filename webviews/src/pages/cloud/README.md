@@ -48,6 +48,10 @@ mock answers the same way (`SERVER_GAPS`); `/cloud/?mock=all` serves them all fo
   request's key.
 - The Cloud API has no account-wide snapshot list: the create sheet offers the selected machine's
   snapshots only.
+- The watch revision has no server epoch (first-party-apps/cloud/README.md "Gaps"): after a server
+  restart the host must restart the page session.
+- The mock delivers each echo event before it answers (the server answers first); tests with
+  `holdEvents` cover the server's order.
 - The record has no size or idle policy: the size shows from the stats; resize and idle intents
   settle by revision only.
 
