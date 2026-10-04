@@ -197,6 +197,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             }
             self.clearSessionLabels()
             self.closeOpenedTabs()
+            // The agent's proxy ends with the session: a tab it kept, now
+            // the user's, and any tab opened from one on the same private
+            // store go back to the browser's own proxy settings, which every
+            // tab applies again on this notification.
+            self.proxyDataStore = nil
+            if BrowserReplProxyStores.shared.sessionEnded(sessionID) {
+                NotificationCenter.default.post(name: .browserSystemProxySettingsDidChange, object: nil)
+            }
             self.releaseDownloadWaiters()
             for directory in self.fileChooserDirectories {
                 try? FileManager.default.removeItem(at: directory)
@@ -734,7 +742,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             throw Self.error("invalid", "session.configure: content rules come from the domain policy")
         }
         if params.keys.contains("proxy") {
-            proxyDataStore = try Self.proxyDataStore(params["proxy"] as? [String: Any])
+            proxyDataStore = try Self.proxyDataStore(params["proxy"] as? [String: Any], sessionID: sessionID)
         }
         contextOptions = options
         BrowserReplTabAttachments.shared.setContext(options, forSession: sessionID)
@@ -764,9 +772,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     /// A non-persistent data store whose connections go through `proxy`, or
-    /// `nil` to clear it.
+    /// `nil` to clear it. The proxy is `sessionID`'s and ends with it
+    /// (``BrowserReplProxyStores``).
     @MainActor
-    private static func proxyDataStore(_ proxy: [String: Any]?) throws -> WKWebsiteDataStore? {
+    private static func proxyDataStore(_ proxy: [String: Any]?, sessionID: String) throws -> WKWebsiteDataStore? {
         guard let proxy, let server = proxy["server"] as? String, !server.isEmpty else { return nil }
         let raw = server.contains("://") ? server : "http://\(server)"
         guard let url = URL(string: raw), let host = url.host, !host.isEmpty else {
@@ -794,7 +803,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         let store = WKWebsiteDataStore.nonPersistent()
         store.proxyConfigurations = [configuration]
-        BrowserReplProxyStores.register(store)
+        BrowserReplProxyStores.shared.register(store, sessionID: sessionID)
         return store
     }
 
@@ -1079,7 +1088,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         let timeout = Self.timeout(params)
         let started = ContinuousClock.now
-        attachment(panel).rememberCredentials(in: url)
+        attachment(panel).rememberCredentials(in: url, sessionID: sessionID)
         _ = attachment(panel).takeAuthenticationFailure()
         // Until the navigation commits, a dialog the page opens (beforeunload)
         // is this session's doing; while the new page loads, it is not.
@@ -2061,7 +2070,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             }
             return [["type": "text/plain", "base64": Data(text.utf8).base64EncodedString()]]
         default:
-            let text = attachment.clipboardItems
+            let text = attachment.clipboard.tenure.map { attachment.clipboard.items(during: $0) }?
                 .first { ($0["type"] as? String) == "text/plain" }
                 .flatMap { ($0["base64"] as? String).flatMap { Data(base64Encoded: $0) } }
                 .map { String(decoding: $0, as: UTF8.self) }
@@ -2143,10 +2152,13 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             // into which Paste would put it): the focus is checked again
             // right before the command, and after it before the clipboard
             // takes anything (BrowserReplFrameGate.guardingFocus).
+            // What the command took lands only while the creator that held
+            // the tab when it began still does (BrowserReplTabClipboard).
+            guard let tenure = attachment.clipboard.tenure else { return }
             let taken = try await frameGate.guardingFocus(in: webView, frames: { await BrowserReplFrameTree.frames(of: webView) }) {
                 try await Self.performClipboardCommand(command, panel: panel, webView: webView, attachment: attachment)
             }
-            if let taken { attachment.clipboardItems = taken }
+            if let taken { attachment.clipboard.store(taken, during: tenure) }
         case "bold", "italic", "underline":
             // Chrome's editor formats the selection of an editable element on
             // Command+B/I/U; the page sees its usual beforeinput and input.
@@ -2168,22 +2180,35 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// `cmux browser press` Meta+C, Meta+X or Meta+V that no page handled
     /// (``WKWebView/automationEditingCommandRoute``), in a tab a session
     /// created and is attached to: runs on the tab's clipboard as the REPL's
-    /// own shortcut does, never on the system pasteboard. Returns `false`
-    /// for any other command or tab, whose web view runs its own action.
+    /// own shortcut does, never on the system pasteboard, under the same
+    /// guards: the creating session's domain policy keeps a frame it blocks
+    /// from holding the focus before and after the command
+    /// (``BrowserReplFrameGate/guardingFocus(in:frames:_:)``), so a blocked
+    /// frame's selection never reaches the session's clipboard and the
+    /// clipboard is never pasted into one, and what the command took lands
+    /// only while that creator still holds the tab. Returns `false` for any
+    /// other command or tab, whose web view runs its own action.
     @MainActor
     static func routePressedEditingCommand(_ webView: WKWebView, _ command: String) -> Bool {
         guard clipboardCommandNames[command] != nil,
               let entry = browserPanelEntries().first(where: { $0.panel.webView === webView }),
               let attachment = BrowserReplTabAttachments.shared.attachment(for: entry.panel.id),
-              attachment.creatorSessionID != nil,
+              let creator = attachment.creatorSessionID,
+              let tenure = attachment.clipboard.tenure, tenure.owner == creator,
               let tabWebView = entry.panel.webView as? CmuxWebView
         else { return false }
         let panel = entry.panel
+        let gate = BrowserReplFrameGate(world: BrowserReplDriverWorld.world)
+        gate.policy = BrowserReplPolicyBoard.shared.policy(for: creator) ?? BrowserReplDomainPolicy()
         Task { @MainActor in
-            // The press already returned; a failure (another command in
-            // flight, a timeout) leaves the tab's clipboard unchanged.
-            if let taken = try? await performClipboardCommand(command, panel: panel, webView: tabWebView, attachment: attachment) {
-                attachment.clipboardItems = taken
+            // The press already returned; a failure (a blocked frame holds
+            // the focus, another command in flight, a timeout) leaves the
+            // tab's clipboard unchanged.
+            let taken = try? await gate.guardingFocus(in: tabWebView, frames: { await BrowserReplFrameTree.frames(of: tabWebView) }) {
+                try await performClipboardCommand(command, panel: panel, webView: tabWebView, attachment: attachment)
+            }
+            if let taken {
+                attachment.clipboard.store(taken, during: tenure)
             }
         }
         return true
@@ -2216,7 +2241,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let sessionTabs = tabsCreated(by: creator)
         let pasteboard = NSPasteboard.withUniqueName()
         if isPaste {
-            BrowserReplClipboardItems.write(attachment.clipboardItems, to: pasteboard)
+            let items = attachment.clipboard.tenure.map { attachment.clipboard.items(during: $0) } ?? []
+            BrowserReplClipboardItems.write(items, to: pasteboard)
         } else {
             pasteboard.clearContents()
         }
@@ -2684,15 +2710,33 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         return nil
     }
 
+    /// `page.clipboard` reads the tab's clipboard, which only the session
+    /// that created the tab holds (``BrowserReplTabClipboard``).
     @MainActor
     private func readClipboard(_ params: [String: Any]) throws -> [String: Any] {
-        ["items": attachment(try panel(params)).clipboardItems]
+        guard let items = attachment(try panel(params)).clipboard.read(by: sessionID) else {
+            throw Self.clipboardRefusedInUserTab()
+        }
+        return ["items": items]
     }
 
     @MainActor
     private func writeClipboard(_ params: [String: Any]) throws -> Any? {
-        attachment(try panel(params)).clipboardItems = params["items"] as? [[String: Any]] ?? []
+        let items = params["items"] as? [[String: Any]] ?? []
+        guard attachment(try panel(params)).clipboard.write(items, by: sessionID) else {
+            throw Self.clipboardRefusedInUserTab()
+        }
         return nil
+    }
+
+    /// A user's tab (one no attached session created, also one a finished
+    /// run kept) has no tab clipboard for sessions: two sessions driving it
+    /// would pass bytes to each other through it.
+    private static func clipboardRefusedInUserTab() -> BrowserReplDriverError {
+        error(
+            "unsupported",
+            "page.clipboard is refused in a user's tab (one no attached session opened): a tab's clipboard belongs to the session that opened the tab, and other sessions may drive a user's tab. Open the page with tabs.open() to use it"
+        )
     }
 
     // MARK: - Timeouts

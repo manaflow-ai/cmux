@@ -49,7 +49,7 @@ test("a session cannot drive a tab another live session created", async () => {
   }
 });
 
-test("a kept tab's clipboard is empty for a later session", async () => {
+test("a kept tab has no clipboard for a later session", async () => {
   const browser = await createDevBrowser();
   try {
     const a = browser.driver({ sessionId: "a" });
@@ -62,7 +62,15 @@ test("a kept tab's clipboard is empty for a later session", async () => {
     const c = browser.driver({ sessionId: "c" });
     const row = (await c.call("tabs.list", { all: true })).find((t) => t.targetId === targetId);
     assert.equal(row.ownerSession, undefined);
-    assert.deepEqual((await c.call("clipboard.read", { targetId })).items, []);
+    // The tab is the user's: no session reads or writes a clipboard there,
+    // so nothing passes from one session to another through it.
+    for (const [method, params] of [["clipboard.read", {}], ["clipboard.write", { items: text("c") }]]) {
+      await assert.rejects(c.call(method, { targetId, ...params }), (e) => {
+        assert.equal(e.code, "unsupported", `${method}: ${e.message}`);
+        assert.match(e.message, /refused in a user's tab/);
+        return true;
+      });
+    }
   } finally {
     await browser.close();
   }

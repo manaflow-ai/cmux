@@ -341,6 +341,12 @@ import WebKit
             label: "BrowserNavigationDelegate.navigationAction"
         ).closure
 
+        // A download this navigation becomes goes to a browser REPL session
+        // only when that session's own input started it (a user's tab).
+        if let owner, let url = navigationAction.request.url {
+            BrowserReplTabAttachments.shared.attachment(for: owner.id)?.noteNavigationAction(url)
+        }
+
         // A tab a browser REPL session created loads nothing while the
         // session's content rules for its latest policy compile: the page
         // would load its subresources under the previous rules. The

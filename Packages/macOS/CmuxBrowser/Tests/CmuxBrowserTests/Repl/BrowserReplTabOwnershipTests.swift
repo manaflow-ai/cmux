@@ -103,14 +103,19 @@ import Testing
         #expect(ownership.recipient(for: .fileChooser) == nil)
     }
 
-    @Test func aHandlerStillWinsOverTheSessionWhoseInputOpenedTheEvent() {
+    // A dialog or file chooser the page opens while it handles one
+    // session's input is that session's doing: another session's handler
+    // on the user's tab must not answer it (accept a confirm, pick files).
+    @Test func theSessionWhoseInputOpenedTheEventWinsOverAnotherSessionsHandler() {
         var ownership = BrowserReplTabOwnership()
         ownership.attach(sessionID: "agent")
         ownership.attach(sessionID: "watcher")
-        ownership.setHandledEvents([.dialog], for: "watcher")
+        ownership.setHandledEvents([.dialog, .fileChooser], for: "watcher")
         ownership.beginInput(sessionID: "agent")
-        #expect(ownership.recipient(for: .dialog) == "watcher")
+        #expect(ownership.recipient(for: .dialog) == "agent")
         #expect(ownership.recipient(for: .fileChooser) == "agent")
+        ownership.endInput(sessionID: "agent")
+        #expect(ownership.recipient(for: .dialog) == "watcher", "the page's own dialog goes to the handler")
     }
 
     @Test func inputEndsWithTheSessionAndNests() {
@@ -118,15 +123,97 @@ import Testing
         ownership.attach(sessionID: "a")
         ownership.attach(sessionID: "b")
         ownership.beginInput(sessionID: "a")
-        ownership.beginInput(sessionID: "b")
-        #expect(ownership.recipient(for: .dialog) == "b", "the latest input")
-        ownership.endInput(sessionID: "b")
+        ownership.beginInput(sessionID: "a")
+        #expect(ownership.recipient(for: .dialog) == "a", "one session's nested inputs")
+        ownership.endInput(sessionID: "a")
         #expect(ownership.recipient(for: .dialog) == "a")
+        ownership.endInput(sessionID: "a")
+        #expect(ownership.recipient(for: .dialog) == nil)
+        ownership.beginInput(sessionID: "a")
         ownership.detach(sessionID: "a")
         #expect(ownership.recipient(for: .dialog) == nil, "a session that left gets nothing")
         // Input from a session that is not attached routes nothing.
         ownership.beginInput(sessionID: "ghost")
         #expect(ownership.recipient(for: .dialog) == nil)
+    }
+
+    // Two sessions' inputs in flight on one user's tab at once: WebKit does
+    // not say which input a dialog, file chooser, popup or request came
+    // from, so none of it goes to either session (the later one must not
+    // answer the earlier one's confirm or pick its files). The dialog is
+    // answered as an unhandled one, never put in front of the user.
+    @Test func overlappingInputsOfTwoSessionsRouteToNeither() {
+        var ownership = BrowserReplTabOwnership()
+        ownership.attach(sessionID: "a")
+        ownership.attach(sessionID: "b")
+        ownership.setHandledEvents([.dialog, .network], for: "b")
+        ownership.beginInput(sessionID: "a")
+        ownership.beginInput(sessionID: "b")
+        #expect(ownership.inputSessionID == nil, "no single acting session")
+        #expect(ownership.recipient(for: .dialog) == nil)
+        #expect(ownership.recipient(for: .fileChooser) == nil)
+        // Answered as unhandled, not shown to the user.
+        #expect(ownership.route(for: .dialog) == .refused)
+        #expect(ownership.route(for: .fileChooser) == .refused)
+        // A request either input may have started reaches only the sessions
+        // that listen for network events, never the other acting session.
+        let request = ownership.networkRecipients(event: "request", requestID: "1")
+        #expect(request.map(\.sessionID) == ["b"])
+        ownership.endInput(sessionID: "b")
+        #expect(ownership.inputSessionID == "a")
+        #expect(ownership.recipient(for: .dialog) == "a")
+        ownership.endInput(sessionID: "a")
+        #expect(ownership.recipient(for: .dialog) == "b")
+        #expect(ownership.route(for: .fileChooser) == .user)
+    }
+
+    // A download in a user's tab goes to a session only when that session's
+    // own input or navigation started it and it waits for downloads there:
+    // a file the user downloads in their tab never reaches a session that
+    // happens to listen, and a download the agent started without a
+    // listener keeps the user's download location.
+    @Test func aUsersTabGivesASessionOnlyTheDownloadsItsOwnInputStarted() {
+        let start = ContinuousClock.now
+        var ownership = BrowserReplTabOwnership()
+        ownership.attach(sessionID: "agent")
+        ownership.attach(sessionID: "listener")
+        ownership.setHandledEvents([.download], for: "agent")
+        ownership.setHandledEvents([.download], for: "listener")
+
+        // The user clicks a download link: no session's input is in flight.
+        ownership.noteNavigationAction(url: "https://site.example/user.pdf", at: start)
+        let userStarter = ownership.takeDownloadStarter(urls: ["https://site.example/user.pdf"], at: start)
+        #expect(userStarter == nil)
+        #expect(ownership.downloadRecipient(startedBy: userStarter) == nil, "the user's download stays the user's")
+
+        // The agent clicks one.
+        ownership.beginInput(sessionID: "agent")
+        ownership.noteNavigationAction(url: "https://site.example/agent.pdf", at: start)
+        ownership.endInput(sessionID: "agent")
+        // The response arrives after the click returned.
+        let agentStarter = ownership.takeDownloadStarter(urls: ["https://site.example/agent.pdf"], at: start + .seconds(2))
+        #expect(agentStarter == "agent")
+        #expect(ownership.downloadRecipient(startedBy: agentStarter) == "agent", "not the other listener")
+        #expect(ownership.takeDownloadStarter(urls: ["https://site.example/agent.pdf"], at: start + .seconds(2)) == nil, "used once")
+
+        // Without a listener the agent's download keeps the user's location.
+        ownership.setHandledEvents([], for: "agent")
+        #expect(ownership.downloadRecipient(startedBy: "agent") == nil)
+
+        // A navigation the agent started long ago does not claim a later
+        // download of the same URL the user starts.
+        ownership.beginInput(sessionID: "listener")
+        ownership.noteNavigationAction(url: "https://site.example/again.pdf", at: start)
+        ownership.endInput(sessionID: "listener")
+        #expect(ownership.takeDownloadStarter(urls: ["https://site.example/again.pdf"], at: start + .seconds(120)) == nil)
+    }
+
+    @Test func aSessionTabsDownloadsStillGoToItsCreator() {
+        var ownership = BrowserReplTabOwnership()
+        ownership.markCreated(by: "creator")
+        #expect(ownership.downloadRecipient(startedBy: nil) == "creator", "every download of its own tab")
+        ownership.setHandledEvents([.download], for: "creator")
+        #expect(ownership.downloadRecipient(startedBy: nil) == "creator")
     }
 
     @Test func eventNamesParseStrictly() {

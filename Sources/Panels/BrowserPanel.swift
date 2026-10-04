@@ -4234,8 +4234,9 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func applyProxyConfigurationIfAvailable() {
         guard #available(macOS 14.0, *) else { return }
-        // A browser REPL session's proxy store keeps the proxy it was given.
-        if BrowserReplProxyStores.owns(webView.configuration.websiteDataStore) { return }
+        // A live browser REPL session's proxy store keeps the proxy it was
+        // given; once the session ends the store is the browser's again.
+        if BrowserReplProxyStores.shared.owns(webView.configuration.websiteDataStore) { return }
 
         if cloudBrowserMachineID != nil {
             if let endpoint = cloudBrowserProxyEndpoint, let address = cloudAccess.model?.target.host {
@@ -8581,9 +8582,10 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         let downloadID = UUID().uuidString
         try? FileManager.default.removeItem(at: destURL)
         storeState(DownloadState(downloadID: downloadID, tempURL: destURL, suggestedFilename: safeFilename, sourceURL: sourceURL), for: download)
+        let requestURL = download.originalRequest?.url
         notifyOnMain { [weak self] in
             self?.onDownloadStarted?(safeFilename, downloadID)
-            self?.replAttachment?()?.downloadDidStart(id: downloadID, url: response.url, suggestedFilename: safeFilename)
+            self?.replAttachment?()?.downloadDidStart(id: downloadID, url: response.url, requestURL: requestURL, suggestedFilename: safeFilename)
         }
         #if DEBUG
         cmuxDebugLog("download.decideDestination file=<redacted>")

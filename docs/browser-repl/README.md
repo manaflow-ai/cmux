@@ -60,7 +60,7 @@ reference ([parity-report.md](parity-report.md)).
 | `page.dialog()` | The open JavaScript dialog or `null`: `{ type, message, defaultValue, accept(text?), dismiss() }`. | Reference B `getJsDialog()` |
 | `page.fileChooser()` | The open file chooser or `null`: `{ multiple, setFiles(files), cancel() }`. | Reference B chooser flow |
 | `page.consoleMessages({ level, filter, limit })`, `page.errors()` | Console history and uncaught errors since the tab opened. | Reference B `dev.logs()` |
-| `page.clipboard` | `readText()`, `writeText(text)`, `read()`, `write(items)` on a per-tab clipboard. Meta+V fires a trusted `paste` event whose `clipboardData` holds it; Meta+C and Meta+X fill it from a trusted `copy`/`cut` with whatever the page's handler sets. A JavaScript dialog the page opens meanwhile is dismissed and reported in the next snapshot. Neither touches the system clipboard, which other code (the terminal) keeps. The shortcuts run only in tabs a session opened and throw `unsupported` in a user's tab. One during which another web view copied, pasted or read the clipboard throws `stale` and leaves the tab's clipboard unchanged (that other web view never reads the tab's clipboard); a Paste gives the page only plain text, HTML, RTF, PNG, TIFF, WebKit's custom web data and `http(s)` URLs, never a file reference. One WebKit does not finish within 5 s throws a timeout, leaves the tab's clipboard unchanged and ends the tab's web content process (the page crashes; `page.reload()` loads it again), so nothing the page does later reaches the system clipboard. In a tab a session created, the page's own scripts write here too, never to the system clipboard, even after an agent's click gave them a user gesture: `navigator.clipboard.write` and `writeText` (a `ClipboardItem` whose data settles later included) and `document.execCommand("copy")` or `"cut"`; their reads reject with `NotAllowedError` ([Guards](driver-protocol.md#guards) says how, and names the one case WebKit leaves open). | Reference B `clipboard` |
+| `page.clipboard` | `readText()`, `writeText(text)`, `read()`, `write(items)` on a per-tab clipboard. Meta+V fires a trusted `paste` event whose `clipboardData` holds it; Meta+C and Meta+X fill it from a trusted `copy`/`cut` with whatever the page's handler sets. A JavaScript dialog the page opens meanwhile is dismissed and reported in the next snapshot. Neither touches the system clipboard, which other code (the terminal) keeps. The clipboard is the creating session's alone, while it lives: `page.clipboard` and the shortcuts run only in tabs the session opened and throw `unsupported` in a user's tab (also one a finished run kept), so two sessions driving one tab never pass bytes through it. One during which another web view copied, pasted or read the clipboard throws `stale` and leaves the tab's clipboard unchanged (that other web view never reads the tab's clipboard); a Paste gives the page only plain text, HTML, RTF, PNG, TIFF, WebKit's custom web data and `http(s)` URLs, never a file reference. One WebKit does not finish within 5 s throws a timeout, leaves the tab's clipboard unchanged and ends the tab's web content process (the page crashes; `page.reload()` loads it again), so nothing the page does later reaches the system clipboard. In a tab a session created, the page's own scripts write here too, never to the system clipboard, even after an agent's click gave them a user gesture: `navigator.clipboard.write` and `writeText` (a `ClipboardItem` whose data settles later included) and `document.execCommand("copy")` or `"cut"`; their reads reject with `NotAllowedError` ([Guards](driver-protocol.md#guards) says how, and names the one case WebKit leaves open). | Reference B `clipboard` |
 | `page.elementAt(x, y)` | `{ ref, role, name, box }` for the topmost element at a viewport point. | Reference B `elementInfo()` |
 | `page.keep()` | Keep this tab open after a one-shot run. | Reference B `markDeliverable()` |
 | `page.exportContent(options)` | Write the page as Markdown, a Google Docs/Sheets/Slides tab in an export format (`{ format }`), or a YouTube watch page's captions (`{ transcript: true }`, fetched only from a track URL that is https on `www.youtube.com`, `m.youtube.com` or `youtube.com`) to a file; returns the path. | Reference B `content.export*` |
@@ -120,7 +120,15 @@ Rules, and how they improve on the references:
   `snapshot("e1")`). A ref is bound to its DOM node for the node's life and is
   never reused in that frame, even after the frame loads a new document. A
   removed node's ref fails at once (`ref e5 is stale`); a ref never issued
-  fails with `ref e9 does not exist`. Reference A renumbers a ref when its name
+  fails with `ref e9 does not exist`. A ref is also bound to the document
+  that issued it: each session remembers which document of a frame gave it
+  each ref, and once the frame shows another document (it navigated, also
+  when another session that drives the tab numbered the new document's
+  refs first), using it fails `stale` (`ref e5 is stale: the element is from
+  a previous document; take a new snapshot`) and never acts on the new
+  document. An element handle (`locator.elementHandle()`) likewise fails
+  `stale` (`Element handle is from a previous document; take a new
+  snapshot`) once its frame shows another document. Reference A renumbers a ref when its name
   changes; reference B reuses indices after removals.
 - **Roles** are Playwright's (`getByRole` finds them), except controls HTML
   has no ARIA role for: `summary` prints as `button`, an editable element as
@@ -375,7 +383,8 @@ rest. Measurements: [performance.md](performance.md).
   the other session's. Sessions share tabs only by being one session: the
   same `--session NAME` in the same workspace. Once the creating session
   ends (a tab it kept with `page.keep()`), the tab is the user's and any
-  session may drive it; its clipboard is emptied then. Network events
+  session may drive it; its clipboard is emptied then, and no session
+  has one there. Network events
   (`page.on("request")` and the like) in a tab the session did not create
   reach it only while it listens for them, or for a request its own action
   started, and never carry the page's credential headers (`Cookie`,
@@ -415,10 +424,23 @@ rest. Measurements: [performance.md](performance.md).
   [driver-protocol.md](driver-protocol.md)); it never navigates or filters the user's tab. An event the agent registered a handler for on that
   page (`page.on("dialog")`, `page.on("filechooser")`,
   `page.waitForEvent("download")` and the like) goes to the session instead,
-  only while the handler is registered. When several sessions drive one tab,
-  each dialog, file chooser and download goes to one of them (one with a
-  handler for it, the creating session first, else the creating session),
-  and only that session can answer it. The runtime reports these handlers
+  only while the handler is registered; a download, though, only when the
+  navigation it came from started while the page handled that session's
+  own call (a click, key or navigation; its response may come later). A
+  file the user downloads in their tab, or one the page starts by itself,
+  keeps the user's download location and never reaches a session, and
+  neither does one another session's call started. When several sessions drive one tab,
+  each dialog, file chooser and download goes to one of them, and only that
+  session can answer it: the creating session; else, for a dialog or file
+  chooser the page opens while it handles one session's own call, that
+  session, also when another session has a handler for it; else the session
+  that registered its handler first. WebKit does not say which call a
+  dialog, file chooser, popup or request came from, so while calls of two
+  sessions are in flight on the tab at once none of these goes to either
+  session: such a dialog is dismissed and a file chooser cancelled (as
+  unhandled ones are, never shown to the user), a window opens as a
+  background tab told to no session, and a request reaches only the
+  sessions listening for network events. The runtime reports these handlers
   to the driver with `tab.handleEvents`.
 - A driven tab keeps rendering like a foreground page. Shown in a pane of the
   key window, it stays live in the pane. Hidden, or shown in a window that is

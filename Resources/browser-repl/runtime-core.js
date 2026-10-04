@@ -928,6 +928,10 @@
 
   // Polls `fn` until it returns { done: true, value }, with Playwright's
   // backoff. Driver errors with code "stale" (navigation) are retried.
+  // The page agent's `stale` error for a handle or ref issued by another
+  // document of the frame (page-agent.js, `PREVIOUS_DOCUMENT`).
+  const isPreviousDocumentError = (e) => driverErrorCode(e) === "stale" && /^Element handle is from a previous document\b/.test(String(e && e.message));
+
   async function poll(session, timeout, description, fn) {
     const delays = [0, 20, 50, 100, 100, 500];
     const deadline = timeout ? session.now() + timeout : Infinity;
@@ -951,6 +955,9 @@
         }
       } catch (e) {
         if (!["stale", "not_found"].includes(driverErrorCode(e))) throw e;
+        // A handle or ref of a previous document never names an element of
+        // this one; waiting cannot change that.
+        if (isPreviousDocumentError(e)) throw e;
         lastLog = e.message;
       }
       if (session.now() >= deadline) {
@@ -1260,7 +1267,11 @@
       const ref = /^aria-ref=((f\d+)?e\d+)(?=$|\s)/.exec(selector);
       if (ref) {
         frame = await this._page._checkRef(ref[1]);
-        selector = selector.replace(/^aria-ref=f\d+/, "aria-ref=");
+        // Pinned to the document the ref came from (`e5@<token>`), so a
+        // navigation after the check fails stale instead of matching there.
+        const local = /e\d+$/.exec(ref[1])[0];
+        const doc = this._page._refDocFor(frame, local);
+        selector = selector.replace(/^aria-ref=(f\d+)?e\d+/, `aria-ref=${local}${doc ? "@" + doc : ""}`);
       }
       const hops = await frame._agent("splitFrames", selector);
       for (let i = 0; i < hops.length - 1; i++) {
@@ -2214,6 +2225,11 @@
       this._prefixFrames = new Map([["", this._mainFrame]]);
       this._prefixCounter = 0;
       this._refMax = new Map();
+      // Per frame, the document (the page agent's token) each ref this
+      // session received came from. A frame keeps its identity when it
+      // navigates and refs restart in each document, so a ref is checked
+      // against the document that issued it (`_checkRef`).
+      this._refDocs = new Map();
       this._heldDialog = null;
       this._listenedDialog = null;
       this._dismissedDialogs = [];
@@ -2346,6 +2362,18 @@
     _noteRefMax(frame, max) {
       if (typeof max === "number" && max > this._refMaxFor(frame)) this._refMax.set(frame, max);
     }
+    // Records that `doc` (a page agent's document token) issued `refs` (local
+    // refs, `e5`) in `frame`; a later issue of the same ref rebinds it.
+    _noteRefDocs(frame, doc, refs) {
+      if (typeof doc !== "string") return;
+      let docs = this._refDocs.get(frame);
+      if (!docs) this._refDocs.set(frame, (docs = new Map()));
+      for (const ref of refs) if (typeof ref === "string") docs.set(ref, doc);
+    }
+    _refDocFor(frame, local) {
+      const docs = this._refDocs.get(frame);
+      return docs ? docs.get(local) : undefined;
+    }
     // Returns the frame that owns a live ref, or throws: a ref whose element
     // is gone never rebinds to another element.
     async _checkRef(ref) {
@@ -2358,7 +2386,7 @@
       }
       let state;
       try {
-        state = await frame._agent("refState", local, this._refMaxFor(frame));
+        state = await frame._agent("refState", local, this._refMaxFor(frame), this._refDocFor(frame, local));
       } catch (e) {
         if (driverErrorCode(e) === "stale" || driverErrorCode(e) === "not_found") {
           await this._refreshFrames().catch(() => {});
@@ -2366,6 +2394,9 @@
         }
         throw e;
       }
+      // The ref came from an earlier document of this frame: its number may
+      // name an element of the document shown now, which it never meant.
+      if (state.foreignDoc) throw new StaleRefError(`ref ${ref} is stale: the element is from a previous document; take a new snapshot`);
       if (state.live) return frame;
       if (Number(local.slice(1)) <= Math.max(state.max, this._refMaxFor(frame))) throw stale();
       throw new StaleRefError(`ref ${ref} does not exist; take a new snapshot`);
@@ -2373,6 +2404,7 @@
     async _refForHandle(frame, handle) {
       const r = await frame._agent("refForHandle", handle, this._refMaxFor(frame));
       this._noteRefMax(frame, r.max);
+      this._noteRefDocs(frame, r.doc, [r.ref]);
       return this._prefixFor(frame) + r.ref;
     }
     _pendingDialog() {
@@ -2674,6 +2706,7 @@
           continue;
         }
         this._noteRefMax(frame, r.max);
+        this._noteRefDocs(frame, r.doc, [r.ref]);
         const b = r.box;
         return { ref: this._prefixFor(frame) + r.ref, role: r.role, name: r.name, box: { x: b.x + ox, y: b.y + oy, width: b.width, height: b.height } };
       }
