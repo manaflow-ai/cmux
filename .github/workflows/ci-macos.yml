@@ -534,7 +534,7 @@ jobs:
           # compilation cache made at another root. Consumers read the root
           # from the product's receipt (restore-app-host-test-product.sh). Its
           # kept build state sits in its own directory beside the first slot's.
-          root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+          root="$(scripts/ci/canonical-build-root.sh --print-root)"
           case "$root" in
             /private/tmp/cmux-ci) ;;
             /private/tmp/cmux-ci-[0-9]|/private/tmp/cmux-ci-[0-9][0-9])
@@ -546,6 +546,11 @@ jobs:
               echo "CMUX_OWNED_PACKAGE_STORE=$CMUX_OWNED_STATE_ROOT" >> "$GITHUB_ENV"
               echo "CMUX_OWNED_STATE_ROOT=$CMUX_OWNED_STATE_ROOT/${root##*/}" >> "$GITHUB_ENV"
               ;;
+            /private/tmp/cmux-ci-*)
+              [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] || {
+                echo "::error::unexpected self-hosted canonical root $root"; exit 1;
+              }
+              ;;
             *) echo "::error::unexpected CMUX_CI_CANONICAL_ROOT $root"; exit 1 ;;
           esac
           echo "root=$root" >> "$GITHUB_OUTPUT"
@@ -553,13 +558,17 @@ jobs:
       - name: Prepare isolated admission DerivedData
         run: |
           set -euo pipefail
-          # Fixed paths survive across jobs on persistent runners. Clear them
-          # before any trusted product/cache restoration.
-          root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+          # A self-hosted Mac can have several runners. Derive one root per
+          # RUNNER_NAME before cleanup so one admission cannot remove another's
+          # source tree, DerivedData, or compilation CAS.
+          root="$(scripts/ci/canonical-build-root.sh --print-root)"
           scripts/ci/clear-dirs.sh "$root/derived-data-compile-admission" "$root/compile-admission-cas"
-          echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission" >> "$GITHUB_ENV"
-          # Outside DerivedData: the resolve step below recreates that directory.
-          echo "CMUX_COMPILE_ADMISSION_CAS=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas" >> "$GITHUB_ENV"
+          {
+            echo "CMUX_CI_CANONICAL_ROOT=$root"
+            echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=$root/derived-data-compile-admission"
+            # Outside DerivedData: the resolve step below recreates that directory.
+            echo "CMUX_COMPILE_ADMISSION_CAS=$root/compile-admission-cas"
+          } >> "$GITHUB_ENV"
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -887,22 +896,71 @@ jobs:
         run: |
           set -uo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
-          status=1
-          for attempt in 1 2; do
+          compile_log="$RUNNER_TEMP/cmux-compile-admission.txt"
+          : > "$compile_log"
+          compile_once() {
             scripts/ci/compile-app-host-test-product.sh canonical-build \
               "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
               "$PWD/.ci-source-packages" \
               "$CMUX_COMPILE_ADMISSION_CAS" \
-              "$RUNNER_TEMP/cmux-compile-admission.txt"
+              "$compile_log"
+          }
+          if compile_once; then
+            status=0
+          else
             status=$?
-            [ "$status" -eq 0 ] && break
-            [ "$attempt" -lt 2 ] || break
-            echo "Admission build failed; recreating the DerivedData tree and retrying once" >&2
-            scripts/ci/clear-dirs.sh \
+          fi
+          if [ "$status" -ne 0 ] && grep -Eq "unable to open dependencies file|CAS error: No such file or directory|cannot open file .*No such file or directory|unable to write file .*No such file or directory" "$compile_log"; then
+            # An adopted DerivedData tree can retain an incomplete Swift
+            # dependency graph or compile CAS entry after a cancelled or
+            # interrupted compile. Xcode then fails late with no source
+            # diagnostic. Drop the job-local build state and retry once;
+            # real compiler errors still fail.
+            echo "::warning::stale DerivedData dependency output detected; retrying compile from a clean tree"
+            compile_workers_running() {
+              local compiler pid args pgrep_status
+              # Compiler names are global on an owned Mac. Inspect their
+              # command lines and only wait for workers carrying this job's
+              # DerivedData path; another runner's compile must not block the
+              # retry or make it discard a different job's state.
+              for compiler in xcodebuild swift-frontend swiftc clang ld; do
+                pids="$(pgrep -x "$compiler" 2>/dev/null)" || {
+                  pgrep_status=$?
+                  [ "$pgrep_status" -eq 1 ] || return 0
+                  continue
+                }
+                for pid in $pids; do
+                  args="$(ps -o args= -p "$pid" 2>/dev/null || true)"
+                  [ -n "$args" ] || return 0
+                  case "$args" in
+                    *"$CMUX_COMPILE_ADMISSION_DERIVED_DATA"*) return 0 ;;
+                  esac
+                done
+              done
+              return 1
+            }
+            wait_seconds=0
+            while [ "$wait_seconds" -lt 60 ] && compile_workers_running; do
+              wait_seconds=$((wait_seconds + 1))
+              sleep 1
+            done
+            if compile_workers_running; then
+              echo "::error::compile workers remain after 60 seconds; refusing to replace their build state"
+              exit "$status"
+            fi
+            scripts/ci/clear-dirs.sh "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$CMUX_COMPILE_ADMISSION_CAS"
+            if scripts/ci/compile-app-host-test-product.sh canonical-resolve \
               "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
-              "$CMUX_COMPILE_ADMISSION_CAS"
-            mkdir -p "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$CMUX_COMPILE_ADMISSION_CAS"
-          done
+              "$PWD/.ci-source-packages"; then
+              if compile_once; then
+                status=0
+              else
+                status=$?
+              fi
+            else
+              status=$?
+            fi
+          fi
           finished="$(python3 -c 'import time; print(time.monotonic())')"
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
@@ -1077,7 +1135,7 @@ jobs:
           # Fresh manifests embed the canonical checkout. Stamp that producer
           # before relocating into this job's workspace for reuse and consumers.
           if [ "${{ steps.reuse-products.outputs.hit }}" != true ]; then
-            (cd "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src" && python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")
+            (cd "$CMUX_CI_CANONICAL_ROOT/src" && python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")
             python3 scripts/ci/app_host_test_products.py restore "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           fi
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
@@ -1428,7 +1486,7 @@ jobs:
         continue-on-error: true
         run: |
           python3 scripts/ci/owned_build_state.py save "$CMUX_OWNED_STATE_ROOT" \
-            "${CMUX_CI_CANONICAL_SRC:-/private/tmp/cmux-ci/src}/.ci-source-packages" "$PWD" "${CMUX_OWNED_PACKAGE_STORE:-}"
+            "$CMUX_CI_CANONICAL_SRC/.ci-source-packages" "$PWD" "${CMUX_OWNED_PACKAGE_STORE:-}"
 
       # On an owned Mac the suites share its one console session with every
       # other GUI job, so they need glaeda's gui token, which glaeda never
@@ -2964,14 +3022,14 @@ jobs:
           # needs the prefix too, or the tests fall back to searching the
           # products directory and may run a different binary than the one
           # resolved above.
-          env \
+          bash scripts/ci/run-and-capture.sh "$test_log" \
+            bash scripts/ci/run-in-console-session.sh env \
             "TEST_RUNNER_HOME=$CMUX_CLI_TESTS_HOME" \
             "TEST_RUNNER_CFFIXED_USER_HOME=$CMUX_CLI_TESTS_HOME" \
             "TEST_RUNNER_XDG_CONFIG_HOME=$CMUX_CLI_TESTS_HOME/.config" \
             "TEST_RUNNER_SSH_AUTH_SOCK=" \
             "TEST_RUNNER_CMUX_CLI_PATH=$CMUX_CLI_PATH" \
             "TEST_RUNNER_CMUX_CI_RUNTIME_SOURCE_ROOT=${CMUX_CI_RUNTIME_SOURCE_ROOT:-}" \
-            bash scripts/ci/run-and-capture.sh "$test_log" \
             xcodebuild test-without-building \
             -xctestrun "$CMUX_CLI_TESTS_XCTESTRUN" \
             -destination "platform=macOS" \
