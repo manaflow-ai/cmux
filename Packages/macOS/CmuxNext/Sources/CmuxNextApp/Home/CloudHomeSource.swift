@@ -60,6 +60,11 @@ nonisolated final class CloudHomeSource: HomeSource {
         var removed: Set<ConversationID> = []
         var heads: [ConversationID: CmuxHomeCore.ConversationSummary] = [:]
         var targets: [ConversationID: Target] = [:]
+        /// Conversations whose socket the owner refused (`closed`: the user
+        /// is not a participant). An edit there is refused and subscribes
+        /// nothing, until the inbox lists the conversation again or the user
+        /// opens it. Emptied when the account changes.
+        var closed: Set<ConversationID> = []
         /// Subscribed conversations, least recently used first.
         var recent: [ConversationID] = []
         /// Conversations queued for or in a hydration read.
@@ -164,6 +169,7 @@ nonisolated final class CloudHomeSource: HomeSource {
                 state.touched = [:]
                 state.created = []
                 state.removed = []
+                state.closed = []
                 state.heads = [:]
             }
             return (state.generation, cleared, kept)
@@ -328,6 +334,8 @@ nonisolated final class CloudHomeSource: HomeSource {
             }
             state.created.subtract(entries.keys)
             state.removed.subtract(entries.keys)
+            // Listed again since its socket closed: the user is back in it.
+            state.closed.subtract(entries.keys.filter { state.entries[$0] == nil })
             let gone = state.entries.keys.filter { entries[$0] == nil && !state.created.contains($0) }
             state.removed.formUnion(gone)
             state.entries = entries
@@ -349,6 +357,8 @@ nonisolated final class CloudHomeSource: HomeSource {
 
     func snapshot(of conversation: ConversationID, tail: Int) async throws -> ConversationPage {
         let (commands, identity, generation) = try requireEndpoint()
+        // The user opens it: a socket the owner closed may be allowed now.
+        state.withLock { _ = $0.closed.remove(conversation) }
         await subscribe(conversation, commands: commands, generation: generation)
         let page = try await reply(for: identity) { try await commands.snapshot(conversation.rawValue, tail: tail) }
         let summary = CloudHomeMapping.summary(page.conversation, identity: identity)
@@ -598,6 +608,7 @@ nonisolated final class CloudHomeSource: HomeSource {
                 }
                 state.entries[id] = entry
                 state.removed.remove(id)
+                state.closed.remove(id)
                 if needsHead(id, state) { missing.append(id) }
                 return joined(id, state).map { .conversationChanged($0, stream: .inbox, rev: state.inboxRev) }
             }
@@ -615,9 +626,11 @@ nonisolated final class CloudHomeSource: HomeSource {
         state.withLock { state in
             guard state.targets[id] != nil else { return }
             if report.state == "closed" {
-                // Forbidden: the user is no longer a participant. The inbox removes it.
+                // Forbidden: the user is no longer a participant. The daemon
+                // dropped the socket and the inbox removes the conversation.
                 state.targets[id] = nil
                 state.recent.removeAll { $0 == id }
+                state.closed.insert(id)
             } else {
                 state.targets[id] = Target(state: report.state, fromEvent: true)
             }
@@ -673,21 +686,18 @@ nonisolated final class CloudHomeSource: HomeSource {
     /// (home-cloud-proxy.md section 5). Before that it waits
     /// (`ownerUnreachable`: nothing was sent, the store resends it after
     /// `.ownerRecovered`, which a `live` socket publishes), and once the
-    /// socket is closed it is refused (the user is not a participant). A
-    /// conversation without a subscription is subscribed first, so its
-    /// socket can go live and its echo can settle the intent.
+    /// owner closed the socket it is refused (`notAuthorized`: the user is
+    /// not a participant) without subscribing again. A conversation without
+    /// a subscription is subscribed first, so its socket can go live and
+    /// its echo can settle the intent.
     private func requireEditable(_ conversation: ConversationID, commands: any CloudConversationCommands, generation: UInt64) throws {
-        let target = state.withLock { $0.targets[conversation] }
+        let (target, closed) = state.withLock { ($0.targets[conversation], $0.closed.contains(conversation)) }
+        if closed { throw HomeRejection.notAuthorized }
         if target == nil {
             // task-owner: one subscribe; ends with its reply
             Task { [weak self] in await self?.subscribe(conversation, commands: commands, generation: generation) }
         }
-        switch target?.state {
-        case "live":
-            return
-        case "closed":
-            throw HomeRejection.notAuthorized
-        default:
+        guard target?.state == "live" else {
             state.withLock { $0.degraded = true }
             throw HomeRejection.ownerUnreachable
         }
