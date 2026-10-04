@@ -23,6 +23,7 @@ enum AppActions {
         TasksHandlers.bind(into: registry, context: context)
         KeybindingHandlers.bind(into: registry, context: context)
         PageCommandHandlers.bind(into: registry, context: context)
+        ListHandlers.bind(into: registry, context: context)
         ServerHandlers.bind(into: registry, context: context)
         WorkspaceHandlers.bind(into: registry, context: context)
         WorkspaceVerbHandlers.bind(into: registry, context: context)

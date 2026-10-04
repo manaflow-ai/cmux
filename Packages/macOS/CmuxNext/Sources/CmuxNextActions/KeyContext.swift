@@ -71,6 +71,9 @@ public nonisolated struct KeyContext: Hashable, Sendable {
     public static let browserFocusMode = "browserFocusMode"
     /// The focused terminal is in copy mode.
     public static let terminalCopyMode = "terminal.copyMode"
+    /// A list-like control has the keyboard: a combobox, listbox, menu or
+    /// picker in a page, the sidebar list or its search field (R85).
+    public static let listFocus = "listFocus"
     /// The focused React page's id (`cmux.markdown`, `cmux.keybindings`).
     public static let pageID = "pageId"
     /// The kind of window the key goes to (``WindowKindValue``).
