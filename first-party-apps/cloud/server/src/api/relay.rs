@@ -20,6 +20,9 @@
 //!   or `{"type":"relay.error","id","code":"not_signed_in"|"unavailable","message"}`
 //! - server -> host: `{"type":"relay.session","id"}`; host -> server:
 //!   `{"type":"relay.session","id","signed_in","team"}`
+//! - host-only ops (`cmux.host.link.get`): `t` frames, see [`super::host`].
+//!   A host frame that arrives during a relay call is queued like an op
+//!   line and applied after the call, on the loop thread.
 //!
 //! The host adds the bearer when it sends the HTTP call; no line in either
 //! direction carries a credential. The host answers every relay request,

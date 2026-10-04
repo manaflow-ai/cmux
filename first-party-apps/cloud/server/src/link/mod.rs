@@ -3,6 +3,7 @@
 //! `cloud.rescue.open`) and [`Attach`], the attach state the server owns.
 
 mod argv;
+pub mod config;
 pub(crate) mod ops;
 mod spawner;
 mod supervisor;
@@ -17,7 +18,6 @@ use crate::connector::iface::{BackendId, CarrierEvent, ConnectorEvent, LocalId, 
 use crate::rescue::iface::ByteTerminal;
 use crate::rescue::{MissingRescueRoute, RescueBackend, RescueTransport};
 use std::collections::{BTreeMap, VecDeque};
-use std::path::PathBuf;
 
 /// Link events each side holds until it takes them. A side that never
 /// takes them (no daemon connector) loses the oldest, never memory.
@@ -38,9 +38,12 @@ pub const CONNECTOR_ID: &str = "machine";
 /// the rescue backend and its open terminals.
 pub struct Attach {
     pub(crate) supervisor: LinkSupervisor,
-    /// `None`: the host gave no link binary, hub or state directory, so
-    /// connect answers `cmux.cloud.link_unavailable`.
-    pub(crate) paths: Option<LinkPaths>,
+    /// The link details from the host (`cmux.host.link.get`). Until they
+    /// are `Ready`, connect answers a typed error.
+    pub(crate) link: config::LinkConfig,
+    /// The last attach endpoint of each machine, so a link-details change
+    /// respawns a live link without a new Cloud API call.
+    pub(crate) endpoints: BTreeMap<String, AttachEndpoint>,
     pub(crate) rescue: RescueBackend,
     pub(crate) rescue_terminals: BTreeMap<String, Box<dyn ByteTerminal>>,
     pub(crate) connector_id: BackendId,
@@ -54,6 +57,8 @@ pub struct Attach {
 }
 
 impl Attach {
+    /// `paths`: link details given directly (tests and embedders); `None`
+    /// waits for the host's `cmux.host.link.get` answer.
     pub fn new(
         spawner: Box<dyn LinkSpawner>,
         paths: Option<LinkPaths>,
@@ -63,7 +68,8 @@ impl Attach {
         check_kinds(&kinds).expect("valid kinds");
         Self {
             supervisor: LinkSupervisor::new(spawner),
-            paths,
+            link: paths.map_or(config::LinkConfig::Unrequested, config::LinkConfig::Ready),
+            endpoints: BTreeMap::new(),
             rescue: RescueBackend::new(rescue),
             rescue_terminals: BTreeMap::new(),
             connector_id: BackendId::app(
@@ -83,33 +89,10 @@ impl Attach {
         Self::new(Box::new(ProcessSpawner), None, Box::new(MissingRescueRoute))
     }
 
-    /// The real configuration, from the host:
-    /// `CMUX_CLOUD_TUI_BINARY` (the `cmux-tui` binary),
-    /// `CMUX_CLOUD_WG_HUB_SOCKET` (the WireGuard hub socket),
-    /// `CMUX_CLOUD_LINK_STATE_DIR` (owner-only state), optional
-    /// `CMUX_CLOUD_LINK_SOCKET_DIR` (default: the state directory) and
-    /// `CMUX_CLOUD_DEVICE_NAME` (default `cmux`). Paths must be absolute.
-    /// TODO(lane 12): `cmux link` replaces the binary and hub.
-    pub fn from_env() -> Self {
-        let path = |key: &str| std::env::var_os(key).map(PathBuf::from).filter(|p| p.is_absolute());
-        let paths = match (
-            path("CMUX_CLOUD_TUI_BINARY"),
-            path("CMUX_CLOUD_WG_HUB_SOCKET"),
-            path("CMUX_CLOUD_LINK_STATE_DIR"),
-        ) {
-            (Some(binary), Some(hub_socket), Some(state_dir)) => Some(LinkPaths {
-                binary,
-                hub_socket,
-                socket_dir: path("CMUX_CLOUD_LINK_SOCKET_DIR").unwrap_or_else(|| state_dir.clone()),
-                state_dir,
-                device_name: std::env::var("CMUX_CLOUD_DEVICE_NAME")
-                    .ok()
-                    .filter(|n| !n.is_empty() && !n.chars().any(char::is_control))
-                    .unwrap_or_else(|| "cmux".into()),
-            }),
-            _ => None,
-        };
-        Self::new(Box::new(ProcessSpawner), paths, Box::new(MissingRescueRoute))
+    /// The real link spawner and no rescue route; the link details come
+    /// from the host (`cmux.host.link.get`), never from the environment.
+    pub fn real() -> Self {
+        Self::new(Box::new(ProcessSpawner), None, Box::new(MissingRescueRoute))
     }
 
     /// The one consumer of the supervisor's event queue: applies the link

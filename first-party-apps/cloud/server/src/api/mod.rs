@@ -4,6 +4,7 @@ pub(crate) mod args;
 mod call;
 mod control_plane;
 mod error;
+pub mod host;
 mod ledger;
 pub mod models;
 mod relay;

@@ -190,6 +190,8 @@ pub struct Server<C> {
     ledger: Ledger,
     attach: crate::link::Attach,
     edge: crate::ports::Edge,
+    /// Host-only ops this server sent and their answers (crate::api::host).
+    host: crate::api::host::HostRequests,
 }
 
 impl<C> Server<C> {
@@ -225,7 +227,18 @@ impl<C: ControlPlane> Server<C> {
             ledger: Ledger::default(),
             attach,
             edge,
+            host: crate::api::host::HostRequests::default(),
         }
+    }
+
+    /// Host-only requests this server sent (`cmux.host.*`).
+    pub(crate) fn host_requests(&mut self) -> &mut crate::api::host::HostRequests {
+        &mut self.host
+    }
+
+    /// `host.request` frames to send to the host, in order.
+    pub fn take_host_frames(&mut self) -> Vec<Value> {
+        self.host.take_outbox()
     }
 
     /// The forward and route state with the link state it follows.

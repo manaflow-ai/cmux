@@ -128,12 +128,8 @@ pub(crate) fn connect<C: ControlPlane>(
         }
         _ => {}
     }
-    let Some(paths) = attach.paths.clone() else {
-        return Err(CloudError::new(
-            LINK_UNAVAILABLE,
-            "cmux did not give the Cloud app a link binary and network hub",
-        ));
-    };
+    let paths = server.link_paths()?;
+    let attach = server.attach_mut();
     let start_key = match start_key {
         Some(key) => key,
         None => format!("link-{}/start", attach.attempt_nonce()),
@@ -168,6 +164,7 @@ pub(crate) fn connect<C: ControlPlane>(
     };
     let endpoint = AttachEndpoint::decode(answer)?;
     let command = link_command(&paths, machine, &endpoint);
+    server.attach_mut().endpoints.insert(machine.to_owned(), endpoint);
     server.attach_mut().supervisor.spawn_and_wait(machine, &command).map_err(|f| match f {
         LinkFailure::Revoked(reason) => CloudError::new(LINK_REVOKED, reason),
         LinkFailure::Down { retryable, reason } => {
