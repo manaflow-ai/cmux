@@ -58,6 +58,18 @@ import Testing
         }
     }
 
+    /// `DesignSettings.shared` is process-wide and the package runs every
+    /// test target in one process: a reveal test that turns animations off
+    /// must turn them back on, or later motion tests (launch mark, spinners,
+    /// palette scale) see `Motion.duration == 0` and fail by test order.
+    @Test func aRevealTestLeavesTheAnimationSpeedAsItFoundIt() {
+        let saved = DesignSettings.shared.animationSpeed
+        defer { DesignSettings.shared.animationSpeed = saved }
+        DesignSettings.shared.animationSpeed = .fast
+        buttonsAreHiddenUntilThePointerIsOverTheStrip()
+        #expect(DesignSettings.shared.animationSpeed == .fast)
+    }
+
     @Test func buttonsAreHiddenUntilThePointerIsOverTheStrip() {
         let h = Harness()
         #expect(!h.buttonsVisible)
