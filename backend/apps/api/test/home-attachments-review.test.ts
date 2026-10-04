@@ -31,6 +31,45 @@ describe("Home attachments: review fixes (P2/P3)", { timeout: 120_000 }, () => {
     expect((await op(carol.token, "message.send", { conversation: h.id, client_msg_id: "c1", parts: [attachmentPart(oldHash, old)] }, "c1")).json.error.code).toBe("unknown_attachment")
   })
 
+  it("retention deletes a message's attachment references: its hash stops serving, cannot be named again, and the GC collects the object", async () => {
+    const alice = await signIn("att-ret-alice")
+    const bob = await signIn("att-ret-bob")
+    const g = await group(alice, [bob])
+    const doStub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(g.id))
+    // Drive the alarm directly; the runtime's own alarm is removed first so it cannot interleave.
+    const wake = () => runInDurableObject(doStub, async (i, state) => {
+      await state.storage.deleteAlarm()
+      await i.alarm()
+    })
+    await runInDurableObject(doStub, async (i) => {
+      i.boundEngine.state = { ...i.boundEngine.currentState, retention_days: 30 }
+    })
+    const body = bytesOf("expires with its message")
+    const hash = await upload(alice, g.id, body)
+    expect((await op(alice.token, "message.send", { conversation: g.id, client_msg_id: "r1", parts: [attachmentPart(hash, body)] }, "r1")).json.ok).toBe(true)
+    expect((await urlFor(bob, g.id, hash)).status).toBe(200)
+    const userStub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(alice.user))
+    const stored = () => runInDurableObject(userStub, async (_i, state) => Number((state.storage.sql.exec("SELECT COALESCE(SUM(bytes), 0) AS b FROM home_attachment_stored").toArray()[0] as { b: number }).b))
+    expect(await stored()).toBe(body.byteLength)
+    // The message passes its retention window (and the upload its grace, as any 30-day-old upload has).
+    const aged = new Date(Date.now() - 40 * 24 * 3_600_000).toISOString()
+    await runInDurableObject(doStub, async (_i, state) => {
+      for (const row of state.storage.sql.exec<{ k: string; json: string }>("SELECT k, json FROM own_rows WHERE tbl = 'msg'").toArray()) {
+        state.storage.sql.exec("UPDATE own_rows SET json = ? WHERE tbl = 'msg' AND k = ?", JSON.stringify({ ...JSON.parse(row.json), created_at: aged }), row.k)
+      }
+      state.storage.sql.exec("UPDATE home_attachment_objects SET created_at = ?", Date.now() - 40 * 24 * 3_600_000)
+    })
+    // One alarm: the sweep deletes the message and its reference, then the GC (due at once) collects the object.
+    await wake()
+    await runInDurableObject(doStub, async (_i, state) => {
+      expect(state.storage.sql.exec("SELECT k FROM own_rows WHERE tbl IN ('msg', 'attref')").toArray()).toEqual([])
+    })
+    expect((await testEnv.HOME_ATTACHMENTS.list({ prefix: `home/v1/${g.id}/` })).objects).toHaveLength(0)
+    expect(await stored()).toBe(0)
+    expect((await urlFor(bob, g.id, hash)).status).toBe(404)
+    expect((await op(bob.token, "message.send", { conversation: g.id, client_msg_id: "b1", parts: [attachmentPart(hash, body)] }, "b1")).json.error?.code).toBe("unknown_attachment")
+  })
+
   it("the ConversationDO alarm collects unreferenced uploads after 24 h and releases the uploader's storage; conversation deletion removes the prefix", async () => {
     const alice = await signIn("att-alarm-alice")
     const g = await group(alice)
