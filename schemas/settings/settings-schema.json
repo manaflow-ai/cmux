@@ -2153,6 +2153,61 @@
     },
     {
       "accepts" : [
+        [
+
+        ],
+        [
+          "/Users/ada/src",
+          "~/notes"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.picker",
+        "text" : "Folder Picker"
+      },
+      "help" : {
+        "key" : "settings.picker.pinned.help",
+        "text" : "The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "picker.pinned",
+      "keywords" : [
+        "picker",
+        "pinned",
+        "folders",
+        "locations",
+        "open",
+        "save"
+      ],
+      "kind" : "folder_list",
+      "path" : [
+        "picker",
+        "pinned"
+      ],
+      "refuses" : [
+        "/Users/ada/src",
+        [
+          "relative/path"
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.picker.pinned",
+        "text" : "Pinned Folders"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "list",
         "board",
         "inbox"
@@ -7527,7 +7582,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "6a588ff8e3ef75921d2aa7fc616d0cc257e34fd6bc7184d2ab49b7bc08e7f2d0",
+  "schema_hash" : "2d536e1e1c6fe94ec0a581c36afdfec94fb9eb79b31071837a7dc64d7789d153",
   "sections" : [
     {
       "id" : "general",

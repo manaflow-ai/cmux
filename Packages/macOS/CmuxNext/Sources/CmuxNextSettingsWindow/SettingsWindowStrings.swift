@@ -16,6 +16,7 @@ nonisolated enum SettingsWindowStrings {
     static var add: String { text("settingsWindow.add", "Add") }
     static var remove: String { text("settingsWindow.remove", "Remove") }
     static var hostPlaceholder: String { text("settingsWindow.hostPlaceholder", "example.com") }
+    static var folderPlaceholder: String { text("settingsWindow.folderPlaceholder", "~/path/to/folder") }
     static var quietFrom: String { text("settingsWindow.quietFrom", "From") }
     static var quietTo: String { text("settingsWindow.quietTo", "To") }
     static var soundDefault: String { text("settingsWindow.soundDefault", "Default") }
