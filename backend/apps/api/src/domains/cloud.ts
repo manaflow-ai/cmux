@@ -4,6 +4,7 @@ import { Exit, Schema } from "effect"
 import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.ts"
 import { grantClasses } from "../home-admit.ts"
 import { personalTeamIdFor } from "./user.ts"
+import { BIND_TOKEN_TTL_MS, bindMachine, type BindState } from "./cloud-bind.ts"
 import { createConfigProblem, limitDetails, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, providerName, sizeLocked, teamPlan, type CloudConfig, type CloudMachineView } from "./cloud-plan.ts"
 
 /**
@@ -54,6 +55,16 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
   readonly provider_name: string
   /** N2: a delete failed for good; the VM may still run, so the machine counts in max_active again. */
   readonly delete_failed?: boolean
+  /** 5.8: the overlay host id minted at create (stable for the machine's life); public `host` only after bind. */
+  readonly host_id?: string
+  /** 5.8: 1 at create; a restore or re-bind raises it. */
+  readonly epoch?: number
+  /** 5.8: the one-time bind token (sha256 only), set when the provider reported the VM running. */
+  readonly bind?: BindState | null
+  readonly wg_public_key?: string
+  readonly daemon?: { readonly version: string; readonly capabilities: ReadonlyArray<string> }
+  /** The link-token keyset version the VM received at bind. */
+  readonly keyset_version?: string
 }
 
 export interface LedgerRow {
@@ -95,7 +106,7 @@ const counted = (status: string) => (COUNTED.has(status) ? 1 : 0)
 const countedRow = (row: MachineRow) => (row.delete_failed ? 1 : counted(row.status))
 
 export const publicMachine = (row: MachineRow): CloudMachineView => {
-  const { provider_name: _hidden, delete_failed: _failed, ...machine } = row
+  const { provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, ...machine } = row
   return machine
 }
 
@@ -150,6 +161,8 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
         return driverResult(state, params, ctx)
       case "cloud.watch_result":
         return watchResult(state, params, ctx)
+      case "cloud.machine.bind":
+        return bindMachine(state, params, ctx, next)
       case "cloud.prune":
         return prune(state, params, ctx)
       case "cloud.abandoned_clear":
@@ -201,7 +214,10 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
     idle_policy: { idle_seconds: DEFAULT_IDLE_SECONDS },
     error: null,
     revision: String(rev),
-    provider_name: name
+    provider_name: name,
+    host_id: ctx.newId("host"),
+    epoch: 1,
+    bind: null
   }
   const key = ledgerKey(p.identity, ctx.idempotencyKey)
   const ledger: LedgerRow = { key, op: "create", machine: id, provider_name: name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }
@@ -292,7 +308,12 @@ const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): R
     return { ok: true, state: next(state, { pending, active }, { machine: row.id, removed: false }), value: { applied: true, final: true }, writes }
   }
   const done = upsertLedger({ ...l, state: "done", provider_id: r.provider_id ?? l.provider_id, error: null, updated_at: ctx.now }, stored.n)
-  // The VM exists; the machine stays provisioning until its bind agent binds it (5.8).
+  // The VM exists and holds its bind token; the machine stays provisioning until its bind agent
+  // binds it (5.8). The token expires 15 minutes after the provider reported the VM running.
+  if (l.op === "create" && machine && r.bind_token_sha256) {
+    const bind: BindState = { token_sha256: r.bind_token_sha256, expires_at: ctx.now + BIND_TOKEN_TTL_MS, spent: false }
+    return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done, upsertMachine({ ...machine.row, bind }, machine.n)] }
+  }
   if (l.op === "create" || !machine) return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done] }
   const tomb: TombstoneRow = { machine: l.machine, deleted_at: ctx.now, revision: String(rev) }
   const writes: Array<RowWrite> = [done, { table: TABLE_MACHINE, op: "delete", key: l.machine }, { table: TABLE_TOMBSTONE, op: "upsert", key: l.machine, n: rev, row: tomb }]

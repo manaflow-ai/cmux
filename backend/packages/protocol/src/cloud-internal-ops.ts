@@ -13,7 +13,26 @@ export const CloudDriverResultParams = Schema.Struct({
   provider_id: Schema.optionalKey(Schema.String),
   error: Schema.optionalKey(Schema.Struct({ code: Schema.String, message: Schema.String })),
   /** Retrying cannot help (configuration, authorization, a name owned by someone else). */
-  final: Schema.optionalKey(Schema.Boolean)
+  final: Schema.optionalKey(Schema.Boolean),
+  /** create: sha256 (hex) of the one-time bind token written into the VM; the token itself never enters an op. */
+  bind_token_sha256: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)))
+})
+
+/**
+ * The VM's bind agent bound the machine (state-placement.md 5.8 item 2). CloudDO hashes the bind
+ * token before the op, so neither the token nor its plaintext enters params, events or the ledger.
+ */
+export const CloudMachineBindParams = Schema.Struct({
+  machine: Schema.String.check(Schema.isPattern(/^vm_[a-z0-9]{20}$/)),
+  token_sha256: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
+  wg_public_key: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9+/]{43}=$/)),
+  daemon: Schema.Struct({
+    version: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64)),
+    capabilities: Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64))).check(Schema.isMaxLength(32))
+  }),
+  /** The link-token keyset version handed to the VM in the bind answer. */
+  keyset_version: Schema.String.check(Schema.isMaxLength(64)),
+  now: Schema.Int
 })
 
 export const CloudPruneParams = Schema.Struct({ now: Schema.Int })
@@ -53,6 +72,7 @@ const internal = (name: string, params: Schema.Top, docs: string): CloudOpDef =>
 export const cloudInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("cloud.driver_result", CloudDriverResultParams, "Internal: a provider call (create or delete) finished, failed, or was refused."),
   internal("cloud.watch_result", CloudWatchResultParams, "Internal: one lookup of a cancelled create's recorded name finished."),
+  internal("cloud.machine.bind", CloudMachineBindParams, "Internal: the VM's bind agent spent its one-time bind token (POST /v1/cloud/bind)."),
   internal("cloud.prune", CloudPruneParams, "Internal: drop tombstones older than 30 days and finished ledger rows older than 7 days."),
   internal("cloud.abandoned_clear", CloudAbandonedClearParams, "Internal: an operator (a person, with the admin key) cleared one abandoned ledger row after a provider lookup found no VM; audited.")
 ]

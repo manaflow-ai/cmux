@@ -76,6 +76,11 @@ export interface Env {
   readonly CLOUD_NAME_PREFIX?: string
   /** Var: comma-separated team ids that get the stub plan and provider calls outside production (P1-1); unset = nobody. */
   readonly CLOUD_ALLOWED_TEAMS?: string
+  /**
+   * Secret: link-token signing keys (LINK-TOKEN-FORMAT) as JSON {active: kid, keys: {kid: private Ed25519 JWK}}, at most 2 kids.
+   * Per environment; never logged, never in a response, error, event or storage. Without it bind and link_token refuse.
+   */
+  readonly CLOUD_LINK_SIGNING_KEYS?: string
   /** Per-team limit on cloud.machine.create and delete (namespace 1151-1153). */
   readonly CLOUD_MUTATION_LIMIT?: RateLimit
   /** Test only: `fake` selects the in-object fake Cloud provider when ENVIRONMENT=test. */

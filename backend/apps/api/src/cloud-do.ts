@@ -5,6 +5,8 @@ import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { DriverError } from "./team-vm-driver.ts"
 import { cloudConfig, cloudDriver, cloudProviderReady, type GuardedCloudDriver } from "./cloud-driver.ts"
 import { collectSuspects, OrphanSweep } from "./cloud-sweep.ts"
+import { newBindToken, parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
+import { parseSigningKeys, publicKeyset } from "./link-token.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { decodeParams } from "./domains/common.ts"
 import {
@@ -26,7 +28,7 @@ import {
 /** How long a create or delete request waits for its provider call before it answers mutation.indeterminate. */
 const REQUEST_WAIT_MS = 25_000
 const PROVIDER_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.delete"])
-const INTERNAL_OPS: ReadonlySet<string> = new Set(["cloud.driver_result", "cloud.watch_result", "cloud.prune", "cloud.abandoned_clear"])
+const INTERNAL_OPS: ReadonlySet<string> = new Set(["cloud.machine.bind", "cloud.driver_result", "cloud.watch_result", "cloud.prune", "cloud.abandoned_clear"])
 const forbidden = (entity: string, key: string): SubmitResult => ({
   frames: [
     { t: "reject", tx: "", idempotency_key: key, code: "auth.forbidden", message: "not this team's machines", retryable: false, replayed: false },
@@ -205,6 +207,31 @@ export class CloudDO extends OwnerDO<CloudState> {
     return this.boundEngine?.rows.get<LedgerRow>(TABLE_LEDGER, key)?.row
   }
 
+  /**
+   * 5.8 item 2, RPC from POST /v1/cloud/bind: the VM's bind agent spends its one-time token. The
+   * token is hashed here, so the committed op, its event and the ledger never see it. Any token
+   * problem is one auth.forbidden; an object nobody created answers the same without being created.
+   */
+  async bindMachine(entity: string, body: unknown): Promise<BindReply> {
+    const forbidden = { ok: false as const, code: "auth.forbidden", message: "bind refused" }
+    if (!this.isBound(entity)) return forbidden
+    const req = parseBindRequest(body)
+    if (!req) return { ok: false, code: "validation.invalid", message: "invalid bind request" }
+    if (req.team !== entity) return forbidden
+    const limit = this.env.CLOUD_MUTATION_LIMIT
+    if (limit && !(await limit.limit({ key: `cloud-bind:${entity}` })).success) return { ok: false, code: "cloud.rate_limited", message: "too many bind attempts; retry in a minute" }
+    const keys = parseSigningKeys(this.env.CLOUD_LINK_SIGNING_KEYS)
+    // Without the link signing keyset a bound VM could never check a link token: refuse, token unspent.
+    if (!keys) return { ok: false, code: "owner.unreachable", message: "link signing keys are not configured on this deployment" }
+    const keyset = await publicKeyset(keys)
+    const params = { machine: req.machine, token_sha256: await sha256Hex(req.bind_token), wg_public_key: req.wg_public_key, daemon: req.daemon, keyset_version: keyset.version, now: Date.now() + this.skewMs }
+    // A fresh key per attempt: a second bind with a spent token must reach the reducer and be refused, never replay.
+    const reply = this.submitSystem("cloud.machine.bind", params, `bind:${crypto.randomUUID()}`).frames.find((f) => f.t === "result" || f.t === "reject")
+    if (!reply || reply.t === "reject") return { ok: false, code: reply?.t === "reject" && reply.code === "validation.invalid" ? "validation.invalid" : "auth.forbidden", message: "bind refused" }
+    if (reply.t !== "result") return forbidden
+    return { ok: true, value: { ...(reply.value as Record<string, unknown>), keyset } }
+  }
+
   /** Single flight per machine: a call for a machine waits for the one running, then runs once more. */
   private runMachine(machine: string, dueBy: number | null): Promise<void> {
     const running = this.flights.get(machine)
@@ -237,7 +264,7 @@ export class CloudDO extends OwnerDO<CloudState> {
       const commitKey = `driver:${due.n}:${row.cancel ? "c" : "a"}${row.attempts}`
       const tag = { team: engine.currentState.team ?? "", machine: row.machine }
       const driver = cloudDriver(this.env, this.sqlStore)
-      let result: { key: string; ok: boolean; provider_id?: string; error?: { code: string; message: string }; final?: boolean }
+      let result: { key: string; ok: boolean; provider_id?: string; bind_token_sha256?: string; error?: { code: string; message: string }; final?: boolean }
       if (!driver) result = { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "no Cloud provider is configured on this deployment" }, final: true }
       // P1-1: a create runs only for a team with a plan (the allowlist may have changed since the intent). Deletes always run: they only stop cost.
       else if (row.op === "create" && !row.cancel && !teamPlan(this.config, tag.team)) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }
@@ -248,7 +275,11 @@ export class CloudDO extends OwnerDO<CloudState> {
             result = found ? { key: row.key, ok: true, provider_id: found.id } : { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "the cancelled create has not appeared (yet)" }, final: false }
           } else if (row.op === "create") {
             const idle = engine.rows.get<MachineRow>(TABLE_MACHINE, row.machine)?.row.idle_policy.idle_seconds ?? 0
-            result = { key: row.key, ok: true, provider_id: (await driver.ensure(row.provider_name, tag, { idleSeconds: idle })).id }
+            const id = (await driver.ensure(row.provider_name, tag, { idleSeconds: idle })).id
+            // 5.8 item 1: a fresh one-time bind token into the VM; only its sha256 is committed.
+            const token = newBindToken()
+            await driver.writeBindFile(row.provider_name, tag, JSON.stringify({ team: tag.team, machine: row.machine, bind_token: token }))
+            result = { key: row.key, ok: true, provider_id: id, bind_token_sha256: await sha256Hex(token) }
           }
           else result = (await driver.remove(row.provider_name, tag), { key: row.key, ok: true })
         } catch (e) {
@@ -384,6 +415,7 @@ export class CloudDO extends OwnerDO<CloudState> {
     }
     const ctl = this.sqlStore.exec<{ creates: number; deletes: number }>(`SELECT creates, deletes FROM cloud_fake_ctl WHERE id = 1`)[0]!
     const vms = this.sqlStore.exec<{ name: string; id: string; idle: number | null }>(`SELECT name, id, idle FROM cloud_fake_vm ORDER BY name`)
-    return { creates: ctl.creates, deletes: ctl.deletes, vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), now: Date.now() + this.skewMs }
+    const files = this.sqlStore.exec<{ vm: string; path: string; content: string; mode: number }>(`SELECT vm, path, content, mode FROM cloud_fake_file ORDER BY vm`).map((f) => ({ ...f, mode: Number(f.mode) }))
+    return { files, creates: ctl.creates, deletes: ctl.deletes, vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), now: Date.now() + this.skewMs }
   }
 }
