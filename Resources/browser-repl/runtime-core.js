@@ -2691,10 +2691,11 @@
     }
     // The tab's cookie calls name it: its cookies live in its own data store
     // (a private tab's, or the session's proxy store, is not the user's
-    // profile). A lazy page has no tab yet; its store is the session's
-    // default one.
+    // profile). A lazy page has no tab yet, and a closed page none any
+    // more (Playwright's context outlives its pages); their store is the
+    // session's default one.
     _cookieScope() {
-      return String(this._targetId).startsWith("lazy:") ? {} : { targetId: this._targetId };
+      return this._closed || String(this._targetId).startsWith("lazy:") ? {} : { targetId: this._targetId };
     }
     context() {
       const session = this._session;
