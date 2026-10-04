@@ -25,6 +25,8 @@ mod rows;
 mod screen_changed;
 pub(crate) mod screen_groups;
 mod session_paths;
+#[cfg(test)]
+mod shared_browser_tests;
 pub(crate) mod tab_drag;
 pub(crate) mod tab_groups;
 pub(crate) mod tab_strip;
