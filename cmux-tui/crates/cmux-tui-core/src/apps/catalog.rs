@@ -56,14 +56,7 @@ impl Package {
     /// its catalog fragment (`catalog: "<file>"`, cmux-app-catalog.schema.json,
     /// which validate_package checks at install).
     pub fn catalog_ops(&self) -> Vec<(String, Value)> {
-        let Some(file) = self.manifest.get("catalog").and_then(Value::as_str) else {
-            return Vec::new();
-        };
-        let Some(catalog) =
-            self.read(file).and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
-        else {
-            return Vec::new();
-        };
+        let Some(catalog) = self.catalog_fragment() else { return Vec::new() };
         catalog
             .get("operations")
             .and_then(Value::as_array)
@@ -71,6 +64,25 @@ impl Package {
             .flatten()
             .filter_map(|e| Some((e.get("name")?.as_str()?.to_string(), e.clone())))
             .collect()
+    }
+
+    /// The app's catalog fragment (`catalog: "<file>"`).
+    fn catalog_fragment(&self) -> Option<Value> {
+        let file = self.manifest.get("catalog").and_then(Value::as_str)?;
+        self.read(file).and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+    }
+
+    /// The fragment's `family` and the entry of `op`.
+    pub fn catalog_op(&self, op: &str) -> Option<(String, Value)> {
+        let catalog = self.catalog_fragment()?;
+        let family = catalog.get("family").and_then(Value::as_str)?.to_string();
+        let entry = catalog
+            .get("operations")?
+            .as_array()?
+            .iter()
+            .find(|e| e.get("name").and_then(Value::as_str) == Some(op))?
+            .clone();
+        Some((family, entry))
     }
 
     /// The export behind a catalog op of the app.

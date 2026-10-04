@@ -305,6 +305,7 @@ fn fixture_with(defaults: &[&str], idle: Duration, root: TempDir) -> Fixture {
             .map(String::from)
             .to_vec(),
             server_dir: Some(root.0.join("servers")),
+            hub_socket: Some(PathBuf::from("/run/cmux/hub.sock")),
             sources: Sources {
                 first_party: None,
                 bundled: vec![bundled],
@@ -1194,6 +1195,7 @@ fn a_fresh_daemon_with_the_bundle_path_lists_coderouter_installed_by_default() {
             host_binary: None,
             host_args: Vec::new(),
             server_dir: None,
+            hub_socket: None,
             sources: Sources {
                 first_party: Some(first_party),
                 bundled: vec![],
@@ -1232,6 +1234,7 @@ fn a_fresh_daemon_with_the_bundle_path_lists_coderouter_installed_by_default() {
             host_binary: None,
             host_args: Vec::new(),
             server_dir: None,
+            hub_socket: None,
             sources: Sources {
                 first_party: Some(root.0.join("first-party")),
                 bundled: vec![],
@@ -1276,6 +1279,7 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
             host_binary: None,
             host_args: Vec::new(),
             server_dir: None,
+            hub_socket: None,
             sources: Sources {
                 first_party: Some(tree.clone()),
                 bundled: vec![],
@@ -1378,36 +1382,66 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
     assert_eq!(granted["grants"], json!(["terminal:backend", "workspace:read"]));
 }
 
-/// A v2-only first-party app `cmux/<dir>` whose catalog op `<dir>.ping` runs
-/// in its server (`server` is the manifest's `server` block).
+/// A v2-only first-party app `cmux/<dir>` whose catalog ops run in its
+/// server (`server` is the manifest's `server` block): `<dir>.ping` (read,
+/// granted through the requested `<dir>:read`), `<dir>.write` (mutate-own,
+/// needs the ungranted `<dir>:write`) and `<dir>.wipe` (destructive,
+/// gesture required).
 fn write_server_app(root: &Path, dir: &str, server: Value) {
     let app = root.join(dir);
     std::fs::create_dir_all(&app).unwrap();
     let id = format!("cmux/{dir}");
-    let catalog = json!({ "family": dir, "operations": [{
-        "name": format!("{dir}.ping"), "owner": format!("app:{id}"), "class": "read", "risk": "read",
-        "idempotency": "forbidden", "input": { "type": "object" }, "docs": "d", "since": format!("{dir}/1")
-    }] });
+    let op = |verb: &str, class: &str, risk: &str, idempotency: &str| {
+        json!({
+            "name": format!("{dir}.{verb}"), "owner": format!("app:{id}"), "class": class, "risk": risk,
+            "idempotency": idempotency, "input": { "type": "object" }, "docs": "d", "since": format!("{dir}/1")
+        })
+    };
+    let mut wipe = op("wipe", "mutation", "destructive", "forbidden");
+    wipe["gesture"] = json!("required");
+    let operations = [
+        op("ping", "read", "read", "forbidden"),
+        op("write", "mutation", "mutate-own", "forbidden"),
+        wipe,
+    ];
+    let catalog = json!({ "family": dir, "operations": operations });
     std::fs::write(app.join("catalog.json"), catalog.to_string()).unwrap();
     let manifest = json!({
         "manifestVersion": 2, "id": id, "name": "Server", "version": "1.0.0", "description": "d",
         "engines": { "cmux": "^2.0" }, "repository": "https://github.com/manaflow-ai/cmux",
-        "catalog": "catalog.json", "server": server, "files": ["catalog.json"]
+        "catalog": "catalog.json", "server": server, "files": ["catalog.json"],
+        "scopes": { format!("{dir}:read"): "Read." },
+        "optionalScopes": { format!("{dir}:write"): "Write." }
     });
     std::fs::write(app.join("cmux-app.v2.json"), manifest.to_string()).unwrap();
 }
 
-/// A fake server binary: answers every op line with `{served: true}` and
-/// appends `start` and `stop` to the marker file given as its argument.
+/// A fake server binary: appends `start` and `stop` to the marker file (its
+/// first argument), writes its environment to `<marker>.env`, and answers
+/// every op line with `{served: true}`.
 fn write_fake_server(dir: &Path) {
+    write_script(
+        dir,
+        "fake-server",
+        "#!/bin/sh\nmarker=\"$1\"\necho start >> \"$marker\"\nprintf '%s\\n' \"id=$CMUX_APP_ID\" \"data=$CMUX_APP_DATA_DIR\" \"tmp=$TMPDIR\" \"home=$HOME\" \"cargo=$CARGO_MANIFEST_DIR\" > \"$marker.env\"\nwhile IFS= read -r line; do\n  id=${line#*\\\"id\\\":\\\"}\n  id=${id%%\\\"*}\n  printf '{\"type\":\"result\",\"id\":\"%s\",\"ok\":true,\"result\":{\"served\":true}}\\n' \"$id\"\ndone\necho stop >> \"$marker\"\n",
+    );
+}
+
+/// A server that sends one `host.request` for the op in `$2` and appends
+/// every line it receives to the file in `$1`.
+fn write_host_probe(dir: &Path) {
+    write_script(
+        dir,
+        "host-probe",
+        "#!/bin/sh\nprintf '{\"t\":\"host.request\",\"id\":7,\"op\":\"%s\",\"params\":{}}\\n' \"$2\"\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> \"$1\"\ndone\n",
+    );
+}
+
+fn write_script(dir: &Path, name: &str, body: &str) {
     use std::os::unix::fs::PermissionsExt;
     std::fs::create_dir_all(dir).unwrap();
-    let path = dir.join("fake-server");
-    std::fs::write(
-        &path,
-        "#!/bin/sh\nmarker=\"$1\"\necho start >> \"$marker\"\nwhile IFS= read -r line; do\n  id=${line#*\\\"id\\\":\\\"}\n  id=${id%%\\\"*}\n  printf '{\"type\":\"result\",\"id\":\"%s\",\"ok\":true,\"result\":{\"served\":true}}\\n' \"$id\"\ndone\necho stop >> \"$marker\"\n",
-    )
-    .unwrap();
+    let path = dir.join(name);
+    std::fs::write(&path, body).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
@@ -1434,11 +1468,18 @@ fn wait_marker(marker: &Path, lines: &[&str]) {
 }
 
 fn run_server_op(f: &Fixture, app: &str, op: &str) -> Result<Value, super::supervisor::ApiError> {
+    run_server_op_as(f, app, op, Origin::User)
+}
+
+fn run_server_op_as(
+    f: &Fixture,
+    app: &str,
+    op: &str,
+    origin: Origin,
+) -> Result<Value, super::supervisor::ApiError> {
     let (tx, rx) = channel();
-    f.supervisor.run(
-        run_request(app, op, None, Origin::User, None),
-        Box::new(move |r| tx.send(r).unwrap()),
-    );
+    f.supervisor
+        .run(run_request(app, op, None, origin, None), Box::new(move |r| tx.send(r).unwrap()));
     rx.recv_timeout(Duration::from_secs(10)).unwrap()
 }
 
@@ -1532,4 +1573,142 @@ fn external_servers_are_refused_for_now() {
         run_server_op(&f, "cmux/ext", "ext.ping").unwrap_err().code,
         "apps.server_unsupported"
     );
+}
+
+#[test]
+fn server_ops_need_their_scope_and_required_gestures_need_the_user() {
+    let root = temp_dir();
+    write_fake_server(&root.0.join("servers"));
+    write_server_app(
+        &root.0.join("bundled"),
+        "gate",
+        native_server(&root.0.join("gate.marker"), json!({})),
+    );
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/gate");
+    let served = json!({ "value": { "served": true } });
+    // gate:read is granted at install; any origin may read.
+    assert_eq!(run_server_op_as(&f, "cmux/gate", "gate.ping", Origin::Cli).unwrap(), served);
+    // gate:write is optional and not granted yet, even for the user.
+    let missing = run_server_op_as(&f, "cmux/gate", "gate.write", Origin::User).unwrap_err();
+    assert_eq!(missing.code, "apps.scope_missing");
+    f.set("w", "cmux/gate", Origin::User, |o| o.grant = Some(("gate:write".into(), true))).unwrap();
+    assert_eq!(run_server_op_as(&f, "cmux/gate", "gate.write", Origin::Cli).unwrap(), served);
+    // gesture: required (and destructive, so no app scope): only the user.
+    for origin in [Origin::Cli, Origin::Mcp, Origin::Script] {
+        let refused = run_server_op_as(&f, "cmux/gate", "gate.wipe", origin).unwrap_err();
+        assert_eq!(refused.code, "apps.gesture_required", "{origin:?}");
+    }
+    assert_eq!(run_server_op_as(&f, "cmux/gate", "gate.wipe", Origin::User).unwrap(), served);
+}
+
+#[test]
+fn servers_get_only_the_allowlisted_environment() {
+    let root = temp_dir();
+    let marker = root.0.join("envy.marker");
+    let state = root.0.join("state");
+    write_fake_server(&root.0.join("servers"));
+    let mut server = native_server(&marker, json!({ "start": "always" }));
+    server["data"] = json!([{ "name": "keep", "class": "durable" }, { "name": "scratch", "class": "ephemeral" }]);
+    write_server_app(&root.0.join("bundled"), "envy", server);
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/envy");
+    let env_file = marker.with_extension("marker.env");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let env = loop {
+        let env = std::fs::read_to_string(&env_file).unwrap_or_default();
+        if env.contains("cargo=") {
+            break env;
+        }
+        assert!(Instant::now() < deadline, "no environment written");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let data = state.join("apps-data/cmux.envy");
+    let tmp = state.join("apps-tmp/cmux.envy");
+    assert_eq!(
+        env.lines().collect::<Vec<_>>(),
+        [
+            "id=cmux/envy".to_string(),
+            format!("data={}", data.display()),
+            format!("tmp={}", tmp.display()),
+            "home=".to_string(),
+            "cargo=".to_string(),
+        ]
+    );
+    assert!(data.join("keep").is_dir() && data.join("scratch").is_dir() && tmp.is_dir());
+    f.set("rm", "cmux/envy", Origin::User, |o| o.installed = Some(false)).unwrap();
+    wait_marker(&marker, &["start", "stop"]);
+    assert!(!data.exists() && !tmp.exists(), "uninstall removes the server's directories");
+}
+
+fn probe_server(out: &Path, op: &str, scoped: bool) -> Value {
+    let mut server = json!({
+        "kind": "native",
+        "binaries": { "darwin-arm64": "host-probe", "darwin-x64": "host-probe", "linux-arm64": "host-probe", "linux-x64": "host-probe" },
+        "args": [out.to_string_lossy(), op],
+        "instances": "machine", "hosts": ["local"], "lifecycle": { "start": "always" }
+    });
+    if scoped {
+        server["scopes"] = json!({ "op:cmux.host.link.get": "Read where the link helper lives." });
+    }
+    server
+}
+
+/// Waits for at least `count` lines in `path` and parses them.
+fn frames(path: &Path, count: usize) -> Vec<Value> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let text = std::fs::read_to_string(path).unwrap_or_default();
+        let lines: Vec<Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        if lines.len() >= count {
+            return lines;
+        }
+        assert!(Instant::now() < deadline, "{text:?}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn host_link_get_answers_the_daemon_values_and_needs_its_scope() {
+    let root = temp_dir();
+    let (linked, unscoped, relay) =
+        (root.0.join("linked.out"), root.0.join("unscoped.out"), root.0.join("relay.out"));
+    write_host_probe(&root.0.join("servers"));
+    let bundled = root.0.join("bundled");
+    write_server_app(&bundled, "linked", probe_server(&linked, "cmux.host.link.get", true));
+    write_server_app(&bundled, "unscoped", probe_server(&unscoped, "cmux.host.link.get", false));
+    write_server_app(&bundled, "relay", probe_server(&relay, "cmux.credential.relay", true));
+    let state = root.0.join("state");
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    for app in ["cmux/linked", "cmux/unscoped", "cmux/relay"] {
+        f.install(app);
+    }
+    let reply = &frames(&linked, 1)[0];
+    assert_eq!((reply["t"].clone(), reply["id"].clone()), (json!("host.result"), json!(7)));
+    let value = &reply["value"];
+    assert_eq!(value["binary"], json!(std::env::current_exe().unwrap()));
+    assert_eq!(value["hub_socket"], json!("/run/cmux/hub.sock"));
+    assert_eq!(value["state_dir"], json!(state.join("apps-data/cmux.linked/link")));
+    assert_eq!(value["socket_dir"], json!(state.join("apps-tmp/cmux.linked")));
+    assert!(value["device_name"].as_str().is_some_and(|n| !n.is_empty()));
+    // A server without the scope gets host.error; the relay is not wired yet.
+    let refused = &frames(&unscoped, 1)[0];
+    assert_eq!(
+        (refused["t"].clone(), refused["id"].clone(), refused["code"].clone()),
+        (json!("host.error"), json!(7), json!("apps.scope_missing"))
+    );
+    let relayed = &frames(&relay, 1)[0];
+    assert_eq!(
+        (relayed["t"].clone(), relayed["code"].clone(), relayed["retryable"].clone()),
+        (json!("host.error"), json!("unavailable"), json!(true))
+    );
+    // A link change reaches only servers that may read the link.
+    f.supervisor.host_link_changed();
+    let event = &frames(&linked, 2)[1];
+    assert_eq!(
+        (event["t"].clone(), event["op"].clone(), event["data"].clone()),
+        (json!("host.event"), json!("cmux.host.link.changed"), value.clone())
+    );
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(frames(&unscoped, 1).len(), 1);
 }

@@ -2559,6 +2559,7 @@ fn run_server(
     });
     let result = if args.headless {
         mux.mark_server_lifecycle_ready();
+        cmux_tui_core::server::start_apps_when_ready(&mux);
         if let Some(fd) = args.owner_ready_fd {
             local_owner::signal_ready(fd);
         }
