@@ -7,7 +7,7 @@ import Foundation
 /// `apps-` request also subscribes the connection to the app events
 /// (`apps-server-event`, ``AppServerEvent``).
 public struct AppsRunRequest: DaemonRequest {
-    public typealias Response = JSONValue
+    public typealias Response = AppsRunResult
     public static let command = "apps-run"
 
     /// The request origin. `user` needs the verified cmux app connection.
@@ -31,26 +31,28 @@ public struct AppsRunRequest: DaemonRequest {
     }
 }
 
-/// An app server event as the daemon broadcasts it to apps clients:
-/// `apps-server-event {app, name, data}` (`name` is the full name, for
-/// example `cmux.cloud.link.changed`). `payload` is the whole event line.
-public struct AppServerEvent: Equatable, Sendable {
-    public static let eventName = "apps-server-event"
+/// An `apps-run` answer: the daemon wraps every op result as `{value}`
+/// (QuickJS host and server alike).
+public struct AppsRunResult: Decodable, Sendable, Equatable {
+    public let value: JSONValue
 
-    public let app: String
-    public let name: String
-    public let payload: JSONValue
-
-    public init(app: String, name: String, payload: JSONValue) {
-        self.app = app
-        self.name = name
-        self.payload = payload
+    public init(value: JSONValue) {
+        self.value = value
     }
 
-    /// The app server event in `event`, or nil.
-    public init?(_ event: DaemonEvent) {
-        guard case .unknown(Self.eventName, let payload) = event,
-              let app = payload["app"]?.stringValue, let name = payload["name"]?.stringValue else { return nil }
-        self.init(app: app, name: name, payload: payload)
+    public init(from decoder: any Decoder) throws {
+        enum Keys: String, CodingKey { case value }
+        let container = try decoder.container(keyedBy: Keys.self)
+        value = try container.decodeIfPresent(JSONValue.self, forKey: .value) ?? .null
     }
+}
+
+/// `apps-terminal-links`: every open terminal connector link and its local
+/// socket (`{links: [{channel, app, id, target, socket}]}`). Read-only; like
+/// any `apps-` request it subscribes the connection to app events.
+public struct AppsTerminalLinksRequest: DaemonRequest {
+    public typealias Response = JSONValue
+    public static let command = "apps-terminal-links"
+
+    public init() {}
 }
