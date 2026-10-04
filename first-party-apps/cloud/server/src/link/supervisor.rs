@@ -5,7 +5,7 @@
 //! reconnects by itself, nothing queues).
 
 use super::argv::{LinkCommand, LinkLine, parse_line};
-use super::spawner::{LinkEvents, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag};
+use super::spawner::{LinkEvents, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag, LinkWake};
 use crate::connector::iface::{Carrier, CarrierEvent};
 use std::collections::BTreeMap;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -40,6 +40,8 @@ pub struct LinkSupervisor {
     links: BTreeMap<String, Link>,
     sender: Sender<LinkProcessEvent>,
     receiver: Receiver<LinkProcessEvent>,
+    /// Wakes the serve loop after each process event (`None`: no loop).
+    wake: Option<LinkWake>,
     next_generation: u64,
     events: Vec<CarrierEvent>,
     spawns: u64,
@@ -57,11 +59,18 @@ impl LinkSupervisor {
             links: BTreeMap::new(),
             sender,
             receiver,
+            wake: None,
             next_generation: 0,
             events: Vec::new(),
             spawns: 0,
             ready_deadline: READY_DEADLINE,
         }
+    }
+
+    /// Wakes `wake` after each event of every link spawned from now on. The
+    /// serve loop sets it before its first op.
+    pub fn set_wake(&mut self, wake: LinkWake) {
+        self.wake = Some(wake);
     }
 
     /// The bound on the wait for the first ready line (tests use a short one).
@@ -117,7 +126,7 @@ impl LinkSupervisor {
         let tag = LinkTag { machine: machine.to_owned(), generation: self.next_generation };
         let process = self
             .spawner
-            .spawn(tag.clone(), command, LinkEvents::new(self.sender.clone(), None))
+            .spawn(tag.clone(), command, LinkEvents::new(self.sender.clone(), self.wake.clone()))
             .map_err(|e| LinkFailure::Spawn(e.to_string()))?;
         self.spawns += 1;
         self.links.insert(

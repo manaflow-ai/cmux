@@ -21,9 +21,8 @@ pub(crate) const DISCONNECT: &str = "cloud.machine.disconnect";
 pub(crate) const RESCUE_OPEN: &str = "cloud.rescue.open";
 
 /// `cloud.link.changed` lines for the host: carrier events since the last
-/// call. TODO(lead): the serve loop drains them only after an op; a link
-/// that dies between ops is reported with the next op until the loop also
-/// wakes on link events.
+/// call, in order. The serve loop takes them after each op and whenever a
+/// link process event wakes it (`LinkSupervisor::set_wake`).
 pub(crate) fn take_event_lines<C: ControlPlane>(server: &mut Server<C>) -> Vec<Value> {
     let supervisor = server.attach_mut().supervisor_mut();
     supervisor.pump();
