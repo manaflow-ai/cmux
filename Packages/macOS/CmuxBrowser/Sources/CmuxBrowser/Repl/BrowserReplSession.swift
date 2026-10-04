@@ -582,13 +582,19 @@ public final class BrowserReplSession: @unchecked Sendable {
         timeout: Duration,
         maxOutput: Int?
     ) async -> BrowserReplEvalResult {
-        await withCheckedContinuation { continuation in
+        // A new working directory is checked and opened here, once: the cell
+        // later moves to the directory held open now, never to whatever its
+        // path names by then.
+        let pinned: Result<PinnedRoot, PinRefusal>? = cwd.map(pinRoot)
+        return await withCheckedContinuation { continuation in
             stateLock.lock()
             lastUsedAt = .now
             var refusal: String?
             if closed {
                 refusal = "Error: REPL session '\(id)' is closed"
-            } else if let reason = rootRejection(cwd ?? workingDirectory) {
+            } else if case .failure(let reason) = pinned {
+                refusal = "Error: \(reason.message)"
+            } else if cwd == nil, let reason = rootRejection(workingDirectory) {
                 refusal = "Error: \(reason)"
             }
             if let refusal {
@@ -596,7 +602,9 @@ public final class BrowserReplSession: @unchecked Sendable {
                 continuation.resume(returning: BrowserReplEvalResult(lines: [], error: refusal, durationMilliseconds: 0))
                 return
             }
+            let previousDirectory = workingDirectory
             if let cwd { workingDirectory = cwd }
+            let root = try? pinned?.get()
             nextEvalID += 1
             let state = EvalState(
                 id: nextEvalID,
@@ -607,7 +615,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             currentEval = state
             watchdog.setCurrentEval(state.id)
             let submitted = thread.perform { [self] in
-                self.beginEval(state, code: code, cwd: cwd, maxOutput: maxOutput)
+                self.beginEval(state, code: code, cwd: cwd, root: root, previousDirectory: previousDirectory, maxOutput: maxOutput)
             }
             stateLock.unlock()
             guard submitted else {
@@ -623,6 +631,52 @@ public final class BrowserReplSession: @unchecked Sendable {
                 }
                 self?.timeOut(state, after: timeout)
             })
+        }
+    }
+
+    /// A new working directory, checked and opened while no REPL `fs.rename`
+    /// can run: its canonical path and its directory, held open from then.
+    struct PinnedRoot: Sendable {
+        let path: String
+        /// Nil when the directory does not exist yet (`mkdir -p` makes it,
+        /// by a walk from `/` that follows no link).
+        let directory: BrowserReplDescriptor?
+
+        /// Whether `path` still names the held directory, with no link on
+        /// the way: the driver takes the identity of the directory at
+        /// `path` for file navigations, which must be this one.
+        var isStillInPlace: Bool {
+            guard let directory else { return true }
+            guard BrowserReplFileSandbox.canonicalize(BrowserReplFileSandbox.lexicallyNormalized(path)) == path else { return false }
+            var held = stat()
+            var named = stat()
+            return fstat(directory.fd, &held) == 0 && lstat(path, &named) == 0
+                && named.st_mode & S_IFMT == S_IFDIR
+                && held.st_dev == named.st_dev && held.st_ino == named.st_ino
+        }
+    }
+
+    struct PinRefusal: Error {
+        let message: String
+    }
+
+    /// Checks `cwd` as a working directory and opens it, both while no REPL
+    /// session can rename an entry (``BrowserReplFileSandbox/pathChangeLock``):
+    /// its canonical path is checked (``rootRejection(_:)``) and opened by a
+    /// walk from `/` that follows no link, so a link another session renames
+    /// in for a checked directory is never adopted, and a link on the way is
+    /// refused.
+    private func pinRoot(_ cwd: String) -> Result<PinnedRoot, PinRefusal> {
+        if let reason = rootRejection(cwd) { return .failure(PinRefusal(message: reason)) }
+        return BrowserReplFileSandbox.pathChangeLock.withLock {
+            let path = BrowserReplFileSandbox.canonicalize(BrowserReplFileSandbox.lexicallyNormalized(cwd))
+            if let reason = rootRejection(path) { return .failure(PinRefusal(message: reason)) }
+            let descriptor = BrowserReplRootDirectories.open(path)
+            if descriptor >= 0 { return .success(PinnedRoot(path: path, directory: BrowserReplDescriptor(descriptor))) }
+            if errno == ENOENT { return .success(PinnedRoot(path: path, directory: nil)) }
+            return .failure(PinRefusal(message: errno == ELOOP
+                ? "refusing to use '\(cwd)' as the REPL working directory: its path changed to a symbolic link while it was checked. Run the command again from the directory itself"
+                : "cannot use '\(cwd)' as the REPL working directory: \(String(cString: strerror(errno)))"))
         }
     }
 
@@ -1070,6 +1124,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         _ state: EvalState,
         code: String,
         cwd: String?,
+        root: PinnedRoot?,
+        previousDirectory: String,
         maxOutput: Int?
     ) {
         // A timeout or close() may have finished the evaluation before the
@@ -1079,20 +1135,33 @@ public final class BrowserReplSession: @unchecked Sendable {
         for line in takeCallbackNotices() { state.append(line) }
         // Callbacks held back between cells run during this cell, in order.
         queueHeldRelease()
-        if let cwd, cwd != fileSystem.sandbox.root {
-            var sandbox = BrowserReplFileSandbox(root: cwd)
-            sandbox.inheritReadableFiles(from: fileSystem.sandbox)
-            // The temporary root stays the directory held since the session began.
-            fileSystem = BrowserReplFileSystem(
-                sandbox: sandbox,
-                temporaryDirectory: fileSystem.temporaryRoot,
-                rootDescriptor: nil,
-                temporaryDescriptor: fileSystem.temporaryRoot.flatMap { fileSystem.rootDirectories.descriptor(at: 1, for: $0) },
-                writeBudget: fileSystem.writeBudget,
-                isCancelled: fileSystem.isCancelled
-            )
-            boundary.setFileRoots([fileSystem.sandbox.root] + (fileSystem.temporaryRoot.map { [$0] } ?? []))
-            driver.setFileRoots([fileSystem.sandbox.root] + (fileSystem.temporaryRoot.map { [$0] } ?? []))
+        if let cwd, let root, root.path != fileSystem.sandbox.root {
+            // The fs moves to the directory checked and held when the cell
+            // was submitted. The browser's file roots are published by path
+            // with the identity of the directory there now, so that must
+            // still be the held one; nothing renames meanwhile.
+            let moved: Bool = BrowserReplFileSandbox.pathChangeLock.withLock {
+                guard root.isStillInPlace else { return false }
+                var sandbox = BrowserReplFileSandbox(root: root.path)
+                sandbox.inheritReadableFiles(from: fileSystem.sandbox)
+                // The temporary root stays the directory held since the session began.
+                fileSystem = BrowserReplFileSystem(
+                    sandbox: sandbox,
+                    temporaryDirectory: fileSystem.temporaryRoot,
+                    rootDescriptor: root.directory,
+                    temporaryDescriptor: fileSystem.temporaryRoot.flatMap { fileSystem.rootDirectories.descriptor(at: 1, for: $0) },
+                    writeBudget: fileSystem.writeBudget,
+                    isCancelled: fileSystem.isCancelled
+                )
+                boundary.setFileRoots([fileSystem.sandbox.root] + (fileSystem.temporaryRoot.map { [$0] } ?? []))
+                driver.setFileRoots([fileSystem.sandbox.root] + (fileSystem.temporaryRoot.map { [$0] } ?? []))
+                return true
+            }
+            guard moved else {
+                stateLock.withLock { workingDirectory = previousDirectory }
+                finish(state, error: "Error: refusing to use '\(cwd)' as the REPL working directory: it was moved or replaced since the command was checked. Run the command again from the directory itself")
+                return
+            }
             // The runtime removes the `__cmuxNative` global before agent code
             // runs; the session keeps its own reference.
             nativeHost?.setObject(cwd, forKeyedSubscript: "cwd" as NSString)
