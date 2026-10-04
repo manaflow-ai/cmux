@@ -158,7 +158,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   protected override async onWake(now: number): Promise<void> {
     const engine = this.boundEngine
     if (!engine) return
-    const entity = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]?.entity
+    const entity = (this.boundEntity() ?? undefined)
     if (entity) await this.deliverLockNotice(entity, now)
     await this.revokeAtProviders(now)
     await runWatchWork(this.watchHost(), engine.currentState.connections, now)
@@ -378,7 +378,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   }
 
   /** Whether this object already owns `entity` (RPCs from routes never create or rebind an object). */
-  private boundTo = (entity: string) => this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]?.entity === entity
+  private boundTo = (entity: string) => (this.boundEntity() ?? undefined) === entity
 
   /** RPC from the Google push routes (ingress/google-hooks.ts), after they verified the request. */
   async googlePush(entity: string, push: GooglePush): Promise<{ status: string; delivered: number }> {
@@ -464,7 +464,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
    * forward can be redelivered by the provider.
    */
   async ingest(entity: string, connection: string, event: ProviderEvent): Promise<{ status: "forwarded" | "dropped"; runs: number }> {
-    const bound = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]
+    const bound = this.boundRow()
     if (!bound || bound.entity !== entity) return { status: "dropped", runs: 0 }
     const c = this.bind(entity).currentState.connections[connection]
     if (!c || c.status !== "active" || c.account?.key !== event.account) return { status: "dropped", runs: 0 }

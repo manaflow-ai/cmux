@@ -6,7 +6,7 @@
  * values, not keys; until it can drop whole tables from effects, keep
  * `invhash` writes out of subscriber effects (PRIVATE_TABLES).
  */
-export const PRIVATE_TABLES: ReadonlyArray<string> = ["invhash"]
+export const PRIVATE_TABLES: ReadonlyArray<string> = ["invhash", "unread"]
 
 const without = (value: unknown, keys: ReadonlyArray<string>): unknown => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value

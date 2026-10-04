@@ -333,7 +333,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
    * replay. Never creates storage for a team that has no scheduler yet.
    */
   async deliverWebhook(entity: string, trigger: string, delivery: string, input: unknown): Promise<DeliverResult> {
-    const bound = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]
+    const bound = this.boundRow()
     if (!bound || bound.entity !== entity) return { status: "unknown" }
     const engine = this.bind(entity)
     const a = Object.values(engine.currentState.automations).find((x) => x.triggers.some((t) => t.id === trigger && t.spec.type === "webhook"))
@@ -367,7 +367,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     entity: string,
     ev: { connection: string; sharing: "private" | "team"; created_by: string; provider: string; event: string; delivery_id: string; payload: unknown }
   ): Promise<{ runs: number }> {
-    const bound = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]
+    const bound = this.boundRow()
     if (!bound || bound.entity !== entity) return { runs: 0 }
     const engine = this.bind(entity)
     await this.ensureRunPolicy(entity)

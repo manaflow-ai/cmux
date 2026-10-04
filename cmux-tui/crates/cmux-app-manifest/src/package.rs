@@ -82,6 +82,9 @@ fn referenced_files(dir: &Path, m: &Value) -> Vec<Issue> {
     if m["icon"].is_string() {
         add("/icon", m.get("icon"));
     }
+    if m.pointer("/presentation/sidebarItem/icon").is_some_and(Value::is_string) {
+        add("/presentation/sidebarItem/icon", m.pointer("/presentation/sidebarItem/icon"));
+    }
     if let Some(implements) = m["implements"].as_object() {
         for (name, imp) in implements {
             add(&format!("/implements/{}/web", crate::issue::escape(name)), imp.get("web"));
