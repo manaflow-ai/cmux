@@ -15,13 +15,19 @@
     { "input": "!!", "intent": { "kind": "terminal", "command": "!" } },
 
     { "input": "github.com", "intent": { "kind": "url", "url": "https://github.com" } },
-    { "input": "GitHub.com/manaflow-ai/cmux", "intent": { "kind": "url", "url": "https://GitHub.com/manaflow-ai/cmux" } },
+    {
+      "input": "GitHub.com/manaflow-ai/cmux",
+      "intent": { "kind": "url", "url": "https://GitHub.com/manaflow-ai/cmux" }
+    },
     { "input": "vite.dev/guide", "intent": { "kind": "url", "url": "https://vite.dev/guide" } },
     { "input": "  github.com  ", "intent": { "kind": "url", "url": "https://github.com" } },
     { "input": "github.com", "mode": "search", "intent": { "kind": "url", "url": "https://github.com" } },
     { "input": "https://example.com/a?b=1#c", "intent": { "kind": "url", "url": "https://example.com/a?b=1#c" } },
     { "input": "http://example.com", "intent": { "kind": "url", "url": "http://example.com" } },
-    { "input": "https://example.com/very/\nlong/path", "intent": { "kind": "url", "url": "https://example.com/very/long/path" } },
+    {
+      "input": "https://example.com/very/\nlong/path",
+      "intent": { "kind": "url", "url": "https://example.com/very/long/path" }
+    },
     { "input": "localhost", "intent": { "kind": "url", "url": "http://localhost" } },
     { "input": "localhost:3000", "intent": { "kind": "url", "url": "http://localhost:3000" } },
     { "input": "localhost:3000/api/health", "intent": { "kind": "url", "url": "http://localhost:3000/api/health" } },
