@@ -897,7 +897,13 @@ public final class BrowserReplSession: @unchecked Sendable {
         if let cwd, cwd != fileSystem.sandbox.root {
             var sandbox = BrowserReplFileSandbox(root: cwd)
             sandbox.inheritReadableFiles(from: fileSystem.sandbox)
-            fileSystem = BrowserReplFileSystem(sandbox: sandbox, temporaryDirectory: fileSystem.temporaryRoot)
+            // The temporary root stays the directory held since the session began.
+            fileSystem = BrowserReplFileSystem(
+                sandbox: sandbox,
+                temporaryDirectory: fileSystem.temporaryRoot,
+                rootDescriptor: nil,
+                temporaryDescriptor: fileSystem.temporaryRoot.flatMap { fileSystem.rootDirectories.descriptor(at: 1, for: $0) }
+            )
             // The runtime removes the `__cmuxNative` global before agent code
             // runs; the session keeps its own reference.
             nativeHost?.setObject(cwd, forKeyedSubscript: "cwd" as NSString)

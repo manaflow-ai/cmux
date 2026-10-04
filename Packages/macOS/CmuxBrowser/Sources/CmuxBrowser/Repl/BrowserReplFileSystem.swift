@@ -13,7 +13,9 @@ import Foundation
 /// file is complete.
 ///
 /// The path check and the system call are one: every operation walks from
-/// an open descriptor of its root, one entry at a time, with `openat` and
+/// its root's directory, held open since the fs first opened it (a rename of
+/// the root's path, or a link put in its place, changes nothing), one entry
+/// at a time, with `openat` and
 /// `O_NOFOLLOW`, and acts on the entry relative to the directory it holds
 /// open (`openat`, `fstatat`, `mkdirat`, `unlinkat`, `renameat`). A link on
 /// the way is read with `readlinkat` and followed only while it stays inside
@@ -39,14 +41,34 @@ public struct BrowserReplFileSystem: Sendable {
     /// to the sandbox root, or `nil` for none.
     public let temporaryRoot: String?
 
+    /// Each root's directory, held open from when the fs first opened it.
+    let rootDirectories: BrowserReplRootDirectories
+
     /// - Parameter temporaryDirectory: The session's private temporary
     ///   directory (`os.tmpdir()` in the REPL), never a directory other
     ///   sessions or apps share; `nil` gives the sandbox root only.
     public init(sandbox: BrowserReplFileSandbox, temporaryDirectory: String? = nil) {
+        self.init(sandbox: sandbox, temporaryDirectory: temporaryDirectory, rootDescriptor: nil, temporaryDescriptor: nil)
+    }
+
+    /// Opens each root that exists now and holds it open; a root that does
+    /// not exist yet is held from when an operation first opens or creates
+    /// it. `rootDescriptor` and `temporaryDescriptor` are the roots'
+    /// directories the caller already holds open (the session created them).
+    init(
+        sandbox: BrowserReplFileSandbox,
+        temporaryDirectory: String?,
+        rootDescriptor: BrowserReplDescriptor?,
+        temporaryDescriptor: BrowserReplDescriptor?
+    ) {
         self.sandbox = sandbox
-        self.temporaryRoot = temporaryDirectory.map {
+        let temporaryRoot = temporaryDirectory.map {
             BrowserReplFileSandbox.canonicalize(BrowserReplFileSandbox.lexicallyNormalized($0))
         }
+        self.temporaryRoot = temporaryRoot
+        rootDirectories = BrowserReplRootDirectories(
+            [(sandbox.root, rootDescriptor)] + (temporaryRoot.map { [($0, temporaryDescriptor)] } ?? [])
+        )
     }
 
     /// Runs one operation. See `docs/browser-repl/driver-protocol.md` for ops.
@@ -297,17 +319,21 @@ public struct BrowserReplFileSystem: Sendable {
         return nil
     }
 
+    /// The root's directory: the one held open since the fs first opened
+    /// it, so renaming the root's path away, or putting a link or another
+    /// directory in its place, changes nothing for this fs.
     private func openRoot(_ index: Int, creating: Bool) throws -> BrowserReplDescriptor {
         let root = roots[index]
-        var descriptor = open(root, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        if let held = rootDirectories.descriptor(at: index, for: root) { return held }
+        var descriptor = BrowserReplRootDirectories.open(root)
         if descriptor < 0, errno == ENOENT, creating {
             // The root itself is outside the sandbox's reach; only `mkdir -p`
             // creates a working directory that does not exist yet.
             try? FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true)
-            descriptor = open(root, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+            descriptor = BrowserReplRootDirectories.open(root)
         }
         guard descriptor >= 0 else { throw Self.posixError(errno, syscall: "open", display: root) }
-        return BrowserReplDescriptor(descriptor)
+        return rootDirectories.hold(BrowserReplDescriptor(descriptor), at: index, for: root)
     }
 
     /// Whether `location` is a root, or an entry that is one (reached
@@ -642,7 +668,7 @@ public struct BrowserReplFileSystem: Sendable {
 }
 
 /// An open file descriptor, closed when the last reference goes.
-final class BrowserReplDescriptor {
+final class BrowserReplDescriptor: @unchecked Sendable {
     let fd: Int32
 
     init(_ fd: Int32) {
@@ -651,5 +677,56 @@ final class BrowserReplDescriptor {
 
     deinit {
         close(fd)
+    }
+
+    /// Where the open file or directory is now (it may have been renamed
+    /// since it was opened), or nil when the system cannot tell.
+    var currentPath: String? {
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard fcntl(fd, F_GETPATH, &buffer) != -1 else { return nil }
+        return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+    }
+}
+
+/// The directories of an fs's roots, each opened once and held: every
+/// operation walks from the held directory, never from the root's path
+/// again. Shared by the copies of one `BrowserReplFileSystem`.
+final class BrowserReplRootDirectories: @unchecked Sendable {
+    private let lock = NSLock()
+    /// Per root: its canonical path and its directory once opened.
+    private var roots: [(path: String, directory: BrowserReplDescriptor?)]
+
+    /// Holds the roots that are given open, and opens the others that exist.
+    init(_ roots: [(path: String, directory: BrowserReplDescriptor?)]) {
+        self.roots = roots.map { root in
+            if root.directory != nil { return root }
+            let descriptor = Self.open(root.path)
+            return (root.path, descriptor >= 0 ? BrowserReplDescriptor(descriptor) : nil)
+        }
+    }
+
+    /// Opens the directory at `path` (canonical: no link on the way), not
+    /// following a link in its place.
+    static func open(_ path: String) -> Int32 {
+        Darwin.open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+    }
+
+    /// Root `index`'s held directory, when one is held for `path`.
+    func descriptor(at index: Int, for path: String) -> BrowserReplDescriptor? {
+        lock.withLock {
+            guard roots.indices.contains(index), roots[index].path == path else { return nil }
+            return roots[index].directory
+        }
+    }
+
+    /// Holds `directory` for root `index` unless one is held already, and
+    /// returns the held one.
+    func hold(_ directory: BrowserReplDescriptor, at index: Int, for path: String) -> BrowserReplDescriptor {
+        lock.withLock {
+            guard roots.indices.contains(index), roots[index].path == path else { return directory }
+            if let held = roots[index].directory { return held }
+            roots[index].directory = directory
+            return directory
+        }
     }
 }
