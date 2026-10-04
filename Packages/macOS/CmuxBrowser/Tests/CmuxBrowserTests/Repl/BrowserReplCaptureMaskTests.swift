@@ -288,6 +288,28 @@ struct BrowserReplCaptureMaskTests {
         #expect(handed[allowed.frameID] == nil, "an allowed child frame was handed to the screenshot as blocked")
     }
 
+    // MARK: Scripts that never answer
+
+    /// WebKit drops a script's completion when a navigation replaces its
+    /// document, and a busy page answers late: the mask's scripts are
+    /// bounded, and one that does not answer refuses the capture with
+    /// `stale` instead of hanging it.
+    @Test func aMaskScriptThatNeverAnswersRefusesWithStale() async throws {
+        let page = try await FramePage.load()
+        let mask = BrowserReplCaptureMask(secretMasks: [], policy: Self.policy(prohibiting: "cmux-test://other.test"))
+        let infos = SendableBox(page.frames.map(\.info))
+        let webView = SendableBox(page.webView)
+        // The page's web process runs no other script for 8 s, past the
+        // 5 s bound.
+        BrowserReplFrameGateTests.startBusyLoop(in: page.webView, seconds: 8)
+        let error = await browserReplWithDeadline(seconds: 20) { @MainActor in
+            await BrowserReplFrameGateTests.error {
+                try await mask.run(in: webView.value, frames: { infos.value }) { true }
+            }
+        }
+        #expect(error??.code == "stale", "a mask script that did not answer hung or passed: \(String(describing: error))")
+    }
+
     static func policy(prohibiting pattern: String) -> BrowserReplDomainPolicy {
         var policy = BrowserReplDomainPolicy()
         policy.prohibited = [try! BrowserReplDomainPattern.parse(pattern, title: "test")]
