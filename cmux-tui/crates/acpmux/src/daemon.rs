@@ -19,6 +19,8 @@ pub struct DaemonOptions {
     pub ready_fd: Option<i32>,
     /// `--allow-dev-origin`: loopback page dev server origins, never saved.
     pub dev_origins: Vec<String>,
+    /// `--dev`: a development launch (see `dev_origins_permitted`).
+    pub dev: bool,
 }
 
 /// How long SIGTERM or `_acpmux/shutdown` may take before the daemon exits
@@ -40,6 +42,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
     }
     let login_env = crate::login_env::requested();
+    anyhow::ensure!(
+        opts.dev_origins.is_empty() || dev_origins_permitted(cfg!(debug_assertions), opts.dev),
+        "--allow-dev-origin is for development only: it needs a debug build or --dev"
+    );
     let dev_origins = opts
         .dev_origins
         .iter()
@@ -281,6 +287,14 @@ fn write_ready(fd: i32, ready: &Value) {
         // Never close stdio.
         std::mem::forget(f);
     }
+}
+
+/// Whether `--allow-dev-origin` may take effect: in a debug build, or with
+/// an explicit `--dev` that release launchers never pass. A release config
+/// refuses it, so a dev page origin never becomes a LocalApp origin there.
+pub(crate) fn dev_origins_permitted(debug_build: bool, dev_flag: bool) -> bool {
+    let _ = (debug_build, dev_flag); // RED stub
+    true
 }
 
 /// The rotation `websocket.tokenRotated` records (see `rotate_saved_token_once`).
@@ -596,6 +610,13 @@ fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_release_launch_refuses_a_dev_origin() {
+        assert!(!dev_origins_permitted(false, false), "a release config refuses --allow-dev-origin");
+        assert!(dev_origins_permitted(false, true), "an explicit --dev launch accepts it");
+        assert!(dev_origins_permitted(true, false), "a debug build accepts it");
+    }
 
     #[test]
     fn only_the_shared_home_listens_on_the_fixed_port() {

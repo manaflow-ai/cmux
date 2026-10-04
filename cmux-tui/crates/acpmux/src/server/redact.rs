@@ -7,9 +7,18 @@ use serde_json::Value;
 /// dashboard link (`webUrl` carries this listener's token) and not the
 /// userinfo, query or fragment of a peer's URL (a user may have written a
 /// peer's token there). The local socket keeps both (`acpmux web`, the app's host).
-pub(super) fn redact_for_remote(reply: &mut Value) {
+pub(super) fn redact_for_remote(method: &str, reply: &mut Value) {
     if let Some(obj) = reply.as_object_mut() {
         obj.remove("webUrl");
+    }
+    // A preset's args, env and system prompt never leave the unix socket
+    // (the Web and the local app alike): `_acpmux/presets` (one or all) and
+    // `_acpmux/harnesses` say only whether a preset has them.
+    match reply.get_mut("presets") {
+        Some(Value::Array(list)) => list.iter_mut().for_each(hide_preset_contents),
+        Some(Value::Object(map)) => map.values_mut().for_each(hide_preset_contents),
+        _ if method == "_acpmux/presets" => hide_preset_contents(reply),
+        _ => {}
     }
     if let Some(peers) = reply.get_mut("peers").and_then(Value::as_array_mut) {
         for peer in peers {
@@ -18,6 +27,11 @@ pub(super) fn redact_for_remote(reply: &mut Value) {
             }
         }
     }
+}
+
+/// A preset view without what shapes the harness command.
+fn hide_preset_contents(preset: &mut Value) {
+    let _ = preset; // RED stub
 }
 
 /// `scheme://user:secret@host/path?q#f` -> `scheme://host/path`.

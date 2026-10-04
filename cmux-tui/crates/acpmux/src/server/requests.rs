@@ -69,7 +69,7 @@ pub(super) async fn handle_request(
     if conn.origin != Origin::Local
         && let Ok(v) = &mut reply
     {
-        super::redact::redact_for_remote(v);
+        super::redact::redact_for_remote(m, v);
     }
     reply
 }
@@ -187,6 +187,11 @@ async fn dispatch_request(
             }
             let cwd = str_param(&params, "cwd").map(PathBuf::from);
             let meta = mux_meta(&params);
+            // The local app starts a preset by its id only: anything that
+            // would shape the harness command from the request is refused.
+            if conn.origin == Origin::LocalApp {
+                local_app_preset_only(&params, meta)?;
+            }
             let adopt =
                 crate::adopt::AdoptRequest::from_meta(meta).map_err(RpcError::invalid_params)?;
             let pick = |key: &str| {
@@ -207,6 +212,7 @@ async fn dispatch_request(
                 model: pick("model"),
                 effort: pick("effort"),
                 adopt,
+                // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin == Origin::Web,
             };
             let s = hub.new_session(req).await?;
@@ -387,6 +393,7 @@ async fn dispatch_request(
                 preset: s("preset"),
                 cwd: s("cwd").map(PathBuf::from),
                 wait: params.get("wait").and_then(Value::as_bool) == Some(true),
+                // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin == Origin::Web,
             })
             .await
@@ -587,7 +594,7 @@ async fn dispatch_request(
                 // REMOTE-FLOOR v3: a remote-origin client builds its settings
                 // from scratch, so it never sets, changes or clears a preset
                 // that shapes the harness command line (args, systemPrompt).
-                // The local app included: only the unix socket shapes a command.
+                // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 let remote = conn.origin != Origin::Local;
                 if remote
                     && (cfg.presets.get(&name).is_some_and(|p| p.shapes_command())
@@ -973,4 +980,15 @@ async fn dispatch_request(
             Err(RpcError::method_not_found(other))
         }
     }
+}
+
+/// Request fields that would shape a preset's harness command. The local
+/// app names a preset by id only (`session/new {preset}`); with a preset,
+/// any of these is refused, like a Web client's preset that shapes one.
+const SHAPING_FIELDS: &[&str] =
+    &["args", "systemPrompt", "system_prompt", "env", "argv", "command", "harness", "harnessCommand"];
+
+fn local_app_preset_only(params: &Value, meta: Option<&Value>) -> Result<(), RpcError> {
+    let _ = (params, meta, SHAPING_FIELDS); // RED stub
+    Ok(())
 }
