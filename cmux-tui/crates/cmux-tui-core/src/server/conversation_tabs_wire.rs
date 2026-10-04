@@ -155,3 +155,7 @@ pub(super) fn set_resource_capabilities(
 #[cfg(test)]
 #[path = "conversation_tabs_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "agent_session_tabs_tests.rs"]
+mod agent_session_tests;
