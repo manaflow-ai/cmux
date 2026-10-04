@@ -85,6 +85,12 @@ impl Ledger {
         }
     }
 
+    /// Forgets every key (a sign-out: no result of the old session replays).
+    pub(crate) fn clear(&mut self) {
+        self.entries.clear();
+        self.order.clear();
+    }
+
     /// Records the result of a successful attempt.
     pub(crate) fn succeed(&mut self, key: &str, result: Value) {
         if let Some(entry) = self.entries.get_mut(key) {

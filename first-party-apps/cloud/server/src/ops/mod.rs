@@ -354,8 +354,18 @@ impl<C: ControlPlane> Server<C> {
         crate::api::events::apply(&mut self.projection, event, data)
     }
 
-    /// Runs one request.
+    /// Runs one request. A signed-out answer also forgets every
+    /// replayable result and every cached link fact of the old session.
     pub fn handle(&mut self, request: &Request) -> Result<Value, CloudError> {
+        let outcome = self.handle_signed(request);
+        if outcome.as_ref().is_err_and(|e| e.code == codes::AUTH_REQUIRED) {
+            self.ledger.clear();
+            self.attach.infos.clear();
+        }
+        outcome
+    }
+
+    fn handle_signed(&mut self, request: &Request) -> Result<Value, CloudError> {
         let Admitted { name, args, key } = admit(request)?;
         let Some(key) = key.as_deref() else {
             return self.run(name, &args, request, None);
