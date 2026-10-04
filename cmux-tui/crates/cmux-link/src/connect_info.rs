@@ -1,6 +1,8 @@
-//! `cloud.machine.connect_info` as `cmux link` uses it
-//! (plans/cmux-next/cloud-client-contract.md section 1.7): the record, its
-//! checks, the cache rules and the mapping of its errors to `link.dial`.
+//! `cloud.machine.connect_info` and `cloud.machine.link_token` as `cmux
+//! link` uses them (plans/cmux-next/cloud-client-contract.md section 1.7,
+//! decision LINK-TOKEN-OP): the record (no token in it), its checks, the
+//! cache rules, the per-attempt token grant and the mapping of their errors
+//! to `link.dial`.
 //!
 //! The link resolves a Cloud host id itself, through the host credential
 //! relay (decision LINK-RESOLVE). The caller passes only the host id; it
@@ -41,7 +43,7 @@ pub struct PeerData {
 }
 
 /// This install's Freestyle tunnel, when it may reach the VM's VPC.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Gateway {
     pub tunnel_id: String,
     pub endpoint: String,
@@ -50,16 +52,47 @@ pub struct Gateway {
     pub allowed_ips: Vec<String>,
 }
 
-/// A single-use link token: one `hello`, never cached.
+/// One `cloud.machine.link_token` result: a fresh token for ONE hello on
+/// one dial attempt (every call mints a new one; never cached or logged).
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LinkToken {
+pub struct LinkTokenGrant {
     pub token: String,
     pub expires_at: String,
+    pub host: String,
+    pub epoch: u64,
+    pub services: Vec<Service>,
 }
 
-impl std::fmt::Debug for LinkToken {
+impl std::fmt::Debug for LinkTokenGrant {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("LinkToken").field("expires_at", &self.expires_at).finish()
+        formatter
+            .debug_struct("LinkTokenGrant")
+            .field("host", &self.host)
+            .field("epoch", &self.epoch)
+            .field("services", &self.services)
+            .field("expires_at", &self.expires_at)
+            .finish_non_exhaustive()
+    }
+}
+
+impl LinkTokenGrant {
+    /// The grant is for `host` and covers `service`.
+    pub fn covers(&self, host: &str, service: Service) -> bool {
+        self.host == host && self.services.contains(&service)
+    }
+}
+
+/// `revision` is a decimal string on the wire; a number is accepted too.
+fn revision<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Wire {
+        Text(String),
+        Number(u64),
+    }
+    match Wire::deserialize(deserializer)? {
+        Wire::Number(number) => Ok(number),
+        Wire::Text(text) => text.parse().map_err(serde::de::Error::custom),
     }
 }
 
@@ -74,8 +107,7 @@ pub struct ConnectInfo {
     #[serde(default)]
     pub gateway: Option<Gateway>,
     pub services: Vec<Service>,
-    #[serde(default)]
-    pub link_token: Option<LinkToken>,
+    #[serde(deserialize_with = "revision")]
     pub revision: u64,
 }
 
@@ -156,8 +188,8 @@ struct Entry {
     fetched_at: Instant,
 }
 
-/// Records by host id, without their tokens: at most [`CACHE_TTL`] old, and
-/// never older than a revision the link has seen announced.
+/// Records by host id: at most [`CACHE_TTL`] old, and never older than a
+/// revision the link has seen announced.
 #[derive(Default)]
 pub struct ConnectInfoCache {
     entries: HashMap<String, Entry>,
@@ -170,19 +202,17 @@ impl ConnectInfoCache {
         (now.saturating_duration_since(entry.fetched_at) <= CACHE_TTL).then_some(&entry.info)
     }
 
-    /// Store `info` (fetched at `now`) without its token and hand the token
-    /// back for its one use. An older revision than the cached one keeps the
-    /// cached peer data.
-    pub fn insert(&mut self, mut info: ConnectInfo, now: Instant) -> Option<LinkToken> {
-        let token = info.link_token.take();
-        let keep_cached = self
-            .entries
-            .get(&info.host)
-            .is_some_and(|cached| cached.info.revision > info.revision);
-        if !keep_cached {
-            self.entries.insert(info.host.clone(), Entry { info, fetched_at: now });
+    /// Store `info`, freshly fetched at `now`, and return the record to use:
+    /// the cached one when it has a newer revision, else `info`. Call it only
+    /// after a real fetch, so a record never lives past [`CACHE_TTL`].
+    pub fn insert(&mut self, info: ConnectInfo, now: Instant) -> ConnectInfo {
+        if let Some(cached) = self.entries.get(&info.host)
+            && cached.info.revision > info.revision
+        {
+            return cached.info.clone();
         }
-        token
+        self.entries.insert(info.host.clone(), Entry { info: info.clone(), fetched_at: now });
+        info
     }
 
     /// A `cloud.machine.upsert` announced `revision` for `host`: a cached

@@ -58,10 +58,13 @@ where
     let line = read_line(&mut stream, MAX_LINE_BYTES)
         .await
         .map_err(|_| HostRefused::Inbound(InboundRefused::BadHello))?;
-    let hello = parse_line::<ServiceHello>(&line)
-        .ok_or(HostRefused::Inbound(InboundRefused::BadHello))?;
+    let hello =
+        parse_line::<ServiceHello>(&line).ok_or(HostRefused::Inbound(InboundRefused::BadHello))?;
     let token = hello.link_token.as_deref().ok_or(HostRefused::Token)?;
-    if hello.epoch.is_none_or(|epoch| epoch < me.epoch) {
+    // The hello, the token and this host must name the same epoch: a
+    // restored or re-bound VM refuses older links, and a stale clone
+    // refuses newer ones.
+    if hello.epoch != Some(me.epoch) {
         return Err(HostRefused::StaleEpoch);
     }
     let expected =

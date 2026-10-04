@@ -7,7 +7,7 @@ use std::sync::Mutex;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use cmux_link::connect_info::{ConnectInfo, ConnectInfoError};
+use cmux_link::connect_info::{ConnectInfo, ConnectInfoError, LinkTokenGrant};
 use cmux_link::dial::PathState;
 use cmux_link::overlay_addr::overlay_address;
 use cmux_link::pairing::Pairings;
@@ -18,15 +18,22 @@ use super::*;
 
 const HOST: &str = "host_vm1";
 
-fn record(token: &str, state: &str, services: &[&str]) -> ConnectInfo {
+fn record(state: &str, services: &[&str]) -> ConnectInfo {
     serde_json::from_value(serde_json::json!({
         "machine": "vm_1", "host": HOST, "epoch": 4, "state": state,
         "peer": {"wg_public_key": STANDARD.encode([9u8; 32]),
                  "overlay_address": overlay_address(HOST).to_string(),
                  "vpc_endpoint": "[fd00::9]:4101"},
         "gateway": null, "services": services,
-        "link_token": {"token": token, "expires_at": "2026-10-05T00:05:00Z"},
-        "revision": 1
+        "revision": "1"
+    }))
+    .unwrap()
+}
+
+fn grant(token: &str, host: &str, services: &[&str]) -> LinkTokenGrant {
+    serde_json::from_value(serde_json::json!({
+        "token": token, "expires_at": "2026-10-05T00:05:00Z",
+        "host": host, "epoch": 4, "services": services
     }))
     .unwrap()
 }
@@ -34,12 +41,19 @@ fn record(token: &str, state: &str, services: &[&str]) -> ConnectInfo {
 #[derive(Default)]
 struct FakeSource {
     answers: Mutex<VecDeque<Result<ConnectInfo, ConnectInfoError>>>,
+    tokens: Mutex<VecDeque<Result<LinkTokenGrant, ConnectInfoError>>>,
     calls: Mutex<usize>,
+    mints: Mutex<usize>,
 }
 
 impl FakeSource {
     fn with(answers: Vec<Result<ConnectInfo, ConnectInfoError>>) -> Self {
-        Self { answers: Mutex::new(answers.into()), calls: Mutex::new(0) }
+        Self { answers: Mutex::new(answers.into()), ..Self::default() }
+    }
+
+    fn tokens(self, tokens: Vec<Result<LinkTokenGrant, ConnectInfoError>>) -> Self {
+        *self.tokens.lock().unwrap() = tokens.into();
+        self
     }
 }
 
@@ -47,6 +61,15 @@ impl ConnectInfoSource for FakeSource {
     async fn fetch(&self, _host: &str) -> Result<ConnectInfo, ConnectInfoError> {
         *self.calls.lock().unwrap() += 1;
         self.answers.lock().unwrap().pop_front().expect("no more connect_info answers")
+    }
+
+    async fn mint_token(
+        &self,
+        _host: &str,
+        _services: &[Service],
+    ) -> Result<LinkTokenGrant, ConnectInfoError> {
+        *self.mints.lock().unwrap() += 1;
+        self.tokens.lock().unwrap().pop_front().expect("no more link tokens")
     }
 }
 
@@ -147,22 +170,28 @@ async fn hello_on(overlay: &CloudOverlay, index: usize) -> String {
     hello
 }
 
+/// connect_info is cached across dials; every dial mints its own token.
 #[tokio::test]
 async fn a_cloud_dial_sends_a_fresh_single_use_token_and_reports_the_path() {
     let overlay: &'static CloudOverlay = Box::leak(Box::default());
     let resolver: &'static CloudResolver<FakeSource> = Box::leak(Box::new(CloudResolver::new(
-        FakeSource::with(vec![
-            Ok(record("t1", "running", &["daemon"])),
-            Ok(record("t2", "running", &["daemon"])),
-        ]),
+        FakeSource::with(vec![Ok(record("running", &["daemon"]))])
+            .tokens(vec![Ok(grant("t1", HOST, &["daemon"])), Ok(grant("t2", HOST, &["daemon"]))]),
     )));
     let reply = spawn_dial(overlay, resolver).await.unwrap();
     assert_eq!(reply, "{\"ok\":true,\"path_state\":\"tunnel\",\"relay_available\":false}\n");
-    assert_eq!(hello_on(overlay, 0).await, "{\"service\":\"daemon\",\"link_token\":\"t1\",\"epoch\":4}\n");
+    assert_eq!(
+        hello_on(overlay, 0).await,
+        "{\"service\":\"daemon\",\"link_token\":\"t1\",\"epoch\":4}\n"
+    );
     // The next dial asks again: a token is used for one hello only.
     spawn_dial(overlay, resolver).await.unwrap();
-    assert_eq!(hello_on(overlay, 0).await, "{\"service\":\"daemon\",\"link_token\":\"t2\",\"epoch\":4}\n");
-    assert_eq!(*resolver.source.calls.lock().unwrap(), 2);
+    assert_eq!(
+        hello_on(overlay, 0).await,
+        "{\"service\":\"daemon\",\"link_token\":\"t2\",\"epoch\":4}\n"
+    );
+    assert_eq!(*resolver.source.calls.lock().unwrap(), 1, "connect_info comes from the cache");
+    assert_eq!(*resolver.source.mints.lock().unwrap(), 2, "one fresh token per dial");
     assert_eq!(overlay.peers.lock().unwrap()[0], (HOST.to_string(), [9u8; 32]));
     assert_eq!(overlay.connects.lock().unwrap()[0].ip(), overlay_address(HOST));
 }
@@ -172,13 +201,14 @@ async fn a_cloud_dial_sends_a_fresh_single_use_token_and_reports_the_path() {
 #[tokio::test]
 async fn a_record_with_a_foreign_overlay_address_is_never_dialed() {
     let overlay = CloudOverlay::default();
-    let mut foreign = record("t1", "running", &["daemon"]);
+    let mut foreign = record("running", &["daemon"]);
     foreign.peer.overlay_address = overlay_address("host_other");
     let resolver = CloudResolver::new(FakeSource::with(vec![Ok(foreign)]));
     let (reply, _) = dial(&overlay, &resolver, HOST, "daemon").await;
     assert!(reply.contains("\"error_code\":\"unreachable\""), "{reply}");
     assert!(overlay.peers.lock().unwrap().is_empty());
     assert!(overlay.connects.lock().unwrap().is_empty());
+    assert_eq!(*resolver.source.mints.lock().unwrap(), 0, "no token for a bad record");
 }
 
 /// RED (security): a service the host's policy does not list is refused
@@ -186,8 +216,7 @@ async fn a_record_with_a_foreign_overlay_address_is_never_dialed() {
 #[tokio::test]
 async fn a_service_the_policy_does_not_allow_is_refused() {
     let overlay = CloudOverlay::default();
-    let resolver =
-        CloudResolver::new(FakeSource::with(vec![Ok(record("t1", "running", &["daemon"]))]));
+    let resolver = CloudResolver::new(FakeSource::with(vec![Ok(record("running", &["daemon"]))]));
     let (reply, _) = dial(&overlay, &resolver, HOST, "ssh").await;
     assert!(reply.contains("\"error_code\":\"not_authorized\""), "{reply}");
     assert!(overlay.connects.lock().unwrap().is_empty());
@@ -198,12 +227,17 @@ async fn a_failed_handshake_refetches_once_then_reports_paused_or_unreachable() 
     for (state, code) in [("paused", "host_paused"), ("running", "unreachable")] {
         let overlay = CloudOverlay { fail: true, ..CloudOverlay::default() };
         let resolver = CloudResolver::new(FakeSource::with(vec![
-            Ok(record("t1", state, &["daemon"])),
-            Ok(record("t2", state, &["daemon"])),
+            Ok(record(state, &["daemon"])),
+            Ok(record(state, &["daemon"])),
         ]));
         let (reply, _) = dial(&overlay, &resolver, HOST, "daemon").await;
         assert!(reply.contains(&format!("\"error_code\":\"{code}\"")), "{state}: {reply}");
         assert_eq!(*resolver.source.calls.lock().unwrap(), 2, "{state}: one refetch");
+        assert_eq!(
+            *resolver.source.mints.lock().unwrap(),
+            0,
+            "{state}: no token without a handshake"
+        );
         assert_eq!(overlay.connects.lock().unwrap().len(), 2, "{state}");
     }
 }
@@ -220,21 +254,27 @@ async fn backend_errors_and_unknown_ids_map_to_dial_errors() {
         let (reply, _) = dial(&overlay, &resolver, HOST, "daemon").await;
         assert!(reply.contains(&format!("\"error_code\":\"{code}\"")), "{reply}");
     }
+    // A token the backend refuses, or one for another host: not authorized.
+    for answer in [Err(ConnectInfoError::Forbidden), Ok(grant("t1", "host_other", &["daemon"]))] {
+        let resolver = CloudResolver::new(
+            FakeSource::with(vec![Ok(record("running", &["daemon"]))]).tokens(vec![answer]),
+        );
+        let (reply, _) = dial(&overlay, &resolver, HOST, "daemon").await;
+        assert!(reply.contains("\"error_code\":\"not_authorized\""), "{reply}");
+    }
     // Neither paired nor a Cloud host id: connect_info is never asked.
+    let untouched = CloudOverlay::default();
     let resolver = CloudResolver::new(FakeSource::default());
-    let (reply, _) = dial(&overlay, &resolver, "inst_unpaired", "daemon").await;
+    let (reply, _) = dial(&untouched, &resolver, "inst_unpaired", "daemon").await;
     assert!(reply.contains("\"error_code\":\"unknown_host\""), "{reply}");
     assert_eq!(*resolver.source.calls.lock().unwrap(), 0);
-    assert!(overlay.connects.lock().unwrap().is_empty());
+    assert!(untouched.connects.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
 async fn removed_and_newer_records_leave_the_cache() {
-    let resolver =
-        CloudResolver::new(FakeSource::with(vec![Ok(record("t1", "running", &["daemon"]))]));
-    let resolved = resolver.resolve(HOST).await.unwrap();
-    assert!(resolved.info.link_token.is_none());
-    assert_eq!(resolved.token.unwrap().token, "t1");
+    let resolver = CloudResolver::new(FakeSource::with(vec![Ok(record("running", &["daemon"]))]));
+    resolver.resolve(HOST, false).await.unwrap();
     assert!(resolver.observe_revision(HOST, 2));
     assert!(!resolver.forget(HOST));
 }
@@ -243,9 +283,8 @@ async fn removed_and_newer_records_leave_the_cache() {
 async fn forwarded_cloud_events_drop_records_and_peers() {
     use cmux_link::dial::{CloudEvent, CloudEventOp, CloudEventRequest};
     let overlay = CloudOverlay::default();
-    let resolver =
-        CloudResolver::new(FakeSource::with(vec![Ok(record("t1", "running", &["daemon"]))]));
-    resolver.resolve(HOST).await.unwrap();
+    let resolver = CloudResolver::new(FakeSource::with(vec![Ok(record("running", &["daemon"]))]));
+    resolver.resolve(HOST, false).await.unwrap();
     let event = |event, revision| CloudEventRequest {
         op: CloudEventOp::CloudEvent,
         event,
@@ -264,8 +303,5 @@ async fn forwarded_cloud_events_drop_records_and_peers() {
 #[tokio::test]
 async fn the_relay_source_is_off_until_the_relay_ships() {
     let resolver = CloudResolver::new(RelaySource);
-    assert!(matches!(
-        resolver.resolve(HOST).await,
-        Err(ConnectInfoError::Unavailable(_))
-    ));
+    assert!(matches!(resolver.resolve(HOST, false).await, Err(ConnectInfoError::Unavailable(_))));
 }

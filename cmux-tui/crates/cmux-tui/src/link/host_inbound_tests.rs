@@ -86,6 +86,11 @@ async fn a_hello_without_a_token_with_an_old_epoch_or_from_another_install_is_re
             HostRefused::StaleEpoch,
         ),
         (
+            "{\"service\":\"daemon\",\"link_token\":\"good\",\"epoch\":5}\n",
+            from("inst_mac"),
+            HostRefused::StaleEpoch,
+        ),
+        (
             "{\"service\":\"daemon\",\"link_token\":\"bad\",\"epoch\":4}\n",
             from("inst_mac"),
             HostRefused::Token,
@@ -114,7 +119,8 @@ async fn a_valid_ssh_hello_reaches_the_loopback_sshd() {
         session_socket: &host.session,
         sshd: host.sshd.local_addr().unwrap(),
     };
-    let task = async { serve_host_inbound(link_side, [5; 32], from("inst_mac"), &GoodToken, &me).await };
+    let task =
+        async { serve_host_inbound(link_side, [5; 32], from("inst_mac"), &GoodToken, &me).await };
     let check = async {
         let (sshd_side, _) = host.sshd.accept().await.unwrap();
         let mut lines = BufReader::new(sshd_side);
@@ -146,14 +152,18 @@ async fn a_valid_daemon_hello_reaches_the_remote_entry_stamped_as_the_token_inst
         session_socket: &host.session,
         sshd: host.sshd.local_addr().unwrap(),
     };
-    let task = async { serve_host_inbound(link_side, [5; 32], from("inst_mac"), &GoodToken, &me).await };
+    let task =
+        async { serve_host_inbound(link_side, [5; 32], from("inst_mac"), &GoodToken, &me).await };
     let check = async {
         let (mut daemon_side, _) = entry.accept().await.unwrap();
         daemon_side.write_all(b"{\"remote_entry\":1}\n").await.unwrap();
         let mut lines = BufReader::new(daemon_side);
         let mut stamp = String::new();
         lines.read_line(&mut stamp).await.unwrap();
-        assert_eq!(stamp, "{\"link_peer\":{\"install\":\"inst_mac\",\"user\":\"42\",\"team\":\"team_a\"}}\n");
+        assert_eq!(
+            stamp,
+            "{\"link_peer\":{\"install\":\"inst_mac\",\"user\":\"42\",\"team\":\"team_a\"}}\n"
+        );
         drop(peer);
     };
     let (result, ()) = tokio::join!(task, check);

@@ -24,12 +24,12 @@
 pub mod caller;
 pub mod connect_info;
 pub mod dial;
-pub mod token;
 pub mod entry_path;
 pub mod overlay_addr;
 pub mod pairing;
 pub mod registration;
 pub mod stamp;
+pub mod token;
 
 /// The overlay TCP port of the link service (transport.md 3.1).
 pub const LINK_PORT: u16 = 4100;
