@@ -154,7 +154,28 @@ pub struct Listener {
 impl Listener {
     /// Binds 127.0.0.1:0 and starts the accept thread.
     pub fn bind(handler: Handler) -> io::Result<Self> {
-        todo!("C5 red: not built yet")
+        let socket = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+        let addr = socket.local_addr()?;
+        let session = Session::new();
+        let shared = session.clone();
+        let thread = std::thread::Builder::new()
+            .name(format!("cmux-cloud-port-{}", addr.port()))
+            .spawn(move || {
+            for incoming in socket.incoming() {
+                if shared.is_closed() {
+                    break;
+                }
+                let Ok(tcp) = incoming else { continue };
+                let handler = Arc::clone(&handler);
+                let session = shared.clone();
+                let spawned = std::thread::Builder::new()
+                    .name("cmux-cloud-conn".into())
+                    .spawn(move || handler(tcp, &session));
+                // No thread: the connection is dropped (closed).
+                drop(spawned);
+            }
+        })?;
+        Ok(Self { addr, session, thread: Some(thread) })
     }
 
     pub fn local_addr(&self) -> SocketAddr {

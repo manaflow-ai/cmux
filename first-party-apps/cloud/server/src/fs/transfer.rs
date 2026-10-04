@@ -52,7 +52,18 @@ impl ScpEndpoint {
     /// Refuses anything but user `cmux` with one valid Ed25519 host key and
     /// an expiry in the future (`now` is Unix seconds).
     pub fn decode(answer: Value, now: i64) -> Result<Self, CloudError> {
-        todo!("C5 red: not built yet")
+        let bad = |why: &str| CloudError::new(codes::BAD_RESPONSE, format!("scp-endpoint: {why}"));
+        let endpoint: Self = serde_json::from_value(answer).map_err(|e| bad(&e.to_string()))?;
+        if endpoint.username != "cmux" || endpoint.port == 0 {
+            return Err(bad("unexpected user or port"));
+        }
+        if !valid_host_key(&endpoint.host_public_key) {
+            return Err(bad("the host key is not one Ed25519 key"));
+        }
+        if endpoint.expires_at_unix <= now {
+            return Err(bad("the transfer grant has already expired"));
+        }
+        Ok(endpoint)
     }
 }
 
@@ -105,8 +116,50 @@ pub(crate) fn run<C: ControlPlane>(
     origin: Origin,
     key: Option<&str>,
 ) -> Result<Value, CloudError> {
-        todo!("C5 red: not built yet")
-    }
+    let direction = if name == "cloud.file.push" { Direction::Push } else { Direction::Pull };
+    let map = args::object(raw, &["machine", "localPath", "path"])?;
+    let machine = args::id(map, "machine")?.to_owned();
+    let local = local_arg(map, "localPath")?;
+    let guest = guest_arg(map, "path")?.literal_for_transfer()?.to_owned();
+    check_local(&local, direction)?;
+    let carrier =
+        crate::link::ops::connect(server, &machine, origin, key.map(|k| format!("{k}/start")))?;
+    let transfer_key = TransferKey::generate()?;
+    // No idempotency key: a retry must authorize its own new key.
+    let answer = server.ctx(name, None).call(
+        "POST",
+        format!("/api/vm/{machine}/scp-endpoint"),
+        Some(json!({ "publicKey": transfer_key.public_openssh() })),
+    )?;
+    let endpoint = ScpEndpoint::decode(answer, now_unix())?;
+    let (edge, _) = server.edge_parts();
+    let handler = edge.forward_handler(&carrier, "localhost", endpoint.port);
+    let mut route = Listener::bind(handler).map_err(|e| {
+        CloudError::new(TRANSFER_FAILED, format!("could not listen on 127.0.0.1: {e}"))
+    })?;
+    let job = TransferJob {
+        machine: machine.clone(),
+        direction,
+        local: local.clone(),
+        guest: guest.clone(),
+        endpoint,
+        route: route.local_addr(),
+    };
+    let result = edge.transfer.run(&job, &transfer_key);
+    route.close();
+    drop(transfer_key);
+    let bytes = result.map_err(|e| CloudError {
+        retryable: e.retryable,
+        ..CloudError::new(TRANSFER_FAILED, e.message)
+    })?;
+    Ok(json!({
+        "ok": true,
+        "machine": machine,
+        "path": guest,
+        "localPath": local.to_string_lossy(),
+        "bytes": bytes,
+    }))
+}
 
 /// Push: the local file exists and is a regular file. Pull: nothing exists
 /// at the local path (no overwrite) and its directory exists.

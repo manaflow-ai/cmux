@@ -24,6 +24,22 @@ impl GuestPath {
     /// or other control character. The text is kept as given (no trim, no
     /// normalization), so the path the caller sees is the path that is used.
     pub fn parse(raw: &str) -> Result<Self, CloudError> {
+        let refuse = |why: &str| Err(CloudError::invalid(format!("path {why}")));
+        if raw.is_empty() {
+            return refuse("is required");
+        }
+        if !raw.starts_with('/') {
+            return refuse("must be absolute (start with /)");
+        }
+        if raw.len() > MAX_PATH_BYTES {
+            return refuse("is longer than 4096 bytes");
+        }
+        if raw.chars().any(char::is_control) {
+            return refuse("must not contain NUL or control characters");
+        }
+        if raw.split('/').any(|segment| segment == "..") {
+            return refuse("must not contain a .. segment");
+        }
         Ok(Self(raw.to_owned()))
     }
 
@@ -60,8 +76,24 @@ pub(crate) fn guest_arg(map: &Map<String, Value>, field: &str) -> Result<GuestPa
 /// A local path on this Mac for a transfer: absolute, only normal segments
 /// (no `.` or `..`), no control characters, at most 4096 bytes.
 pub(crate) fn local_arg(map: &Map<String, Value>, field: &str) -> Result<PathBuf, CloudError> {
-        todo!("C5 red: not built yet")
+    let raw = map
+        .get(field)
+        .and_then(Value::as_str)
+        .ok_or_else(|| CloudError::invalid(format!("{field} is required")))?;
+    let path = Path::new(raw);
+    let normal = path.components().skip(1).all(|c| matches!(c, Component::Normal(_)));
+    let ok = path.is_absolute()
+        && normal
+        && raw.len() <= MAX_PATH_BYTES
+        && !raw.chars().any(char::is_control)
+        && !raw.ends_with('/');
+    if !ok {
+        return Err(CloudError::invalid(format!(
+            "{field} must be an absolute local file path without . or .. segments"
+        )));
     }
+    Ok(path.to_path_buf())
+}
 
 fn percent_encode(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
