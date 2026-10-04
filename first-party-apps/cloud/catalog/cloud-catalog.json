@@ -1981,14 +1981,14 @@
           "ja": "クラウドマシンに接続"
         }
       },
-      "docs": "Open the one private link (carrier) to a machine and return it. A second call while the link is up returns the same carrier and starts no new link. A paused machine is started first. Not a focus change. When the link goes down nothing reconnects by itself and nothing queues: call connect again.",
+      "docs": "Open the one private link (carrier) to a machine and return it. A second call while the link is up returns the same carrier and starts no new link. A paused machine is started first. Not a focus change. When the link goes down nothing reconnects by itself and nothing queues: call connect again, also with the same key: connect is never replayed from the ledger.",
       "since": "cloud/1"
     },
     {
       "name": "cloud.machine.disconnect",
       "owner": "app:cmux/cloud",
       "class": "mutation",
-      "risk": "mutate-own",
+      "risk": "mutate-shared",
       "idempotency": "required",
       "focuses": false,
       "queue_offline": false,
@@ -2040,7 +2040,7 @@
           "ja": "クラウドマシンから切断"
         }
       },
-      "docs": "End the link to a machine and forget it, also after a revocation. The machine keeps running.",
+      "docs": "End the link to a machine and forget it, also after a revocation. Every terminal of that machine on this Mac shows the disconnected state. The machine keeps running.",
       "since": "cloud/1"
     },
     {
@@ -2124,7 +2124,7 @@
           "ja": "クラウド救援シェルを開く"
         }
       },
-      "docs": "Open a shell on a machine whose cmux daemon does not answer (the cmux.terminal.backend/1 rescue kind). The new terminal gets focus only for origin user or focus true. Answers cmux.cloud.unsupported until the cmux Cloud API has an interactive shell route.",
+      "docs": "Open a shell on a machine whose cmux daemon does not answer (the cmux.terminal.backend/1 rescue kind). The new terminal gets focus only for origin user or focus true (focuses stays false: focus is not the op's purpose). Answers cmux.cloud.unsupported until the cmux Cloud API has an interactive shell route.",
       "since": "cloud/1"
     }
   ]

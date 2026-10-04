@@ -9,6 +9,7 @@ use super::spawner::{LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag};
 use crate::connector::iface::{Carrier, CarrierEvent};
 use std::collections::BTreeMap;
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::time::Duration;
 
 pub const CONNECTOR_KIND: &str = "cloud-vm";
 
@@ -42,7 +43,11 @@ pub struct LinkSupervisor {
     next_generation: u64,
     events: Vec<CarrierEvent>,
     spawns: u64,
+    ready_deadline: Duration,
 }
+
+/// The Swift link's bound on the first `connection-snapshot` line.
+pub const READY_DEADLINE: Duration = Duration::from_secs(60);
 
 impl LinkSupervisor {
     pub fn new(spawner: Box<dyn LinkSpawner>) -> Self {
@@ -55,7 +60,14 @@ impl LinkSupervisor {
             next_generation: 0,
             events: Vec::new(),
             spawns: 0,
+            ready_deadline: READY_DEADLINE,
         }
+    }
+
+    /// The bound on the wait for the first ready line (tests use a short one).
+    pub fn with_ready_deadline(mut self, deadline: Duration) -> Self {
+        self.ready_deadline = deadline;
+        self
     }
 
     pub fn state(&self, machine: &str) -> Option<&LinkState> {
@@ -135,10 +147,28 @@ impl LinkSupervisor {
             }
             // The supervisor holds a sender, so this never disconnects; the
             // spawner always ends with an `Exited` event.
-            let Ok(event) = self.receiver.recv() else {
-                return Err(LinkFailure::Down { retryable: true, reason: "no events".into() });
-            };
-            self.apply(event);
+            match self.receiver.recv_timeout(self.ready_deadline) {
+                Ok(event) => self.apply(event),
+                Err(_) => {
+                    // No ready line in time (version skew, a stopped process,
+                    // stdout held open): end the link, report it down.
+                    let reason = format!(
+                        "the link process gave no connection within {} s",
+                        self.ready_deadline.as_secs()
+                    );
+                    self.stop_process(machine);
+                    if let Some(link) = self.links.get_mut(machine) {
+                        link.state = LinkState::Down { retryable: true, reason: reason.clone() };
+                    }
+                    self.events.push(CarrierEvent::Down {
+                        target: machine.to_owned(),
+                        generation: tag.generation,
+                        retryable: true,
+                        reason: reason.clone(),
+                    });
+                    return Err(LinkFailure::Down { retryable: true, reason });
+                }
+            }
         }
     }
 
@@ -229,7 +259,26 @@ impl LinkSupervisor {
         }
     }
 
-    /// Ends every link (sign-out, the app's interface permission revoked).
+    /// Ends every link without a revocation (sign-out): after a new sign-in
+    /// one connect call opens a link again.
+    pub fn disconnect_all(&mut self, reason: &str) {
+        let machines: Vec<String> = self.links.keys().cloned().collect();
+        for machine in machines {
+            self.stop_process(&machine);
+            if let Some(link) = self.links.remove(&machine)
+                && matches!(link.state, LinkState::Connecting | LinkState::Up(_))
+            {
+                self.events.push(CarrierEvent::Down {
+                    target: machine,
+                    generation: link.generation,
+                    retryable: true,
+                    reason: reason.to_owned(),
+                });
+            }
+        }
+    }
+
+    /// Ends every link for good (the app's interface permission revoked).
     pub fn revoke_all(&mut self, reason: &str) {
         let machines: Vec<String> = self.links.keys().cloned().collect();
         for machine in machines {
