@@ -52,7 +52,7 @@ final class WebKitWebView: WKWebView {
 
     /// The renames and the link routing of a WebKit context menu.
     func adjustContextMenu(_ menu: NSMenu) {
-        if let owner { owner.routeLinkMenuItems(in: menu) }
+        if let owner { LinkMenuRoute.install(in: menu, tab: owner) }
         for item in menu.items {
             switch item.identifier?.rawValue {
             case "WKMenuItemIdentifierOpenImageInNewWindow":

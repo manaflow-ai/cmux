@@ -74,4 +74,15 @@ import Testing
         let descriptor = SettingsSchema.descriptor(for: UpdatesSettings.keepPreviousVersionsPath)
         #expect(descriptor?.defaultValue == .number(1))
     }
+
+    /// R114 metered networks: three choices, Low Data Mode by default.
+    @Test func meteredNetwork() throws {
+        #expect(try parse("{}").updates.meteredNetwork == .deferLowData)
+        for value in UpdatesMeteredSetting.allCases {
+            #expect(try parse(#"{"updates": {"meteredNetwork": "\#(value.rawValue)"}}"#).updates.meteredNetwork == value)
+        }
+        let bad = try parse(#"{"updates": {"meteredNetwork": "sometimes"}}"#)
+        #expect(bad.updates.meteredNetwork == .deferLowData)
+        #expect(bad.diagnostics.map(\.path) == ["updates.meteredNetwork"])
+    }
 }

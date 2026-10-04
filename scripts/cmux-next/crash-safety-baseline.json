@@ -45,7 +45,7 @@
    "ghostty-vt": 1
   },
   "unwrap": {
-   "acpmux": 194,
+   "acpmux": 188,
    "chatmux-relay": 8,
    "cmux-link": 6,
    "cmux-pty": 12,
@@ -55,7 +55,7 @@
    "cmux-terminal-client": 27,
    "cmux-tui": 457,
    "cmux-tui-cdp": 30,
-   "cmux-tui-core": 1680,
+   "cmux-tui-core": 1678,
    "cmux-wg": 13,
    "ghostty-vt": 3
   }
@@ -69,7 +69,7 @@
   "assume_isolated": {
    "CmuxNextAgentActivity": 1,
    "CmuxNextAgentPane": 4,
-   "CmuxNextApp": 35,
+   "CmuxNextApp": 34,
    "CmuxNextApps": 9,
    "CmuxNextBrowser": 21,
    "CmuxNextBrowserAutomation": 2,
@@ -82,7 +82,7 @@
    "CmuxNextSidebar": 3,
    "CmuxNextTabs": 7,
    "CmuxNextTasks": 3,
-   "CmuxNextTerminal": 18,
+   "CmuxNextTerminal": 16,
    "CmuxNextWakeups": 1
   },
   "fatal_error": {

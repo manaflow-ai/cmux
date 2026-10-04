@@ -39,7 +39,7 @@ pub(super) struct Inner {
     /// that decides paused requests.
     pub(super) request_filter: Arc<Mutex<Option<crate::driver::RequestFilter>>>,
     /// Paused requests to decide: (session, request id, URL).
-    pub(super) paused: Mutex<mpsc::Sender<(String, String, String)>>,
+    pub(super) paused: Mutex<mpsc::Sender<super::requests::PausedRequest>>,
 }
 
 impl CdpDriver {

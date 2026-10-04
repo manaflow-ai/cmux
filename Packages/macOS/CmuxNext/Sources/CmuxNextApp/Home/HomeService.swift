@@ -25,6 +25,8 @@ final class HomeService {
     @ObservationIgnored var homeWorkspaceTask: Task<Void, Never>?
     /// The last step the home workspace setup reached, for `debug.home`.
     @ObservationIgnored var homeWorkspaceStep = "not started"
+    /// The chief tab creation's idempotency key (one per creation).
+    @ObservationIgnored let chiefTabKey = HomeChiefTabKey()
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
     /// transcript of every conversation tab reads this one store.

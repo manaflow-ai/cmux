@@ -28,6 +28,63 @@ pub struct CefTab {
     cdp_id: String,
 }
 
+/// A session's request filter (its domain policy) and the CEF tabs it
+/// drives, where the filter applies.
+pub struct SessionFilter {
+    filter: crate::driver::RequestFilter,
+    tabs: std::collections::HashSet<String>,
+}
+
+impl ProviderDriver {
+    /// The filter for one CEF tab's relay: every session that drives the tab
+    /// decides each of its requests, named by the app's tab id; any refusal
+    /// blocks. `None` when no session with a filter drives the tab.
+    fn tab_filter(self: &Arc<Self>, app_id: &str) -> Option<crate::driver::RequestFilter> {
+        let any = self
+            .request_filters
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .any(|s| s.tabs.contains(app_id));
+        if !any {
+            return None;
+        }
+        let weak = Arc::downgrade(self);
+        let app_id = app_id.to_owned();
+        // The relay's own ids (the page's CDP target, its frames) never
+        // reach the filters: every request on this relay is the app tab's.
+        Some(Arc::new(move |_cdp_target: &str, url: &str| {
+            let Some(provider) = weak.upgrade() else {
+                return Some("the cmux app disconnected".to_owned());
+            };
+            let filters: Vec<crate::driver::RequestFilter> = provider
+                .request_filters
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .values()
+                .filter(|s| s.tabs.contains(&app_id))
+                .map(|s| s.filter.clone())
+                .collect();
+            filters.iter().find_map(|f| f(&app_id, url))
+        }))
+    }
+
+    /// Re-installs the filters of every attached CEF tab after a session's
+    /// filter or tab set changed.
+    fn sync_tab_filters(self: &Arc<Self>) {
+        let tabs: Vec<(String, Arc<CefTab>)> = self
+            .cef_tabs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .map(|(id, tab)| (id.clone(), tab.clone()))
+            .collect();
+        for (app_id, tab) in tabs {
+            tab.driver.set_request_filter(self.tab_filter(&app_id));
+        }
+    }
+}
+
 /// A session's view of the provider: `engine` is `cef` or `webkit`.
 pub struct ProviderEngine {
     provider: Arc<ProviderDriver>,
@@ -167,7 +224,23 @@ impl ProviderEngine {
             return Err(DriverError::closed(format!("tab {target_id} went away while attaching")));
         }
         tabs.insert(target_id.to_owned(), tab.clone());
+        drop(tabs);
+        tab.driver.set_request_filter(self.provider.tab_filter(target_id));
         Ok(tab)
+    }
+
+    /// The session drives `target_id`: its filter (if any) applies there.
+    fn drive_tab(&self, target_id: &str) {
+        let changed = self
+            .provider
+            .request_filters
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_mut(&self.subscription)
+            .is_some_and(|s| s.tabs.insert(target_id.to_owned()));
+        if changed {
+            self.provider.sync_tab_filters();
+        }
     }
 
     fn call_cef(
@@ -276,6 +349,7 @@ impl Driver for ProviderEngine {
             }
         }
         let result = if engine == "cef" && !matches!(method, "tabs.close" | "tabs.activate") {
+            self.drive_tab(target_id);
             self.call_cef(method, target_id, params)
         } else if let Some(evaluate) = observe {
             // The app's WebKit driver runs it as its agent-world evaluate.
@@ -296,6 +370,31 @@ impl Driver for ProviderEngine {
         self.release_session();
     }
 
+    /// CEF tabs take the session's filter on their relays (for the tabs the
+    /// session drives); WebKit provider tabs cannot filter yet, so the gate
+    /// fails closed there.
+    fn set_request_filter(&self, filter: Option<crate::driver::RequestFilter>) -> bool {
+        if self.engine != "cef" {
+            return false;
+        }
+        {
+            let mut filters =
+                self.provider.request_filters.lock().unwrap_or_else(PoisonError::into_inner);
+            match filter {
+                Some(filter) => {
+                    let tabs =
+                        filters.remove(&self.subscription).map(|s| s.tabs).unwrap_or_default();
+                    filters.insert(self.subscription, SessionFilter { filter, tabs });
+                }
+                None => {
+                    filters.remove(&self.subscription);
+                }
+            }
+        }
+        self.provider.sync_tab_filters();
+        true
+    }
+
     fn capabilities(&self) -> Vec<&'static str> {
         if self.engine == "cef" { vec!["cdp"] } else { self.provider.capabilities() }
     }
@@ -307,6 +406,16 @@ impl ProviderEngine {
     fn release_session(&self) {
         if !self.ended.swap(true, std::sync::atomic::Ordering::SeqCst) {
             let _ = self.provider.lease(&LeaseOp::SessionEnd, &self.lease);
+            let removed = self
+                .provider
+                .request_filters
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .remove(&self.subscription)
+                .is_some();
+            if removed {
+                self.provider.sync_tab_filters();
+            }
         }
     }
 }
@@ -515,6 +624,54 @@ mod tests {
         drop(first);
         second.call("tab.info", &json!({"targetId": "W"})).unwrap();
         assert_eq!(leases(&app, "W").last().unwrap(), &None, "session end clears the badge");
+    }
+
+    #[test]
+    fn request_filters_apply_per_app_tab_on_cef_relays() {
+        let (app, provider) =
+            FakeApp::start(vec![tab("C", "cef"), tab("D", "cef"), tab("W", "webkit")]);
+        app.access(&provider, "C");
+        app.access(&provider, "D");
+        let a = session(&provider, "cef", "a");
+        let b = session(&provider, "cef", "b");
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let record = seen.clone();
+        let filter: crate::driver::RequestFilter = Arc::new(move |target: &str, url: &str| {
+            record.lock().unwrap().push(target.to_owned());
+            url.contains("evil.test").then(|| "prohibited by evil.test".to_owned())
+        });
+        assert!(a.set_request_filter(Some(filter)), "CEF relays enforce a session's filter");
+        a.call("tab.info", &json!({"targetId": "C", "timeoutMs": 5000})).unwrap();
+        b.call("tab.info", &json!({"targetId": "D", "timeoutMs": 5000})).unwrap();
+        // Session a's policy applies to the tab it drives, not to b's.
+        assert!(app.cdp_messages("C").iter().any(|m| m["method"] == "Fetch.enable"));
+        assert!(!app.cdp_messages("D").iter().any(|m| m["method"] == "Fetch.enable"));
+        app.send(Frame::Cdp {
+            target_id: "C".into(),
+            message: json!({"method": "Fetch.requestPaused", "params": {"requestId": "r1", "request": {"url": "https://evil.test/x"}}}).to_string(),
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !app
+            .cdp_messages("C")
+            .iter()
+            .any(|m| m["method"] == "Fetch.failRequest" && m["params"]["requestId"] == "r1")
+        {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the request was not blocked: {:?}",
+                app.cdp_messages("C")
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        // The filter is keyed by the app's tab id, never the page's CDP id.
+        assert_eq!(*seen.lock().unwrap(), vec!["C".to_owned()]);
+        // The session's end removes its filter from the tab.
+        drop(a);
+        let _ = b.call("tab.info", &json!({"targetId": "D", "timeoutMs": 5000}));
+        assert!(app.cdp_messages("C").iter().any(|m| m["method"] == "Fetch.disable"));
+        // WebKit tabs cannot take a filter yet: the gate fails closed.
+        let w = session(&provider, "webkit", "w");
+        assert!(!w.set_request_filter(Some(Arc::new(|_: &str, _: &str| None))));
     }
 
     #[test]
