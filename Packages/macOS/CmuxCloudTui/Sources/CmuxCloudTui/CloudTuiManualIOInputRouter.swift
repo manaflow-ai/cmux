@@ -58,6 +58,11 @@ public final class CloudTuiManualIOInputRouter: @unchecked Sendable {
             // them is safer than delivering input to a reused surface slot;
             // subsequent keystrokes are encoded for the new ID.
             pendingLines.removeAll(keepingCapacity: true)
+            // A deferred byte flush may still be queued behind this update.
+            // Drop those bytes with the old generation as well; otherwise the
+            // flush would encode them using the replacement surface ID.
+            pendingByteInput.removeAll(keepingCapacity: true)
+            byteFlushScheduled = false
             pendingByteCount = 0
         }
     }
