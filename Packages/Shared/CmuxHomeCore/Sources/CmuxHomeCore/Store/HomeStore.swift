@@ -185,6 +185,25 @@ public final class HomeStore {
         try await perform(entry.intent.op)
     }
 
+    /// Cancels a send that has not reached the owner: stops its uploads
+    /// (the source's upload task is cancelled), drops the row and makes the
+    /// pending `send` throw `CancellationError`. Works for an upload in
+    /// flight, one waiting for a reconnect, and a "Not Delivered" send.
+    /// Returns false when there is nothing to cancel: an unknown key, or a
+    /// send already submitted to the owner (it commits or fails on its own).
+    @discardableResult
+    public func cancelSend(_ key: IdempotencyKey) -> Bool {
+        guard let entry = log.entries.first(where: { $0.intent.key == key }),
+              case .sendMessage = entry.intent.op else { return false }
+        let failed = if case .failed = entry.state { true } else { false }
+        guard entry.isUploading || failed else { return false }
+        uploads[key]?.task?.cancel()
+        uploads[key] = nil
+        log.discard(key)
+        afterLogChange(entry.intent.op)
+        return true
+    }
+
     public func discardFailed(_ key: IdempotencyKey) {
         guard let entry = log.entries.first(where: { $0.intent.key == key }),
               case .failed = entry.state else { return }
@@ -323,31 +342,54 @@ public final class HomeStore {
     }
 
     /// Uploads the missing attachments of a logged send, then submits it.
-    /// An `unknown_attachment` refusal (the owner swept the upload before
-    /// the send arrived) uploads everything again and resends once under a
-    /// new key; a second one leaves the row "Not Delivered".
+    /// An interrupted upload (`ownerUnreachable`, `indeterminate`) keeps
+    /// the row "sending" like a text send without an answer: it uploads
+    /// again at once when the connection stayed up (once), else on the next
+    /// reconnect, and throws `HomeSendState.pendingResend`. An
+    /// `unknown_attachment` refusal (the owner swept the upload before the
+    /// send arrived) uploads everything again and resends once under a new
+    /// key; a second one leaves the row "Not Delivered". Throws
+    /// `CancellationError` when `cancelSend` stopped it or its conversation
+    /// left the inbox.
     private func uploadAndSubmit(_ first: IdempotencyKey) async throws {
         var key = first
         var uploadedAgain = false
         while true {
-            guard var job = uploads[key] else { return }
+            // One pass at a time per send (a reconnect may race a retry).
+            guard var job = uploads[key], job.task == nil else { return }
+            job.attempt += 1
+            job.waitingForReconnect = false
             job.active = true
             let uploaded = job.uploaded
             job.progress = Dictionary(uniqueKeysWithValues: job.attachments.map {
                 ($0.ref.hash, uploaded.contains($0.ref.hash) ? 1.0 : 0.0)
             })
+            let attempt = job.attempt
+            let task = Task { [weak self] () -> HomeRejection? in
+                await self?.uploadMissing(of: key, attempt: attempt)
+            }
+            job.task = task
             uploads[key] = job
             bumpTranscript(job.conversation)
 
-            let failure = await uploadMissing(of: key)
-            // The send may have left the log meanwhile (its conversation left the inbox).
-            guard let entry = log.entries.first(where: { $0.intent.key == key }) else {
-                uploads[key] = nil
-                return
+            let failure = await task.value
+            guard let entry = log.entries.first(where: { $0.intent.key == key }), uploads[key]?.attempt == attempt else {
+                if !log.entries.contains(where: { $0.intent.key == key }) { uploads[key] = nil }
+                throw CancellationError()
             }
+            uploads[key]?.task = nil
             uploads[key]?.active = false
             uploads[key]?.progress = [:]
             if let failure {
+                if failure == .ownerUnreachable || failure == .indeterminate {
+                    if isOnline, uploads[key]?.resumedImmediately == false {
+                        uploads[key]?.resumedImmediately = true
+                        continue
+                    }
+                    uploads[key]?.waitingForReconnect = true
+                    afterLogChange(entry.intent.op)
+                    throw HomeSendState.pendingResend
+                }
                 log.setUploading(key, false)
                 log.fail(key, failure)
                 afterLogChange(entry.intent.op)
@@ -372,6 +414,18 @@ public final class HomeStore {
                 afterLogChange(op)
                 key = next
             }
+        }
+    }
+
+    /// Uploads again every send whose upload a disconnect interrupted, in
+    /// log order.
+    private func resumeInterruptedUploads() {
+        for entry in log.entries {
+            let key = entry.intent.key
+            guard uploads[key]?.waitingForReconnect == true else { continue }
+            uploads[key]?.waitingForReconnect = false
+            uploads[key]?.resumedImmediately = false
+            Task { try? await self.uploadAndSubmit(key) }
         }
     }
 
@@ -402,7 +456,7 @@ public final class HomeStore {
 
     /// Uploads, at most `uploadConcurrency` at once, every attachment of the
     /// job not uploaded yet. Successes count even when another one fails.
-    private func uploadMissing(of key: IdempotencyKey) async -> HomeRejection? {
+    private func uploadMissing(of key: IdempotencyKey, attempt: Int) async -> HomeRejection? {
         guard let job = uploads[key] else { return nil }
         let pending = job.attachments.filter { !job.uploaded.contains($0.ref.hash) }
         let source = self.source
@@ -414,7 +468,7 @@ public final class HomeStore {
                 let hash = attachment.ref.hash
                 let upload = AttachmentUpload(conversation: conversation, fileURL: attachment.fileURL, ref: attachment.ref,
                                               posterURL: attachment.posterURL) { [weak self] fraction in
-                    Task { @MainActor [weak self] in self?.uploadProgressed(key, hash: hash, fraction) }
+                    Task { @MainActor [weak self] in self?.uploadProgressed(key, attempt: attempt, hash: hash, fraction) }
                 }
                 group.addTask {
                     do { return (hash, .success(try await source.upload(upload))) } catch { return (hash, .failure(error)) }
@@ -422,6 +476,7 @@ public final class HomeStore {
             }
             for _ in 0..<Self.uploadConcurrency { if let attachment = next.next() { add(attachment) } }
             for await (hash, result) in group {
+                guard uploads[key]?.attempt == attempt else { continue } // cancelled
                 switch result {
                 case .success(let stored) where stored.hash == hash:
                     uploads[key]?.uploaded.insert(hash)
@@ -439,8 +494,10 @@ public final class HomeStore {
         return failure
     }
 
-    private func uploadProgressed(_ key: IdempotencyKey, hash: String, _ fraction: Double) {
-        guard let job = uploads[key], job.active, !job.uploaded.contains(hash) else { return }
+    /// Ignores callbacks of an ended pass (a late callback after a failure,
+    /// or from an earlier attempt during a retry).
+    private func uploadProgressed(_ key: IdempotencyKey, attempt: Int, hash: String, _ fraction: Double) {
+        guard let job = uploads[key], job.active, job.attempt == attempt, !job.uploaded.contains(hash) else { return }
         let value = min(max(fraction, 0), 1)
         let current = job.progress[hash] ?? 0
         // Forward only, and skip changes a progress ring cannot show.
@@ -514,6 +571,7 @@ public final class HomeStore {
             }
             if state == .online, !wasOnline {
                 enqueueResends(log.takeResends())
+                resumeInterruptedUploads()
                 for stream in mirror.stale { scheduleRefetch(stream) }
             }
             rebuildRows()
@@ -613,6 +671,14 @@ public final class HomeStore {
         var active = false
         /// True once `message.send` went to the owner: a retry then needs a new key.
         var reachedOwner = false
+        /// Counts upload passes; callbacks of an earlier pass are ignored.
+        var attempt = 0
+        /// The running pass (cancelled by `cancelSend`).
+        var task: Task<HomeRejection?, Never>?
+        /// A disconnect interrupted the last pass: the next reconnect resumes it.
+        var waitingForReconnect = false
+        /// The pass after an interruption already ran without a reconnect.
+        var resumedImmediately = false
     }
 
     private func rebuildRows() {
