@@ -297,7 +297,20 @@ impl<C: ControlPlane> Server<C> {
     /// Wakes the serve loop after each link event and each transfer end.
     pub(crate) fn set_wake(&mut self, wake: crate::link::LinkWake) {
         self.attach.supervisor_mut().set_wake(Arc::clone(&wake));
-        self.edge.transfers.set_wake(wake);
+        self.edge.transfers.set_wake(Arc::clone(&wake));
+        self.edge.file_jobs.set_wake(wake);
+    }
+
+    /// Records the end of a file op that ran on a worker under `key`: a
+    /// result is replayed for a same-key retry; refused arguments free the
+    /// key; any other error leaves the attempt open (a retry runs again).
+    pub(crate) fn settle_key(&mut self, key: Option<&str>, outcome: &Result<Value, CloudError>) {
+        let Some(key) = key else { return };
+        match outcome {
+            Ok(result) => self.ledger.succeed(key, result.clone()),
+            Err(error) if error.code == codes::INVALID_ARGS => self.ledger.forget(key),
+            Err(_) => {}
+        }
     }
 
     /// Forwards and routes closed by link state since the last call.
@@ -333,6 +346,11 @@ impl<C: ControlPlane> Server<C> {
     /// `cloud.machine.removed`; other Cloud events change no machine) to
     /// the projection by revision (`crate::api::events`).
     pub fn team_event(&mut self, event: &str, data: &Value) -> Result<(), CloudError> {
+        // Any change of a machine record may change its link facts.
+        let machine = data["machine"].as_str().or_else(|| data["machine"]["id"].as_str());
+        if let Some(machine) = machine {
+            self.attach.infos.forget(machine);
+        }
         crate::api::events::apply(&mut self.projection, event, data)
     }
 

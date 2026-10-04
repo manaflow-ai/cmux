@@ -81,7 +81,8 @@ fn stat(host: &Host, id: &str, path: &str) {
 /// The result line of op `id` within `wait`, other lines skipped.
 fn result_within(host: &mut Host, id: &str, wait: Duration) -> Option<Value> {
     let until = std::time::Instant::now() + wait;
-    while let Some(line) = host.next_within(until.saturating_duration_since(std::time::Instant::now()))
+    while let Some(line) =
+        host.next_within(until.saturating_duration_since(std::time::Instant::now()))
     {
         if line["type"] == "result" && line["id"] == id {
             return Some(line);

@@ -2,7 +2,7 @@
 //! (super::link_files: the `fs-v1` gate and the daemon call). The op
 //! shapes the Cloud page uses stay; each maps to one finder `fs.*` op.
 
-use super::link_files;
+use super::link_files::{self, Daemon};
 use super::path::{GuestPath, guest_arg};
 use super::{FILE_TOO_LARGE, MAX_READ_BYTES, MAX_WRITE_BYTES};
 use crate::api::{CloudError, ControlPlane, args, codes};
@@ -65,14 +65,8 @@ fn too_large(what: &str, size: u64, bound: usize) -> CloudError {
     CloudError::new(FILE_TOO_LARGE, format!("{what} is {size} bytes; the limit is {bound} bytes"))
 }
 
-pub(crate) fn list<C: ControlPlane>(
-    server: &mut Server<C>,
-    machine: &str,
-    path: &GuestPath,
-) -> Result<Vec<Entry>, CloudError> {
-    let page = link_files::call(
-        server,
-        machine,
+pub(crate) fn list(d: &Daemon, path: &GuestPath) -> Result<Vec<Entry>, CloudError> {
+    let page = d.call(
         "fs.list",
         // The daemon hides dotfiles unless asked (decision D5c); the Cloud
         // explorer shows them.
@@ -82,12 +76,8 @@ pub(crate) fn list<C: ControlPlane>(
     Ok(entries.iter().map(Entry::from_daemon).collect())
 }
 
-pub(crate) fn stat<C: ControlPlane>(
-    server: &mut Server<C>,
-    machine: &str,
-    path: &GuestPath,
-) -> Result<Entry, CloudError> {
-    let answer = link_files::call(server, machine, "fs.stat", json!({ "path": path.as_str() }))?;
+pub(crate) fn stat(d: &Daemon, path: &GuestPath) -> Result<Entry, CloudError> {
+    let answer = d.call("fs.stat", json!({ "path": path.as_str() }))?;
     let mut entry = Entry::from_daemon(&answer);
     entry.path = Some(path.as_str().to_owned());
     Ok(entry)
@@ -122,9 +112,8 @@ pub(crate) fn range_ok(len: u64, want: u64, more: bool) -> bool {
 /// ranges. Returns the bytes and whether the file has more after them. An
 /// answer longer than asked, or empty while it says there is more, is a
 /// protocol break (never a loop).
-pub(crate) fn read_range<C: ControlPlane>(
-    server: &mut Server<C>,
-    machine: &str,
+pub(crate) fn read_range(
+    d: &Daemon,
     path: &GuestPath,
     offset: u64,
     limit: u64,
@@ -134,7 +123,7 @@ pub(crate) fn read_range<C: ControlPlane>(
         let got = bytes.len() as u64;
         let want = READ_CHUNK_BYTES.min(limit - got);
         let params = json!({ "path": path.as_str(), "offset": offset + got, "max_bytes": want });
-        let answer = link_files::call(server, machine, "fs.read", params)?;
+        let answer = d.call("fs.read", params)?;
         let chunk = read_bytes(&answer)?;
         let more = answer["truncated"].as_bool() == Some(true);
         if !range_ok(chunk.len() as u64, want, more) {
@@ -153,19 +142,15 @@ pub(crate) fn read_range<C: ControlPlane>(
 /// Reads a whole file of at most [`MAX_READ_BYTES`]. A stat comes first, so
 /// a large file is refused before its bytes cross the link; a file that
 /// grew past the bound meanwhile is refused too.
-pub(crate) fn read<C: ControlPlane>(
-    server: &mut Server<C>,
-    machine: &str,
-    path: &GuestPath,
-) -> Result<Vec<u8>, CloudError> {
-    let entry = stat(server, machine, path)?;
+pub(crate) fn read(d: &Daemon, path: &GuestPath) -> Result<Vec<u8>, CloudError> {
+    let entry = stat(d, path)?;
     if entry.kind == "directory" {
         return Err(CloudError::invalid(format!("{} is a directory", path.as_str())));
     }
     if let Some(size) = entry.size.filter(|s| *s > MAX_READ_BYTES as u64) {
         return Err(too_large(path.as_str(), size, MAX_READ_BYTES));
     }
-    let (bytes, more) = read_range(server, machine, path, 0, MAX_READ_BYTES as u64)?;
+    let (bytes, more) = read_range(d, path, 0, MAX_READ_BYTES as u64)?;
     if more {
         return Err(too_large(path.as_str(), MAX_READ_BYTES as u64 + 1, MAX_READ_BYTES));
     }
@@ -174,9 +159,8 @@ pub(crate) fn read<C: ControlPlane>(
 
 /// Writes a whole file (atomic on the daemon). With `base_revision` the
 /// write replaces only that revision (`fs.revision_mismatch` otherwise).
-pub(crate) fn write<C: ControlPlane>(
-    server: &mut Server<C>,
-    machine: &str,
+pub(crate) fn write(
+    d: &Daemon,
     path: &GuestPath,
     bytes: &[u8],
     base_revision: Option<&str>,
@@ -192,7 +176,7 @@ pub(crate) fn write<C: ControlPlane>(
         }
         None => params["mode"] = json!("overwrite"),
     }
-    let answer = link_files::call(server, machine, "fs.write", params)?;
+    let answer = d.call("fs.write", params)?;
     Ok(answer["entry"]["revision"].as_str().map(str::to_owned))
 }
 
@@ -207,31 +191,27 @@ fn parent_and_name(path: &GuestPath) -> Result<(String, String), CloudError> {
     }
 }
 
-pub(crate) fn mkdir<C: ControlPlane>(
-    server: &mut Server<C>,
-    machine: &str,
-    path: &GuestPath,
-) -> Result<(), CloudError> {
+pub(crate) fn mkdir(d: &Daemon, path: &GuestPath) -> Result<(), CloudError> {
     let (parent, name) = parent_and_name(path)?;
-    link_files::call(server, machine, "fs.mkdir", json!({ "path": parent, "name": name }))?;
+    d.call("fs.mkdir", json!({ "path": parent, "name": name }))?;
     Ok(())
 }
 
-pub(crate) fn remove<C: ControlPlane>(
-    server: &mut Server<C>,
-    machine: &str,
-    path: &GuestPath,
-) -> Result<(), CloudError> {
+pub(crate) fn remove(d: &Daemon, path: &GuestPath) -> Result<(), CloudError> {
     let params = json!({ "paths": [path.as_str()], "permanent": true });
-    link_files::call(server, machine, "fs.delete", params)?;
+    d.call("fs.delete", params)?;
     Ok(())
 }
 
-/// The catalog ops `cloud.fs.list|stat|read|write|mkdir|remove`.
+/// The catalog ops `cloud.fs.list|stat|read|write|mkdir|remove`. Arguments
+/// and the `fs-v1` gate are checked on the loop; the daemon work runs as
+/// one file job (super::jobs: on a worker in the serve loop, inline for
+/// direct callers).
 pub(crate) fn run<C: ControlPlane>(
     server: &mut Server<C>,
     name: &str,
     raw: &Value,
+    key: Option<&str>,
 ) -> Result<Value, CloudError> {
     let allowed: &[&str] = match name {
         "cloud.fs.write" => &["machine", "path", "dataBase64", "mode", "baseRevision"],
@@ -239,34 +219,39 @@ pub(crate) fn run<C: ControlPlane>(
     };
     let map = args::object(raw, allowed)?;
     let machine = args::id(map, "machine")?.to_owned();
-    let machine = machine.as_str();
     let path = guest_arg(map, "path")?;
-    match name {
-        "cloud.fs.list" => {
-            Ok(json!({ "path": path.as_str(), "entries": list(server, machine, &path)? }))
-        }
-        "cloud.fs.stat" => Ok(json!(stat(server, machine, &path)?)),
+    let write_data = match name {
+        "cloud.fs.write" => Some(write_args(map)?),
+        "cloud.fs.list" | "cloud.fs.stat" | "cloud.fs.read" | "cloud.fs.mkdir"
+        | "cloud.fs.remove" => None,
+        _ => return Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
+    };
+    let daemon = link_files::daemon(server, &machine)?;
+    let name = name.to_owned();
+    let work: super::jobs::Work = Box::new(move |d: &Daemon| match name.as_str() {
+        "cloud.fs.list" => Ok(json!({ "path": path.as_str(), "entries": list(d, &path)? })),
+        "cloud.fs.stat" => Ok(json!(stat(d, &path)?)),
         "cloud.fs.read" => {
-            let bytes = read(server, machine, &path)?;
+            let bytes = read(d, &path)?;
             Ok(json!({ "path": path.as_str(), "dataBase64": STANDARD.encode(&bytes),
                 "size": bytes.len() }))
         }
         "cloud.fs.write" => {
-            let (bytes, base) = write_args(map)?;
-            let revision = write(server, machine, &path, &bytes, base.as_deref())?;
+            let (bytes, base) = write_data.unwrap_or_default();
+            let revision = write(d, &path, &bytes, base.as_deref())?;
             Ok(json!({ "ok": true, "path": path.as_str(), "size": bytes.len(),
                 "revision": revision }))
         }
         "cloud.fs.mkdir" => {
-            mkdir(server, machine, &path)?;
+            mkdir(d, &path)?;
             Ok(json!({ "ok": true, "path": path.as_str() }))
         }
-        "cloud.fs.remove" => {
-            remove(server, machine, &path)?;
+        _ => {
+            remove(d, &path)?;
             Ok(json!({ "ok": true, "path": path.as_str() }))
         }
-        _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
-    }
+    });
+    super::jobs::submit(server, daemon, key, work)
 }
 
 fn write_args(map: &Map<String, Value>) -> Result<(Vec<u8>, Option<String>), CloudError> {

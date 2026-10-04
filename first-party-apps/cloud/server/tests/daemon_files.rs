@@ -60,12 +60,16 @@ printf '%s\n' '{"id":1,"ok":true,"data":{"entry":{"revision":"s2-m1"}}}'"#;
 fn a_refused_dial_and_a_missing_reply_line_are_typed() {
     let refused = r#"printf '%s\n' '{"ok":false,"error_code":"host_paused","path_state":"unreachable","relay_available":false}' >&2; exit 4"#;
     let (target, _) = sh_target(refused, "refused");
-    let err = LinkDaemonFiles.call(&target, "fs.stat", json!({ "path": "/a" }), &Cancel::default()).unwrap_err();
+    let err = LinkDaemonFiles
+        .call(&target, "fs.stat", json!({ "path": "/a" }), &Cancel::default())
+        .unwrap_err();
     assert_eq!(err.code, "cmux.cloud.link_down");
     assert!(err.message.contains("host_paused"), "{}", err.message);
     let silent = "exit 6";
     let (target, _) = sh_target(silent, "silent");
-    let err = LinkDaemonFiles.call(&target, "fs.stat", json!({ "path": "/a" }), &Cancel::default()).unwrap_err();
+    let err = LinkDaemonFiles
+        .call(&target, "fs.stat", json!({ "path": "/a" }), &Cancel::default())
+        .unwrap_err();
     assert!(err.retryable, "a link that is not running is retryable");
 }
 

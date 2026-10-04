@@ -63,6 +63,10 @@ impl<C: ControlPlane> Server<C> {
                 });
                 None
             }
+            (Err(error), _) if error.code == crate::fs::jobs::FILE_WAIT => {
+                // A file op: its worker answers later (take_settled).
+                self.edge_parts().0.file_jobs.start(id.clone()).err().map(Err)
+            }
             (Err(error), _) if error.code == LINK_WAIT => Some(Err(CloudError {
                 retryable: true,
                 ..CloudError::new(LINK_UNAVAILABLE, "the link is connecting")
@@ -80,6 +84,11 @@ impl<C: ControlPlane> Server<C> {
         attach.drain_link_events();
         let parked = std::mem::take(&mut attach.parked_ops);
         let mut settled = Vec::new();
+        // File ops whose worker ended: their result, and the key's ledger row.
+        for (id, key, outcome) in self.edge_parts().0.file_jobs.take_done() {
+            self.settle_key(key.as_deref(), &outcome);
+            settled.push((id, outcome));
+        }
         for mut op in parked {
             let supervisor = &self.attach().supervisor;
             if let Some(newer) = supervisor.connecting(&op.machine)

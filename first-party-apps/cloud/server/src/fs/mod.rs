@@ -5,6 +5,7 @@
 
 pub mod cancel;
 pub mod files;
+pub(crate) mod jobs;
 pub mod link_files;
 pub mod path;
 pub mod provider;
@@ -35,6 +36,11 @@ pub const MAX_WRITE_BYTES: usize = 12 * 1024 * 1024;
 /// File ops that may run at once (each on its own worker).
 pub const MAX_FILE_OPS: usize = 8;
 
+/// More than [`MAX_FILE_OPS`] file ops run: retry when one ends.
+pub const FILE_OPS_BUSY: &str = "cmux.cloud.file_ops_busy";
+/// A file op that was cancelled (its client went away).
+pub const FILE_OP_CANCELLED: &str = "cmux.cloud.file_op_cancelled";
+
 pub const FILE_TOO_LARGE: &str = "cmux.cloud.file_too_large";
 
 /// Ops whose answer is live transfer state: never replayed from the ledger.
@@ -62,6 +68,5 @@ pub(crate) fn run<C: ControlPlane>(
     if name.starts_with("cloud.file.") {
         return transfer::run(server, name, raw, origin, key);
     }
-    let _ = key; // file ops are daemon ops: no backend key
-    files::run(server, name, raw)
+    files::run(server, name, raw, key)
 }

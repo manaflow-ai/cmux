@@ -69,6 +69,8 @@ pub struct Edge {
     pub(crate) transfer: Arc<dyn Transfer>,
     /// File ops on the machines' daemons (crate::fs::link_files).
     pub(crate) files: Arc<dyn crate::fs::DaemonFiles>,
+    /// File ops running on workers (crate::fs::jobs); the loop is the only writer.
+    pub(crate) file_jobs: crate::fs::jobs::FileJobs,
     /// Running file transfers (crate::fs::running); the loop is the only writer.
     pub(crate) transfers: crate::fs::running::Transfers,
     pub(crate) forwards: BTreeMap<(String, u16), Forward>,
@@ -94,6 +96,7 @@ impl Edge {
             tunnel,
             transfer: Arc::from(transfer),
             files: Arc::new(crate::fs::LinkDaemonFiles),
+            file_jobs: crate::fs::jobs::FileJobs::default(),
             transfers: crate::fs::running::Transfers::new(),
             forwards: BTreeMap::new(),
             proxies: BTreeMap::new(),

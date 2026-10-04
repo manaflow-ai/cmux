@@ -323,6 +323,8 @@ fn ensure_running<C: ControlPlane>(
             .origin(origin)
             .key(start_key);
         server.handle(&start)?;
+        // The machine's state changed: read its link facts again.
+        server.attach_mut().infos.forget(machine);
     }
     Ok(())
 }
