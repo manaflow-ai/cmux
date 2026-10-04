@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298. */
+/* cmux-tui mux protocol 12, IR 043ac4fba4148da3b14ad1c988ae40f0114cf3e8e66f407455ec16931eb3799b. */
 
 
 import type * as T from "./types.js";
@@ -510,8 +510,10 @@ export type NewPaneResult = T.SurfaceResult;
 export interface NewPaneRightRequest extends CmuxRequestBase {
   cmd: "new-pane-right";
   "cols"?: (number) | null;
+  "kind"?: (T.PaneKind) | null;
   "pane": T.Id;
   "rows"?: (number) | null;
+  "url"?: (string) | null;
   "width"?: (number) | null;
 }
 export type NewPaneRightResult = T.SurfaceResult;
@@ -967,8 +969,10 @@ export interface SplitRequest extends CmuxRequestBase {
   cmd: "split";
   "cols"?: (number) | null;
   "dir": T.SplitDirection;
+  "kind"?: (T.PaneKind) | null;
   "pane": T.Id;
   "rows"?: (number) | null;
+  "url"?: (string) | null;
 }
 export type SplitResult = T.SurfaceResult;
 

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298";
+inline constexpr std::string_view kProtocolIrSha256 = "043ac4fba4148da3b14ad1c988ae40f0114cf3e8e66f407455ec16931eb3799b";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -82,6 +82,7 @@ struct NotificationMarker;
 struct NotifyResult;
 struct Pane;
 enum class PaneDirection;
+enum class PaneKind;
 struct PaneNeighborResult;
 struct PingResult;
 struct ProcessInfoResult;
@@ -1803,10 +1804,17 @@ struct NewPaneRequest {
     friend bool operator==(const NewPaneRequest&, const NewPaneRequest&) = default;
 };
 
+enum class PaneKind {
+    pty,
+    browser,
+};
+
 struct NewPaneRightRequest {
     Field<std::uint16_t> cols{};
+    Field<PaneKind> kind{};
     Id pane{};
     Field<std::uint16_t> rows{};
+    Field<std::string> url{};
     Field<float> width{};
     friend bool operator==(const NewPaneRightRequest&, const NewPaneRightRequest&) = default;
 };
@@ -2665,8 +2673,10 @@ struct SizeStateEvent {
 struct SplitRequest {
     Field<std::uint16_t> cols{};
     SplitDirection dir{};
+    Field<PaneKind> kind{};
     Id pane{};
     Field<std::uint16_t> rows{};
+    Field<std::string> url{};
     friend bool operator==(const SplitRequest&, const SplitRequest&) = default;
 };
 
@@ -3391,6 +3401,12 @@ template <>
 struct Codec<PaneDirection> {
     static Result<Json> encode(const PaneDirection& value);
     static Result<PaneDirection> decode(const Json& value);
+};
+
+template <>
+struct Codec<PaneKind> {
+    static Result<Json> encode(const PaneKind& value);
+    static Result<PaneKind> decode(const Json& value);
 };
 
 template <>

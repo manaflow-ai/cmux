@@ -19,6 +19,9 @@ use crate::workspace_registry::{
 };
 use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
 
+mod pane_browser;
+use pane_browser::{creation_identity_kind, effect_browser_cell_size};
+
 #[derive(Clone, Copy)]
 struct LayoutMutationContext<'a> {
     coalesce: Option<LayoutMutationKey>,
@@ -3828,7 +3831,8 @@ impl Mux {
         let operation: ResourceOperation =
             serde_json::from_value(Value::String(recovery.operation.clone()))
                 .context("stored resource creation has an invalid operation")?;
-        match created_identity_kind(operation) {
+        let fields = recovery.intent["fields"].as_object().cloned().unwrap_or_default();
+        match creation_identity_kind(operation, &fields) {
             Some(CreatedIdentityKind::Browser) => {
                 self.browser_creation_evidence(&recovery.intent, recovery.interrupted)
             }
@@ -3964,7 +3968,8 @@ impl Mux {
             "path":resolved.path,
             "fields":fields,
         });
-        if topology_effect_creates_terminal(operation) {
+        let creates = creation_identity_kind(operation, fields);
+        if creates == Some(CreatedIdentityKind::Terminal) {
             let terminal_id = TerminalId::random()?.to_hex();
             let mutation = WorkspaceMutation::local(context.mutation_origin);
             intent["terminal_reservation"] = json!({
@@ -3988,7 +3993,7 @@ impl Mux {
                 "mutation_origin":mutation.origin,
             });
         }
-        if operation == ResourceOperation::TabCreateBrowser {
+        if creates == Some(CreatedIdentityKind::Browser) {
             intent["browser_reservation"] = json!({
                 "tab_id":TabPublicId::random()?,
                 "browser_id":BrowserPublicId::random()?,
@@ -4815,19 +4820,9 @@ impl Mux {
         let workspace_key = self
             .workspace_key_for_pane(target)
             .with_context(|| format!("pane {target} has no workspace"))?;
-        let cwd = cwd.or_else(|| self.pane_cwd(target));
         let pane_public_id = PanePublicId::random()?;
-        let reservation = self.effect_terminal_reservation(
-            intent,
-            &workspace_key,
-            None,
-            cwd.as_deref(),
-            None,
-            size,
-            None,
-        )?;
-        let surface =
-            self.spawn_surface_in_workspace_reserved(&workspace_key, cwd, size, None, reservation)?;
+        let spawned = self.effect_spawn_pane_surface(intent, target, &workspace_key, cwd, size)?;
+        let surface = spawned.surface().clone();
         #[cfg(test)]
         if viewport_width.is_some()
             && let Some(hook) = self.viewport_split_after_spawn.lock().unwrap().clone()
@@ -4961,11 +4956,7 @@ impl Mux {
         let (delta, changed_screen, created) = match attached {
             Ok(attached) => attached,
             Err(error) => {
-                self.fail_hosted_terminal_attachment(
-                    &surface,
-                    "resource-terminal-pane-attach-failed",
-                    "pane-disappeared-before-attach",
-                )?;
+                self.fail_pane_surface_attachment(&spawned)?;
                 return Err(error);
             }
         };
@@ -5061,10 +5052,6 @@ fn resource_effect_indeterminate(idempotency_key: &str, operation: &str) -> Reso
         }),
         false,
     )
-}
-
-fn topology_effect_creates_terminal(operation: ResourceOperation) -> bool {
-    created_identity_kind(operation) == Some(CreatedIdentityKind::Terminal)
 }
 
 fn is_resource_close_operation(operation: ResourceOperation) -> bool {
@@ -5188,6 +5175,7 @@ fn validate_effect_fields(
                     "invalid viewport pane width"
                 );
             }
+            pane_browser::validate_pane_browser_fields(fields)?;
             let _ = effect_cell_size(fields)?;
         }
         ResourceOperation::TabCreateBrowser => {
@@ -5262,33 +5250,6 @@ fn effect_cell_size(fields: &Map<String, Value>) -> anyhow::Result<Option<(u16, 
         ))),
         _ => anyhow::bail!("cols and rows must be paired"),
     }
-}
-
-fn effect_browser_cell_size(
-    mux: &Mux,
-    fields: &Map<String, Value>,
-) -> anyhow::Result<Option<(u16, u16)>> {
-    let (width, height) = match (
-        fields.get("width_px").and_then(Value::as_u64),
-        fields.get("height_px").and_then(Value::as_u64),
-    ) {
-        (None, None) => return Ok(None),
-        (Some(width), Some(height)) => (width, height),
-        _ => anyhow::bail!("width_px and height_px must be paired"),
-    };
-    let (cell_width, cell_height) = mux.cell_pixel_size();
-    let columns = width
-        .checked_add(u64::from(cell_width).saturating_sub(1))
-        .context("browser width overflows")?
-        / u64::from(cell_width.max(1));
-    let rows = height
-        .checked_add(u64::from(cell_height).saturating_sub(1))
-        .context("browser height overflows")?
-        / u64::from(cell_height.max(1));
-    Ok(Some((
-        u16::try_from(columns).context("browser width exceeds terminal geometry")?,
-        u16::try_from(rows).context("browser height exceeds terminal geometry")?,
-    )))
 }
 
 #[derive(Debug)]

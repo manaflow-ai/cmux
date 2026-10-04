@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298.
+// cmux-tui mux protocol 12, IR 043ac4fba4148da3b14ad1c988ae40f0114cf3e8e66f407455ec16931eb3799b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -730,9 +730,13 @@ pub type NewPaneResult = T::SurfaceResult;
 pub struct NewPaneRightRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub kind: Optional<T::PaneKind>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub url: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub width: Optional<f32>,
 }
@@ -1344,9 +1348,13 @@ pub struct SplitRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
     pub dir: T::SplitDirection,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub kind: Optional<T::PaneKind>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub url: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -1779,6 +1787,14 @@ impl CmuxClient {
     }
 
     pub fn new_pane_right(&mut self, request: NewPaneRightRequest) -> Result<NewPaneRightResult> {
+        if !request.kind.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "pane-browser-kind-v1")?;
+        }
+        if !request.url.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "pane-browser-kind-v1")?;
+        }
         self.execute(&NEW_PANE_RIGHT_METADATA, &request)
     }
 
@@ -2066,6 +2082,14 @@ impl CmuxClient {
     }
 
     pub fn split(&mut self, request: SplitRequest) -> Result<SplitResult> {
+        if !request.kind.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "pane-browser-kind-v1")?;
+        }
+        if !request.url.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "pane-browser-kind-v1")?;
+        }
         self.execute(&SPLIT_METADATA, &request)
     }
 

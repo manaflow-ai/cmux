@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298. */
+/* cmux-tui mux protocol 12, IR 043ac4fba4148da3b14ad1c988ae40f0114cf3e8e66f407455ec16931eb3799b. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298" as const;
+export const SDK_IR_SHA256 = "043ac4fba4148da3b14ad1c988ae40f0114cf3e8e66f407455ec16931eb3799b" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -699,9 +699,20 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 9,
     "capability": "viewport-splits-v1",
-    "fields": {},
+    "fields": {
+      "kind": {
+        "since": 12,
+        "capability": "pane-browser-kind-v1"
+      },
+      "url": {
+        "since": 12,
+        "capability": "pane-browser-kind-v1"
+      }
+    },
     "stream": null,
-    "constraints": []
+    "constraints": [
+      "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\" and an unknown kind are rejected and nothing is created (pane-browser-kind-v1)."
+    ]
   },
   "new-screen": {
     "authority": "control",
@@ -1274,9 +1285,20 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 5,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "kind": {
+        "since": 12,
+        "capability": "pane-browser-kind-v1"
+      },
+      "url": {
+        "since": 12,
+        "capability": "pane-browser-kind-v1"
+      }
+    },
     "stream": null,
-    "constraints": []
+    "constraints": [
+      "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\" and an unknown kind are rejected and nothing is created (pane-browser-kind-v1)."
+    ]
   },
   "subscribe": {
     "authority": "frontend",
@@ -4219,6 +4241,13 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "right",
       "up",
       "down"
+    ]
+  },
+  "PaneKind": {
+    "kind": "enum",
+    "values": [
+      "pty",
+      "browser"
     ]
   },
   "PaneNeighborResult": {
@@ -9949,6 +9978,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "kind": {
+          "capability": "pane-browser-kind-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "PaneKind"
+          }
+        },
         "pane": {
           "nullable": false,
           "presence": "required",
@@ -9964,6 +10004,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint16"
+          }
+        },
+        "url": {
+          "capability": "pane-browser-kind-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "width": {
@@ -12288,6 +12339,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "SplitDirection"
           }
         },
+        "kind": {
+          "capability": "pane-browser-kind-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "PaneKind"
+          }
+        },
         "pane": {
           "nullable": false,
           "presence": "required",
@@ -12303,6 +12365,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint16"
+          }
+        },
+        "url": {
+          "capability": "pane-browser-kind-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         }
       },

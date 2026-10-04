@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298'
+IR_SHA256 = '043ac4fba4148da3b14ad1c988ae40f0114cf3e8e66f407455ec16931eb3799b'
 
 
 @dataclass(frozen=True)
@@ -760,8 +760,10 @@ COMMANDS = {
         None,
         {
             'cols': CommandFieldMetadata(None, None),
+            'kind': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
             'width': CommandFieldMetadata(None, None),
         },
     ),
@@ -1429,8 +1431,10 @@ COMMANDS = {
         {
             'cols': CommandFieldMetadata(None, None),
             'dir': CommandFieldMetadata(None, None),
+            'kind': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
         },
     ),
     'subscribe': CommandMetadata(

@@ -565,6 +565,13 @@
     "down"
    ]
   },
+  "PaneKind": {
+   "kind": "enum",
+   "values": [
+    "pty",
+    "browser"
+   ]
+  },
   "PaneDirection": {
    "kind": "enum",
    "values": [
@@ -8030,6 +8037,28 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "kind": {
+      "type": {
+       "kind": "ref",
+       "name": "PaneKind"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "pane-browser-kind-v1"
+     },
+     "url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "pane-browser-kind-v1"
      }
     },
     "additional_properties": false,
@@ -8043,7 +8072,9 @@
     "name": "SurfaceResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [
+    "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\" and an unknown kind are rejected and nothing is created (pane-browser-kind-v1)."
+   ]
   },
   "split": {
    "authority": "control",
@@ -8085,6 +8116,28 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "kind": {
+      "type": {
+       "kind": "ref",
+       "name": "PaneKind"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "pane-browser-kind-v1"
+     },
+     "url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "pane-browser-kind-v1"
      }
     },
     "additional_properties": false,
@@ -8097,7 +8150,9 @@
     "name": "SurfaceResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [
+    "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\" and an unknown kind are rejected and nothing is created (pane-browser-kind-v1)."
+   ]
   },
   "set-ratio": {
    "authority": "control",

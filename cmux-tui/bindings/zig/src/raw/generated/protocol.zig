@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298";
+pub const ir_sha256 = "043ac4fba4148da3b14ad1c988ae40f0114cf3e8e66f407455ec16931eb3799b";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -824,6 +824,24 @@ pub const PaneDirection = enum {
             .right => "right",
             .up => "up",
             .down => "down",
+        };
+    }
+};
+
+pub const PaneKind = enum {
+    pty,
+    browser,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "pty")) return .pty;
+        if (std.mem.eql(u8, value, "browser")) return .browser;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .pty => "pty",
+            .browser => "browser",
         };
     }
 };
@@ -3384,8 +3402,10 @@ pub fn newPane(client: anytype, request: NewPaneRequest) !wire.Decoded(NewPaneRe
 
 pub const NewPaneRightRequest = struct {
     cols: wire.Field(u16) = .absent,
+    kind: wire.Field(PaneKind) = .absent,
     pane: Id,
     rows: wire.Field(u16) = .absent,
+    url: wire.Field([]const u8) = .absent,
     width: wire.Field(f32) = .absent,
 };
 
@@ -3399,6 +3419,10 @@ pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded
             .authority = "control",
             .since = 9,
             .capability = "viewport-splits-v1",
+            .fields = &.{
+                .{ .name = "kind", .since = 12, .capability = "pane-browser-kind-v1" },
+                .{ .name = "url", .since = 12, .capability = "pane-browser-kind-v1" },
+            },
         },
         request,
     );
@@ -4488,8 +4512,10 @@ pub fn sidebarPlugin(client: anytype, request: SidebarPluginRequest) !wire.Decod
 pub const SplitRequest = struct {
     cols: wire.Field(u16) = .absent,
     dir: SplitDirection,
+    kind: wire.Field(PaneKind) = .absent,
     pane: Id,
     rows: wire.Field(u16) = .absent,
+    url: wire.Field([]const u8) = .absent,
 };
 
 pub const SplitResult = SurfaceResult;
@@ -4502,6 +4528,10 @@ pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) 
             .authority = "control",
             .since = 5,
             .capability = null,
+            .fields = &.{
+                .{ .name = "kind", .since = 12, .capability = "pane-browser-kind-v1" },
+                .{ .name = "url", .since = 12, .capability = "pane-browser-kind-v1" },
+            },
         },
         request,
     );

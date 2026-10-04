@@ -89,6 +89,7 @@ use crate::{
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 #[path = "server/image_paste.rs"]
 mod image_paste;
+mod split_kind;
 mod url_open;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
@@ -97,6 +98,8 @@ pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guar
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
 pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
 pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
+/// `kind` (`pty` | `browser`) and `url` on `split` and `new-pane-right`.
+pub const PANE_BROWSER_KIND_CAPABILITY: &str = "pane-browser-kind-v1";
 pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
@@ -241,6 +244,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         GUARDED_BROWSER_POINTER_CAPABILITY,
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+        PANE_BROWSER_KIND_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
@@ -1377,6 +1381,11 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        /// `pane-browser-kind-v1`: `pty` (default) or `browser` with `url`.
+        #[serde(default)]
+        kind: Option<String>,
+        #[serde(default)]
+        url: Option<String>,
     },
     Split {
         pane: PaneId,
@@ -1386,6 +1395,11 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        /// `pane-browser-kind-v1`: `pty` (default) or `browser` with `url`.
+        #[serde(default)]
+        kind: Option<String>,
+        #[serde(default)]
+        url: Option<String>,
     },
     SetRatio {
         pane: PaneId,
@@ -13156,17 +13170,24 @@ fn handle_command_with_cancellation(
             let surface = mux.new_pane(pane, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
         }
-        Command::NewPaneRight { pane, width, cols, rows } => {
-            let surface = mux.new_pane_right(
-                pane,
-                width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH),
-                optional_surface_size(cols, rows),
-            )?;
+        Command::NewPaneRight { pane, width, cols, rows, kind, url } => {
+            let width = width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH);
+            let size = optional_surface_size(cols, rows);
+            let surface = match split_kind::browser_pane_url("new-pane-right", kind, url)? {
+                Some(url) => {
+                    mux.split_browser_pane(pane, SplitDir::Right, Some(width), url, size)?
+                }
+                None => mux.new_pane_right(pane, width, size)?,
+            };
             Ok(json!({ "surface": surface.id }))
         }
-        Command::Split { pane, dir, cols, rows } => {
+        Command::Split { pane, dir, cols, rows, kind, url } => {
             let dir = parse_split_dir(&dir)?;
-            let surface = mux.split(pane, dir, optional_surface_size(cols, rows))?;
+            let size = optional_surface_size(cols, rows);
+            let surface = match split_kind::browser_pane_url("split", kind, url)? {
+                Some(url) => mux.split_browser_pane(pane, dir, None, url, size)?,
+                None => mux.split(pane, dir, size)?,
+            };
             Ok(json!({ "surface": surface.id }))
         }
         Command::SetRatio { pane, dir, ratio } => {

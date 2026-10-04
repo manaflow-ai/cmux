@@ -315,6 +315,7 @@ ENUM_BY_PATH = {
     'types/FrontendFocusTarget': models.FrontendFocusTarget,
     'types/NotificationLevel': models.NotificationLevel,
     'types/PaneDirection': models.PaneDirection,
+    'types/PaneKind': models.PaneKind,
     'types/RenderGraphicFormat': models.RenderGraphicFormat,
     'types/RenderUnderline': models.RenderUnderline,
     'types/ServerStatsWriterPhase': models.ServerStatsWriterPhase,

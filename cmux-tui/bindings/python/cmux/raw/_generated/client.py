@@ -177,8 +177,8 @@ class GeneratedClientMixin:
     def new_pane(self, pane: Id, *, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-pane', NewPaneRequest(pane=pane, cols=cols, rows=rows))
 
-    def new_pane_right(self, pane: Id, *, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, width: Union[float, None, MissingType] = MISSING) -> SurfaceResult:
-        return self._invoke_command('new-pane-right', NewPaneRightRequest(pane=pane, cols=cols, rows=rows, width=width))
+    def new_pane_right(self, pane: Id, *, cols: Union[int, None, MissingType] = MISSING, kind: Union[PaneKind, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING, width: Union[float, None, MissingType] = MISSING) -> SurfaceResult:
+        return self._invoke_command('new-pane-right', NewPaneRightRequest(pane=pane, cols=cols, kind=kind, rows=rows, url=url, width=width))
 
     def new_screen(self, workspace: Union[Id, None, MissingType] = MISSING, *, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-screen', NewScreenRequest(workspace=workspace, cols=cols, rows=rows))
@@ -327,8 +327,8 @@ class GeneratedClientMixin:
     def sidebar_plugin(self, cols: int, rows: int, *, relaunch: Union[bool, MissingType] = MISSING) -> SidebarPluginResult:
         return self._invoke_command('sidebar-plugin', SidebarPluginRequest(cols=cols, rows=rows, relaunch=relaunch))
 
-    def split(self, pane: Id, dir: SplitDirection, *, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
-        return self._invoke_command('split', SplitRequest(pane=pane, dir=dir, cols=cols, rows=rows))
+    def split(self, pane: Id, dir: SplitDirection, *, cols: Union[int, None, MissingType] = MISSING, kind: Union[PaneKind, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING) -> SurfaceResult:
+        return self._invoke_command('split', SplitRequest(pane=pane, dir=dir, cols=cols, kind=kind, rows=rows, url=url))
 
     def subscribe(self, surface: Union[Id, None, MissingType] = MISSING, *, tree_events: Union[Literal['coarse', 'deltas'], None, MissingType] = MISSING) -> Any:
         return self._open_command_stream('subscribe', SubscribeRequest(surface=surface, tree_events=tree_events))
