@@ -21,6 +21,9 @@ parser.add_argument("--url", default="https://example.com/")
 parser.add_argument("--title", default="Example Domain")
 parser.add_argument("--launches", type=int, default=2)
 parser.add_argument("--hold", type=float, default=60.0)
+parser.add_argument("--cli-tab", action="store_true",
+                    help="the dogfood path: show the History page, create the tab with the bundled CLI into that pane "
+                         "(not selected), then select it with a click on its strip tab")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="cef-tab-health-"))
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
@@ -32,6 +35,7 @@ if not APP:
 with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
     INFO = plistlib.load(f)
 BINARY = os.path.join(APP, "Contents/MacOS", INFO["CFBundleExecutable"])
+CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BUNDLE_ID = INFO["CFBundleIdentifier"]
 CACHE = os.path.expanduser(f"~/Library/Caches/{BUNDLE_ID}/Chromium")
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -72,15 +76,40 @@ def wait(predicate, seconds, step=0.5):
 
 
 def helpers(pid):
-    out = subprocess.run(["/bin/ps", "-A", "-o", "pid=,ppid=,etime=,command="], capture_output=True, text=True).stdout
+    out = subprocess.run(["/bin/ps", "-A", "-ww", "-o", "pid=,ppid=,etime=,command="], capture_output=True, text=True).stdout
     rows = []
     for line in out.splitlines():
         parts = line.split(None, 3)
         if len(parts) == 4 and parts[1] == str(pid):
-            kind = "gpu" if "(GPU)" in parts[3] else "renderer" if "(Renderer)" in parts[3] else \
-                "network" if "network.mojom" in parts[3] else "other"
-            rows.append({"pid": int(parts[0]), "etime": parts[2], "kind": kind, "command": parts[3][:160]})
+            command = parts[3]
+            kind = "gpu" if "--type=gpu-process" in command else "renderer" if "--type=renderer" in command else \
+                "network" if "network.mojom" in command else "zombie" if "<defunct>" in command else \
+                (command.split("--type=", 1)[1].split()[0] if "--type=" in command else "other")
+            rows.append({"pid": int(parts[0]), "etime": parts[2], "kind": kind})
     return rows
+
+
+def cli(*args):
+    r = subprocess.run([CLI, "--session", f"cmux-app-{opts.tag}", *args], capture_output=True, text=True, timeout=60,
+                       env={**BASE_ENV, "CMUX_QUIET": "1"})
+    return {"rc": r.returncode, "out": r.stdout.strip()[-2000:], "err": r.stderr.strip()[-1000:]}
+
+
+def open_with_cli(entry):
+    """The dogfood path (nxpre30.sh R69): History page shown, CLI tab create into its pane, click to select."""
+    entry["history"] = rpc("action.run", {"action": "history.show", "focus": True})
+    time.sleep(3)
+    pane = (rpc("snapshot.get").get("topology") or {}).get("focus", {}).get("pane")
+    entry["cli_create"] = cli("--quiet", "tab", "create", "browser", "--url", opts.url, "--pane", str(pane))
+    time.sleep(2)
+    strips = rpc("debug.tab_drag").get("strips") or []
+    target = next((t for strip in strips for t in strip.get("tabs", [])
+                   if "example" in str(t.get("label", "")).lower() or "http" in str(t.get("label", "")).lower()), None)
+    entry["strip_tab"] = target
+    if target:
+        x = int(target["frame"][0] + target["frame"][2] / 2)
+        rpc("debug.mouse", {"action": "click", "x": x, "y": 15})
+    time.sleep(5)
 
 
 def capture(path):
@@ -115,7 +144,10 @@ for launch in range(1, opts.launches + 1):
         if not wait(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), 90):
             failures.append(f"launch {launch}: app did not come up")
             continue
-        entry["open"] = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": opts.url}, "focus": True})
+        if opts.cli_tab:
+            open_with_cli(entry)
+        else:
+            entry["open"] = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": opts.url}, "focus": True})
         state = wait(lambda: (lambda s: s if s.get("title") == opts.title else None)(rpc("browser.page.state")), 45)
         entry["state"] = state or rpc("browser.page.state")
         entry["cef"] = {k: v for k, v in rpc("debug.cef").items() if k in ("state", "trigger", "unavailable", "fallback", "windows")}
@@ -124,13 +156,17 @@ for launch in range(1, opts.launches + 1):
         entry["helpers_loaded"] = helpers(app.pid)
         entry["window_snapshot"] = rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"window-{launch}.png")})
         focus = rpc("debug.focus")
-        entry["focus_windows"] = [{"layout_focused_pane": w.get("layout_focused_pane"), "appkit": w.get("appkit")}
+        entry["focus_windows"] = [{"resolved": (w.get("model") or {}).get("resolved"), "appkit": w.get("appkit")}
                                   for w in focus.get("windows", [])] if isinstance(focus, dict) else focus
         time.sleep(opts.hold)
         entry["helpers_after_hold"] = helpers(app.pid)
         entry["capture_after_hold"] = capture(os.path.join(opts.out, f"page-{launch}-held.png"))
         if not state:
             failures.append(f"launch {launch}: title {opts.title!r} did not arrive")
+        responders = [str((w.get("appkit") or {}).get("first_responder")) for w in entry["focus_windows"]] \
+            if isinstance(entry["focus_windows"], list) else []
+        if any("emptyPane" in r or "EmptyPane" in r for r in responders):
+            failures.append(f"launch {launch}: the pane shows no page (first responder {responders})")
         if not any(h["kind"] == "gpu" for h in entry["helpers_after_hold"]):
             failures.append(f"launch {launch}: no GPU helper {opts.hold}s after the load")
         if "error" in entry["capture_loaded"]:
