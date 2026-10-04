@@ -341,7 +341,8 @@ fn closed_delete_removes_groups_members_and_clears() {
     let gone = send(&mux, "closed.reopen", json!({"closed": single}), Some("r1"));
     assert_eq!(error_code(gone), "resource.not_found");
 
-    let future = mutate(&mux, "closed.delete", json!({"all": true, "since_ms": "99999999999999"}), "d3");
+    let future =
+        mutate(&mux, "closed.delete", json!({"all": true, "since_ms": "99999999999999"}), "d3");
     assert_eq!(future["deleted"], json!([]));
     let cleared = mutate(&mux, "closed.delete", json!({"all": true}), "d4");
     assert_eq!(cleared["deleted"], json!([pair]));

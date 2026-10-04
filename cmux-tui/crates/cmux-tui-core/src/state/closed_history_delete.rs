@@ -58,7 +58,10 @@ struct Deleted {
 }
 
 /// Every group closed at or after `since_ms` (None: every group).
-fn groups_since(transaction: &Transaction<'_>, since_ms: Option<i64>) -> anyhow::Result<Vec<String>> {
+fn groups_since(
+    transaction: &Transaction<'_>,
+    since_ms: Option<i64>,
+) -> anyhow::Result<Vec<String>> {
     let mut statement = transaction.prepare(
         "SELECT closed_id FROM closed_groups WHERE closed_at_ms >= ?1 ORDER BY seq DESC",
     )?;
@@ -74,14 +77,17 @@ fn delete_one(
     members: Option<&[usize]>,
     out: &mut Deleted,
 ) -> anyhow::Result<()> {
-    let record =
-        closed_record(transaction, closed_id)?.ok_or_else(|| state_not_found("closed", closed_id))?;
+    let record = closed_record(transaction, closed_id)?
+        .ok_or_else(|| state_not_found("closed", closed_id))?;
     let all = record["members"].as_array().cloned().unwrap_or_default();
     let keep = match members {
         None => Vec::new(),
         Some(chosen) => {
             if let Some(bad) = chosen.iter().find(|index| **index >= all.len()) {
-                anyhow::bail!("bad request: member {bad} is out of range (the group has {})", all.len());
+                anyhow::bail!(
+                    "bad request: member {bad} is out of range (the group has {})",
+                    all.len()
+                );
             }
             all.into_iter()
                 .enumerate()
@@ -102,10 +108,15 @@ fn delete_one(
     Ok(())
 }
 
-fn delete_in(transaction: &Transaction<'_>, request: &DeleteRequest) -> anyhow::Result<StateChanges> {
+fn delete_in(
+    transaction: &Transaction<'_>,
+    request: &DeleteRequest,
+) -> anyhow::Result<StateChanges> {
     let mut out = Deleted::default();
     match &request.closed {
-        Some(closed_id) => delete_one(transaction, closed_id, request.members.as_deref(), &mut out)?,
+        Some(closed_id) => {
+            delete_one(transaction, closed_id, request.members.as_deref(), &mut out)?
+        }
         None => {
             for closed_id in groups_since(transaction, request.since_ms)? {
                 delete_one(transaction, &closed_id, None, &mut out)?;

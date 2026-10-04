@@ -541,7 +541,10 @@ fn closed_history_scopes_to_a_window_and_reopens_groups() {
 /// `closed <id> delete [--members]` and `closed clear [--since-ms]`.
 #[test]
 fn closed_history_deletes_and_clears() {
-    assert_eq!(sent(&["closed", "c1", "delete"]), ("closed.delete".into(), json!({"closed": "c1"})));
+    assert_eq!(
+        sent(&["closed", "c1", "delete"]),
+        ("closed.delete".into(), json!({"closed": "c1"}))
+    );
     assert_eq!(
         sent(&["closed", "c1", "delete", "--members", "1"]),
         ("closed.delete".into(), json!({"closed": "c1", "members": [1]}))
