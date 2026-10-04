@@ -8,7 +8,7 @@ import Foundation
 // of the build's real feed; answers with the typed result (or `pending`
 // when the feed is slower than the control deadline), never installs.
 extension AppControl {
-    func registerUpdateMethods(_ updater: UpdaterService) {
+    func registerUpdateMethods(_ updater: UpdaterService, services appServices: AppServices) {
         service?.router.register([
             .mainActor("updates.status") { _ in .value(Self.json(updater.status, log: updater.log.recent)) },
             .mainActor("updates.check") { call in
@@ -44,6 +44,10 @@ extension AppControl {
                         throw ControlError.invalidParams(String(describing: error))
                     }
                     return .value(Self.json(updater.status, log: []))
+                },
+                .mainActor("debug.updater") { [weak services = appServices] call in
+                    guard let services else { throw ControlError.invalidParams("debug.updater: the app is shutting down") }
+                    return .value(try DebugUpdater.run(call.params, services))
                 },
             ])
         }

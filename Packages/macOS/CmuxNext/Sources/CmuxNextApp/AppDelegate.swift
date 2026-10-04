@@ -197,7 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerAccountsMethods(services)
                 control.registerRemoteMethods(services)
                 control.registerMobileMethods(services)
-                control.registerUpdateMethods(services.updater)
+                control.registerUpdateMethods(services.updater, services: services)
                 control.registerInputMethods(services)
                 control.registerSettingsDebugMethods(services)
                 control.registerPageDebugMethods()
