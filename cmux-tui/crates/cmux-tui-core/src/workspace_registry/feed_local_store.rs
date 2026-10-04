@@ -24,7 +24,12 @@
 //! daemon wrote after a downgrade). For a folded entry only a persisted ack
 //! counts: it reads the item when it is still open here, as the live ack
 //! would have. The meta marker [`FEED_LOCAL_MIGRATION_META_KEY`] records the
-//! first pass.
+//! first pass; [`FEED_LOCAL_FOLDED_META_KEY`] records that the folded set
+//! exists. A registry with the first and not the second was written by an
+//! earlier unreleased build of the local owner: its retained entries count as
+//! folded once (an older pre-feed daemon's notifications written after a
+//! downgrade from that build are then not posted; no released build is
+//! affected).
 
 use cmux_feed_core::{Changes, Context as FeedContext, Feed, Item, ItemState, Notice, PostOutcome};
 use rusqlite::{Transaction, params};
@@ -173,6 +178,13 @@ impl WorkspaceRegistry {
         let entries = self.durable_notifications(&live)?;
         let acked = self.acked_notification_ids()?;
         let folded = self.feed_local_folded()?;
+        let marked = meta_value(&self.connection, FEED_LOCAL_MIGRATION_META_KEY)?.is_some();
+        let folded_marked = meta_value(&self.connection, FEED_LOCAL_FOLDED_META_KEY)?.is_some();
+        // A registry from an earlier build of the local owner: its pass ran
+        // (the marker exists) and took every retained entry, but it kept no
+        // folded rows. Treat each retained entry as taken once, so items it
+        // pruned do not come back.
+        let backfill = marked && !folded_marked;
         let mut feed = Feed::from_items(self.feed_local_items()?);
         let session = self.session_id().clone();
         let now = unix_epoch_ms()?;
@@ -186,7 +198,10 @@ impl WorkspaceRegistry {
             // item still carries its key: only a persisted ack reads it.
             let existing = match folded.get(&notification) {
                 Some(item) => Some(item.clone()),
-                None => feed.find_key(&key).map(|item| item.id.clone()),
+                None => feed
+                    .find_key(&key)
+                    .map(|item| item.id.clone())
+                    .or_else(|| backfill.then(|| feed_item_id(&entry.id))),
             };
             if let Some(item_id) = existing {
                 if !folded.contains_key(&notification) {
@@ -231,9 +246,14 @@ impl WorkspaceRegistry {
                 added += 1;
             }
         }
-        let marked = meta_value(&self.connection, FEED_LOCAL_MIGRATION_META_KEY)?.is_some();
         let tx = self.connection.transaction()?;
         trim_feed_local_folded(&tx)?;
+        if !folded_marked {
+            tx.execute(
+                "INSERT INTO meta(key, value) VALUES(?1, '1')",
+                [FEED_LOCAL_FOLDED_META_KEY],
+            )?;
+        }
         if changes.is_empty() && newly_folded.is_empty() && marked {
             tx.commit()?;
             return Ok(0);
