@@ -144,12 +144,44 @@ pub struct MachinePage {
     pub revision: Option<Revision>,
 }
 
-/// `cloud.machine.connect_info`.
+/// `cloud.machine.connect_info` (contract 1.7): how `cmux link` reaches a
+/// machine. Peer data comes in every bound state, paused included.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConnectInfo {
+    pub machine: String,
     pub host: String,
+    /// A restore or re-bind raises it; the link refuses a lower one.
+    pub epoch: u64,
+    pub state: MachineStatus,
+    pub peer: Peer,
+    /// This install's own tunnel into the VM's VPC; null = no tunnel path.
     #[serde(default)]
-    pub daemon_version: Option<String>,
+    pub gateway: Option<serde_json::Value>,
+    /// What this caller may dial: `daemon`, `ssh`.
+    pub services: Vec<String>,
+    /// For one `hello` of `cmux link`. The server never passes it on: it
+    /// is read here only so it can be dropped (contract 1.7: `cmux-cloud`
+    /// never sees link tokens beyond this answer).
+    #[serde(default, skip_serializing)]
+    pub link_token: Option<serde_json::Value>,
+    pub daemon: DaemonInfo,
+    pub revision: Revision,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Peer {
+    pub wg_public_key: String,
+    pub overlay_address: String,
+    #[serde(default)]
+    pub vpc_endpoint: Option<String>,
+    #[serde(default)]
+    pub public_ipv6: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DaemonInfo {
+    #[serde(default)]
+    pub version: Option<String>,
     #[serde(default)]
     pub capabilities: Vec<String>,
 }

@@ -53,7 +53,7 @@ impl<'a, C: ControlPlane> Ctx<'a, C> {
         match self.control_plane.call(&call) {
             Ok(WireReply::Result(result)) => Ok(result),
             Ok(WireReply::Error(error)) => {
-                let error = CloudError::from_wire(&error);
+                let error = CloudError::from_wire_for(op, &error);
                 if error.code == codes::AUTH_REQUIRED {
                     self.projection.clear();
                 }

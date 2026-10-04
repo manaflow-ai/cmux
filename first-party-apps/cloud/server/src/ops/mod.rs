@@ -2,6 +2,7 @@
 //! op group (`machine`, `snapshot`, `plan`, `migration`, `auth`).
 
 mod auth;
+mod declared;
 mod delete_retry;
 mod machine;
 mod machine_projection;
@@ -9,6 +10,7 @@ mod migration;
 mod plan;
 mod snapshot;
 
+pub use declared::{backend_ops, declared_errors};
 pub use machine_projection::{Projection, WatchEvent};
 
 use crate::api::{CloudError, ControlPlane, Ctx, Ledger, Origin, Request, codes, upstream_key};
@@ -112,11 +114,6 @@ pub fn canonical_name(op: &str) -> Option<&'static str> {
 /// Every canonical op name the server serves, in catalog order.
 pub fn op_names() -> impl Iterator<Item = &'static str> {
     OPS.iter().map(|(name, _)| *name)
-}
-
-/// RED scaffolding: the error codes each backend op declares.
-pub fn declared_errors(_op: &str) -> Option<&'static [&'static str]> {
-    None
 }
 
 /// How the catalog guards an op: `(mutation, user_only)`; `None` for an
