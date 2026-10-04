@@ -4,13 +4,12 @@
 #![allow(dead_code)]
 
 use cmux_cloud::link::{
-    Attach, LinkCommand, LinkPaths, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag,
+    Attach, LinkCommand, LinkEvents, LinkPaths, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag,
 };
 use cmux_cloud::rescue::iface::{BackendError, Grid, Signal};
 use cmux_cloud::rescue::{RescueTransport, StreamId, TransportEvent};
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
 /// What the next spawned link does right away.
@@ -26,7 +25,7 @@ pub enum Script {
 pub struct SpawnLog {
     pub commands: Vec<LinkCommand>,
     pub tags: Vec<LinkTag>,
-    pub senders: Vec<Sender<LinkProcessEvent>>,
+    pub senders: Vec<LinkEvents>,
     pub terminated: Vec<LinkTag>,
     pub script: VecDeque<Script>,
 }
@@ -77,7 +76,7 @@ impl LinkSpawner for FakeSpawner {
         &mut self,
         tag: LinkTag,
         command: &LinkCommand,
-        events: Sender<LinkProcessEvent>,
+        events: LinkEvents,
     ) -> std::io::Result<Box<dyn LinkProcess>> {
         let mut log = self.0.lock().unwrap();
         log.commands.push(command.clone());

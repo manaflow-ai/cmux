@@ -10,7 +10,17 @@ use std::io::{self, BufRead, Write};
 /// Serves ops until the host closes the channel.
 pub fn serve<R: BufRead, W: Write>(relay: HostRelay<R, W>) -> io::Result<()> {
     // Attach settings come from the host's environment (crate::link::Attach::from_env).
-    let mut server = Server::with_attach(relay, crate::link::Attach::from_env());
+    serve_with(relay, crate::link::Attach::from_env(), crate::ports::Edge::real())
+}
+
+/// [`serve`] with the attach state and the files and ports edge given
+/// (tests pass the fake link spawner and the fake tunnel).
+pub fn serve_with<R: BufRead, W: Write>(
+    relay: HostRelay<R, W>,
+    attach: crate::link::Attach,
+    edge: crate::ports::Edge,
+) -> io::Result<()> {
+    let mut server = Server::with_parts(relay, attach, edge);
     while let Some(message) = server.control_plane_mut().next_message()? {
         let id = message.get("id").cloned().unwrap_or(Value::Null);
         let answer = match message.get("type").and_then(Value::as_str) {
