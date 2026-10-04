@@ -465,4 +465,31 @@ mod tests {
         let mux = Mux::new_for_test("apps-start-off-path", SurfaceOptions::default());
         start_apps_when_ready(&mux);
     }
+
+    /// `cancel-request` (decision CANCEL-REQUEST) is a generic frame: it
+    /// answers `{}` at once whatever its target (unknown, finished or not an
+    /// `apps-run`), and identify advertises exactly `cancel-request-v1`.
+    #[test]
+    fn cancel_request_answers_empty_and_is_advertised() {
+        let mux = Mux::new_for_test("apps-cancel-request", SurfaceOptions::default());
+        let (client, outbound) = connection(&mux, Some("cli"), false);
+        let writer = mux.control_clients.state.lock().unwrap().clients[&client].writer.clone();
+        for target in [json!("apps-run-1"), json!(7), Value::Null] {
+            let request: super::super::Request = serde_json::from_value(
+                json!({ "id": "cancel-request-1", "cmd": "cancel-request", "target": target }),
+            )
+            .expect("cancel-request parses");
+            let data = super::super::handle_command_with_cancellation(
+                &mux,
+                client,
+                request.cmd,
+                &writer,
+                None,
+            )
+            .unwrap();
+            assert_eq!(data, json!({}));
+        }
+        assert!(outbound.try_pop().is_none(), "a no-op cancel sends nothing else");
+        assert!(super::super::advertised_capabilities(false).contains(&"cancel-request-v1"));
+    }
 }
