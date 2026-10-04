@@ -24,19 +24,48 @@ fn manifest_and_catalog_fragment_validate() {
     assert!(reason.as_str().is_some_and(|r| !r.is_empty()), "op:{op} is declared");
 }
 
+fn json(path: &Path) -> Value {
+    serde_json::from_str(&std::fs::read_to_string(path).expect("read")).expect("JSON")
+}
+
+/// The backend catalog, the single owner of the client-facing `cloud.*`
+/// ops (owner `cloud:CloudDO`).
+fn backend_ops() -> serde_json::Map<String, Value> {
+    let catalog = json(&app_dir().join("../../backend/catalog/cloud-operations.json"));
+    catalog["operations"]
+        .as_object()
+        .expect("operations")
+        .iter()
+        .filter(|(_, op)| op["owner"] == "cloud:CloudDO")
+        .map(|(name, op)| (name.clone(), op.clone()))
+        .collect()
+}
+
 #[test]
-fn the_server_serves_every_catalog_op_and_no_other() {
-    let raw =
-        std::fs::read_to_string(app_dir().join("catalog/cloud-catalog.json")).expect("catalog");
-    let catalog: Value = serde_json::from_str(&raw).expect("catalog JSON");
-    let declared: BTreeSet<String> = catalog["operations"]
+fn the_server_serves_its_fragment_ops_and_the_backend_ops_it_consumes() {
+    let catalog = json(&app_dir().join("catalog/cloud-catalog.json"));
+    let manifest = json(&app_dir().join("cmux-app.v2.json"));
+    let backend = backend_ops();
+    let fragment: BTreeSet<String> = catalog["operations"]
         .as_array()
         .expect("operations")
         .iter()
         .map(|op| op["name"].as_str().expect("name").to_owned())
         .collect();
+    let consumed: BTreeSet<String> = manifest["consumes"]["ops"]
+        .as_array()
+        .expect("consumes.ops")
+        .iter()
+        .map(|op| op.as_str().expect("name").to_owned())
+        .collect();
+    // The fragment declares no op the backend owns; it names them in consumes.ops.
+    assert!(fragment.iter().all(|name| !backend.contains_key(name)), "{fragment:?}");
+    for name in &consumed {
+        assert!(backend.contains_key(name), "{name}: consumed but not a CloudDO op");
+    }
     let served: BTreeSet<String> = cmux_cloud::ops::op_names().map(str::to_owned).collect();
-    assert_eq!(declared, served);
+    let both: BTreeSet<String> = fragment.union(&consumed).cloned().collect();
+    assert_eq!(both, served);
     for op in catalog["operations"].as_array().expect("operations") {
         let name = op["name"].as_str().expect("name");
         assert_eq!(cmux_cloud::ops::canonical_name(&format!("cmux.{name}")), Some(name));
@@ -53,5 +82,38 @@ fn the_server_serves_every_catalog_op_and_no_other() {
                 "{name}: a user-only op is not a visible CLI verb"
             );
         }
+    }
+    for name in &consumed {
+        let op = &backend[name];
+        let (mutation, user_only) = cmux_cloud::ops::op_policy(name).expect("served");
+        assert_eq!(mutation, op["class"] == "mutation", "{name}: class and server guard agree");
+        // Money and destructive ops need a person here, and the backend
+        // keeps them off the CLI and MCP.
+        let person = op["risk"] == "money" || op["risk"] == "destructive";
+        if person {
+            assert!(user_only, "{name}: a {} op needs origin user", op["risk"]);
+            assert_eq!(op["mcp"]["expose"], "never", "{name}");
+        }
+    }
+}
+
+#[test]
+fn the_client_error_table_is_the_backend_catalog() {
+    let backend = backend_ops();
+    let table: BTreeSet<&str> = cmux_cloud::ops::backend_ops().collect();
+    let owned: BTreeSet<&str> = backend.keys().map(String::as_str).collect();
+    assert_eq!(table, owned, "ops/declared.rs lists exactly the CloudDO ops");
+    for (name, op) in &backend {
+        let declared: Vec<&str> = op["errors"]
+            .as_array()
+            .expect("errors")
+            .iter()
+            .map(|e| e.as_str().expect("code"))
+            .collect();
+        assert_eq!(
+            cmux_cloud::ops::declared_errors(name).map(<[&str]>::to_vec),
+            Some(declared),
+            "{name}"
+        );
     }
 }

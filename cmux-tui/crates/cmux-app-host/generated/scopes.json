@@ -205,10 +205,6 @@
       "scope": "cloud:read",
       "class": "read"
     },
-    "cloud.billing.checkout": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
     "cloud.browser.open": {
       "scope": "cloud:write",
       "class": "mutation"
@@ -257,10 +253,6 @@
       "scope": "cloud:read",
       "class": "read"
     },
-    "cloud.machine.create": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
     "cloud.machine.disconnect": {
       "scope": "cloud:write",
       "class": "mutation"
@@ -282,10 +274,6 @@
       "class": "mutation"
     },
     "cloud.machine.rename": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
-    "cloud.machine.resize": {
       "scope": "cloud:write",
       "class": "mutation"
     },
@@ -323,6 +311,10 @@
     },
     "cloud.rescue.open": {
       "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.shell.open": {
+      "scope": "cloud:execute",
       "class": "mutation"
     },
     "cloud.snapshot.create": {
@@ -1652,8 +1644,11 @@
     "client.metadata.update",
     "client.sizing.release",
     "client.sizing.set",
+    "cloud.billing.checkout",
     "cloud.fs.remove",
+    "cloud.machine.create",
     "cloud.machine.delete",
+    "cloud.machine.resize",
     "cloud.port.close",
     "cloud.snapshot.delete",
     "domain.release",
