@@ -115,6 +115,7 @@ let package = Package(
         .package(path: "../../Shared/CmuxAuthRuntime"),
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxTheme"),
+        .package(path: "../../Shared/CmuxAgentBrands"),
         .package(path: "../../Shared/CmuxHomeCore"),
         .package(path: "../../Shared/CmuxHomeRender"),
         .package(path: "../../Shared/CmuxIrxTransport"),
@@ -567,7 +568,10 @@ let package = Package(
         // kept out of CmuxNextApp so it links in `swift test` (no GhosttyKit).
         .target(
             name: "CmuxNextBridge",
-            dependencies: ["CmuxNextDaemon", "CmuxNextLayout", "CmuxNextSidebar", "CmuxNextTabs"],
+            dependencies: [
+                "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextSidebar", "CmuxNextTabs",
+                .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -704,7 +708,10 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextTabs",
-            dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources"],
+            dependencies: [
+                "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources",
+                .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+            ],
             resources: [
                 .process("Resources"),
             ],
