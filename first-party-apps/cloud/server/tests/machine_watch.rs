@@ -2,16 +2,17 @@
 //! stream. Each projection change raises the revision once and queues one
 //! event per changed record (`upsert` or `removed`) from the code path that
 //! changed it. Mutation results carry the revision their change reached.
+//! A full listing (first page to last) removes machines it did not see.
 
 mod common;
 
 use cmux_cloud::ops::WatchEvent;
 use cmux_cloud::{Origin, Request, Server};
-use common::FakeControlPlane;
+use common::{FakeControlPlane, WireFake, vm};
 use serde_json::{Value, json};
 
-fn listed(fixtures: &[&str]) -> Server<FakeControlPlane> {
-    let mut s = Server::new(FakeControlPlane::with(fixtures));
+fn listed() -> Server<FakeControlPlane> {
+    let mut s = Server::new(FakeControlPlane::with(&[]));
     s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
     s.take_events();
     s
@@ -27,37 +28,53 @@ fn ids(events: &[WatchEvent]) -> Vec<(String, &'static str, u64)> {
         .collect()
 }
 
+/// The vectors' default list with `edit` applied, served for `list {}`.
+fn relist(s: &mut Server<FakeControlPlane>, edit: impl FnOnce(&mut Vec<Value>)) {
+    let doc = common::wire_common::vectors();
+    let case = doc["cases"]
+        .as_array()
+        .expect("cases")
+        .iter()
+        .find(|c| c["name"] == "machine.list.default")
+        .expect("default list")
+        .clone();
+    let mut value = case["responses"][0]["body"]["value"].clone();
+    edit(value["machines"].as_array_mut().expect("machines"));
+    s.control_plane_mut().wire.answer("cloud.machine.list", json!({}), None, value);
+}
+
 #[test]
 fn watch_is_a_read_that_answers_the_current_revision() {
-    let mut s = listed(&["vm-list"]);
+    let mut s = listed();
     let out = s.handle(&Request::new("cloud.machine.watch", json!({}))).expect("watch");
     assert_eq!(out, json!({ "revision": 1 }));
     let keyed = Request::new("cmux.cloud.machine.watch", json!({})).key("w-1");
     assert_eq!(s.handle(&keyed).unwrap_err().code, "cmux.cloud.idempotency_key_forbidden");
     assert!(s.take_events().is_empty(), "a watch read changes nothing");
-    assert_eq!(s.control_plane().count("GET", "/api/vm"), 1, "a watch read calls nothing");
+    assert_eq!(s.control_plane().wire.calls.len(), 1, "a watch read calls nothing");
 }
 
 #[test]
 fn a_mutation_raises_the_revision_once_and_emits_one_event() {
-    let mut s = listed(&["vm-list", "vm-pause"]);
+    let mut s = listed();
     let before = s.projection().revision();
     let paused = s
-        .handle(&Request::new("cloud.machine.pause", json!({ "machine": "vm-alpha01" })).key("p-1"))
+        .handle(
+            &Request::new("cloud.machine.pause", json!({ "machine": vm(1) })).key("key-pause-1"),
+        )
         .expect("pause");
     assert_eq!(s.projection().revision(), before + 1);
     assert_eq!(paused["revision"], before + 1, "the result names the revision of its change");
-    assert_eq!(paused["id"], "vm-alpha01", "machine fields stay at the top level");
     let events = s.take_events();
-    assert_eq!(ids(&events), [("vm-alpha01".to_owned(), "upsert", before + 1)]);
+    assert_eq!(ids(&events), [(vm(1), "upsert", before + 1)]);
     let WatchEvent::Upsert { machine, .. } = &events[0] else { unreachable!() };
-    assert_eq!(machine.display_name.as_deref(), Some("build box"), "the event carries the record");
+    assert_eq!(machine.name.as_deref(), Some("build box"), "the event carries the record");
 }
 
 #[test]
 fn a_replay_with_the_same_key_emits_nothing_new() {
-    let mut s = listed(&["vm-list", "vm-pause"]);
-    let pause = Request::new("cloud.machine.pause", json!({ "machine": "vm-alpha01" })).key("p-1");
+    let mut s = listed();
+    let pause = Request::new("cloud.machine.pause", json!({ "machine": vm(1) })).key("key-pause-1");
     let first = s.handle(&pause).expect("pause");
     s.take_events();
     let revision = s.projection().revision();
@@ -65,125 +82,137 @@ fn a_replay_with_the_same_key_emits_nothing_new() {
     assert_eq!(first, again, "the replay answers the recorded result and revision");
     assert!(s.take_events().is_empty());
     assert_eq!(s.projection().revision(), revision);
+    assert_eq!(s.control_plane().wire.count("cloud.machine.pause"), 1, "replayed here");
 }
 
 #[test]
-fn a_mutation_with_no_effect_keeps_the_revision() {
-    let mut s = listed(&["vm-list", "vm-resume"]);
-    // vm-alpha01 is running already: the answer changes nothing.
-    s.control_plane_mut().respond(
-        "POST",
-        "/api/vm/vm-alpha01/resume",
-        200,
-        json!({ "id": "vm-alpha01", "status": "running" }),
-    );
+fn a_full_listing_that_drops_a_machine_emits_removed() {
+    let mut s = listed();
     let before = s.projection().revision();
-    let out = s
-        .handle(&Request::new("cloud.machine.start", json!({ "machine": "vm-alpha01" })).key("s-1"))
-        .expect("start");
-    assert_eq!(out["revision"], before);
-    assert!(s.take_events().is_empty());
-}
-
-#[test]
-fn a_refresh_that_drops_a_machine_emits_removed() {
-    let mut s = listed(&["vm-list"]);
-    let before = s.projection().revision();
-    let mut body = FakeControlPlane::fixture_body("vm-list");
-    body["vms"].as_array_mut().expect("vms").retain(|m| m["id"] != "vm-beta02");
-    s.control_plane_mut().respond("GET", "/api/vm", 200, body);
+    relist(&mut s, |machines| machines.retain(|m| m["id"] != vm(2)));
     let out = s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
     assert_eq!(out["revision"], before + 1);
-    assert_eq!(ids(&s.take_events()), [("vm-beta02".to_owned(), "removed", before + 1)]);
+    assert_eq!(ids(&s.take_events()), [(vm(2), "removed", before + 1)]);
 }
 
 #[test]
-fn a_refresh_diff_emits_one_event_per_changed_record_under_one_revision() {
-    let mut s = listed(&["vm-list"]);
+fn a_listing_diff_emits_one_event_per_changed_record_under_one_revision() {
+    let mut s = listed();
     let before = s.projection().revision();
-    let mut body = FakeControlPlane::fixture_body("vm-list");
-    let vms = body["vms"].as_array_mut().expect("vms");
-    vms.retain(|m| m["id"] != "vm-alpha01");
-    vms[0]["status"] = json!("running");
-    let mut fresh = vms[0].clone();
-    fresh["id"] = json!("vm-new09");
-    vms.push(fresh);
-    s.control_plane_mut().respond("GET", "/api/vm", 200, body);
+    relist(&mut s, |machines| {
+        machines.retain(|m| m["id"] != vm(1));
+        machines[0]["status"] = json!("running");
+        machines[0]["revision"] = json!("5");
+        let mut fresh = machines[0].clone();
+        fresh["id"] = json!(vm(9));
+        machines.push(fresh);
+    });
     s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
     let r = before + 1;
     assert_eq!(
         ids(&s.take_events()),
-        [
-            ("vm-alpha01".to_owned(), "removed", r),
-            ("vm-beta02".to_owned(), "upsert", r),
-            ("vm-new09".to_owned(), "upsert", r),
-        ]
+        [(vm(1), "removed", r), (vm(2), "upsert", r), (vm(9), "upsert", r)]
     );
     assert_eq!(s.projection().revision(), r);
 }
 
 #[test]
-fn a_refresh_with_no_change_emits_nothing() {
-    let mut s = listed(&["vm-list"]);
+fn a_machine_newer_than_the_listing_is_kept() {
+    let mut s = listed();
+    // An event brought machine 8 at revision 45; a full listing read at
+    // team revision 41 cannot have seen it, so it stays. Machines at or
+    // below 41 that the listing did not see are gone.
+    let (event, data) = WireFake::event("machine.upsert.new");
+    s.team_event(&event, &data).expect("event");
+    s.control_plane_mut().wire.answer(
+        "cloud.machine.list",
+        json!({}),
+        None,
+        json!({ "machines": [], "next_cursor": null, "revision": "41" }),
+    );
+    s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
+    assert!(s.projection().get(&vm(8)).is_some(), "newer than the listing");
+    assert_eq!(s.projection().len(), 1, "older ones the listing missed are gone");
+}
+
+#[test]
+fn a_listing_with_no_change_emits_nothing() {
+    let mut s = listed();
     let before = s.projection().revision();
     let out = s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
     assert_eq!(out["revision"], before);
     assert!(s.take_events().is_empty());
-    s.handle(&Request::new("cloud.plan.get", json!({}))).expect("plan reads the same list");
+    s.handle(&Request::new("cloud.plan.get", json!({}))).expect("plan");
+    assert!(s.take_events().is_empty(), "the plan read changes no machine");
+}
+
+#[test]
+fn a_page_out_of_order_removes_nothing() {
+    let mut s = listed();
+    let out = s
+        .handle(&Request::new("cloud.machine.list", json!({ "cursor": "cur_page2", "limit": 2 })))
+        .expect("page 2");
+    assert_eq!(out["next_cursor"], Value::Null);
+    assert_eq!(s.projection().len(), 3, "a last page without its first proves nothing");
     assert!(s.take_events().is_empty());
 }
 
 #[test]
 fn delete_emits_removed() {
-    // The delete result stays `{ok: true}` (C1 contract); the `removed`
-    // event for the id is the echo that settles a delete intent.
-    let mut s = listed(&["vm-list", "vm-delete"]);
+    let mut s = listed();
     let before = s.projection().revision();
-    let req = Request::new("cloud.machine.delete", json!({ "machine": "vm-alpha01" }))
+    let req = Request::new("cloud.machine.delete", json!({ "machine": vm(2) }))
         .origin(Origin::User)
-        .key("d-1");
-    let out = s.handle(&req).expect("delete");
-    assert_eq!(out, json!({ "ok": true }));
-    assert_eq!(ids(&s.take_events()), [("vm-alpha01".to_owned(), "removed", before + 1)]);
+        .key("key-delete-1");
+    assert_eq!(s.handle(&req), Ok(json!({ "deleted": true })));
+    assert_eq!(ids(&s.take_events()), [(vm(2), "removed", before + 1)]);
+    // An older upsert after the delete never brings the machine back.
+    let mut stale =
+        common::wire_common::vectors()["cases"][0]["responses"][0]["body"]["value"]["machines"][1]
+            .clone();
+    stale["revision"] = json!("6");
+    s.team_event("cloud.machine.upsert", &json!({ "machine": stale })).expect("event");
+    assert!(s.projection().get(&vm(2)).is_none(), "the removal was at revision 6");
 }
 
 #[test]
 fn every_machine_mutation_result_carries_a_revision() {
-    let mut s =
-        listed(&["vm-list", "vm-create", "vm-rename", "vm-resize", "vm-restore", "vm-fork"]);
-    let cases: [(&str, Value); 5] = [
-        ("cloud.machine.create", json!({ "displayName": "scratch" })),
-        ("cloud.machine.rename", json!({ "machine": "vm-alpha01", "displayName": "renamed" })),
-        ("cloud.machine.resize", json!({ "machine": "vm-alpha01", "cpu": 8 })),
-        ("cloud.snapshot.restore", json!({ "snapshot": "snap-two" })),
-        ("cloud.snapshot.fork", json!({ "machine": "vm-alpha01" })),
+    let mut s = listed();
+    let size = json!({ "cpu": 2, "memory_mb": 4096, "disk_mb": 16384 });
+    let big = json!({ "cpu": 4, "memory_mb": 8192, "disk_mb": 32768 });
+    let cases: [(&str, Value, &str); 6] = [
+        ("cloud.machine.create", json!({ "name": "new box", "size": size }), "key-create-1"),
+        (
+            "cloud.machine.rename",
+            json!({ "machine": vm(1), "name": "renamed box" }),
+            "key-rename-1",
+        ),
+        ("cloud.machine.resize", json!({ "machine": vm(1), "size": big }), "key-resize-1"),
+        (
+            "cloud.machine.idle_policy.set",
+            json!({ "machine": vm(1), "idle_seconds": 3600 }),
+            "key-idle-1",
+        ),
+        (
+            "cloud.snapshot.restore",
+            json!({ "snapshot": "snap_s0000000000000000001", "name": "restored box" }),
+            "key-restore-1",
+        ),
+        ("cloud.machine.upgrade", json!({ "machine": vm(7) }), "key-upgrade-1"),
     ];
-    for (i, (op, args)) in cases.into_iter().enumerate() {
-        let out = s.handle(&Request::new(op, args).key(&format!("m-{i}"))).expect(op);
+    for (op, args, key) in cases {
+        let out = s.handle(&Request::new(op, args).key(key).origin(Origin::User)).expect(op);
         assert_eq!(out["revision"], s.projection().revision(), "{op}");
     }
 }
 
 #[test]
-fn a_partial_answer_for_an_unknown_machine_is_one_change() {
-    let mut s = Server::new(FakeControlPlane::with(&["vm-get", "vm-pause"]));
-    let out = s
-        .handle(&Request::new("cloud.machine.pause", json!({ "machine": "vm-alpha01" })).key("p-9"))
-        .expect("pause");
-    assert_eq!(out["revision"], 1);
-    let events = s.take_events();
-    assert_eq!(ids(&events), [("vm-alpha01".to_owned(), "upsert", 1)]);
-    let WatchEvent::Upsert { machine, .. } = &events[0] else { unreachable!() };
-    assert_eq!(machine.status, cmux_cloud::api::models::MachineStatus::Paused);
-}
-
-#[test]
 fn a_sign_out_removes_every_machine_under_one_revision() {
-    let mut s = listed(&["vm-list"]);
-    s.control_plane_mut().serve("unauthorized");
-    assert!(s.handle(&Request::new("cloud.machine.list", json!({}))).is_err());
+    let mut s = listed();
+    let out = s.handle(&Request::new("cloud.machine.list", json!({ "limit": 1 })));
+    assert_eq!(out.unwrap_err().code, "cmux.cloud.auth_required");
     assert_eq!(
         ids(&s.take_events()),
-        [("vm-alpha01".to_owned(), "removed", 2), ("vm-beta02".to_owned(), "removed", 2)]
+        [(vm(1), "removed", 2), (vm(2), "removed", 2), (vm(3), "removed", 2)]
     );
 }

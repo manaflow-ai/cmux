@@ -15,9 +15,18 @@
 //!   closed a forward or a browser route. Link and port lines go out as soon as the
 //!   loop is free (with no op after the change); while an op runs (a relay call, or a
 //!   connect waiting for the link's ready line) they wait for the end of that op.
-//! - server -> host: `{"type":"relay.request","id","op","method","path","body","idempotency_key"}`
-//! - host -> server: `{"type":"relay.response","id","status","body","error_code"}`
-//!   or `{"type":"relay.error","id","code":"not_signed_in"|"unavailable","message"}`
+//! - server -> host: `{"type":"relay.op","id","op","params","idempotency_key"?}`: one
+//!   `cmux.wire/1` op. The host sends `{op, params, idempotency_key}` to
+//!   `POST /v1/read` (no key) or `POST /v1/ops` with the install token and folds the
+//!   answer into `{"type":"relay.result","id","ok":true,"value","revision"?,"replayed"?}`
+//!   or `{"type":"relay.result","id","ok":false,"error":{"code","message","retryable","details"?}}`
+//!   (a `/v1/ops` `OpResponse` as is; a non-200 HTTP answer's `{code, message}` body
+//!   as the error, retryable on 503).
+//! - TRANSITIONAL (attach, scp and file routes until the link slice):
+//!   server -> host `{"type":"relay.request","id","op","method","path","body","idempotency_key"}`;
+//!   host -> server `{"type":"relay.response","id","status","body","error_code"}`.
+//! - host -> server, for any relay call: `{"type":"relay.error","id",
+//!   "code":"not_signed_in"|"unavailable","message"}`
 //! - server -> host: `{"type":"relay.session","id"}`; host -> server:
 //!   `{"type":"relay.session","id","signed_in","team"}`
 //! - host-only ops (`cmux.host.link.get`): `t` frames, see [`super::host`].
@@ -26,7 +35,8 @@
 //!   one of the same op, at most 64 events (distinct ops) and 64 answers
 //!   are kept, other frames are dropped (see `HostRelay::hold`).
 //!
-//! The host adds the bearer when it sends the HTTP call; no line in either
+//! The host adds the install token when it sends the call (never a Stack
+//! bearer, contract 1.1 and state-placement 5.5); no line in either
 //! direction carries a credential. The host answers every relay request,
 //! with `relay.error` when its own HTTP deadline passes; the server has no
 //! timer of its own. Op lines that arrive while a relay call
@@ -38,7 +48,10 @@
 //! lines into one inbox that link processes also wake, so the loop blocks
 //! on one channel and sends a link change at once, with no op after it.
 
-use super::control_plane::{ControlPlane, HttpCall, HttpReply, RelayError, SessionStatus};
+use super::control_plane::{
+    ControlPlane, HttpCall, HttpReply, RelayError, SessionStatus, WireCall, WireError, WireReply,
+    WireResult,
+};
 use super::error::{CloudError, codes};
 use serde_json::{Value, json};
 use std::collections::VecDeque;
@@ -241,7 +254,11 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
                     ),
                 });
             }
-            let expected = if kind == "relay.session" { "relay.session" } else { "relay.response" };
+            let expected = match kind.as_str() {
+                Some("relay.session") => "relay.session",
+                Some("relay.op") => "relay.result",
+                _ => "relay.response",
+            };
             if message["type"] != expected {
                 return Err(RelayError::Unavailable("unexpected relay answer".into()));
             }
@@ -355,7 +372,26 @@ fn read_json_line<R: BufRead>(reader: &mut R) -> std::io::Result<Option<Value>> 
 }
 
 impl<R: BufRead, W: Write> ControlPlane for HostRelay<R, W> {
-    fn call(&mut self, call: &HttpCall) -> Result<HttpReply, RelayError> {
+    fn call(&mut self, call: &WireCall) -> Result<WireReply, RelayError> {
+        let mut request = serde_json::to_value(call).expect("WireCall serializes");
+        request["type"] = json!("relay.op");
+        let answer = self.exchange(request)?;
+        match answer["ok"].as_bool() {
+            Some(true) => Ok(WireReply::Result(WireResult {
+                value: answer.get("value").cloned().unwrap_or(Value::Null),
+                revision: answer["revision"].as_str().map(str::to_owned),
+                replayed: answer["replayed"].as_bool().unwrap_or(false),
+            })),
+            Some(false) => serde_json::from_value::<WireError>(answer["error"].clone())
+                .map(WireReply::Error)
+                .map_err(|e| {
+                    RelayError::Unavailable(format!("relay error has no typed error: {e}"))
+                }),
+            None => Err(RelayError::Unavailable("relay result has no ok".into())),
+        }
+    }
+
+    fn classic(&mut self, call: &HttpCall) -> Result<HttpReply, RelayError> {
         let mut request = serde_json::to_value(call).expect("HttpCall serializes");
         request["type"] = json!("relay.request");
         let answer = self.exchange(request)?;

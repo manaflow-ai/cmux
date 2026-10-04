@@ -57,7 +57,19 @@
       "input": {
         "type": "object",
         "additionalProperties": false,
-        "properties": {}
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "next_cursor of the previous page; absent = the first page."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
       },
       "output": {
         "type": "object",
@@ -67,117 +79,173 @@
             "type": "array",
             "items": {
               "type": "object",
-              "description": "A Cloud machine record (owner: the cmux Cloud API).",
+              "description": "A Cloud machine record (owner: the cmux-next Cloud backend, cloud:CloudDO).",
               "required": [
                 "id",
-                "status"
+                "status",
+                "revision"
               ],
               "properties": {
                 "id": {
                   "type": "string"
                 },
-                "provider": {
-                  "type": "string"
+                "team": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "creator": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "size": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "cpu": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "memory_mb": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "disk_mb": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  }
                 },
                 "status": {
                   "enum": [
                     "provisioning",
+                    "starting",
                     "running",
-                    "failed",
+                    "pausing",
                     "paused",
-                    "destroyed",
+                    "deleting",
+                    "failed",
                     "unknown"
-                  ]
-                },
-                "displayName": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "slug": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "kind": {
-                  "type": [
-                    "string",
-                    "null"
                   ]
                 },
                 "image": {
                   "type": [
-                    "string",
+                    "object",
                     "null"
-                  ]
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "daemon_version": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
                 },
-                "imageVersion": {
+                "host": {
                   "type": [
                     "string",
                     "null"
-                  ]
+                  ],
+                  "description": "The overlay host id; null until the machine is bound."
                 },
-                "createdAt": {
+                "classic": {
+                  "type": "boolean"
+                },
+                "created_at": {
                   "type": [
-                    "number",
+                    "integer",
                     "null"
                   ],
                   "description": "Epoch milliseconds."
                 },
-                "address": {
+                "last_active_at": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "Epoch milliseconds."
+                },
+                "idle_policy": {
                   "type": [
                     "object",
                     "null"
                   ],
                   "properties": {
-                    "ipv4": {
+                    "idle_seconds": {
                       "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "ipv6": {
-                      "type": [
-                        "string",
+                        "integer",
                         "null"
                       ]
                     }
                   }
                 },
-                "createdBy": {
+                "error": {
                   "type": [
                     "object",
                     "null"
                   ],
                   "properties": {
-                    "userId": {
+                    "code": {
                       "type": "string"
                     },
-                    "displayName": {
+                    "message": {
                       "type": [
                         "string",
                         "null"
                       ]
+                    },
+                    "at": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "Epoch milliseconds."
                     }
                   }
                 },
-                "freeAccessExpiresAt": {
-                  "type": [
-                    "number",
-                    "null"
-                  ]
+                "revision": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$",
+                  "description": "The backend revision of the record (decimal)."
                 }
               }
             }
           },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "revision": {
-            "type": "integer"
+            "type": "integer",
+            "description": "The projection revision this change reached (cloud.machine.watch)."
           }
         },
         "required": [
           "machines",
+          "next_cursor",
           "revision"
         ]
       },
@@ -189,7 +257,7 @@
         "expose": "default",
         "group": "cloud"
       },
-      "docs": "List your Cloud machines and refresh the machine projection on this Mac. Read on page open, app activation and after every change; there is no polling. Alias: vm.list.",
+      "docs": "List your Cloud machines one page at a time and refresh the machine projection on this Mac. A listing that follows next_cursor from the first page to the last also removes machines it did not see. Read on page open; team wire events keep it current, there is no polling. Alias: vm.list.",
       "since": "cloud/1"
     },
     {
@@ -249,7 +317,7 @@
             "minLength": 1,
             "maxLength": 128,
             "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
-            "description": "The machine id (vm-…) from cloud.machine.list."
+            "description": "The machine id (vm_…) from cloud.machine.list."
           }
         },
         "required": [
@@ -258,107 +326,155 @@
       },
       "output": {
         "type": "object",
-        "description": "A Cloud machine record (owner: the cmux Cloud API).",
+        "description": "A Cloud machine record (owner: the cmux-next Cloud backend, cloud:CloudDO).",
         "required": [
           "id",
-          "status"
+          "status",
+          "revision"
         ],
         "properties": {
           "id": {
             "type": "string"
           },
-          "provider": {
-            "type": "string"
+          "team": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "creator": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "cpu": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "memory_mb": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "disk_mb": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            }
           },
           "status": {
             "enum": [
               "provisioning",
+              "starting",
               "running",
-              "failed",
+              "pausing",
               "paused",
-              "destroyed",
+              "deleting",
+              "failed",
               "unknown"
-            ]
-          },
-          "displayName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "slug": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "kind": {
-            "type": [
-              "string",
-              "null"
             ]
           },
           "image": {
             "type": [
-              "string",
+              "object",
               "null"
-            ]
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "daemon_version": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
           },
-          "imageVersion": {
+          "host": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "The overlay host id; null until the machine is bound."
           },
-          "createdAt": {
+          "classic": {
+            "type": "boolean"
+          },
+          "created_at": {
             "type": [
-              "number",
+              "integer",
               "null"
             ],
             "description": "Epoch milliseconds."
           },
-          "address": {
+          "last_active_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Epoch milliseconds."
+          },
+          "idle_policy": {
             "type": [
               "object",
               "null"
             ],
             "properties": {
-              "ipv4": {
+              "idle_seconds": {
                 "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "ipv6": {
-                "type": [
-                  "string",
+                  "integer",
                   "null"
                 ]
               }
             }
           },
-          "createdBy": {
+          "error": {
             "type": [
               "object",
               "null"
             ],
             "properties": {
-              "userId": {
+              "code": {
                 "type": "string"
               },
-              "displayName": {
+              "message": {
                 "type": [
                   "string",
                   "null"
                 ]
+              },
+              "at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Epoch milliseconds."
               }
             }
           },
-          "freeAccessExpiresAt": {
-            "type": [
-              "number",
-              "null"
-            ]
+          "revision": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "The backend revision of the record (decimal)."
           }
         }
       },
@@ -370,7 +486,7 @@
         "expose": "default",
         "group": "cloud"
       },
-      "docs": "Read one machine and update it in the projection. Alias: vm.get.",
+      "docs": "One machine. cmux.cloud.not_found also removes it from the projection. Alias: vm.get.",
       "since": "cloud/1"
     },
     {
@@ -386,141 +502,228 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "displayName": {
+          "name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 64,
-            "description": "Display name: 1 to 64 characters, no control characters."
+            "maxLength": 80,
+            "description": "1 to 80 characters after trimming, no control characters."
           },
-          "memoryMb": {
-            "type": "integer",
-            "minimum": 1024,
-            "maximum": 65536
+          "size": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "description": "Machine size. The plan decides which sizes are allowed (cmux.cloud.size_locked).",
+            "properties": {
+              "cpu": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64
+              },
+              "memory_mb": {
+                "type": "integer",
+                "minimum": 512,
+                "maximum": 262144
+              },
+              "disk_mb": {
+                "type": "integer",
+                "minimum": 1024,
+                "maximum": 1048576
+              }
+            }
           },
-          "kind": {
+          "image": {
             "type": "string",
-            "pattern": "^[a-z][a-z0-9-]{0,31}$"
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "An image id; absent = the default cmux-next image."
+          },
+          "from_snapshot": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "Create from this snapshot."
           }
-        }
+        },
+        "required": [
+          "size"
+        ]
       },
       "output": {
         "type": "object",
-        "description": "A Cloud machine record (owner: the cmux Cloud API).",
+        "additionalProperties": false,
         "required": [
-          "id",
-          "status",
+          "machine",
           "revision"
         ],
         "properties": {
-          "id": {
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "provisioning",
-              "running",
-              "failed",
-              "paused",
-              "destroyed",
-              "unknown"
-            ]
-          },
-          "displayName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "slug": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "kind": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "image": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "imageVersion": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "createdAt": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "description": "Epoch milliseconds."
-          },
-          "address": {
-            "type": [
-              "object",
-              "null"
+          "machine": {
+            "type": "object",
+            "description": "A Cloud machine record (owner: the cmux-next Cloud backend, cloud:CloudDO).",
+            "required": [
+              "id",
+              "status",
+              "revision"
             ],
             "properties": {
-              "ipv4": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "ipv6": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              }
-            }
-          },
-          "createdBy": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "properties": {
-              "userId": {
+              "id": {
                 "type": "string"
               },
-              "displayName": {
+              "team": {
                 "type": [
                   "string",
                   "null"
                 ]
+              },
+              "creator": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "size": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "cpu": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "memory_mb": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "disk_mb": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "enum": [
+                  "provisioning",
+                  "starting",
+                  "running",
+                  "pausing",
+                  "paused",
+                  "deleting",
+                  "failed",
+                  "unknown"
+                ]
+              },
+              "image": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "daemon_version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "host": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The overlay host id; null until the machine is bound."
+              },
+              "classic": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Epoch milliseconds."
+              },
+              "last_active_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Epoch milliseconds."
+              },
+              "idle_policy": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "idle_seconds": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "error": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "at": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Epoch milliseconds."
+                  }
+                }
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^[0-9]+$",
+                "description": "The backend revision of the record (decimal)."
               }
             }
-          },
-          "freeAccessExpiresAt": {
-            "type": [
-              "number",
-              "null"
-            ]
           },
           "revision": {
             "type": "integer",
-            "minimum": 0,
-            "description": "The machine projection revision this change reached; the change shows on cloud.machine.watch at this revision or later."
+            "description": "The projection revision this change reached (cloud.machine.watch)."
           }
         }
       },
       "cli": {
         "path": "machine create",
-        "visible": true
+        "visible": false
       },
       "mcp": {
-        "expose": "opt_in",
+        "expose": "never",
         "group": "cloud"
       },
       "palette": {
@@ -529,7 +732,8 @@
           "ja": "新しいクラウドマシン"
         }
       },
-      "docs": "Create a machine. Needs an idempotency key: a retry with the same key returns the same machine and never creates a second one. Uses your plan quota. Alias: vm.create.",
+      "gesture": "required",
+      "docs": "Create a machine (status provisioning; a cloud.machine.upsert event follows when it is bound). Uses your plan: cmux.cloud.plan_required, cmux.cloud.quota_exceeded {limit, used}, cmux.cloud.size_locked. Needs an idempotency key; after cmux.cloud.indeterminate or a lost answer, retry with the SAME key (never a new one). A same-key retry returns the same machine and never creates a second one. Only a person may run it: the host stamps origin user only after its native confirmation; every other origin gets cmux.cloud.origin_refused. Alias: vm.create.",
       "since": "cloud/1"
     },
     {
@@ -550,130 +754,185 @@
             "minLength": 1,
             "maxLength": 128,
             "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
-            "description": "The machine id (vm-…) from cloud.machine.list."
+            "description": "The machine id (vm_…) from cloud.machine.list."
           },
-          "displayName": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "maxLength": 64
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "1 to 80 characters after trimming, no control characters."
           }
         },
         "required": [
           "machine",
-          "displayName"
+          "name"
         ]
       },
       "output": {
         "type": "object",
-        "description": "A Cloud machine record (owner: the cmux Cloud API).",
+        "additionalProperties": false,
         "required": [
-          "id",
-          "status",
+          "machine",
           "revision"
         ],
         "properties": {
-          "id": {
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "provisioning",
-              "running",
-              "failed",
-              "paused",
-              "destroyed",
-              "unknown"
-            ]
-          },
-          "displayName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "slug": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "kind": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "image": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "imageVersion": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "createdAt": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "description": "Epoch milliseconds."
-          },
-          "address": {
-            "type": [
-              "object",
-              "null"
+          "machine": {
+            "type": "object",
+            "description": "A Cloud machine record (owner: the cmux-next Cloud backend, cloud:CloudDO).",
+            "required": [
+              "id",
+              "status",
+              "revision"
             ],
             "properties": {
-              "ipv4": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "ipv6": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              }
-            }
-          },
-          "createdBy": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "properties": {
-              "userId": {
+              "id": {
                 "type": "string"
               },
-              "displayName": {
+              "team": {
                 "type": [
                   "string",
                   "null"
                 ]
+              },
+              "creator": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "size": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "cpu": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "memory_mb": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "disk_mb": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "enum": [
+                  "provisioning",
+                  "starting",
+                  "running",
+                  "pausing",
+                  "paused",
+                  "deleting",
+                  "failed",
+                  "unknown"
+                ]
+              },
+              "image": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "daemon_version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "host": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The overlay host id; null until the machine is bound."
+              },
+              "classic": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Epoch milliseconds."
+              },
+              "last_active_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Epoch milliseconds."
+              },
+              "idle_policy": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "idle_seconds": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "error": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "at": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Epoch milliseconds."
+                  }
+                }
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^[0-9]+$",
+                "description": "The backend revision of the record (decimal)."
               }
             }
-          },
-          "freeAccessExpiresAt": {
-            "type": [
-              "number",
-              "null"
-            ]
           },
           "revision": {
             "type": "integer",
-            "minimum": 0,
-            "description": "The machine projection revision this change reached; the change shows on cloud.machine.watch at this revision or later."
+            "description": "The projection revision this change reached (cloud.machine.watch)."
           }
         }
       },
@@ -685,7 +944,7 @@
         "expose": "default",
         "group": "cloud"
       },
-      "docs": "Rename a machine; an empty name clears it. Alias: vm.update.",
+      "docs": "Rename a machine. Needs an idempotency key; after cmux.cloud.indeterminate or a lost answer, retry with the SAME key (never a new one). Alias: vm.update.",
       "since": "cloud/1"
     },
     {
@@ -706,7 +965,7 @@
             "minLength": 1,
             "maxLength": 128,
             "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
-            "description": "The machine id (vm-…) from cloud.machine.list."
+            "description": "The machine id (vm_…) from cloud.machine.list."
           }
         },
         "required": [
@@ -715,113 +974,169 @@
       },
       "output": {
         "type": "object",
-        "description": "A Cloud machine record (owner: the cmux Cloud API).",
+        "additionalProperties": false,
         "required": [
-          "id",
-          "status",
+          "machine",
           "revision"
         ],
         "properties": {
-          "id": {
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "provisioning",
-              "running",
-              "failed",
-              "paused",
-              "destroyed",
-              "unknown"
-            ]
-          },
-          "displayName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "slug": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "kind": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "image": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "imageVersion": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "createdAt": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "description": "Epoch milliseconds."
-          },
-          "address": {
-            "type": [
-              "object",
-              "null"
+          "machine": {
+            "type": "object",
+            "description": "A Cloud machine record (owner: the cmux-next Cloud backend, cloud:CloudDO).",
+            "required": [
+              "id",
+              "status",
+              "revision"
             ],
             "properties": {
-              "ipv4": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "ipv6": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              }
-            }
-          },
-          "createdBy": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "properties": {
-              "userId": {
+              "id": {
                 "type": "string"
               },
-              "displayName": {
+              "team": {
                 "type": [
                   "string",
                   "null"
                 ]
+              },
+              "creator": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "size": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "cpu": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "memory_mb": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "disk_mb": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "enum": [
+                  "provisioning",
+                  "starting",
+                  "running",
+                  "pausing",
+                  "paused",
+                  "deleting",
+                  "failed",
+                  "unknown"
+                ]
+              },
+              "image": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "daemon_version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "host": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The overlay host id; null until the machine is bound."
+              },
+              "classic": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Epoch milliseconds."
+              },
+              "last_active_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Epoch milliseconds."
+              },
+              "idle_policy": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "idle_seconds": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "error": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "at": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Epoch milliseconds."
+                  }
+                }
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^[0-9]+$",
+                "description": "The backend revision of the record (decimal)."
               }
             }
-          },
-          "freeAccessExpiresAt": {
-            "type": [
-              "number",
-              "null"
-            ]
           },
           "revision": {
             "type": "integer",
-            "minimum": 0,
-            "description": "The machine projection revision this change reached; the change shows on cloud.machine.watch at this revision or later."
+            "description": "The projection revision this change reached (cloud.machine.watch)."
           }
         }
       },
@@ -839,7 +1154,7 @@
           "ja": "クラウドマシンを起動"
         }
       },
-      "docs": "Start (resume) a paused machine. The server also accepts cloud.machine.resume, vm.start and vm.resume.",
+      "docs": "Start (resume) a paused machine. May answer cmux.cloud.quota_exceeded {limit, used}. Needs an idempotency key; after cmux.cloud.indeterminate or a lost answer, retry with the SAME key (never a new one). Alias: cloud.machine.resume, vm.start, vm.resume.",
       "since": "cloud/1"
     },
     {
@@ -860,7 +1175,7 @@
             "minLength": 1,
             "maxLength": 128,
             "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
-            "description": "The machine id (vm-…) from cloud.machine.list."
+            "description": "The machine id (vm_…) from cloud.machine.list."
           }
         },
         "required": [
@@ -869,113 +1184,169 @@
       },
       "output": {
         "type": "object",
-        "description": "A Cloud machine record (owner: the cmux Cloud API).",
+        "additionalProperties": false,
         "required": [
-          "id",
-          "status",
+          "machine",
           "revision"
         ],
         "properties": {
-          "id": {
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "provisioning",
-              "running",
-              "failed",
-              "paused",
-              "destroyed",
-              "unknown"
-            ]
-          },
-          "displayName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "slug": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "kind": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "image": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "imageVersion": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "createdAt": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "description": "Epoch milliseconds."
-          },
-          "address": {
-            "type": [
-              "object",
-              "null"
+          "machine": {
+            "type": "object",
+            "description": "A Cloud machine record (owner: the cmux-next Cloud backend, cloud:CloudDO).",
+            "required": [
+              "id",
+              "status",
+              "revision"
             ],
             "properties": {
-              "ipv4": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "ipv6": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              }
-            }
-          },
-          "createdBy": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "properties": {
-              "userId": {
+              "id": {
                 "type": "string"
               },
-              "displayName": {
+              "team": {
                 "type": [
                   "string",
                   "null"
                 ]
+              },
+              "creator": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "size": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "cpu": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "memory_mb": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "disk_mb": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "enum": [
+                  "provisioning",
+                  "starting",
+                  "running",
+                  "pausing",
+                  "paused",
+                  "deleting",
+                  "failed",
+                  "unknown"
+                ]
+              },
+              "image": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "daemon_version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "host": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The overlay host id; null until the machine is bound."
+              },
+              "classic": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Epoch milliseconds."
+              },
+              "last_active_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Epoch milliseconds."
+              },
+              "idle_policy": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "idle_seconds": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "error": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "at": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Epoch milliseconds."
+                  }
+                }
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^[0-9]+$",
+                "description": "The backend revision of the record (decimal)."
               }
             }
-          },
-          "freeAccessExpiresAt": {
-            "type": [
-              "number",
-              "null"
-            ]
           },
           "revision": {
             "type": "integer",
-            "minimum": 0,
-            "description": "The machine projection revision this change reached; the change shows on cloud.machine.watch at this revision or later."
+            "description": "The projection revision this change reached (cloud.machine.watch)."
           }
         }
       },
@@ -993,7 +1364,7 @@
           "ja": "クラウドマシンを一時停止"
         }
       },
-      "docs": "Pause a machine. Its disk and sessions are kept. Alias: vm.pause.",
+      "docs": "Pause a running machine. Needs an idempotency key; after cmux.cloud.indeterminate or a lost answer, retry with the SAME key (never a new one). Alias: vm.pause.",
       "since": "cloud/1"
     },
     {
@@ -1014,116 +1385,215 @@
             "minLength": 1,
             "maxLength": 128,
             "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
-            "description": "The machine id (vm-…) from cloud.machine.list."
+            "description": "The machine id (vm_…) from cloud.machine.list."
           },
-          "cpu": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 32
-          },
-          "memoryMb": {
-            "type": "integer",
-            "minimum": 4096,
-            "maximum": 65536,
-            "multipleOf": 1024
-          },
-          "storageMb": {
-            "type": "integer",
-            "minimum": 4096,
-            "maximum": 262144,
-            "multipleOf": 4096
+          "size": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "description": "Machine size. The plan decides which sizes are allowed (cmux.cloud.size_locked).",
+            "properties": {
+              "cpu": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64
+              },
+              "memory_mb": {
+                "type": "integer",
+                "minimum": 512,
+                "maximum": 262144
+              },
+              "disk_mb": {
+                "type": "integer",
+                "minimum": 1024,
+                "maximum": 1048576
+              }
+            }
           }
         },
         "required": [
-          "machine"
+          "machine",
+          "size"
         ]
       },
       "output": {
         "type": "object",
+        "additionalProperties": false,
         "required": [
-          "state",
+          "machine",
           "revision"
         ],
         "properties": {
-          "cpus": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "cpuPercent": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "loadAverage1m": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "memoryTotalMb": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "memoryUsedMb": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "diskTotalMb": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "diskUsedMb": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "maxDiskMb": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "maxMemoryMb": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "maxVcpus": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "state": {
-            "type": "string"
+          "machine": {
+            "type": "object",
+            "description": "A Cloud machine record (owner: the cmux-next Cloud backend, cloud:CloudDO).",
+            "required": [
+              "id",
+              "status",
+              "revision"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "team": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "creator": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "size": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "cpu": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "memory_mb": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "disk_mb": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "enum": [
+                  "provisioning",
+                  "starting",
+                  "running",
+                  "pausing",
+                  "paused",
+                  "deleting",
+                  "failed",
+                  "unknown"
+                ]
+              },
+              "image": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "daemon_version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "host": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The overlay host id; null until the machine is bound."
+              },
+              "classic": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Epoch milliseconds."
+              },
+              "last_active_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Epoch milliseconds."
+              },
+              "idle_policy": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "idle_seconds": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "error": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "at": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Epoch milliseconds."
+                  }
+                }
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^[0-9]+$",
+                "description": "The backend revision of the record (decimal)."
+              }
+            }
           },
           "revision": {
             "type": "integer",
-            "minimum": 0,
-            "description": "The machine projection revision this change reached; the change shows on cloud.machine.watch at this revision or later."
+            "description": "The projection revision this change reached (cloud.machine.watch)."
           }
         }
       },
       "cli": {
         "path": "machine resize",
-        "visible": true
+        "visible": false
       },
       "mcp": {
-        "expose": "opt_in",
+        "expose": "never",
         "group": "cloud"
       },
-      "docs": "Resize a machine: cpu 1-32, memoryMb 4096-65536 in whole GiB, storageMb in 4 GiB steps up to 256 GiB. The result shows the plan limits. Alias: vm.resize.",
+      "gesture": "required",
+      "docs": "Change a machine's size. A larger size can cost money, so a person confirms every resize. May answer cmux.cloud.size_locked or cmux.cloud.quota_exceeded. Needs an idempotency key; after cmux.cloud.indeterminate or a lost answer, retry with the SAME key (never a new one). Only a person may run it: the host stamps origin user only after its native confirmation; every other origin gets cmux.cloud.origin_refused. Alias: vm.resize.",
       "since": "cloud/1"
     },
     {
@@ -1144,7 +1614,7 @@
             "minLength": 1,
             "maxLength": 128,
             "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
-            "description": "The machine id (vm-…) from cloud.machine.list."
+            "description": "The machine id (vm_…) from cloud.machine.list."
           }
         },
         "required": [
@@ -1154,14 +1624,14 @@
       "output": {
         "type": "object",
         "additionalProperties": false,
+        "required": [
+          "deleted"
+        ],
         "properties": {
-          "ok": {
+          "deleted": {
             "const": true
           }
-        },
-        "required": [
-          "ok"
-        ]
+        }
       },
       "cli": {
         "path": "machine delete",
@@ -1178,114 +1648,7 @@
         }
       },
       "gesture": "required",
-      "docs": "Delete a machine and its disk. Only a person may delete: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP. Alias: vm.delete.",
-      "since": "cloud/1"
-    },
-    {
-      "name": "cloud.machine.stats",
-      "owner": "app:cmux/cloud",
-      "class": "read",
-      "risk": "read",
-      "idempotency": "forbidden",
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "input": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "machine": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
-            "description": "The machine id (vm-…) from cloud.machine.list."
-          }
-        },
-        "required": [
-          "machine"
-        ]
-      },
-      "output": {
-        "type": "object",
-        "required": [
-          "state"
-        ],
-        "properties": {
-          "cpus": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "cpuPercent": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "loadAverage1m": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "memoryTotalMb": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "memoryUsedMb": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "diskTotalMb": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "diskUsedMb": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "maxDiskMb": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "maxMemoryMb": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "maxVcpus": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "state": {
-            "type": "string"
-          }
-        }
-      },
-      "cli": {
-        "path": "machine stats",
-        "visible": true
-      },
-      "mcp": {
-        "expose": "default",
-        "group": "cloud"
-      },
-      "docs": "Live CPU, memory and disk of a machine. A sleeping machine answers without being woken.",
+      "docs": "Delete a machine and its disk. A retry after the delete answers {deleted: true} again. Needs an idempotency key; after cmux.cloud.indeterminate or a lost answer, retry with the SAME key (never a new one). Only a person may run it: the host stamps origin user only after its native confirmation; every other origin gets cmux.cloud.origin_refused. Alias: vm.delete.",
       "since": "cloud/1"
     },
     {
@@ -1306,40 +1669,470 @@
             "minLength": 1,
             "maxLength": 128,
             "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
-            "description": "The machine id (vm-…) from cloud.machine.list."
+            "description": "The machine id (vm_…) from cloud.machine.list."
           },
-          "idleTimeoutSeconds": {
+          "idle_seconds": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 604800
+            "maximum": 604800,
+            "description": "Pause after this many idle seconds; 0 = never."
           }
         },
         "required": [
           "machine",
-          "idleTimeoutSeconds"
+          "idle_seconds"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "machine",
+          "revision"
+        ],
+        "properties": {
+          "machine": {
+            "type": "object",
+            "description": "A Cloud machine record (owner: the cmux-next Cloud backend, cloud:CloudDO).",
+            "required": [
+              "id",
+              "status",
+              "revision"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "team": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "creator": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "size": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "cpu": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "memory_mb": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "disk_mb": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "enum": [
+                  "provisioning",
+                  "starting",
+                  "running",
+                  "pausing",
+                  "paused",
+                  "deleting",
+                  "failed",
+                  "unknown"
+                ]
+              },
+              "image": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "daemon_version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "host": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The overlay host id; null until the machine is bound."
+              },
+              "classic": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Epoch milliseconds."
+              },
+              "last_active_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Epoch milliseconds."
+              },
+              "idle_policy": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "idle_seconds": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "error": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "at": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Epoch milliseconds."
+                  }
+                }
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^[0-9]+$",
+                "description": "The backend revision of the record (decimal)."
+              }
+            }
+          },
+          "revision": {
+            "type": "integer",
+            "description": "The projection revision this change reached (cloud.machine.watch)."
+          }
+        }
+      },
+      "cli": {
+        "path": "machine idle-policy set",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "Set when an idle machine pauses. Needs an idempotency key; after cmux.cloud.indeterminate or a lost answer, retry with the SAME key (never a new one).",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.machine.connect_info",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm_…) from cloud.machine.list."
+          }
+        },
+        "required": [
+          "machine"
         ]
       },
       "output": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "ok": {
-            "const": true
+          "host": {
+            "type": "string",
+            "description": "The machine's overlay host id."
+          },
+          "daemon_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
-          "ok"
+          "host",
+          "capabilities"
         ]
       },
       "cli": {
-        "path": "machine idle-policy set",
+        "path": "machine connect-info",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "How to reach a machine on the overlay: its host id, daemon version and capabilities. cmux.cloud.not_bound while it provisions, cmux.cloud.machine_paused when paused.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.machine.upgrade",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm_…) from cloud.machine.list."
+          }
+        },
+        "required": [
+          "machine"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "machine",
+          "revision"
+        ],
+        "properties": {
+          "machine": {
+            "type": "object",
+            "description": "A Cloud machine record (owner: the cmux-next Cloud backend, cloud:CloudDO).",
+            "required": [
+              "id",
+              "status",
+              "revision"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "team": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "creator": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "size": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "cpu": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "memory_mb": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "disk_mb": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "enum": [
+                  "provisioning",
+                  "starting",
+                  "running",
+                  "pausing",
+                  "paused",
+                  "deleting",
+                  "failed",
+                  "unknown"
+                ]
+              },
+              "image": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "daemon_version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "host": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The overlay host id; null until the machine is bound."
+              },
+              "classic": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Epoch milliseconds."
+              },
+              "last_active_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Epoch milliseconds."
+              },
+              "idle_policy": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "idle_seconds": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "error": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "at": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Epoch milliseconds."
+                  }
+                }
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^[0-9]+$",
+                "description": "The backend revision of the record (decimal)."
+              }
+            }
+          },
+          "revision": {
+            "type": "integer",
+            "description": "The projection revision this change reached (cloud.machine.watch)."
+          }
+        }
+      },
+      "cli": {
+        "path": "machine upgrade",
         "visible": false
       },
       "mcp": {
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Set when an idle machine pauses (seconds of idle time, 0 = never). Not served yet: the cmux Cloud API has no idle policy route, so the server answers cmux.cloud.unsupported. Hidden on the CLI and MCP until the route exists.",
+      "palette": {
+        "title": {
+          "en": "Upgrade Classic Cloud Machine…",
+          "ja": "クラシックのクラウドマシンをアップグレード…"
+        }
+      },
+      "gesture": "required",
+      "docs": "Move one classic machine onto cmux-next (installs the daemon, binds it to the overlay). cmux.cloud.not_classic for a cmux-next machine; cmux.cloud.upgrade_failed leaves a working classic machine. Needs an idempotency key; after cmux.cloud.indeterminate or a lost answer, retry with the SAME key (never a new one). Only a person may run it: the host stamps origin user only after its native confirmation; every other origin gets cmux.cloud.origin_refused.",
       "since": "cloud/1"
     },
     {
@@ -1360,12 +2153,9 @@
             "minLength": 1,
             "maxLength": 128,
             "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
-            "description": "The machine id (vm-…) from cloud.machine.list."
+            "description": "Only this machine's snapshots; absent = the team's."
           }
-        },
-        "required": [
-          "machine"
-        ]
+        }
       },
       "output": {
         "type": "object",
@@ -1376,11 +2166,18 @@
             "items": {
               "type": "object",
               "required": [
-                "id"
+                "id",
+                "revision"
               ],
               "properties": {
                 "id": {
                   "type": "string"
+                },
+                "machine": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "name": {
                   "type": [
@@ -1388,12 +2185,29 @@
                     "null"
                   ]
                 },
-                "createdAt": {
+                "size_mb": {
                   "type": [
-                    "string",
-                    "number",
+                    "integer",
                     "null"
                   ]
+                },
+                "status": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "created_at": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "Epoch milliseconds."
+                },
+                "revision": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$",
+                  "description": "The backend revision of the record (decimal)."
                 }
               }
             }
@@ -1411,7 +2225,7 @@
         "expose": "default",
         "group": "cloud"
       },
-      "docs": "Snapshots of a machine, newest first. Alias: vm.snapshot.list.",
+      "docs": "Snapshots of one machine or of the team. Alias: vm.snapshot.list.",
       "since": "cloud/1"
     },
     {
@@ -1432,13 +2246,12 @@
             "minLength": 1,
             "maxLength": 128,
             "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
-            "description": "The machine id (vm-…) from cloud.machine.list."
+            "description": "The machine id (vm_…) from cloud.machine.list."
           },
           "name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 64,
-            "description": "Display name: 1 to 64 characters, no control characters."
+            "maxLength": 80
           }
         },
         "required": [
@@ -1447,27 +2260,60 @@
       },
       "output": {
         "type": "object",
-        "required": [
-          "id"
-        ],
+        "additionalProperties": false,
         "properties": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "createdAt": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+          "snapshot": {
+            "type": "object",
+            "required": [
+              "id",
+              "revision"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "machine": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "size_mb": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "created_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Epoch milliseconds."
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^[0-9]+$",
+                "description": "The backend revision of the record (decimal)."
+              }
+            }
           }
-        }
+        },
+        "required": [
+          "snapshot"
+        ]
       },
       "cli": {
         "path": "snapshot create",
@@ -1483,7 +2329,7 @@
           "ja": "クラウドマシンのスナップショットを作成"
         }
       },
-      "docs": "Take a snapshot of a machine. Alias: vm.snapshot.create.",
+      "docs": "Take a snapshot of a machine. May answer cmux.cloud.quota_exceeded {limit, used}. Needs an idempotency key; after cmux.cloud.indeterminate or a lost answer, retry with the SAME key (never a new one). Alias: vm.snapshot.create.",
       "since": "cloud/1"
     },
     {
@@ -1505,6 +2351,12 @@
             "maxLength": 128,
             "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
             "description": "The snapshot id from cloud.snapshot.list."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "1 to 80 characters after trimming, no control characters."
           }
         },
         "required": [
@@ -1513,113 +2365,169 @@
       },
       "output": {
         "type": "object",
-        "description": "A Cloud machine record (owner: the cmux Cloud API).",
+        "additionalProperties": false,
         "required": [
-          "id",
-          "status",
+          "machine",
           "revision"
         ],
         "properties": {
-          "id": {
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "provisioning",
-              "running",
-              "failed",
-              "paused",
-              "destroyed",
-              "unknown"
-            ]
-          },
-          "displayName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "slug": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "kind": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "image": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "imageVersion": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "createdAt": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "description": "Epoch milliseconds."
-          },
-          "address": {
-            "type": [
-              "object",
-              "null"
+          "machine": {
+            "type": "object",
+            "description": "A Cloud machine record (owner: the cmux-next Cloud backend, cloud:CloudDO).",
+            "required": [
+              "id",
+              "status",
+              "revision"
             ],
             "properties": {
-              "ipv4": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "ipv6": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              }
-            }
-          },
-          "createdBy": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "properties": {
-              "userId": {
+              "id": {
                 "type": "string"
               },
-              "displayName": {
+              "team": {
                 "type": [
                   "string",
                   "null"
                 ]
+              },
+              "creator": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "size": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "cpu": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "memory_mb": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "disk_mb": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "status": {
+                "enum": [
+                  "provisioning",
+                  "starting",
+                  "running",
+                  "pausing",
+                  "paused",
+                  "deleting",
+                  "failed",
+                  "unknown"
+                ]
+              },
+              "image": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "daemon_version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "host": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The overlay host id; null until the machine is bound."
+              },
+              "classic": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Epoch milliseconds."
+              },
+              "last_active_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Epoch milliseconds."
+              },
+              "idle_policy": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "idle_seconds": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "error": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "at": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Epoch milliseconds."
+                  }
+                }
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^[0-9]+$",
+                "description": "The backend revision of the record (decimal)."
               }
             }
-          },
-          "freeAccessExpiresAt": {
-            "type": [
-              "number",
-              "null"
-            ]
           },
           "revision": {
             "type": "integer",
-            "minimum": 0,
-            "description": "The machine projection revision this change reached; the change shows on cloud.machine.watch at this revision or later."
+            "description": "The projection revision this change reached (cloud.machine.watch)."
           }
         }
       },
@@ -1631,174 +2539,7 @@
         "expose": "opt_in",
         "group": "cloud"
       },
-      "docs": "Create a new machine from a snapshot. A retry with the same idempotency key returns the same machine. Alias: vm.snapshot.restore.",
-      "since": "cloud/1"
-    },
-    {
-      "name": "cloud.snapshot.fork",
-      "owner": "app:cmux/cloud",
-      "class": "mutation",
-      "risk": "mutate-own",
-      "idempotency": "required",
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "input": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "machine": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
-            "description": "The machine id (vm-…) from cloud.machine.list."
-          },
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 64,
-            "description": "Display name: 1 to 64 characters, no control characters."
-          }
-        },
-        "required": [
-          "machine"
-        ]
-      },
-      "output": {
-        "type": "object",
-        "description": "A Cloud machine record (owner: the cmux Cloud API).",
-        "required": [
-          "id",
-          "status",
-          "revision"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "provisioning",
-              "running",
-              "failed",
-              "paused",
-              "destroyed",
-              "unknown"
-            ]
-          },
-          "displayName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "slug": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "kind": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "image": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "imageVersion": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "createdAt": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "description": "Epoch milliseconds."
-          },
-          "address": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "properties": {
-              "ipv4": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "ipv6": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              }
-            }
-          },
-          "createdBy": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "properties": {
-              "userId": {
-                "type": "string"
-              },
-              "displayName": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              }
-            }
-          },
-          "freeAccessExpiresAt": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "snapshotId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The snapshot the copy was made from."
-          },
-          "revision": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "The machine projection revision this change reached; the change shows on cloud.machine.watch at this revision or later."
-          }
-        }
-      },
-      "cli": {
-        "path": "snapshot fork",
-        "visible": true
-      },
-      "mcp": {
-        "expose": "opt_in",
-        "group": "cloud"
-      },
-      "palette": {
-        "title": {
-          "en": "Fork Cloud Machine",
-          "ja": "クラウドマシンをフォーク"
-        }
-      },
-      "docs": "Fork a machine: snapshot it and start a copy. A retry with the same idempotency key returns the same copy.",
+      "docs": "Create a new machine from a snapshot (plan checks as create). Needs an idempotency key; after cmux.cloud.indeterminate or a lost answer, retry with the SAME key (never a new one). A same-key retry returns the same machine. Alias: vm.snapshot.restore.",
       "since": "cloud/1"
     },
     {
@@ -1814,13 +2555,6 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "machine": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
-            "description": "The machine id (vm-…) from cloud.machine.list."
-          },
           "snapshot": {
             "type": "string",
             "minLength": 1,
@@ -1830,21 +2564,20 @@
           }
         },
         "required": [
-          "machine",
           "snapshot"
         ]
       },
       "output": {
         "type": "object",
         "additionalProperties": false,
+        "required": [
+          "deleted"
+        ],
         "properties": {
-          "ok": {
+          "deleted": {
             "const": true
           }
-        },
-        "required": [
-          "ok"
-        ]
+        }
       },
       "cli": {
         "path": "snapshot delete",
@@ -1855,7 +2588,7 @@
         "group": "cloud"
       },
       "gesture": "required",
-      "docs": "Delete a snapshot of a machine. Only a person may delete (origin user, stamped by the host after its native confirmation). Hidden on the CLI and never on MCP. Alias: vm.snapshot.delete.",
+      "docs": "Delete a snapshot. Needs an idempotency key; after cmux.cloud.indeterminate or a lost answer, retry with the SAME key (never a new one). Only a person may run it: the host stamps origin user only after its native confirmation; every other origin gets cmux.cloud.origin_refused. Alias: vm.snapshot.delete.",
       "since": "cloud/1"
     },
     {
@@ -1874,55 +2607,67 @@
       },
       "output": {
         "type": "object",
-        "additionalProperties": false,
+        "required": [
+          "plan_id",
+          "limits",
+          "usage"
+        ],
         "properties": {
-          "planId": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "plan_id": {
+            "type": "string"
           },
-          "maxActiveVms": {
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "activeVmCount": {
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "memoryOptionsMb": {
-            "type": "array",
-            "items": {
-              "type": "integer"
+          "limits": {
+            "type": "object",
+            "properties": {
+              "max_active": {
+                "type": "integer"
+              },
+              "max_saved": {
+                "type": "integer"
+              },
+              "memory_options_mb": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              },
+              "locked_memory_options_mb": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              },
+              "vm_hours_included": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
             }
           },
-          "lockedMemoryOptionsMb": {
-            "type": "array",
-            "items": {
-              "type": "integer"
+          "usage": {
+            "type": "object",
+            "properties": {
+              "active": {
+                "type": "integer"
+              },
+              "saved": {
+                "type": "integer"
+              },
+              "vm_hours_used": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "period_end": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Epoch milliseconds."
+              }
             }
-          },
-          "memoryUpgradePlanId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "freeAccessWindowDays": {
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "freeAccessExpiresAt": {
-            "type": [
-              "number",
-              "null"
-            ]
           }
         }
       },
@@ -1934,11 +2679,68 @@
         "expose": "default",
         "group": "cloud"
       },
-      "docs": "Your plan: machine limit, active machines, memory sizes the plan includes and the plan that adds larger ones. Read from the cmux Cloud API; cmux keeps no plan logic.",
+      "docs": "Your plan: limits (active and saved machines, memory sizes, locked sizes, included VM hours) and usage this period. Read from the backend's billing owner; cmux computes no limit.",
       "since": "cloud/1"
     },
     {
-      "name": "cloud.usage.get",
+      "name": "cloud.billing.checkout",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "plan": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The plan to buy, from cloud.plan.get or a plan error."
+          }
+        },
+        "required": [
+          "plan"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "type": "string",
+            "pattern": "^https://",
+            "description": "The checkout page; the host opens it in the browser."
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "cli": {
+        "path": "billing checkout",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "palette": {
+        "title": {
+          "en": "See Cloud Plans…",
+          "ja": "クラウドのプランを見る…"
+        }
+      },
+      "gesture": "required",
+      "docs": "Start a plan checkout in the browser. No card data enters cmux. Needs an idempotency key; after cmux.cloud.indeterminate or a lost answer, retry with the SAME key (never a new one). Only a person may run it: the host stamps origin user only after its native confirmation; every other origin gets cmux.cloud.origin_refused.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.migration.status",
       "owner": "app:cmux/cloud",
       "class": "read",
       "risk": "read",
@@ -1955,41 +2757,76 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "vmHoursUsed": {
-            "type": [
-              "number",
-              "null"
-            ]
+          "state": {
+            "type": "string"
           },
-          "vmHoursIncluded": {
-            "type": [
-              "number",
-              "null"
-            ]
+          "classic_count": {
+            "type": "integer"
           },
-          "savedVmLimit": {
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "activeVmCount": {
-            "type": [
-              "integer",
-              "null"
-            ]
+          "imported": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
-        }
+        },
+        "required": [
+          "state"
+        ]
       },
       "cli": {
-        "path": "usage get",
+        "path": "migration status",
         "visible": true
       },
       "mcp": {
         "expose": "default",
         "group": "cloud"
       },
-      "docs": "Machine hours used and included in this period (plans with an hour allowance) and the saved machine limit.",
+      "docs": "Whether this account has machines from cmux Cloud classic to move, and which were imported.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.migration.start",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ]
+      },
+      "cli": {
+        "path": "migration start",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "palette": {
+        "title": {
+          "en": "Move Classic Cloud Machines…",
+          "ja": "クラシックのクラウドマシンを移行…"
+        }
+      },
+      "gesture": "required",
+      "docs": "Move this account's classic machines to cmux-next (one way). cmux.cloud.migration_unavailable when there is nothing to move. Needs an idempotency key; after cmux.cloud.indeterminate or a lost answer, retry with the SAME key (never a new one). Only a person may run it: the host stamps origin user only after its native confirmation; every other origin gets cmux.cloud.origin_refused.",
       "since": "cloud/1"
     },
     {
@@ -2206,1433 +3043,6 @@
         }
       },
       "docs": "Open a shell on a machine whose cmux daemon does not answer (the cmux.terminal.backend/1 rescue kind). The new terminal gets focus only for origin user or focus true (focuses stays false: focus is not the op's purpose). Answers cmux.cloud.unsupported until the cmux Cloud API has an interactive shell route.",
-      "since": "cloud/1"
-    },
-    {
-      "name": "cloud.network.list",
-      "owner": "app:cmux/cloud",
-      "class": "read",
-      "risk": "read",
-      "idempotency": "forbidden",
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "input": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {}
-      },
-      "output": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "networks": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": [
-                "id",
-                "scope"
-              ],
-              "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "cidr": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "cidrV6": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "scope": {
-                  "enum": [
-                    "user",
-                    "team"
-                  ]
-                }
-              }
-            }
-          }
-        },
-        "required": [
-          "networks"
-        ]
-      },
-      "cli": {
-        "path": "network list",
-        "visible": true
-      },
-      "mcp": {
-        "expose": "default",
-        "group": "cloud"
-      },
-      "docs": "List your private Cloud networks (GET /api/vm/network). The network records stay with the cmux Cloud API.",
-      "since": "cloud/1"
-    },
-    {
-      "name": "cloud.tunnel.attach",
-      "owner": "app:cmux/cloud",
-      "class": "mutation",
-      "risk": "mutate-shared",
-      "idempotency": "required",
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "input": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "deviceFingerprint": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[A-Za-z0-9._:-]{1,128}$",
-            "description": "The stable per-install device fingerprint of the tunnel."
-          },
-          "network": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[A-Za-z0-9._:-]{1,128}$"
-          },
-          "tunnelPurpose": {
-            "enum": [
-              "browser",
-              "terminal"
-            ],
-            "description": "Which tunnel of the device: browser (default) or terminal."
-          }
-        },
-        "required": [
-          "deviceFingerprint",
-          "network"
-        ]
-      },
-      "output": {
-        "type": "object",
-        "required": [
-          "tunnelId"
-        ],
-        "properties": {
-          "tunnelId": {
-            "type": "string"
-          },
-          "networkId": {
-            "type": "string"
-          },
-          "addressV4": {
-            "type": "string"
-          },
-          "addressV6": {
-            "type": "string"
-          },
-          "detached": {
-            "type": "boolean"
-          }
-        }
-      },
-      "cli": {
-        "path": "tunnel attach",
-        "visible": false
-      },
-      "mcp": {
-        "expose": "never",
-        "group": "cloud"
-      },
-      "gesture": "required",
-      "docs": "Attach a device's WireGuard tunnel to one of your private networks (POST /api/vm/tunnel/network/attach). It gives the device a path into the network. Only a person may run it: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP.",
-      "since": "cloud/1"
-    },
-    {
-      "name": "cloud.tunnel.detach",
-      "owner": "app:cmux/cloud",
-      "class": "mutation",
-      "risk": "mutate-own",
-      "idempotency": "required",
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "input": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "deviceFingerprint": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[A-Za-z0-9._:-]{1,128}$",
-            "description": "The stable per-install device fingerprint of the tunnel."
-          },
-          "network": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[A-Za-z0-9._:-]{1,128}$"
-          },
-          "tunnelPurpose": {
-            "enum": [
-              "browser",
-              "terminal"
-            ],
-            "description": "Which tunnel of the device: browser (default) or terminal."
-          }
-        },
-        "required": [
-          "deviceFingerprint",
-          "network"
-        ]
-      },
-      "output": {
-        "type": "object",
-        "required": [
-          "tunnelId"
-        ],
-        "properties": {
-          "tunnelId": {
-            "type": "string"
-          },
-          "networkId": {
-            "type": "string"
-          },
-          "addressV4": {
-            "type": "string"
-          },
-          "addressV6": {
-            "type": "string"
-          },
-          "detached": {
-            "type": "boolean"
-          }
-        }
-      },
-      "cli": {
-        "path": "tunnel detach",
-        "visible": true
-      },
-      "mcp": {
-        "expose": "opt_in",
-        "group": "cloud"
-      },
-      "docs": "Detach a device's WireGuard tunnel from a private network (POST /api/vm/tunnel/network/detach). Needs an idempotency key.",
-      "since": "cloud/1"
-    },
-    {
-      "name": "cloud.tunnel.rotate_key",
-      "owner": "app:cmux/cloud",
-      "class": "mutation",
-      "risk": "mutate-shared",
-      "idempotency": "required",
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "input": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "deviceFingerprint": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[A-Za-z0-9._:-]{1,128}$",
-            "description": "The stable per-install device fingerprint of the tunnel."
-          },
-          "clientPublicKey": {
-            "type": "string",
-            "minLength": 44,
-            "maxLength": 44,
-            "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$",
-            "description": "The WireGuard PUBLIC key of the tunnel (base64 of 32 bytes). Never a private key: the private key stays with cmux link."
-          },
-          "tunnelPurpose": {
-            "enum": [
-              "browser",
-              "terminal"
-            ],
-            "description": "Which tunnel of the device: browser (default) or terminal."
-          }
-        },
-        "required": [
-          "deviceFingerprint",
-          "clientPublicKey"
-        ]
-      },
-      "output": {
-        "type": "object",
-        "required": [
-          "tunnelId",
-          "clientPublicKey"
-        ],
-        "properties": {
-          "tunnelId": {
-            "type": "string"
-          },
-          "networkId": {
-            "type": "string"
-          },
-          "clientPublicKey": {
-            "type": "string"
-          },
-          "serverPublicKey": {
-            "type": "string"
-          },
-          "clientConfig": {
-            "type": "string",
-            "description": "WireGuard configuration with a blank PrivateKey line. An answer with a private key is refused."
-          }
-        }
-      },
-      "cli": {
-        "path": "tunnel rotate-key",
-        "visible": false
-      },
-      "mcp": {
-        "expose": "never",
-        "group": "cloud"
-      },
-      "gesture": "required",
-      "docs": "Give a tunnel a new WireGuard public key; its address stays and the server public key changes (take the new [Peer] key from clientConfig) (POST /api/vm/tunnel/network/rotate-key). Takes the public key only; a value that is not base64 of 32 bytes is refused before any call. It gives the device a path into the network. Only a person may run it: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP.",
-      "since": "cloud/1"
-    },
-    {
-      "name": "cloud.firewall.list",
-      "owner": "app:cmux/cloud",
-      "class": "read",
-      "risk": "read",
-      "idempotency": "forbidden",
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "input": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "machine": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
-            "description": "The machine id (vm-…) from cloud.machine.list."
-          },
-          "network": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[A-Za-z0-9._:-]{1,128}$"
-          },
-          "tunnel": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[A-Za-z0-9._:-]{1,128}$"
-          }
-        }
-      },
-      "output": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "rules": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": [
-                "id",
-                "action",
-                "source",
-                "destination"
-              ],
-              "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "action": {
-                  "const": "allow"
-                },
-                "source": {
-                  "type": "object"
-                },
-                "destination": {
-                  "type": "object"
-                },
-                "description": {
-                  "type": "string"
-                },
-                "createdAt": {
-                  "type": "string"
-                },
-                "updatedAt": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "required": [
-          "rules"
-        ]
-      },
-      "cli": {
-        "path": "firewall list",
-        "visible": true
-      },
-      "mcp": {
-        "expose": "default",
-        "group": "cloud"
-      },
-      "docs": "List the allow rules of your private network, optionally for one machine, network or tunnel (GET /api/vm/firewall).",
-      "since": "cloud/1"
-    },
-    {
-      "name": "cloud.firewall.get",
-      "owner": "app:cmux/cloud",
-      "class": "read",
-      "risk": "read",
-      "idempotency": "forbidden",
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "input": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "rule": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[A-Za-z0-9._:-]{1,128}$"
-          }
-        },
-        "required": [
-          "rule"
-        ]
-      },
-      "output": {
-        "type": "object",
-        "required": [
-          "id",
-          "action",
-          "source",
-          "destination"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "action": {
-            "const": "allow"
-          },
-          "source": {
-            "type": "object"
-          },
-          "destination": {
-            "type": "object"
-          },
-          "description": {
-            "type": "string"
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "updatedAt": {
-            "type": "string"
-          }
-        }
-      },
-      "cli": {
-        "path": "firewall get",
-        "visible": true
-      },
-      "mcp": {
-        "expose": "default",
-        "group": "cloud"
-      },
-      "docs": "Read one firewall rule (GET /api/vm/firewall?ruleId=).",
-      "since": "cloud/1"
-    },
-    {
-      "name": "cloud.firewall.create",
-      "owner": "app:cmux/cloud",
-      "class": "mutation",
-      "risk": "mutate-shared",
-      "idempotency": "required",
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "input": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "source": {
-            "type": "object",
-            "additionalProperties": false,
-            "description": "One identity: vmId, vpcId, tunnelId, cidr, or public: true alone. port needs protocol; icmp takes no port.",
-            "properties": {
-              "vmId": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 128,
-                "pattern": "^[A-Za-z0-9._:-]{1,128}$"
-              },
-              "vpcId": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 128,
-                "pattern": "^[A-Za-z0-9._:-]{1,128}$"
-              },
-              "tunnelId": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 128,
-                "pattern": "^[A-Za-z0-9._:-]{1,128}$"
-              },
-              "cidr": {
-                "type": "string",
-                "maxLength": 64
-              },
-              "public": {
-                "const": true
-              },
-              "port": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 65535
-              },
-              "protocol": {
-                "enum": [
-                  "tcp",
-                  "udp",
-                  "icmp"
-                ]
-              }
-            }
-          },
-          "destination": {
-            "type": "object",
-            "additionalProperties": false,
-            "description": "One identity: vmId, vpcId, tunnelId, cidr, or public: true alone. port needs protocol; icmp takes no port.",
-            "properties": {
-              "vmId": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 128,
-                "pattern": "^[A-Za-z0-9._:-]{1,128}$"
-              },
-              "vpcId": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 128,
-                "pattern": "^[A-Za-z0-9._:-]{1,128}$"
-              },
-              "tunnelId": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 128,
-                "pattern": "^[A-Za-z0-9._:-]{1,128}$"
-              },
-              "cidr": {
-                "type": "string",
-                "maxLength": 64
-              },
-              "public": {
-                "const": true
-              },
-              "port": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 65535
-              },
-              "protocol": {
-                "enum": [
-                  "tcp",
-                  "udp",
-                  "icmp"
-                ]
-              }
-            }
-          },
-          "description": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 1024
-          }
-        },
-        "required": [
-          "source",
-          "destination"
-        ]
-      },
-      "output": {
-        "type": "object",
-        "required": [
-          "id",
-          "action",
-          "source",
-          "destination"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "action": {
-            "const": "allow"
-          },
-          "source": {
-            "type": "object"
-          },
-          "destination": {
-            "type": "object"
-          },
-          "description": {
-            "type": "string"
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "updatedAt": {
-            "type": "string"
-          }
-        }
-      },
-      "cli": {
-        "path": "firewall create",
-        "visible": false
-      },
-      "mcp": {
-        "expose": "never",
-        "group": "cloud"
-      },
-      "palette": {
-        "title": {
-          "en": "Add Cloud Firewall Rule…",
-          "ja": "クラウドのファイアウォールルールを追加…"
-        }
-      },
-      "gesture": "required",
-      "docs": "Allow traffic from a source to a destination on your private network (POST /api/vm/firewall). It can open a machine to new traffic. The Cloud API does not dedup this create: after an attempt with no answer, a same-key retry answers cmux.cloud.outcome_unknown; list first, then retry with a new key. Only a person may run it: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP.",
-      "since": "cloud/1"
-    },
-    {
-      "name": "cloud.firewall.delete",
-      "owner": "app:cmux/cloud",
-      "class": "mutation",
-      "risk": "destructive",
-      "idempotency": "required",
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "input": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "rule": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[A-Za-z0-9._:-]{1,128}$"
-          }
-        },
-        "required": [
-          "rule"
-        ]
-      },
-      "output": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "ok": {
-            "const": true
-          }
-        },
-        "required": [
-          "ok"
-        ]
-      },
-      "cli": {
-        "path": "firewall delete",
-        "visible": false
-      },
-      "mcp": {
-        "expose": "never",
-        "group": "cloud"
-      },
-      "gesture": "required",
-      "docs": "Delete one firewall rule (DELETE /api/vm/firewall?ruleId=). Only a person may run it: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP.",
-      "since": "cloud/1"
-    },
-    {
-      "name": "cloud.domain.list",
-      "owner": "app:cmux/cloud",
-      "class": "read",
-      "risk": "read",
-      "idempotency": "forbidden",
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "input": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {}
-      },
-      "output": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "domains": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": [
-                "id",
-                "hostname",
-                "verificationState",
-                "publications"
-              ],
-              "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "hostname": {
-                  "type": "string"
-                },
-                "verificationState": {
-                  "type": "string"
-                },
-                "certificateState": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "createdAt": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "dnsInstructions": {
-                  "type": [
-                    "array",
-                    "null"
-                  ],
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "purpose": {
-                        "type": "string"
-                      },
-                      "recordTypes": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      },
-                      "name": {
-                        "type": "string"
-                      },
-                      "value": {
-                        "type": "string"
-                      }
-                    }
-                  }
-                },
-                "publications": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "id": {
-                        "type": "string"
-                      },
-                      "hostname": {
-                        "type": "string"
-                      },
-                      "state": {
-                        "type": "string"
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "required": [
-          "domains"
-        ]
-      },
-      "cli": {
-        "path": "domain list",
-        "visible": true
-      },
-      "mcp": {
-        "expose": "default",
-        "group": "cloud"
-      },
-      "docs": "List your custom domains with their DNS records to add and the publications they route (GET /api/vm/domains).",
-      "since": "cloud/1"
-    },
-    {
-      "name": "cloud.domain.verify",
-      "owner": "app:cmux/cloud",
-      "class": "mutation",
-      "risk": "mutate-shared",
-      "idempotency": "required",
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "input": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "domain": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 253,
-            "pattern": "^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
-          }
-        },
-        "required": [
-          "domain"
-        ]
-      },
-      "output": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "domain": {
-            "type": "object",
-            "required": [
-              "id",
-              "hostname",
-              "verificationState",
-              "publications"
-            ],
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "hostname": {
-                "type": "string"
-              },
-              "verificationState": {
-                "type": "string"
-              },
-              "certificateState": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "createdAt": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "dnsInstructions": {
-                "type": [
-                  "array",
-                  "null"
-                ],
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "purpose": {
-                      "type": "string"
-                    },
-                    "recordTypes": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "name": {
-                      "type": "string"
-                    },
-                    "value": {
-                      "type": "string"
-                    }
-                  }
-                }
-              },
-              "publications": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "hostname": {
-                      "type": "string"
-                    },
-                    "state": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "required": [
-          "domain"
-        ]
-      },
-      "cli": {
-        "path": "domain verify",
-        "visible": true
-      },
-      "mcp": {
-        "expose": "opt_in",
-        "group": "cloud"
-      },
-      "docs": "Start or refresh the DNS and certificate check of a custom domain (POST /api/vm/domains/:name/verify). An unknown host name claims a new zone; a verified zone takes its waiting publications live. Runs every time (no replay of an old answer). Needs an idempotency key.",
-      "since": "cloud/1"
-    },
-    {
-      "name": "cloud.publication.list",
-      "owner": "app:cmux/cloud",
-      "class": "read",
-      "risk": "read",
-      "idempotency": "forbidden",
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "input": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "machine": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
-            "description": "The machine id (vm-…) from cloud.machine.list."
-          }
-        }
-      },
-      "output": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "publications": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": [
-                "id",
-                "hostname",
-                "vmId",
-                "port",
-                "accessMode",
-                "state"
-              ],
-              "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "hostname": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "domainKind": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "vmId": {
-                  "type": "string"
-                },
-                "port": {
-                  "type": "integer"
-                },
-                "accessMode": {
-                  "enum": [
-                    "personal",
-                    "team",
-                    "public"
-                  ]
-                },
-                "teamId": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "state": {
-                  "type": "string"
-                },
-                "routingRevision": {
-                  "type": [
-                    "integer",
-                    "null"
-                  ]
-                },
-                "verification": {
-                  "type": [
-                    "object",
-                    "null"
-                  ]
-                }
-              }
-            }
-          }
-        },
-        "required": [
-          "publications"
-        ]
-      },
-      "cli": {
-        "path": "publication list",
-        "visible": true
-      },
-      "mcp": {
-        "expose": "default",
-        "group": "cloud"
-      },
-      "docs": "List the machine ports you published on a host name (GET /api/vm/publications), optionally for one machine.",
-      "since": "cloud/1"
-    },
-    {
-      "name": "cloud.publication.create",
-      "owner": "app:cmux/cloud",
-      "class": "mutation",
-      "risk": "mutate-shared",
-      "idempotency": "required",
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "input": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "machine": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
-            "description": "The machine id (vm-…) from cloud.machine.list."
-          },
-          "port": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 65535
-          },
-          "accessMode": {
-            "enum": [
-              "personal",
-              "team",
-              "public"
-            ]
-          },
-          "hostname": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 253,
-            "pattern": "^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
-          },
-          "teamId": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[A-Za-z0-9._:-]{1,128}$"
-          },
-          "confirmPublic": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "machine",
-          "port"
-        ]
-      },
-      "output": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "publication": {
-            "type": "object",
-            "required": [
-              "id",
-              "hostname",
-              "vmId",
-              "port",
-              "accessMode",
-              "state"
-            ],
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "hostname": {
-                "type": "string"
-              },
-              "url": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "domainKind": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "vmId": {
-                "type": "string"
-              },
-              "port": {
-                "type": "integer"
-              },
-              "accessMode": {
-                "enum": [
-                  "personal",
-                  "team",
-                  "public"
-                ]
-              },
-              "teamId": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "state": {
-                "type": "string"
-              },
-              "routingRevision": {
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              },
-              "verification": {
-                "type": [
-                  "object",
-                  "null"
-                ]
-              }
-            }
-          }
-        },
-        "required": [
-          "publication"
-        ]
-      },
-      "cli": {
-        "path": "publication create",
-        "visible": false
-      },
-      "mcp": {
-        "expose": "never",
-        "group": "cloud"
-      },
-      "palette": {
-        "title": {
-          "en": "Publish Cloud Machine Port…",
-          "ja": "クラウドマシンのポートを公開…"
-        }
-      },
-      "gesture": "required",
-      "docs": "Publish an HTTP port of a machine on a host name (POST /api/vm/publications). A generated name when hostname is absent. Public access needs confirmPublic: true. A same-key retry after an answer returns that answer and makes no call. The Cloud API does not dedup this create: after an attempt with no answer, a same-key retry answers cmux.cloud.outcome_unknown; list first, then retry with a new key. Only a person may run it: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP.",
-      "since": "cloud/1"
-    },
-    {
-      "name": "cloud.publication.update",
-      "owner": "app:cmux/cloud",
-      "class": "mutation",
-      "risk": "mutate-shared",
-      "idempotency": "required",
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "input": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "publication": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 253,
-            "pattern": "^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
-          },
-          "accessMode": {
-            "enum": [
-              "personal",
-              "team",
-              "public"
-            ]
-          },
-          "teamId": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^[A-Za-z0-9._:-]{1,128}$"
-          },
-          "confirmPublic": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "publication",
-          "accessMode"
-        ]
-      },
-      "output": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "publication": {
-            "type": "object",
-            "required": [
-              "id",
-              "hostname",
-              "vmId",
-              "port",
-              "accessMode",
-              "state"
-            ],
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "hostname": {
-                "type": "string"
-              },
-              "url": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "domainKind": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "vmId": {
-                "type": "string"
-              },
-              "port": {
-                "type": "integer"
-              },
-              "accessMode": {
-                "enum": [
-                  "personal",
-                  "team",
-                  "public"
-                ]
-              },
-              "teamId": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "state": {
-                "type": "string"
-              },
-              "routingRevision": {
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              },
-              "verification": {
-                "type": [
-                  "object",
-                  "null"
-                ]
-              }
-            }
-          }
-        },
-        "required": [
-          "publication"
-        ]
-      },
-      "cli": {
-        "path": "publication update",
-        "visible": false
-      },
-      "mcp": {
-        "expose": "never",
-        "group": "cloud"
-      },
-      "gesture": "required",
-      "docs": "Change who can open a publication (PATCH /api/vm/publications/:id). It can make a machine port public. Only a person may run it: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP.",
-      "since": "cloud/1"
-    },
-    {
-      "name": "cloud.publication.delete",
-      "owner": "app:cmux/cloud",
-      "class": "mutation",
-      "risk": "destructive",
-      "idempotency": "required",
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "input": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "publication": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 253,
-            "pattern": "^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
-          }
-        },
-        "required": [
-          "publication"
-        ]
-      },
-      "output": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "ok": {
-            "const": true
-          }
-        },
-        "required": [
-          "ok"
-        ]
-      },
-      "cli": {
-        "path": "publication delete",
-        "visible": false
-      },
-      "mcp": {
-        "expose": "never",
-        "group": "cloud"
-      },
-      "gesture": "required",
-      "docs": "Stop publishing a machine port (DELETE /api/vm/publications/:id). Only a person may run it: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP.",
-      "since": "cloud/1"
-    },
-    {
-      "name": "cloud.publication.verify",
-      "owner": "app:cmux/cloud",
-      "class": "mutation",
-      "risk": "mutate-shared",
-      "idempotency": "required",
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "input": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "publication": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 253,
-            "pattern": "^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
-          }
-        },
-        "required": [
-          "publication"
-        ]
-      },
-      "output": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "publication": {
-            "type": "object",
-            "required": [
-              "id",
-              "hostname",
-              "vmId",
-              "port",
-              "accessMode",
-              "state"
-            ],
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "hostname": {
-                "type": "string"
-              },
-              "url": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "domainKind": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "vmId": {
-                "type": "string"
-              },
-              "port": {
-                "type": "integer"
-              },
-              "accessMode": {
-                "enum": [
-                  "personal",
-                  "team",
-                  "public"
-                ]
-              },
-              "teamId": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "state": {
-                "type": "string"
-              },
-              "routingRevision": {
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              },
-              "verification": {
-                "type": [
-                  "object",
-                  "null"
-                ]
-              }
-            }
-          }
-        },
-        "required": [
-          "publication"
-        ]
-      },
-      "cli": {
-        "path": "publication verify",
-        "visible": true
-      },
-      "mcp": {
-        "expose": "opt_in",
-        "group": "cloud"
-      },
-      "docs": "Re-check the DNS and certificate state of a publication (POST /api/vm/publications/:id/verify). A reserved publication whose zone is verified goes live. Runs every time (no replay of an old answer). Needs an idempotency key.",
       "since": "cloud/1"
     },
     {

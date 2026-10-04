@@ -228,16 +228,11 @@ pub fn fold(response: &Value) -> WireReply {
 }
 
 impl cmux_cloud::ControlPlane for WireFake {
-    /// The classic `/api/vm` routes are gone: no vector answers them.
-    fn call(&mut self, _call: &cmux_cloud::HttpCall) -> Result<cmux_cloud::HttpReply, RelayError> {
-        Err(RelayError::Unavailable("the classic Cloud API is not served".into()))
+    fn call(&mut self, call: &WireCall) -> Result<WireReply, RelayError> {
+        self.reply(call)
     }
 
     fn session(&mut self) -> Result<SessionStatus, RelayError> {
         self.session_status()
-    }
-
-    fn wire(&mut self, call: &WireCall) -> Result<WireReply, RelayError> {
-        self.reply(call)
     }
 }
