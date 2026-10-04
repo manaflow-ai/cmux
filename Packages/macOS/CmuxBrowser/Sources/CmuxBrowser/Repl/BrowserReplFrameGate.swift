@@ -266,17 +266,155 @@ public final class BrowserReplFrameGate {
         return value
     }
 
-    /// Runs `input`, trusted input for the whole tab.
+    /// Runs `input`, trusted input for the whole tab (a point, a drag, a
+    /// key, inserted text), with every frame the policy blocks held out of
+    /// its reach while it is in flight.
     ///
-    /// Models the driver as it is: the frames are checked before the input
-    /// and nothing holds them while it is in flight.
+    /// The driver's checks run before the input (`checkPointer`,
+    /// `checkFocus`), and the input is a point or a key for the whole tab:
+    /// the page can move a blocked frame under the point, or the focus into
+    /// it, between a check and the event. So before `input` (and the checks
+    /// it runs) the gate makes the element of each blocked frame `inert` in
+    /// its parent, from its own content world: an inert element is not hit
+    /// tested and takes no focus, wherever the page moves it. A blocked frame
+    /// in a shadow tree cannot be told from its siblings there, so every
+    /// frame element in the parent's shadow trees is made inert. With
+    /// `checkFocusAfter` the focus is checked again after `input`, while the
+    /// guard is on. Then the guard comes off, and `input` fails with
+    /// `blocked` when the page changed the `inert` attribute of a guarded
+    /// element meanwhile (the event may have reached that frame).
+    ///
+    /// Throws `blocked` before `input` when a blocked frame's element cannot
+    /// be found (a closed shadow root), and `stale` when a frame does not
+    /// answer or the page changes its frames during the setup.
     public func guardingInput<T>(
         in webView: WKWebView,
         frames: @MainActor () async -> [BrowserReplFrame],
         checkFocusAfter: Bool,
         _ input: () async throws -> T
     ) async throws -> T {
-        try await input()
+        guard policy.isActive else { return try await input() }
+        let guards = try await installInputGuards(in: webView, frames: await frames())
+        let value: T
+        do {
+            value = try await input()
+            if checkFocusAfter { try await checkFocus(in: webView, frames: await frames()) }
+        } catch {
+            if let tampered = await releaseInputGuards(guards, in: webView) { throw tampered }
+            throw error
+        }
+        if let tampered = await releaseInputGuards(guards, in: webView) { throw tampered }
+        return value
+    }
+
+    private struct InputGuard {
+        let parent: BrowserReplFrame
+        let token: String
+        let guarded: [BrowserReplFrame]
+    }
+
+    /// Makes the element of each blocked frame without a blocked ancestor
+    /// inert in its parent; see ``guardingInput(in:frames:checkFocusAfter:_:)``.
+    private func installInputGuards(in webView: WKWebView, frames: [BrowserReplFrame]) async throws -> [InputGuard] {
+        let blockedFrames = blocked(frames, in: webView)
+        guard !blockedFrames.isEmpty else { return [] }
+        let blockedIDs = Set(blockedFrames.map(\.frame.frameID))
+        let byID = Dictionary(frames.map { ($0.frameID, $0) }, uniquingKeysWith: { first, _ in first })
+        if let main = frames.first, let entry = blockedFrames.first(where: { $0.frame.frameID == main.frameID }) {
+            throw blocked(entry.frame, document: nil, reason: entry.reason)
+        }
+        // Blocked frames inside a blocked frame are out of reach with it.
+        let tops = blockedFrames.filter { entry in
+            var parentID = entry.frame.parentFrameID
+            while let id = parentID {
+                if blockedIDs.contains(id) { return false }
+                parentID = byID[id]?.parentFrameID
+            }
+            return true
+        }
+        var byParent: [String: [(frame: BrowserReplFrame, reason: String, position: Int, length: Int)]] = [:]
+        var parentOrder: [String] = []
+        for entry in tops {
+            guard let parentID = entry.frame.parentFrameID, byID[parentID] != nil, let info = entry.frame.info else {
+                throw BrowserReplDriverError(code: "blocked", message: "Frame \(entry.frame.url) shows a page the domain policy blocks (\(entry.reason)) and its place is unknown, so input to this tab is refused")
+            }
+            let answer: [String: Any]
+            do {
+                answer = try await probe(
+                    Self.positionSource, arguments: [:], in: webView, frame: info,
+                    what: "frame \(entry.frame.url) did not report its position"
+                ) as? [String: Any] ?? [:]
+            } catch let error as BrowserReplDriverError {
+                throw error
+            } catch {
+                // A frame that has gone takes no input.
+                if Self.isGoneFrame(error) { continue }
+                throw BrowserReplDriverError(code: "stale", message: "Frame \(entry.frame.url) did not report its position: \(error.localizedDescription)")
+            }
+            let position = (answer["position"] as? NSNumber)?.intValue ?? -1
+            let length = (answer["length"] as? NSNumber)?.intValue ?? -1
+            if byParent[parentID] == nil { parentOrder.append(parentID) }
+            byParent[parentID, default: []].append((entry.frame, entry.reason, position, length))
+        }
+        var installed: [InputGuard] = []
+        do {
+            for parentID in parentOrder {
+                guard let parent = byID[parentID], let entries = byParent[parentID] else { continue }
+                let token = UUID().uuidString
+                let childCount = frames.filter { $0.parentFrameID == parentID }.count
+                let value = try await probe(
+                    Self.inputGuardSource,
+                    arguments: [
+                        "token": token,
+                        "positions": entries.map(\.position).filter { $0 >= 0 },
+                        "shadow": entries.contains { $0.position < 0 },
+                        "length": entries.first?.length ?? -1,
+                        "childCount": childCount,
+                    ],
+                    in: webView,
+                    frame: parent.info,
+                    what: "frame \(parent.url) did not guard its blocked frames"
+                ) as? [String: Any] ?? [:]
+                switch value["result"] as? String {
+                case "ok":
+                    installed.append(InputGuard(parent: parent, token: token, guarded: entries.map(\.frame)))
+                case "changed":
+                    throw BrowserReplDriverError(code: "stale", message: "The page changed its frames while input to frame \(parent.url) was prepared; try again")
+                default:
+                    let entry = entries[0]
+                    throw BrowserReplDriverError(code: "blocked", message: "Frame \(entry.frame.url) shows a page the domain policy blocks (\(entry.reason)) and its frame element cannot be held out of the input's reach, so input to this tab is refused")
+                }
+            }
+        } catch {
+            _ = await releaseInputGuards(installed, in: webView)
+            throw error
+        }
+        return installed
+    }
+
+    /// Takes the guards off. Returns `blocked` when the page changed a
+    /// guarded element's `inert` attribute meanwhile, or the gate cannot
+    /// tell (a parent that does not answer); a parent that has gone took its
+    /// frames with it.
+    private func releaseInputGuards(_ guards: [InputGuard], in webView: WKWebView) async -> BrowserReplDriverError? {
+        var failure: BrowserReplDriverError?
+        for entry in guards {
+            let tampered: Bool
+            do {
+                let value = try await probe(
+                    Self.inputReleaseSource, arguments: ["token": entry.token], in: webView, frame: entry.parent.info,
+                    what: "frame \(entry.parent.url) did not release its blocked frames"
+                ) as? [String: Any]
+                tampered = value?["tampered"] as? Bool ?? true
+            } catch {
+                tampered = !Self.isGoneFrame(error)
+            }
+            if tampered, failure == nil {
+                let urls = entry.guarded.map(\.url).joined(separator: ", ")
+                failure = BrowserReplDriverError(code: "blocked", message: "The page took the guard off frame \(urls), which the domain policy blocks, while the input was in flight (or the guard could not be confirmed), so the input may have reached it")
+            }
+        }
+        return failure
     }
 
     /// Throws `blocked` when any frame of the tab shows a page the policy
@@ -474,6 +612,74 @@ public final class BrowserReplFrameGate {
       return { x: r.left, y: r.top, width: r.width, height: r.height };
     });
     return { boxes, escapes, backdrop };
+    """
+
+    /// The frame's own position in its parent's `window.frames` (-1 in a
+    /// shadow tree) and that list's length.
+    private static let positionSource = """
+    const p = window.parent;
+    let position = -1;
+    const length = p === window ? 0 : p.length;
+    for (let i = 0; i < length; i++) if (p[i] === window) { position = i; break; }
+    return { position, length };
+    """
+
+    /// Makes the frame elements at `positions` in `window.frames` (and,
+    /// with `shadow`, every frame element in a shadow tree) inert, and
+    /// watches their `inert` attribute until the release. The state lives
+    /// in this content world, which page and agent code cannot reach.
+    private static let inputGuardSource = """
+    if (window.frames.length !== length) return { result: "changed" };
+    const inLight = new Set();
+    for (let i = 0; i < window.frames.length; i++) inLight.add(window.frames[i]);
+    const owners = new Map();
+    const shadowFrames = [];
+    let found = 0;
+    const visit = (root) => {
+      for (const el of root.querySelectorAll("iframe, frame, object, embed")) {
+        const w = el.contentWindow;
+        if (!w) continue;
+        found++;
+        if (!owners.has(w)) owners.set(w, el);
+        if (!inLight.has(w)) shadowFrames.push(el);
+      }
+      for (const el of root.querySelectorAll("*")) if (el.shadowRoot) visit(el.shadowRoot);
+    };
+    visit(document);
+    const targets = [];
+    for (const position of positions) {
+      const w = window.frames[position];
+      const el = w ? owners.get(w) : null;
+      if (!el) return { result: "unknown" };
+      targets.push(el);
+    }
+    if (shadow) {
+      // A frame in a closed shadow root is out of reach.
+      if (found < childCount) return { result: "unknown" };
+      for (const el of shadowFrames) if (!targets.includes(el)) targets.push(el);
+    }
+    const entries = targets.map((el) => ({ el, had: el.hasAttribute("inert") }));
+    for (const entry of entries) if (!entry.had) entry.el.setAttribute("inert", "");
+    const record = { entries, tampered: false, observer: null };
+    record.observer = new MutationObserver(() => { record.tampered = true; });
+    for (const entry of entries) record.observer.observe(entry.el, { attributes: true, attributeFilter: ["inert"] });
+    const guards = globalThis.__cmuxInputGuards || (globalThis.__cmuxInputGuards = new Map());
+    guards.set(token, record);
+    return { result: "ok" };
+    """
+
+    /// Takes a guard off: restores each element's own `inert` attribute and
+    /// says whether the page changed it meanwhile.
+    private static let inputReleaseSource = """
+    const guards = globalThis.__cmuxInputGuards;
+    const record = guards && guards.get(token);
+    if (!record) return { tampered: true };
+    guards.delete(token);
+    const changed = record.observer.takeRecords().length > 0;
+    record.observer.disconnect();
+    const tampered = record.tampered || changed || record.entries.some((entry) => !entry.el.hasAttribute("inert"));
+    for (const entry of record.entries) if (!entry.had) entry.el.removeAttribute("inert");
+    return { tampered };
     """
 
     /// The frame's focus, and its own position in its parent's
