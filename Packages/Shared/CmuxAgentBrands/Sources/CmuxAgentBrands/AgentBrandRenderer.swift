@@ -4,7 +4,60 @@ import CoreGraphics
 public enum AgentBrandRenderer {
     /// Builds the path for normalized data (absolute M, L, C and Z). Returns nil on malformed data.
     public static func path(_ d: String) -> CGPath? {
-        nil // Red: the path parser lands in the next commit.
+        let path = CGMutablePath()
+        var numbers: [Double] = []
+        var command: Character?
+        var token = ""
+        func flushNumber() -> Bool {
+            guard !token.isEmpty else { return true }
+            guard let value = Double(token) else { return false }
+            numbers.append(value)
+            token = ""
+            return true
+        }
+        func emit() -> Bool {
+            guard let command else { return numbers.isEmpty }
+            let arity: Int
+            switch command {
+            case "M", "L": arity = 2
+            case "C": arity = 6
+            case "Z": arity = 0
+            default: return false
+            }
+            if arity == 0 {
+                guard numbers.isEmpty else { return false }
+                path.closeSubpath()
+                return true
+            }
+            guard !numbers.isEmpty, numbers.count.isMultiple(of: arity) else { return false }
+            var index = 0
+            while index < numbers.count {
+                let n = numbers[index..<(index + arity)].map { CGFloat($0) }
+                switch command {
+                case "M": path.move(to: CGPoint(x: n[0], y: n[1]))
+                case "L": path.addLine(to: CGPoint(x: n[0], y: n[1]))
+                default: path.addCurve(to: CGPoint(x: n[4], y: n[5]), control1: CGPoint(x: n[0], y: n[1]), control2: CGPoint(x: n[2], y: n[3]))
+                }
+                index += arity
+            }
+            return true
+        }
+        for character in d {
+            if character.isLetter && character != "e" && character != "E" {
+                guard flushNumber(), emit() else { return nil }
+                command = character
+                numbers = []
+            } else if character == " " || character == "," {
+                guard flushNumber() else { return nil }
+            } else if character == "-" && !token.isEmpty && token.last != "e" && token.last != "E" {
+                guard flushNumber() else { return nil }
+                token = "-"
+            } else {
+                token.append(character)
+            }
+        }
+        guard flushNumber(), emit(), !path.isEmpty else { return nil }
+        return path
     }
 
     /// Draws `spec` fitted and centered in `rect` (y-up or y-down per `flipped`).

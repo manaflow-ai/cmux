@@ -135,7 +135,11 @@ public enum AgentBrandCatalog {
     /// (`gemini cli`); the first `-`, `_` or `.` separated part (`codex-acp`). The first candidate the
     /// catalog knows decides, including ids known to have no mark (`prime-agent`).
     public static func brand(for agent: String?) -> AgentBrandID? {
-        nil // Red: resolution lands in the next commit.
+        guard let agent else { return nil }
+        for candidate in candidates(agent) {
+            if let known = lookup[candidate] { return known }
+        }
+        return nil
     }
 
     /// The mark to draw for an agent id, or nil for the generic glyph.

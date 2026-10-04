@@ -22,6 +22,8 @@ export default defineConfig({
       "**/*.css",
       "src/agent-session/acpmux/handoff/schema/acpmux-schema.json",
       "src/agent-session/acpmux/icons/cmuxIcons.json",
+      // scripts/agent-icons/generate.py --check owns these bytes.
+      "src/agent-session/shared/agentBrands.generated.ts",
     ],
   }),
   define: {
