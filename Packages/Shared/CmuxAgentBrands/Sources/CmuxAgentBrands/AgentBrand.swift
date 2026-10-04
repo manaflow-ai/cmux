@@ -118,7 +118,9 @@ public struct AgentBrandSpec: Hashable, Sendable {
     /// The mark to draw at `pointSize`: the `small` art at `AgentBrandCatalog.smallPointSize`
     /// or below (without overlays, which belong to the full mark), else the mark itself.
     public func variant(forPointSize pointSize: Double) -> AgentBrandSpec {
-        self // Red: the small art lands in the next commit.
+        guard let small, pointSize <= AgentBrandCatalog.smallPointSize else { return self }
+        return AgentBrandSpec(name: name, isWordmark: isWordmark, viewBox: small.viewBox, tone: tone,
+                              paths: small.paths, small: nil, tile: tile, overlays: [])
     }
 }
 
