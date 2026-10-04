@@ -109,9 +109,22 @@ extension CMUXCLI {
                 _ = try? client.sendV2(method: "browser.repl.reset", params: Self.browserReplWorkspaceScope(of: callParams).merging(["session": session]) { _, new in new })
             }
         }
+        // Lines are bounded like `--eval -` and MCP input: a terminal in raw
+        // mode delivers a line of any length, so a longer one is refused and
+        // skipped to its newline, never buffered whole or sent.
+        var reader = BrowserReplMCPLineReader(maximumLineBytes: Self.maximumEncodedTextBytes)
         while true {
             FileHandle.standardError.write(Data("> ".utf8))
-            guard let line = readLine(strippingNewline: true) else { break }
+            guard let next = reader.nextLine() else { break }
+            guard case .text(var line) = next else {
+                let message = String(
+                    localized: "cli.browser.repl.error.inputTooLarge",
+                    defaultValue: "REPL input is too large"
+                )
+                FileHandle.standardError.write(Data((message + "\n").utf8))
+                continue
+            }
+            if line.hasSuffix("\r") { line.removeLast() }
             if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
             var params = callParams
             params["code"] = line
