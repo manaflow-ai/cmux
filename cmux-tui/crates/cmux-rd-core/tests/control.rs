@@ -259,6 +259,25 @@ fn every_input_packet_fits_the_smallest_session_datagram() {
 }
 
 #[test]
+fn new_input_is_not_held_behind_a_full_window_of_repeats() {
+    let mut s = InputSender::new();
+    for _ in 0..8 {
+        s.push(InputEvent::Text("y".repeat(256)));
+    }
+    let first = s.packet().expect("first window");
+    assert_eq!(first.first_seq, 1);
+    let second = s.packet().expect("second window");
+    assert_eq!(second.first_seq, 1 + first.events.len() as u32);
+    // With everything sent once, the next packet repeats from the oldest event.
+    while s.has_unsent() {
+        s.packet();
+    }
+    assert_eq!(s.packet().expect("repeat").first_seq, 1);
+    s.ack(8);
+    assert!(s.is_empty());
+}
+
+#[test]
 fn a_keyframe_burst_alone_is_not_overuse() {
     let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectLan);
     let (mut seq, mut now) = (0u16, 0u64);
