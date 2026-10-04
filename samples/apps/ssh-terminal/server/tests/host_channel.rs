@@ -205,7 +205,8 @@ fn output_waits_in_the_host_while_the_session_host_does_not_read() {
     t.write(input(0, "flood 1024\n")).expect("write");
     let first = t.take_events();
     assert!(output(&first).len() <= MAX_UNREAD, "one take is bounded: {}", output(&first).len());
-    let all = events_until(t.as_mut(), "1 MiB", |e| output(e).len() + output(&first).len() >= 1 << 20);
+    let all =
+        events_until(t.as_mut(), "1 MiB", |e| output(e).len() + output(&first).len() >= 1 << 20);
     assert!(output(&all).iter().all(|&b| b == b'f'));
 }
 
@@ -294,7 +295,8 @@ fn detached_sessions_past_the_limit_are_closed() {
     }
     assert_eq!(f.host.log().closes, 1, "the oldest detached channel is closed");
     let resume = |f: &mut common::Fixture, token: &ResumeToken| {
-        let request = ResumeRequest { resume_token: token.clone(), open_token: f.host.issue_token() };
+        let request =
+            ResumeRequest { resume_token: token.clone(), open_token: f.host.issue_token() };
         f.backend.resume(request).expect("resume answers").terminal
     };
     let mut first = resume(&mut f, &tokens[0]);

@@ -14,8 +14,8 @@
 #![allow(dead_code)]
 
 use ssh_terminal::iface::{
-    BackendError, ByteEvent, ByteTerminal, ChannelEvent, ChannelId, ChannelOpenRequest,
-    ExitStatus, Grid, HostChannels, HostKeyRefusal, OpenRequest, OpenToken, Signal,
+    BackendError, ByteEvent, ByteTerminal, ChannelEvent, ChannelId, ChannelOpenRequest, ExitStatus,
+    Grid, HostChannels, HostKeyRefusal, OpenRequest, OpenToken, Signal,
 };
 use ssh_terminal::{SSH_KIND, SshBackend};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -139,7 +139,8 @@ fn run_line(channel: &mut FakeChannel) {
         channel.out.extend(std::iter::repeat_n(b'f', kib * 1024));
     } else if let Some(code) = line.strip_prefix("exit ") {
         let code = code.trim().parse().unwrap_or(1);
-        channel.end = Some(ChannelEvent::Exit(ExitStatus { code: Some(code), ..Default::default() }));
+        channel.end =
+            Some(ChannelEvent::Exit(ExitStatus { code: Some(code), ..Default::default() }));
     } else if let Some(signal) = line.strip_prefix("die ") {
         channel.end = Some(ChannelEvent::Exit(ExitStatus {
             code: None,

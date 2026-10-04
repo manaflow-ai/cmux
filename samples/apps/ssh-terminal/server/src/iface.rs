@@ -271,10 +271,16 @@ pub struct ExitStatus {
 pub enum ByteEvent {
     /// `offset` is the running byte total after this chunk since open; a
     /// resumed terminal continues it. A gap or an overlap is lost.
-    Output { offset: u64, bytes: Vec<u8> },
+    Output {
+        offset: u64,
+        bytes: Vec<u8>,
+    },
     Exit(ExitStatus),
     /// The stream ended without an exit status.
-    Lost { reason: String, retryable: bool },
+    Lost {
+        reason: String,
+        retryable: bool,
+    },
 }
 
 pub trait ByteTerminal: Send {
@@ -332,7 +338,10 @@ pub enum ChannelEvent {
     /// The far end sent an exit status or exit signal, or closed the channel.
     Exit(ExitStatus),
     /// The transport ended with no exit.
-    Dropped { reason: String, retryable: bool },
+    Dropped {
+        reason: String,
+        retryable: bool,
+    },
 }
 
 /// The host side of an `ssh` connection handle. The host resolves the
