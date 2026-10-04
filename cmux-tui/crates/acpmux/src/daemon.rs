@@ -293,8 +293,7 @@ fn write_ready(fd: i32, ready: &Value) {
 /// an explicit `--dev` that release launchers never pass. A release config
 /// refuses it, so a dev page origin never becomes a LocalApp origin there.
 pub(crate) fn dev_origins_permitted(debug_build: bool, dev_flag: bool) -> bool {
-    let _ = (debug_build, dev_flag); // RED stub
-    true
+    debug_build || dev_flag
 }
 
 /// The rotation `websocket.tokenRotated` records (see `rotate_saved_token_once`).
@@ -613,7 +612,10 @@ mod tests {
 
     #[test]
     fn a_release_launch_refuses_a_dev_origin() {
-        assert!(!dev_origins_permitted(false, false), "a release config refuses --allow-dev-origin");
+        assert!(
+            !dev_origins_permitted(false, false),
+            "a release config refuses --allow-dev-origin"
+        );
         assert!(dev_origins_permitted(false, true), "an explicit --dev launch accepts it");
         assert!(dev_origins_permitted(true, false), "a debug build accepts it");
     }

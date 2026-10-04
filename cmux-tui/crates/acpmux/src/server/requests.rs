@@ -985,10 +985,31 @@ async fn dispatch_request(
 /// Request fields that would shape a preset's harness command. The local
 /// app names a preset by id only (`session/new {preset}`); with a preset,
 /// any of these is refused, like a Web client's preset that shapes one.
-const SHAPING_FIELDS: &[&str] =
-    &["args", "systemPrompt", "system_prompt", "env", "argv", "command", "harness", "harnessCommand"];
+const SHAPING_FIELDS: &[&str] = &[
+    "args",
+    "systemPrompt",
+    "system_prompt",
+    "env",
+    "argv",
+    "command",
+    "harness",
+    "harnessCommand",
+];
 
 fn local_app_preset_only(params: &Value, meta: Option<&Value>) -> Result<(), RpcError> {
-    let _ = (params, meta, SHAPING_FIELDS); // RED stub
+    let preset = meta
+        .and_then(|m| m.get("preset"))
+        .or_else(|| params.get("preset"))
+        .is_some_and(|p| !p.is_null());
+    if !preset {
+        return Ok(());
+    }
+    for field in SHAPING_FIELDS {
+        if params.get(*field).is_some() || meta.is_some_and(|m| m.get(*field).is_some()) {
+            return Err(RpcError::invalid_params(format!(
+                "the local app starts a preset by its id only; {field} is refused"
+            )));
+        }
+    }
     Ok(())
 }

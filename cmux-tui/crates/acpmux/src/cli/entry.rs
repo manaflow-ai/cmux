@@ -93,7 +93,15 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             let client = connect(true).await?;
             crate::tui::run(client, None).await
         }
-        Some(Command::DaemonRun { listen, token, memory, log, ready_fd, allow_dev_origin, dev }) => {
+        Some(Command::DaemonRun {
+            listen,
+            token,
+            memory,
+            log,
+            ready_fd,
+            allow_dev_origin,
+            dev,
+        }) => {
             tracing_subscriber::fmt()
                 .with_env_filter(
                     tracing_subscriber::EnvFilter::try_new(&log).unwrap_or_else(|_| "info".into()),

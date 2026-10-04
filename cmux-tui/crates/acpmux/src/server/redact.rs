@@ -31,7 +31,24 @@ pub(super) fn redact_for_remote(method: &str, reply: &mut Value) {
 
 /// A preset view without what shapes the harness command.
 fn hide_preset_contents(preset: &mut Value) {
-    let _ = preset; // RED stub
+    let Some(p) = preset.as_object_mut() else { return };
+    let has = |p: &serde_json::Map<String, Value>, k: &str| {
+        p.get(k).is_some_and(|v| match v {
+            Value::Null => false,
+            Value::Array(a) => !a.is_empty(),
+            Value::Object(o) => !o.is_empty(),
+            _ => true,
+        })
+    };
+    let has_args = has(p, "args");
+    let has_env = has(p, "env");
+    let has_prompt = has(p, "systemPromptSha256") || has(p, "systemPrompt");
+    for k in ["args", "env", "systemPrompt", "systemPromptSha256"] {
+        p.remove(k);
+    }
+    p.insert("hasArgs".into(), Value::Bool(has_args));
+    p.insert("hasEnv".into(), Value::Bool(has_env));
+    p.insert("hasSystemPrompt".into(), Value::Bool(has_prompt));
 }
 
 /// `scheme://user:secret@host/path?q#f` -> `scheme://host/path`.

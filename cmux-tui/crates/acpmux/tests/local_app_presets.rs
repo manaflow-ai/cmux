@@ -46,7 +46,10 @@ impl Client {
         let id = self.2;
         self.0.send(Message::request(id, m, params).to_line()).await.unwrap();
         loop {
-            let line = tokio::time::timeout(Duration::from_secs(20), self.1.recv()).await.unwrap().unwrap();
+            let line = tokio::time::timeout(Duration::from_secs(20), self.1.recv())
+                .await
+                .unwrap()
+                .unwrap();
             let v: Value = serde_json::from_str(&line).unwrap();
             if v.get("id") == Some(&json!(id)) {
                 return v;
@@ -84,7 +87,9 @@ async fn the_local_app_starts_a_preset_by_its_id_only() {
     assert!(ok.get("error").is_none(), "the id alone starts: {ok}");
     // The session's own views never carry the preset's env either.
     let id = ok["result"]["sessionId"].as_str().unwrap().to_owned();
-    for (m, p) in [("_acpmux/info", json!({"sessionId": id})), ("_acpmux/events", json!({"sessionId": id}))] {
+    for (m, p) in
+        [("_acpmux/info", json!({"sessionId": id})), ("_acpmux/events", json!({"sessionId": id}))]
+    {
         let reply = app.call(m, p).await.to_string();
         assert!(!reply.contains(ENV), "{m} carried the preset env: {reply}");
     }
@@ -106,7 +111,10 @@ async fn no_connection_but_the_unix_socket_reads_preset_contents() {
             for secret in [ARG, ENV, SHA] {
                 assert!(!text.contains(secret), "{origin:?} {m} {p} carried {secret}: {text}");
             }
-            assert!(text.contains("\"hasArgs\":true") || text.contains("\"hasEnv\":true"), "{m}: {text}");
+            assert!(
+                text.contains("\"hasArgs\":true") || text.contains("\"hasEnv\":true"),
+                "{m}: {text}"
+            );
         }
     }
     let mut local = client(&hub, Origin::Local);
