@@ -12,8 +12,7 @@ use std::io;
 use std::path::Path;
 
 use cmux_link::dial::{
-    DialError, DialOp, DialReply, DialRequest, MAX_LINE_BYTES, PathState, Service, line,
-    parse_line,
+    DialError, DialOp, DialReply, DialRequest, MAX_LINE_BYTES, PathState, Service, line, parse_line,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
@@ -60,10 +59,7 @@ pub async fn dial_link(
     let mut stream =
         UnixStream::connect(link_socket).await.map_err(OverlayDialError::LinkUnavailable)?;
     let request = DialRequest { op: DialOp::Dial, host: host.to_string(), service };
-    stream
-        .write_all(line(&request).as_bytes())
-        .await
-        .map_err(|_| OverlayDialError::Protocol)?;
+    stream.write_all(line(&request).as_bytes()).await.map_err(|_| OverlayDialError::Protocol)?;
     let reply = read_reply(&mut stream).await?;
     if !reply.ok {
         return Err(OverlayDialError::Refused {

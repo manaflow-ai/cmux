@@ -50,11 +50,13 @@ where
     if peer_addr.ip() != IpAddr::V6(record.overlay_address()) {
         return Err(InboundRefused::AddressMismatch);
     }
-    let hello = read_line(&mut stream, MAX_LINE_BYTES).await.map_err(|_| InboundRefused::BadHello)?;
+    let hello =
+        read_line(&mut stream, MAX_LINE_BYTES).await.map_err(|_| InboundRefused::BadHello)?;
     let Some(ServiceHello { service: Service::Daemon }) = parse_line::<ServiceHello>(&hello) else {
         return Err(InboundRefused::BadHello);
     };
-    let stamp = cmux_link::stamp::encode(&record.peer()).map_err(|_| InboundRefused::UnknownPeer)?;
+    let stamp =
+        cmux_link::stamp::encode(&record.peer()).map_err(|_| InboundRefused::UnknownPeer)?;
     let mut entry = tokio::net::UnixStream::connect(daemon_entry(session_socket))
         .await
         .map_err(|_| InboundRefused::EntryUnavailable)?;

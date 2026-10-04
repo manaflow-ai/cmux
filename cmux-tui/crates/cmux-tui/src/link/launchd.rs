@@ -72,8 +72,14 @@ mod tests {
 
     #[test]
     fn the_agent_plist_runs_link_serve_and_keeps_it_alive() {
-        let arguments = vec!["link".to_string(), "serve".to_string(), "--state-dir".to_string(), "/a b/<x>".to_string()];
-        let bytes = plist(Path::new("/Applications/cmux.app/Contents/MacOS/cmux"), &arguments).unwrap();
+        let arguments = vec![
+            "link".to_string(),
+            "serve".to_string(),
+            "--state-dir".to_string(),
+            "/a b/<x>".to_string(),
+        ];
+        let bytes =
+            plist(Path::new("/Applications/cmux.app/Contents/MacOS/cmux"), &arguments).unwrap();
         let value = plist::Value::from_reader_xml(bytes.as_slice()).unwrap();
         let dictionary = value.as_dictionary().unwrap();
         assert_eq!(dictionary["Label"].as_string(), Some(LABEL));
@@ -83,7 +89,16 @@ mod tests {
             .iter()
             .map(|item| item.as_string().unwrap())
             .collect();
-        assert_eq!(command, ["/Applications/cmux.app/Contents/MacOS/cmux", "link", "serve", "--state-dir", "/a b/<x>"]);
+        assert_eq!(
+            command,
+            [
+                "/Applications/cmux.app/Contents/MacOS/cmux",
+                "link",
+                "serve",
+                "--state-dir",
+                "/a b/<x>"
+            ]
+        );
         assert_eq!(dictionary["KeepAlive"].as_boolean(), Some(true));
         assert_eq!(dictionary["RunAtLoad"].as_boolean(), Some(true));
     }

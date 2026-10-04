@@ -64,7 +64,11 @@ pub(super) async fn serve_local<O: Overlay>(
     }
 }
 
-async fn serve_local_request<O: Overlay>(mut stream: UnixStream, overlay: Arc<O>, peers: Arc<Peers>) {
+async fn serve_local_request<O: Overlay>(
+    mut stream: UnixStream,
+    overlay: Arc<O>,
+    peers: Arc<Peers>,
+) {
     let Ok(first) = read_line(&mut stream, MAX_LINE_BYTES).await else { return };
     if parse_line::<ReloadRequest>(&first).is_some() {
         let ok = match peers.reload() {

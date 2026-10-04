@@ -102,9 +102,9 @@ fn print_json(value: &serde_json::Value) {
 fn run_init(flags: &Flags) -> anyhow::Result<()> {
     let state = state(flags)?;
     let port = match flags.get("--port") {
-        Some(port) => port.parse().map_err(|_| {
-            anyhow!(catalog().remote_client.invalid_option_value("--port", "PORT"))
-        })?,
+        Some(port) => port
+            .parse()
+            .map_err(|_| anyhow!(catalog().remote_client.invalid_option_value("--port", "PORT")))?,
         None => state::DEFAULT_PORT,
     };
     let install = required(flags, "--install")?.to_string();
@@ -207,9 +207,10 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
 
 async fn serve(state: LinkState, session_socket: Option<PathBuf>) -> anyhow::Result<()> {
     let config = state.config().context("run `cmux link init --install ID` first")?;
-    let socket = tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
-        .await
-        .with_context(|| format!("bind UDP port {}", config.port))?;
+    let socket =
+        tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
+            .await
+            .with_context(|| format!("bind UDP port {}", config.port))?;
     let own = overlay_address(&config.install);
     let mesh = WgMesh::start(
         WgMeshConfig {

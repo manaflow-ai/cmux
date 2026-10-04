@@ -118,7 +118,10 @@ async fn reply_line(caller: &mut DuplexStream) -> String {
 async fn a_dial_to_a_paired_host_opens_its_link_port_and_reports_a_direct_path() {
     let overlay = FakeOverlay::default();
     let (mut caller, link_side) = tokio::io::duplex(64 * 1024);
-    caller.write_all(b"{\"op\":\"link.dial\",\"host\":\"inst_b\",\"service\":\"daemon\"}\n").await.unwrap();
+    caller
+        .write_all(b"{\"op\":\"link.dial\",\"host\":\"inst_b\",\"service\":\"daemon\"}\n")
+        .await
+        .unwrap();
     let pairings = pairings();
     let dial = serve_dial(link_side, &overlay, &pairings);
     let check = async {
@@ -149,14 +152,20 @@ async fn a_dial_to_an_unknown_or_unreachable_host_says_so_and_names_no_relay() {
     let pairings = pairings();
     let overlay = FakeOverlay::default();
     let (mut caller, link_side) = tokio::io::duplex(1024);
-    caller.write_all(b"{\"op\":\"link.dial\",\"host\":\"inst_x\",\"service\":\"daemon\"}\n").await.unwrap();
+    caller
+        .write_all(b"{\"op\":\"link.dial\",\"host\":\"inst_x\",\"service\":\"daemon\"}\n")
+        .await
+        .unwrap();
     serve_dial(link_side, &overlay, &pairings).await;
     assert!(reply_line(&mut caller).await.contains("\"error_code\":\"unknown_host\""));
     assert!(overlay.connects.lock().unwrap().is_empty());
 
     let overlay = FakeOverlay { fail: true, ..FakeOverlay::default() };
     let (mut caller, link_side) = tokio::io::duplex(1024);
-    caller.write_all(b"{\"op\":\"link.dial\",\"host\":\"inst_b\",\"service\":\"daemon\"}\n").await.unwrap();
+    caller
+        .write_all(b"{\"op\":\"link.dial\",\"host\":\"inst_b\",\"service\":\"daemon\"}\n")
+        .await
+        .unwrap();
     serve_dial(link_side, &overlay, &pairings).await;
     assert_eq!(
         reply_line(&mut caller).await,
