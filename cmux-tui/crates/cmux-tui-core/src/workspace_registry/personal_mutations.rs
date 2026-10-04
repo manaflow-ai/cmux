@@ -59,7 +59,6 @@ impl WorkspaceRegistry {
         validate_profile_id(&id)?;
         validate_name("room name", &input.name)?;
         validate_appearance(input.color.as_deref(), input.icon.as_deref())?;
-        input.icon.as_deref().map_or(Ok(()), |icon| require_icon_asset(tx, icon))?;
         optional_text("theme", input.theme.as_deref(), validate_theme)?;
         optional_text(
             "browser_profile_id",
@@ -82,6 +81,7 @@ impl WorkspaceRegistry {
             );
             return Ok((existing, false));
         }
+        input.icon.as_deref().map_or(Ok(()), |icon| require_icon_asset(tx, icon))?;
         let mut order =
             read_profiles(tx)?.into_iter().map(|profile| profile.id).collect::<Vec<_>>();
         let index = input.index.unwrap_or(order.len()).min(order.len());

@@ -16,7 +16,14 @@
 //! predefined ones refuses the document.
 //!
 //! A `use` that names an element holding a `use` (itself or an ancestor
-//! included) is dropped, so references cannot multiply or cycle.
+//! included) is dropped. Then every reference (`href`, and `url(#id)` in any
+//! attribute: masks, clip paths, paint servers) is followed: a reference
+//! cycle, or more than `MAX_RENDER_COST` rendered elements in total, refuses
+//! the document, so no stored icon can hang a renderer.
+//!
+//! Characters that XML 1.0 does not allow never reach the output, no element
+//! keeps two attributes of one name, and the output must sanitize to itself
+//! (it re-parses and is idempotent) or the document is refused.
 //!
 //! Refused: input over 64 KiB, input that is not UTF-8 or not well-formed
 //! XML, a root that is not `svg` in the SVG namespace, nesting deeper than
@@ -25,7 +32,7 @@
 //! The page-side copy of this allowlist is webviews/src/icon-picker/
 //! svgSanitize.ts (it compares names in lowercase); keep the two equal.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use quick_xml::NsReader;
 use quick_xml::XmlVersion;
@@ -37,6 +44,9 @@ use super::{MAX_SVG_BYTES, invalid_asset};
 
 pub const SVG_NAMESPACE: &str = "http://www.w3.org/2000/svg";
 pub const XLINK_NAMESPACE: &str = "http://www.w3.org/1999/xlink";
+/// Most elements a renderer may draw for one icon, counting every element
+/// once per reference that reaches it.
+pub const MAX_RENDER_COST: u64 = 10_000;
 /// Deepest accepted element nesting.
 pub const MAX_DEPTH: usize = 64;
 
@@ -157,8 +167,17 @@ fn not_svg(reason: impl std::fmt::Display) -> anyhow::Error {
     invalid_asset(format!("not an accepted SVG: {reason}"))
 }
 
-/// The sanitized SVG document, or why it was refused.
+/// The sanitized SVG document, or why it was refused. The output must
+/// sanitize to itself: a document whose output would not is refused.
 pub fn sanitize_svg(input: &[u8]) -> anyhow::Result<String> {
+    let output = sanitize_once(input)?;
+    if sanitize_once(output.as_bytes()).ok().as_deref() != Some(output.as_str()) {
+        return Err(not_svg("the sanitized document is not stable"));
+    }
+    Ok(output)
+}
+
+fn sanitize_once(input: &[u8]) -> anyhow::Result<String> {
     if input.len() > MAX_SVG_BYTES {
         return Err(invalid_asset(format!("image/svg+xml data exceeds {MAX_SVG_BYTES} bytes")));
     }
@@ -253,6 +272,7 @@ pub fn sanitize_svg(input: &[u8]) -> anyhow::Result<String> {
     let mut nested = HashSet::new();
     ids_containing_use(&root, &mut nested);
     drop_nested_uses(&mut root, &nested);
+    check_render_cost(&root)?;
     let mut output = String::new();
     write_node(&root, true, uses_xlink(&root), &mut output);
     if output.len() > MAX_SVG_BYTES {
@@ -314,8 +334,10 @@ fn kept_attributes(
         let value = attribute
             .normalized_value(XmlVersion::Implicit1_0)
             .map_err(|_| not_svg("an attribute uses an undeclared entity"))?;
-        let value: String =
-            value.chars().map(|ch| if ch.is_control() { ' ' } else { ch }).collect();
+        let value: String = value
+            .chars()
+            .map(|ch| if ch.is_control() || !is_xml_char(ch) { ' ' } else { ch })
+            .collect();
         let (namespace, local) = reader.resolver().resolve_attribute(key);
         let name = match namespace {
             ResolveResult::Unbound => {
@@ -329,6 +351,10 @@ fn kept_attributes(
             _ => None,
         };
         let Some(name) = name else { continue };
+        // Two prefixes can name the xlink namespace; keep the first only.
+        if kept.iter().any(|(kept_name, _)| *kept_name == name) {
+            continue;
+        }
         let is_href = name == "href" || name == "xlink:href";
         if (is_href && !value.starts_with('#')) || !safe_value(&value) {
             continue;
@@ -380,11 +406,97 @@ fn push_kept_text(stack: &mut [Node], skipping: usize, text: &str) {
         .filter_map(|ch| match ch {
             '\r' => Some('\n'),
             '\n' | '\t' => Some(ch),
-            ch if ch.is_control() => None,
+            ch if ch.is_control() || !is_xml_char(ch) => None,
             ch => Some(ch),
         })
         .collect();
     node.push_text(&text);
+}
+
+/// A character XML 1.0 allows in a document (`Char`).
+fn is_xml_char(ch: char) -> bool {
+    matches!(ch, '\t' | '\n' | '\r' | '\u{20}'..='\u{D7FF}' | '\u{E000}'..='\u{FFFD}' | '\u{10000}'..)
+}
+
+/// The ids one element references: its `href` and every `url(#id)`.
+fn references(node: &Node) -> Vec<&str> {
+    let mut ids = Vec::new();
+    for (name, value) in &node.attributes {
+        if *name == "href" || *name == "xlink:href" {
+            ids.extend(value.strip_prefix('#'));
+        }
+        for (index, _) in value.match_indices("url(") {
+            let target = value[index + 4..].trim_start().trim_start_matches(['\'', '"']);
+            if let Some(id) = target.strip_prefix('#') {
+                let end = id.find(|ch: char| matches!(ch, ')' | '\'' | '"') || ch.is_whitespace());
+                ids.push(&id[..end.unwrap_or(id.len())]);
+            }
+        }
+    }
+    ids
+}
+
+/// Refuse a reference cycle or a document whose rendered element count,
+/// following every child and reference edge, exceeds `MAX_RENDER_COST`.
+/// Iterative, so a long reference chain cannot exhaust the stack.
+fn check_render_cost(root: &Node) -> anyhow::Result<()> {
+    let mut nodes: Vec<&Node> = vec![root];
+    let mut children: Vec<Vec<usize>> = Vec::new();
+    let mut index = 0;
+    while index < nodes.len() {
+        let mut own = Vec::new();
+        for child in &nodes[index].children {
+            if let Child::Element(child) = child {
+                own.push(nodes.len());
+                nodes.push(child);
+            }
+        }
+        children.push(own);
+        index += 1;
+    }
+    let mut ids: HashMap<&str, usize> = HashMap::new();
+    for (index, node) in nodes.iter().enumerate() {
+        if let Some((_, id)) = node.attributes.iter().find(|(name, _)| *name == "id") {
+            ids.entry(id.as_str()).or_insert(index);
+        }
+    }
+    let edges: Vec<Vec<usize>> = nodes
+        .iter()
+        .enumerate()
+        .map(|(index, node)| {
+            let mut edges = children[index].clone();
+            edges.extend(references(node).into_iter().filter_map(|id| ids.get(id).copied()));
+            edges
+        })
+        .collect();
+    // 0 unvisited, 1 on the path, 2 done.
+    let mut state = vec![0_u8; nodes.len()];
+    let mut cost = vec![0_u64; nodes.len()];
+    let mut stack = vec![(0_usize, 0_usize)];
+    state[0] = 1;
+    while let Some((node, next)) = stack.last_mut() {
+        if let Some(&target) = edges[*node].get(*next) {
+            *next += 1;
+            match state[target] {
+                0 => {
+                    state[target] = 1;
+                    stack.push((target, 0));
+                }
+                1 => return Err(not_svg("a reference cycle")),
+                _ => {}
+            }
+            continue;
+        }
+        let node = *node;
+        let total = edges[node].iter().fold(1_u64, |sum, edge| sum.saturating_add(cost[*edge]));
+        if total > MAX_RENDER_COST {
+            return Err(not_svg(format!("it draws more than {MAX_RENDER_COST} elements")));
+        }
+        cost[node] = total;
+        state[node] = 2;
+        stack.pop();
+    }
+    Ok(())
 }
 
 /// Collect the ids of elements whose subtree holds a `use`. Returns whether
