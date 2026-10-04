@@ -1,0 +1,35 @@
+# Sample third-party app server: an SSH terminal backend (samples/apps/ssh-terminal).
+# Its own Cargo workspace: it is not a member of the cmux-tui workspace and it
+# depends on no cmux crate at run time (an outside author could not).
+[package]
+name = "ssh-terminal"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "GPL-3.0-or-later"
+publish = false
+description = "Sample cmux app server: plain SSH as a cmux.terminal.backend/1 (bytes mode) backend"
+
+[workspace]
+
+[dependencies]
+# Pure-Rust SSH. `ring` instead of the default aws-lc-rs backend: ring is
+# Apache-2.0 AND ISC, which GPL-3.0-or-later can include.
+russh = { version = "=0.63.3", default-features = false, features = ["ring", "rsa"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net"] }
+
+[dev-dependencies]
+# The one manifest validator (cmux-tui/crates/cmux-app-manifest), by path only.
+cmux-app-manifest = { path = "../../../../cmux-tui/crates/cmux-app-manifest" }
+rand = "0.10"
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net", "io-util", "macros"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+unused_qualifications = "warn"
+
+[lints.clippy]
+uninlined_format_args = "warn"
+semicolon_if_nothing_returned = "warn"
+redundant_clone = "warn"
