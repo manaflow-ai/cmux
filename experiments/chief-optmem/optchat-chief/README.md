@@ -127,9 +127,11 @@ $MUX_HOME/optchat/session/        every turn's cwd: CLAUDE.md, .mcp.json, .claud
 $MUX_HOME/optchat/bin/chief       launcher for `chief agents ...`
 $MUX_HOME/optchat/claude/         the turn sessions' CLAUDE_CONFIG_DIR (settings.json: no auto-memory, no hooks,
                                   transcripts kept 2 days)
-$MUX_HOME/optchat/compactor-claude/  the compactor sessions' own CLAUDE_CONFIG_DIR (0700; settings.json denies
-                                  every tool, no auto-memory, no hooks, no bundled skills, transcripts kept 1 day)
-$TMPDIR/optchat-compact-<home id>/slot-<k>/  the compactor sessions' working directories (0700, empty), one per slot
+$MUX_HOME/optchat/compactor-claude/  the compactor sessions' own CLAUDE_CONFIG_DIR (0700; same settings as below;
+                                  unused on claude-sr, which resets CLAUDE_CONFIG_DIR)
+$TMPDIR/optchat-compact-<home id>/slot-<k>/  the compactor sessions' working directories (0700), one per slot: only
+                                  .claude/settings.json (every tool denied, all hooks off, no auto-memory,
+                                  no bundled skills, transcripts kept 1 day)
 ```
 
 `$MUX_HOME/optchat/` is mode 0700 and the log, tree and host.json are 0600:
@@ -145,11 +147,15 @@ byte-identical across turns. The request the model gets is not fully ours:
   saved in acpmux's config) whose env sets `CLAUDE_CONFIG_DIR` to
   `optchat/claude` and turns auto-memory off, so the user's
   `~/.claude/CLAUDE.md`, settings, hooks and project memory never reach a
-  turn and MASTER's "instructions at the end of this prompt" holds. When
+  turn and MASTER's "instructions at the end of this prompt" holds, except
+  on claude-sr, which resets `CLAUDE_CONFIG_DIR` (see Compactor routes). When
   acpmux refuses the preset, turns still start (with the harness's own
   configuration) and host.log says so; compactor sessions never do.
-  Claude Code keeps each turn's transcript (the whole view) under
-  `optchat/claude/projects/` for 2 days (`cleanupPeriodDays`, minimum 1).
+  Claude Code keeps each turn's transcript (the whole view) for 2 days
+  (`cleanupPeriodDays`, minimum 1, set in both the isolated configuration
+  and the session directory's project settings); on claude-sr the
+  transcripts are under `~/.claude/projects/`, and whether a project-level
+  `cleanupPeriodDays` governs that sweep is not checked.
 - Claude Code's own system prompt still comes first, with its date and
   environment lines, so the cached prefix changes at least once a day.
   Machine-wide managed settings still apply.
@@ -172,9 +178,11 @@ the route at start (`OPTCHAT_COMPACTOR` overrides):
   MCP servers or auto-memory. The preset sets `CLAUDE_CONFIG_DIR` to
   `optchat/compactor-claude` (not the turn agent's) and turns off
   auto-memory, CLAUDE.md files, bundled skills and Claude Code's own refusal
-  fallback; that configuration denies every built-in tool, the interactive
-  ones included. The cwd is a slot directory under the system temporary
-  directory, outside any directory with instruction files. The first prompt
+  fallback. The cwd is a slot directory under the system temporary
+  directory, outside any directory with instruction files, whose
+  `.claude/settings.json` denies every built-in tool (the interactive ones
+  included; a denied tool leaves the model's tool list), disables all hooks
+  and auto-memory. The first prompt
   is the compactor's system text, the context pieces and the step; each
   size-loop retry is the next prompt in the same session; the reply text is
   the line, with a lead-in line ("Here is the line:") dropped. When the node
@@ -197,10 +205,46 @@ the harness not signed in, a 429, an unserved fallback model, a tool left
 on), host.log gets one `The memory compactor cannot build summaries ...`
 line and the Chief conversation gets the same text once, instead of a
 silent wait later.
-Checked live on 2026-10-04 on the build host against a private acpmux daemon
-with claude-sr and the isolation preset: the probe took 2.4 s and a
-120-line message's summary 3.1 s
-(`cargo test --release --test live the_acpmux_compactor -- --ignored`).
+Checked live on 2026-10-04 on cmux-lawrence-2 against a private acpmux
+daemon (claude-sr, Claude Code 2.1.287, `claude-sonnet-5-5`), with
+`cargo test --release --test live the_acpmux_compactor -- --ignored`:
+
+| call | seconds | uncached | cache write | cache read | output | cost |
+| --- | --- | --- | --- | --- | --- | --- |
+| probe (empty view) | 1.6 | 2 | 2,442 | 0 | 28 | $0.006 |
+| one node, full-size view (127 KB) | 3.7 | 2 | 48,080 | 1,175 | 124 | $0.122 |
+| a 120-line message (empty view) | 2.4 | 2 | 5,766 | 1,175 | 86 | $0.016 |
+
+The probe's isolation check passed (no tool, no MCP server), and no
+compactor transcript was left in either Claude home. Before the deny list
+moved into each slot's project settings, the same probe offered 26 tools
+and cost 37,436 cache-write tokens.
+
+**Cost.** A node pays for its whole view at the cache-write price: about
+48k tokens and $0.12 at full size, and about 4 s, of which about 1.5 s is
+the harness start. Nothing carries the view from one node to the next
+(only Claude Code's own 1.2k-token prefix is read back). Summaries run at
+roughly 1.2 nodes per message, so a full memory costs roughly $0.15 per
+message in compactor calls, $150 a day at 1,000 messages; level-0 nodes run
+one at a time (rule 3), so a burst of tool steps can keep the next turn
+waiting by about 4 s per step. The spec's layout (section 8) would read
+most of each view from the cache; that needs the `api` route with a key on
+an endpoint that takes API calls, or acpmux forwarding `cache_control`.
+
+**claude-sr resets `CLAUDE_CONFIG_DIR`.** `sr claude proxy` points Claude
+Code at the user's `~/.claude` whatever the session's env says (checked
+live: transcripts land in `~/.claude/projects/`, and deny rules in the
+preset's configuration are not applied). So on claude-sr the isolation
+presets change little: what isolates a session is its cwd's project
+settings (applied, checked live) and the env flags that sr passes through
+(not checked one by one). Compactor sessions therefore get their deny list,
+`disableAllHooks` and no auto-memory as project settings in each slot
+directory, `end` deletes the transcript from `~/.claude/projects/` too, and
+the probe's tool and MCP check is the guard. Turn sessions get the same
+three switches and the transcript retention in their project settings, but
+the user's `~/.claude/CLAUDE.md` and MCP servers can still reach a turn on
+claude-sr. The isolated configurations work as described for a harness
+that keeps `CLAUDE_CONFIG_DIR`.
 
 The native engine still needs an endpoint that takes API calls; through the
 subrouter it gets the same 429 (`--test live two_native_turns` repeats it).
@@ -238,7 +282,7 @@ subrouter it gets the same 429 (`--test live two_native_turns` repeats it).
   view, step) to the cache and the next node, whose step differs, reads
   none of that view back: each node pays for its whole view at the cache
   write price, where the spec's layout would read most of it at the cache
-  read price. LIVE_COST_PLACEHOLDER Each node also pays a harness start.
+  read price. Measured live, see Cost above. Each node also pays a harness start.
   No effort is sent (the harness default) until acpmux's `effort` option is
   checked live; the `api` route still sends `medium`. Size-loop retries
   stay in the same session, so the earlier reply (thinking included) stays

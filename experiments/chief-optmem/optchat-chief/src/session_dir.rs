@@ -97,6 +97,12 @@ pub fn settings_json(setup: &SessionSetup, paths: &Paths) -> Value {
         "enabledMcpjsonServers": names,
         "env": env,
         "permissions": {"deny": TURN_DENIED_TOOLS},
+        // Also here, not only in the isolated configuration: claude-sr
+        // resets CLAUDE_CONFIG_DIR to ~/.claude (live check 2026-10-04), so
+        // project settings are the ones a turn is sure to read.
+        "autoMemoryEnabled": false,
+        "disableAllHooks": true,
+        "cleanupPeriodDays": TURN_TRANSCRIPT_DAYS,
     })
 }
 

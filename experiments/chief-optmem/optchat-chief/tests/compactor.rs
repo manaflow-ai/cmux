@@ -530,7 +530,10 @@ fn the_transcript_is_deleted_from_the_users_claude_home_too() {
     let seen = made.clone();
     let agents = FakeAgents::new(Box::new(move |_, _| {
         let cwd = std::fs::canonicalize(root.join("work").join("slot-0")).unwrap();
-        let project = root.join("user-claude").join("projects").join(project_dir_name(&cwd));
+        let project = root
+            .join("user-claude")
+            .join("projects")
+            .join(project_dir_name(&cwd));
         std::fs::create_dir_all(&project).unwrap();
         std::fs::write(project.join("abc.jsonl"), "{}\n").unwrap();
         *seen.lock().unwrap() = Some(project);

@@ -49,14 +49,15 @@ pub const CALL_TIMEOUT: Duration = Duration::from_secs(300);
 /// delete (a crash); its minimum.
 pub const TRANSCRIPT_DAYS: u64 = 1;
 
-/// Claude Code's built-in tools, denied in the compactor's own user
-/// settings so the harness does not offer them (section 4.2: no tools).
+/// Claude Code's built-in tools, denied in each compactor slot's project
+/// settings so the harness does not offer them (section 4.2: no tools;
+/// checked live: a tool denied in project settings leaves the model's list).
 /// The interactive ones matter most: acpmux keeps questions and plan
 /// approval for a human under every policy, so one call would hang the
 /// node (and, under rule 3, every turn) until `CALL_TIMEOUT`. The
 /// `deny-all` policy refuses any call that still happens, and the start-up
 /// probe reports any tool or MCP server the session still offers.
-pub const DENIED_TOOLS: [&str; 45] = [
+pub const DENIED_TOOLS: [&str; 48] = [
     "Agent",
     "AskUserQuestion",
     "Bash",
@@ -64,6 +65,7 @@ pub const DENIED_TOOLS: [&str; 45] = [
     "CronCreate",
     "CronDelete",
     "CronList",
+    "DesignSync",
     "Edit",
     "EnterPlanMode",
     "EnterWorktree",
@@ -74,6 +76,7 @@ pub const DENIED_TOOLS: [&str; 45] = [
     "KillShell",
     "LS",
     "LSP",
+    "ListAgents",
     "ListMcpResourcesTool",
     "Monitor",
     "MultiEdit",
@@ -83,6 +86,7 @@ pub const DENIED_TOOLS: [&str; 45] = [
     "Read",
     "ReadMcpResourceTool",
     "RemoteTrigger",
+    "ReportFindings",
     "ScheduleWakeup",
     "SendMessage",
     "Skill",
@@ -112,9 +116,11 @@ pub struct CompactorSpec {
     /// Where the slot working directories live (`<work>/slot-<k>`): outside
     /// the home, so no CLAUDE.md of a parent directory loads.
     pub work: PathBuf,
-    /// The compactor's `CLAUDE_CONFIG_DIR`; a node's transcript under its
-    /// `projects/` is deleted when the node ends.
-    pub config_dir: PathBuf,
+    /// Claude Code configuration directories a node's transcript may land
+    /// in (under `projects/`), each cleaned when the node ends: the
+    /// compactor's own `CLAUDE_CONFIG_DIR`, and the user's Claude home,
+    /// because `sr claude proxy` (claude-sr) resets `CLAUDE_CONFIG_DIR` to it.
+    pub transcript_dirs: Vec<PathBuf>,
     /// The acpmux preset every compactor session requires.
     pub preset: String,
     pub harness: String,
@@ -232,6 +238,11 @@ impl AcpmuxCompactor {
         private_dir(&self.spec.work)?;
         let dir = self.spec.work.join(format!("slot-{slot}"));
         private_dir(&dir)?;
+        // Project settings: the only settings claude-sr is sure to read
+        // (sr resets CLAUDE_CONFIG_DIR, so the preset's user settings are
+        // not), and the ones that take denied tools off the model's list.
+        std::fs::create_dir_all(dir.join(".claude"))?;
+        write_settings(&dir.join(".claude").join("settings.json"))?;
         std::fs::canonicalize(&dir)
     }
 
@@ -290,18 +301,16 @@ impl AcpmuxCompactor {
     }
 
     fn delete_transcript(&self, cwd: &Path) {
-        let dir = self
-            .spec
-            .config_dir
-            .join("projects")
-            .join(project_dir_name(cwd));
-        if dir.exists()
-            && let Err(e) = std::fs::remove_dir_all(&dir)
-        {
-            self.say(&format!(
-                "deleting the compactor transcript {}: {e}",
-                dir.display()
-            ));
+        for root in &self.spec.transcript_dirs {
+            let dir = root.join("projects").join(project_dir_name(cwd));
+            if dir.exists()
+                && let Err(e) = std::fs::remove_dir_all(&dir)
+            {
+                self.say(&format!(
+                    "deleting the compactor transcript {}: {e}",
+                    dir.display()
+                ));
+            }
         }
     }
 
@@ -584,14 +593,16 @@ pub fn probe_models(
     Ok(line)
 }
 
-/// The compactor's own Claude Code user settings: every tool denied, no
-/// auto-memory, no hooks, no bundled skills, and a one-day transcript
-/// retention for whatever `end` could not delete.
+/// The compactor's Claude Code settings (each slot's project settings, and
+/// its own configuration's user settings): every tool denied, no
+/// auto-memory, no hooks (the user's included), no bundled skills, and a
+/// one-day transcript retention for whatever `end` could not delete.
 pub fn compactor_settings() -> Value {
     json!({
         "permissions": {"deny": DENIED_TOOLS.as_slice()},
         "autoMemoryEnabled": false,
         "hooks": {},
+        "disableAllHooks": true,
         "disableBundledSkills": true,
         "enableAllProjectMcpServers": false,
         "cleanupPeriodDays": TRANSCRIPT_DAYS,
@@ -601,14 +612,30 @@ pub fn compactor_settings() -> Value {
 /// Creates the compactor's configuration directory (0700) and its settings.
 pub fn prepare_config(dir: &Path) -> io::Result<()> {
     private_dir(dir)?;
+    write_settings(&dir.join("settings.json"))
+}
+
+fn write_settings(path: &Path) -> io::Result<()> {
     crate::session_dir::write_if_changed(
-        &dir.join("settings.json"),
+        path,
         format!(
             "{}\n",
             serde_json::to_string_pretty(&compactor_settings()).expect("json")
         )
         .as_bytes(),
     )
+}
+
+/// The user's Claude Code home: `CLAUDE_CONFIG_DIR` of the host, else
+/// `~/.claude` (where claude-sr puts every session's transcript).
+pub fn user_claude_home() -> PathBuf {
+    if let Some(dir) = crate::cli::env("CLAUDE_CONFIG_DIR") {
+        return PathBuf::from(dir);
+    }
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| "/".into())
+        .join(".claude")
 }
 
 /// The compactor's acpmux preset (`optchat-compact-<home id>`), which every
@@ -640,7 +667,7 @@ pub fn compactor_spec(paths: &Paths, home: &Path, harness: &str, model: &str) ->
     let name = format!("optchat-compact-{}", home_id(home));
     CompactorSpec {
         work: std::env::temp_dir().join(&name),
-        config_dir: paths.compactor_config.clone(),
+        transcript_dirs: vec![paths.compactor_config.clone(), user_claude_home()],
         preset: name.clone(),
         name,
         harness: harness.to_owned(),

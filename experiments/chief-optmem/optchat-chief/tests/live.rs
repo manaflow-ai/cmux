@@ -211,12 +211,21 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
         started.elapsed().as_millis()
     );
     assert!(line.is_ok(), "{line:?}");
-    let projects = paths.compactor_config.join("projects");
-    let left: Vec<_> = std::fs::read_dir(&projects)
-        .map(|d| d.flatten().map(|e| e.file_name()).collect())
-        .unwrap_or_default();
-    println!("left in {}: {left:?}", projects.display());
-    assert!(left.is_empty(), "transcripts left: {left:?}");
+    // No transcript of a compactor slot is left in any Claude home.
+    let spec = compactor_spec(&paths, &home, &harness, &model);
+    let tag = format!("optchat-compact-{}", optchat_chief::paths::home_id(&home));
+    for root in &spec.transcript_dirs {
+        let left: Vec<String> = std::fs::read_dir(root.join("projects"))
+            .map(|d| {
+                d.flatten()
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .filter(|n| n.contains(&tag))
+                    .collect()
+            })
+            .unwrap_or_default();
+        println!("left in {}: {left:?}", root.display());
+        assert!(left.is_empty(), "transcripts left: {left:?}");
+    }
 
     let chat = OptChat::open_with(
         dir.path().join("chat"),
