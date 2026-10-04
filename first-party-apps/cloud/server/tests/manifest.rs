@@ -1,7 +1,7 @@
 //! The manifest and the catalog fragment pass the one validator
 //! (`cmux-app-manifest`), and the server serves exactly the catalog's ops.
 
-use cmux_app_manifest::{Severity, validate_package_file};
+use cmux_app_manifest::{ScopeClass, Severity, scope_info, validate_package_file};
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -175,4 +175,62 @@ fn link_token_is_never_reachable_from_an_app() {
         scopes["ops"].get("cloud.machine.link_token").is_none(),
         "cloud.machine.link_token must have no app scope"
     );
+}
+
+/// The Cloud connector grant (coordinator approval, 2026-10-04): the Cloud
+/// manifest implements `cmux.terminal.connector/1` for kind `cloud-vm` with
+/// open op `cloud.machine.connect`, asks for `terminal:backend` only as an
+/// optional (elevated) scope that a person grants, and declares the server
+/// scope for `cmux.terminal.connector.open`.
+#[test]
+fn the_cloud_manifest_declares_the_connector_and_its_grant() {
+    use cmux_cloud::connector::frames::CONNECTOR_OPEN;
+    use cmux_cloud::link::CONNECTOR_KIND;
+    let m = json(&app_dir().join("cmux-app.v2.json"));
+    let connector = &m["implements"]["cmux.terminal.connector/1"];
+    assert_eq!(connector["server"], true, "{connector}");
+    assert_eq!(connector["options"]["kinds"], serde_json::json!([CONNECTOR_KIND]));
+    assert_eq!(connector["options"]["openOps"], serde_json::json!(["cloud.machine.connect"]));
+    // A person grants it: optional, elevated, never a required scope.
+    assert_eq!(scope_info("terminal:backend").map(|i| i.class), Some(ScopeClass::Elevated));
+    assert!(m["scopes"].get("terminal:backend").is_none(), "never required");
+    let reason = m["optionalScopes"]["terminal:backend"].as_str().unwrap_or_default();
+    assert_eq!(reason, "Open terminals on your Cloud machines.");
+    let server_scope = &m["server"]["scopes"][format!("op:{CONNECTOR_OPEN}")];
+    assert!(server_scope.as_str().is_some_and(|r| !r.is_empty()), "op:{CONNECTOR_OPEN} declared");
+    assert_eq!(error_codes(&m), Vec::<&str>::new());
+}
+
+/// A third-party manifest that asks for `terminal:backend` is refused when it
+/// requires it, and otherwise only prompts: elevated scopes are never on at
+/// install for any tier (cmux-tui-core apps/mirror_tests.rs), so no grant is
+/// ever implied.
+#[test]
+fn a_third_party_terminal_backend_is_refused_when_required_and_only_prompts_otherwise() {
+    use cmux_cloud::connector::frames::CONNECTOR_OPEN;
+    let mut third = json(&app_dir().join("cmux-app.v2.json"));
+    third["id"] = serde_json::json!("octo/cloud");
+    third["repository"] = serde_json::json!("https://github.com/octo/cloud");
+    // A third party cannot run a native server without a signed artifact;
+    // give it a JS server so only the grant is under test.
+    third["server"] = serde_json::json!({ "kind": "js", "instances": "user", "hosts": ["local"],
+        "scopes": { format!("op:{CONNECTOR_OPEN}"): "Open terminals." } });
+    third["optionalScopes"]["terminal:backend"] = serde_json::json!("Open terminals.");
+    let mut required = third.clone();
+    required["optionalScopes"].as_object_mut().expect("optionalScopes").remove("terminal:backend");
+    required["scopes"]["terminal:backend"] = serde_json::json!("Open terminals.");
+    let refused = error_codes(&required);
+    assert!(refused.contains(&"scope.elevatedOptional"), "{refused:?}");
+    // As an optional scope it validates, and the elevated class keeps it off
+    // until the person grants it (no tier gets it at install).
+    assert_eq!(error_codes(&third), Vec::<&str>::new());
+    assert_eq!(scope_info("terminal:backend").map(|i| i.class), Some(ScopeClass::Elevated));
+}
+
+fn error_codes(manifest: &Value) -> Vec<&'static str> {
+    cmux_app_manifest::validate_manifest(manifest)
+        .into_iter()
+        .filter(|i| i.severity == Severity::Error)
+        .map(|i| i.code)
+        .collect()
 }
