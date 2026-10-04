@@ -216,12 +216,19 @@ impl FsService {
         }
         bytes.truncate(filled);
         let truncated = params.offset.saturating_add(filled as u64) < meta.size;
-        Ok(match String::from_utf8(bytes) {
+        // Text whose JSON escapes would outgrow base64 is sent as base64,
+        // so an answer stays near 4/3 of the bytes read.
+        let text = match String::from_utf8(bytes) {
+            Ok(text) if !escape_heavy(&text) => Ok(text),
+            Ok(text) => Err(text.into_bytes()),
+            Err(error) => Err(error.into_bytes()),
+        };
+        Ok(match text {
             Ok(text) => {
                 json!({ "text": text, "truncated": truncated, "size": meta.size, "encoding": "utf-8" })
             }
-            Err(error) => json!({
-                "bytes_base64": base64::engine::general_purpose::STANDARD.encode(error.into_bytes()),
+            Err(bytes) => json!({
+                "bytes_base64": base64::engine::general_purpose::STANDARD.encode(bytes),
                 "truncated": truncated,
                 "size": meta.size,
                 "encoding": "base64",
@@ -235,6 +242,9 @@ impl FsService {
     pub(crate) fn open_file(&self, path: &str) -> Result<(File, Meta), FsError> {
         let resolved = self.roots.resolve(path, true)?;
         let Some(name) = &resolved.name else { return Err(FsError::NotAFile) };
+        if Meta::of(&sys::lstat_at(resolved.dir(), name)?).kind != EntryKind::File {
+            return Err(FsError::NotAFile);
+        }
         let fd = sys::open_at(resolved.dir(), name, libc::O_RDONLY | libc::O_NONBLOCK, 0)?;
         let meta = Meta::of(&sys::stat_fd(fd.as_fd())?);
         if meta.kind != EntryKind::File {
@@ -289,16 +299,25 @@ impl FsService {
         if params.paths.is_empty() || params.paths.len() > MAX_DELETE_PATHS {
             return Err(FsError::ParamsInvalid("paths holds 1..1000 paths".into()));
         }
-        // Check every path before removing anything.
-        let mut targets = Vec::with_capacity(params.paths.len());
+        // Check every path before removing anything (one descriptor at a
+        // time), then resolve each again to remove it.
         for path in &params.paths {
             let resolved = self.roots.resolve(path, false)?;
-            let Some(name) = resolved.name.clone() else { return Err(FsError::PermissionDenied) };
-            sys::lstat_at(resolved.dir(), &name)?;
-            targets.push((resolved, name));
+            let Some(name) = &resolved.name else { return Err(FsError::PermissionDenied) };
+            sys::lstat_at(resolved.dir(), name)?;
         }
-        for (resolved, name) in &targets {
-            remove_tree(resolved.dir(), name)?;
+        for path in &params.paths {
+            // A target inside an earlier one is already gone.
+            let resolved = match self.roots.resolve(path, false) {
+                Ok(resolved) => resolved,
+                Err(FsError::NotFound) => continue,
+                Err(error) => return Err(error),
+            };
+            let Some(name) = &resolved.name else { return Err(FsError::PermissionDenied) };
+            match remove_tree(resolved.dir(), name) {
+                Ok(()) | Err(FsError::NotFound) => {}
+                Err(error) => return Err(error),
+            }
         }
         Ok(json!({}))
     }
@@ -306,6 +325,13 @@ impl FsService {
     fn lock(&self) -> std::sync::MutexGuard<'_, Listings> {
         self.listings.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
+}
+
+/// True when JSON escapes (`\u00XX`, 6 bytes each) would make `text`
+/// longer than its base64 (4/3 of its bytes).
+fn escape_heavy(text: &str) -> bool {
+    let escaped = text.chars().filter(|c| c.is_control() && !matches!(c, '\n' | '\t' | '\r')).count();
+    escaped.saturating_mul(5) > text.len() / 3
 }
 
 fn lstat_resolved(resolved: &Resolved) -> Result<libc::stat, FsError> {

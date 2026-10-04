@@ -124,12 +124,23 @@ pub(super) fn rename_at(dir: BorrowedFd<'_>, from: &str, to: &str) -> io::Result
 pub(super) fn rename_no_replace(dir: BorrowedFd<'_>, from: &str, to: &str) -> io::Result<()> {
     let (from_c, to_c) = (c_name(from)?, c_name(to)?);
     let fd = dir.as_raw_fd();
-    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    #[cfg(target_os = "linux")]
     {
-        // SAFETY: valid descriptor and NUL-terminated names.
+        // The raw syscall, so musl builds (the release binaries) get the
+        // atomic no-replace rename too. 1 = RENAME_NOREPLACE.
+        // SAFETY: valid descriptor and NUL-terminated names; renameat2
+        // takes (int, const char *, int, const char *, unsigned int).
         let rc = unsafe {
-            libc::renameat2(fd, from_c.as_ptr(), fd, to_c.as_ptr(), libc::RENAME_NOREPLACE)
+            libc::syscall(
+                libc::SYS_renameat2,
+                libc::c_long::from(fd),
+                from_c.as_ptr(),
+                libc::c_long::from(fd),
+                to_c.as_ptr(),
+                1 as libc::c_long,
+            )
         };
+        let rc = libc::c_int::try_from(rc).unwrap_or(-1);
         match check(rc) {
             Ok(_) => return Ok(()),
             Err(error) if !matches!(error.raw_os_error(), Some(libc::EINVAL | libc::ENOSYS)) => {
