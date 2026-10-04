@@ -83,6 +83,20 @@ struct BrowserDialogTests {
     }
 }
 
+/// A closed tab ends its extension prompt with Cancel.
+@MainActor
+struct ExtensionPromptLifetimeTests {
+    @Test func aClosedTabCancelsTheExtensionPrompt() throws {
+        let json = #"{"type":"install","extension_id":"abc","name":"Tool","permissions":[]}"#
+        let prompt = try #require(ExtensionInstallPrompt(id: 7, browser: 1, json: json))
+        let center = CmuxDialogCenter(host: CmuxDialogHeadlessHost())
+        var answer: CmuxDialogAnswer?
+        let id = center.present(ExtensionPromptSheet(prompt: prompt).spec, in: .app) { answer = $0 }
+        center.dismiss(id)
+        #expect(answer?.button == "cancel")
+    }
+}
+
 private extension CmuxDialogSpec {
     func fieldLabel(_ id: String) -> String? {
         for field in fields {

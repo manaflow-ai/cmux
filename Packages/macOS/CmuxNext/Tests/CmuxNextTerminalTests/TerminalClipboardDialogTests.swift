@@ -22,3 +22,15 @@ struct TerminalClipboardDialogTests {
         #expect(text.count == 2_001 && text.hasSuffix("…"))
     }
 }
+
+/// A closed terminal ends its clipboard question with Deny.
+@MainActor
+struct TerminalClipboardDialogLifetimeTests {
+    @Test func aClosedTerminalAnswersDeny() {
+        let center = CmuxDialogCenter(host: CmuxDialogHeadlessHost())
+        var answer: CmuxDialogAnswer?
+        let id = center.present(TerminalClipboardRequests.spec("Paste?", "Line breaks.", preview: "ls"), in: .app) { answer = $0 }
+        center.dismiss(id)
+        #expect(answer?.button == "deny")
+    }
+}
