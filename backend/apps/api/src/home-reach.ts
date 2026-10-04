@@ -15,9 +15,16 @@ import type { Env } from "./env.ts"
  * - connected: until relationships exist (16.7), a DM between the two where both are current
  *   participants and both gave consent (16.8: both sent a message, or one accepted the other's
  *   invite), found through the caller's inbox `peer` index and asked of that DM's owner.
- * - allow_dm_from: the target's UserDO, asked only when one of the links above exists, so an
- *   unknown id never reaches another user's object.
+ *   A shared group alone is no connection (16.3).
+ * - allow_requests_from: the target's UserDO, asked only when one of the links above exists, so
+ *   an unknown id never reaches another user's object.
  * - blocked: not resolved; the pair state (16.6) does not exist yet.
+ *
+ * A chief (an agent principal of class mux) acts under its owner's reach (CHIEF-DONE autonomy
+ * rule): when the owner's UserDO confirms the agent is one of the owner's active chiefs, the
+ * facts are the owner's (the owner's teams, the owner's DMs, the target's setting checked
+ * against the owner). Any other agent principal gets no facts but an empty list, so a cloud
+ * owner refuses every human who is not a current participant, also a departed one.
  *
  * A target with no link gets no entry, which the reducer refuses with the same code as a
  * refusal by setting, so the caller cannot tell whether an account exists.
@@ -32,7 +39,8 @@ interface TeamReachStub {
 }
 interface UserReachStub {
   readInbox(entity: string, principal: Principal, op: string, params: Record<string, unknown>): Promise<{ ok: boolean; value?: { conversation?: string | null } }>
-  homeAllowDmFrom(entity: string): Promise<homeConversation.AllowDmFrom>
+  homeAllowRequestsFrom(entity: string): Promise<homeConversation.AllowRequestsFrom>
+  homeChiefDms(entity: string, agent: string, targets: ReadonlyArray<string>): Promise<Array<string | null> | null>
 }
 interface ConversationReachStub {
   homeDmLink(entity: string, adder: string, target: string): Promise<{ peer: string | null; consented: boolean } | null>
@@ -55,32 +63,58 @@ export const humanTargets = (caller: string, ids: ReadonlyArray<unknown>): Array
   [...new Set(ids.filter((id): id is string => typeof id === "string" && id.startsWith("user_") && id.length <= MAX_ID && id !== caller))].slice(0, MAX_TARGETS)
 
 /**
- * The caller's DM with `target`: `peer` is set while both are current participants (only then is
- * the DM reused by dm.open), and `consented` when the pair gave consent (16.8), which alone makes
- * them connected. A DM opened through team reach that the target never answered is no contact.
+ * The adder's DM with `target` (id from the adder's inbox `peer` index): `peer` is set while both
+ * are current participants (only then is the DM reused by dm.open), and `consented` when the pair
+ * gave consent (16.8), which alone makes them connected. A DM opened through team reach that the
+ * target never answered is no contact.
  */
-const existingDm = async (env: Env, principal: Principal, adder: string, target: string) => {
-  const found = await userStub(env, adder).readInbox(adder, principal, "inbox.dm_peer", { peer: target })
-  const id = found.ok ? found.value?.conversation : null
+const dmLink = async (env: Env, id: string | null | undefined, adder: string, target: string) => {
   if (!id) return null
   const link = await conversationStub(env, id).homeDmLink(id, adder, target)
   return link ? { id, ...link } : null
 }
+
+/** A signed-in human caller's DM ids, through its own inbox read. */
+const ownDmIds = (env: Env, principal: Principal, adder: string, targets: ReadonlyArray<string>) =>
+  Promise.all(
+    targets.map(async (target) => {
+      const found = await userStub(env, adder).readInbox(adder, principal, "inbox.dm_peer", { peer: target })
+      return found.ok ? (found.value?.conversation ?? null) : null
+    })
+  )
 
 /** Whether the caller is a current participant of `conversation` (participants.add resolves reach only then). */
 export const isParticipant = (env: Env, conversation: string, principal: Principal): Promise<boolean> => conversationStub(env, conversation).mayInvite(conversation, principal)
 
 /** Resolves the reach facts for `targets` (already filtered by `humanTargets`). */
 export const resolveHumanReach = async (env: Env, principal: Principal, targets: ReadonlyArray<string>): Promise<ReachResolution> => {
-  const adder = homeConversation.actorOf(principal)
-  // Chiefs and other non-human callers keep the old rule (no facts: only known participants).
-  if (!adder?.startsWith("user_") || principal.agent || principal.kind === "system") return { principal, dms: new Map() }
-  if (targets.length === 0) return { principal: { ...principal, home_reach: [] }, dms: new Map() }
-  const ownTeams = [...new Set([principal.team, principal.sso_team].filter((t): t is string => typeof t === "string"))]
+  const actor = homeConversation.actorOf(principal)
+  if (!actor || principal.kind === "system") return { principal, dms: new Map() }
+  const none = { principal: { ...principal, home_reach: [] }, dms: new Map<string, string>() }
+  // Who the facts are about: the caller, or a chief's owner once the owner confirms the chief.
+  let adder: string
+  let dmIds: ReadonlyArray<string | null>
+  let ownTeams: ReadonlyArray<string>
+  if (principal.agent) {
+    const owner = principal.user ? (principal.user.startsWith("user_") ? principal.user : `user_${principal.user}`) : undefined
+    if (!owner || !actor.startsWith("agent_")) return none
+    const dms = targets.length === 0 ? [] : await userStub(env, owner).homeChiefDms(owner, actor, targets)
+    if (dms === null) return none
+    adder = owner
+    dmIds = dms
+    ownTeams = [personalTeamIdFor(owner), principal.team, principal.sso_team].filter((t): t is string => typeof t === "string")
+  } else {
+    if (!actor.startsWith("user_")) return { principal, dms: new Map() }
+    adder = actor
+    dmIds = targets.length === 0 ? [] : await ownDmIds(env, principal, adder, targets)
+    ownTeams = [principal.team, principal.sso_team].filter((t): t is string => typeof t === "string")
+  }
+  if (targets.length === 0) return none
+  const teams = [...new Set(ownTeams)]
   const [ownShared, theirShared, dms] = await Promise.all([
-    Promise.all(ownTeams.map((team) => teamStub(env, team).homeCoMembers(team, adder, targets))),
+    Promise.all(teams.map((team) => teamStub(env, team).homeCoMembers(team, adder, targets))),
     Promise.all(targets.map((target) => teamStub(env, personalTeamIdFor(target)).homeCoMembers(personalTeamIdFor(target), adder, [target]))),
-    Promise.all(targets.map((target) => existingDm(env, principal, adder, target)))
+    Promise.all(targets.map((target, i) => dmLink(env, dmIds[i], adder, target)))
   ])
   const teamNames = new Map<string, string>()
   for (const hit of [...ownShared.flat(), ...theirShared.flat()]) if (!teamNames.has(hit.user)) teamNames.set(hit.user, hit.display_name)
@@ -90,12 +124,14 @@ export const resolveHumanReach = async (env: Env, principal: Principal, targets:
     const name = teamNames.get(target) ?? (connected ? dm.peer! : undefined)
     return name === undefined ? [] : [{ target, name, shared_team: teamNames.has(target), connected }]
   })
-  const settings = await Promise.all(linked.map((l) => userStub(env, l.target).homeAllowDmFrom(l.target)))
-  const home_reach = linked.map((l, i) => ({ user: l.target, display_name: l.name, shared_team: l.shared_team, connected: l.connected, allow_dm_from: settings[i]! }))
+  const settings = await Promise.all(linked.map((l) => userStub(env, l.target).homeAllowRequestsFrom(l.target)))
+  const home_reach = linked.map((l, i) => ({ user: l.target, display_name: l.name, shared_team: l.shared_team, connected: l.connected, allow_requests_from: settings[i]! }))
   const existing = new Map<string, string>()
-  targets.forEach((target, i) => {
-    const dm = dms[i]
-    if (dm?.peer != null) existing.set(target, dm.id)
-  })
+  // dm.open reuses only the caller's own DM; a chief opens its own conversation.
+  if (!principal.agent)
+    targets.forEach((target, i) => {
+      const dm = dms[i]
+      if (dm?.peer != null) existing.set(target, dm.id)
+    })
   return { principal: { ...principal, home_reach }, dms: existing }
 }

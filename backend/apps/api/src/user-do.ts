@@ -161,12 +161,26 @@ export class UserDO extends OwnerDO<UserState> {
 
   /**
    * RPC for the Worker's reach check (home-reach.ts, home-messaging.md section 16): only the
-   * user's `allow_dm_from`, never the discovery flags. An object that never served this user
-   * answers the default without binding.
+   * user's `allow_requests_from`, never the discovery flags. An object that never served this
+   * user answers the default without binding.
    */
-  async homeAllowDmFrom(entity: string): Promise<homeConversation.AllowDmFrom> {
-    if (this.boundEntity() !== entity) return homeUser.DEFAULT_HOME_SETTINGS.allow_dm_from
-    return (this.bind(entity).currentState.home_settings ?? homeUser.DEFAULT_HOME_SETTINGS).allow_dm_from
+  async homeAllowRequestsFrom(entity: string): Promise<homeConversation.AllowRequestsFrom> {
+    if (this.boundEntity() !== entity) return homeUser.DEFAULT_HOME_SETTINGS.allow_requests_from
+    return homeUser.homeSettingsOf(this.bind(entity).currentState.home_settings).allow_requests_from
+  }
+
+  /**
+   * RPC for the Worker's reach check of a chief caller (CHIEF-DONE autonomy rule): when `agent`
+   * is one of this user's active chiefs, the user's DM with each target from the inbox `peer`
+   * index (the chief acts under its owner's reach); null when it is not, or when this object
+   * never served the user. Never creates storage.
+   */
+  async homeChiefDms(entity: string, agent: string, targets: ReadonlyArray<string>): Promise<Array<string | null> | null> {
+    if (this.boundEntity() !== entity) return null
+    const record = this.bind(entity).currentState.chiefs?.[agent]
+    if (!record || record.archived_at !== null || record.owner_user !== entity) return null
+    const engine = this.inbox.open(entity)
+    return targets.map((target) => homeInbox.dmPeer(engine.rows, target))
   }
 
   /**

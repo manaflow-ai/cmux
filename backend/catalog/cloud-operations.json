@@ -26467,14 +26467,14 @@
               "name": "boolean"
             }
           },
-          "allow_dm_from": {
+          "allow_requests_from": {
             "required": false,
             "type": {
               "kind": "enum",
               "values": [
                 "anyone",
                 "teams",
-                "contacts"
+                "nobody"
               ]
             }
           },
@@ -26517,14 +26517,14 @@
                   "name": "boolean"
                 }
               },
-              "allow_dm_from": {
+              "allow_requests_from": {
                 "required": true,
                 "type": {
                   "kind": "enum",
                   "values": [
                     "anyone",
                     "teams",
-                    "contacts"
+                    "nobody"
                   ]
                 }
               },
@@ -26568,7 +26568,7 @@
         "expose": "never",
         "group": "home"
       },
-      "docs": "Choose who can find you by email or phone, who may start a DM with you, and whether a message request also sends an email.",
+      "docs": "Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -26579,12 +26579,12 @@
           "discoverable_by_phone": {
             "type": "boolean"
           },
-          "allow_dm_from": {
+          "allow_requests_from": {
             "type": "string",
             "enum": [
               "anyone",
               "teams",
-              "contacts"
+              "nobody"
             ]
           },
           "email_requests": {
@@ -26603,12 +26603,12 @@
           "discoverable_by_phone": {
             "type": "boolean"
           },
-          "allow_dm_from": {
+          "allow_requests_from": {
             "type": "string",
             "enum": [
               "anyone",
               "teams",
-              "contacts"
+              "nobody"
             ]
           },
           "email_requests": {
@@ -26618,7 +26618,7 @@
         "required": [
           "discoverable_by_email",
           "discoverable_by_phone",
-          "allow_dm_from",
+          "allow_requests_from",
           "email_requests"
         ],
         "additionalProperties": true,
@@ -34321,7 +34321,7 @@
         "expose": "opt_in",
         "group": "home"
       },
-      "docs": "Add a user who shares a team or a conversation with you, or a chief its reachability allows (max 64). Anyone else needs invite.create.",
+      "docs": "Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",

@@ -1634,18 +1634,18 @@ export interface CloudOps {
       readonly cursor?: string
     }
   }
-  /** Choose who can find you by email or phone, who may start a DM with you, and whether a message request also sends an email. */
+  /** Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email. */
   readonly "home.settings.set": {
     readonly params: {
       readonly discoverable_by_email?: boolean
       readonly discoverable_by_phone?: boolean
-      readonly allow_dm_from?: "anyone" | "teams" | "contacts"
+      readonly allow_requests_from?: "anyone" | "teams" | "nobody"
       readonly email_requests?: boolean
     }
     readonly result: {
       readonly discoverable_by_email: boolean
       readonly discoverable_by_phone: boolean
-      readonly allow_dm_from: "anyone" | "teams" | "contacts"
+      readonly allow_requests_from: "anyone" | "teams" | "nobody"
       readonly email_requests: boolean
     }
   }
@@ -2005,7 +2005,7 @@ export interface CloudOps {
       }>
     }
   }
-  /** Add a user who shares a team or a conversation with you, or a chief its reachability allows (max 64). Anyone else needs invite.create. */
+  /** Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. */
   readonly "participants.add": {
     readonly params: {
       readonly conversation: ConversationId
