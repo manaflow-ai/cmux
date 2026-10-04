@@ -115,7 +115,7 @@ impl Core {
         let status = work_status(session.status);
         let order = self.state.children.values().filter_map(|c| c.order).max().unwrap_or(0) + 1;
         // A pruned child that comes back already has a card: it gets no second one.
-        let pruned = self.state.pruned_children.iter().any(|id| *id == session.session_id);
+        let pruned = self.state.pruned_children.contains(&session.session_id);
         let conversation = if pruned { String::new() } else { conversation };
         let child = ChildRecord {
             conversation: conversation.clone(),
