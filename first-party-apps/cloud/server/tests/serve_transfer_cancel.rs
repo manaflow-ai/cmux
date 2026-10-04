@@ -70,9 +70,13 @@ fn a_cancelled_pull_stops_emits_one_cancelled_event_and_leaves_no_file() {
     let transfer = FakeTransfer::default();
     transfer.log().until_cancel = true;
     let mut host = host(&transfer);
-    op(&host, "1", "cloud.file.pull",
+    op(
+        &host,
+        "1",
+        "cloud.file.pull",
         json!({ "machine": "vm-alpha01", "localPath": target, "path": "/home/cmux/notes.txt" }),
-        Some("p-1"));
+        Some("p-1"),
+    );
     let (_, started) = until_result(&mut host, "1");
     let started = started.expect("the pull answers");
     assert_eq!(started["result"]["state"], "running", "{started}");
@@ -110,9 +114,13 @@ fn a_cancel_of_an_ended_transfer_answers_ended_and_emits_nothing() {
     std::fs::write(&local, b"payload").unwrap();
     let transfer = FakeTransfer::default();
     let mut host = host(&transfer);
-    op(&host, "1", "cloud.file.push",
+    op(
+        &host,
+        "1",
+        "cloud.file.push",
         json!({ "machine": "vm-alpha01", "localPath": local, "path": "/home/cmux/upload.txt" }),
-        Some("p-1"));
+        Some("p-1"),
+    );
     let (_, started) = until_result(&mut host, "1");
     let id = started.expect("the push answers")["result"]["transfer"].clone();
     let mut done = None;
@@ -131,7 +139,13 @@ fn a_cancel_of_an_ended_transfer_answers_ended_and_emits_nothing() {
     op(&host, "3", "cloud.port.list", json!({}), None);
     let (after, _) = until_result(&mut host, "3");
     assert!(changed(&lines).is_empty() && changed(&after).is_empty(), "no new event");
-    op(&host, "4", "cloud.file.transfer.cancel", json!({ "transfer": "transfer-999" }), Some("c-2"));
+    op(
+        &host,
+        "4",
+        "cloud.file.transfer.cancel",
+        json!({ "transfer": "transfer-999" }),
+        Some("c-2"),
+    );
     let (_, unknown) = until_result(&mut host, "4");
     let unknown = unknown.expect("the cancel answers");
     assert_eq!(unknown["error"]["code"], "cmux.cloud.not_found", "{unknown}");

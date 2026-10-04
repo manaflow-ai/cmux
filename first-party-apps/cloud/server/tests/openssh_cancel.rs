@@ -4,8 +4,8 @@
 #![cfg(unix)]
 
 use cmux_cloud::app_env::AppEnv;
-use cmux_cloud::fs::{Cancel, Direction, OpenSshTransfer, ScpEndpoint, Transfer, TransferJob};
 use cmux_cloud::fs::TransferKey;
+use cmux_cloud::fs::{Cancel, Direction, OpenSshTransfer, ScpEndpoint, Transfer, TransferJob};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
 use std::time::Duration;
@@ -24,9 +24,18 @@ fn stand_in(tools: &Path) -> OpenSshTransfer {
     std::fs::create_dir_all(tools).unwrap();
     let d = tools.display();
     let scripts = [
-        ("ssh-agent", "printf 'SSH_AUTH_SOCK=%s; export SSH_AUTH_SOCK;\\n' \"$3\"\nexec /bin/sleep 600\n".to_owned()),
+        (
+            "ssh-agent",
+            "printf 'SSH_AUTH_SOCK=%s; export SSH_AUTH_SOCK;\\n' \"$3\"\nexec /bin/sleep 600\n"
+                .to_owned(),
+        ),
         ("ssh-add", "/bin/cat > /dev/null\n".to_owned()),
-        ("scp", format!("for a in \"$@\"; do last=\"$a\"; done\nprintf part > \"$last\"\n: > '{d}/scp.started'\nexec /bin/sleep 600\n")),
+        (
+            "scp",
+            format!(
+                "for a in \"$@\"; do last=\"$a\"; done\nprintf part > \"$last\"\n: > '{d}/scp.started'\nexec /bin/sleep 600\n"
+            ),
+        ),
         ("ssh", "exit 1\n".to_owned()),
     ];
     for (name, body) in &scripts {

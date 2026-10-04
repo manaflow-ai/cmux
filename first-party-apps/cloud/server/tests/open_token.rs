@@ -140,7 +140,7 @@ fn debug_output_of_every_request_type_hides_the_token() {
         format!("{:?}", connect(&t)),
         format!("{open:?}"),
         format!("{resume:?}"),
-        format!("{:?}", OpenToken(t.clone())),
+        format!("{:?}", OpenToken(t)),
     ] {
         assert!(!text.contains("ot_e_"), "{text}");
     }
