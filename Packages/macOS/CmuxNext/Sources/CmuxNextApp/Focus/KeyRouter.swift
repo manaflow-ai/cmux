@@ -23,6 +23,8 @@ import CmuxNextTerminal
 ///    when its content has the keyboard, never a text field): run it;
 /// 5. else the focused surface gets the key (Ghostty keybinds, the page, the
 ///    field), after a Chrome extension shortcut of the focused Chromium tab;
+///    a printable key on a screen with a primary input and no focused text
+///    field goes to that input (R65, `PrimaryInputTarget`);
 /// 6. main-menu key equivalents are display only for a key decided here:
 ///    the menu gate refuses them (``allowsMenuKeyEquivalent(_:)``).
 ///
@@ -105,7 +107,11 @@ final class KeyRouter: BrowserKeyRouting {
     /// chord, is stateful and runs in ``interceptKeyDown(_:in:)``).
     func decide(_ event: NSEvent, focus: FocusState, keyWindow: KeyWindowKind, facts: Facts = Facts()) -> Decision {
         guard keyWindow == .content else { return .panel }
-        if facts.hasMarkedText || !Self.isChord(event.modifierFlags) { return .deliver }
+        if facts.hasMarkedText { return .deliver }
+        guard Self.isChord(event.modifierFlags) else {
+            let typesHere = facts.primaryInputReady && Self.isPrintable(event) && Self.mayHavePrimaryInput(focus.resolved)
+            return typesHere ? .primaryInput : .deliver
+        }
         return decide(event, focus: focus, context: keyContext(for: focus, facts: facts))
     }
 
@@ -148,8 +154,8 @@ final class KeyRouter: BrowserKeyRouting {
             return true
         }
         let isChord = Self.isChord(event.modifierFlags)
-        // Plain typing never looks up the window (typing-latency path).
         guard chords.isPending || isChord else {
+            if typesIntoPrimaryInput(event, in: window) { return true }
             onTyping?(window)
             return false
         }
@@ -187,6 +193,24 @@ final class KeyRouter: BrowserKeyRouting {
         case .deliver, .panel, .primaryInput:
             return runExtensionShortcut(event, focus: focus)
         }
+    }
+
+    /// A printable key on a screen whose primary input should take it
+    /// (R65): focus that input and type the key there. Typing in a terminal
+    /// never looks up the window (typing-latency path).
+    private func typesIntoPrimaryInput(_ event: NSEvent, in window: NSWindow?) -> Bool {
+        guard let window, !(window.firstResponder is TerminalSurfaceView), Self.isPrintable(event) else { return false }
+        let (controller, kind) = focus(for: window)
+        guard let controller, kind == .content else { return false }
+        let focus = controller.focus.state
+        guard Self.mayHavePrimaryInput(focus.resolved), let pane = focus.resolved.pane,
+              let target = controller.content?.paneController(key: pane)?.currentContent?.primaryInput else { return false }
+        let facts = Facts(hasMarkedText: (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true,
+                          primaryInputReady: target.acceptsRedirectedTyping)
+        guard decide(event, focus: focus, keyWindow: kind, facts: facts) == .primaryInput else { return false }
+        decided.add(event)
+        target.beginTyping(with: event)
+        return true
     }
 
     private func run(_ candidate: Candidate, context: KeyContext, window: String) {

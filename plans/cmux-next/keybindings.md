@@ -171,6 +171,19 @@ chord itself; chords resolve in the dispatcher, and a chord no binding claims re
 WebKit or Chromium (editing chords through the Edit menu). Test:
 `KeyOwnershipMatrixTests.reactPageGetsNavigationKeysAndChordsResolveInTheDispatcher`.
 
+### 4.3 Primary input (R65, coordinator 2026-10-03)
+
+Every app surface may declare a primary input (Home: the message box; the agent pane:
+the composer; an app: manifest `presentation.primaryInput`). When Home, an agent chat or
+an internal app screen has the keyboard and none of its text fields has focus, a
+printable key (no Command or Control; not a control character, arrow, Return, Tab,
+Escape or Delete) goes to that primary input and starts typing there; the first key is
+not lost. Chords resolve first; IME composition keeps every key. A surface opts in by
+conforming its content view to `PrimaryInputTarget` (`acceptsRedirectedTyping`,
+`beginTyping(with:)`); the dispatcher decision is `.primaryInput`. Typing in a
+terminal never looks the window up. Home's and the agent composer's conformances belong
+to those lanes (the agent composer needs a page message to focus and insert).
+
 ## 5. Ctrl-Tab after the fix
 
 Default entries that replace `BrowserChordTable.tabNavigation` (same keys, same actions):
