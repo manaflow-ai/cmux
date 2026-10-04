@@ -5,6 +5,7 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { userIdFor } from "../src/domains/user.ts"
 import { conversationMutate } from "../src/home-routes.ts"
+import { recordingEnv } from "./reach-recorder.ts"
 
 /**
  * Human reach through the public API (home-messaging.md sections 4.1 and 16): dm.open by user
@@ -228,6 +229,27 @@ describe("Home human reach", { timeout: 60_000 }, () => {
     const allowed = await op(owen.token, "participants.add", { conversation, participant: human(quinn) })
     expect(refused.error?.code).toBeDefined()
     expect(refused.error?.code).toBe(allowed.error?.code)
+  })
+
+  it("a non-member's participants.add gets the same refusal for every target, and no reach fact is read", async () => {
+    const ike = await signIn("reach-probe-ike", "Ike")
+    const jo = await signIn("reach-probe-jo", "Jo")
+    const kai = await signIn("reach-probe-kai", "Kai")
+    await joinTeam(jo, kai)
+    expect((await op(kai.token, "home.settings.set", { allow_requests_from: "nobody" })).value.allow_requests_from).toBe("nobody")
+    const conversation = (await op(ike.token, "conversation.create", { title: "Private", participants: [human(ike, "Ike")] })).value.conversation.id as string
+    const principal = { identity: `${jo.user}:s`, kind: "session" as const, user: jo.user, team: jo.team, display_name: "Jo" }
+    const codes: Array<string | undefined> = []
+    // A team member with nobody, the conversation's own member, and an account that does not exist.
+    for (const target of [kai, ike, "user_00000000000000000000"]) {
+      const rec = recordingEnv()
+      const res = await conversationMutate(rec.env, principal, { t: "op", op: "participants.add", params: { conversation, participant: typeof target === "string" ? { id: target, kind: "human", display_name: "x" } : human(target) }, idempotency_key: crypto.randomUUID() })
+      codes.push((res.frames.find((f) => f.t === "reject") as { code?: string } | undefined)?.code)
+      // Only the member check ran: no TeamDO, inbox, DM or setting read.
+      expect(rec.calls).toEqual(["conversation.mayInvite"])
+    }
+    expect(codes[0]).toBeDefined()
+    expect(new Set(codes).size).toBe(1)
   })
 
   it("allow_requests_from=nobody refuses new reach, also into groups; a shared team does not override it", async () => {
