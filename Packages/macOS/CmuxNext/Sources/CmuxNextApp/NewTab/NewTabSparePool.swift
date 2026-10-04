@@ -145,8 +145,13 @@ final class NewTabSparePool {
     /// the spare context (the page remounts its screen) and parked as the
     /// spare, so the close does no teardown and the pool builds nothing (R81).
     /// False when the slot is full or no page is likely.
+    /// Why the last closed new tab page was not recycled (`debug.new_tab`).
+    private(set) var lastRecycleRefusal: String?
+
     func recycle(_ view: AgentPaneView) -> Bool {
-        guard slot.shouldWarm, isLikely, view.model.newTab != nil, !view.model.userTouched, target != nil else { return false }
+        lastRecycleRefusal = !slot.shouldWarm ? "slot full" : !isLikely ? "not likely" : view.model.newTab == nil ? "became a chat"
+            : view.model.userTouched ? "touched by \(view.model.touchedBy ?? "?")" : target == nil ? "no target window" : nil
+        guard lastRecycleRefusal == nil else { return false }
         BenchSpans.measure("pool.recycle") {
             view.adoptNewTab(NewTabPage.sparePage(services))
             // Out of the view tree now (as cheap as a close); back into the window at the next

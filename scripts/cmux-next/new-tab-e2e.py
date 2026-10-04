@@ -208,6 +208,7 @@ def run_bench():
         rpc("debug.new_tab", {"action": "open_and_type", "text": ""})
         time.sleep(0.4)  # test harness: the page settles before the measured close
         closes.append(rpc("debug.new_tab", {"action": "bench_close"}))
+        closes[-1]["recycle_refusal"] = state().get("last_recycle_refusal")
     for _ in range(opts.runs):
         ready_spare()
         rpc("debug.new_tab", {"action": "open_and_type", "text": ""})
@@ -218,6 +219,7 @@ def run_bench():
     bad = [r for r in closes + bangs if not isinstance(r, dict) or "error" in r]
     if bad:
         sys.exit(f"FAIL bench errors: {bad[:3]}")
+    print(f"recycle refusals on Cmd-W: {[c.get('recycle_refusal') for c in closes]}", flush=True)
     summarize("Cmd-W on the new tab page", closes)
     summarize("! on the new tab page", bangs)
     desync = rpc("debug.desync") or {}

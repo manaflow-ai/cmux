@@ -91,6 +91,8 @@ public final class AgentPaneModel {
     /// handshake, frame pacing, render rate, capabilities). A touched page is
     /// never recycled into the prewarm pool (coordinator: strictly untouched).
     public private(set) var userTouched = false
+    /// The request that first touched the page, its case name only (diagnostics).
+    public private(set) var touchedBy: String?
 
     public func adoptNewTab(_ page: AgentPaneNewTab) {
         guard newTab != nil else { return }
@@ -101,7 +103,9 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability: break
-        default: userTouched = true
+        default:
+            if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
+            userTouched = true
         }
         switch request {
         case .ready, .reconnect:
