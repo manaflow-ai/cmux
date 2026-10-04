@@ -63,6 +63,45 @@ export type { ApplyResult, Commit, OpRequest } from "./request.ts"
 export * from "./types.ts"
 export { conversationRedact, PRIVATE_TABLES } from "./redact.ts"
 export { MAX_LIMIT as SEARCH_MAX_LIMIT, messageText, searchConversations, snippetOf, type SearchHit, type SearchInput, type SearchResult, type SearchSource } from "./search.ts"
+export {
+  ATTACHMENT_LIMITS,
+  ATTACHMENT_TYPES,
+  attachmentHashes,
+  attachmentObjectKey,
+  attachmentDerivedKey,
+  attachmentPrefix,
+  attachmentQuota,
+  attachmentRefWrites,
+  checkAttachments,
+  contentDisposition,
+  DENIED_EXTENSIONS,
+  isSha256,
+  TABLE_ATTREF,
+  messageDeleteWrites,
+  DERIVED_IMAGE_TYPES,
+  DERIVED_VARIANTS,
+  derivedVariantOf,
+  isDerivedVariant,
+  recordedImageOf,
+  PREVIEW_ATTACHMENT_KINDS,
+  previewAttachmentsOf,
+  servedContentType,
+  validateAttachmentMeta,
+  validateDerivedImages,
+  validateDerivedMeta,
+  type DerivedResult,
+  type DerivedVariant,
+  type RecordedImage,
+  type PreviewAttachmentKind,
+  type PreviewAttachments,
+  type QuotaUsage,
+  type AttachmentClass,
+  type AttachmentLookup,
+  type AttachmentMeta,
+  type AttachmentRecord,
+  type MetaResult,
+  type QuotaResult
+} from "./attachments.ts"
 export { IMPORT_OPS, MAX_IMPORT_BATCH, MAX_IMPORT_BATCH_BYTES, reduceImport } from "./import.ts"
 export { nextSweepAt, RETENTION_BATCH, SWEEP_OP } from "./sweep.ts"
 export { TYPING_MAX_ON, TYPING_REFRESH_MS, TYPING_WINDOW_MS, typingGate, type TypingDecision, type TypingMemo } from "./typing.ts"

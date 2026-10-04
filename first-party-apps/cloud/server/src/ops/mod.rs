@@ -16,7 +16,9 @@ mod snapshot;
 pub use machine_projection::{Projection, WatchEvent};
 
 use crate::api::{CloudError, ControlPlane, Ctx, Ledger, Origin, Request, codes, upstream_key};
+use crate::rescue::iface::OpenToken;
 use serde_json::Value;
+use std::sync::Arc;
 
 /// How an op is guarded before it runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,6 +88,9 @@ const OPS: &[(&str, Kind)] = &[
     // the path (native file panel), never an agent.
     ("cloud.file.push", Kind::UserOnly),
     ("cloud.file.pull", Kind::UserOnly),
+    // Stopping a transfer only stops work a person started: no gesture.
+    ("cloud.file.transfer.list", Kind::Read),
+    ("cloud.file.transfer.cancel", Kind::Mutation),
     // Ports and browser routes (crate::ports).
     ("cloud.port.list", Kind::Read),
     ("cloud.port.forward", Kind::Mutation),
@@ -172,11 +177,56 @@ const REVISION_RESULTS: &[&str] = &[
 /// they run every time, like the live link ops.
 const RERUN_OPS: &[&str] = &["cloud.domain.verify", "cloud.publication.verify"];
 
+/// Ops that need the host's `open_token` (stamped after the user's
+/// gesture). The op itself checks it; a ledger replay checks it too.
+const TOKEN_OPS: &[&str] = &["cloud.rescue.open"];
+
 /// Creates the Cloud API does not dedup by key. After an attempt with no
 /// answer (the relay failed), a same-key retry is refused with
 /// `outcome_unknown`: the caller lists first. A 4xx answer made nothing, so
 /// it frees the key.
 const NO_UPSTREAM_DEDUP: &[&str] = &["cloud.firewall.create", "cloud.publication.create"];
+
+/// A request that passed the guards: its canonical name, its args (relay
+/// names mapped), and its trimmed key (`Some` exactly for mutations).
+pub(crate) struct Admitted {
+    pub(crate) name: &'static str,
+    pub(crate) args: Value,
+    pub(crate) key: Option<String>,
+}
+
+/// The guards every op passes before it runs: a known name, the origin
+/// rule, and the key rule of its class.
+pub(crate) fn admit(request: &Request) -> Result<Admitted, CloudError> {
+    let name = canonical_name(&request.op).ok_or_else(|| {
+        CloudError::new(codes::UNKNOWN_OP, format!("{} is not a Cloud op", request.op))
+    })?;
+    let kind = kind_of(name);
+    let args = relay_args(&request.op, name, &request.args);
+    let key = request.idempotency_key.as_deref().map(str::trim).filter(|k| !k.is_empty());
+    if kind == Kind::UserOnly && request.origin != Origin::User {
+        return Err(CloudError::new(
+            codes::ORIGIN_REFUSED,
+            format!("{name} needs a person: confirm it in cmux"),
+        ));
+    }
+    if kind == Kind::Read {
+        if key.is_some() {
+            return Err(CloudError::new(
+                codes::IDEMPOTENCY_KEY_FORBIDDEN,
+                format!("{name} is a read and takes no idempotency key"),
+            ));
+        }
+        return Ok(Admitted { name, args, key: None });
+    }
+    let key = key.ok_or_else(|| {
+        CloudError::new(codes::IDEMPOTENCY_KEY_REQUIRED, format!("{name} needs an idempotency key"))
+    })?;
+    if key.len() > 128 {
+        return Err(CloudError::invalid("an idempotency key has at most 128 characters"));
+    }
+    Ok(Admitted { name, args, key: Some(key.to_owned()) })
+}
 
 fn kind_of(name: &str) -> Kind {
     OPS.iter().find(|(n, _)| *n == name).map_or(Kind::Read, |(_, k)| *k)
@@ -190,6 +240,8 @@ pub struct Server<C> {
     ledger: Ledger,
     attach: crate::link::Attach,
     edge: crate::ports::Edge,
+    /// Host-only ops this server sent and their answers (crate::api::host).
+    host: crate::api::host::HostRequests,
 }
 
 impl<C> Server<C> {
@@ -217,15 +269,30 @@ impl<C: ControlPlane> Server<C> {
     pub fn with_parts(
         control_plane: C,
         attach: crate::link::Attach,
-        edge: crate::ports::Edge,
+        mut edge: crate::ports::Edge,
     ) -> Self {
+        // The pinned host keys are read once, at start.
+        if let Some(path) = attach.env().known_hosts_path() {
+            edge.load_known_hosts(path);
+        }
         Self {
             control_plane,
             projection: Projection::default(),
             ledger: Ledger::default(),
             attach,
             edge,
+            host: crate::api::host::HostRequests::default(),
         }
+    }
+
+    /// Host-only requests this server sent (`cmux.host.*`).
+    pub(crate) fn host_requests(&mut self) -> &mut crate::api::host::HostRequests {
+        &mut self.host
+    }
+
+    /// `host.request` frames to send to the host, in order.
+    pub fn take_host_frames(&mut self) -> Vec<Value> {
+        self.host.take_outbox()
     }
 
     /// The forward and route state with the link state it follows.
@@ -239,6 +306,24 @@ impl<C: ControlPlane> Server<C> {
     /// link events first, so each close follows the change that caused it.
     pub fn reconcile_edge(&mut self) {
         self.edge.reconcile(&self.attach.supervisor);
+    }
+
+    /// Blocks until every running file transfer has ended (embedders and
+    /// tests; the serve loop never blocks on a copy).
+    pub fn wait_transfers(&mut self) {
+        self.edge.transfers.wait_all();
+    }
+
+    /// `cloud.file.transfer.changed` events: transfers that ended since the
+    /// last call, in the order they ended.
+    pub fn take_transfer_events(&mut self) -> Vec<crate::fs::TransferEvent> {
+        self.edge.transfers.take_events()
+    }
+
+    /// Wakes the serve loop after each link event and each transfer end.
+    pub(crate) fn set_wake(&mut self, wake: crate::link::LinkWake) {
+        self.attach.supervisor_mut().set_wake(Arc::clone(&wake));
+        self.edge.transfers.set_wake(wake);
     }
 
     /// Forwards and routes closed by link state since the last call.
@@ -269,47 +354,28 @@ impl<C: ControlPlane> Server<C> {
         self.projection.take_events()
     }
 
+    /// Link events for the host lines (`cloud.link.changed`) since the
+    /// last call, in order.
+    pub fn take_link_events(&mut self) -> Vec<crate::connector::iface::CarrierEvent> {
+        self.attach.take_host_link_events()
+    }
+
     /// Runs one request.
     pub fn handle(&mut self, request: &Request) -> Result<Value, CloudError> {
-        let name = canonical_name(&request.op).ok_or_else(|| {
-            CloudError::new(codes::UNKNOWN_OP, format!("{} is not a Cloud op", request.op))
-        })?;
-        let kind = kind_of(name);
-        let args = relay_args(&request.op, name, &request.args);
-        let key = request.idempotency_key.as_deref().map(str::trim).filter(|k| !k.is_empty());
-        if kind == Kind::UserOnly && request.origin != Origin::User {
-            return Err(CloudError::new(
-                codes::ORIGIN_REFUSED,
-                format!("{name} needs a person: confirm it in cmux"),
-            ));
-        }
-        if kind == Kind::Read {
-            if key.is_some() {
-                return Err(CloudError::new(
-                    codes::IDEMPOTENCY_KEY_FORBIDDEN,
-                    format!("{name} is a read and takes no idempotency key"),
-                ));
-            }
-            return self.run(name, &args, request.origin, None);
-        }
-        let key = key.ok_or_else(|| {
-            CloudError::new(
-                codes::IDEMPOTENCY_KEY_REQUIRED,
-                format!("{name} needs an idempotency key"),
-            )
-        })?;
-        if key.len() > 128 {
-            return Err(CloudError::invalid("an idempotency key has at most 128 characters"));
-        }
+        let Admitted { name, args, key } = admit(request)?;
+        let Some(key) = key.as_deref() else {
+            return self.run(name, &args, request, None);
+        };
         if crate::link::ops::live_state_op(name)
             || crate::ports::live_state_op(name)
+            || crate::fs::live_state_op(name)
             || RERUN_OPS.contains(&name)
         {
             // The answer is live state (a carrier, a forward, or DNS and
             // certificate state): a replay of an old answer would be stale.
             // These ops are idempotent by themselves, so they run every time.
             let upstream = upstream_key(name, &args, key);
-            return self.run(name, &args, request.origin, Some(&upstream));
+            return self.run(name, &args, request, Some(&upstream));
         }
         if NO_UPSTREAM_DEDUP.contains(&name) && self.ledger.unfinished(key, name, &args) {
             return Err(CloudError::new(
@@ -320,6 +386,12 @@ impl<C: ControlPlane> Server<C> {
             ));
         }
         if let Some(done) = self.ledger.replay(key, name, &args)? {
+            // The host's open token is never cached: a replay of an op that
+            // needs one answers only a request that carries one.
+            if TOKEN_OPS.contains(&name) {
+                let token = request.open_token.clone().unwrap_or_else(|| OpenToken(String::new()));
+                token.check().map_err(crate::link::ops::backend_error)?;
+            }
             return Ok(done);
         }
         // A delete retried after an attempt whose outcome is unknown: a 404
@@ -329,7 +401,7 @@ impl<C: ControlPlane> Server<C> {
             delete_retry::is_delete(name) && self.ledger.outcome_unknown(key, name, &args);
         self.ledger.attempt(key, name, &args);
         let upstream = upstream_key(name, &args, key);
-        let outcome = match self.run(name, &args, request.origin, Some(&upstream)) {
+        let outcome = match self.run(name, &args, request, Some(&upstream)) {
             Err(error) if gone_is_done && delete_retry::is_gone(name, &error) => {
                 delete_retry::gone_answer(name, &args).ok_or(error)
             }
@@ -367,11 +439,13 @@ impl<C: ControlPlane> Server<C> {
         &mut self,
         name: &str,
         args: &Value,
-        origin: Origin,
+        request: &Request,
         key: Option<&str>,
     ) -> Result<Value, CloudError> {
+        let origin = request.origin;
         if crate::link::ops::serves(name) {
-            return crate::link::ops::run(self, name, args, origin, key);
+            let token = request.open_token.as_ref();
+            return crate::link::ops::run(self, name, args, origin, key, token);
         }
         if crate::fs::serves(name) {
             return crate::fs::run(self, name, args, origin, key);

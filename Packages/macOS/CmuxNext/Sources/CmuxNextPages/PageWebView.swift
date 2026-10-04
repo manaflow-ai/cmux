@@ -254,7 +254,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// `backgrounds`, the app's) replaces the page background; nil keeps the scope's own.
     func currentTheme(backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> WebTheme {
         WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
-                 surface: themeSurface, backgrounds: backgrounds)
+                 surface: themeSurface ?? .internalPage, backgrounds: backgrounds)
     }
 
     // MARK: WKNavigationDelegate

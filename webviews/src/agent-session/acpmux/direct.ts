@@ -47,7 +47,10 @@ export function newSessionParams(
   harness?: string,
 ): Record<string, unknown> {
   if (host.adopt)
-    return { mcpServers: [], _meta: { acpmux: { harness: harness ?? host.adopt.harness, adopt: host.adopt } } };
+    return {
+      mcpServers: [],
+      _meta: { acpmux: { harness: harness ?? host.adopt.harness, adopt: host.adopt } },
+    };
   return { ...(host.cwd ? { cwd: host.cwd } : {}), mcpServers: [], _meta: { acpmux: { harness } } };
 }
 
@@ -66,7 +69,11 @@ export type EventRecord = {
   msg: Record<string, any>;
 };
 type Session = Record<string, any> & { sessionId: string };
-type Reply = { id: number; result?: any; error?: { message?: string; code?: unknown; data?: unknown } };
+type Reply = {
+  id: number;
+  result?: any;
+  error?: { message?: string; code?: unknown; data?: unknown };
+};
 type Notification = { method: string; params?: any };
 type Listener = (snapshot: AcpmuxSnapshot) => void;
 
@@ -252,13 +259,36 @@ export type OpenSocket = (url: URL) => WebSocket;
 /// Where git reads go: the native host, or in mock mode the daemon the socket reaches.
 export type GitRoute = "native" | "daemon";
 
+/// Runs `run` once before the next display frame, or after 50 ms when the page draws no frames
+/// (a hidden pane), so a hidden transcript still keeps up.
+export const nextFrame = (run: () => void) => {
+  let ran = false;
+  const once = () => {
+    if (ran) return;
+    ran = true;
+    run();
+  };
+  requestAnimationFrame(once);
+  setTimeout(once, 50);
+};
+
 /** Direct browser client for the authenticated acpmux WebSocket protocol. */
 export class AcpmuxDirectClient {
+  /// Coalesces the snapshots of acpmux events that land within one display frame: a fast stream
+  /// sends several deltas per frame, and each snapshot re-renders the transcript. The page that
+  /// draws the transcript sets it (main.tsx: ``nextFrame``); unset, each event snapshots at once.
+  static scheduleFrame: ((run: () => void) => void) | undefined;
+  /// The connection state of the snapshot waiting for the next frame.
+  private frameSnapshot?: string;
   private socket?: WebSocket;
   private nextRequest = 1;
   private pending = new Map<
     number,
-    { resolve: (value: any) => void; reject: (error: Error) => void; timer?: ReturnType<typeof setTimeout> }
+    {
+      resolve: (value: any) => void;
+      reject: (error: Error) => void;
+      timer?: ReturnType<typeof setTimeout>;
+    }
   >();
   private events: EventRecord[] = [];
   private rows = new Map<string, AcpmuxRow>();
@@ -444,10 +474,15 @@ export class AcpmuxDirectClient {
       }
       this.hasConnected = true;
       this.reconnectDelay = 250;
-      this.wire.lifecycle("connected", { sessionId: this.selectedSessionId, sessions: this.sessions.length });
+      this.wire.lifecycle("connected", {
+        sessionId: this.selectedSessionId,
+        sessions: this.sessions.length,
+      });
       this.emit("connected");
     } catch (error) {
-      this.wire.lifecycle("connect failed", { message: error instanceof Error ? error.message : String(error) });
+      this.wire.lifecycle("connect failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
       this.socket?.close();
       throw error;
     } finally {
@@ -564,7 +599,11 @@ export class AcpmuxDirectClient {
     replayLiveState = true,
   ): Promise<void> {
     for (let cursor = afterSeq; ;) {
-      const result = await this.request("_acpmux/events", { sessionId, afterSeq: cursor, limit: 5_000 });
+      const result = await this.request("_acpmux/events", {
+        sessionId,
+        afterSeq: cursor,
+        limit: 5_000,
+      });
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
       const missed: EventRecord[] = result?.events ?? [];
       this.events = mergeEventRecords(this.events, missed);
@@ -690,7 +729,10 @@ export class AcpmuxDirectClient {
   private request(method: string, params: Record<string, unknown>, deadline?: number): Promise<any> {
     if (this.socket?.readyState !== WebSocket.OPEN)
       return Promise.reject(
-        Object.assign(new Error("acpmux WebSocket is not open"), { code: "native.not_connected", origin: "native" }),
+        Object.assign(new Error("acpmux WebSocket is not open"), {
+          code: "native.not_connected",
+          origin: "native",
+        }),
       );
     const id = this.nextRequest++;
     return new Promise((resolve, reject) => {
@@ -830,7 +872,20 @@ export class AcpmuxDirectClient {
     this.lastSeq = event.seq;
     this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
     this.reduce(event);
-    this.emit(event.kind);
+    this.emitInFrame(event.kind);
+  }
+
+  /// Snapshots before the next display frame, once for every event that lands before it.
+  private emitInFrame(connection: string): void {
+    const schedule = AcpmuxDirectClient.scheduleFrame;
+    if (!schedule) return this.emit(connection);
+    const scheduled = this.frameSnapshot !== undefined;
+    this.frameSnapshot = connection;
+    if (scheduled) return;
+    schedule(() => {
+      const pending = this.frameSnapshot;
+      if (pending !== undefined && !this.closed) this.emit(pending);
+    });
   }
 
   private rebuild(): void {
@@ -909,7 +964,10 @@ export class AcpmuxDirectClient {
         const fallbackPromptId =
           promptId ??
           (text ? [...this.optimisticPromptTexts.entries()].find(([, value]) => value === text)?.[0] : undefined);
-        settleOptimisticPrompt(this.rows, this.optimisticPromptRows, { ...msg, promptId: fallbackPromptId });
+        settleOptimisticPrompt(this.rows, this.optimisticPromptRows, {
+          ...msg,
+          promptId: fallbackPromptId,
+        });
         if (fallbackPromptId) this.optimisticPromptTexts.delete(fallbackPromptId);
         this.endAssistantSegment();
         this.streamingActivity = undefined;
@@ -1068,6 +1126,8 @@ export class AcpmuxDirectClient {
   }
 
   private emit(connection = "connected"): void {
+    // This snapshot carries every event so far, so a snapshot waiting for the frame has nothing left.
+    this.frameSnapshot = undefined;
     const summary = this.summary;
     const effort = (summary?.configOptions ?? []).find(
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
@@ -1230,7 +1290,11 @@ export class AcpmuxDirectClient {
   }
   async permission(permissionId: string, optionId: string): Promise<void> {
     if (this.selectedSessionId)
-      await this.request("_acpmux/permission_respond", { sessionId: this.selectedSessionId, permissionId, optionId });
+      await this.request("_acpmux/permission_respond", {
+        sessionId: this.selectedSessionId,
+        permissionId,
+        optionId,
+      });
   }
   async permissionGroup(groupId: string, revision: number, decision: PermissionDecision): Promise<void> {
     await this.permissions.respond(groupId, revision, decision);
@@ -1327,7 +1391,11 @@ export class AcpmuxDirectClient {
   }
   async setConfig(configId: string, value: string): Promise<void> {
     if (this.selectedSessionId)
-      await this.request("session/set_config_option", { sessionId: this.selectedSessionId, configId, value });
+      await this.request("session/set_config_option", {
+        sessionId: this.selectedSessionId,
+        configId,
+        value,
+      });
   }
   /** The harness and model catalog. Server state the pane caches with TanStack Query (catalog.ts), so connect does not wait on it. */
   async harnesses(): Promise<AcpmuxSnapshot["catalog"]> {
@@ -1389,6 +1457,9 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
   ).map((harness: any) => ({
     id: String(harness.id ?? harness.name),
     name: agentName(String(harness.id ?? harness.name), harness.name == null ? undefined : String(harness.name)),
-    models: (harness.models ?? []).map((model: any) => ({ id: String(model.id ?? model.modelId), name: model.name })),
+    models: (harness.models ?? []).map((model: any) => ({
+      id: String(model.id ?? model.modelId),
+      name: model.name,
+    })),
   }));
 }

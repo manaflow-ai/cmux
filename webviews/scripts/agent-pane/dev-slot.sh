@@ -72,7 +72,7 @@ print_url() {
   local fragment="endpoint=ws://127.0.0.1:$daemon_port/&token=$token&cwd=$(cat "$home/cwd")"
   echo "agent pane: $vite_origin/agent-pane/#$fragment"
   echo "diff:       $vite_origin/diff/"
-  echo "markdown:   $vite_origin/markdown"
+  echo "markdown:   $vite_origin/markdown (classic viewer: /markdown/viewer)"
   echo "index:      $vite_origin/"
 }
 
@@ -136,7 +136,9 @@ PY
     if [[ -n "$sidecar" ]]; then echo "cmux-diff-sidecar: $sidecar"; else echo "no cmux-diff-sidecar: /diff/ fails until CMUX_DIFF_SIDECAR_BIN is set" >&2; fi
     [[ -d "$WEBVIEWS/node_modules" ]] || (cd "$WEBVIEWS" && bun install --frozen-lockfile >/dev/null)
     # Detached with no inherited stdio, so the caller's shell returns.
-    (cd "$WEBVIEWS" && CMUX_WEBVIEWS_DEV_PORT="$vite_port" CMUX_DIFF_SIDECAR="$sidecar" nohup bun run dev \
+    # The slot's folder also keeps the viewer empty states' recents (viewer-recents.json).
+    (cd "$WEBVIEWS" && CMUX_WEBVIEWS_DEV_PORT="$vite_port" CMUX_DIFF_SIDECAR="$sidecar" \
+      CMUX_WEBVIEWS_DEV_STATE_DIR="$home" nohup bun run dev \
       </dev/null >"$home/vite.log" 2>&1 & echo $! >"$home/vite.pid")
     wait_port "$vite_port" "$home/vite.log"
     echo "logs: $home/daemon.log $home/vite.log"

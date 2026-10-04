@@ -8,26 +8,28 @@ import Testing
 /// another), so the exports format numbers themselves. These pins hold the
 /// shortest round-trip form.
 @Suite struct DeterministicJSONTests {
+    let json = DeterministicJSON()
+
     @Test func doublesUseTheShortestRoundTripForm() throws {
-        #expect(try DeterministicJSON.number(0.1) == "0.1")
-        #expect(try DeterministicJSON.number(0.2) == "0.2")
-        #expect(try DeterministicJSON.number(0.05) == "0.05")
-        #expect(try DeterministicJSON.number(0.1 + 0.2) == "0.30000000000000004")
-        #expect(try DeterministicJSON.number(1.0 / 3) == "0.3333333333333333")
-        #expect(try DeterministicJSON.number(1e-7) == "1e-7")
-        #expect(try DeterministicJSON.number(-2.5e-12) == "-2.5e-12")
-        #expect(try DeterministicJSON.number(1e300) == "1e300")
-        #expect(try DeterministicJSON.number(1.0) == "1")
-        #expect(try DeterministicJSON.number(-0.0) == "0")
-        #expect(try DeterministicJSON.number(86400) == "86400")
+        #expect(try json.number(0.1) == "0.1")
+        #expect(try json.number(0.2) == "0.2")
+        #expect(try json.number(0.05) == "0.05")
+        #expect(try json.number(0.1 + 0.2) == "0.30000000000000004")
+        #expect(try json.number(1.0 / 3) == "0.3333333333333333")
+        #expect(try json.number(1e-7) == "1e-7")
+        #expect(try json.number(-2.5e-12) == "-2.5e-12")
+        #expect(try json.number(1e300) == "1e300")
+        #expect(try json.number(1.0) == "1")
+        #expect(try json.number(-0.0) == "0")
+        #expect(try json.number(86400) == "86400")
         for value in [0.1, 0.2, 1.0 / 3, 1e-7, 0.1 + 0.2, 1e300, 123.456] {
-            #expect(try Double(DeterministicJSON.number(value)) == value, "\(value) does not round-trip")
+            #expect(try Double(json.number(value)) == value, "\(value) does not round-trip")
         }
     }
 
     @Test func nonFiniteNumbersAreRefused() {
-        #expect(throws: DeterministicJSON.Failure.self) { try DeterministicJSON.number(.nan) }
-        #expect(throws: DeterministicJSON.Failure.self) { try DeterministicJSON.number(.infinity) }
+        #expect(throws: DeterministicJSON.Failure.self) { try json.number(.nan) }
+        #expect(throws: DeterministicJSON.Failure.self) { try json.number(.infinity) }
     }
 
     @Test func prettyOutputIsPinned() throws {
@@ -36,7 +38,7 @@ import Testing
             "none": NSNull(), "empty": [Any](), "nested": ["b": 0.2, "a": "x/\"y\"\n"],
             "list": [0.1, 1, "z"],
         ]
-        let text = try DeterministicJSON.string(object, pretty: true)
+        let text = try json.string(object, pretty: true)
         #expect(text == """
         {
           "count" : 2,
@@ -64,13 +66,13 @@ import Testing
 
     @Test func compactOutputIsPinned() throws {
         let object: [String: Any] = ["b": [0.1, 0.2], "a": ["k": 1.0 / 3], "c": "\u{1}", "B": 1]
-        #expect(try DeterministicJSON.string(object, pretty: false) == #"{"a":{"k":0.3333333333333333},"B":1,"b":[0.1,0.2],"c":"\u0001"}"#)
+        #expect(try json.string(object, pretty: false) == #"{"a":{"k":0.3333333333333333},"B":1,"b":[0.1,0.2],"c":"\u0001"}"#)
     }
 
     /// The output is valid JSON that Foundation reads back to the same values.
     @Test func outputParsesBack() throws {
         let object: [String: Any] = ["v": [0.1, 1e-7, 1.0 / 3, 42, true]]
-        let data = Data(try DeterministicJSON.string(object, pretty: true).utf8)
+        let data = Data(try json.string(object, pretty: true).utf8)
         let parsed = try #require(try JSONSerialization.jsonObject(with: data) as? [String: [Any]])
         let values = try #require(parsed["v"])
         #expect((values[0] as? Double) == 0.1)

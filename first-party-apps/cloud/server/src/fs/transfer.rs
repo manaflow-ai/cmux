@@ -10,9 +10,13 @@
 //! 4. [`Transfer`] runs the copy with the host key pinned. The real one is
 //!    [`OpenSshTransfer`]; tests use a fake.
 
+use super::cancel::Cancel;
 use super::key::TransferKey;
+pub use super::openssh::host_alias;
 use super::path::{guest_arg, local_arg};
+use super::running::{CancelAnswer, Running, TRANSFER_BUSY};
 use crate::api::{CloudError, ControlPlane, Origin, args, codes};
+use crate::app_env::SshFiles;
 use crate::ops::Server;
 use crate::ports::listener::Listener;
 use base64::Engine as _;
@@ -21,11 +25,22 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 pub use super::openssh::OpenSshTransfer;
 
 pub const TRANSFER_FAILED: &str = "cmux.cloud.transfer_failed";
+/// The code of a transfer that `cloud.file.transfer.cancel` stopped (its
+/// event says `state: cancelled`).
+pub const TRANSFER_CANCELLED: &str = "cmux.cloud.transfer_cancelled";
+/// `cloud.file.transfer.list {}`.
+pub(crate) const LIST: &str = "cloud.file.transfer.list";
+/// `cloud.file.transfer.cancel {transfer}`.
+pub(crate) const CANCEL: &str = "cloud.file.transfer.cancel";
 pub const LOCAL_EXISTS: &str = "cmux.cloud.local_exists";
+/// The answer named no host key to pin. A host key the Cloud API did not
+/// give needs the user's host key sheet (not built yet): the transfer stops.
+pub const HOST_KEY_UNPINNED: &str = "cmux.cloud.host_key_unpinned";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -53,6 +68,13 @@ impl ScpEndpoint {
     /// an expiry in the future (`now` is Unix seconds).
     pub fn decode(answer: Value, now: i64) -> Result<Self, CloudError> {
         let bad = |why: &str| CloudError::new(codes::BAD_RESPONSE, format!("scp-endpoint: {why}"));
+        let key = answer.get("hostPublicKey").and_then(Value::as_str).unwrap_or_default();
+        if key.trim().is_empty() {
+            return Err(CloudError::new(
+                HOST_KEY_UNPINNED,
+                "cmux Cloud gave no host key for this machine; a new host key needs your confirmation in cmux",
+            ));
+        }
         let endpoint: Self = serde_json::from_value(answer).map_err(|e| bad(&e.to_string()))?;
         if endpoint.username != "cmux" || endpoint.port == 0 {
             return Err(bad("unexpected user or port"));
@@ -67,7 +89,7 @@ impl ScpEndpoint {
     }
 }
 
-fn valid_host_key(text: &str) -> bool {
+pub(crate) fn valid_host_key(text: &str) -> bool {
     let Some(encoded) = text.strip_prefix("ssh-ed25519 ") else { return false };
     let Ok(blob) = STANDARD.decode(encoded) else { return false };
     blob.len() == 51
@@ -87,6 +109,12 @@ pub struct TransferJob {
     pub endpoint: ScpEndpoint,
     /// Where the guest's SSH port is reachable from here (127.0.0.1).
     pub route: SocketAddr,
+    /// The whole environment of each OpenSSH child (crate::app_env).
+    pub env: Vec<(String, String)>,
+    /// The app's OpenSSH config and pinned known_hosts.
+    pub ssh: SshFiles,
+    /// Folder for the transfer's short-lived agent socket.
+    pub temp_dir: PathBuf,
 }
 
 /// A failed transfer. `message` never holds key material.
@@ -96,10 +124,18 @@ pub struct TransferError {
     pub retryable: bool,
 }
 
-pub trait Transfer: Send {
+pub trait Transfer: Send + Sync {
     /// Copies one file. The key is the one whose public half the endpoint
-    /// authorized; the implementation must not store it.
-    fn run(&mut self, job: &TransferJob, key: &TransferKey) -> Result<u64, TransferError>;
+    /// authorized; the implementation must not store it. On `cancel` the
+    /// implementation stops the copy (it registers a hook that kills each
+    /// child it starts) and returns an error; the loop then removes a
+    /// pull's partial file.
+    fn run(
+        &self,
+        job: &TransferJob,
+        key: &TransferKey,
+        cancel: &Cancel,
+    ) -> Result<u64, TransferError>;
 }
 
 fn now_unix() -> i64 {
@@ -122,6 +158,23 @@ pub(crate) fn run<C: ControlPlane>(
     let local = local_arg(map, "localPath")?;
     let guest = guest_arg(map, "path")?.literal_for_transfer()?.to_owned();
     check_local(&local, direction)?;
+    if server.edge_parts().0.transfers.full() {
+        return Err(CloudError {
+            retryable: true,
+            ..CloudError::new(
+                TRANSFER_BUSY,
+                "Other file transfers are running: try again when one ends",
+            )
+        });
+    }
+    // The children's environment and the app's OpenSSH files, before any
+    // Cloud API call: without a data folder nothing starts.
+    let app_env = server.attach().env().clone();
+    let no_data = |e: std::io::Error| {
+        CloudError::new(TRANSFER_FAILED, format!("no private OpenSSH folder for the transfer: {e}"))
+    };
+    let child_env = app_env.child_env().map_err(no_data)?;
+    let ssh = app_env.ssh_files().map_err(no_data)?;
     let carrier =
         crate::link::ops::connect(server, &machine, origin, key.map(|k| format!("{k}/start")))?;
     let transfer_key = TransferKey::generate()?;
@@ -133,8 +186,13 @@ pub(crate) fn run<C: ControlPlane>(
     )?;
     let endpoint = ScpEndpoint::decode(answer, now_unix())?;
     let (edge, _) = server.edge_parts();
+    // The loop thread is the only writer of known_hosts: the endpoint's
+    // host key is pinned there before the copy starts.
+    edge.pin_host_key(&ssh, &machine, &endpoint.host_public_key).map_err(|e| {
+        CloudError::new(TRANSFER_FAILED, format!("could not pin the machine's host key: {e}"))
+    })?;
     let handler = edge.forward_handler(&carrier, "localhost", endpoint.port);
-    let mut route = Listener::bind(handler).map_err(|e| {
+    let route = Listener::bind(handler).map_err(|e| {
         CloudError::new(TRANSFER_FAILED, format!("could not listen on 127.0.0.1: {e}"))
     })?;
     // A pull lands in a fresh hidden name next to the target and is
@@ -152,29 +210,30 @@ pub(crate) fn run<C: ControlPlane>(
         guest: guest.clone(),
         endpoint,
         route: route.local_addr(),
+        env: child_env,
+        ssh,
+        temp_dir: app_env.temp_dir(),
     };
-    let result = edge.transfer.run(&job, &transfer_key);
-    route.close();
-    drop(transfer_key);
-    let published = result.and_then(|bytes| match direction {
-        Direction::Push => Ok(bytes),
-        Direction::Pull => std::fs::hard_link(&landing, &local).map(|()| bytes).map_err(|e| {
-            TransferError { message: format!("{}: {e}", local.display()), retryable: false }
-        }),
-    });
-    if direction == Direction::Pull {
-        let _ = std::fs::remove_file(&landing);
-    }
-    let bytes = published.map_err(|e| CloudError {
-        retryable: e.retryable,
-        ..CloudError::new(TRANSFER_FAILED, e.message)
-    })?;
+    // The copy runs on a worker; the loop finishes it when it ends.
+    let worker = Arc::clone(&edge.transfer);
+    let running = Running {
+        machine: machine.clone(),
+        direction,
+        guest: guest.clone(),
+        local: local.clone(),
+        landing,
+        route,
+        cancel: Cancel::default(),
+        started_at: 0,
+    };
+    let transfer = edge.transfers.start(worker, job, transfer_key, running)?;
     Ok(json!({
         "ok": true,
+        "transfer": transfer,
+        "state": "running",
         "machine": machine,
         "path": guest,
         "localPath": local.to_string_lossy(),
-        "bytes": bytes,
     }))
 }
 
@@ -213,4 +272,33 @@ fn check_local(local: &std::path::Path, direction: Direction) -> Result<(), Clou
             }
         }
     }
+}
+
+/// `cloud.file.transfer.list {}`: the running transfers, then the recent
+/// finished ones (crate::fs::running::Transfers::list).
+pub(crate) fn list<C: ControlPlane>(
+    server: &mut Server<C>,
+    raw: &Value,
+) -> Result<Value, CloudError> {
+    args::object(raw, &[])?;
+    let (edge, _) = server.edge_parts();
+    Ok(json!({ "transfers": edge.transfers.list() }))
+}
+
+/// `cloud.file.transfer.cancel {transfer}`: `cancelling` for a running
+/// transfer (one `cancelled` event follows), `ended` for one that already
+/// ended (nothing changes), `cmux.cloud.not_found` for an id this server
+/// never issued.
+pub(crate) fn cancel<C: ControlPlane>(
+    server: &mut Server<C>,
+    raw: &Value,
+) -> Result<Value, CloudError> {
+    let map = args::object(raw, &["transfer"])?;
+    let transfer = args::id(map, "transfer")?.to_owned();
+    let (edge, _) = server.edge_parts();
+    let state = match edge.transfers.cancel(&transfer)? {
+        CancelAnswer::Cancelling => "cancelling",
+        CancelAnswer::Ended => "ended",
+    };
+    Ok(json!({ "ok": true, "transfer": transfer, "state": state }))
 }

@@ -30,7 +30,7 @@ extension AppBrowserPage {
         guard !names.isEmpty else { return nil }
         return ControlError(
             code: "forbidden",
-            message: "the tab's profile has an enabled extension with access to this page; use a browser profile without extensions, or ask the person to allow agents in this tab",
+            message: "the tab's profile has an enabled extension with access to this page; open the tab with openBrowser profile \"agent\" (a profile without extensions), or ask the person to allow agents in this tab",
             data: .object([
                 "reason": .string("extension_host_access"),
                 "extensions": .array(names.map { .string($0) }),

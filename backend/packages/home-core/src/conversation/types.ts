@@ -50,8 +50,38 @@ export interface TextRun {
 
 export type WorkStatus = "running" | "done" | "failed" | "waiting"
 
+/**
+ * Cloud only: a file stored by content hash in the conversation's attachment store (R2). The
+ * owner accepts it only when the hash was uploaded for this conversation and its type and size
+ * equal the stored record (attachments.ts). Swift `AttachmentRef` in snake_case.
+ */
+export interface AttachmentPart {
+  readonly type: "attachment"
+  /** SHA-256 of the bytes, 64 lowercase hex characters. */
+  readonly hash: string
+  readonly name: string
+  readonly mime_type: string
+  readonly byte_count: number
+  readonly width?: number
+  readonly height?: number
+  /** Video and audio length. */
+  readonly duration_ms?: number
+  /** Video only: the poster image uploaded with this video's slot (home-messaging.md section 10.1); must equal the record's. */
+  readonly poster?: DerivedImage
+  /** Image only: the small preview image uploaded with this image's slot (same rules as a poster); must equal the record's. */
+  readonly preview?: DerivedImage
+}
+
+/** A derived image (a video's poster, an image's preview): JPEG or WebP, stored next to its attachment under the same upload slot. */
+export interface DerivedImage {
+  readonly hash: string
+  readonly mime_type: string
+  readonly byte_count: number
+}
+
 export type Part =
   | { readonly type: "text"; readonly text: string; readonly runs?: ReadonlyArray<TextRun> }
+  | AttachmentPart
   | {
       readonly type: "work"
       readonly session: string

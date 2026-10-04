@@ -1,5 +1,5 @@
 import { env, exports } from "cloudflare:workers"
-import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
+import { runInDurableObject } from "cloudflare:test"
 import type { ReduceContext } from "@cmux/ownership"
 import { policyKeys } from "@cmux/protocol"
 import { importJWK, SignJWT, type JWK } from "jose"
@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest"
 import { teamDomain, type TeamState } from "../src/domains/team.ts"
 import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT } from "../src/domains/team-policy.ts"
 import { integrationSyncPending, sliceHash } from "../src/domains/team-integration-sync.ts"
+import { fireAlarm } from "./setup/alarm.ts"
 
 const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; TEAM_DO: DurableObjectNamespace; CONNECTION_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -261,7 +262,7 @@ describe("integration seed and slice sync (TeamDO)", () => {
  */
 const settle = async (check: () => Promise<boolean>, stub: DurableObjectStub) => {
   for (let i = 0; i < 50; i++) {
-    await runDurableObjectAlarm(stub)
+    await fireAlarm(stub)
     if (await check()) return
     await new Promise((r) => setTimeout(r, 20))
   }
@@ -473,12 +474,12 @@ describe("team policy over the API (workerd)", () => {
     })
     // ConnectionDO's notice reaches TeamDO without any new TeamPolicy version.
     const managedBy = async () => (await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.integration_managed_by
-    await settle(async () => { await runDurableObjectAlarm(connStub); return (await managedBy()) === "sso" }, teamStub)
+    await settle(async () => { await fireAlarm(connStub); return (await managedBy()) === "sso" }, teamStub)
 
     const released = await call("/v1/ops", session, { op: "team.integration.release_lock", params: { reason: "left the IdP" }, idempotency_key: crypto.randomUUID(), origin: "user" })
     expect(released.json.ok).toBe(true)
     await settle(async () => {
-      await runDurableObjectAlarm(connStub)
+      await fireAlarm(connStub)
       const conn = (await call("/v1/read", session, { op: "integration.policy.get", params: {} })).json.value
       return conn.source === "team_policy" && (await managedBy()) === null
     }, teamStub)

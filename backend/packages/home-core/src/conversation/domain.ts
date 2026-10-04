@@ -1,5 +1,6 @@
 import { hashInviteSecret } from "../invites/token.ts"
 import { apply, targetMessageId } from "./apply.ts"
+import { attachmentRefWrites, checkAttachments, type AttachmentLookup } from "./attachments.ts"
 import { isOpen } from "./cloud.ts"
 import { withConsentMarkers } from "./consent.ts"
 import { create, summary } from "./create.ts"
@@ -28,6 +29,7 @@ export { actorOf } from "./policy.ts"
  * - `msgkey`: key = `<author>:<client_msg_id>`, row = { message_id } (one message per author and client id).
  * - `inv`: key = invite id, row = Invite (every invite, also closed ones).
  * - `invhash`: key = token hash, row = { invite_id }.
+ * - `attref`: key = `<hash>:<message id>`, row = { hash, message_id, seq } (private; attachments.ts).
  * - `consent`: key = author id, row = { at }; a DM author's private consent marker (consent.ts),
  *   never deleted by retention.
  *
@@ -55,7 +57,16 @@ export interface ConversationDomainOptions {
   readonly addressIdsFor?: (principal: Principal) => ReadonlyArray<string>
   /** Reach rules for `conversation.create`, `dm.open` and `participants.add`. Default: `defaultParticipantPolicy`. */
   readonly participantPolicy?: ParticipantPolicy
+  /**
+   * The conversation's verified uploads (the DO's attachment store, written only after the
+   * Worker hashed the bytes). An attachment part is accepted only when its hash is found here
+   * with the same type and size. Absent = no uploads: every attachment part is refused.
+   */
+  readonly attachmentFor?: AttachmentLookup
 }
+
+const NO_ATTACHMENTS: AttachmentLookup = () => undefined
+const MESSAGE_PART_OPS = new Set(["message.send", "message.edit", "message.retract"])
 
 const refuse = (code: string): ReduceResult<ConversationState> => ({ ok: false, code, message: code })
 
@@ -243,6 +254,14 @@ const reduceConversation = (
   if (!result.ok) return refuse(result.code)
   const { commit } = result
   const writes: Array<RowWrite> = []
+  if (commit.message && MESSAGE_PART_OPS.has(coreOp.kind)) {
+    // The author's own view: an uploader of the hash, or a referencing message above their floor.
+    const me = currentParticipant(head, actor)
+    const floor = head.settings?.history_visible === "since_join" ? (me?.joined_seq ?? 0) : 0
+    const bad = checkAttachments(commit.message.parts, options.attachmentFor ?? NO_ATTACHMENTS, actor, floor)
+    if (bad) return refuse(bad)
+    writes.push(...attachmentRefWrites(coreOp.kind === "message.send" ? null : (request.target ?? null), commit.message))
+  }
   if (commit.message) {
     writes.push({ table: TABLE_MSG, op: "upsert", key: commit.message.id, n: commit.message.seq, row: commit.message })
     if (coreOp.kind === "message.send") {

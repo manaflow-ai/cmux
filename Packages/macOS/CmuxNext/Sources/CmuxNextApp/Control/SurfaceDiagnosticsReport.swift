@@ -34,6 +34,9 @@ enum SurfaceDiagnosticsReport {
                 if case .terminal(let entry)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
                     object["attach"] = .string(entry.io.attachPhase.journalName)
                     object["link"] = .string(Self.linkName(entry.session.model.connection))
+                    let diagnostics = entry.session.diagnostics
+                    object["snapshots"] = JSONValue(diagnostics.restoredSnapshots)
+                    object["surface_swaps"] = JSONValue(diagnostics.swappedSurfaces)
                     if includeText { object["text"] = entry.session.surfaceView.viewportText().map(JSONValue.string) ?? .null }
                 }
                 if case .placeholder(let view)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {

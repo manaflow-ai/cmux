@@ -692,3 +692,16 @@ select {
 .cloud-browser-refused {
   color: var(--cloud-bad);
 }
+
+.cloud-transfer-state {
+  color: var(--cloud-text-2);
+  white-space: nowrap;
+}
+
+.cloud-transfer-state.state-done {
+  color: var(--cloud-ok);
+}
+
+.cloud-transfer-state.state-failed {
+  color: var(--cloud-bad);
+}

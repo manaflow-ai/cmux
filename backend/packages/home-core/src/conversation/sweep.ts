@@ -1,3 +1,4 @@
+import { messageDeleteWrites } from "./attachments.ts"
 import { isOpen } from "./cloud.ts"
 import { summary } from "./create.ts"
 import type { OutboxItem, ReduceContext, ReduceResult, RowReader, RowWrite } from "./engine-types.ts"
@@ -8,7 +9,7 @@ import { closeExpired } from "./invite-ops.ts"
 import { unreadFloor } from "./domain.ts"
 import { fanOutItems, projectionItems } from "./outbox.ts"
 import type { Draft } from "./request.ts"
-import { inviteWrites, msgKey, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "./tables.ts"
+import { inviteWrites, TABLE_MSG, TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "./tables.ts"
 import { SYSTEM_ACTOR, type ConversationHead, type Message } from "./types.ts"
 
 /**
@@ -71,9 +72,8 @@ export const reduceSweep = (head: ConversationHead, ctx: ReduceContext, actor: s
 
   next.rev = head.rev + 1
   const writes: Array<RowWrite> = []
-  for (const message of deleted) {
-    writes.push({ table: TABLE_MSG, op: "delete", key: message.id }, { table: TABLE_MSGKEY, op: "delete", key: msgKey(message.author, message.client_msg_id) })
-  }
+  // The message, its client-id key and its attachment references (the upload becomes collectable).
+  for (const message of deleted) writes.push(...messageDeleteWrites(message))
   writes.push(...inviteWrites(head.invites ?? [], next.invites ?? []))
 
   const newest = rows.range<Message>(TABLE_MSG, { limit: 1, desc: true })[0]?.row ?? null

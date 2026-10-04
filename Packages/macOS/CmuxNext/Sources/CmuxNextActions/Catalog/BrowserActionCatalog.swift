@@ -392,6 +392,6 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 keywords: ["vscode", "editor", "server"], category: .browser, symbol: "arrow.clockwise.circle",
                 surfaces: [.palette], targets: [.pane], cliName: "browser restart-vs-code-inline-server"
             ),
-        ]
+        ] + agentGuardDescriptors()
     }
 }

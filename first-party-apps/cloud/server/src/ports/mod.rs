@@ -66,11 +66,16 @@ pub struct EdgeDown {
 /// Files transfers, forwards and proxy routes of this server.
 pub struct Edge {
     pub(crate) tunnel: Arc<dyn PortTunnel>,
-    pub(crate) transfer: Box<dyn Transfer>,
+    pub(crate) transfer: Arc<dyn Transfer>,
+    /// Running file transfers (crate::fs::running); the loop is the only writer.
+    pub(crate) transfers: crate::fs::running::Transfers,
     pub(crate) forwards: BTreeMap<(String, u16), Forward>,
     pub(crate) proxies: BTreeMap<String, Forward>,
     /// Closes by link state since the last [`Edge::take_events`], in order.
     events: Vec<EdgeDown>,
+    /// The host keys pinned for each machine (`<data>/ssh/known_hosts`),
+    /// read at start (crate::fs::known_hosts).
+    known_hosts: Option<crate::fs::KnownHosts>,
 }
 
 /// A tunnel for platforms without Unix sockets: every open fails.
@@ -88,11 +93,20 @@ impl Edge {
     pub fn new(tunnel: Arc<dyn PortTunnel>, transfer: Box<dyn Transfer>) -> Self {
         Self {
             tunnel,
-            transfer,
+            transfer: Arc::from(transfer),
+            transfers: crate::fs::running::Transfers::new(),
             forwards: BTreeMap::new(),
             proxies: BTreeMap::new(),
             events: Vec::new(),
+            known_hosts: None,
         }
+    }
+
+    /// The same edge with `clock` as the time source of the transfer
+    /// history (tests inject their own time).
+    pub fn with_clock(mut self, clock: Arc<dyn crate::clock::Clock>) -> Self {
+        self.transfers.set_clock(clock);
+        self
     }
 
     /// The real tunnel (`loopback-forward-v1` on the link socket) and the
@@ -102,7 +116,33 @@ impl Edge {
         let tunnel: Arc<dyn PortTunnel> = Arc::new(LoopbackTunnel);
         #[cfg(not(unix))]
         let tunnel: Arc<dyn PortTunnel> = Arc::new(NoTunnel);
-        Self::new(tunnel, Box::new(OpenSshTransfer::default()))
+        Self::new(tunnel, Box::new(OpenSshTransfer::system()))
+    }
+
+    /// Reads the pinned host keys at server start (a missing file is no
+    /// pins; a bad line is skipped with a warning).
+    pub(crate) fn load_known_hosts(&mut self, path: std::path::PathBuf) {
+        self.known_hosts = Some(crate::fs::KnownHosts::load(path).0);
+    }
+
+    /// Pins `host_key` (from the Cloud API's scp-endpoint answer) for
+    /// `machine` in the app's known_hosts: the Cloud API is the authority,
+    /// so its new key replaces an old pin. The file is rewritten
+    /// atomically. Only the loop thread calls this. A key the Cloud API did
+    /// not give is never pinned here: new keys of other hosts go through
+    /// the user's host key sheet (crate::fs::transfer::HOST_KEY_UNPINNED).
+    pub(crate) fn pin_host_key(
+        &mut self,
+        ssh: &crate::app_env::SshFiles,
+        machine: &str,
+        host_key: &str,
+    ) -> std::io::Result<()> {
+        if self.known_hosts.as_ref().is_some_and(|k| k.path() != ssh.known_hosts) {
+            self.known_hosts = None;
+        }
+        self.known_hosts
+            .get_or_insert_with(|| crate::fs::KnownHosts::load(ssh.known_hosts.clone()).0)
+            .pin(machine, host_key)
     }
 
     fn listeners(&self) -> usize {

@@ -1,11 +1,12 @@
 import { env, exports } from "cloudflare:workers"
-import { runDurableObjectAlarm, runInDurableObject as runIn } from "cloudflare:test"
+import { runInDurableObject as runIn } from "cloudflare:test"
 // The typed helper recurses through the DO class types (TS2589); the tests only need any.
 const runInDurableObject = runIn as unknown as <T>(stub: unknown, fn: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
 import { conversation as homeConversation, invites } from "@cmux/home-core"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { userIdFor } from "../src/domains/user.ts"
+import { fireAlarm } from "./setup/alarm.ts"
 
 /** Stage C invite email sends from AddressDO: once, fail-closed switch, allow list, nothing printed but ids. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -45,8 +46,8 @@ const invite = async (sub: string, to: string, overrides: Record<string, string>
   const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(homeConversation.dmConversationId(user, address)))
   let state = ""
   for (let i = 0; i < 20 && !["sent", "disabled", "refused_env", "failed"].includes(state); i++) {
-    await runDurableObjectAlarm(conv)
-    await runDurableObjectAlarm(addr)
+    await fireAlarm(conv)
+    await fireAlarm(addr)
     state = await runInDurableObject(addr, async (instance: any) => String(instance.boundEngine?.currentState?.deliveries?.[0]?.state ?? ""))
   }
   const left = await runInDurableObject(addr, async (_i, s) => Number(s.storage.sql.exec("SELECT count(*) AS n FROM address_secrets").toArray()[0]!.n))
