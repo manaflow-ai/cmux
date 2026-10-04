@@ -15,6 +15,7 @@ mod browser;
 mod browser_provider;
 mod conversation_search;
 mod conversation_store;
+mod debug_spans;
 pub mod diagnostics;
 mod event_bus;
 mod git_ops;
