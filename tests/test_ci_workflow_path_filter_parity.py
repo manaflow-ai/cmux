@@ -22,6 +22,13 @@ WORKFLOWS = ROOT / ".github/workflows"
 # error, so a synced workflow cannot keep a stale exemption.
 EXEMPTIONS: dict[str, str] = {
     "web-complexity.yml": "pull requests must not self-queue the contributor-side candidate job",
+    # #17114 (21710d9ef90): pull requests route packages outside CmuxNext to
+    # the generic workflow's focused package tests, while base pushes keep the
+    # full side suite for every package (test_cmux_next_does_not_run_full_suite_
+    # for_unrelated_packages pins the pull-request side). The push list is the
+    # wider one, so nothing that merges goes unguarded on the base.
+    "cmux-next.yml": "base pushes keep full side coverage for Packages/{macOS,Shared,iOS}/**; "
+    "pull requests send packages outside CmuxNext to the focused package lane",
 }
 
 FILTERS = ("paths", "paths-ignore")
