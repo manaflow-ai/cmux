@@ -190,8 +190,25 @@ pub fn parse_blob_reference(value: &str) -> Option<&str> {
 
 /// Check, size, sanitize and hash one asset. Returns the bytes to store.
 pub(crate) fn prepare_blob(media_type: &str, data: &[u8]) -> anyhow::Result<StoredBlob> {
-    let _ = (media_type, data);
-    Err(invalid_asset("icon assets are not implemented yet"))
+    let media_type = BlobMediaType::parse(media_type).ok_or_else(|| {
+        invalid_asset("media_type must be image/png, image/jpeg, image/webp, or image/svg+xml")
+    })?;
+    let data = if media_type == BlobMediaType::Svg {
+        sanitize_svg(data)?.into_bytes()
+    } else {
+        if data.len() > MAX_RASTER_BYTES {
+            return Err(invalid_asset(format!(
+                "{} data exceeds {MAX_RASTER_BYTES} bytes",
+                media_type.as_str()
+            )));
+        }
+        if !media_type.matches_magic(data) {
+            return Err(invalid_asset(format!("data is not a {} image", media_type.as_str())));
+        }
+        data.to_vec()
+    };
+    let digest = Sha256::digest(&data).iter().map(|byte| format!("{byte:02x}")).collect();
+    Ok(StoredBlob { digest, media_type, data })
 }
 
 /// Store one prepared blob in the caller's transaction. An existing blob
@@ -202,35 +219,135 @@ pub(crate) fn put_blob_in(
     blob: &StoredBlob,
     now_ms: u64,
 ) -> anyhow::Result<bool> {
-    let _ = (transaction, blob, now_ms);
-    Err(invalid_asset("icon assets are not implemented yet"))
+    let now = i64::try_from(now_ms)?;
+    let refreshed = transaction.execute(
+        "UPDATE personal_blobs SET touched_ms = MAX(touched_ms, ?2) WHERE digest = ?1",
+        params![blob.digest, now],
+    )?;
+    if refreshed > 0 {
+        return Ok(false);
+    }
+    sweep_blobs(transaction, now_ms)?;
+    let total: i64 =
+        transaction
+            .query_row("SELECT COALESCE(SUM(size), 0) FROM personal_blobs", [], |row| row.get(0))?;
+    let size = u64::try_from(blob.data.len())?;
+    if u64::try_from(total)?.saturating_add(size) > MAX_TOTAL_BYTES {
+        return Err(asset_error(
+            "asset_store_full",
+            format!(
+                "bad request: the icon asset store is full ({MAX_TOTAL_BYTES} bytes); \
+                 clear unused icons and try again"
+            ),
+        ));
+    }
+    transaction.execute(
+        "INSERT INTO personal_blobs(digest, media_type, data, size, touched_ms)
+         VALUES(?1, ?2, ?3, ?4, ?5)",
+        params![blob.digest, blob.media_type.as_str(), blob.data, i64::try_from(size)?, now],
+    )?;
+    Ok(true)
 }
 
-pub(crate) fn read_blob(connection: &Connection, digest: &str) -> anyhow::Result<Option<StoredBlob>> {
-    let _ = (connection, digest);
-    Ok(None)
+pub(crate) fn read_blob(
+    connection: &Connection,
+    digest: &str,
+) -> anyhow::Result<Option<StoredBlob>> {
+    let row = connection
+        .query_row(
+            "SELECT media_type, data FROM personal_blobs WHERE digest = ?1",
+            [digest],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?)),
+        )
+        .optional()?;
+    row.map(|(media_type, data)| {
+        let media_type = BlobMediaType::parse(&media_type)
+            .ok_or_else(|| anyhow::anyhow!("stored blob {digest} has media type {media_type}"))?;
+        Ok(StoredBlob { digest: digest.to_string(), media_type, data })
+    })
+    .transpose()
 }
 
 /// Refuse an icon value that names an asset the store does not hold with a
 /// matching media type. Symbols and emoji pass. Setters call this in the
 /// transaction that writes the icon, so no sweep can run in between.
 pub(crate) fn require_icon_asset(connection: &Connection, icon: &str) -> anyhow::Result<()> {
-    let _ = connection;
-    validate_presentation_icon(icon)
+    validate_presentation_icon(icon)?;
+    let Some(asset) = parse_icon_asset(icon) else { return Ok(()) };
+    let media_type = connection
+        .query_row(
+            "SELECT media_type FROM personal_blobs WHERE digest = ?1",
+            [asset.digest],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let matches = media_type
+        .as_deref()
+        .and_then(BlobMediaType::parse)
+        .is_some_and(|media_type| media_type.kind() == asset.kind);
+    if matches {
+        return Ok(());
+    }
+    Err(asset_error("unknown_icon_asset", format!("bad request: unknown icon asset {icon}")))
 }
 
 /// Every digest any registered icon field names. A JSON field counts every
 /// `sha256-<hex>` it contains, so the set may only over-keep.
 pub(crate) fn referenced_digests(connection: &Connection) -> anyhow::Result<HashSet<String>> {
-    let _ = connection;
-    Ok(HashSet::new())
+    let mut digests = HashSet::new();
+    for (table, column) in ICON_REFERENCE_FIELDS {
+        let exists = connection
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                [table],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if !exists {
+            continue;
+        }
+        let sql = format!("SELECT {column} FROM {table} WHERE {column} LIKE '%sha256-%'");
+        let mut statement = connection.prepare(&sql)?;
+        let values = statement.query_map([], |row| row.get::<_, String>(0))?;
+        for value in values {
+            collect_digests(&value?, &mut digests);
+        }
+    }
+    Ok(digests)
+}
+
+fn collect_digests(text: &str, digests: &mut HashSet<String>) {
+    for (index, _) in text.match_indices("sha256-") {
+        let start = index + "sha256-".len();
+        if let Some(candidate) = text.get(start..start + 64)
+            && is_sha256_hex(candidate)
+        {
+            digests.insert(candidate.to_string());
+        }
+    }
 }
 
 /// Delete every blob that no registered field names and that was last put
 /// more than `UNREFERENCED_GRACE_MS` before `now_ms`. Returns the count.
 pub(crate) fn sweep_blobs(connection: &Connection, now_ms: u64) -> anyhow::Result<usize> {
-    let _ = (connection, now_ms);
-    Ok(0)
+    let cutoff = i64::try_from(now_ms.saturating_sub(UNREFERENCED_GRACE_MS))?;
+    let stale = {
+        let mut statement =
+            connection.prepare("SELECT digest FROM personal_blobs WHERE touched_ms < ?1")?;
+        statement
+            .query_map([cutoff], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    if stale.is_empty() {
+        return Ok(0);
+    }
+    let referenced = referenced_digests(connection)?;
+    let mut deleted = 0;
+    for digest in stale.iter().filter(|digest| !referenced.contains(*digest)) {
+        deleted += connection.execute("DELETE FROM personal_blobs WHERE digest = ?1", [digest])?;
+    }
+    Ok(deleted)
 }
 
 /// Create the table and run the open-time sweep, in the open transaction.
