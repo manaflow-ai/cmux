@@ -160,7 +160,8 @@ fn branch_json(branch: &refs::BranchRef) -> Value {
     if let Some(behind) = branch.behind {
         value["behind"] = json!(behind);
     }
-    if let Some(committed_at) = branch.committed_at.and_then(|seconds| u32::try_from(seconds).ok()) {
+    if let Some(committed_at) = branch.committed_at.and_then(|seconds| u32::try_from(seconds).ok())
+    {
         value["committed_at"] = json!(committed_at);
     }
     value

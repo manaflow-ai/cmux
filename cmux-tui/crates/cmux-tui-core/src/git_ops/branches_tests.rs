@@ -28,8 +28,12 @@ fn branches_lists_local_then_remote_with_the_suggested_bases() {
     assert_eq!(result["current"], "feat");
     assert_eq!(result["detached"], false);
     assert_eq!(result["truncated"], false);
-    let names: Vec<&str> =
-        result["branches"].as_array().unwrap().iter().map(|b| b["name"].as_str().unwrap()).collect();
+    let names: Vec<&str> = result["branches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["name"].as_str().unwrap())
+        .collect();
     assert_eq!(names[0], "feat");
     assert_eq!(&names[1..], ["main", "origin/main", "origin/release"]);
     assert_eq!(
@@ -58,8 +62,7 @@ fn branches_lists_local_then_remote_with_the_suggested_bases() {
         ])
     );
 
-    let limited =
-        ok(call(&mux, "git.branches", json!({"path":clone.to_string_lossy(),"limit":1})));
+    let limited = ok(call(&mux, "git.branches", json!({"path":clone.to_string_lossy(),"limit":1})));
     assert_eq!(limited["branches"].as_array().unwrap().len(), 1);
     assert_eq!(limited["truncated"], true);
 
