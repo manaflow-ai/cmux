@@ -4,6 +4,7 @@ import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { DriverError, FakeDriver, providerRefusal, teamVmDriver } from "./team-vm-driver.ts"
 import { MAX_ATTEMPTS, teamVmDomain, teamVmSlug, teamVmWakeAt, type TeamVmState } from "./domains/team-vm.ts"
 import { fromBase64, isStream, MAX_ENTRY_BYTES, sha256Hex, TeamJournal } from "./team-vm-journal.ts"
+import { TeamVmLedger, type LedgerRow } from "./team-vm-ledger.ts"
 
 /** How long the request path waits for the provider before it answers with the current state. */
 const ENSURE_AWAKE_WAIT_MS = 25_000
@@ -18,6 +19,12 @@ const ENSURE_AWAKE_WAIT_MS = 25_000
 export class TeamVmDO extends OwnerDO<TeamVmState> {
   private inflight: Promise<void> | null = null
   private journalStore: TeamJournal | null = null
+  private ledgerStore: TeamVmLedger | null = null
+
+  private get vmLedger(): TeamVmLedger {
+    if (!this.ledgerStore) this.ledgerStore = new TeamVmLedger(this.sqlStore)
+    return this.ledgerStore
+  }
 
   private get journal(): TeamJournal {
     if (!this.journalStore) this.journalStore = new TeamJournal(this.sqlStore)
@@ -153,19 +160,101 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   }
 
   /**
-   * The slug of the pending create for `epoch`: the one the first attempt used, else a new one from
-   * `prefix`, stored before the provider call (the DO output gate holds the request until the row
-   * is durable). A retry after a lost answer therefore asks for the same slug even if a deploy
-   * changed TEAM_VM_SLUG_PREFIX in between, so it finds the VM the first attempt made instead of
-   * creating a second one and orphaning the first. Rows go when the create commits.
+   * The slug of the pending create for `epoch`: the one the first attempt used (its ledger intent,
+   * or a team_vm_create_attempt row from before the ledger), else a new one from `prefix`. The
+   * intent is written before the provider call (the DO output gate holds the request until the row
+   * is durable), so a retry after a lost answer asks for the same slug even if a deploy changed
+   * TEAM_VM_SLUG_PREFIX in between, and finds the VM the first attempt made instead of creating a
+   * second one and orphaning the first.
    */
-  private createSlug(team: string, epoch: number, prefix: string): string {
+  private createSlug(team: string, epoch: number, prefix: string, createdBy: string): string {
+    const earlier = this.vmLedger.createRowFor(epoch)
+    if (earlier) {
+      // An `absent` name opens again as an intent (the lookup may have run before the create landed).
+      if (earlier.state === "absent") this.vmLedger.recordIntent({ name: earlier.name, env: earlier.env, team, epoch, created_by: createdBy, now: Date.now() })
+      return earlier.name
+    }
     this.sqlStore.exec(`CREATE TABLE IF NOT EXISTS team_vm_create_attempt (epoch INTEGER PRIMARY KEY, slug TEXT NOT NULL)`)
     const tried = this.sqlStore.exec<{ slug: string }>(`SELECT slug FROM team_vm_create_attempt WHERE epoch = ?`, epoch)[0]
-    if (tried) return tried.slug
-    const slug = teamVmSlug(prefix, team, epoch)
-    this.sqlStore.exec(`INSERT INTO team_vm_create_attempt (epoch, slug) VALUES (?, ?)`, epoch, slug)
+    const slug = tried?.slug ?? teamVmSlug(prefix, team, epoch)
+    this.vmLedger.recordIntent({ name: slug, env: this.env.ENVIRONMENT ?? "unknown", team, epoch, created_by: createdBy, now: Date.now() })
     return slug
+  }
+
+  /** Backfill: the team record's VM enters the ledger by its exact id if no row holds it yet. */
+  private backfillLedger(): void {
+    const state = this.boundEngine?.currentState
+    if (!state?.vm || !state.team) return
+    const wrote = this.vmLedger.backfill({ id: state.vm, name: state.slug ?? state.vm, env: this.env.ENVIRONMENT ?? "unknown", team: state.team, epoch: state.epoch, now: Date.now() })
+    if (wrote) console.log(JSON.stringify({ msg: "team vm ledger backfill", team: state.team, vm: state.vm, epoch: state.epoch }))
+  }
+
+  /** RPC (tests, operators, the staging backfill): the team's ledger rows, after the backfill. */
+  async ledger(entity: string): Promise<{ rows: LedgerRow[] }> {
+    this.bind(entity)
+    this.backfillLedger()
+    return { rows: this.vmLedger.rows() }
+  }
+
+  /**
+   * Resolves `unconfirmed` rows (a create whose answer never came) by an EXACT name lookup: the VM
+   * with this name and this team's tag confirms the row; no VM with the name makes it `absent`.
+   * The open intent of a pending create is left to that create's retry. Never lists, never deletes.
+   */
+  async reconcileLedger(entity: string): Promise<{ confirmed: number; absent: number; unresolved: number }> {
+    this.bind(entity)
+    this.backfillLedger()
+    const state = this.boundEngine?.currentState
+    const open = state?.pending?.action === "create" ? state.epoch + 1 : null
+    const rows = this.vmLedger.unconfirmed().filter((r) => r.epoch !== open)
+    const counts = { confirmed: 0, absent: 0, unresolved: 0 }
+    const driver = providerRefusal(this.env) ? null : teamVmDriver(this.env, this.sqlStore)
+    for (const row of rows) {
+      if (!driver) {
+        counts.unresolved++
+        continue
+      }
+      try {
+        const found = await driver.lookup(row.name)
+        if (found === null) {
+          this.vmLedger.markAbsent(row.name)
+          counts.absent++
+        } else if (found.team === row.team && !this.vmLedger.byId(found.id)) {
+          this.vmLedger.confirm(row.name, found.id)
+          counts.confirmed++
+        } else {
+          console.warn(JSON.stringify({ msg: "team vm ledger name held by another VM", team: row.team, name: row.name }))
+          counts.unresolved++
+        }
+      } catch {
+        counts.unresolved++
+      }
+    }
+    return counts
+  }
+
+  /**
+   * Deletes one VM by its provider id. Only a ledger id (confirmed or backfilled) is accepted, and
+   * never the team's current VM (a user still uses it; its replacement needs the owner). No public
+   * route calls this yet; the age-out of old staging VMs will, under the owner-consent rule.
+   */
+  async deleteVm(entity: string, providerId: string, by: string): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+    this.bind(entity)
+    this.backfillLedger()
+    const row = this.vmLedger.byId(providerId)
+    if (!row) return { ok: false, code: "team_vm.not_in_ledger", message: "only a VM in this team's ledger can be deleted" }
+    if (row.state === "deleted") return { ok: true }
+    if (row.state !== "confirmed" && row.state !== "backfilled") return { ok: false, code: "team_vm.not_in_ledger", message: `ledger row is ${row.state}` }
+    const state = this.boundEngine?.currentState
+    // The current VM, and any VM for a later epoch (the next create finds it by name and makes it current), are in use.
+    if (!state || state.vm === providerId || row.epoch > state.epoch) return { ok: false, code: "team_vm.in_use", message: "the team's current or next VM is deleted only with its owner" }
+    const refusal = providerRefusal(this.env)
+    const driver = refusal ? null : teamVmDriver(this.env, this.sqlStore)
+    if (!driver) return { ok: false, code: refusal ?? "team_vm.not_configured", message: "no team VM provider is configured for this deployment" }
+    await driver.deleteVm(providerId)
+    this.vmLedger.markDeleted(providerId, Date.now())
+    console.log(JSON.stringify({ msg: "team vm deleted", team: row.team, vm: providerId, name: row.name, by }))
+    return { ok: true }
   }
 
   /** Runs pending provider calls one at a time; concurrent callers share the running pass. */
@@ -175,6 +264,8 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   }
 
   private async runPending(): Promise<void> {
+    // Every pass first puts the team record's VM into the ledger (a no-op once it is there).
+    this.backfillLedger()
     // At most start, then (VM missing) create, then start; each step commits before the next reads the state.
     for (let step = 0; step < 3; step++) {
       const state = this.boundEngine?.currentState
@@ -196,9 +287,10 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
           // The prefix names NEW VMs only: an existing VM is always reached by its stored id (state.vm), so a
           // prefix change (FREESTYLE-NAMES) never renames, adopts or loses the VM a team already has.
           const prefix = (driver instanceof FakeDriver ? driver.slugPrefix() : null) ?? this.env.TEAM_VM_SLUG_PREFIX ?? ""
-          const slug = this.createSlug(state.team, state.epoch + 1, prefix)
+          const slug = this.createSlug(state.team, state.epoch + 1, prefix, `tvm:${pending.requested_by ?? "unknown"}`)
           const vm = await driver.ensureVm(slug, state.team, state.epoch + 1)
           this.submitSystem("team_vm.driver_result", { action: "create", epoch: state.epoch, ok: true, vm: vm.id, slug, observed: vm.state }, key)
+          this.vmLedger.confirm(slug, vm.id)
           this.sqlStore.exec(`DELETE FROM team_vm_create_attempt WHERE epoch <= ?`, state.epoch + 1)
         } else {
           if (!state.vm) return
@@ -217,15 +309,35 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   }
 
   /** Test only (ENVIRONMENT=test): drive the fake provider. */
-  async fakeControl(cmd: { fail_next?: number; pause_all?: boolean; delete_all?: boolean; slug_prefix?: string; lose_next_create?: number }): Promise<{ creates: number; starts: number }> {
+  async fakeControl(cmd: {
+    fail_next?: number
+    pause_all?: boolean
+    delete_all?: boolean
+    slug_prefix?: string
+    lose_next_create?: number
+    seed_vm?: { slug: string; id: string }
+    drop_ledger?: boolean
+  }): Promise<{ creates: number; starts: number }> {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     teamVmDriver(this.env, this.sqlStore)
+    if (cmd.seed_vm) this.sqlStore.exec(`INSERT OR REPLACE INTO fake_vm (slug, id, state, team) VALUES (?, ?, 'running', NULL)`, cmd.seed_vm.slug, cmd.seed_vm.id)
+    if (cmd.drop_ledger) {
+      void this.vmLedger
+      this.sqlStore.exec(`DELETE FROM team_vm_ledger`)
+    }
     if (cmd.slug_prefix !== undefined) this.sqlStore.exec(`UPDATE fake_ctl SET slug_prefix = ? WHERE id = 1`, cmd.slug_prefix)
     if (cmd.lose_next_create !== undefined) this.sqlStore.exec(`UPDATE fake_ctl SET lose_next_create = ? WHERE id = 1`, cmd.lose_next_create)
     if (cmd.fail_next !== undefined) this.sqlStore.exec(`UPDATE fake_ctl SET fail_next = ? WHERE id = 1`, cmd.fail_next)
     if (cmd.pause_all) this.sqlStore.exec(`UPDATE fake_vm SET state = 'paused'`)
     if (cmd.delete_all) this.sqlStore.exec(`DELETE FROM fake_vm`)
     return this.sqlStore.exec<{ creates: number; starts: number }>(`SELECT creates, starts FROM fake_ctl WHERE id = 1`)[0]!
+  }
+
+  /** Test only: the fake provider's VM ids. */
+  async fakeVms(): Promise<string[]> {
+    if (this.env.ENVIRONMENT !== "test") throw new Error("fakeVms is test only")
+    teamVmDriver(this.env, this.sqlStore)
+    return this.sqlStore.exec<{ id: string }>(`SELECT id FROM fake_vm ORDER BY id`).map((r) => r.id)
   }
 
   /** Test only: run the alarm's own work as if `aheadMs` had passed. */

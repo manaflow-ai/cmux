@@ -825,4 +825,6 @@ pub(super) fn validation_error(message: &str, details: Value) -> ResourceError {
 #[cfg(test)]
 mod closed_content_tests;
 #[cfg(test)]
+mod partial_create_tests;
+#[cfg(test)]
 mod tests;

@@ -20,6 +20,8 @@ export interface TeamVmPending {
   readonly attempts: number
   /** When the alarm runs the call if no request path ran it first (crash safety net, then backoff). */
   readonly retry_at: number
+  /** Who asked for the call (the principal identity of the ensure_awake that queued it); the ledger's created_by. */
+  readonly requested_by?: string
 }
 
 export interface TeamVmState {
@@ -83,7 +85,7 @@ export const teamVmDomain: Domain<TeamVmState> = {
         const lease = held ? held[0] : ctx.newId("lease")
         const expires_at = held ? Math.max(held[1].expires_at, until) : until
         const pending: TeamVmPending =
-          state.pending ?? { action: state.vm === null ? "create" : "start", attempts: 0, retry_at: ctx.now + PENDING_SAFETY_MS }
+          state.pending ?? { action: state.vm === null ? "create" : "start", attempts: 0, retry_at: ctx.now + PENDING_SAFETY_MS, requested_by: p.identity }
         const status: TeamVmStatus = state.vm === null ? "provisioning" : state.status === "running" ? "running" : "starting"
         const next: TeamVmState = {
           ...state,
@@ -139,7 +141,7 @@ export const teamVmDomain: Domain<TeamVmState> = {
             slug: null,
             vm_install: null,
             status: "provisioning",
-            pending: { action: "create", attempts: 0, retry_at: ctx.now + PENDING_SAFETY_MS },
+            pending: { action: "create", attempts: 0, retry_at: ctx.now + PENDING_SAFETY_MS, ...(state.pending.requested_by ? { requested_by: state.pending.requested_by } : {}) },
             last_error: { code: "team_vm.vm_missing", message: r.error.message, at: ctx.now },
             updated_at: ctx.now
           }

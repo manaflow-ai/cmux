@@ -11,6 +11,10 @@ import type { ProviderState } from "./domains/team-vm.ts"
 export interface TeamVmDriver {
   ensureVm(slug: string, team: string, epoch: number): Promise<{ readonly id: string; readonly state: ProviderState }>
   ensureRunning(id: string): Promise<{ readonly state: ProviderState }>
+  /** Reads the VM with this EXACT name (slug): its id and team tag, or null when the provider has none. Never lists. */
+  lookup(name: string): Promise<{ readonly id: string; readonly team: string | null } | null>
+  /** Deletes the VM with this provider id; a VM already gone counts as deleted. Callers pass ledger ids only. */
+  deleteVm(id: string): Promise<void>
 }
 
 export class DriverError extends Error {
@@ -109,6 +113,20 @@ export class FreestyleDriver implements TeamVmDriver {
     if (started.status < 200 || started.status >= 300) this.fail(started.status, started.json, "start VM")
     return { state: started.json.state === undefined ? ("running" as const) : asState(started.json.state) }
   }
+
+  async lookup(name: string) {
+    const got = await this.call("GET", `/v5/vms/${encodeURIComponent(name)}`)
+    if (got.status === 404) return null
+    if (got.status !== 200 || !nonEmpty(got.json.id)) this.fail(got.status, got.json, "read VM by name")
+    const tag = (got.json.metadata ?? {}) as Record<string, unknown>
+    return { id: got.json.id, team: typeof tag.cmux_team === "string" ? tag.cmux_team : null }
+  }
+
+  async deleteVm(id: string) {
+    const gone = await this.call("DELETE", `/v5/vms/${encodeURIComponent(id)}`)
+    if (gone.status === 404 || (gone.status >= 200 && gone.status < 300)) return
+    this.fail(gone.status, gone.json, "delete VM")
+  }
 }
 
 /**
@@ -118,7 +136,7 @@ export class FreestyleDriver implements TeamVmDriver {
  */
 export class FakeDriver implements TeamVmDriver {
   constructor(private readonly sql: SqlStore) {
-    sql.exec(`CREATE TABLE IF NOT EXISTS fake_vm (slug TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, state TEXT NOT NULL)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS fake_vm (slug TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, state TEXT NOT NULL, team TEXT)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0, slug_prefix TEXT, lose_next_create INTEGER NOT NULL DEFAULT 0)`)
     sql.exec(`INSERT OR IGNORE INTO fake_ctl (id) VALUES (1)`)
   }
@@ -136,12 +154,12 @@ export class FakeDriver implements TeamVmDriver {
     return this.sql.exec<{ slug_prefix: string | null }>(`SELECT slug_prefix FROM fake_ctl WHERE id = 1`)[0]?.slug_prefix ?? null
   }
 
-  async ensureVm(slug: string, _team: string, _epoch: number) {
+  async ensureVm(slug: string, team: string, _epoch: number) {
     this.maybeFail()
     const row = this.sql.exec<{ id: string; state: string }>(`SELECT id, state FROM fake_vm WHERE slug = ?`, slug)[0]
     if (row) return { id: row.id, state: asState(row.state) }
     const id = `fakevm-${slug}`
-    this.sql.exec(`INSERT INTO fake_vm (slug, id, state) VALUES (?, ?, 'running')`, slug, id)
+    this.sql.exec(`INSERT INTO fake_vm (slug, id, state, team) VALUES (?, ?, 'running', ?)`, slug, id, team)
     this.sql.exec(`UPDATE fake_ctl SET creates = creates + 1 WHERE id = 1`)
     if (this.sql.exec<{ n: number }>(`SELECT lose_next_create AS n FROM fake_ctl WHERE id = 1`)[0]!.n > 0) {
       this.sql.exec(`UPDATE fake_ctl SET lose_next_create = lose_next_create - 1 WHERE id = 1`)
@@ -159,6 +177,17 @@ export class FakeDriver implements TeamVmDriver {
       this.sql.exec(`UPDATE fake_ctl SET starts = starts + 1 WHERE id = 1`)
     }
     return { state: "running" as const }
+  }
+
+  async lookup(name: string) {
+    this.maybeFail()
+    const row = this.sql.exec<{ id: string; team: string | null }>(`SELECT id, team FROM fake_vm WHERE slug = ?`, name)[0]
+    return row ? { id: row.id, team: row.team } : null
+  }
+
+  async deleteVm(id: string) {
+    this.maybeFail()
+    this.sql.exec(`DELETE FROM fake_vm WHERE id = ?`, id)
   }
 }
 
