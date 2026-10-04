@@ -274,7 +274,7 @@ export function createEditors() {
   // Fixtures: one shared sheet, one private doc and deck.
   add({ id: "1sheetSHARED00000000000000000000x", kind: "spreadsheets", title: "Team budget", shared: true, sheets: [{ name: "Budget", gid: "0", cells: new Map([["A1", "Item"], ["B1", "Cost"], ["A2", "Rent"], ["B2", "1200"], ["A3", "Food"], ["B3", "300"], ["A4", "Total"], ["B4", "=SUM(B2:B3)"]]) }, { name: "Notes", gid: "7", cells: new Map([["A1", "remember"]]) }] });
   add({ id: "1docPRIVATE000000000000000000000x", kind: "document", title: "Plan", shared: false, blocks: [{ type: "heading", level: 1, text: "Plan" }, { type: "paragraph", text: "Intro paragraph." }, { type: "heading", level: 2, text: "Goals" }, { type: "list", items: ["Ship it", "Measure it"] }, { type: "table", rows: [["Owner", "Task"], ["Ada", "Draft"]] }, { type: "paragraph", text: "Closing line." }] });
-  add({ id: "1deckPRIVATE00000000000000000000x", kind: "presentation", title: "Roadmap deck", shared: false, slides: [{ title: "Roadmap", body: ["Q1: ship", "Q2: grow"], notes: "Say hello" }, { title: "Risks", body: ["Time"], notes: "Keep short" }] });
+  add({ id: "1deckPRIVATE00000000000000000000x", kind: "presentation", title: "Roadmap deck", shared: false, slides: [{ id: "g1a2b3c_0_0", title: "Roadmap", body: ["Q1: ship", "Q2: grow"], notes: "Say hello" }, { id: "g1a2b3c_0_7", title: "Risks", body: ["Time"], notes: "Keep short" }] });
 
   function handle(req, url, body) {
     if (req.method === "GET" && /^\/(document|spreadsheets|presentation)\/create$/.test(url.pathname)) {
@@ -311,11 +311,12 @@ document.querySelector(".kix-appview-editor").addEventListener("input", (e) => {
       return {
         html: shell(
           file,
-          `<svg id="filmstrip" width="200" height="${file.slides.length * 110}">${file.slides.map((s, i) => `<g id="filmstrip-slide-${i}-p${i}"><rect x="10" y="${i * 110 + 5}" width="150" height="90" fill="#eee"></rect></g>`).join("")}</svg>
+          `<svg id="filmstrip" width="200" height="${file.slides.length * 110}">${file.slides.map((s, i) => `<g id="filmstrip-slide-${i}-${s.id || `p${i}`}"><rect x="10" y="${i * 110 + 5}" width="150" height="90" fill="#eee"></rect></g>`).join("")}</svg>
 <div class="punch-viewer-svgpage">${esc(file.slides.map((s) => s.title).join(" "))}</div>
 <div id="speakernotes"><div id="speakernotes-workspace" role="textbox" aria-label="Speaker notes" tabindex="0" style="min-height:40px"></div></div>
 <script>
-// As live: thumbnails g#filmstrip-slide-<i>-<pageId> select a slide; the
+// As live: thumbnails g#filmstrip-slide-<i>-<pageId> select a slide (the
+// page id is the slide's object id and stays with it when slides move); the
 // notes textbox takes typed keys (Meta+A selects all notes; Escape commits).
 let slide = 0, notes = null, replaceAll = false, atStart = false;
 document.querySelectorAll("#filmstrip g").forEach((g, i) => g.addEventListener("click", () => { slide = i; }));

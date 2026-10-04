@@ -86,3 +86,30 @@ test("googleSheets.append: rows added after the preview are never overwritten; t
     cells.delete("B5");
   }
 });
+
+test("googleSlides.setNotes: the draft names the slide by its object id; reordered slides still get the notes on that slide, a deleted one fails", async () => {
+  const DECK_ID = "1deckPRIVATE00000000000000000000x";
+  const DECK = `https://docs.google.com/presentation/d/${DECK_ID}/edit`;
+  const deck = files.get(DECK_ID);
+  const original = deck.slides.map((x) => ({ ...x }));
+  deck.shared = true;
+  try {
+    await s.run(`var snD = await sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 2, "Bound notes")`);
+    // A collaborator moves "Risks" to the front.
+    deck.slides = [deck.slides[1], deck.slides[0]];
+    await s.value("sites.googleSlides.setNotes(snD.id, { confirm: true })");
+    assert.equal(deck.slides.find((x) => x.title === "Risks").notes, "Bound notes");
+    assert.equal(deck.slides.find((x) => x.title === "Roadmap").notes, "Say hello", "the slide now at position 2 got the notes");
+    const p = await s.value("snD.preview");
+    assert.equal(p.slideId, "g1a2b3c_0_7");
+    assert.equal(p.slideTitle, "Risks");
+    // A collaborator deletes the drafted slide.
+    await s.run(`var snD2 = await sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 1, "Gone")`);
+    deck.slides = deck.slides.filter((x) => x.title !== "Risks");
+    assert.match(await s.error("sites.googleSlides.setNotes(snD2.id, { confirm: true })"), /slide_changed|no longer/);
+    assert.equal(deck.slides[0].notes, "Say hello");
+  } finally {
+    deck.slides = original;
+    deck.shared = false;
+  }
+});
