@@ -16176,6 +16176,10 @@ mod dock_columns_tests;
 mod rows_tests;
 
 #[cfg(test)]
+#[path = "server/split_kind_tests.rs"]
+mod split_kind_tests;
+
+#[cfg(test)]
 #[path = "server/personal_terminal_tests.rs"]
 mod personal_terminal_tests;
 
