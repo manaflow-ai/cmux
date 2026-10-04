@@ -180,7 +180,9 @@ final class BrowserReplCredentialSheet: NSObject {
         // A call already cancelled shows nothing.
         if !Task.isCancelled {
             parent = window
-            window.beginSheet(panel)
+            // The completion-handler form: in an async function the plain
+            // call is the async overload, which would wait for the sheet.
+            window.beginSheet(panel, completionHandler: nil)
             NSApp.requestUserAttention(.informationalRequest)
             panel.makeFirstResponder(inputs.first)
         }
