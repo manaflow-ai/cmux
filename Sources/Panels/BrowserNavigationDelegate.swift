@@ -485,7 +485,9 @@ import WebKit
                 case .refused:
                     return
                 case .browser:
-                    break
+                    // Not the user's tab in front of them: a background tab.
+                    if replAttachment.opensPopupsInBackground,
+                       replAttachment.handlePopup(request: request, announce: false) { return }
                 case .session:
                     if replAttachment.handlePopup(request: request) { return }
                 case .inputSession(let sessionID):

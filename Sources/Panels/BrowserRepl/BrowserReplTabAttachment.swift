@@ -273,6 +273,42 @@ final class BrowserReplTabAttachment {
         return try await body()
     }
 
+    /// Like ``withInput(sessionID:_:)``, but the window closes after `limit`
+    /// even while `body` still runs (``BrowserReplBoundedWindow``): a page
+    /// script's own dialogs come soon after it starts, and a long one must
+    /// not take the user's dialogs and popups in this tab.
+    func withInput<T>(
+        sessionID: String,
+        atMost limit: Duration,
+        sleeper: any BrowserReplSleeping,
+        _ body: () async throws -> T
+    ) async rethrows -> T {
+        try await BrowserReplBoundedWindow(limit: limit, sleeper: sleeper).run(
+            begin: { ownership.beginInput(sessionID: sessionID) },
+            end: { [weak self] in self?.ownership.endInput(sessionID: sessionID) },
+            body
+        )
+    }
+
+    /// Whether a window this tab's page opens through the browser's own path
+    /// (not caused by a session's input) opens as a background tab instead
+    /// of a key popup window: sessions drive the tab and the user is not
+    /// working in it (it is not shown, focused, in the key window of the
+    /// active app). A page that opens one after an await in an agent's
+    /// click handler (`await fetch(); window.open()`) is past the input
+    /// window, and must still not put a key window over the user's work.
+    var opensPopupsInBackground: Bool {
+        guard isAttached, let panel else { return false }
+        guard panel.isWebViewVisibleInPane, NSApp.isActive,
+              let window = panel.webView.window, !(window is BrowserOffscreenRenderPanel), window.isKeyWindow,
+              let workspace = AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId)?
+                .tabs.first(where: { $0.id == panel.workspaceId }),
+              workspace.focusedPanelId == panel.id else {
+            return true
+        }
+        return false
+    }
+
     /// The attached session whose input the page is handling now, if any.
     var inputSessionID: String? {
         guard let sessionID = ownership.inputSessionID, sinks[sessionID] != nil else { return nil }
@@ -867,10 +903,13 @@ final class BrowserReplTabAttachment {
         case opened(WKWebView?)
     }
 
-    /// - Parameter forInputSession: The session whose input the opener, a
-    ///   user's tab, was handling: the popup goes to that session only and
-    ///   stays the user's (`BrowserReplPopupRoute.inputSession`).
-    func adoptPopup(request: URLRequest, configuration: WKWebViewConfiguration, forInputSession: String? = nil) -> PopupAdoption? {
+    /// - Parameters:
+    ///   - forInputSession: The session whose input the opener, a user's
+    ///     tab, was handling: the popup goes to that session only and stays
+    ///     the user's (`BrowserReplPopupRoute.inputSession`).
+    ///   - announce: `false` opens a user's popup as a background tab and
+    ///     tells no session (``opensPopupsInBackground``).
+    func adoptPopup(request: URLRequest, configuration: WKWebViewConfiguration, forInputSession: String? = nil, announce: Bool = true) -> PopupAdoption? {
         guard isAttached, let panel,
               let workspace = AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId)?
                 .tabs.first(where: { $0.id == panel.workspaceId }),
@@ -902,7 +941,7 @@ final class BrowserReplTabAttachment {
         ) else {
             return nil
         }
-        announcePopup(created, url: url, forInputSession: forInputSession)
+        if announce { announcePopup(created, url: url, forInputSession: forInputSession) }
         return .opened(created.webView === webView ? webView : nil)
     }
 
@@ -931,7 +970,7 @@ final class BrowserReplTabAttachment {
         }
     }
 
-    func handlePopup(request: URLRequest, forInputSession: String? = nil) -> Bool {
+    func handlePopup(request: URLRequest, forInputSession: String? = nil, announce: Bool = true) -> Bool {
         guard isAttached, let panel, let url = request.url,
               let workspace = AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId)?
                 .tabs.first(where: { $0.id == panel.workspaceId }),
@@ -951,7 +990,7 @@ final class BrowserReplTabAttachment {
         ) else {
             return false
         }
-        announcePopup(created, url: url, forInputSession: forInputSession)
+        if announce { announcePopup(created, url: url, forInputSession: forInputSession) }
         return true
     }
 

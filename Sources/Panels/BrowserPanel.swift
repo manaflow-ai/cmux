@@ -8818,7 +8818,17 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
                 _ = reason
                 return nil
             case .browser:
-                break
+                // Sessions drive this tab and the user is not working in it:
+                // a window the page opens later (after an await in an agent's
+                // click handler) is a background tab, never a key window.
+                if attachment.opensPopupsInBackground,
+                   case .opened(let popup)? = attachment.adoptPopup(
+                       request: navigationAction.request,
+                       configuration: configuration,
+                       announce: false
+                   ) {
+                    return popup
+                }
             case .session:
                 if case .opened(let popup)? = attachment.adoptPopup(request: navigationAction.request, configuration: configuration) {
                     return popup

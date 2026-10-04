@@ -127,14 +127,13 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     private var currentPolicy: BrowserReplDomainPolicy { lock.withLock { domainPolicy } }
 
-    /// The session's own input and script (an `el.click()` or
-    /// `form.submit()` can open a dialog too): a dialog, file chooser or
-    /// window the page opens while it handles one goes to the session.
-    /// Navigations hold that window only until they commit
-    /// (`navigate`, `history`, `reload`), so a dialog from the user's own
-    /// click while the page loads stays the user's.
+    /// The session's own input: a dialog, file chooser or window the page
+    /// opens while it handles one goes to the session. A page-world
+    /// `frame.evaluate` holds that window for at most a second, and
+    /// navigations until they commit (`navigate`, `history`, `reload`), so
+    /// the user's own dialogs in the tab stay the user's.
     private static func isActionOnPage(_ method: String) -> Bool {
-        method.hasPrefix("input.") || method == "frame.evaluate"
+        method.hasPrefix("input.")
     }
 
     /// Methods that read or act on a page or its cookies; refused while the
@@ -243,6 +242,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             }
         }
         do {
+            let started = ContinuousClock.now
             if let panel = tabToPrepare {
                 // The policy judges the tab's recorded URL before a wake would
                 // load a page it blocks.
@@ -262,7 +262,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                     // Loading the crashed or hibernated tab again was the
                     // reload; it waited for DOMContentLoaded, and `waitUntil`
                     // may ask for more within the call's timeout.
-                    try await waitForLoadState(panel, Self.waitUntil(params), remainingMilliseconds: Self.timeout(params))
+                    try await waitForLoadState(panel, Self.waitUntil(params), remainingMilliseconds: Self.remaining(Self.timeout(params), since: started))
                     var result: [String: Any] = [:]
                     if let status = attachment.mainDocumentStatus { result["status"] = status }
                     guard let json = JSONSerialization.browserReplString(result.isEmpty ? nil : result as Any?) else {
@@ -278,6 +278,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 // What the page opens while it handles this session's input
                 // goes to this session, never to cmux's UI in front of the user.
                 value = try await attachment(panel).withInput(sessionID: sessionID) {
+                    try await handle(method: method, params: params)
+                }
+            } else if method == "frame.evaluate", params["world"] as? String == "page", let panel = tabToPrepare {
+                // The agent's own page script (el.click(), form.submit()):
+                // what it opens goes to the session, for at most a second,
+                // so a long script leaves the user's dialogs and popups alone.
+                // The runtime's own reads run in the agent world and hold none.
+                value = try await attachment(panel).withInput(sessionID: sessionID, atMost: .seconds(1), sleeper: sleeper) {
                     try await handle(method: method, params: params)
                 }
             } else {

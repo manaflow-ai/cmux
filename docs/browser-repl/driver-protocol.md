@@ -57,8 +57,10 @@ sessions instead. The runtime sends `tab.handleEvents` whenever a page's
 the tab waits for it. A download keeps the route it started with.
 
 A dialog or file chooser the page opens while it handles a session's
-`input.*` or `frame.evaluate` call, or its `tab.navigate`, `tab.reload` or
-`tab.history` until the navigation commits, or while a call wakes the tab,
+`input.*` call, the first second of its page-world `frame.evaluate` (the
+runtime's own agent-world reads hold nothing), its `tab.navigate`,
+`tab.reload` or `tab.history` until the navigation commits, or while a call
+wakes the tab,
 is sent to that session too, also in a user's tab (the call caused it, so
 cmux's own dialog or Open panel must not come up in front of the user, and
 the call must not wait for an answer only the user can give); downloads
@@ -311,7 +313,11 @@ native (`BrowserReplBoundary` in the session, and the driver):
   out of the agent's reach, so that window becomes a background tab sent
   to that session alone (`tab.created` with `userOwned: true`), under the
   URL checks below with that session's policy, and stays the user's: it is
-  neither labelled nor closed when the session ends. A window
+  neither labelled nor closed when the session ends. Any other window the
+  page of a driven tab opens through the browser's path while the user is
+  not working in that tab (it is not shown and focused in the key window
+  of the active app) opens as a background tab, told to no session, never
+  as a key popup window. A window
   a page opens from a tab a session created becomes a popup tab through
   cmux's own navigation, which trusts local files and cmux's internal
   schemes, and the page controls its URL. So it goes to the sessions

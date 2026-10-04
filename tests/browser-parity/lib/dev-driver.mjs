@@ -1004,7 +1004,8 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
           if (reason) throw new DriverError("blocked", `the tab shows ${url}, which the domain policy blocks: ${reason}`);
         }
         const tab = params.targetId && tabs.get(params.targetId);
-        if (!tab || !ACTIONS.test(method)) return fn(params, driver);
+        // The runtime's own agent-world reads are not the session's action.
+        if (!tab || !ACTIONS.test(method) || (method === "frame.evaluate" && params.world !== "page")) return fn(params, driver);
         tab.inputDrivers.push(driver);
         let ended = false;
         const end = () => {
@@ -1017,6 +1018,8 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         const navigation = NAVIGATIONS.test(method);
         const onCommit = (frame) => { if (frame === tab.page.mainFrame()) end(); };
         if (navigation) tab.page.on("framenavigated", onCommit);
+        // As in the app, a page script holds the window for at most a second.
+        const bound = method === "frame.evaluate" ? setTimeout(end, 1000) : null;
         try {
           const result = await fn(params, driver);
           // Like the app's round trip after input: what the page opened while
@@ -1026,6 +1029,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
           return result;
         } finally {
           if (navigation) tab.page.off("framenavigated", onCommit);
+          if (bound) clearTimeout(bound);
           end();
         }
       },
