@@ -370,3 +370,45 @@ fn a_headless_session_lists_no_start_tab() {
     assert_eq!(tabs.as_array().map(Vec::len), Some(1), "{tabs}");
     assert_eq!(tabs[0]["targetId"], opened["targetId"]);
 }
+
+/// `cmux-browser-host eval` without `--session` is a one-shot session, as
+/// `cmux browser repl --eval` is: nothing carries over to the next call
+/// (variables, tabs, the page agent's ref numbers).
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn eval_without_a_session_is_one_shot() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let dir = std::env::temp_dir().join(format!("cmux-host-oneshot-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    let eval = |args: &[&str], code: &str| -> String {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+            .arg("eval")
+            .args(args)
+            .args(["--engine", "headless", "--socket"])
+            .arg(&socket)
+            .arg("-")
+            .current_dir(&dir)
+            .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run cmux-browser-host eval");
+        child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    };
+    let page = "await page.goto('data:text/html,<button>A</button>'); console.log(String(await snapshot()).includes('[ref=e1]'));";
+    assert_eq!(eval(&[], &format!("var carried = 1; {page}")).trim(), "true");
+    assert_eq!(eval(&[], &format!("console.log(typeof carried); {page}")).trim(), "undefined\ntrue");
+    // A named session keeps its state.
+    eval(&["--session", "kept"], "var carried = 2;");
+    assert_eq!(eval(&["--session", "kept"], "console.log(carried);").trim(), "2");
+    let mut close = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
+    let _ = close.args(["close", "--session", "kept", "--socket"]).arg(&socket).output();
+    let _ = std::fs::remove_dir_all(&dir);
+}
