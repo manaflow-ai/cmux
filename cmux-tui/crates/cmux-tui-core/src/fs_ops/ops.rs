@@ -330,7 +330,8 @@ impl FsService {
 /// True when JSON escapes (`\u00XX`, 6 bytes each) would make `text`
 /// longer than its base64 (4/3 of its bytes).
 fn escape_heavy(text: &str) -> bool {
-    let escaped = text.chars().filter(|c| c.is_control() && !matches!(c, '\n' | '\t' | '\r')).count();
+    let escaped =
+        text.chars().filter(|c| c.is_control() && !matches!(c, '\n' | '\t' | '\r')).count();
     escaped.saturating_mul(5) > text.len() / 3
 }
 
