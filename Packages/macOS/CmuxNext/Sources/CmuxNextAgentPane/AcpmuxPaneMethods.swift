@@ -88,6 +88,35 @@ public nonisolated enum AcpmuxPaneMethods {
         return #"{"jsonrpc":"2.0","id":"# + requestID + #","error":"# + encoded + "}"
     }
 
+    /// The frames that GRANT something and so need a fresh user gesture (ad349). One switch per
+    /// method; a deny or revoke needs none.
+    public nonisolated enum GestureRule: Sendable {
+        /// Every frame of the method (the user pressed send, picked a mode or an option).
+        case always
+        /// `acp.trust.set` that trusts (`level` other than `untrusted` or `unknown`).
+        case whenTrusting
+        /// `_acpmux/permission_respond` whose option is not a known deny.
+        case whenOptionAllows
+        /// `_acpmux/permission_group_respond` whose `decision` is not `deny`.
+        case whenDecisionAllows
+    }
+
+    public static let gestureRules: [String: GestureRule] = [
+        "session/prompt": .always,
+        // Every value until the host has a list of the permissive ones (bypass, auto-approve, yolo).
+        "session/set_mode": .always,
+        "session/set_config_option": .always,
+        "acp.trust.set": .whenTrusting,
+        "_acpmux/permission_respond": .whenOptionAllows,
+        "_acpmux/permission_group_respond": .whenDecisionAllows,
+        // _acpmux/permission_chat_revoke revokes: no gesture.
+    ]
+
+    /// Whether `text` (a page frame the allowlist passed) grants and needs a gesture.
+    public static func needsGesture(_ text: String, options: AcpmuxPermissionOptions) -> Bool {
+        false // RED STUB
+    }
+
     /// The key whose entries ({command, args, env}) a harness spawns.
     public static let serversKey = "mcpServers"
 

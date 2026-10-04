@@ -16,6 +16,9 @@ public nonisolated enum AgentPaneTransportError: String, Error, Equatable, Senda
     case firstFrameNotInitialize = "transport.first_frame"
     /// The method is not on ``AcpmuxPaneMethods``.
     case methodRefused = "transport.method_refused"
+    /// The frame grants (allows a permission, trusts a folder, prompts, sets a mode) without a
+    /// fresh user gesture; the socket stays open.
+    case gestureRequired = "transport.gesture_required"
     /// The frame carries `mcpServers` entries ({command, args, env}): the page may not make the
     /// harness spawn a command (C1).
     case mcpServersRefused = "transport.mcp_servers_refused"
@@ -119,14 +122,20 @@ public nonisolated struct AgentPaneTransportEvent: Equatable, Sendable {
     private var sentFirst = false
     /// The send in flight: sends run one after another, so frames keep the page's order.
     private var sendTail: Task<Void, Never>?
+    /// The user's gestures in this pane; a granting frame consumes one.
+    public let gestures: AgentPaneUserGestures
+    /// The permission options the daemon sent, to tell an allow from a deny.
+    public let permissionOptions = AcpmuxPermissionOptions()
     /// The pane's workspace roots (``AcpmuxPathPolicy``); asked at each frame that names a path.
     public var roots: @MainActor () -> [String] = { [] }
 
     /// Pushes and flushes so far (tests and the bench read them).
     public private(set) var flushes = 0
 
-    public init(limits: Limits = Limits(), pacer: (any AgentPaneTransportPacer)? = nil) {
+    public init(limits: Limits = Limits(), pacer: (any AgentPaneTransportPacer)? = nil,
+                gestures: AgentPaneUserGestures = AgentPaneUserGestures()) {
         self.limits = limits
+        self.gestures = gestures
         self.pacer = pacer ?? AgentPaneNextTurnPacer()
     }
 
