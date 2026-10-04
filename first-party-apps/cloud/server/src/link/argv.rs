@@ -30,9 +30,8 @@ impl AttachEndpoint {
     /// Decodes and checks the answer. The route is a positional argument, so
     /// it must be a `ws://` or `wss://` URL that cannot read as a flag.
     pub fn decode(answer: Value) -> Result<Self, CloudError> {
-        let endpoint: Self = serde_json::from_value(answer).map_err(|e| {
-            CloudError::new(codes::BAD_RESPONSE, format!("attach-endpoint: {e}"))
-        })?;
+        let endpoint: Self = serde_json::from_value(answer)
+            .map_err(|e| CloudError::new(codes::BAD_RESPONSE, format!("attach-endpoint: {e}")))?;
         if endpoint.transport != "cmux-remote" {
             return Err(CloudError::new(
                 codes::BAD_RESPONSE,
@@ -41,9 +40,13 @@ impl AttachEndpoint {
         }
         let route = endpoint.route.as_str();
         let scheme_ok = route.starts_with("ws://") || route.starts_with("wss://");
-        let clean = route.len() <= 2048 && !route.chars().any(|c| c.is_whitespace() || c.is_control());
+        let clean =
+            route.len() <= 2048 && !route.chars().any(|c| c.is_whitespace() || c.is_control());
         if !scheme_ok || !clean {
-            return Err(CloudError::new(codes::BAD_RESPONSE, "attach-endpoint answered a bad route"));
+            return Err(CloudError::new(
+                codes::BAD_RESPONSE,
+                "attach-endpoint answered a bad route",
+            ));
         }
         Ok(endpoint)
     }

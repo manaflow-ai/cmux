@@ -71,9 +71,7 @@ impl Attach {
     /// `CMUX_CLOUD_DEVICE_NAME` (default `cmux`). Paths must be absolute.
     /// TODO(lane 12): `cmux link` replaces the binary and hub.
     pub fn from_env() -> Self {
-        let path = |key: &str| {
-            std::env::var_os(key).map(PathBuf::from).filter(|p| p.is_absolute())
-        };
+        let path = |key: &str| std::env::var_os(key).map(PathBuf::from).filter(|p| p.is_absolute());
         let paths = match (
             path("CMUX_CLOUD_TUI_BINARY"),
             path("CMUX_CLOUD_WG_HUB_SOCKET"),

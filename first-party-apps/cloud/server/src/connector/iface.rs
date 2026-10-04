@@ -93,11 +93,18 @@ pub fn allow_kind(kinds: &[LocalId], kind: &str) -> Result<(), BackendError> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BackendError {
     /// The kind is not in `options.kinds` (default deny).
-    KindRefused { kind: String },
+    KindRefused {
+        kind: String,
+    },
     /// The far end or the transport is not reachable now; a later call may work.
-    Unavailable { reason: String, retryable: bool },
+    Unavailable {
+        reason: String,
+        retryable: bool,
+    },
     /// Access to the target ended (machine gone, access lost, app revoked).
-    Revoked { reason: String },
+    Revoked {
+        reason: String,
+    },
     /// The terminal or link is not open. Nothing is queued.
     Closed,
     /// The implementation cannot do this (missing route or capability).

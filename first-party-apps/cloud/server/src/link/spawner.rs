@@ -90,26 +90,28 @@ impl LinkSpawner for ProcessSpawner {
         let pid = child.id();
         let child = Arc::new(Mutex::new(Some(child)));
         let reaper = Arc::clone(&child);
-        std::thread::Builder::new().name(format!("cmux-link-{}", tag.machine)).spawn(move || {
-            let mut reader = BufReader::new(stdout);
-            let mut buffer = Vec::new();
-            loop {
-                buffer.clear();
-                match reader.read_until(b'\n', &mut buffer) {
-                    Ok(0) | Err(_) => break,
-                    Ok(_) => {}
+        std::thread::Builder::new().name(format!("cmux-link-{}", tag.machine)).spawn(
+            move || {
+                let mut reader = BufReader::new(stdout);
+                let mut buffer = Vec::new();
+                loop {
+                    buffer.clear();
+                    match reader.read_until(b'\n', &mut buffer) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {}
+                    }
+                    let line = String::from_utf8_lossy(&buffer).trim_end().to_owned();
+                    // A dropped receiver means the server is gone; keep draining
+                    // so the link never blocks on a full pipe.
+                    let _ = events.send(LinkProcessEvent::Line { tag: tag.clone(), line });
                 }
-                let line = String::from_utf8_lossy(&buffer).trim_end().to_owned();
-                // A dropped receiver means the server is gone; keep draining
-                // so the link never blocks on a full pipe.
-                let _ = events.send(LinkProcessEvent::Line { tag: tag.clone(), line });
-            }
-            // stdout closed: the process is ending. Take it out of the shared
-            // slot before the wait, so `terminate` never blocks on the lock.
-            let taken = reaper.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
-            let code = taken.and_then(|mut c| c.wait().ok()).and_then(|status| status.code());
-            let _ = events.send(LinkProcessEvent::Exited { tag, code });
-        })?;
+                // stdout closed: the process is ending. Take it out of the shared
+                // slot before the wait, so `terminate` never blocks on the lock.
+                let taken = reaper.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+                let code = taken.and_then(|mut c| c.wait().ok()).and_then(|status| status.code());
+                let _ = events.send(LinkProcessEvent::Exited { tag, code });
+            },
+        )?;
         Ok(Box::new(ChildLink { child, pid }))
     }
 }
