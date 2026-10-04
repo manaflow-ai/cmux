@@ -52,6 +52,33 @@ const HOST_SELECT_ALL = `() => {
   if (a && a.isContentEditable) { const r = document.createRange(); r.selectNodeContents(a); const s = getSelection(); s.removeAllRanges(); s.addRange(r); return true; }
   return false;
 }`;
+// The current values of the frame's sensitive fields (browser lead's final
+// redaction rule): <input type=password>, or an autocomplete token
+// one-time-code, current-password, new-password or cc-*. Value and value
+// attribute, shadow roots included.
+const HOST_SENSITIVE_VALUES = `() => {
+  const out = new Set();
+  const sensitive = (el) => {
+    if (!(el instanceof HTMLInputElement)) return false;
+    if (el.type === "password") return true;
+    const tokens = String(el.getAttribute("autocomplete") || "").toLowerCase().split(/\\s+/);
+    return tokens.some((t) => t === "one-time-code" || t === "current-password" || t === "new-password" || t.startsWith("cc-"));
+  };
+  const visit = (root) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+    for (let n = walker.currentNode; n; n = walker.nextNode()) {
+      if (sensitive(n)) {
+        if (n.value) out.add(n.value);
+        const attr = n.getAttribute("value");
+        if (attr) out.add(attr);
+      }
+      if (n.shadowRoot) visit(n.shadowRoot);
+    }
+  };
+  visit(document.documentElement || document);
+  return [...out];
+}`;
+
 // After a capture: every element the mask covered still has it (a page that
 // drops the mask during the capture makes the capture refused).
 const HOST_MASK_HELD = `() => {
@@ -547,6 +574,32 @@ export function createReferenceHost(ns, { host, driver }) {
   }
 
   const vmCalls = [];
+  // frame.observe with the final redaction rule: in snapshot, read,
+  // describe and strictError results every sensitive value of that frame
+  // shows as "********" (a value of 4+ characters wherever it occurs, a
+  // shorter one only as a whole string).
+  const REDACTED = new Set(["snapshot", "read", "describe", "strictError"]);
+  async function observe(params) {
+    const result = maskValue(await driver.call("frame.observe", params));
+    if (!REDACTED.has(params.method)) return result;
+    const values = await hostEval(params.targetId, params.frameId, HOST_SENSITIVE_VALUES, []).catch(() => []);
+    if (!values.length) return result;
+    const redact = (text) => {
+      for (const v of values) {
+        if (text === v) return "********";
+        if (v.length >= 4 && text.includes(v)) text = text.split(v).join("********");
+      }
+      return text;
+    };
+    const walk = (v, depth = 0) => {
+      if (typeof v === "string") return redact(v);
+      if (!v || typeof v !== "object" || depth > 64) return v;
+      if (Array.isArray(v)) return v.map((x) => walk(x, depth + 1));
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x, depth + 1)]));
+    };
+    return walk(result);
+  }
+
   async function hostedCall(method, params = {}) {
     vmCalls.push({ method, params: JSON.parse(JSON.stringify(params)) });
     if (method === "input.insertText" && params && typeof params.secret === "string") {
@@ -589,6 +642,7 @@ export function createReferenceHost(ns, { host, driver }) {
           }
         });
       }
+      if (method === "frame.observe") return await observe(params);
       return await navigationCall(method, params);
     } catch (e) {
       throw maskError(e);
