@@ -31,6 +31,8 @@ import Testing
         #expect(json["heights"] == .array([.object(["row": .number(40), "height": .number(600)]),
                                             .object(["row": .number(41), "height": .number(400)])]))
         #expect(json["transaction"] == nil)
+        let echoed = try object(SetRowHeightsRequest(column: 14, heights: [], transaction: 77))
+        #expect(echoed["transaction"] == .number(77))
     }
 }
 
@@ -58,6 +60,27 @@ import Testing
         store.rejectIntent("rows")
         #expect(heights(store) == [600, 400])
         #expect(!store.hasPendingIntents)
+    }
+
+    /// The commit's `screen-changed` delta echoes the request's transaction
+    /// as a decimal string: the intent settles on it, showing the result.
+    @Test func theEchoSettlesTheIntent() throws {
+        let store = try loaded()
+        var settled: [IntentSettlement] = []
+        store.onIntentSettled = { _, how in settled.append(how) }
+        let transaction = UInt64(77)
+        store.intend(.setRowHeights(column: 9, heights: [RowHeightValue(row: 30, height: 700), RowHeightValue(row: 12, height: 300)]),
+                     transaction: ClientTransactionID(rawValue: String(transaction)))
+        var tree = try Fixture.response(DaemonTree.self, "list-workspaces.json")
+        tree.workspaces[0].screens[0].columns[0].rows = [RowSnapshot(id: 30, height: 700, layout: .leaf(4)),
+                                                         RowSnapshot(id: 12, height: 300, layout: .leaf(11))]
+        let screen = tree.workspaces[0].screens[0]
+        let delta = ScreenDelta(workspace: tree.workspaces[0].id, screen: screen.id, index: nil, entity: screen,
+                                clientTransactionID: ClientTransactionID(rawValue: "77"))
+        store.apply(batch: [DaemonEventEnvelope(sequence: 1000, event: .screenChanged(delta))])
+        #expect(!store.hasPendingIntents)
+        #expect(settled == [.echoed])
+        #expect(heights(store) == [700, 300])
     }
 
     @Test func aStaleRowSetChangesNothing() throws {
