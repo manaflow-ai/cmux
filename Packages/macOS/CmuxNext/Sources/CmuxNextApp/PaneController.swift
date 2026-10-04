@@ -162,7 +162,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private func browserIcon(key: String, recordFavicon: String?) -> BrowserTabIconState {
         _ = services.cache.pageInstalls.revision
         let page = services.cache.existingBrowser(key)?.tab.state
-        let address = page.map { $0.faviconURL?.absoluteString } ?? recordFavicon
+        let remote = (services.cache.existingBrowser(key)?.tab as? CEFTab)?.machineStore != nil || services.cache.pageRequests.proxiedTabs.isProxied(key)
+        let address = (page.map { $0.faviconURL?.absoluteString } ?? recordFavicon).flatMap { text in
+            URL(string: text).map { BrowserFaviconPolicy.appMayFetch($0, remoteStore: remote) } == false ? nil : text }
         let image = services.favicons.image(for: address, profile: services.browserProfiles.engineProfile(forTab: key))
         return .resolve(isLoading: page?.isLoading ?? false, isDormant: services.cache.dormantTabs.contains(key), favicon: image)
     }
