@@ -632,6 +632,63 @@ describe("acpmux measured rows", () => {
 
   /// A permission card or a taller composer shortens the viewport without moving the offset,
   /// so the latest row's end drops below the fold unless the transcript follows it.
+  /// R104: a streaming reply opens new rows below (a reply segment, a tool call, a status line).
+  test("at the latest row, rows appended below keep the view at the latest row", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const draw = (list: AcpmuxRow[]) =>
+      act(async () =>
+        root.render(
+          createElement(VirtualTranscript, { rows: list, onToggleActivity: () => {}, expanded: new Set<string>() }),
+        ),
+      );
+    const latest = () =>
+      parseFloat((dom.window.document.querySelector(".acpmux-spacer") as HTMLElement).style.height) - 600;
+    try {
+      await draw(rows);
+      const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
+      expect(scroller.scrollTop).toBe(latest());
+      let list = rows;
+      for (let index = 0; index < 3; index += 1) {
+        list = [
+          ...list,
+          { id: `new-${index}`, version: 1, at: 1_000 + index, kind: "assistant", text: `new reply ${index}` },
+        ];
+        await draw(list);
+        expect(scroller.scrollTop).toBe(latest());
+      }
+      // The reply grows in its row, still at the latest row.
+      list = [...list.slice(0, -1), { ...list.at(-1)!, version: 2, text: "new reply 2\n\nwith a second paragraph" }];
+      await draw(list);
+      expect(scroller.scrollTop).toBe(latest());
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  test("scrolled up, rows appended below leave the view where the reader is", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const draw = (list: AcpmuxRow[]) =>
+      act(async () =>
+        root.render(
+          createElement(VirtualTranscript, { rows: list, onToggleActivity: () => {}, expanded: new Set<string>() }),
+        ),
+      );
+    try {
+      await draw(rows);
+      const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
+      scroller.scrollTop = 1_000;
+      await act(async () => scroller.dispatchEvent(new dom.window.Event("scroll")));
+      await draw([...rows, { id: "new", version: 1, at: 1_000, kind: "assistant", text: "a new reply" }]);
+      expect(scroller.scrollTop).toBe(1_000);
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
   test("at the latest row, a shorter viewport keeps the latest row in view", async () => {
     const size = { width: 760, height: 600 };
     const restore = fakeViewport(size);
