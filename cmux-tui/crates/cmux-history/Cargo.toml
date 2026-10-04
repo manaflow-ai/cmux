@@ -8,6 +8,7 @@ publish.workspace = true
 description = "History read model for cmux: entry wire model, query, journal folds, hidden ranges and the per-profile page visit store"
 
 [dependencies]
+icu_normalizer = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

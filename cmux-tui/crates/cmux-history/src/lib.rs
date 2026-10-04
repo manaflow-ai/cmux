@@ -38,7 +38,6 @@ mod error;
 mod fold;
 mod fold_agent;
 mod fold_command;
-mod fold_table;
 mod hidden;
 mod journal;
 mod query;

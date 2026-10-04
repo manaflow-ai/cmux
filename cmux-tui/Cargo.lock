@@ -843,6 +843,7 @@ dependencies = [
 name = "cmux-history"
 version = "0.1.0"
 dependencies = [
+ "icu_normalizer",
  "proptest",
  "rusqlite",
  "serde",
