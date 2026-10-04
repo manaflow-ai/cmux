@@ -9,8 +9,9 @@ import { safeDisplayName } from "./validate.ts"
  * target's `allow_requests_from` setting (4.2, 16.7) narrows that:
  * - `anyone`: a shared team or a connection. Interim (16.10): the target is "anyone" for
  *   message requests, which are not built, so a stranger is refused until they exist;
- * - `teams`: a shared team only;
- * - `nobody`: no new reach at all (current participants stay).
+ * - `teams`: a shared team or a connection (a connected contact never needs a request, 16.3);
+ * - `nobody`: no new reach at all, also from contacts (current participants stay).
+ * So `anyone` and `teams` differ only once message requests exist (a stranger's request).
  * A block on the pair (16.6) refuses everything. Strangers get the invite flow instead.
  *
  * The facts are resolved by the Worker from their owners (TeamDO membership, the caller's
@@ -48,7 +49,7 @@ export type ReachDecision = { readonly ok: true; readonly display_name: string }
 /** The rule above, for one target. `undefined` = the Worker found no link (or no account). */
 export const reachDecision = (reach: HumanReach | undefined): ReachDecision => {
   if (!reach || reach.blocked === true) return { ok: false, code: NOT_REACHABLE }
-  const allowed = reach.allow_requests_from === "anyone" ? reach.shared_team || reach.connected : reach.allow_requests_from === "teams" ? reach.shared_team : false
+  const allowed = reach.allow_requests_from !== "nobody" && (reach.shared_team || reach.connected)
   if (!allowed) return { ok: false, code: NOT_REACHABLE }
   return { ok: true, display_name: safeDisplayName(reach.display_name, FALLBACK) }
 }
