@@ -104,9 +104,9 @@ Terminal (ghostty-next section 5, decisions D5, D6, D8):
 - Hardware keys: `pressesBegan/Ended` -> `ghostty_surface_key` (physical code, mods,
   characters, unshifted codepoint); Command combos go to app commands first; Option as Meta is
   a setting (`ios.terminal.optionAsMeta`, default true).
-- Accessory bar above the software keyboard (with a hardware keyboard UIKit shows it alone at
-  the bottom edge; GameController's keyboard signal is unreliable on the simulator and is not
-  used to hide it, a deviation from ghostty-next section 5): Esc, Tab, Ctrl
+- Accessory bar above the software keyboard, hidden while a hardware keyboard is attached
+  (`GCKeyboard.coalesced` on device; the simulator always shows it because GameController
+  reports the host Mac's keyboard there): Esc, Tab, Ctrl
   and Alt (sticky one-shot, double tap locks), an arrow pad, `~ / | -`, paste, hide keyboard;
   the key set is the setting `ios.terminal.accessoryKeys`.
 - The grid never changes for the keyboard (D8); the view pans so the cursor row stays above
