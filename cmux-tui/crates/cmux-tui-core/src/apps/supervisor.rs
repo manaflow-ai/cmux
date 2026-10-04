@@ -233,10 +233,23 @@ impl Supervisor {
             });
         }
         let mut seeded = false;
+        // First-party apps removed before the hide-only rule come back hidden.
+        for (app, package) in &catalog.packages {
+            if let Ok(outcome) =
+                mirror::reduce(&mirror, &Op::Restore { app: app.clone() }, Some(&package.facts()))
+                && outcome.changed
+            {
+                mirror = outcome.mirror;
+                seeded = true;
+            }
+        }
         for app in &catalog.defaults {
             let Some(package) = catalog.packages.get(app) else { continue };
-            if let Ok(outcome) =
-                mirror::reduce(&mirror, &Op::Seed { app: app.clone() }, Some(&package.facts()))
+            let seed = Op::Seed {
+                app: app.clone(),
+                hidden: catalog::HIDDEN_DEFAULTS.contains(&app.as_str()),
+            };
+            if let Ok(outcome) = mirror::reduce(&mirror, &seed, Some(&package.facts()))
                 && outcome.changed
             {
                 mirror = outcome.mirror;
@@ -583,6 +596,8 @@ pub(super) fn entry(id: &str, package: Option<&Package>, record: Option<&Record>
         // confirmation sheet can warn on sensitive, restricted and elevated.
         "scope_classes": facts.as_ref().map(scope_classes).unwrap_or_default(),
         "sandboxed": record.sandboxed,
+        // First-party apps offer Hide and Show only, never Remove.
+        "hide_only": package.is_some_and(|p| p.tier == mirror::Tier::FirstParty),
         "available": package.is_some(),
         // Local connections only (apps commands refuse remote ones), so the
         // client may read icons and images straight from the package.
