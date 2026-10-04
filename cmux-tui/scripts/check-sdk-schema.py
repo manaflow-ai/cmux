@@ -28,6 +28,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "TerminalSizingPolicy": "SizePolicy",
     "ClientIdentityWire": "SizingIdentity",
     "SplitRespawnRequest": "SplitRespawn",
+    "AgentSessionParams": "AgentSessionSource",
     "crate::model::ColumnDock": "ColumnPin",
     "SnapshotHave": "SnapshotRequestHave",
     "RowMarkerPoint": "RowMarkerPoint",

@@ -139,18 +139,11 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
     if let Some(owner) = owner {
         fields.insert("owner".into(), json!(owner));
     }
-    // `conversation-tabs-v1`: the conversation a frontend tab shows.
-    let conversation = connection
-        .query_row(
-            "SELECT c.conversation, c.owner FROM resource_tabs AS t
-             JOIN conversation_tabs AS c ON c.browser_id = t.content_id
-             WHERE t.public_id = ?1",
-            [tab_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .optional()?;
-    if let Some((conversation, owner)) = conversation {
-        fields.insert("conversation".into(), json!({"conversation": conversation, "owner": owner}));
+    // `conversation-tabs-v1` / `agent-session-tabs-v1`: what a frontend tab shows.
+    if let Some(conversation) =
+        super::conversation_tabs_store::tab_conversation_wire(connection, tab_id)?
+    {
+        fields.insert("conversation".into(), conversation);
     }
     // A keep-layout record (`end-terminals-keep-layout-v1`): restart a shell
     // in `cwd`. Absent (null) for every other tab, like the other extras.

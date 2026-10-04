@@ -8,24 +8,33 @@
 //! `session.events`, journal replay, raw tree events). Control messages pass
 //! through `project_conversation_tabs`; resource stream items through
 //! `project_conversation_tab_item`.
+//!
+//! `agent-session-tabs-v1` adds the agent session source and
+//! `bind-conversation-tab-session`. A connection with `conversation-tabs-v1`
+//! but without it reads an agent session tab as `browser` with no record,
+//! because its decoders require a conversation source.
 
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{BudgetedText, MessageWriter, Mux, PaneId, WorkspaceId, paired_surface_size};
+use super::{
+    BudgetedText, MessageWriter, Mux, PaneId, SurfaceId, WorkspaceId, paired_surface_size,
+};
 use crate::state::conversation_tabs::ConversationTabTarget;
 use crate::state::conversation_tabs_store::{
-    CONVERSATION_KIND, CONVERSATION_TABS_CAPABILITY, ConversationTabRecord,
-    conversation_tabs_present, downgrade_conversation_tabs,
+    AGENT_SESSION_TABS_CAPABILITY, CONVERSATION_KIND, CONVERSATION_TABS_CAPABILITY,
+    ConversationTabDowngrade, ConversationTabRecord, conversation_tabs_present,
+    downgrade_conversation_tabs,
 };
 use crate::workspace_registry::WorkspaceMutation;
 
 /// `new-conversation-tab`: a tab showing `conversation` of the `local` or
-/// `cloud` conversation owner. With `origin` and `mutation_id` a retry
-/// returns the tab the first request created.
+/// `cloud` conversation owner, or (`agent-session-tabs-v1`) an acpmux
+/// `agent_session`. With `origin` and `mutation_id` a retry returns the tab
+/// the first request created.
 #[derive(Deserialize)]
 pub(super) struct NewConversationTabParams {
     #[serde(default)]
@@ -33,8 +42,12 @@ pub(super) struct NewConversationTabParams {
     /// A workspace to put the tab in (its first pane when it is empty).
     #[serde(default)]
     workspace: Option<WorkspaceId>,
-    conversation: String,
-    owner: String,
+    #[serde(default)]
+    conversation: Option<String>,
+    #[serde(default)]
+    owner: Option<String>,
+    #[serde(default)]
+    agent_session: Option<AgentSessionParams>,
     #[serde(default)]
     origin: Option<String>,
     #[serde(default)]
@@ -45,15 +58,43 @@ pub(super) struct NewConversationTabParams {
     rows: Option<u16>,
 }
 
-pub(super) fn new_conversation_tab(
-    mux: &Arc<Mux>,
-    params: NewConversationTabParams,
-) -> anyhow::Result<Value> {
+/// The acpmux session an agent tab shows: the install that runs it, the
+/// session (absent for a new chat) and the agent kind.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AgentSessionParams {
+    host: String,
+    #[serde(default)]
+    session: Option<String>,
+    #[serde(default)]
+    harness: Option<String>,
+}
+
+fn record_of(
+    conversation: Option<String>,
+    owner: Option<String>,
+    agent_session: Option<AgentSessionParams>,
+) -> anyhow::Result<ConversationTabRecord> {
+    match (conversation, owner, agent_session) {
+        (Some(conversation), Some(owner), None) => {
+            Ok(ConversationTabRecord::Conversation { conversation, owner })
+        }
+        (None, None, Some(AgentSessionParams { host, session, harness })) => {
+            Ok(ConversationTabRecord::AgentSession { host, session, harness })
+        }
+        _ => anyhow::bail!(
+            "bad request: send conversation and owner, or agent_session, not both or neither"
+        ),
+    }
+}
+
+pub(super) fn create(mux: &Arc<Mux>, params: NewConversationTabParams) -> anyhow::Result<Value> {
     let NewConversationTabParams {
         pane,
         workspace,
         conversation,
         owner,
+        agent_session,
         origin,
         mutation_id,
         cols,
@@ -70,9 +111,11 @@ pub(super) fn new_conversation_tab(
         _ => anyhow::bail!("bad request: origin and mutation_id are sent together"),
     };
     let size = paired_surface_size("new-conversation-tab", cols, rows)?;
-    let record = ConversationTabRecord { conversation, owner };
+    let record = record_of(conversation, owner, agent_session)?;
     let outcome = mux.new_conversation_tab(target, record.clone(), mutation.as_ref(), size)?;
     let identity = outcome.surface.resource_identity();
+    // A replay returns the tab's current record (a bound session included).
+    let record = mux.conversation_tab_of(&outcome.surface).unwrap_or(record);
     Ok(json!({
         "surface": outcome.surface.id,
         "tab_resource_id": identity.map(|identity| identity.tab_id.as_str()),
@@ -82,37 +125,82 @@ pub(super) fn new_conversation_tab(
     }))
 }
 
+/// `bind-conversation-tab-session`: bind an agent tab's session once.
+#[derive(Deserialize)]
+pub(super) struct BindSessionParams {
+    surface: SurfaceId,
+    session: String,
+}
+
+pub(super) fn bind(mux: &Arc<Mux>, params: BindSessionParams) -> anyhow::Result<Value> {
+    let (record, replayed) = mux.bind_conversation_tab_session(params.surface, &params.session)?;
+    Ok(json!({"surface": params.surface, "conversation": record.wire(), "replayed": replayed}))
+}
+
 /// The raw tree `kind` of a tab: `conversation` for a conversation tab.
 pub(super) fn raw_tab_kind(surface_kind: &'static str, conversation: bool) -> &'static str {
     if conversation { CONVERSATION_KIND } else { surface_kind }
 }
 
+/// The conversation tab capabilities one connection negotiated.
+#[derive(Default)]
+pub(super) struct NegotiatedTabs {
+    conversation: AtomicBool,
+    agent_sessions: AtomicBool,
+}
+
+impl NegotiatedTabs {
+    /// What the connection must not read in canonical form, if anything.
+    fn downgrade(&self) -> Option<ConversationTabDowngrade> {
+        if !self.conversation.load(Ordering::Acquire) {
+            Some(ConversationTabDowngrade::All)
+        } else if !self.agent_sessions.load(Ordering::Acquire) {
+            Some(ConversationTabDowngrade::AgentSessions)
+        } else {
+            None
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn conversation(&self) -> bool {
+        self.conversation.load(Ordering::Acquire)
+    }
+}
+
+/// The conversation tab capabilities a client may declare.
+pub(super) fn negotiable(capability: &str) -> bool {
+    capability == CONVERSATION_TABS_CAPABILITY || capability == AGENT_SESSION_TABS_CAPABILITY
+}
+
 impl MessageWriter {
     /// Record the connection's capabilities: whether it reads conversation
-    /// tabs in their canonical form.
+    /// tabs, and agent session tabs, in their canonical form.
     pub(super) fn negotiate_conversation_tabs<'a>(
         &self,
-        mut capabilities: impl Iterator<Item = &'a String>,
+        capabilities: impl Iterator<Item = &'a String>,
     ) {
-        if capabilities.any(|capability| capability == CONVERSATION_TABS_CAPABILITY) {
-            self.conversation_tabs.store(true, Ordering::Release);
+        for capability in capabilities {
+            if capability == CONVERSATION_TABS_CAPABILITY {
+                self.conversation_tabs.conversation.store(true, Ordering::Release);
+            } else if capability == AGENT_SESSION_TABS_CAPABILITY {
+                self.conversation_tabs.agent_sessions.store(true, Ordering::Release);
+            }
         }
     }
 
     /// The one outbound projection: a connection without
-    /// `conversation-tabs-v1` reads every conversation tab as `browser`.
+    /// `conversation-tabs-v1` reads every conversation tab as `browser`, one
+    /// without `agent-session-tabs-v1` every agent session tab.
     pub(super) fn project_conversation_tabs(
         &self,
         text: Arc<BudgetedText>,
     ) -> std::io::Result<Arc<BudgetedText>> {
-        if self.conversation_tabs.load(Ordering::Acquire)
-            || !conversation_tabs_present()
-            || !text.contains("\"conversation\"")
-        {
+        let Some(downgrade) = self.conversation_tabs.downgrade() else { return Ok(text) };
+        if !conversation_tabs_present() || !text.contains("\"conversation\"") {
             return Ok(text);
         }
         let Ok(mut value) = serde_json::from_str::<Value>(&text) else { return Ok(text) };
-        if !downgrade_conversation_tabs(&mut value) {
+        if !downgrade_conversation_tabs(&mut value, downgrade) {
             return Ok(text);
         }
         self.render_service.serialize_control(&value)
@@ -122,8 +210,10 @@ impl MessageWriter {
     /// (`session.events` snapshot and delta items, journal records): stream
     /// items do not pass through `send_control`.
     pub(super) fn project_conversation_tab_item(&self, mut item: Value) -> Value {
-        if !self.conversation_tabs.load(Ordering::Acquire) && conversation_tabs_present() {
-            downgrade_conversation_tabs(&mut item);
+        if let Some(downgrade) = self.conversation_tabs.downgrade()
+            && conversation_tabs_present()
+        {
+            downgrade_conversation_tabs(&mut item, downgrade);
         }
         item
     }
@@ -159,3 +249,7 @@ mod tests;
 #[cfg(test)]
 #[path = "agent_session_tabs_tests.rs"]
 mod agent_session_tests;
+
+#[cfg(test)]
+#[path = "agent_session_tabs_wire_tests.rs"]
+mod agent_session_wire_tests;

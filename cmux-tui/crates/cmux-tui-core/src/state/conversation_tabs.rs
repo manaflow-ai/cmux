@@ -8,18 +8,27 @@
 //! commits creates the tab under the recorded browser id. A retry after that
 //! tab was closed is refused (`frontend_browser_key_closed`) and creates
 //! nothing, like `new-frontend-browser-tab` (state/frontend_browser_keys.rs).
+//! The key names the request's record and target; the same key with another
+//! one is refused. Keyed creations are serialized with the frontend browser ones.
+//!
+//! `bind-conversation-tab-session` commits on the state path: one resource
+//! revision, a replay record and a `session.events` upsert of the tab.
 
 use serde_json::Map;
 
 use crate::Surface;
 use crate::mux::*;
 use crate::resource::BrowserPublicId;
+use crate::state::commit::StateEffects;
 use crate::state::conversation_tabs_store::{
-    CONVERSATION_TAB_ENGINE, CONVERSATION_TAB_URL, ConversationTabRecord, browser_for_mutation,
-    mark_conversation_tabs_present, write_conversation_tab,
+    CONVERSATION_TAB_ENGINE, CONVERSATION_TAB_URL, ConversationTabKey, ConversationTabRecord,
+    agent_session_of, bind_agent_session, browser_for_mutation, mark_conversation_tabs_present,
+    write_conversation_tab,
 };
-use crate::state::frontend_browser_keys::{FrontendBrowserReuse, browser_committed};
+use crate::state::frontend_browser_keys::{FrontendBrowserReuse, KEYED_CREATION, browser_committed};
 use crate::state::prelude::*;
+use crate::state::store::StateChanges;
+use crate::state::values::fresh_upserts;
 use crate::workspace_registry::FrontendBrowserRecord;
 
 /// Where a new conversation tab goes: a pane (or the focused pane), or a
@@ -47,6 +56,11 @@ impl Mux {
     ) -> anyhow::Result<ConversationTabOutcome> {
         record.validate()?;
         let key = mutation.map(|mutation| (mutation.origin.as_str(), mutation.id.as_str()));
+        // Held for the whole keyed creation, before every other lock.
+        let _serial = key
+            .is_some()
+            .then(|| KEYED_CREATION.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        let target_ids = self.conversation_tab_target_ids(target)?;
         let recorded = match key {
             Some((origin, id)) => {
                 self.read_registry_state(|connection| browser_for_mutation(connection, origin, id))?
@@ -54,14 +68,15 @@ impl Mux {
             None => None,
         };
         let (browser_id, fresh) = match recorded {
-            Some((browser_id, stored)) => {
+            Some(recorded) => {
                 anyhow::ensure!(
-                    stored == record,
-                    "idempotency.conflict: the key named another conversation tab"
+                    recorded.record.as_ref() == Some(&record)
+                        && recorded.target.as_ref().is_none_or(|stored| *stored == target_ids),
+                    "idempotency.conflict: the key named another conversation tab request"
                 );
+                let browser_id = BrowserPublicId::parse(recorded.browser_id)?;
+                let content = ContentPublicId::Browser(browser_id.clone());
                 if let Some(surface) = self.with_state(|state| {
-                    let content =
-                        ContentPublicId::Browser(BrowserPublicId::parse(browser_id.clone()).ok()?);
                     let surface = state.single_placement_of_content(&content)?;
                     state.surfaces.get(&surface).cloned()
                 }) {
@@ -69,10 +84,10 @@ impl Mux {
                 }
                 // The key's tab committed and was closed: its browser id is a
                 // tombstone, never the content of a second tab.
-                if self.read_registry_state(|c| browser_committed(c, &browser_id))? {
-                    return Err(FrontendBrowserReuse::KeyClosed(browser_id).into());
+                if self.read_registry_state(|c| browser_committed(c, browser_id.as_str()))? {
+                    return Err(FrontendBrowserReuse::KeyClosed(browser_id.as_str().to_string()).into());
                 }
-                (BrowserPublicId::parse(browser_id)?, false)
+                (browser_id, false)
             }
             None => (BrowserPublicId::random()?, true),
         };
@@ -86,6 +101,11 @@ impl Mux {
                 owner: None,
             };
             let id = browser_id.as_str().to_string();
+            let key = key.map(|(origin, mutation_id)| ConversationTabKey {
+                origin,
+                mutation_id,
+                target: &target_ids,
+            });
             let write =
                 |tx: &rusqlite::Transaction<'_>| write_conversation_tab(tx, &id, &record, key);
             let mut registry = self.workspace_registry.lock().unwrap();
@@ -141,6 +161,86 @@ impl Mux {
         let commit = self.commit_ordinary_topology_operation(operation, selectors, fields)?;
         self.emit_resource_topology_legacy_events(operation, &commit);
         self.ordinary_created_surface(&commit)
+    }
+
+    /// The public ids a creation's target names (a key's fingerprint):
+    /// numeric ids do not survive a daemon restart.
+    fn conversation_tab_target_ids(&self, target: ConversationTabTarget) -> anyhow::Result<Value> {
+        self.with_state(|state| match target {
+            ConversationTabTarget::Pane(None) => Ok(serde_json::json!({"pane": null})),
+            ConversationTabTarget::Pane(Some(pane)) => {
+                let id = state.resource_indexes.pane_ids.get(&pane).context("unknown pane")?;
+                Ok(serde_json::json!({"pane": id.as_str()}))
+            }
+            ConversationTabTarget::Workspace(workspace) => {
+                let id = state
+                    .workspaces
+                    .iter()
+                    .find(|item| item.id == workspace)
+                    .map(|item| item.public_id.to_string())
+                    .with_context(|| format!("unknown workspace {workspace}"))?;
+                Ok(serde_json::json!({"workspace": id}))
+            }
+        })
+    }
+
+    /// `bind-conversation-tab-session`: bind a new chat's acpmux session
+    /// once. Returns the record and whether the call was a replay (the same
+    /// session was bound already).
+    pub(crate) fn bind_conversation_tab_session(
+        &self,
+        surface: SurfaceId,
+        session: &str,
+    ) -> anyhow::Result<(ConversationTabRecord, bool)> {
+        let runtime =
+            self.surface(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
+        let identity = runtime.resource_identity();
+        let (browser_id, tab_id) = match identity
+            .map(|identity| (&identity.content_id, &identity.tab_id))
+        {
+            Some((ContentPublicId::Browser(id), tab)) => (id.as_str().to_string(), tab.to_string()),
+            _ => anyhow::bail!("bad request: surface {surface} is not a conversation tab"),
+        };
+        let bound =
+            self.read_registry_state(|connection| agent_session_of(connection, &browser_id))?;
+        let changed = match bound {
+            None => anyhow::bail!("bad request: surface {surface} has no agent session source"),
+            Some(Some(bound)) if bound == session => false,
+            Some(Some(bound)) => {
+                anyhow::bail!("conversation_tab.session_bound: the tab is bound to session {bound}")
+            }
+            Some(None) => {
+                let operation = "tab.conversation.bind_session";
+                let fingerprint = serde_json::json!({
+                    "operation": operation, "browser": browser_id, "session": session,
+                });
+                let commit = self.commit_state(
+                    &WorkspaceMutation::local("cmux-tui-conversation-tab"),
+                    operation,
+                    &fingerprint,
+                    None,
+                    StateEffects { presentation: true, tree: false },
+                    |transaction, _| {
+                        // A concurrent bind may have won since the read.
+                        let changed = bind_agent_session(transaction, &browser_id, session)?;
+                        let changes = if changed {
+                            fresh_upserts(transaction, &[], &[], std::slice::from_ref(&tab_id))?
+                        } else {
+                            Vec::new()
+                        };
+                        Ok(StateChanges::new(serde_json::json!({"changed": changed}), changes))
+                    },
+                )?;
+                commit.result["changed"].as_bool().unwrap_or(false)
+            }
+        };
+        let record = self
+            .conversation_tab_of(&runtime)
+            .ok_or_else(|| anyhow::anyhow!("surface {surface} lost its conversation record"))?;
+        if changed {
+            self.emit_tab_changed(surface);
+        }
+        Ok((record, !changed))
     }
 
     /// The conversation record of a tab surface, if it is a conversation tab.

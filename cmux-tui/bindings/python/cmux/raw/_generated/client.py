@@ -27,6 +27,9 @@ class GeneratedClientMixin:
     def attach_surface(self, surface: Union[Id, None, MissingType] = MISSING, *, cols: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, expected_terminal_id: Union[str, None, MissingType] = MISSING, mode: Union[Literal['bytes', 'render'], None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, snapshot: Union[str, None, MissingType] = MISSING, snapshot_version: Union[int, None, MissingType] = MISSING, viewer_backlog_bytes: Union[int, None, MissingType] = MISSING) -> Any:
         return self._open_command_stream('attach-surface', AttachSurfaceRequest(surface=surface, cols=cols, expected_generation=expected_generation, expected_terminal_id=expected_terminal_id, mode=mode, rows=rows, snapshot=snapshot, snapshot_version=snapshot_version, viewer_backlog_bytes=viewer_backlog_bytes))
 
+    def bind_conversation_tab_session(self, surface: Id, session: str) -> BindConversationTabSessionResult:
+        return self._invoke_command('bind-conversation-tab-session', BindConversationTabSessionRequest(surface=surface, session=session))
+
     def browser_activate(self, surface: Id) -> EmptyResult:
         return self._invoke_command('browser-activate', BrowserActivateRequest(surface=surface))
 
@@ -339,8 +342,8 @@ class GeneratedClientMixin:
     def new_browser_tab(self, url: str, *, pane: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-browser-tab', NewBrowserTabRequest(url=url, pane=pane, cols=cols, rows=rows))
 
-    def new_conversation_tab(self, conversation: str, owner: str, *, pane: Union[Id, None, MissingType] = MISSING, workspace: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> NewConversationTabResult:
-        return self._invoke_command('new-conversation-tab', NewConversationTabRequest(conversation=conversation, owner=owner, pane=pane, workspace=workspace, cols=cols, mutation_id=mutation_id, origin=origin, rows=rows))
+    def new_conversation_tab(self, pane: Union[Id, None, MissingType] = MISSING, *, workspace: Union[Id, None, MissingType] = MISSING, agent_session: Union[AgentSessionSource, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, conversation: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, owner: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> NewConversationTabResult:
+        return self._invoke_command('new-conversation-tab', NewConversationTabRequest(pane=pane, workspace=workspace, agent_session=agent_session, cols=cols, conversation=conversation, mutation_id=mutation_id, origin=origin, owner=owner, rows=rows))
 
     def new_frontend_browser_tab(self, engine: str, url: str, *, pane: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, favicon_url: Union[str, None, MissingType] = MISSING, idempotency_key: Union[str, None, MissingType] = MISSING, owner: Union[str, None, MissingType] = MISSING, profile_id: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('new-frontend-browser-tab', NewFrontendBrowserTabRequest(engine=engine, url=url, pane=pane, cols=cols, favicon_url=favicon_url, idempotency_key=idempotency_key, owner=owner, profile_id=profile_id, rows=rows, title=title))
@@ -657,6 +660,7 @@ GeneratedClientMixin.add_screens_to_screen_group.__cmux_command__ = COMMANDS['ad
 GeneratedClientMixin.add_tabs_to_tab_group.__cmux_command__ = COMMANDS['add-tabs-to-tab-group']
 GeneratedClientMixin.apply_layout.__cmux_command__ = COMMANDS['apply-layout']
 GeneratedClientMixin.attach_surface.__cmux_command__ = COMMANDS['attach-surface']
+GeneratedClientMixin.bind_conversation_tab_session.__cmux_command__ = COMMANDS['bind-conversation-tab-session']
 GeneratedClientMixin.browser_activate.__cmux_command__ = COMMANDS['browser-activate']
 GeneratedClientMixin.browser_back.__cmux_command__ = COMMANDS['browser-back']
 GeneratedClientMixin.browser_forward.__cmux_command__ = COMMANDS['browser-forward']
