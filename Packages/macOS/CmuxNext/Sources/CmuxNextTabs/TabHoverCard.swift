@@ -73,6 +73,9 @@ final class TabHoverCardController: HoverCardSource {
 
     isolated deinit { memoryPressure?.cancel() }
 
+    /// The image the card body shows now (`debug.hover_sweep`).
+    var shownThumbnail: CGImage? { body?.thumbnailImage }
+
     static func targetID(_ id: TabID) -> HoverTargetID {
         HoverTargetID("tab:\(id.rawValue)")
     }
@@ -191,7 +194,12 @@ final class TabHoverCardController: HoverCardSource {
         thumbnailTask = Task { [weak self] in
             let image = await provider.previewImage(for: id, maxPixelSize: size)
             guard let self, !Task.isCancelled, self.bodyID == target else { return }
-            guard let image else { return }
+            // No thumbnail (a page never captured): the placeholder, not the
+            // previous tab's picture kept through the retarget.
+            guard let image else {
+                self.body?.setThumbnail(nil)
+                return
+            }
             self.thumbnails.insert(image, for: id)
             self.body?.setThumbnail(image)
         }

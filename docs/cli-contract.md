@@ -47,6 +47,11 @@ Global options, accepted before the scope:
 `--socket`, `--session`, `--machine` and `--app-socket` also take the
 `--flag=value` form.
 
+`--socket` is a daemon session socket. The remote commands (`connect`, `ssh`,
+`forward`, `rpc`) reach a ROUTE and refuse `--socket`. A tagged app's
+`/tmp/cmux-debug-<tag>.sock` is the app control socket: pass it with
+`--app-socket` to an app verb (`cmux --app-socket <path> app identify`).
+
 Every command acts on one session. Without `--socket`, `--session` or
 `--all-sessions`, lists and bulk commands act only on the session the CLI
 finds (see [Discovery](#discovery)), so a script that lists and then closes

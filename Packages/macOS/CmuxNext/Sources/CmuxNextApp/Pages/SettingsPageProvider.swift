@@ -29,6 +29,9 @@ final class SettingsPageProvider: PageProvider {
     /// The cmux picker for folders (R89): the paths the person chose (`~/` for home), nil when
     /// they left it.
     var pickFolders: (@MainActor () async -> [String]?)?
+    /// The registry's buttons for a section (`SettingsSchema.actions(in:)`): id, localized title,
+    /// and whether it can run now.
+    var sectionActions: (@MainActor (SettingsSection) -> JSONValue)?
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
@@ -92,6 +95,11 @@ final class SettingsPageProvider: PageProvider {
                 try await write(descriptor, .array((current + added).map(JSONValue.string)), by: .user)
             }
             return ["added": .array(added.map(JSONValue.string))]
+        case "cmux.settings.section.actions":
+            guard let name = params["section"]?.stringValue, let section = SettingsSection(rawValue: name) else {
+                throw PageError.invalidParams("section is required")
+            }
+            return sectionActions?(section) ?? .array([])
         case "cmux.settings.file.reveal":
             NSWorkspace.shared.activateFileViewerSelecting([settings.file.url])
             return .object([:])

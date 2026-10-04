@@ -162,7 +162,7 @@ fn host_events_during_a_call_keep_only_the_newest_of_each_op() {
 fn unknown_host_frames_during_a_call_are_dropped_and_host_answers_are_bounded() {
     let mut input = String::new();
     input.push_str("{\"t\":\"host.mystery\",\"op\":\"x\"}\n");
-    for n in 0..(cmux_cloud::api::RELAY_QUEUE_LINES + 10) {
+    for n in 0..(cmux_cloud::api::HOST_FRAME_LINES + 10) {
         input.push_str(&format!("{{\"t\":\"host.result\",\"id\":{n},\"value\":{{}}}}\n"));
     }
     input.push_str("{\"type\":\"relay.result\",\"id\":\"r1\",\"ok\":true,\"value\":{}}\n");
@@ -173,7 +173,8 @@ fn unknown_host_frames_during_a_call_are_dropped_and_host_answers_are_bounded() 
         assert_eq!(message["t"], "host.result", "{message}");
         kept += 1;
     }
-    assert_eq!(kept, cmux_cloud::api::RELAY_QUEUE_LINES);
+    // One per frame link plus the link details (not the op-line bound).
+    assert_eq!(kept, cmux_cloud::api::HOST_FRAME_LINES);
 }
 
 #[test]
