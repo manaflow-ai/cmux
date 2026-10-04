@@ -370,7 +370,19 @@ native (`BrowserReplBoundary` in the session, and the driver):
   started it, so it is judged by that frame's document as WebKit recorded
   it (its source frame) and cancelled when the policy blocks that one; one
   no page started (the agent's own) passes. The content rules judge a
-  `blob:` subresource or child frame by the origin in its URL. It also judges every frame, not only the main frame, by WebKit's
+  `blob:` subresource or child frame by the origin in its URL. A document
+  of an opaque origin whose URL names no host (a `data:` frame, a sandboxed
+  `about:srcdoc`, a `blob:` of an opaque origin) is judged by the pages that
+  made it: the navigation delegate records, for every navigation to such a
+  URL in any tab, the document that started it (WebKit's source frame; one
+  that is itself opaque passes on its own makers, and a new tab's first
+  load is the app's), and the driver refuses reads and input on the
+  document (and blanks or makes inert its frame) when the policy blocks one
+  of them. A frame keeps every maker recorded for it for its life (WebKit
+  does not say which child-frame navigation committed). Under a locked
+  policy such a document is refused also when cmux has no record of who
+  made it (a document loaded before cmux saw the navigation, or a frame
+  with more than 16 makers). It also judges every frame, not only the main frame, by WebKit's
   record of it (`WKFrameInfo.securityOrigin` and URL) and by its document
   (`location.origin` and `location.protocol + "//" + location.host`, read
   in the driver's own content world; `location` cannot be forged by page or

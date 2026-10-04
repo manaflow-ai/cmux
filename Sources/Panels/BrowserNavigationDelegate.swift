@@ -341,6 +341,10 @@ import WebKit
             label: "BrowserNavigationDelegate.navigationAction"
         ).closure
 
+        // Who makes each opaque document (data:, about:, an opaque blob:):
+        // a browser REPL session's domain policy judges it by its maker.
+        BrowserReplDocumentProvenance.note(navigationAction, in: webView)
+
         // While a browser REPL session's guarded input or capture is in
         // flight in this web view, no child frame loads a new document: the
         // frame gate judged the frames before it started

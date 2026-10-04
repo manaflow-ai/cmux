@@ -9,11 +9,29 @@ public struct BrowserReplFrameDocument: Sendable, Equatable {
     public var origin: String?
     /// The document URL's scheme and host: `https://example.com:8443`, `about://`.
     public var place: String
+    /// Who made an opaque document (``isOpaque``), as the navigation
+    /// delegate recorded it (``BrowserReplDocumentProvenance``); nil when
+    /// nothing was recorded. Not part of equality: it describes the frame's
+    /// history, not the document.
+    public var makers: [BrowserReplDocumentMaker]?
 
-    public init(origin: String?, place: String) {
+    public init(origin: String?, place: String, makers: [BrowserReplDocumentMaker]? = nil) {
         self.origin = origin
         self.place = place
+        self.makers = makers
     }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.origin == rhs.origin && lhs.place == rhs.place
+    }
+
+    /// Whether the document has an opaque origin and a URL that names no
+    /// host (`data:`, `about:`, `blob:`): neither tells who wrote it.
+    public var isOpaque: Bool {
+        (origin == nil || origin == "null") && Self.hostlessPlaces.contains(place)
+    }
+
+    static let hostlessPlaces: Set<String> = ["about://", "data://", "blob://"]
 
     /// The document WebKit recorded for a frame when the tree was read; a
     /// frame that navigated since shows another one.
@@ -21,6 +39,18 @@ public struct BrowserReplFrameDocument: Sendable, Equatable {
     public init(info: WKFrameInfo) {
         origin = Self.origin(of: info.securityOrigin)
         place = Self.place(of: info.request.url)
+        if isOpaque { makers = BrowserReplDocumentProvenance.makers(of: info) }
+    }
+
+    /// This document with the makers recorded for `frame` of `webView`
+    /// (`nil`: the main frame) when it is opaque.
+    @MainActor
+    func withMakers(frame: WKFrameInfo?, in webView: WKWebView) -> Self {
+        guard isOpaque else { return self }
+        var document = self
+        let key = frame.flatMap(BrowserReplDocumentProvenance.frameKey) ?? (frame == nil ? "main" : nil)
+        document.makers = key.flatMap { BrowserReplDocumentProvenance.makers(ofFrame: $0, in: webView) }
+        return document
     }
 
     /// `scheme://host[:port]` of a WebKit security origin, `"null"` when opaque.
@@ -160,13 +190,41 @@ extension BrowserReplDomainPolicy {
     /// origin and its URL's host must both be allowed: an `about:blank` or
     /// `blob:` document carries the origin of the page that made it, and is
     /// judged by that origin alone (its URL names no host).
+    ///
+    /// An opaque document (``BrowserReplFrameDocument/isOpaque``: a `data:`
+    /// document, a sandboxed `about:srcdoc`, a `blob:` of an opaque origin)
+    /// has neither, so it is judged by the documents that made it
+    /// (``BrowserReplDocumentProvenance``): blocked when the policy blocks
+    /// one of them, and, under a locked policy, when cmux cannot tell who
+    /// made it. A page the policy blocks could otherwise show its content in
+    /// a `data:` document of its own frame.
     public func blockReason(document: BrowserReplFrameDocument) -> String? {
         guard isActive else { return nil }
         if let origin = document.origin, origin != "null", let reason = blockReason(origin + "/") {
             return reason
         }
-        if ["about://", "data://", "blob://"].contains(document.place) { return nil }
+        if document.isOpaque { return opaqueBlockReason(document) }
+        if BrowserReplFrameDocument.hostlessPlaces.contains(document.place) { return nil }
         return blockReason(document.place + "/")
+    }
+
+    private func opaqueBlockReason(_ document: BrowserReplFrameDocument) -> String? {
+        var unknown = document.makers?.isEmpty ?? true
+        for maker in document.makers ?? [] {
+            switch maker {
+            case .app:
+                continue
+            case .page(let page):
+                if let reason = blockReason(document: page) {
+                    let shown = page.origin.flatMap { $0 == "null" ? nil : $0 } ?? page.place
+                    return "a \(document.place.dropLast(3)): document made by \(shown), which the domain policy blocks: \(reason)"
+                }
+            case .unknown:
+                unknown = true
+            }
+        }
+        guard unknown, locked else { return nil }
+        return "a \(document.place.dropLast(3)): document of an opaque origin whose maker cmux cannot tell, which a locked domain policy refuses; navigate the frame to an allowed page"
     }
 }
 
@@ -223,7 +281,7 @@ public final class BrowserReplFrameGate {
     public func recordedBlockReason(of frame: BrowserReplFrame, in webView: WKWebView) -> String? {
         guard policy.isActive else { return nil }
         if let info = frame.info { return policy.blockReason(document: BrowserReplFrameDocument(info: info)) }
-        return policy.blockReason(document: BrowserReplFrameDocument(url: webView.url))
+        return policy.blockReason(document: BrowserReplFrameDocument(url: webView.url).withMakers(frame: nil, in: webView))
     }
 
     /// Reads the document `frame` shows now and throws `blocked` when the
@@ -1136,7 +1194,7 @@ public final class BrowserReplFrameGate {
         guard let pair = value as? [Any], pair.count == 2, let place = pair[1] as? String else {
             throw BrowserReplDriverError(code: "stale", message: "Frame \(frame.frameID) did not answer")
         }
-        return BrowserReplFrameDocument(origin: pair[0] as? String, place: place)
+        return BrowserReplFrameDocument(origin: pair[0] as? String, place: place).withMakers(frame: frame.info, in: webView)
     }
 
     /// Runs one of the gate's own scripts in its world, failing with
