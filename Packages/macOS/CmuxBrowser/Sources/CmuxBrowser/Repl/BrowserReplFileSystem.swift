@@ -148,6 +148,7 @@ public struct BrowserReplFileSystem: Sendable {
             guard let name = location.name else { throw Self.isDirectoryError }
             let append = arguments["append"] as? Bool == true
             // Refused before the file is opened, so an existing file is kept.
+            try writeBudget.takeEntryChange(syscall: "write", display: display)
             try writeBudget.take(data.count, syscall: "write", display: display)
             // Truncated only once it is known to be a regular file.
             let flags = O_WRONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK | O_NOCTTY | (append ? O_APPEND : 0)
@@ -171,6 +172,7 @@ public struct BrowserReplFileSystem: Sendable {
                 if recursive { return NSNull() }
                 throw BrowserReplFileSystemError(code: "EEXIST", message: "EEXIST: file already exists, mkdir '\(display)'")
             }
+            try writeBudget.takeEntryChange(syscall: "mkdir", display: display)
             if mkdirat(location.directory.fd, name, 0o777) != 0 {
                 let number = errno
                 if number == EEXIST, recursive, (try? location.status())?.isDirectory == true { return NSNull() }
@@ -194,6 +196,7 @@ public struct BrowserReplFileSystem: Sendable {
                 throw BrowserReplFileSystemError(code: "EACCES", message: "EACCES: refusing to remove the REPL working directory")
             }
             let force = arguments["force"] as? Bool ?? false
+            try writeBudget.takeEntryChange(syscall: "rm", display: display)
             let status: FileStatus
             do {
                 status = try location.status(display: display, syscall: "rm")
@@ -221,6 +224,7 @@ public struct BrowserReplFileSystem: Sendable {
             guard let fromName = from.name, let toName = to.name, !isRoot(from), !isRoot(to) else {
                 throw BrowserReplFileSystemError(code: "EACCES", message: "EACCES: refusing to move or replace the REPL working directory")
             }
+            try writeBudget.takeEntryChange(syscall: "rename", display: "\(try raw("from"))' -> '\(try raw("to"))")
             guard renameat(from.directory.fd, fromName, to.directory.fd, toName) == 0 else {
                 throw Self.posixError(errno, syscall: "rename", display: "\(try raw("from"))' -> '\(try raw("to"))")
             }
@@ -231,6 +235,7 @@ public struct BrowserReplFileSystem: Sendable {
             let (source, size) = try openFile(try locate(.read, key: "from"), display: fromDisplay, syscall: "copyfile")
             let destination = try locate(.write, key: "to")
             guard let name = destination.name else { throw Self.isDirectoryError }
+            try writeBudget.takeEntryChange(syscall: "copyfile", display: pair)
             try writeBudget.take(size, syscall: "copyfile", display: pair)
             // Copy next to the destination, then swap it in, so a failed copy
             // leaves an existing destination untouched.
@@ -426,6 +431,7 @@ public struct BrowserReplFileSystem: Sendable {
                 guard number == ENOENT else { throw Self.posixError(number, syscall: "open", display: display) }
                 if isLast { return Location(directory: directory, name: component) }
                 guard creatingDirectories else { throw Self.posixError(ENOENT, syscall: "open", display: display) }
+                try writeBudget.takeEntryChange(syscall: "mkdir", display: display)
                 if mkdirat(directory.fd, component, 0o777) != 0, errno != EEXIST {
                     throw Self.posixError(errno, syscall: "mkdir", display: display)
                 }
@@ -747,23 +753,51 @@ public struct BrowserReplFileSystem: Sendable {
 }
 
 /// What a session's fs may still write: at most `perCall` bytes in one
-/// `writeFile` or `copyFile`, and `perSession` in all over the session's
-/// life, so agent code cannot fill the disk. Shared by the fs copies of one
-/// session.
+/// `writeFile` or `copyFile`, `perSession` in all over the session's life,
+/// and `perSessionEntryChanges` changes to entries (a file written or
+/// copied, also an empty one, a directory made, an entry renamed or
+/// removed), so agent code can fill neither the disk nor its entries.
+/// Shared by the fs copies of one session.
 final class BrowserReplWriteBudget: @unchecked Sendable {
     /// The most one `writeFile` (also an append) or `copyFile` writes, 256 MiB.
     static let maximumBytesPerCall = 256 << 20
     /// The most a session's fs writes over its life, 2 GiB.
     static let maximumBytesPerSession = 2 << 30
+    /// The most entry changes a session's fs makes over its life.
+    static let maximumEntryChangesPerSession = 100_000
 
     let perCall: Int
     let perSession: Int
+    let perSessionEntryChanges: Int
     private let lock = NSLock()
     private var written = 0
+    private var entryChanges = 0
 
-    init(perCall: Int = BrowserReplWriteBudget.maximumBytesPerCall, perSession: Int = BrowserReplWriteBudget.maximumBytesPerSession) {
+    init(
+        perCall: Int = BrowserReplWriteBudget.maximumBytesPerCall,
+        perSession: Int = BrowserReplWriteBudget.maximumBytesPerSession,
+        perSessionEntryChanges: Int = BrowserReplWriteBudget.maximumEntryChangesPerSession
+    ) {
         self.perCall = perCall
         self.perSession = perSession
+        self.perSessionEntryChanges = perSessionEntryChanges
+    }
+
+    /// Takes one entry change (a file written or copied, a directory made,
+    /// an entry renamed or removed) from the budget, or throws `EDQUOT`
+    /// when the session made its limit of them.
+    func takeEntryChange(syscall: String, display: String) throws {
+        let taken: Bool = lock.withLock {
+            guard entryChanges < perSessionEntryChanges else { return false }
+            entryChanges += 1
+            return true
+        }
+        guard taken else {
+            throw BrowserReplFileSystemError(
+                code: "EDQUOT",
+                message: "EDQUOT: the REPL session has made its limit of \(perSessionEntryChanges) file changes (files written, directories made, entries renamed or removed), \(syscall) '\(display)'; reset the session (cmux browser repl reset NAME) to make more"
+            )
+        }
     }
 
     /// Takes `count` bytes from the budget, or throws `EFBIG` when the call
