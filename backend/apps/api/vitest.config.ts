@@ -70,6 +70,7 @@ export default defineConfig({
           TEAM_VM_DRIVER: "fake",
           // Cloud machines use the in-object fake provider under the test prefix (cloud-driver.ts).
           CLOUD_DRIVER: "fake",
+          CLOUD_API_ORIGIN: "https://api.test",
           CLOUD_LINK_SIGNING_KEYS: JSON.stringify({ active: "test-link-2", keys: linkKeys }),
           CLOUD_ADMIN_KEY: "test-cloud-admin-key-0123456789abcdef",
           // userIdFor(STACK_PROJECT_ID, "ops_person_1"): the only person the abandoned-clear route accepts in tests.

@@ -29,7 +29,9 @@ describe("part 1: create mints the host id, epoch 1 and a one-time bind token", 
     expect(created.value.machine.host).toBeNull()
     const file = await bindFile(x.stub, machine)
     expect(file.mode).toBe(0o600)
-    expect(file.json).toMatchObject({ team: x.team, machine })
+    // a9's bind-file contract: one image for every environment, so the file names the API origin
+    // (https, on the image's per-env allowlist) and the short environment.
+    expect(file.json).toMatchObject({ team: x.team, machine, env: "test", api_origin: "https://api.test" })
     expect(file.json.bind_token).toMatch(/^[A-Za-z0-9_-]{43}$/)
     const dump = await dumpSqlite(x.stub)
     expect(dump).not.toContain(file.json.bind_token)

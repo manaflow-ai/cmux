@@ -26,7 +26,7 @@ describe("part 4: link_token in CloudDO", { timeout: 60_000 }, () => {
     const v = await verifyLinkToken(r.value.token, { aud: host, epoch: 1, now: now(), keyset: keyset.keys })
     expect(v.ok, JSON.stringify(v)).toBe(true)
     if (!v.ok) return
-    expect(v.claims).toMatchObject({ aud: host, sub: inst.install, svc: ["daemon", "ssh"], epoch: 1, team: x.team })
+    expect(v.claims).toMatchObject({ iss: "cmux:cloud:test", aud: host, sub: inst.install, svc: ["daemon", "ssh"], epoch: 1, team: x.team })
     expect(v.claims.exp - v.claims.iat).toBe(300)
     expect(v.claims.jti).toMatch(/^[A-Za-z0-9_-]{22}$/)
     expect(r.value.expires_at).toBe(v.claims.exp * 1000)

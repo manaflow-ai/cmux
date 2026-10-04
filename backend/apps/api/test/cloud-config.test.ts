@@ -33,3 +33,10 @@ describe("Cloud image config (CLOUD-DEV-SNAPSHOT)", () => {
     expect(cloudConfig({ ENVIRONMENT: "test", CLOUD_NAME_PREFIX: "cmuxnp-test-cld-", CLOUD_DRIVER: "fake" } as never)).toMatchObject({ prefix: "cmuxnp-test-cld-", image: "cmuxnp-test-vmimg-fake" })
   })
 })
+
+describe("Cloud environment tag (iss and bind file env)", () => {
+  it("maps ENVIRONMENT to dev, stg, prod (test stays test); anything else has no tag", async () => {
+    const { cloudEnvTag } = await import("../src/cloud-driver.ts")
+    expect([cloudEnvTag("development"), cloudEnvTag("staging"), cloudEnvTag("production"), cloudEnvTag("test"), cloudEnvTag("local")]).toEqual(["dev", "stg", "prod", "test", null])
+  })
+})
