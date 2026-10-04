@@ -49,11 +49,15 @@ nonisolated public struct UpdatePreferences: Equatable, Sendable {
     public var installOnQuit: Bool
     public var notify: UpdateNotifyMode
     public var quietHours: UpdateQuietHours?
+    /// Previous builds kept for rollback.
+    public var keepPreviousVersions: Int
 
-    public init(installOnQuit: Bool = true, notify: UpdateNotifyMode = .card, quietHours: UpdateQuietHours? = nil) {
+    public init(installOnQuit: Bool = true, notify: UpdateNotifyMode = .card, quietHours: UpdateQuietHours? = nil,
+                keepPreviousVersions: Int = 1) {
         self.installOnQuit = installOnQuit
         self.notify = notify
         self.quietHours = quietHours
+        self.keepPreviousVersions = keepPreviousVersions
     }
 
     public static let defaults = UpdatePreferences()

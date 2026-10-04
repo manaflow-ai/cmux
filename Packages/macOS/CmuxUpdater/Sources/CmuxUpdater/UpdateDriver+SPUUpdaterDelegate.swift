@@ -40,6 +40,11 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         UpdateFeedResolver().resolve(infoFeedURL: infoFeedURLProvider()).channel.allowedSparkleChannels
     }
 
+    func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
+        log.append("will install \(item.versionString)")
+        actionDelegate?.updaterWillInstallUpdate(build: item.versionString)
+    }
+
     func updater(_ updater: SPUUpdater, willScheduleUpdateCheckAfterDelay delay: TimeInterval) {
         log.append("next update check scheduled in \(Int(delay.rounded()))s")
     }

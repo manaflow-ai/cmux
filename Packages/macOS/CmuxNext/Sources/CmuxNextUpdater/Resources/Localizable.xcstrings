@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "updater.rollback.storesUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中の cmux-tui がデータ形式を報告できないため、ロールバックを確認できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+          }
+        }
+      }
+    },
     "updater.rollback.nothingKept": {
       "extractionState": "manual",
       "localizations": {

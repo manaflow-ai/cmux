@@ -48,6 +48,10 @@ nonisolated enum UpdaterStrings {
         format("updater.rollback.signature", "The kept cmux %@ is not signed by the cmux team, so it will not run.", version)
     }
 
+    static var rollbackStoresUnknown: String {
+        text("updater.rollback.storesUnknown", "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback.")
+    }
+
     // Test feed
     static var testFeedRefused: String {
         text("updater.testFeed.refused", "A test update feed needs a DEV or NIGHTLY build and an https address (http only on this Mac).")

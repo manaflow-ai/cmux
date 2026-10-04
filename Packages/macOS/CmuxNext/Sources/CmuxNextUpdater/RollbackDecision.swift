@@ -33,6 +33,8 @@ nonisolated public enum RollbackRefusal: Error, Equatable, Sendable {
     case unknownStore(store: String, kept: KeptVersion)
     /// The kept bundle is not signed by this app's team.
     case signature(KeptVersion)
+    /// The running daemon cannot report its stored formats.
+    case storesUnknown
 }
 
 /// Picks the rollback target or refuses (pure).
@@ -71,6 +73,8 @@ extension RollbackRefusal {
             UpdaterStrings.rollbackUnknownStore(kept.shortVersion, store)
         case .signature(let kept):
             UpdaterStrings.rollbackSignature(kept.shortVersion)
+        case .storesUnknown:
+            UpdaterStrings.rollbackStoresUnknown
         }
     }
 }
