@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "6e41cec831ffb93327a004dac892e0cc173eedbbba6fe1c1926b2b91e2a7db55";
+inline constexpr std::string_view kProtocolIrSha256 = "3d68350e643abae41960f97711e728cf3681b9fc60044ae1fc478ec89addd2a4";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -39,23 +39,17 @@ enum class ClientTransport;
 struct CloseTerminalResult;
 struct ColorHex;
 struct ColumnPin;
-enum class ConversationAgentClass;
 struct ConversationChange;
-struct ConversationEmojiReaction;
 struct ConversationMessage;
 struct ConversationPart;
 struct ConversationPartRef;
 struct ConversationParticipant;
-enum class ConversationParticipantKind;
 struct ConversationReaction;
 struct ConversationReactionKind;
 struct ConversationSearchHit;
 struct ConversationSummary;
 struct ConversationTabRecord;
-enum class ConversationTapback;
-struct ConversationTapbackReaction;
 struct ConversationTextRun;
-enum class ConversationWorkStatus;
 struct CopyResult;
 enum class CursorStyle;
 struct DeadPane;
@@ -472,12 +466,6 @@ struct WorkspaceChangedEvent;
 struct WorkspaceClosedEvent;
 struct WorkspaceMovedEvent;
 struct WorkspaceRenamedEvent;
-struct ConversationChangeConversation;
-struct ConversationChangeMessage;
-struct ConversationChangeMessageUpdated;
-struct ConversationChangeReadCursor;
-struct ConversationPartText;
-struct ConversationPartWork;
 enum class CopyResultMode;
 struct DeclarativeLayoutLeaf;
 struct DeclarativeLayoutSplit;
@@ -1215,11 +1203,6 @@ struct ConfigReloadRequestedEvent {
     friend bool operator==(const ConfigReloadRequestedEvent&, const ConfigReloadRequestedEvent&) = default;
 };
 
-enum class ConversationAgentClass {
-    mux,
-    agent,
-};
-
 struct ConversationAgentTokenRequest {
     std::string participant{};
     friend bool operator==(const ConversationAgentTokenRequest&, const ConversationAgentTokenRequest&) = default;
@@ -1250,30 +1233,15 @@ struct ConversationTextRun {
     friend bool operator==(const ConversationTextRun&, const ConversationTextRun&) = default;
 };
 
-struct ConversationPartText {
-    std::optional<std::vector<ConversationTextRun>> runs{};
-    std::string text{};
-    friend bool operator==(const ConversationPartText&, const ConversationPartText&) = default;
-};
-
-enum class ConversationWorkStatus {
-    running,
-    done,
-    failed,
-    waiting,
-};
-
-struct ConversationPartWork {
+struct ConversationPart {
     std::optional<std::string> host{};
     std::optional<std::string> preview{};
-    std::string session{};
-    ConversationWorkStatus status{};
-    friend bool operator==(const ConversationPartWork&, const ConversationPartWork&) = default;
-};
-
-struct ConversationPart {
-    using Variant = std::variant<ConversationPartText, ConversationPartWork>;
-    Variant value{};
+    std::optional<std::vector<ConversationTextRun>> runs{};
+    std::optional<std::string> session{};
+    std::optional<std::string> status{};
+    std::optional<std::string> text{};
+    std::string type{};
+    Json::Object additional_properties{};
     friend bool operator==(const ConversationPart&, const ConversationPart&) = default;
 };
 
@@ -1283,28 +1251,10 @@ struct ConversationPartRef {
     friend bool operator==(const ConversationPartRef&, const ConversationPartRef&) = default;
 };
 
-struct ConversationEmojiReaction {
-    std::string emoji{};
-    friend bool operator==(const ConversationEmojiReaction&, const ConversationEmojiReaction&) = default;
-};
-
-enum class ConversationTapback {
-    love,
-    like,
-    dislike,
-    laugh,
-    emphasize,
-    question,
-};
-
-struct ConversationTapbackReaction {
-    ConversationTapback tapback{};
-    friend bool operator==(const ConversationTapbackReaction&, const ConversationTapbackReaction&) = default;
-};
-
 struct ConversationReactionKind {
-    using Variant = std::variant<ConversationTapbackReaction, ConversationEmojiReaction>;
-    Variant value{};
+    std::optional<std::string> emoji{};
+    std::optional<std::string> tapback{};
+    Json::Object additional_properties{};
     friend bool operator==(const ConversationReactionKind&, const ConversationReactionKind&) = default;
 };
 
@@ -1331,17 +1281,12 @@ struct ConversationMessage {
     friend bool operator==(const ConversationMessage&, const ConversationMessage&) = default;
 };
 
-enum class ConversationParticipantKind {
-    human,
-    agent,
-};
-
 struct ConversationParticipant {
     std::optional<std::string> acp_session{};
-    std::optional<ConversationAgentClass> agent_class{};
+    std::optional<std::string> agent_class{};
     std::string display_name{};
     std::string id{};
-    ConversationParticipantKind kind{};
+    std::string kind{};
     friend bool operator==(const ConversationParticipant&, const ConversationParticipant&) = default;
 };
 
@@ -1359,30 +1304,13 @@ struct ConversationSummary {
     friend bool operator==(const ConversationSummary&, const ConversationSummary&) = default;
 };
 
-struct ConversationChangeConversation {
-    ConversationSummary conversation{};
-    friend bool operator==(const ConversationChangeConversation&, const ConversationChangeConversation&) = default;
-};
-
-struct ConversationChangeMessage {
-    ConversationMessage message{};
-    friend bool operator==(const ConversationChangeMessage&, const ConversationChangeMessage&) = default;
-};
-
-struct ConversationChangeMessageUpdated {
-    ConversationMessage message{};
-    friend bool operator==(const ConversationChangeMessageUpdated&, const ConversationChangeMessageUpdated&) = default;
-};
-
-struct ConversationChangeReadCursor {
-    std::string participant{};
-    std::uint64_t seq{};
-    friend bool operator==(const ConversationChangeReadCursor&, const ConversationChangeReadCursor&) = default;
-};
-
 struct ConversationChange {
-    using Variant = std::variant<ConversationChangeConversation, ConversationChangeMessage, ConversationChangeMessageUpdated, ConversationChangeReadCursor>;
-    Variant value{};
+    std::optional<ConversationSummary> conversation{};
+    std::string kind{};
+    std::optional<ConversationMessage> message{};
+    std::optional<std::string> participant{};
+    std::optional<std::uint64_t> seq{};
+    Json::Object additional_properties{};
     friend bool operator==(const ConversationChange&, const ConversationChange&) = default;
 };
 
@@ -4482,21 +4410,9 @@ struct Codec<ColumnPin> {
 };
 
 template <>
-struct Codec<ConversationAgentClass> {
-    static Result<Json> encode(const ConversationAgentClass& value);
-    static Result<ConversationAgentClass> decode(const Json& value);
-};
-
-template <>
 struct Codec<ConversationChange> {
     static Result<Json> encode(const ConversationChange& value);
     static Result<ConversationChange> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationEmojiReaction> {
-    static Result<Json> encode(const ConversationEmojiReaction& value);
-    static Result<ConversationEmojiReaction> decode(const Json& value);
 };
 
 template <>
@@ -4521,12 +4437,6 @@ template <>
 struct Codec<ConversationParticipant> {
     static Result<Json> encode(const ConversationParticipant& value);
     static Result<ConversationParticipant> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationParticipantKind> {
-    static Result<Json> encode(const ConversationParticipantKind& value);
-    static Result<ConversationParticipantKind> decode(const Json& value);
 };
 
 template <>
@@ -4560,27 +4470,9 @@ struct Codec<ConversationTabRecord> {
 };
 
 template <>
-struct Codec<ConversationTapback> {
-    static Result<Json> encode(const ConversationTapback& value);
-    static Result<ConversationTapback> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationTapbackReaction> {
-    static Result<Json> encode(const ConversationTapbackReaction& value);
-    static Result<ConversationTapbackReaction> decode(const Json& value);
-};
-
-template <>
 struct Codec<ConversationTextRun> {
     static Result<Json> encode(const ConversationTextRun& value);
     static Result<ConversationTextRun> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationWorkStatus> {
-    static Result<Json> encode(const ConversationWorkStatus& value);
-    static Result<ConversationWorkStatus> decode(const Json& value);
 };
 
 template <>
@@ -7077,42 +6969,6 @@ template <>
 struct Codec<WorkspaceRenamedEvent> {
     static Result<Json> encode(const WorkspaceRenamedEvent& value);
     static Result<WorkspaceRenamedEvent> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationChangeConversation> {
-    static Result<Json> encode(const ConversationChangeConversation& value);
-    static Result<ConversationChangeConversation> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationChangeMessage> {
-    static Result<Json> encode(const ConversationChangeMessage& value);
-    static Result<ConversationChangeMessage> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationChangeMessageUpdated> {
-    static Result<Json> encode(const ConversationChangeMessageUpdated& value);
-    static Result<ConversationChangeMessageUpdated> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationChangeReadCursor> {
-    static Result<Json> encode(const ConversationChangeReadCursor& value);
-    static Result<ConversationChangeReadCursor> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationPartText> {
-    static Result<Json> encode(const ConversationPartText& value);
-    static Result<ConversationPartText> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationPartWork> {
-    static Result<Json> encode(const ConversationPartWork& value);
-    static Result<ConversationPartWork> decode(const Json& value);
 };
 
 template <>

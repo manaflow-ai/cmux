@@ -8,11 +8,10 @@
 //! test reports the skip and passes.
 
 use cmux::raw::{
-    ClientConfig, ConversationAgentTokenRequest, ConversationBindRequest, ConversationChange,
+    ClientConfig, ConversationAgentTokenRequest, ConversationBindRequest,
     ConversationCreateRequest, ConversationHistoryRequest, ConversationListRequest,
-    ConversationOpRequest, ConversationPart, ConversationReactionKind, ConversationSearchRequest,
-    ConversationSnapshotRequest, ConversationTapback, ConversationTypingRequest,
-    NewConversationTabRequest, Nullable, Optional,
+    ConversationOpRequest, ConversationSearchRequest, ConversationSnapshotRequest,
+    ConversationTypingRequest, NewConversationTabRequest, Nullable, Optional,
 };
 use cmux::{CONVERSATION_TABS_CAPABILITY, Config, Selector, TabContentKind};
 use serde_json::{Map, Value, json};
@@ -125,20 +124,22 @@ fn home_and_conversation_results_live_daemon() {
                       "parts": [{"type": "text", "text": "hello chief"}]});
     let sent = client.conversation_op(op(&id, "c-1", send)).unwrap();
     assert_eq!((sent.seq, sent.transaction.as_deref()), (Some(1), Some("tx-c-1")));
-    let ConversationChange::Message { message } = sent.change else {
-        panic!("message.send changes a message: {:?}", sent.change)
-    };
+    assert_eq!(sent.change.kind, "message", "{sent:?}");
+    let message = sent.change.message.expect("message.send changes a message");
     let like = json!({"kind": "reaction.add", "message_id": message.id, "part_index": 0,
                       "reaction": {"tapback": "like"}});
     let liked = client.conversation_op(op(&id, "like-1", like)).unwrap();
-    assert!(matches!(liked.change, ConversationChange::MessageUpdated { .. }), "{liked:?}");
+    assert_eq!(liked.change.kind, "message-updated", "{liked:?}");
+    assert!(liked.change.additional.is_empty(), "{liked:?}");
     let read =
         client.conversation_op(op(&id, "read-1", json!({"kind": "read_cursor.set", "seq": 1})));
-    assert!(matches!(read.unwrap().change, ConversationChange::ReadCursor { seq: 1, .. }));
+    let read = read.unwrap().change;
+    assert_eq!((read.kind.as_str(), read.seq), ("read-cursor", Some(1)));
     let titled = client
         .conversation_op(op(&id, "title-1", json!({"kind": "title.set", "title": "Chief 2"})))
         .unwrap();
-    assert!(matches!(titled.change, ConversationChange::Conversation { .. }), "{titled:?}");
+    assert_eq!(titled.change.kind, "conversation", "{titled:?}");
+    assert_eq!(titled.change.conversation.as_ref().map(|c| c.title.as_str()), Some("Chief 2"));
 
     let snapshot = client
         .conversation_snapshot(ConversationSnapshotRequest { conversation: id.clone(), tail: 10 })
@@ -146,11 +147,11 @@ fn home_and_conversation_results_live_daemon() {
     assert_eq!(snapshot.conversation.title, "Chief 2");
     assert_eq!(snapshot.conversation.read_cursors.get("user_local"), Some(&1));
     let first = &snapshot.messages[0];
-    assert!(
-        matches!(&first.parts[0], ConversationPart::Text { text, .. } if text == "hello chief")
-    );
-    assert!(matches!(&first.reactions[0].kind,
-        ConversationReactionKind::ConversationTapbackReaction(r) if r.tapback == ConversationTapback::Like));
+    assert_eq!(first.parts[0].type_, "text");
+    assert_eq!(first.parts[0].text.as_deref(), Some("hello chief"));
+    assert!(first.parts[0].additional.is_empty(), "{first:?}");
+    assert_eq!(first.reactions[0].kind.tapback.as_deref(), Some("like"));
+    assert_eq!(snapshot.conversation.participants[0].kind, "human");
     let history = client
         .conversation_history(ConversationHistoryRequest {
             conversation: id.clone(),

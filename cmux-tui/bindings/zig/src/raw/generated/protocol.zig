@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6e41cec831ffb93327a004dac892e0cc173eedbbba6fe1c1926b2b91e2a7db55";
+pub const ir_sha256 = "3d68350e643abae41960f97711e728cf3681b9fc60044ae1fc478ec89addd2a4";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -239,78 +239,24 @@ pub const ColumnPin = struct {
     mode: []const u8,
 };
 
-pub const ConversationAgentClass = enum {
-    mux,
-    agent,
+pub const ConversationChange = struct {
+    /// kind conversation.
+    conversation: ?ConversationSummary = null,
+    /// Known values: message and message-updated (message), read-cursor (participant, seq), conversation (conversation). A change of another kind keeps its fields in the additional properties.
+    kind: []const u8,
+    /// kind message or message-updated.
+    message: ?ConversationMessage = null,
+    /// kind read-cursor.
+    participant: ?[]const u8 = null,
+    /// kind read-cursor.
+    seq: ?u64 = null,
 
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "mux")) return .mux;
-        if (std.mem.eql(u8, value, "agent")) return .agent;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .mux => "mux",
-            .agent => "agent",
-        };
-    }
-};
-
-pub const ConversationChangeConversation = struct {
-    conversation: ConversationSummary,
-};
-
-pub const ConversationChangeMessage = struct {
-    message: ConversationMessage,
-};
-
-pub const ConversationChangeMessageUpdated = struct {
-    message: ConversationMessage,
-};
-
-pub const ConversationChangeReadCursor = struct {
-    participant: []const u8,
-    seq: u64,
-};
-
-pub const ConversationChange = union(enum) {
-    conversation: ConversationChangeConversation,
-    message: ConversationChangeMessage,
-    message_updated: ConversationChangeMessageUpdated,
-    read_cursor: ConversationChangeReadCursor,
-
-    pub const cmux_wire_custom_union = true;
-
-    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
-        return switch (self) {
-            .conversation => |payload| try wire.encodeTagged(allocator, "kind", "conversation", payload),
-            .message => |payload| try wire.encodeTagged(allocator, "kind", "message", payload),
-            .message_updated => |payload| try wire.encodeTagged(allocator, "kind", "message-updated", payload),
-            .read_cursor => |payload| try wire.encodeTagged(allocator, "kind", "read-cursor", payload),
-        };
-    }
-
-    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
-        const tag_value = try wire.objectString(value, "kind");
-        if (std.mem.eql(u8, tag_value, "conversation")) {
-            return .{ .conversation = try wire.decodeLeaky(ConversationChangeConversation, allocator, value) };
-        }
-        if (std.mem.eql(u8, tag_value, "message")) {
-            return .{ .message = try wire.decodeLeaky(ConversationChangeMessage, allocator, value) };
-        }
-        if (std.mem.eql(u8, tag_value, "message-updated")) {
-            return .{ .message_updated = try wire.decodeLeaky(ConversationChangeMessageUpdated, allocator, value) };
-        }
-        if (std.mem.eql(u8, tag_value, "read-cursor")) {
-            return .{ .read_cursor = try wire.decodeLeaky(ConversationChangeReadCursor, allocator, value) };
-        }
-        return error.UnknownUnionVariant;
-    }
-};
-
-pub const ConversationEmojiReaction = struct {
-    emoji: []const u8,
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "conversation",
+        "message",
+        "participant",
+        "seq",
+    };
 };
 
 pub const ConversationMessage = struct {
@@ -333,50 +279,30 @@ pub const ConversationMessage = struct {
     };
 };
 
-pub const ConversationPartText = struct {
-    runs: ?[]const ConversationTextRun = null,
-    text: []const u8,
-
-    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "runs",
-    };
-};
-
-pub const ConversationPartWork = struct {
+pub const ConversationPart = struct {
+    /// type work.
     host: ?[]const u8 = null,
+    /// type work.
     preview: ?[]const u8 = null,
-    session: []const u8,
-    status: ConversationWorkStatus,
+    /// type text.
+    runs: ?[]const ConversationTextRun = null,
+    /// type work.
+    session: ?[]const u8 = null,
+    /// type work. Known values: running, done, failed, waiting.
+    status: ?[]const u8 = null,
+    /// type text.
+    text: ?[]const u8 = null,
+    /// Known values: text (text, runs) and work (session, host, status, preview). A part of another type keeps its fields in the additional properties.
+    type: []const u8,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "host",
         "preview",
+        "runs",
+        "session",
+        "status",
+        "text",
     };
-};
-
-pub const ConversationPart = union(enum) {
-    text: ConversationPartText,
-    work: ConversationPartWork,
-
-    pub const cmux_wire_custom_union = true;
-
-    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
-        return switch (self) {
-            .text => |payload| try wire.encodeTagged(allocator, "type", "text", payload),
-            .work => |payload| try wire.encodeTagged(allocator, "type", "work", payload),
-        };
-    }
-
-    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
-        const tag_value = try wire.objectString(value, "type");
-        if (std.mem.eql(u8, tag_value, "text")) {
-            return .{ .text = try wire.decodeLeaky(ConversationPartText, allocator, value) };
-        }
-        if (std.mem.eql(u8, tag_value, "work")) {
-            return .{ .work = try wire.decodeLeaky(ConversationPartWork, allocator, value) };
-        }
-        return error.UnknownUnionVariant;
-    }
 };
 
 pub const ConversationPartRef = struct {
@@ -386,33 +312,17 @@ pub const ConversationPartRef = struct {
 
 pub const ConversationParticipant = struct {
     acp_session: ?[]const u8 = null,
-    agent_class: ?ConversationAgentClass = null,
+    /// Known values: mux, agent. Other values are future classes.
+    agent_class: ?[]const u8 = null,
     display_name: []const u8,
     id: []const u8,
-    kind: ConversationParticipantKind,
+    /// Known values: human, agent. Other values are future kinds.
+    kind: []const u8,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "acp_session",
         "agent_class",
     };
-};
-
-pub const ConversationParticipantKind = enum {
-    human,
-    agent,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "human")) return .human;
-        if (std.mem.eql(u8, value, "agent")) return .agent;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .human => "human",
-            .agent => "agent",
-        };
-    }
 };
 
 pub const ConversationReaction = struct {
@@ -422,24 +332,15 @@ pub const ConversationReaction = struct {
     part_index: u32,
 };
 
-pub const ConversationReactionKind = union(enum) {
-    conversation_tapback_reaction: ConversationTapbackReaction,
-    conversation_emoji_reaction: ConversationEmojiReaction,
+pub const ConversationReactionKind = struct {
+    emoji: ?[]const u8 = null,
+    /// Known values: love, like, dislike, laugh, emphasize, question.
+    tapback: ?[]const u8 = null,
 
-    pub const cmux_wire_custom_union = true;
-
-    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
-        return switch (self) {
-            .conversation_tapback_reaction => |payload| try wire.encodeValue(allocator, payload),
-            .conversation_emoji_reaction => |payload| try wire.encodeValue(allocator, payload),
-        };
-    }
-
-    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
-        _ = allocator;
-        _ = value;
-        return error.AmbiguousUnion;
-    }
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "emoji",
+        "tapback",
+    };
 };
 
 pub const ConversationSearchHit = struct {
@@ -474,40 +375,6 @@ pub const ConversationTabRecord = struct {
     owner: []const u8,
 };
 
-pub const ConversationTapback = enum {
-    love,
-    like,
-    dislike,
-    laugh,
-    emphasize,
-    question,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "love")) return .love;
-        if (std.mem.eql(u8, value, "like")) return .like;
-        if (std.mem.eql(u8, value, "dislike")) return .dislike;
-        if (std.mem.eql(u8, value, "laugh")) return .laugh;
-        if (std.mem.eql(u8, value, "emphasize")) return .emphasize;
-        if (std.mem.eql(u8, value, "question")) return .question;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .love => "love",
-            .like => "like",
-            .dislike => "dislike",
-            .laugh => "laugh",
-            .emphasize => "emphasize",
-            .question => "question",
-        };
-    }
-};
-
-pub const ConversationTapbackReaction = struct {
-    tapback: ConversationTapback,
-};
-
 pub const ConversationTextRun = struct {
     length: u32,
     link: ?[]const u8 = null,
@@ -518,30 +385,6 @@ pub const ConversationTextRun = struct {
         "link",
         "mention",
     };
-};
-
-pub const ConversationWorkStatus = enum {
-    running,
-    done,
-    failed,
-    waiting,
-
-    pub fn fromWire(value: []const u8) !@This() {
-        if (std.mem.eql(u8, value, "running")) return .running;
-        if (std.mem.eql(u8, value, "done")) return .done;
-        if (std.mem.eql(u8, value, "failed")) return .failed;
-        if (std.mem.eql(u8, value, "waiting")) return .waiting;
-        return error.UnknownEnumValue;
-    }
-
-    pub fn toWire(self: @This()) []const u8 {
-        return switch (self) {
-            .running => "running",
-            .done => "done",
-            .failed => "failed",
-            .waiting => "waiting",
-        };
-    }
 };
 
 pub const CopyResultMode = enum {
