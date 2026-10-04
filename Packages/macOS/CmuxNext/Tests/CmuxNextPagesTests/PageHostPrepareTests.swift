@@ -68,7 +68,8 @@ import WebKit
         pool.noteLikely()
         await PageHostPoolTests.spareReady(pool)
         let names = Set(pool.spans.map(\.name))
-        for step in ["pool.makeSpare.configure", "pool.makeSpare.create", "pool.makeSpare.park", "pool.makeSpare.load"] {
+        for step in ["pool.makeSpare.configure", "pool.makeSpare.create", "pool.makeSpare.park", "pool.makeSpare.launch",
+                     "pool.makeSpare.load"] {
             #expect(names.contains(step), "no span for \(step): \(names.sorted())")
         }
     }
