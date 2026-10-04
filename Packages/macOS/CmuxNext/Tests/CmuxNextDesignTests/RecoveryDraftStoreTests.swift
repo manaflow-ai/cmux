@@ -1,4 +1,5 @@
 @testable import CmuxNextDesign
+import CryptoKit
 import Darwin
 import Foundation
 import Testing
@@ -94,6 +95,70 @@ struct RecoveryDraftStoreTests {
         let draft = try #require(await store.drafts().first)
         #expect(await store.fileChangedSince(draft) == false)
         try "version two".write(to: file, atomically: true, encoding: .utf8)
+        #expect(await store.fileChangedSince(draft))
+    }
+
+    /// A draft's id is its participant's id: a malformed id, or a host or a
+    /// path that disagrees with the id, writes no draft.
+    @Test func aDraftNeedsTheParticipantIDFormat() async {
+        let store = RecoveryDraftStore(directory: Self.directory(), clock: ManualClock())
+        #expect(store.update(id: "notes.md", title: "a", contents: Data("x".utf8)) == .invalidID)
+        #expect(store.update(id: "file:/a", title: "a", contents: Data("x".utf8)) == .invalidID)
+        #expect(store.update(id: "file:local:/a", title: "a", contents: Data("x".utf8), host: "cloud1") == .invalidID)
+        #expect(store.update(id: "file:local:/a", title: "a", contents: Data("x".utf8), filePath: "/b") == .invalidID)
+        await store.writePending()
+        #expect(await store.drafts().isEmpty)
+        #expect(store.update(id: "file:cloud1:/a", title: "a", contents: Data("x".utf8)) == .kept)
+        await store.writePending()
+        #expect(await store.drafts().map(\.host) == ["cloud1"], "the host comes from the id")
+    }
+
+    static func base(of file: URL, hash: Bool = true) throws -> RecoveryDraftBase {
+        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+        let digest = SHA256.hash(data: try Data(contentsOf: file)).map { String(format: "%02x", $0) }.joined()
+        return RecoveryDraftBase(modified: attributes[.modificationDate] as? Date,
+                                 size: (attributes[.size] as? NSNumber)?.int64Value, contentHash: hash ? digest : nil)
+    }
+
+    /// The base is the file state the edits came from, recorded at edit
+    /// time. An outside change during the debounce must not look like the
+    /// draft's base: the launch check flags it.
+    @Test(arguments: [true, false])
+    func anOutsideChangeDuringTheDebounceIsReported(hash: Bool) async throws {
+        let directory = Self.directory()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appendingPathComponent("notes.md")
+        try "v1".write(to: file, atomically: true, encoding: .utf8)
+        let clock = ManualClock()
+        let store = RecoveryDraftStore(directory: directory.appendingPathComponent("recovery"), clock: clock)
+        let base = try Self.base(of: file, hash: hash)
+        store.update(id: "file:local:\(file.path)", title: "notes.md", contents: Data("draft".utf8), filePath: file.path, base: base)
+        try "version two".write(to: file, atomically: true, encoding: .utf8)
+        await clock.sleepers(atLeast: 1)
+        clock.advance(by: .seconds(1))
+        let draft = try #require(await Self.settle(store, count: 1).first)
+        #expect(draft.base == base)
+        #expect(await store.fileChangedSince(draft), "the file is not the base the edits came from")
+    }
+
+    @Test func aFileStillAtItsBaseIsNotReported() async throws {
+        let directory = Self.directory()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appendingPathComponent("notes.md")
+        try "v1".write(to: file, atomically: true, encoding: .utf8)
+        let store = RecoveryDraftStore(directory: directory.appendingPathComponent("recovery"), clock: ManualClock())
+        store.update(id: "file:local:\(file.path)", title: "notes.md", contents: Data("draft".utf8), filePath: file.path,
+                     base: try Self.base(of: file))
+        await store.writePending()
+        let draft = try #require(await store.drafts().first)
+        #expect(await store.fileChangedSince(draft) == false)
+        // A touch keeps the bytes: the hash says no change.
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(120)], ofItemAtPath: file.path)
+        #expect(await store.fileChangedSince(draft) == false)
+        // The same size and date with other bytes: the hash says changed.
+        let modified = try #require(try FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as? Date)
+        try "v2".write(to: file, atomically: false, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: file.path)
         #expect(await store.fileChangedSince(draft))
     }
 }
