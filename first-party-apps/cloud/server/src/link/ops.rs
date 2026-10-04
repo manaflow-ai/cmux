@@ -250,31 +250,39 @@ pub(crate) fn begin_connect<C: ControlPlane>(
         _ => false,
     };
     let key = if restart { format!("{start_key}/restart") } else { start_key };
-    if let Err(error) = ensure_running(server, machine, origin, &key, restart) {
-        if error.code == codes::AUTH_REQUIRED {
-            // Signed out: no link may outlive the sign-in.
-            server.attach_mut().supervisor.disconnect_all("signed out of cmux Cloud");
-        } else if error.code == codes::NOT_FOUND {
-            // The machine is gone: refuse new links to it.
-            server.attach_mut().supervisor.revoke(machine, &error.message);
+    // The readiness check is a read (connect_info), never a dial: a dial
+    // mints a link token, and each mint is one real connection.
+    let info = ensure_running(server, machine, origin, &key, restart)
+        .and_then(|()| super::info::connect_info(server, machine))
+        .and_then(|info| {
+            if info.state == MachineStatus::Paused && !restart {
+                // The record was older than the machine: start it now.
+                ensure_running(server, machine, origin, &format!("{key}/info"), true)?;
+            }
+            Ok(info)
+        });
+    let info = match info {
+        Ok(info) => info,
+        Err(error) => {
+            if error.code == codes::AUTH_REQUIRED {
+                // Signed out: no link may outlive the sign-in.
+                server.attach_mut().supervisor.disconnect_all("signed out of cmux Cloud");
+            } else if error.code == codes::NOT_FOUND || error.code == codes::FORBIDDEN {
+                // The machine is gone or access ended: refuse new links to it.
+                server.attach_mut().supervisor.revoke(machine, &error.message);
+            }
+            // A start can fail for plan reasons, and a machine without a host
+            // is still provisioning: neither is a revocation.
+            return Err(error);
         }
-        // A start can fail for plan reasons: that is not a revocation.
-        return Err(error);
-    }
-    // The overlay host id from the machine record (contract 1.7): no host
-    // yet means the machine is still provisioning.
-    let Some(host) = server.projection().get(machine).and_then(|m| m.host.clone()) else {
-        return Err(CloudError::new(
-            codes::NOT_BOUND,
-            "The machine is still starting up: connect when it is ready",
-        ));
     };
-    // The host id becomes an argv value: refuse anything that is not a
-    // plain id (it could read as a flag or carry control characters).
-    let plain = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
-    if host.is_empty() || host.len() > 128 || host.starts_with('-') || !host.chars().all(plain) {
-        return Err(CloudError::new(codes::BAD_RESPONSE, "cmux Cloud answered a bad host id"));
+    if !info.services.iter().any(|s| s == "daemon") {
+        return Err(CloudError::new(
+            codes::FORBIDDEN,
+            "This Mac may not reach the machine's cmux daemon (team policy)",
+        ));
     }
+    let host = info.host;
     let command = link_command(&paths, machine, &host, &child_env);
     let attach = server.attach_mut();
     attach.hosts.insert(machine.to_owned(), host);

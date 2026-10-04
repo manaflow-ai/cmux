@@ -4,11 +4,11 @@
 //! connection, splicing the connection to the child's stdin and stdout
 //! (super::dial is the only place that knows that seam).
 //!
-//! Ready: one probe dial first. Its reply line decides the link: on
-//! `ok` the carrier reports `carrier-ready` with its socket and ends the
-//! probe; on a refusal it reports `dial-failed` with the code and ends.
-//! Each dial is one fresh link token inside `cmux link` (contract 1.7: a
-//! token serves one hello, a reconnect mints a new one).
+//! Ready: the carrier reports `carrier-ready` as soon as it listens (the
+//! readiness check before it is a `connect_info` read, super::info). Each
+//! stream is one dial and one fresh link token inside `cmux link`
+//! (contract 1.7); a refused stream reports `dial-failed` with the typed
+//! code, and the supervisor ends the generation.
 //!
 //! Events go to the supervisor only through [`LinkEvents`]: no timer, no
 //! polling. Every child is started by this carrier and only those children
@@ -17,7 +17,7 @@
 use super::argv::{LinkCommand, dial_failed_line, ready_line};
 use super::dial::{DialCode, DialReply, MAX_REPLY_BYTES, parse_reply};
 use super::spawner::{LinkEvents, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag};
-use std::io::{BufRead as _, BufReader, Read, Write};
+use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -45,20 +45,29 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// A dial child after its reply line.
-struct Dialed {
-    child: Arc<Mutex<Child>>,
-    stdin: ChildStdin,
-    stdout: ChildStdout,
+/// A dial child after its `ok` reply line: stdin and stdout carry the
+/// daemon stream.
+pub(crate) struct DialStream {
+    pub(crate) child: Child,
+    pub(crate) stdin: ChildStdin,
+    pub(crate) stdout: ChildStdout,
 }
 
-/// Starts one dial child and reads its reply line from stderr. The rest
-/// of its stderr goes to this server's stderr (the host's log); the dial
-/// writes no credential there.
-fn dial(command: &LinkCommand, children: &Children) -> Result<Dialed, DialCode> {
-    let mut process = Command::new(&command.binary);
-    process.args(&command.args).env_clear();
-    process.envs(command.env.iter().map(|(k, v)| (k, v)));
+/// Starts `binary args` (one `cmux link dial`) with exactly `env` and
+/// reads its reply line from stderr. The rest of its stderr goes to this
+/// server's stderr (the host's log); the dial writes no credential there.
+/// A refused or broken dial is ended before this returns.
+pub(crate) fn open_dial(
+    binary: &Path,
+    args: &[String],
+    env: &[(String, String)],
+) -> Result<DialStream, DialCode> {
+    if !binary.is_absolute() {
+        return Err(DialCode::Unavailable("the link binary is not an absolute path".into()));
+    }
+    let mut process = Command::new(binary);
+    process.args(args).env_clear();
+    process.envs(env.iter().map(|(k, v)| (k, v)));
     let mut child = process
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -72,8 +81,6 @@ fn dial(command: &LinkCommand, children: &Children) -> Result<Dialed, DialCode> 
         let _ = child.wait();
         return Err(DialCode::Unavailable("cmux link dial has no pipes".into()));
     };
-    let child = Arc::new(Mutex::new(child));
-    lock(children).push(Arc::clone(&child));
     let mut stderr = BufReader::new(stderr);
     let mut line = Vec::new();
     let read = (&mut stderr).take(MAX_REPLY_BYTES as u64).read_until(b'\n', &mut line);
@@ -86,12 +93,30 @@ fn dial(command: &LinkCommand, children: &Children) -> Result<Dialed, DialCode> 
         let _ = std::io::copy(&mut stderr, &mut std::io::stderr());
     });
     match reply {
-        DialReply::Connected { .. } => Ok(Dialed { child, stdin, stdout }),
+        DialReply::Connected { .. } => Ok(DialStream { child, stdin, stdout }),
         DialReply::Refused(code) => {
-            end_child(&child, children);
+            let _ = child.kill();
+            let _ = child.wait();
             Err(code)
         }
     }
+}
+
+/// A dial child of this carrier after its reply line.
+struct Dialed {
+    child: Arc<Mutex<Child>>,
+    stdin: ChildStdin,
+    stdout: ChildStdout,
+}
+
+/// [`open_dial`] for one carrier stream; the child is kept so `terminate`
+/// can end it.
+fn dial(command: &LinkCommand, children: &Children) -> Result<Dialed, DialCode> {
+    let DialStream { child, stdin, stdout } =
+        open_dial(&command.binary, &command.args, &command.env)?;
+    let child = Arc::new(Mutex::new(child));
+    lock(children).push(Arc::clone(&child));
+    Ok(Dialed { child, stdin, stdout })
 }
 
 /// Ends one child this carrier started and forgets it.
@@ -205,18 +230,13 @@ fn run(
     children: &Children,
     events: &LinkEvents,
 ) {
-    let line = |line: String| LinkProcessEvent::Line { tag: tag.clone(), line };
-    match dial(command, children) {
-        Ok(probe) => {
-            end_child(&probe.child, children);
-            if events.send(line(ready_line(&command.local_socket))).is_err() {
-                return;
-            }
-        }
-        Err(code) => {
-            let _ = events.send(line(dial_failed_line(&code)));
-            return;
-        }
+    // Ready as soon as it listens: no probe dial (a dial mints a link
+    // token, one per real connection). The first stream's reply is the
+    // first word of the link; a refusal ends the generation, typed.
+    let ready =
+        LinkProcessEvent::Line { tag: tag.clone(), line: ready_line(&command.local_socket) };
+    if events.send(ready).is_err() {
+        return;
     }
     for connection in listener.incoming() {
         if stop.load(Ordering::SeqCst) {
@@ -228,16 +248,18 @@ fn run(
         }
         let command = command.clone();
         let children = Arc::clone(children);
-        let _ =
-            std::thread::Builder::new().name("cmux-link-stream".into()).spawn(move || {
-                match dial(&command, &children) {
-                    Ok(dialed) => splice(connection, dialed, &children),
-                    Err(code) => eprintln!(
-                        "cmux-cloud: a stream to {} was refused: {}",
-                        command.args.last().map_or("?", String::as_str),
-                        code.as_str()
-                    ),
+        let events = events.clone();
+        let tag = tag.clone();
+        let _ = std::thread::Builder::new().name("cmux-link-stream".into()).spawn(move || {
+            match dial(&command, &children) {
+                Ok(dialed) => splice(connection, dialed, &children),
+                // The client sees end of stream; the supervisor gets the
+                // typed refusal and ends this generation.
+                Err(code) => {
+                    let line = dial_failed_line(&code);
+                    let _ = events.send(LinkProcessEvent::Line { tag, line });
                 }
-            });
+            }
+        });
     }
 }

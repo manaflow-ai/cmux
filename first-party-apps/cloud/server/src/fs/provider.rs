@@ -8,10 +8,9 @@
 //! supervisor's `root_…` handle; until handles reach app servers, a root is
 //! the scheme plus the machine id.
 //!
-//! Interface gaps (the Cloud API cannot do them; each answers `unsupported`
-//! instead of pretending): `list` cursors (the route answers one batch),
-//! `read` ranges, `write` with a base revision (the route has no revision),
-//! and `watch` (no change feed).
+//! Every method is one daemon `fs.*` op on the link behind the `fs-v1`
+//! gate (super::link_files). Gaps (each answers `unsupported` instead of
+//! pretending): `list` cursors (one batch) and `watch` (not served yet).
 
 use super::files::{self, Entry};
 use super::path::GuestPath;
@@ -45,7 +44,7 @@ impl Root {
     }
 }
 
-/// The written file's revision. Always `None`: the route has no revision.
+/// The written file's revision, when the daemon reports one.
 pub type Revision = Option<String>;
 
 pub trait FsProvider {
@@ -74,8 +73,7 @@ pub trait FsProvider {
     ) -> Result<Revision, CloudError>;
 }
 
-/// The provider view of the server, borrowed for one call (the server stays
-/// the only caller of the Cloud API).
+/// The provider view of the server, borrowed for one call.
 pub struct CloudFs<'a, C> {
     server: &'a mut Server<C>,
 }
@@ -99,17 +97,15 @@ impl<C: ControlPlane> FsProvider for CloudFs<'_, C> {
         cursor: Option<&str>,
     ) -> Result<Vec<Entry>, CloudError> {
         if cursor.is_some() {
-            return Err(unsupported(
-                "The cmux Cloud API file route answers one batch; it has no list cursor",
-            ));
+            return Err(unsupported("cmux/cloud answers one listing batch; it has no list cursor"));
         }
         let path = GuestPath::parse(path)?;
-        files::list(&mut self.server.ctx("cloud.fs.list", None), root.machine(), &path)
+        files::list(self.server, root.machine(), &path)
     }
 
     fn stat(&mut self, root: &Root, path: &str) -> Result<Entry, CloudError> {
         let path = GuestPath::parse(path)?;
-        files::stat(&mut self.server.ctx("cloud.fs.stat", None), root.machine(), &path)
+        files::stat(self.server, root.machine(), &path)
     }
 
     fn read(
@@ -118,13 +114,14 @@ impl<C: ControlPlane> FsProvider for CloudFs<'_, C> {
         path: &str,
         range: Option<(u64, u64)>,
     ) -> Result<Vec<u8>, CloudError> {
-        if range.is_some() {
-            return Err(unsupported(
-                "The cmux Cloud API file route reads whole files; it has no read range",
-            ));
-        }
         let path = GuestPath::parse(path)?;
-        files::read(&mut self.server.ctx("cloud.fs.read", None), root.machine(), &path)
+        let Some((offset, length)) = range else {
+            return files::read(self.server, root.machine(), &path);
+        };
+        let max_bytes = length.min(super::MAX_READ_BYTES as u64);
+        let params = json!({ "path": path.as_str(), "offset": offset, "max_bytes": max_bytes });
+        let answer = super::link_files::call(self.server, root.machine(), "fs.read", params)?;
+        files::read_bytes(&answer)
     }
 
     fn write(
@@ -134,14 +131,7 @@ impl<C: ControlPlane> FsProvider for CloudFs<'_, C> {
         bytes: &[u8],
         base_revision: Option<&str>,
     ) -> Result<Revision, CloudError> {
-        if base_revision.is_some() {
-            return Err(unsupported(
-                "The cmux Cloud API file route has no revision, so a base revision cannot be checked",
-            ));
-        }
         let path = GuestPath::parse(path)?;
-        let mut ctx = self.server.ctx("cloud.fs.write", None);
-        files::write(&mut ctx, root.machine(), &path, bytes, None)?;
-        Ok(None)
+        files::write(self.server, root.machine(), &path, bytes, base_revision)
     }
 }

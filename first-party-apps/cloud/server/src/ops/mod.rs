@@ -247,12 +247,8 @@ impl<C: ControlPlane> Server<C> {
     pub fn with_parts(
         control_plane: C,
         attach: crate::link::Attach,
-        mut edge: crate::ports::Edge,
+        edge: crate::ports::Edge,
     ) -> Self {
-        // The pinned host keys are read once, at start.
-        if let Some(path) = attach.env().known_hosts_path() {
-            edge.load_known_hosts(path);
-        }
         Self {
             control_plane,
             projection: Projection::default(),
@@ -307,11 +303,6 @@ impl<C: ControlPlane> Server<C> {
     /// Forwards and routes closed by link state since the last call.
     pub fn take_edge_events(&mut self) -> Vec<crate::ports::EdgeDown> {
         self.edge.take_events()
-    }
-
-    /// One Cloud API call context for an attach op.
-    pub(crate) fn ctx<'a>(&'a mut self, op: &'a str, key: Option<&'a str>) -> Ctx<'a, C> {
-        Ctx::new(&mut self.control_plane, &mut self.projection, op, key)
     }
 
     pub fn control_plane(&self) -> &C {
@@ -418,7 +409,7 @@ impl<C: ControlPlane> Server<C> {
         if crate::ports::serves(name) {
             return crate::ports::run(self, name, args, origin, key);
         }
-        let mut ctx = Ctx::new(&mut self.control_plane, &mut self.projection, name, key)
+        let mut ctx = Ctx::new(&mut self.control_plane, &mut self.projection, key)
             .with_origin(request.origin);
         let group = name.split('.').nth(1).unwrap_or_default();
         match group {

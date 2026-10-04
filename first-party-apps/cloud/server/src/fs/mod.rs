@@ -1,12 +1,11 @@
-//! Files on Cloud machines (cloud-app.md 3.5): `cloud.fs.*` over the Cloud
-//! API file routes, `cmux.fs.provider/1` for the scheme `cloud-vm`, and
-//! `cloud.file.push` / `cloud.file.pull` over SSH with a key per transfer.
+//! Files on Cloud machines (contract 2.4): `cloud.fs.*`,
+//! `cmux.fs.provider/1` for the scheme `cloud-vm`, and `cloud.file.push` /
+//! `cloud.file.pull`, all on the machine's cmux daemon over the link behind
+//! the `fs-v1` gate (link_files).
 
 pub mod cancel;
 pub mod files;
-pub mod key;
-pub mod known_hosts;
-mod openssh;
+pub mod link_files;
 pub mod path;
 pub mod provider;
 pub(crate) mod running;
@@ -14,13 +13,11 @@ pub mod transfer;
 
 pub use cancel::Cancel;
 pub use files::Entry;
-pub use key::TransferKey;
-pub use known_hosts::KnownHosts;
-pub use openssh::scp_args;
+pub use link_files::{DaemonFiles, DialTarget, FS_CAPABILITY, LinkDaemonFiles};
 pub use path::GuestPath;
 pub use provider::{CloudFs, FS_PROVIDER_INTERFACE, FsProvider, Root, SCHEME};
 pub use running::{MAX_TRANSFERS, TRANSFER_BUSY, TransferEvent};
-pub use transfer::{Direction, OpenSshTransfer, ScpEndpoint, Transfer, TransferError, TransferJob};
+pub use transfer::{DaemonTransfer, Direction, Transfer, TransferError, TransferJob};
 
 use crate::api::{CloudError, ControlPlane, Origin};
 use crate::ops::Server;
@@ -60,5 +57,6 @@ pub(crate) fn run<C: ControlPlane>(
     if name.starts_with("cloud.file.") {
         return transfer::run(server, name, raw, origin, key);
     }
-    files::run(&mut server.ctx(name, key), name, raw)
+    let _ = key; // file ops are daemon ops: no backend key
+    files::run(server, name, raw)
 }

@@ -17,7 +17,7 @@ const CHANNEL: &str = "cloud-vm/vm-alpha01#1";
 
 fn server(spawner: &FakeSpawner) -> Server<FakeControlPlane> {
     Server::with_attach(
-        FakeControlPlane::with(&["vm-get", "attach_endpoint_alpha"]),
+        FakeControlPlane::with(&["vm-get"]),
         attach(spawner, &FakeTransport::default()),
     )
 }

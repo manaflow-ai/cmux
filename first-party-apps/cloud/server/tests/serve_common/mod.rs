@@ -1,6 +1,6 @@
 //! The host side of the server's JSON-lines channel for serve-loop tests:
 //! the test writes op lines (and host frames), answers each
-//! `relay.op` (vectors) and `relay.request` (classic fixtures) through the fake control plane, and
+//! `relay.op` (vectors and link-test names) through the fake control plane, and
 //! reads every line the server writes. The input stays open while the
 //! test waits, so only a link or transfer event can wake the loop.
 
@@ -12,7 +12,7 @@ use crate::edge_common::{FakeTransfer, FakeTunnel};
 use cmux_cloud::api::{HostRelay, serve_with};
 use cmux_cloud::link::Attach;
 use cmux_cloud::ports::Edge;
-use cmux_cloud::{ControlPlane, HttpCall, WireCall, WireReply};
+use cmux_cloud::{ControlPlane, WireCall, WireReply};
 use serde_json::{Value, json};
 use std::io::{self, BufReader, Read, Write};
 use std::sync::Arc;
@@ -72,17 +72,6 @@ pub struct Host {
     pub cloud: FakeControlPlane,
     pub spawner: FakeSpawner,
     serving: Option<JoinHandle<io::Result<()>>>,
-}
-
-fn method(name: &str) -> &'static str {
-    match name {
-        "GET" => "GET",
-        "POST" => "POST",
-        "PATCH" => "PATCH",
-        "PUT" => "PUT",
-        "DELETE" => "DELETE",
-        other => panic!("unexpected method {other}"),
-    }
 }
 
 impl Host {
@@ -151,19 +140,7 @@ impl Host {
                 self.send(&answer);
                 continue;
             }
-            if line["type"] != "relay.request" {
-                return Some(line);
-            }
-            let call = HttpCall {
-                op: line["op"].as_str().unwrap_or_default().to_owned(),
-                method: method(line["method"].as_str().expect("method")),
-                path: line["path"].as_str().expect("path").to_owned(),
-                body: line.get("body").cloned(),
-                idempotency_key: line["idempotency_key"].as_str().map(str::to_owned),
-            };
-            let reply = self.cloud.classic(&call).expect("fake reply");
-            self.send(&json!({ "type": "relay.response", "id": line["id"],
-                "status": reply.status, "body": reply.body }));
+            return Some(line);
         }
     }
 
