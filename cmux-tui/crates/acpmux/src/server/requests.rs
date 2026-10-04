@@ -618,7 +618,8 @@ pub(super) async fn handle_request(
                     }
                     let p = merged.unwrap();
                     // Checked against the profile the preset resolves to now.
-                    let profile = cfg.resolve_harness(&p.harness).map_err(RpcError::invalid_params)?;
+                    let profile =
+                        cfg.resolve_harness(&p.harness).map_err(RpcError::invalid_params)?;
                     crate::config::check_preset_args(cfg.harnesses[&profile].kind, &p.args)
                         .map_err(RpcError::invalid_params)?;
                     cfg.presets.insert(name.clone(), p);

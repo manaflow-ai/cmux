@@ -21,7 +21,10 @@ async fn args_setup() -> (Arc<Hub>, TestClient) {
         policy: None,
     };
     let mut agents = BTreeMap::new();
-    agents.insert("fake".to_owned(), profile(Default::default(), vec!["python3".into(), fake.into()]));
+    agents.insert(
+        "fake".to_owned(),
+        profile(Default::default(), vec!["python3".into(), fake.into()]),
+    );
     agents.insert(
         "fakeclaude".to_owned(),
         profile(acpmux::config::HarnessKind::ClaudeStdio, vec!["claude".into()]),
@@ -47,9 +50,19 @@ async fn args_setup() -> (Arc<Hub>, TestClient) {
 async fn preset_args_reach_the_harness_command_as_separate_words() {
     let (hub, mut c) = args_setup().await;
     // An empty word and shell metacharacters stay literal argv words.
-    let args = json!(["--system-prompt-file", "/abs/dir with space/system.md", "--tools", "", "$(echo no) ; |", "${cwd}/x"]);
+    let args = json!([
+        "--system-prompt-file",
+        "/abs/dir with space/system.md",
+        "--tools",
+        "",
+        "$(echo no) ; |",
+        "${cwd}/x"
+    ]);
     let p = c
-        .request(method::MUX_PRESETS, json!({"name": "argful", "set": {"harness": "fake", "args": args}}))
+        .request(
+            method::MUX_PRESETS,
+            json!({"name": "argful", "set": {"harness": "fake", "args": args}}),
+        )
         .await
         .unwrap();
     assert_eq!(p["args"], args, "{p}");
@@ -61,10 +74,14 @@ async fn preset_args_reach_the_harness_command_as_separate_words() {
         .await
         .unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
-    c.request(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": "argv"}]}))
-        .await
-        .unwrap();
-    let preview = hub.session_summary(&hub.resolve(&id).unwrap())["preview"].as_str().unwrap().to_owned();
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "argv"}]}),
+    )
+    .await
+    .unwrap();
+    let preview =
+        hub.session_summary(&hub.resolve(&id).unwrap())["preview"].as_str().unwrap().to_owned();
     let got: Vec<String> = serde_json::from_str(&preview).unwrap();
     // `${cwd}` expands like an env value; everything else is verbatim.
     assert_eq!(
@@ -99,12 +116,20 @@ async fn preset_args_are_validated() {
     assert!(err.contains("NUL"), "{err}");
     // On a Claude command line, the flags acpmux itself owns are refused,
     // in both spellings; anything else passes.
-    for flag in ["--resume", "--session-id=x", "--permission-mode", "--input-format", "--model", "-p"] {
-        let err = c.request(method::MUX_PRESETS, set(json!([flag, "v"]), "fakeclaude")).await.unwrap_err();
+    for flag in
+        ["--resume", "--session-id=x", "--permission-mode", "--input-format", "--model", "-p"]
+    {
+        let err = c
+            .request(method::MUX_PRESETS, set(json!([flag, "v"]), "fakeclaude"))
+            .await
+            .unwrap_err();
         assert!(err.contains("acpmux sets"), "{flag}: {err}");
     }
     let ok = c
-        .request(method::MUX_PRESETS, set(json!(["--tools", "", "--strict-mcp-config"]), "fakeclaude"))
+        .request(
+            method::MUX_PRESETS,
+            set(json!(["--tools", "", "--strict-mcp-config"]), "fakeclaude"),
+        )
         .await
         .unwrap();
     assert_eq!(ok["args"], json!(["--tools", "", "--strict-mcp-config"]));
@@ -119,7 +144,8 @@ async fn a_session_refuses_a_hand_edited_preset_with_bad_args() {
     // config.json written by hand: the session is refused, not started with
     // a command line that breaks acpmux's protocol.
     let preset: acpmux::config::Preset =
-        serde_json::from_value(json!({"harness": "fakeclaude", "args": ["--resume", "x"]})).unwrap();
+        serde_json::from_value(json!({"harness": "fakeclaude", "args": ["--resume", "x"]}))
+            .unwrap();
     hub.config.write().await.presets.insert("edited".into(), preset);
     let err = c
         .request(
