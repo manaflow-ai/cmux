@@ -88,10 +88,11 @@ public nonisolated struct BrowserLinkClickMapping: Hashable, Sendable {
     public func action(for gesture: BrowserLinkGesture) -> BrowserLinkAction {
         switch gesture {
         case .plain: .currentTab
-        case .cmd, .middle: .backgroundTab
-        case .cmdShift, .middleShift: .foregroundTab
-        case .shift: .newWindow
-        case .option: .download
+        case .cmd: cmdClick
+        case .cmdShift, .middleShift: cmdShiftClick
+        case .shift: shiftClick
+        case .option: optionClick
+        case .middle: middleClick
         }
     }
 }

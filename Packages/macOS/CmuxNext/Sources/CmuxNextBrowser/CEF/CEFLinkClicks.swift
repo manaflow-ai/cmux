@@ -31,11 +31,38 @@ nonisolated enum CEFLinkClicks {
     /// does not tell a middle click from Cmd-click).
     static func placement(for disposition: CEFDisposition, click: CEFLinkClickRecord?, now: TimeInterval,
                           mapping: BrowserLinkClickMapping) -> CEFLinkPlacement {
+        let recent: BrowserLinkGesture? = click.flatMap { record in
+            now >= record.timestamp && now - record.timestamp <= clickLifetime ? record.gesture : nil
+        }
+        let gesture: BrowserLinkGesture?
         switch disposition {
-        case .newBackgroundTab: .tab(.backgroundTab)
-        case .newPopup: .tab(.popup)
-        case .newForegroundTab, .newWindow, .singletonTab, .switchToTab, .newSplitView, .unknown, .offTheRecord: .tab(.foregroundTab)
-        case .currentTab, .saveToDisk, .ignoreAction, .newPictureInPicture: .chromium
+        case .newBackgroundTab:
+            gesture = .cmd
+        case .newForegroundTab:
+            // Plain target=_blank is not configurable: a selected tab.
+            gesture = recent == .cmdShift || recent == .middleShift ? recent : nil
+        case .newWindow:
+            gesture = .shift
+        case .saveToDisk:
+            gesture = .option
+        case .newPopup:
+            return .tab(.popup)
+        case .singletonTab, .switchToTab, .newSplitView, .unknown, .offTheRecord:
+            return .tab(.foregroundTab)
+        case .currentTab, .ignoreAction, .newPictureInPicture:
+            return .chromium
+        }
+        guard let gesture else { return .tab(.foregroundTab) }
+        switch mapping.action(for: gesture) {
+        case .currentTab:
+            return .opener
+        case .download:
+            // Chromium saves an Option-click itself; the shim has no other
+            // way to start a download, so a download mapped to another
+            // gesture keeps Chrome's default for it.
+            return gesture == .option ? .chromium : placement(chromeDefault: gesture)
+        case let action:
+            return action.newTabDisposition.map(CEFLinkPlacement.tab) ?? .tab(.foregroundTab)
         }
     }
 
@@ -45,13 +72,6 @@ nonisolated enum CEFLinkClicks {
     /// in a cmux window itself (`parent` nil) never does.
     static func browser(clickedIn window: ObjectIdentifier, parent: ObjectIdentifier?, at point: CGPoint,
                         targets: [CEFClickTarget]) -> Int32? {
-        return targets.first { target in
-            target.frame.contains(point) || parent == nil
-        }?.browser
-    }
-
-    static func unusedBrowser(clickedIn window: ObjectIdentifier, parent: ObjectIdentifier?, at point: CGPoint,
-                              targets: [CEFClickTarget]) -> Int32? {
         guard let parent, parent != window else { return nil }
         return targets.first { target in
             target.hostWindow == parent && target.frame.contains(point) && !target.occlusions.contains { $0.contains(point) }
