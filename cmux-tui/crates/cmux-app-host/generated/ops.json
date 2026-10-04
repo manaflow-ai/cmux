@@ -63,6 +63,7 @@
     "cloud.machine.resize",
     "cloud.machine.start",
     "cloud.machine.stats",
+    "cloud.machine.watch",
     "cloud.plan.get",
     "cloud.rescue.open",
     "cloud.snapshot.create",

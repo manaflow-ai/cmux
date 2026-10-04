@@ -249,6 +249,10 @@
       "scope": "cloud:read",
       "class": "read"
     },
+    "cloud.machine.watch": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
     "cloud.plan.get": {
       "scope": "cloud:read",
       "class": "read"

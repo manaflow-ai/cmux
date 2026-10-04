@@ -2,11 +2,25 @@
 // pair) with memory history. Import it after installDom() (./testDom). Not shipped.
 import { createMemoryHistory } from "@tanstack/react-router";
 import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { fileURLToPath } from "node:url";
+import type { Root } from "react-dom/client";
 import { SettingsPage } from "./components/SettingsPage";
 import { createMockClient, type MockOptions, type MockSettingsProvider } from "./mockProvider";
 import { SettingsStore } from "./store";
 import { setLocale } from "./strings";
+
+// React DOM decides once, when its module first evaluates, whether it runs in a DOM (native
+// `input` events drive onChange). bun runs all test files in one process with one module
+// cache, and other files import react-dom before they install a DOM, which leaves onChange dead
+// for text fields in every later file. This helper is imported after installDom(), so it
+// evaluates its own copy of the React DOM client build (dropped from the require cache first),
+// which sees the DOM as a browser would. Files that already hold the old copy keep it.
+const clientBuild = process.env.NODE_ENV === "production" ? "production" : "development";
+const clientPath = fileURLToPath(
+  new URL(`./cjs/react-dom-client.${clientBuild}.js`, import.meta.resolve("react-dom/client")),
+);
+delete require.cache[clientPath];
+const { createRoot } = require(clientPath) as typeof import("react-dom/client");
 
 export type Rendered = {
   provider: MockSettingsProvider;

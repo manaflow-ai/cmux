@@ -114,6 +114,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private func apply(_ result: LayoutMapping.Result) {
         handles = result.handles
         layoutModel.acceptsEdgeDockDrops = daemon.supports(DaemonCapabilities.shared.edgeDocks)
+        // No row op is sent to a daemon without rows-v1 (rows.md step 4).
+        let rows = daemon.supports(DaemonCapabilities.shared.rows)
+        if layoutModel.acceptsRowOps != rows { layoutModel.acceptsRowOps = rows }
         layoutModel.apply(screens: result.screens)
         repairIfEmpty()
         sendTopology()

@@ -47,11 +47,23 @@ extension SidebarBridge {
         case LayoutItemRef.urlKind: openPinnedPage(ref.value)
         case LayoutItemRef.roomKind: switchToPinnedSpace(ref.value)
         case LayoutItemRef.appKind:
-            // An app's label item opens its page as a tab (CodeRouter below the App Store).
-            _ = services.registry.perform("app.open", invocation: ActionInvocation(arguments: ["app": .string(ref.value)], origin: .user))
+            let (action, arguments) = Self.appActivation(ref.value, registered: { services.registry.action(for: $0) != nil })
+            _ = services.registry.perform(action, invocation: ActionInvocation(arguments: arguments, origin: .user))
         default: break
         }
     }
+
+    /// What an app item's click runs (R63/R64): `cmux.apps.open {app}` (it
+    /// opens the app's screen or page as the manifest says) once it is
+    /// registered. INTERIM until then: Home and the App Store keep their
+    /// show actions, every other app opens its page (`app.open`).
+    static func appActivation(_ app: String, registered: (ActionID) -> Bool) -> (ActionID, [String: ActionValue]) {
+        if registered("cmux.apps.open") { return ("cmux.apps.open", ["app": .string(app)]) }
+        if let action = interimAppActions[app], registered(action) { return (action, [:]) }
+        return ("app.open", ["app": .string(app)])
+    }
+
+    private static let interimAppActions: [String: ActionID] = ["cmux/home": "home.show", "cmux/app-store": "appStore.show"]
 
     /// Keeps `model.itemInfo` current: a built-in whose action this build
     /// does not register draws dimmed.
@@ -100,7 +112,10 @@ extension SidebarBridge {
         for section in layout.sections {
             for item in section.items {
                 if item.ref.kind == LayoutItemRef.appKind {
-                    infos[item.id] = app(item.ref.value)
+                    var info = app(item.ref.value)
+                    // Home is active while the window shows the home workspace.
+                    if item.ref == SidebarLayoutDocument.homeRef { info.isActive = homeShown }
+                    infos[item.id] = info
                     continue
                 }
                 guard let builtIn = item.ref.builtIn else { continue }

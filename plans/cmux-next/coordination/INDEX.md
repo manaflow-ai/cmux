@@ -18,6 +18,7 @@ Read the lane file before changing a shared surface. Newest entries remain first
 - [home-ios](home-ios.md)
 - [identity](identity.md)
 - [integrations](integrations.md)
+- [keybindings](keybindings.md)
 - [layout](layout.md)
 - [misc](misc.md)
 - [ownership](ownership.md)

@@ -4095,6 +4095,36 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "pane new-row",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "d",
+        "modifiers" : [
+          "ctrl",
+          "shift",
+          "cmd"
+        ]
+      },
+      "id" : "newRow",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "title" : "New Row",
+      "title_key" : "action.newRow",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "pane split-down",
       "context_menu" : "offered",
       "context_menus" : [

@@ -193,6 +193,45 @@
       "since": "cloud/1"
     },
     {
+      "name": "cloud.machine.watch",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The machine projection revision now."
+          }
+        },
+        "required": [
+          "revision"
+        ]
+      },
+      "cli": {
+        "path": "machine watch",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "The machine change stream. The catalog has no stream class yet, so this read answers the current projection revision; the server then sends cloud.machine.watch events after each op: {type: upsert, revision, machine} or {type: removed, revision, id}. One revision per projection change; no timer, no polling.",
+      "since": "cloud/1"
+    },
+    {
       "name": "cloud.machine.get",
       "owner": "app:cmux/cloud",
       "class": "read",
@@ -369,7 +408,8 @@
         "description": "A Cloud machine record (owner: the cmux Cloud API).",
         "required": [
           "id",
-          "status"
+          "status",
+          "revision"
         ],
         "properties": {
           "id": {
@@ -467,6 +507,11 @@
               "number",
               "null"
             ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The machine projection revision this change reached; the change shows on cloud.machine.watch at this revision or later."
           }
         }
       },
@@ -525,7 +570,8 @@
         "description": "A Cloud machine record (owner: the cmux Cloud API).",
         "required": [
           "id",
-          "status"
+          "status",
+          "revision"
         ],
         "properties": {
           "id": {
@@ -623,6 +669,11 @@
               "number",
               "null"
             ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The machine projection revision this change reached; the change shows on cloud.machine.watch at this revision or later."
           }
         }
       },
@@ -667,7 +718,8 @@
         "description": "A Cloud machine record (owner: the cmux Cloud API).",
         "required": [
           "id",
-          "status"
+          "status",
+          "revision"
         ],
         "properties": {
           "id": {
@@ -765,6 +817,11 @@
               "number",
               "null"
             ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The machine projection revision this change reached; the change shows on cloud.machine.watch at this revision or later."
           }
         }
       },
@@ -815,7 +872,8 @@
         "description": "A Cloud machine record (owner: the cmux Cloud API).",
         "required": [
           "id",
-          "status"
+          "status",
+          "revision"
         ],
         "properties": {
           "id": {
@@ -913,6 +971,11 @@
               "number",
               "null"
             ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The machine projection revision this change reached; the change shows on cloud.machine.watch at this revision or later."
           }
         }
       },
@@ -978,7 +1041,8 @@
       "output": {
         "type": "object",
         "required": [
-          "state"
+          "state",
+          "revision"
         ],
         "properties": {
           "cpus": {
@@ -1043,6 +1107,11 @@
           },
           "state": {
             "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The machine projection revision this change reached; the change shows on cloud.machine.watch at this revision or later."
           }
         }
       },
@@ -1447,7 +1516,8 @@
         "description": "A Cloud machine record (owner: the cmux Cloud API).",
         "required": [
           "id",
-          "status"
+          "status",
+          "revision"
         ],
         "properties": {
           "id": {
@@ -1545,6 +1615,11 @@
               "number",
               "null"
             ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The machine projection revision this change reached; the change shows on cloud.machine.watch at this revision or later."
           }
         }
       },
@@ -1595,7 +1670,8 @@
         "description": "A Cloud machine record (owner: the cmux Cloud API).",
         "required": [
           "id",
-          "status"
+          "status",
+          "revision"
         ],
         "properties": {
           "id": {
@@ -1700,6 +1776,11 @@
               "null"
             ],
             "description": "The snapshot the copy was made from."
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The machine projection revision this change reached; the change shows on cloud.machine.watch at this revision or later."
           }
         }
       },

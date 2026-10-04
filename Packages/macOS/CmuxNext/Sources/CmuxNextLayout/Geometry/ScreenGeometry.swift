@@ -61,6 +61,15 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
     /// The orientation the docks were placed with; stacking reads it (F4).
     public var frameOrientation: FrameOrientation = .columnMajor
     public var fixedSplits: Set<SplitID> = []
+    /// Columns with two or more rows (plans/cmux-next/rows.md), their row
+    /// frames and the handles between rows. Row content is in content space
+    /// before the column's own vertical offset (`shiftingRows`).
+    public var rowStacks: [ColumnID: RowStackGeometry] = [:]
+    public var rowEdges: [RowEdgeGeometry] = []
+    /// The row column holding each pane and split divider: what that
+    /// column's vertical offset moves.
+    public var rowColumnOfPane: [PaneID: ColumnID] = [:]
+    public var rowColumnOfSplit: [SplitID: ColumnID] = [:]
 
     public static func compute(_ layout: ScreenLayout, viewport: CGSize, style: LayoutStyle, scale: CGFloat = 2) -> ScreenGeometry {
         switch layout {
@@ -107,7 +116,7 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
             for (column, frame) in zip(columns, strip.frames) {
                 geometry.columns[column.id] = frame
                 geometry.columnOrder.append(column.id)
-                let result = SplitGeometry.layout(column.root, in: frame, style: style, scale: scale)
+                let result = geometry.layoutContent(of: column, in: frame, style: style, scale: scale)
                 geometry.panes.merge(result.panes) { _, new in new }
                 geometry.dividers.append(contentsOf: result.dividers)
                 let gapMid = frame.maxX + gap / 2
@@ -135,7 +144,8 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
     /// Lays out a sticky column's split tree at its fixed frame, with its
     /// resize handle on the inner edge.
     private mutating func addSticky(_ column: LayoutColumn, frame entry: StickyColumnFrame, style: LayoutStyle, scale: CGFloat) {
-        let result = SplitGeometry.layout(column.root, in: entry.frame, style: style, scale: scale)
+        // G5: a sticky column holds rows like any column.
+        let result = layoutContent(of: column, in: entry.frame, style: style, scale: scale)
         columns[column.id] = entry.frame
         panes.merge(result.panes) { _, new in new }
         fixedPanes.formUnion(result.panes.keys)
@@ -161,6 +171,56 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
             hitFrame: CGRect(x: x, y: entry.frame.minY, width: edgeHit, height: entry.frame.height),
             stickyEdge: entry.sticky.edge
         ))
+    }
+
+    /// A column's panes and dividers in `frame`: its split tree, or its rows
+    /// stacked top to bottom with each row's tree inside (rows.md G1, G2).
+    /// Rows turned off (`style.rowsEnabled`) fit the column and never
+    /// scroll (O3).
+    mutating func layoutContent(of column: LayoutColumn, in frame: CGRect, style: LayoutStyle, scale: CGFloat) -> SplitLayoutResult {
+        guard column.hasRows else { return SplitGeometry.layout(column.root, in: frame, style: style, scale: scale) }
+        let stack = RowStackGeometry.compute(column: column.id, rows: column.rows,
+                                             minimumHeights: column.rows.map { SplitGeometry.minimumSize(of: $0.root, style: style).height },
+                                             in: frame, gap: style.stripGap, fits: !style.rowsEnabled, scale: scale)
+        rowStacks[column.id] = stack
+        rowEdges.append(contentsOf: stack.edges(thickness: style.columnEdgeHitThickness))
+        var result = SplitLayoutResult()
+        for (row, placed) in zip(column.rows, stack.rows) {
+            let inner = SplitGeometry.layout(row.root, in: placed.frame, style: style, scale: scale)
+            result.panes.merge(inner.panes) { _, new in new }
+            result.dividers.append(contentsOf: inner.dividers)
+        }
+        for pane in result.panes.keys { rowColumnOfPane[pane] = column.id }
+        for divider in result.dividers { rowColumnOfSplit[divider.id] = column.id }
+        return result
+    }
+
+    /// This geometry with each row column's content moved up by its
+    /// vertical offset (`offsets`, content points): what the view shows and
+    /// hit-tests at those offsets. Column frames and row stacks stay.
+    public func shiftingRows(_ offsets: [ColumnID: CGFloat]) -> ScreenGeometry {
+        let live = offsets.filter { $0.value != 0 && rowStacks[$0.key] != nil }
+        guard !live.isEmpty else { return self }
+        var shifted = self
+        for (pane, column) in rowColumnOfPane {
+            guard let dy = live[column], let rect = panes[pane] else { continue }
+            shifted.panes[pane] = rect.offsetBy(dx: 0, dy: -dy)
+        }
+        shifted.dividers = dividers.map { divider in
+            guard let column = rowColumnOfSplit[divider.id], let dy = live[column] else { return divider }
+            var moved = divider
+            moved.frame = divider.frame.offsetBy(dx: 0, dy: -dy)
+            moved.hitFrame = divider.hitFrame.offsetBy(dx: 0, dy: -dy)
+            moved.container = divider.container.offsetBy(dx: 0, dy: -dy)
+            return moved
+        }
+        shifted.rowEdges = rowEdges.map { edge in
+            guard let dy = live[edge.column] else { return edge }
+            var moved = edge
+            moved.hitFrame = edge.hitFrame.offsetBy(dx: 0, dy: -dy)
+            return moved
+        }
+        return shifted
     }
 
     /// True for a pane, divider or column edge that the scroll moves.

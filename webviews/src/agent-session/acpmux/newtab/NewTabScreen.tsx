@@ -48,7 +48,10 @@ export function NewTabScreen(props: Props) {
   const field = useRef<HTMLInputElement>(null);
   const wholeSelection = useRef(false);
   const composing = useRef(false);
-  const agents = useMemo(() => snapshot.catalog.map((entry) => ({ id: entry.id, name: entry.name })), [snapshot.catalog]);
+  const agents = useMemo(
+    () => snapshot.catalog.map((entry) => ({ id: entry.id, name: entry.name })),
+    [snapshot.catalog],
+  );
   const rows = useMemo(
     () => (touched && !converting ? screenRows(text, mode, { agents, omnibar, lastAgent, home }) : []),
     [touched, converting, text, mode, agents, omnibar, lastAgent, home],
@@ -203,9 +206,7 @@ export function NewTabScreen(props: Props) {
           ))}
         </div>
       )}
-      {!converting && (
-        <ChatCards cards={cards} onOpen={props.onOpenSession} onShowAll={props.onShowAll} />
-      )}
+      {!converting && <ChatCards cards={cards} onOpen={props.onOpenSession} onShowAll={props.onShowAll} />}
     </div>
   );
 }
