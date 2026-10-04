@@ -17,6 +17,9 @@ pub enum ScopeClass {
     Sensitive,
     /// First-party apps, or Verified apps whose review covers the scope.
     Restricted,
+    /// Never granted at install; any tier gets it only by an explicit user
+    /// grant in the native confirmation sheet, with a warning.
+    Elevated,
 }
 
 /// A scope's class and whether only an app server may hold it.
@@ -39,6 +42,7 @@ fn rules() -> &'static Vec<(Regex, ScopeInfo)> {
                     Some("standard") => ScopeClass::Standard,
                     Some("sensitive") => ScopeClass::Sensitive,
                     Some("restricted") => ScopeClass::Restricted,
+                    Some("elevated") => ScopeClass::Elevated,
                     other => panic!("unknown scope class {other:?}"),
                 };
                 let pattern =

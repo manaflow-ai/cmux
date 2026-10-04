@@ -46,10 +46,41 @@ public nonisolated enum AgentPageOps {
 public final class AgentPageProvider: PageProvider {
     public typealias Prepare = @MainActor (AgentPaneRequest) -> AgentPaneModel?
 
+    /// The stream of host pushes (``AgentPageEvent``) the page subscribes to once its
+    /// `cmuxAcpmuxBridge` is installed.
+    public static let hostEvents = "cmux.agent.host.events"
+
     private let prepare: Prepare
+    private var listeners: [UInt64: @MainActor (JSONValue) -> Void] = [:]
+    private var nextListener: UInt64 = 1
+    /// The current state a new subscriber gets first (theme, shortcuts, preview, customization),
+    /// as the old host pushed it again on every handshake.
+    public var replay: (@MainActor () -> [AgentPageEvent])?
 
     public init(prepare: @escaping Prepare) {
         self.prepare = prepare
+    }
+
+    /// Sends `event` to every subscribed page.
+    public func publish(_ event: AgentPageEvent) {
+        for id in listeners.keys.sorted() { listeners[id]?(event.data) }
+    }
+
+    public var hasSubscribers: Bool { !listeners.isEmpty }
+
+    public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
+                          onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
+        guard stream == Self.hostEvents else { throw PageError.unknownOp(stream) }
+        let id = nextListener
+        nextListener += 1
+        listeners[id] = onEvent
+        // The current state, after the subscribe reply that names the subscription reaches the page.
+        // task-owner: one replay after the reply; a cancelled subscription receives nothing
+        Task { @MainActor [weak self] in
+            guard let self, self.listeners[id] != nil else { return }
+            for event in self.replay?() ?? [] { self.listeners[id]?(event.data) }
+        }
+        return PageSubscription { [weak self] in self?.listeners.removeValue(forKey: id) }
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {

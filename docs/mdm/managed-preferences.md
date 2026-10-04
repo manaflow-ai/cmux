@@ -82,6 +82,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.surfaces.splitDivider.opacity` | real |  | 0 to 1 | Split Divider Opacity |
 | `appearance.surfaces.docks.color` | string |  |  | Docked Columns Color |
 | `appearance.surfaces.docks.opacity` | real |  | 0 to 1 | Docked Columns Opacity |
+| `appearance.surfaces.diff.color` | string |  |  | Diff Viewer Color |
+| `appearance.surfaces.diff.opacity` | real |  | 0 to 1 | Diff Viewer Opacity |
 | `appearance.statusIndicator.style` | string | `"arc"` | `arc`, `native`, `dot`, `braille`, `none` | Style. How sidebar rows, tabs and panes show work in progress. |
 | `appearance.statusIndicator.size` | real | `1` | 0.5 to 1.5 | Size |
 | `appearance.statusIndicator.thickness` | real | `1.5` | 0.5 to 4 | Line Width |

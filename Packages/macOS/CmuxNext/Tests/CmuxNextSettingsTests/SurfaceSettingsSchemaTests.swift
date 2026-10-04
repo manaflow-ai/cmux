@@ -3,10 +3,10 @@ import Foundation
 import Testing
 
 /// Appearance > Surfaces (Lawrence R55): a color row and an opacity row for
-/// each of nine surfaces, both optional overrides of the window's own color
+/// each of ten surfaces (the diff viewer is the tenth), both optional overrides of the window's own color
 /// and opacity, in the shape the Settings lead and the coordinator agreed.
 @Suite struct SurfaceSettingsSchemaTests {
-    static let surfaces = ["sidebar", "tabBar", "terminal", "agentPane", "settings", "newTabPage", "home", "browserChrome", "docks"]
+    static let surfaces = ["sidebar", "tabBar", "terminal", "agentPane", "settings", "newTabPage", "home", "browserChrome", "docks", "diff"]
 
     static func path(_ surface: String, _ field: String) -> [String] { ["appearance", "surfaces", surface, field] }
 
@@ -16,9 +16,9 @@ import Testing
             .diagnostics.filter { $0.path == path.joined(separator: ".") }
     }
 
-    @Test func eighteenRowsInAppearanceSurfaces() throws {
+    @Test func twentyRowsInAppearanceSurfaces() throws {
         let rows = SettingsSchema.all.filter { $0.path.starts(with: ["appearance", "surfaces"]) }
-        #expect(rows.count == 18)
+        #expect(rows.count == 20)
         for surface in Self.surfaces {
             for field in ["color", "opacity"] {
                 let row = try #require(SettingsSchema.descriptor(for: Self.path(surface, field)), "\(surface).\(field)")

@@ -1,0 +1,27 @@
+{
+  "$comment": "Shape recorded from web/app/api/vm/[id]/fs/[operation]/route.ts and web/services/vms/drivers/types.ts (no customer data).",
+  "request": {
+    "method": "GET",
+    "path": "/api/vm/vm-alpha01/fs/dir?path=/home/cmux"
+  },
+  "status": 200,
+  "body": {
+    "entries": [
+      {
+        "name": "notes.txt",
+        "kind": "file",
+        "size": 12,
+        "mode": 420,
+        "modifiedAt": 1791100000000
+      },
+      {
+        "name": "src",
+        "kind": "directory"
+      },
+      {
+        "name": "latest",
+        "kind": "symlink"
+      }
+    ]
+  }
+}

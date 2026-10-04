@@ -5,16 +5,19 @@ import { applyDiffViewerAppearance, resolveDiffViewerAppearance } from "../appea
 import { installSolidBackdrop } from "../backdrop";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "../labels";
 import { installDiffLanguageHostAPI } from "../diff-languages/host";
+import { diffPageClient } from "../diff/page";
+import { bootPageDiff } from "../diff/pageBoot";
 import { createWebviewsRouter } from "../router";
 import { applyDiffViewerStatusToDocument, initialDiffViewerStatus } from "../status";
 import diffViewerStyles from "../styles.css?inline";
 import type { DiffViewerConfig } from "../types";
 import { installWebviewStyles } from "./installWebviewStyles";
 
-function readConfig(): DiffViewerConfig {
+/** The config the classic host (and the dev server) embeds in the page, or null. */
+function readEmbeddedConfig(): DiffViewerConfig | null {
   const element = document.getElementById("cmux-diff-viewer-config");
   if (!element?.textContent) {
-    throw new Error("Missing cmux diff viewer config");
+    return null;
   }
   return JSON.parse(element.textContent);
 }
@@ -23,11 +26,30 @@ function readConfig(): DiffViewerConfig {
  * Boots the diff viewer surface: reads its config, applies appearance/labels/
  * status, then renders the diff `App` through the shared router. Loaded as its
  * own chunk so the agent session surface never ships `@pierre/diffs`.
+ *
+ * The classic host and the dev server embed the config, and the viewer renders at once. On the
+ * shared page host (no embedded config) the viewer asks `cmux.diff.config` and renders when it
+ * answers; the returned promise settles then.
  */
-export function mountDiffSurface(rootElement: HTMLElement): void {
-  const config = readConfig();
+export function mountDiffSurface(rootElement: HTMLElement): Promise<void> {
+  const embedded = readEmbeddedConfig();
+  if (embedded) {
+    renderDiffSurface(rootElement, embedded, embedded.payload?.languages);
+    return Promise.resolve();
+  }
+  const page = diffPageClient();
+  if (!page) {
+    throw new Error("Missing cmux diff viewer config");
+  }
+  return bootPageDiff(page, (config, languages) => renderDiffSurface(rootElement, config, languages)).then(
+    () => undefined,
+  );
+}
+
+/** Applies the config's appearance, labels and status, then renders the viewer. */
+export function renderDiffSurface(rootElement: HTMLElement, config: DiffViewerConfig, languages: unknown): void {
   installWebviewStyles("diff", diffViewerStyles);
-  installDiffLanguageHostAPI(config.payload?.languages);
+  installDiffLanguageHostAPI(languages);
   applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance));
   installSolidBackdrop();
   if (typeof config.payload?.title === "string" && config.payload.title.trim() !== "") {

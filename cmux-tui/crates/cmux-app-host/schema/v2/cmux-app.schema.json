@@ -666,7 +666,7 @@
       "type": "object",
       "maxProperties": 64,
       "propertyNames": {
-        "pattern": "^([a-z][a-z0-9_-]{0,31}:(read|write|execute|external|answer|control|input|keys)|actions:run|embed:run|storage:(local|synced)|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32}(:read)?|terminal:backend|clipboard:write|mcp:expose)$"
+        "pattern": "^([a-z][a-z0-9_-]{0,31}(\\.[a-z][a-z0-9_-]{0,63}){0,2}:(read|write|execute|external|answer|control|input|keys)|actions:run|embed:run|storage:(local|synced)|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32}(:read)?|terminal:backend|clipboard:write|mcp:expose)$"
       },
       "additionalProperties": {
         "type": "string",
@@ -758,8 +758,10 @@
         "kind": {
           "enum": [
             "native",
-            "js"
-          ]
+            "js",
+            "external"
+          ],
+          "description": "native: a binary (first-party: shipped with cmux in binaries; Verified: downloaded artifacts with a pinned sha256 and the publisher's signature), run in the OS sandbox and reached over the provider channel. js: the QuickJS app host. external: a process the user starts; it connects to the router with an app credential the user approves."
         },
         "binaries": {
           "type": "object",
@@ -777,6 +779,42 @@
             "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
           },
           "minProperties": 1
+        },
+        "artifacts": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "Verified native servers: one signed download per platform. The store listing pins sha256; the registry checks the signature against the publisher key.",
+          "propertyNames": {
+            "enum": [
+              "darwin-arm64",
+              "darwin-x64",
+              "linux-arm64",
+              "linux-x64"
+            ]
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "url",
+              "sha256",
+              "signature"
+            ],
+            "properties": {
+              "url": {
+                "$ref": "#/$defs/https"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "signature": {
+                "type": "string",
+                "minLength": 16,
+                "maxLength": 1024
+              }
+            }
+          }
         },
         "args": {
           "type": "array",
@@ -860,9 +898,80 @@
             }
           },
           "then": {
-            "required": [
-              "binaries"
+            "oneOf": [
+              {
+                "required": [
+                  "binaries"
+                ]
+              },
+              {
+                "required": [
+                  "artifacts"
+                ]
+              }
             ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "js"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "binaries"
+                  ]
+                },
+                {
+                  "required": [
+                    "artifacts"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "external"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "binaries"
+                  ]
+                },
+                {
+                  "required": [
+                    "artifacts"
+                  ]
+                },
+                {
+                  "required": [
+                    "args"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "hosts": {
+                "const": [
+                  "local"
+                ]
+              }
+            }
           }
         }
       ]
@@ -872,7 +981,7 @@
       "maxProperties": 64,
       "description": "The server principal's own scopes: app scopes plus the server-only process:spawn:<binary> and op:<op name>.",
       "propertyNames": {
-        "pattern": "^([a-z][a-z0-9_-]{0,31}:(read|write|execute|external|answer|control|input|keys)|actions:run|embed:run|storage:(local|synced)|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32}(:read)?|terminal:backend|clipboard:write|mcp:expose|process:spawn:[a-z0-9][a-z0-9-]{0,63}|op:[a-z][a-zA-Z0-9_.-]{0,95})$"
+        "pattern": "^([a-z][a-z0-9_-]{0,31}(\\.[a-z][a-z0-9_-]{0,63}){0,2}:(read|write|execute|external|answer|control|input|keys)|actions:run|embed:run|storage:(local|synced)|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32}(:read)?|terminal:backend|clipboard:write|mcp:expose|process:spawn:[a-z0-9][a-z0-9-]{0,63}|op:[a-z][a-zA-Z0-9_.-]{0,95})$"
       },
       "additionalProperties": {
         "type": "string",

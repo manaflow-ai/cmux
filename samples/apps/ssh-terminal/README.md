@@ -1,53 +1,78 @@
 # SSH Terminal (sample third-party backend)
 
 A sample app that acts as an outside publisher (`manaflow-ai/ssh-terminal`: the
-publisher is not `cmux`, so it gets the unverified tier; we own the GitHub owner) that brings its own terminal backend: plain SSH to any host that runs an
-SSH server. The far host runs no cmux. The app implements
-`cmux.terminal.backend/1` in bytes mode for kind `ssh`. Its purpose is to
-prove that the public interface works for an outside author, and to find
-where it does not (see "Interface gaps").
+publisher is not `cmux`, so it gets the unverified tier; we own the GitHub owner)
+that brings its own terminal backend: plain SSH to any host that runs an SSH
+server. The far host runs no cmux. The app implements `cmux.terminal.backend/1`
+in bytes mode for kind `ssh`, over the channel that the host opens for it
+(`connection.channel.*`, coordinator decision 8). Its purpose is to prove that
+the public interface works for an outside author, and to find where it does not
+(see "Interface gaps").
 
 Plan: `plans/cmux-next/cloud-app.md` (package C3) and
-`plans/cmux-next/ghostty-next-switch.md` section 3.
+`plans/cmux-next/ghostty-next-switch.md` sections 3.3 to 3.5. Interface:
+`cmux-tui/crates/cmux-app-host/interfaces/cmux.terminal.backend/1.json`.
 
 ## What it proves
 
 - An app outside the cmux tree implements the backend trait with no cmux
-  crate at run time. The trait is a local mirror (`server/src/iface.rs`) of the
-  shape that the ghostty-next lead chose. The cmux Cloud rescue shell
-  (cloud-app.md 3.4, package C2) copies the same mirror, so both swap to the
-  real crate the same way when it lands.
+  crate at run time and no SSH crate at all. The trait and the host ops are a
+  local mirror (`server/src/iface.rs`) of the landed JSON. The cmux Cloud
+  rescue shell (cloud-app.md 3.4, package C2) copies the same mirror, so both
+  swap to the real crate the same way when it lands.
+- The host owns the SSH transport. The app passes an opaque `connection`
+  handle and the host's `open_token` to `connection.channel.open`. The host
+  dials, checks the host key the user pinned, authenticates with the user's
+  key and gives back a channel id. The app never sees a host name, a key, a
+  known_hosts file or a signature, and the interface has no signing op.
 - Bytes mode is enough for a plain shell: the backend only moves bytes. The
   local session host parses them, owns the VT state, snapshots and journal,
-  and answers terminal queries (`answersQueries: false`).
-- Handles, not strings (app-platform.md 12.1 V6): the app gets an opaque
-  `connection` handle. The host resolves it to a host, port and user, answers
-  the host key question, and signs the auth payload with the user's key. The
-  app never sees a private key or a known_hosts file.
+  and answers terminal queries (`capabilities.answers_queries: false`).
+- The backend keeps the interface's ordering and flow rules on top of the
+  channel: input in `seq` order, resize and signal behind the input before
+  them, contiguous output offsets, bounded buffers, and no call that waits.
 
 ## Behavior
 
-| Op or event | SSH mapping |
+| Backend op or event | Host channel mapping |
 | --- | --- |
-| `open {kind: "ssh", target: conn_…, grid, env.TERM?}` | resolve the handle, TCP connect, key exchange, host key check, public key auth through the credential handle, session channel, PTY request (grid), shell |
-| `write {seq, bytes}` | channel data, in `seq` order (out-of-order chunks wait, at most 256 ahead; a used seq is refused). A full buffer (1 MiB of unsent input) answers `Unavailable {retryable: true}` and changes nothing; no call waits |
-| `resize {cols, rows}` | `window-change` |
-| `signal` | SSH `signal` (INT, TERM, HUP, KILL) |
-| `close` | `Graceful`: unsent input, then EOF, then channel close. `Now`: unsent input is dropped. Both end the SSH connection; output after close is discarded |
-| event `output` | channel data and stderr data, in order; the byte offset is the running total |
-| event `exit {code}` | the server sent `exit-status` (or `exit-signal`, code empty) or closed the channel |
-| event `lost` | the channel ended with no exit and no close: the transport dropped, or 3 keepalives in a row (15 s apart) got no answer |
+| `open {kind: "ssh", target: conn_…, open_token, grid, env.TERM?, command?}` | `connection.channel.open {connection: target, open_token, pty: {term, cols, rows}, command}`. `term` is `env.TERM` or `xterm-256color` |
+| `write {seq, bytes}` | channel data, in `seq` order (out-of-order chunks wait, at most 256 ahead; a used seq is refused) |
+| `resize {cols, rows}` | `connection.channel.resize`, after the input accepted before it. A host refusal is dropped; the shell keeps running |
+| `signal` | `connection.channel.signal` (INT, TERM, HUP, KILL), after the input accepted before it. A host refusal is dropped; the shell keeps running |
+| `close` | `connection.channel.close`. `Graceful` first sends the input the host takes now; `Now` drops unsent input. Output after close is discarded |
+| event `output {offset, bytes}` | channel data; `offset` is the running byte total after the chunk |
+| event `exit {code?, signal?, core_dumped, message?}` | the channel ended with an exit status or exit signal; `message` is cut to 4 KiB |
+| event `lost {reason, retryable}` | the channel dropped with no exit (the host's `reason`, cut to 4 KiB, and `retryable`), or sending input failed for good (`retryable: false`) |
 
-`command` and `cwd` in `open` are refused: this sample opens the login shell
-only.
+`cwd` in `open` is `unsupported`: `connection.channel.open` has no cwd. Other
+`env` entries than `TERM` are not sent (the host op has no env field).
 
-Host key check: mandatory. The check runs during key exchange. An unknown or
-changed key ends the connection before authentication and before any
-channel, so no byte reaches the shell and the credential never signs. `open`
-fails with `Unavailable {reason: "host-key-unknown SHA256:…" | "host-key-changed SHA256:…", retryable: false}`.
-The app never accepts a key by itself and never writes a known_hosts file. The
-host asks the user and records the decision; the user then opens again. Host
-certificates are refused (not supported in the sample).
+Errors pass through unchanged: an unknown or changed host key is
+`hostKey {decision: unknown|changed, fingerprint: "SHA256:…"}` from the host,
+and no channel exists, so no byte reached the shell and no event follows. The
+host shows its accept sheet; the user opens again with a new `open_token`. A
+missing, unknown or reused `open_token` and an unknown or revoked handle are
+`denied` from the host. A kind other than `ssh` is `denied` before any host op.
+A call on a terminal that is closed, exited or lost is `invalid`.
+
+Flow control. No call waits. The data plane of the channel answers a full
+host buffer with `unavailable {retryable: true}`; the backend keeps the
+command and sends it on the next call. The backend holds at most 1 MiB of
+unsent input (and 1024 commands); more is `unavailable {retryable: true}` and
+changes nothing. The backend asks the host for at most the free room of its
+64 KiB output buffer, so a flood waits in the host, whose own buffer and SSH
+flow control stop the far end. A host that sends more than it was asked for
+ends the terminal with `lost`.
+
+The sample calls the host ops while it holds the lock of one session. That
+is safe only because the `HostChannels` contract says that no op waits and no
+op calls back into the backend. The real async trait must not hold a lock
+across an `.await`.
+
+Tokens: `OpenToken` and `ResumeToken` print as `..` in `Debug`, so neither
+reaches a log. A resume token is a bearer credential for its session (see
+gap 5).
 
 ## Resume
 
@@ -55,64 +80,75 @@ The backend keeps a session alive when the session host drops the terminal
 handle without `close` (for example a session host restart while the app
 server keeps running). `resume_token` is `ssh:<terminal>@<offset>#<nonce>`:
 offset is the next output byte the session host has not received; nonce is
-128 random bits per session, so a guessed token never attaches.
+128 random bits per session, so a guessed token never attaches. `resume
+{resume_token, open_token}` answers the terminal and the offset; output
+offsets continue from there.
 
-- At most 64 KiB of unread output waits per terminal (plus one SSH packet,
-  at most 32 KiB). When it is full, the backend stops reading the channel.
-  The SSH client then fills its 8-message channel queue and stops reading
-  the TCP socket, so TCP flow control stops the far end. About 320 KiB per
-  terminal (plus kernel socket buffers) is the most a fast server can make
-  the client hold. No byte is dropped while the terminal is open.
 - At most 64 KiB of already delivered output stays for replay. `resume` from
   an offset inside that window continues there; an older offset, a gone
-  session or a wrong nonce gives a terminal whose only event is `lost`.
-  `resume` while a terminal is attached is `Invalid`.
-- At most 16 detached sessions stay; the oldest is closed after that.
-- A session that exited or was lost drops its SSH connection at once.
-- An SSH session does not outlive the app server process. After an app server
+  session or a wrong nonce gives a terminal whose only event is
+  `lost {retryable: false}`. `resume` while a terminal is attached is
+  `invalid`. `resume` with an empty `open_token` is `invalid`.
+- At most 16 detached sessions stay; the oldest channel is closed after that.
+- A session that exited or was lost closes its channel at once.
+- A channel does not outlive the app server process. After an app server
   restart, every resume gives `lost`.
 
 ## Conformance
 
 `server/tests/conformance.rs` holds interface vectors that use only the
-interface types and a `FarEnd` trait (kind refusal, echo round trip, write
-order under concurrent writers, resize, exit status, lost, close, resume).
-Another backend copies the `vectors` module and implements `FarEnd` for its
-own far end. The far end must run this tiny shell: a line `echo X` answers
-`X\r\n`; a line `exit N` exits with status N.
+interface types and a `FarEnd` trait: kind refusal, `answers_queries`, echo
+round trip, contiguous offsets, write order under concurrent writers, resize,
+signal, exit shape, lost, close, resume at an offset, and resume from a stale
+offset. Another backend (the Cloud rescue shell) copies the `vectors` module
+and implements `FarEnd` for its own far end. The far end must run this tiny
+shell: a line `echo X` answers `X\r\n`; `exit N` exits with status N;
+`flood N` answers N KiB of output.
 
-The SSH-specific tests (`server/tests/ssh_backend.rs`) also cover the host
-key refusal before any byte, the credential handle, RSA (rsa-sha2) signing,
-writes that never wait, connections that end on close and on exit, stale
-handles, resume nonces, eviction and calls from inside an async runtime.
+`server/tests/host_channel.rs` covers the SSH mapping: the handle, token and
+PTY pass through unchanged, no op except the channel ops, the typed host key
+refusal with no byte and no event, token reuse, the exit signal shape with a
+bounded message, graceful and immediate close, a full input buffer, resize
+and signal order behind buffered input, output that waits in the host, stale
+handles, resume nonces, eviction and backend shutdown.
 
-The tests run an in-process SSH server (`russh` server on 127.0.0.1) inside
-the test, never a real sshd and never a real host. Keys are made in memory in
-the test.
+The tests run against an in-memory fake of the host ops (`tests/common`): no
+network, no SSH, no key.
 
 ## Scopes and handles
 
-The manifest asks for no scope. It asks for a `connection` handle of kind
-`ssh` and a `credential` handle of kind `ssh-key` (the host signs; the app
-gets no secret). No network scope: SSH targets come only through handles.
+The manifest asks for no scope and for one `connection` handle of kind `ssh`.
+It asks for no `credential` handle: the host signs in with the user's key, so
+the app needs none. No network scope: SSH targets come only through handles.
 
 Target shape, not in the manifest yet (it waits for app platform approval of
-app-provided terminal backends):
+app-provided terminal backends, a third-party server kind and the host op
+scope name):
 
 ```json
 "implements": {
   "cmux.terminal.backend/1": { "server": true, "options": { "kinds": ["ssh"] } }
 },
 "scopes": { "terminal:backend": "Serve terminals for the SSH hosts you connect." },
-"server": { "kind": "<third-party server kind>", "instances": "user", "hosts": ["local"] }
+"server": {
+  "kind": "<third-party server kind>",
+  "instances": "user",
+  "hosts": ["local"],
+  "scopes": {
+    "op:connection.channel.open": "Ask cmux to open a shell on a host you picked. cmux connects and signs in; the app never sees your key."
+  }
+},
+"handles": { "connection": { "kinds": ["ssh"], "max": 16, "reason": "…" } }
 ```
 
 Registry id: `app:manaflow-ai/ssh-terminal/ssh`.
 
 ## Interface gaps (found by this sample)
 
+Open:
+
 1. No server kind for a third-party native server. `server.kind: native` is
-   first-party only, and `js` does not fit a Rust SSH client. A sandboxed
+   first-party only, and `js` does not fit a Rust server. A sandboxed
    third-party server kind (or WebAssembly) is needed; until then the
    manifest has no `server` block and the crate is a library.
 2. `terminal:backend` is restricted, so an unverified app can never hold it.
@@ -120,37 +156,46 @@ Registry id: `app:manaflow-ai/ssh-terminal/ssh`.
 3. Manifest ids are `owner/name`; pane-protocol.md asks for a reverse-DNS
    namespace for third-party ops (`com.example.ssh-terminal`). The two need
    one rule.
-4. `BackendError` has no typed host key refusal; the sample uses
-   `Unavailable` with a reason prefix. A `HostKey {decision, fingerprint}`
-   variant would let the host show its accept sheet without parsing text.
-5. The connection and credential handle calls (resolve, host key decision,
-   sign) have no provider-channel ops yet; `server/src/handles.rs` models
-   them as traits.
-6. `ByteEvent::Output` carries no offset, and `BackendCapabilities` has no
-   `answers_queries`. The sample keeps offsets in the resume token and
-   exports `ANSWERS_QUERIES`.
-7. The mirror's `LocalId` allows 32 characters; the interface schema allows 64.
-8. `ExitStatus` has no signal name for `exit-signal`.
-9. A credential handle that signs any bytes the app sends gives the app a
-   signing oracle. The host must parse the payload as an SSH user-auth
-   request (`session id || USERAUTH_REQUEST` for the resolved user and key)
-   before it signs. The sample's `CredentialHandle::sign` cannot enforce
-   that; the real host op must.
-10. The mirrored trait is synchronous. `open` and `resume` wait for the
-    network; called from inside an async runtime they return
-    `Unsupported`. The real async trait removes this rule.
+4. The channel's data plane has no op or frame. The JSON says the channel
+   carries "data in and out" and an exit status, but names only
+   `connection.channel.open|resize|signal|close`. The mirror adds
+   `HostChannels::send` (all or nothing, `unavailable {retryable: true}` when
+   full) and `HostChannels::receive` (at most `max_bytes`, the end event once
+   after the last data). The real shape should be credit based.
+5. No host op takes the `open_token` of a `resume`. The JSON issues one per
+   resume, but a resumed terminal reuses its open channel. The sample only
+   checks that the token is present; the host cannot refuse a stale one.
+6. `connection.channel.close` has no graceful form (EOF first), and the
+   channel op has no `cwd` and no `env` besides `pty.term`.
+7. The JSON names no error for a kind outside `options.kinds` (the sample
+   uses `denied`) or for a call on a closed terminal (the sample uses
+   `invalid`). `unsupported` carries no reason.
+8. No host op scope name is defined for `connection.channel.*` (the target
+   shape above guesses `op:connection.channel.open`).
+9. The mirrored trait is synchronous and drains events with `take_events`;
+   the real trait is async with a stream.
+10. The JSON `open` answers `{terminal, ...}` (the backend names the
+    terminal), but the plan's Rust `OpenRequest` carries the terminal id that
+    the session host chose. The mirror follows the plan and keeps
+    `OpenRequest.terminal`; one of the two must change.
+11. `open` answers `capabilities` and `resume_token?` in the JSON; the mirror
+    keeps `TerminalBackend::capabilities` and `ByteTerminal::resume_token`.
+
+Closed by the landed interface (2026-10-04): output offsets, the typed host
+key refusal, the exit signal, `answers_queries`, a 64-character `LocalId`
+(`^[a-z][a-zA-Z0-9-]{0,63}$`), and the signing oracle (no signing op: the
+host owns the transport).
 
 ## Build and test
 
-`server/` is its own Cargo workspace (no cmux crate at run time; the
-manifest test uses `cmux-app-manifest` by path as a dev-dependency). In this
-repo, Rust runs on a Testbox:
+`server/` is its own Cargo workspace (no cmux crate at run time; the manifest
+test uses `cmux-app-manifest` by path as a dev-dependency). In this repo, Rust
+runs on a Testbox:
 
 ```bash
 cd samples/apps/ssh-terminal/server
 cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked
 ```
 
-License: GPL-3.0-or-later. `russh` uses the `ring` crypto backend (Apache-2.0
-AND ISC) instead of its default backend; every crate in `Cargo.lock` has a
-license that GPL-3.0-or-later can include.
+License: GPL-3.0-or-later. Every crate in `Cargo.lock` has a license that
+GPL-3.0-or-later can include.

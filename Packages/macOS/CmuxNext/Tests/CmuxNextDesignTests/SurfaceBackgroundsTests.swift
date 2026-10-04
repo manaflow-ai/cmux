@@ -82,4 +82,15 @@ import Testing
         let chat = WebTheme(tokens, surface: .agentPane, backgrounds: backgrounds).variables["--cmux-surface-background"]
         #expect(chat == WebTheme(tokens).variables["--cmux-surface-background"])
     }
+
+    /// The diff viewer reads `--cmux-surface-background`; its own override
+    /// reaches it, and a host surface's override does not.
+    @Test func theDiffViewerTakesItsOwnOverride() {
+        let tokens = Self.tokens(opacity: 0.8)
+        let diff = SurfaceBackgrounds(overrides: [.diff: SurfaceBackground(color: Self.red, opacity: 1)])
+        #expect(WebTheme(tokens, surface: .diff, backgrounds: diff).variables["--cmux-surface-background"] == "rgba(204, 51, 51, 1.0)")
+        let host = SurfaceBackgrounds(overrides: [.terminal: SurfaceBackground(color: Self.red)])
+        #expect(WebTheme(tokens, surface: .diff, backgrounds: host).variables["--cmux-surface-background"]
+            == WebTheme(tokens).variables["--cmux-surface-background"])
+    }
 }

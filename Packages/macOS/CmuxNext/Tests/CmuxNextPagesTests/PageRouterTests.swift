@@ -126,6 +126,17 @@ import Testing
         #expect(daemon.filters.isEmpty, "built-in streams never reach a provider")
     }
 
+    @Test func aPageTakesOnlyItsOwnDispatcherCommands() async {
+        let page = PageDescriptor(id: "cmux.agent", resource: "agent", namespaces: ["cmux.agent."], commands: ["find"])
+        let router = PageRouter(descriptor: page, routes: [])
+        let sent = Box()
+        router.send = { sent.items.append($0) }
+        _ = await router.handle(["t": "sub", "id": 1, "stream": .string(PageNativeOp.pageCommand)])
+        #expect(router.publishCommand("find"))
+        #expect(!router.publishCommand("back"))
+        #expect(sent.items.count == 1)
+    }
+
     @Test func closeCancelsSubscriptionsAndRefusesLaterCalls() async {
         let (router, daemon, _, _) = router()
         _ = await router.handle(["t": "sub", "id": 8, "stream": "cmux.settings.changed"])
@@ -188,7 +199,8 @@ import Testing
     @Test func theHistoryPageShipsSelfContainedWithNoNetwork() throws {
         let root = try #require(PageSchemeHandler.bundledRoot(for: .history))
         let html = try String(contentsOf: root.appending(path: "index.html"), encoding: .utf8)
-        #expect(html.contains("default-src 'none'"))
+        #expect(!html.contains("Content-Security-Policy"), "the header is the page's only CSP")
+        #expect(PageDescriptor.history.csp == .strict)
         #expect(html.contains("data-cmux-page=\"history\""))
         #expect(!html.contains("src=\"http"))
     }
