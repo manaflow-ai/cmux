@@ -241,6 +241,39 @@ describe("acpmux virtual transcript", () => {
 describe("acpmux transcript accessibility", () => {
   /// VoiceOver read the transcript as loose text: no list to move through, no speaker per message,
   /// and a turn summary split into five fragments.
+  test("a row that arrives live enters once; history, a load and a remount do not", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const row = (id: string, at: number): AcpmuxRow => ({ id, version: 1, at, kind: "assistant", text: id });
+    const draw = (list: AcpmuxRow[]) =>
+      act(async () =>
+        root.render(
+          createElement(VirtualTranscript, { rows: list, onToggleActivity: () => {}, expanded: new Set<string>() }),
+        ),
+      );
+    const entering = () =>
+      [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row--enter")].map((node) => node.dataset.rowId);
+    try {
+      const history = [row("h1", 1), row("h2", 2)];
+      await draw(history);
+      expect(entering()).toEqual([]);
+      const live = [...history, row("live", 3)];
+      await draw(live);
+      expect(entering()).toEqual(["live"]);
+      // Many rows at once (a session switch, older history) are a load, not live rows.
+      const loaded = [...live, ...[4, 5, 6, 7, 8].map((at) => row(`load-${at}`, at))];
+      await draw(loaded);
+      expect(entering()).toEqual(["live"]);
+      // Drawn again after leaving the transcript (a scroll away and back), a row does not enter again.
+      await draw(history);
+      await draw(live);
+      expect(entering()).toEqual([]);
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
   test("the transcript is a feed of articles placed in the whole conversation", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);

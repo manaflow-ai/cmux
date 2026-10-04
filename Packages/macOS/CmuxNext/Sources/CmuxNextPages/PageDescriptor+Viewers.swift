@@ -2,7 +2,8 @@ public import Foundation
 
 /// The diff page's host commands on `cmux.page.command` (diff-host.md S1). The app's single key
 /// dispatcher (R59) maps the `diffViewer*` actions to these; the page adds no key handling.
-public nonisolated enum DiffPageCommand {
+public nonisolated struct DiffPageCommand {
+    public nonisolated init() {}
     public static let nextLine = "nextLine"
     public static let previousLine = "previousLine"
     public static let halfPageDown = "halfPageDown"
@@ -39,7 +40,8 @@ public nonisolated enum DiffPageCommand {
 }
 
 /// The markdown page's host commands (the `markdownZoom*` actions, diff-host.md S6).
-public nonisolated enum MarkdownPageCommand {
+public nonisolated struct MarkdownPageCommand {
+    public nonisolated init() {}
     public static let zoomIn = "zoomIn"
     public static let zoomOut = "zoomOut"
     public static let zoomReset = "zoomReset"

@@ -8,7 +8,24 @@ A save is a minimal-change write (`sourceMap.ts`). The editor keeps each top-lev
 
 ## Host contract
 
-`host.ts` lists the ops and streams the native host (diff-host.md S6) implements: `cmux.markdown.config`, `cmux.markdown.save {path, text, baseHash}` (refused with `cmux.markdown.conflict` on a hash mismatch), `cmux.markdown.openLink`, the streams `cmux.markdown.changes` and `cmux.markdown.look`, the `save` page command (Cmd-S), and same-origin resources for images (`assetBase`, the file's folder only) and the diagram libraries (`libBase`: `mermaid.js`, `vega.js`). The page runs under the strict PageCSP: Vega uses `vega-interpreter`, code highlighting the Shiki JavaScript engine.
+`host.ts` lists the ops and streams the native host (diff-host.md S6) implements: `cmux.markdown.config`, `cmux.markdown.save {path, text, baseHash}` (refused with `cmux.markdown.conflict` on a hash mismatch), `cmux.markdown.open` (also for followed links), `cmux.markdown.openLink`, `cmux.markdown.resolveLinks`, `cmux.markdown.listFiles`, the page commands `save`, `back`, `forward` and `link`, the streams `cmux.markdown.changes` and `cmux.markdown.look`, the `save` page command (Cmd-S), and same-origin resources for images (`assetBase`, the file's folder only) and the diagram libraries (`libBase`: `mermaid.js`, `vega.js`). The page runs under the strict PageCSP: Vega uses `vega-interpreter`, code highlighting the Shiki JavaScript engine.
+
+## Links
+
+A plain click on a link places the caret; Cmd-click follows it (the cursor turns into a pointer while Cmd is held), and in a read-only file a click follows. Hovering shows a card with the full URL or the resolved path, how the link opens, and "Not found" for a relative target that does not exist (also marked with a wavy underline). Where a followed link goes (`linkRouter.ts`):
+
+| Link                           | Goes to                                                                                                                                                                                                                               |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `#heading`                     | Scrolls smoothly to the heading in this file. Anchors are GitHub slugs, `-1`, `-2` for repeated headings.                                                                                                                             |
+| `other.md`, `other.md#heading` | Opens in this page, then scrolls to the heading. The page keeps a link history: the `back` and `forward` page commands (Cmd-[ and Cmd-]) and the toolbar arrows. Pending edits are saved first; a file whose edits do not save stays. |
+| Another relative file          | The file viewer (`openLink` kind `file`, with the resolved path).                                                                                                                                                                     |
+| `http(s)://`                   | A cmux browser tab (`openLink` kind `external`).                                                                                                                                                                                      |
+| `mailto:`, `tel:`              | The system handler (`openLink` kind `mail`).                                                                                                                                                                                          |
+| Footnote reference             | Its definition; the definition's label jumps back.                                                                                                                                                                                    |
+
+Reference links and autolinks resolve the same way. Relative targets are checked through `cmux.markdown.resolveLinks`, batched per tick and cached per file.
+
+Editing: the `link` page command (Cmd-K) opens a link field on the selection or the link at the caret, completing `#headings` of this file and workspace paths (`cmux.markdown.listFiles`); Enter applies, Escape cancels, an empty URL removes the link. Pasting one URL over a selection links it; pasting a URL alone inserts an autolink. A reference link keeps its reference when its text or URL changes: a new URL rewrites its definition (and every link using it), and a shortcut `[text]` whose text changes is written as `[new text][label]`. Only the edited blocks change in the file.
 
 ## Customizing the look
 
@@ -59,7 +76,7 @@ Lengths given as numbers are pixels (`em` where noted); strings are CSS values. 
 | `markdown.colors.caret`        | the text color                     | `--cmux-md-caret-color`                                                                                           |
 | `markdown.colors.taskChecked`  | the link color                     | `--cmux-md-task-checked-color`                                                                                    |
 
-Properties without a settings key (theme.css only): `--cmux-md-muted-color`, `--cmux-md-faint-color`, `--cmux-md-border-color`, `--cmux-md-heading-rule`, `--cmux-md-code-radius`, `--cmux-md-footnote-size`, `--cmux-md-superscript-size`, `--cmux-md-ui-font-size`, `--cmux-md-toolbar-font-size`, `--cmux-md-accent-background`, `--cmux-md-banner-background`, `--cmux-md-error-color`.
+Properties without a settings key (theme.css only): `--cmux-md-muted-color`, `--cmux-md-faint-color`, `--cmux-md-border-color`, `--cmux-md-heading-rule`, `--cmux-md-code-radius`, `--cmux-md-footnote-size`, `--cmux-md-superscript-size`, `--cmux-md-ui-font-size`, `--cmux-md-toolbar-font-size`, `--cmux-md-accent-background`, `--cmux-md-banner-background`, `--cmux-md-error-color`, `--cmux-md-link-broken-color`, `--cmux-md-popover-background`, `--cmux-md-popover-shadow`, `--cmux-md-popover-font-size`.
 
 Example `cmux.json`:
 

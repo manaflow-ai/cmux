@@ -10,9 +10,20 @@
 //     (including the page's own saves, which the page recognizes by hash);
 //   - the stream `cmux.markdown.look` sends `MarkdownLook` when the `markdown` settings, the user's
 //     markdown/theme.css or the terminal appearance change (settings.ts has the keys);
-//   - `cmux.markdown.openLink {path, href}` opens a link from the file (a relative markdown file in
-//     the markdown page, another file or URL through the app);
-//   - the page command `save` (cmux.page.command) is Cmd-S from the app's key dispatcher.
+//   - `cmux.markdown.open {path}` (viewer-empty/ops.ts, the empty state's op) also opens another
+//     markdown file the user followed a link to; the page shows it in place (its own back/forward
+//     history) and from then on saves, watches (`changes` for that path) and resolves links for it;
+//   - `cmux.markdown.openLink {path, href, kind, target?}` opens what the page does not show
+//     itself: `kind` "external" (http(s): a cmux browser tab), "file" (another file, `target` its
+//     resolved path: the file viewer) or "mail" (mailto:/tel:: the system handler);
+//   - `cmux.markdown.resolveLinks {from, paths}` answers `{links: {[path]: ResolvedLink}}` for
+//     relative link targets (decoded, no fragment) of the file `from`: whether each exists, its
+//     absolute path and kind. The page batches and caches the calls;
+//   - `cmux.markdown.listFiles {from, prefix}` answers `{entries: string[]}`, relative paths
+//     under the file's folder starting with `prefix` (directories end in "/"), for link completion;
+//   - page commands (cmux.page.command) from the app's key dispatcher: `save` (Cmd-S), `back`
+//     (Cmd-[) and `forward` (Cmd-]) through the page's link history, `link` (Cmd-K) the link
+//     popover on the selection.
 // Resources the host serves from the page's origin (the strict PageCSP allows nothing else):
 // `<assetBase><path relative to the file's folder>` for images, `<libBase>mermaid.js` and
 // `<libBase>vega.js` (vega.min.js then vega-lite.min.js) for diagrams.
@@ -21,6 +32,8 @@ import type { DiffViewerAppearance } from "../../appearance";
 export const MARKDOWN_CONFIG_OP = "cmux.markdown.config";
 export const MARKDOWN_SAVE_OP = "cmux.markdown.save";
 export const MARKDOWN_OPEN_LINK_OP = "cmux.markdown.openLink";
+export const MARKDOWN_RESOLVE_LINKS_OP = "cmux.markdown.resolveLinks";
+export const MARKDOWN_LIST_FILES_OP = "cmux.markdown.listFiles";
 export const MARKDOWN_CHANGES = "cmux.markdown.changes";
 export const MARKDOWN_LOOK = "cmux.markdown.look";
 export const MARKDOWN_CONFLICT = "cmux.markdown.conflict";
@@ -75,6 +88,15 @@ export interface MarkdownConflict {
   hash: string | null;
   text?: string;
   deleted?: boolean;
+}
+
+/** The file part of what `cmux.markdown.open` answers (a `MarkdownConfig`). */
+export interface MarkdownFile {
+  path: string;
+  text: string;
+  hash: string;
+  readOnly?: boolean;
+  assetBase?: string;
 }
 
 export function isMarkdownConfig(value: unknown): value is MarkdownConfig {

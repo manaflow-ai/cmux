@@ -9,7 +9,9 @@ public import Foundation
 /// shortest form that reads back to the same `Double`, and keeps the layout
 /// `JSONSerialization` used (`"key" : value`, two-space indent, sorted keys,
 /// unescaped slashes), so the files change only where a number was long.
-public nonisolated enum DeterministicJSON {
+public struct DeterministicJSON {
+    public init() {}
+
     public nonisolated enum Failure: Error, Equatable {
         /// JSON has no form for NaN or infinity.
         case nonFiniteNumber
@@ -21,7 +23,7 @@ public nonisolated enum DeterministicJSON {
     /// arrays, `String`, `Bool`, integers, `Double`, `NSNull`) as JSON text.
     /// Keys are sorted by `keyOrder`. `pretty` uses the
     /// `JSONSerialization` `.prettyPrinted` layout.
-    public static func string(_ object: Any, pretty: Bool) throws -> String {
+    public func string(_ object: Any, pretty: Bool) throws -> String {
         var out = ""
         try write(object, pretty: pretty, indent: 0, into: &out)
         return out
@@ -32,7 +34,7 @@ public nonisolated enum DeterministicJSON {
     /// way on every platform). Whole numbers below 1e15 print without a
     /// fraction (`1`, not `1.0`); exponents drop the sign and padding Swift
     /// adds (`1e-7`, not `1e-07`).
-    public static func number(_ value: Double) throws -> String {
+    public func number(_ value: Double) throws -> String {
         guard value.isFinite else { throw Failure.nonFiniteNumber }
         if value == value.rounded(), abs(value) < 1e15 { return String(Int64(value)) }
         let text = value.description
@@ -42,7 +44,7 @@ public nonisolated enum DeterministicJSON {
         return "\(text[..<e])e\(exponent)"
     }
 
-    static func write(_ value: Any, pretty: Bool, indent: Int, into out: inout String) throws {
+    func write(_ value: Any, pretty: Bool, indent: Int, into out: inout String) throws {
         switch value {
         case let text as String: quote(text, into: &out)
         case is NSNull: out += "null"
@@ -65,13 +67,13 @@ public nonisolated enum DeterministicJSON {
     /// `JSONSerialization` `.sortedKeys` gave the checked-in files
     /// (`DisableAutoUpdate` sorts among the `d` keys), computed here with
     /// locale-free Swift string operations so it cannot move either.
-    static func keyOrder(_ lhs: String, _ rhs: String) -> Bool {
+    func keyOrder(_ lhs: String, _ rhs: String) -> Bool {
         let (a, b) = (lhs.lowercased(), rhs.lowercased())
         if a != b { return a.unicodeScalars.lexicographicallyPrecedes(b.unicodeScalars) }
         return lhs.unicodeScalars.lexicographicallyPrecedes(rhs.unicodeScalars)
     }
 
-    static func container<Element>(
+    func container<Element>(
         _ open: String, _ close: String, _ elements: [Element], pretty: Bool, indent: Int, into out: inout String,
         element: (Element, inout String) throws -> Void
     ) rethrows {
@@ -90,7 +92,7 @@ public nonisolated enum DeterministicJSON {
 
     /// Exact native types first: on Darwin `as? Bool` also matches a boxed
     /// number, so the type is compared, not cast.
-    static func scalar(_ value: Any) throws -> String {
+    func scalar(_ value: Any) throws -> String {
         switch ObjectIdentifier(type(of: value)) {
         case ObjectIdentifier(Bool.self): return (value as! Bool) ? "true" : "false"
         case ObjectIdentifier(Double.self): return try number(value as! Double)
@@ -106,7 +108,7 @@ public nonisolated enum DeterministicJSON {
         throw Failure.unsupportedValue(String(describing: type(of: value)))
     }
 
-    static func quote(_ text: String, into out: inout String) {
+    func quote(_ text: String, into out: inout String) {
         out += "\""
         for scalar in text.unicodeScalars {
             switch scalar {

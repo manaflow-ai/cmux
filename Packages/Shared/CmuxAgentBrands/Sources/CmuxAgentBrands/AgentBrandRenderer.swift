@@ -1,7 +1,8 @@
 import CoreGraphics
 
 /// Draws marks with Core Graphics, so AppKit, UIKit and SwiftUI share one renderer.
-public enum AgentBrandRenderer {
+public struct AgentBrandRenderer {
+    public init() {}
     /// Builds the path for normalized data (absolute M, L, C and Z). Returns nil on malformed data.
     public static func path(_ d: String) -> CGPath? {
         let path = CGMutablePath()

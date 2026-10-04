@@ -13,6 +13,7 @@ import { MARKDOWN_CHOOSE_FILE_OP, MARKDOWN_OPEN_OP, MARKDOWN_RECENTS_OP } from "
 
 type Envelope = { t: string; id?: number; op?: string; params?: unknown; stream?: string; sub?: number };
 
+// The file the page shows: the `?file=` it opened with, then each file it opens or follows a link to.
 let file = new URLSearchParams(location.search).get("file") ?? "";
 const picking = new URLSearchParams(location.search).has("pick");
 const streams = new Map<string, number>();
@@ -70,22 +71,24 @@ async function postMessage(message: Envelope): Promise<unknown> {
   }
   if (!ok)
     return { t: "err", id: message.id, code: body.code, message: body.message ?? body.code, details: body.details };
-  if (message.op === "cmux.markdown.openLink") {
-    if (typeof body.navigate === "string") location.assign(body.navigate);
-    else if (typeof body.url === "string") window.open(body.url, "_blank", "noopener");
+  if (message.op === "cmux.markdown.openLink" && typeof body.url === "string") {
+    window.open(body.url, "_blank", "noopener");
   }
   return { t: "ok", id: message.id, value: body };
 }
 
 (window as unknown as { webkit: unknown }).webkit = { messageHandlers: { cmuxPage: { postMessage } } };
 
-// The app's key dispatcher: Cmd-S saves through the page command, never a page key handler.
+// The app's key dispatcher: Cmd-S, Cmd-[, Cmd-] and Cmd-K become page commands, never page key
+// handlers.
+const DEV_COMMANDS: Record<string, string> = { s: "save", "[": "back", "]": "forward", k: "link" };
 addEventListener(
   "keydown",
   (event: KeyboardEvent) => {
-    if (event.metaKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "s") {
+    const command = DEV_COMMANDS[event.key.toLowerCase()];
+    if (event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && command) {
       event.preventDefault();
-      emit(PAGE_COMMAND, { command: "save" });
+      emit(PAGE_COMMAND, { command });
     }
   },
   true,

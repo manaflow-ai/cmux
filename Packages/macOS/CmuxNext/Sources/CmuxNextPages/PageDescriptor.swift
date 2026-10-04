@@ -81,7 +81,8 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
 
 /// The native UI ops every page shares (react-pages.md 1.3). The host serves them; a page lists
 /// the ones it uses in ``PageDescriptor/nativeOps``.
-public nonisolated enum PageNativeOp {
+public nonisolated struct PageNativeOp {
+    public nonisolated init() {}
     /// Runs a registry action in the app with origin `user`: `{action, args}`.
     public static let actionRun = "cmux.app.action.run"
     /// Writes text to the pasteboard: `{text}`.
