@@ -9,13 +9,14 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::contract::{conversation_change, op_body, snapshot_data};
+use super::contract::{conversation_change, mutation_data, op_body, read_value, snapshot_data};
 use super::stream::{StreamAction, StreamState};
 use super::testing::{Events, FakeBackend, wait_until};
 use super::*;
 
 pub(crate) const CONV: &str = "conv_0123456789ABCDEFGHJKMNPQRS";
 const ME: &str = "user_00000000000000000001";
+const OTHER: &str = "user_00000000000000000002";
 const ORIGIN: &str = "https://api.cmux.test";
 
 pub(crate) fn message(seq: u64, author: &str, text: &str) -> Value {
@@ -54,7 +55,15 @@ pub(crate) fn send_event(seq: u64, rev: u64, msg: &Value) -> Value {
 }
 
 fn welcome() -> String {
-    json!({"t": "welcome", "principal": {"user": ME}, "server_time": 1, "streams": [format!("conv:{CONV}")]}).to_string()
+    welcome_as(ME)
+}
+
+fn welcome_as(user: &str) -> String {
+    json!({"t": "welcome", "principal": {"user": user}, "server_time": 1, "streams": [format!("conv:{CONV}")]}).to_string()
+}
+
+fn inbox_snapshot(user: &str, seq: u64) -> String {
+    json!({"t": "snapshot", "stream": format!("inbox:{user}"), "seq": seq, "state": {"next_pin": 0}, "decided": []}).to_string()
 }
 
 pub(crate) fn session_params(expires_at: u64) -> SessionParams {
@@ -98,6 +107,7 @@ fn service(backend: &Arc<FakeBackend>) -> (CloudConversations, Events, Clock) {
         backoff_max: Duration::from_millis(20),
         poll: Duration::from_millis(5),
         max_conversation_subscriptions: 2,
+        max_concurrent_requests: 2,
         now_ms: Arc::new(move || clock.load(Ordering::SeqCst)),
     };
     let service = CloudConversations::with_options(backend.clone(), options);
@@ -537,5 +547,94 @@ fn conversation_subscriptions_are_bounded_and_ids_are_checked() {
         service.subscribe(1, Target::Conversation("conv_x/../../v1".into())).unwrap_err(),
         CloudError::BadRequest(_)
     ));
+    service.shutdown();
+}
+
+#[test]
+fn idempotency_keys_match_the_backend_limit_of_128() {
+    let title = json!({"kind": "title.set", "title": "t"});
+    let at_limit = "k".repeat(128);
+    assert!(op_body(&op_request(Some(CONV), &at_limit, title.clone())).is_ok());
+    let over = "k".repeat(129);
+    let error = op_body(&op_request(Some(CONV), &over, title)).unwrap_err();
+    assert!(matches!(error, CloudError::BadRequest(_)), "{error:?}");
+    assert!(error.to_string().contains("1-128"), "{error}");
+}
+
+#[test]
+fn a_4xx_without_an_error_body_is_a_final_reject_except_429() {
+    for status in [404_u16, 405, 413] {
+        let reply = HttpReply { status, body: Value::Null };
+        let error = mutation_data(reply.clone()).unwrap_err();
+        assert_eq!(error.error_code(), Some("cloud_conversation_rejected"), "{status}");
+        assert_eq!(error.reason(), Some(format!("http_{status}")), "{status}");
+        assert_eq!(error.retryable(), Some(false), "{status}");
+        assert_eq!(read_value(reply).unwrap_err().reason(), Some(format!("http_{status}")));
+    }
+    let limited = mutation_data(HttpReply { status: 429, body: json!("slow down") }).unwrap_err();
+    assert_eq!(limited.error_code(), Some("cloud_conversation_rejected"));
+    assert_eq!(limited.reason().as_deref(), Some("rate_limited"));
+    assert_eq!(limited.retryable(), Some(true));
+    // A 4xx with the owner's body keeps the owner's code and flag.
+    let coded = HttpReply { status: 429, body: json!({"code": "quota.exceeded", "message": "m"}) };
+    assert_eq!(mutation_data(coded).unwrap_err().reason().as_deref(), Some("quota.exceeded"));
+}
+
+#[test]
+fn concurrent_cloud_requests_are_bounded() {
+    let backend = Arc::new(FakeBackend::default());
+    let (service, _, _) = service(&backend);
+    let first = service.begin_request().unwrap();
+    let _second = service.begin_request().unwrap();
+    let error = service.begin_request().err().expect("a third request must be refused");
+    assert_eq!(error.error_code(), Some("cloud_unavailable"));
+    assert_eq!(error.retryable(), Some(true));
+    drop(first);
+    assert!(service.begin_request().is_ok(), "a released slot is reusable");
+}
+
+#[test]
+fn a_new_principal_resubscribes_from_a_snapshot_not_the_old_seq() {
+    let mut stream = StreamState::new(Target::Conversation(CONV.into()));
+    stream.on_text(&welcome_as(ME));
+    stream.on_text(&snapshot_frame(8, 8, &[]).to_string());
+    stream.on_connect();
+    assert_eq!(sent(&stream.on_text(&welcome_as(OTHER))[0]), json!({"t": "subscribe"}));
+    assert_eq!(stream.last_seq(), None);
+
+    let mut inbox = StreamState::new(Target::Inbox);
+    inbox.on_text(&welcome_as(ME));
+    inbox.on_text(&inbox_snapshot(ME, 7));
+    inbox.on_connect();
+    assert_eq!(
+        sent(&inbox.on_text(&welcome_as(OTHER))[0]),
+        json!({"t": "subscribe", "stream": format!("inbox:{OTHER}")})
+    );
+}
+
+#[test]
+fn an_account_switch_resets_the_inbox_instead_of_resuming_the_old_users_seq() {
+    let backend = Arc::new(FakeBackend::default());
+    let (service, events, _) = service(&backend);
+    service.set_session(session_params(9_000_000)).unwrap();
+    let first = backend.wire();
+    first.push_text(welcome_as(ME));
+    first.push_text(inbox_snapshot(ME, 7));
+    let second = backend.wire();
+    second.push_text(welcome_as(OTHER));
+    second.push_text(inbox_snapshot(OTHER, 2));
+
+    service.subscribe(1, Target::Inbox).unwrap();
+    events.wait_for(|seen| seen.contains(&CloudEvent::InboxReset { seq: 7 }));
+    let mut other = session_params(9_000_000);
+    other.access_token = "stack.jwt.other-user".into();
+    service.set_session(other).unwrap();
+    events.wait_for(|seen| seen.contains(&CloudEvent::InboxReset { seq: 2 }));
+    assert_eq!(frames(first.sent()), [json!({"t": "subscribe", "stream": format!("inbox:{ME}")})]);
+    assert_eq!(
+        frames(second.sent()),
+        [json!({"t": "subscribe", "stream": format!("inbox:{OTHER}")})],
+        "user B's subscribe must not carry user A's after_seq"
+    );
     service.shutdown();
 }

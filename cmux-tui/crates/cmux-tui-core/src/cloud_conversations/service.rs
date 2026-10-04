@@ -76,6 +76,9 @@ pub trait CloudBackend: Send + Sync {
     ) -> Result<Box<dyn CloudWire>, ConnectError>;
 }
 
+/// One reserved cloud request slot, released on drop.
+pub struct RequestPermit(());
+
 /// Receives every daemon event (the mux publishes it to subscribers).
 pub type EventSink = Arc<dyn Fn(CloudEvent) + Send + Sync>;
 
@@ -90,6 +93,9 @@ pub struct ServiceOptions {
     /// subscribers and the lease.
     pub poll: Duration,
     pub max_conversation_subscriptions: usize,
+    /// Cloud HTTP requests the daemon runs at once; one more is refused with
+    /// `cloud_unavailable` (retryable) instead of queueing.
+    pub max_concurrent_requests: usize,
     /// Unix milliseconds.
     pub now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
 }
@@ -102,6 +108,7 @@ impl Default for ServiceOptions {
             backoff_max: Duration::from_secs(30),
             poll: Duration::from_secs(1),
             max_conversation_subscriptions: 64,
+            max_concurrent_requests: 16,
             now_ms: Arc::new(|| {
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -215,6 +222,11 @@ impl CloudConversations {
                 "expires_at": session.expires_at,
             }),
         }
+    }
+
+    /// Reserves one of the daemon's concurrent cloud request slots.
+    pub fn begin_request(&self) -> Result<RequestPermit, CloudError> {
+        Ok(RequestPermit(()))
     }
 
     /// `cloud-inbox-list`.

@@ -24,6 +24,7 @@ fn cloud_mux() -> (Arc<Mux>, u64, Arc<FakeBackend>) {
         backoff_min: Duration::from_millis(5),
         backoff_max: Duration::from_millis(20),
         poll: Duration::from_millis(5),
+        max_concurrent_requests: 1,
         ..ServiceOptions::default()
     };
     assert!(
@@ -266,4 +267,63 @@ fn a_closed_connection_releases_its_subscriptions() {
     wait_until("the inbox stream to close", || {
         !service.has_stream(&crate::cloud_conversations::Target::Inbox)
     });
+}
+
+#[test]
+fn a_connection_bound_to_an_agent_cannot_use_the_humans_cloud_session() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    let minted =
+        run(&mux, client, json!({"cmd":"conversation-agent-token","participant":"agent_mux"}))
+            .unwrap();
+    let agent = mux.control_clients.register(ClientTransport::Unix, writer());
+    run(
+        &mux,
+        agent,
+        json!({"cmd":"conversation-bind","participant":"agent_mux","token":minted["token"]}),
+    )
+    .unwrap();
+    for request in [
+        json!({"cmd":"cloud-session-status"}),
+        json!({"cmd":"cloud-session-set","api_base_url":"https://evil.example","access_token":"t",
+               "expires_at":4_102_444_800_000_u64}),
+        json!({"cmd":"cloud-inbox-list"}),
+        json!({"cmd":"cloud-inbox-subscribe"}),
+        json!({"cmd":"cloud-conversation-subscribe","conversation":CONV}),
+        json!({"cmd":"cloud-conversation-op","conversation":CONV,"idempotency_key":"k",
+               "origin":"user","op":{"kind":"title.set","title":"t"}}),
+        json!({"cmd":"cloud-session-clear"}),
+    ] {
+        let error = run(&mux, agent, request.clone()).unwrap_err();
+        assert!(error.to_string().contains("bound to a conversation agent"), "{request}: {error}");
+    }
+    let refused = reply(
+        &mux,
+        agent,
+        json!({"id":9,"cmd":"cloud-conversation-op","conversation":CONV,"idempotency_key":"k2",
+               "op":{"kind":"title.set","title":"t"}}),
+    );
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert!(backend.posted().is_empty(), "a bound agent never reaches the cloud");
+    let service = mux.cloud_conversations().unwrap();
+    assert!(!service.has_stream(&crate::cloud_conversations::Target::Inbox));
+    let status = run(&mux, client, json!({"cmd":"cloud-session-status"})).unwrap();
+    assert_eq!(status["api_base_url"], "https://api.cmux.test", "the human's lease is untouched");
+}
+
+#[test]
+fn a_request_over_the_concurrency_limit_is_refused_at_once() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    let held = mux.cloud_conversations().unwrap().begin_request().unwrap();
+    let refused = reply(
+        &mux,
+        client,
+        json!({"id":5,"cmd":"cloud-conversation-op","conversation":CONV,"idempotency_key":"t1",
+               "op":{"kind":"title.set","title":"Launch"}}),
+    );
+    assert_eq!(refused["error_code"], "cloud_unavailable", "{refused}");
+    assert_eq!(refused["retryable"], true);
+    assert!(backend.posted().is_empty(), "nothing leaves over the limit");
+    drop(held);
 }
