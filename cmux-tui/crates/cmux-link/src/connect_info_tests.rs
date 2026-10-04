@@ -62,8 +62,9 @@ fn records_expire_after_300_seconds_and_follow_revisions() {
     assert_eq!(cache.get(HOST, now).unwrap().revision, 5, "a decimal-string revision parses");
     assert!(cache.get(HOST, now + CACHE_TTL).is_some());
     assert!(cache.get(HOST, now + CACHE_TTL + Duration::from_secs(1)).is_none());
-    // An older answer does not replace newer peer data.
-    cache.insert(info(3), now);
+    // An older answer does not replace newer peer data, and the newer one
+    // is what the caller gets.
+    assert_eq!(cache.insert(info(3), now).revision, 5);
     assert_eq!(cache.get(HOST, now).unwrap().revision, 5);
     // An announced newer revision drops the record; an older one does not.
     assert!(!cache.observe_revision(HOST, 5));

@@ -89,10 +89,13 @@ impl<S: ConnectInfoSource> CloudResolver<S> {
             .flatten();
         let info = match cached {
             Some(info) => info,
-            None => self.source.fetch(host).await?,
+            None => {
+                let fetched = within(self.source.fetch(host)).await?;
+                // Only a real fetch refreshes the entry (the 300 s limit).
+                self.cache.lock().unwrap().insert(fetched, Instant::now())
+            }
         };
         let key = info.validate(host).map_err(ConnectInfoError::Invalid)?;
-        self.cache.lock().unwrap().insert(info.clone(), Instant::now());
         Ok(Resolved { info, key })
     }
 
@@ -102,7 +105,7 @@ impl<S: ConnectInfoSource> CloudResolver<S> {
         host: &str,
         service: Service,
     ) -> Result<LinkTokenGrant, ConnectInfoError> {
-        let grant = self.source.mint_token(host, &[service]).await?;
+        let grant = within(self.source.mint_token(host, &[service])).await?;
         if !grant.covers(host, service) {
             return Err(ConnectInfoError::Forbidden);
         }
@@ -118,6 +121,16 @@ impl<S: ConnectInfoSource> CloudResolver<S> {
     pub(super) fn observe_revision(&self, host: &str, revision: u64) -> bool {
         self.cache.lock().unwrap().observe_revision(host, revision)
     }
+}
+
+/// A relay call that does not answer within the dial deadline is
+/// `Unavailable`, so a hung relay never hangs the caller.
+async fn within<T>(
+    call: impl Future<Output = Result<T, ConnectInfoError>>,
+) -> Result<T, ConnectInfoError> {
+    tokio::time::timeout(DIAL_TIMEOUT, call)
+        .await
+        .unwrap_or_else(|_| Err(ConnectInfoError::Unavailable("the relay did not answer".into())))
 }
 
 /// Apply one forwarded Cloud machine event; true when it was understood.
@@ -165,11 +178,12 @@ pub(super) async fn serve_cloud_dial<C, O, S>(
             return reply(&mut caller, DialReply::failed(DialError::NotAuthorized)).await;
         }
         let remote = SocketAddr::new(IpAddr::V6(resolved.info.peer.overlay_address), LINK_PORT);
-        let attempt = async {
-            overlay.set_cloud_peer(host, resolved.key, &resolved.info).await?;
-            overlay.connect(remote).await
-        };
-        if let Ok(Ok(stream)) = tokio::time::timeout(DIAL_TIMEOUT, attempt).await {
+        // Peer setup is not cut by the connect deadline, so a half-applied
+        // change cannot be left behind (it bounds its own tunnel start).
+        let configured = overlay.set_cloud_peer(host, resolved.key, &resolved.info).await;
+        if configured.is_ok()
+            && let Ok(Ok(stream)) = tokio::time::timeout(DIAL_TIMEOUT, overlay.connect(remote)).await
+        {
             break (resolved, stream);
         }
         // Rule 3: a handshake failure fetches once more before it reports.

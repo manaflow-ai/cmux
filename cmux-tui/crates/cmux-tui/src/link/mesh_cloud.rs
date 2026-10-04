@@ -50,9 +50,22 @@ pub(super) fn cloud_networks(info: &ConnectInfo) -> io::Result<Vec<IpNetwork>> {
     Ok(vec![IpNetwork::new(IpAddr::V6(info.peer.overlay_address), 128).map_err(io::Error::other)?])
 }
 
+/// True when a backend string may go into a wg-quick line: no line breaks,
+/// comments, sections or extra keys, and not empty.
+fn plain_field(value: &str) -> bool {
+    !value.is_empty() && !value.contains(['\r', '\n', '#', '[', ']', '='])
+}
+
 /// The tunnel config for `gateway` with this link's key, through the
 /// wg-quick parser so every field gets the same checks as the hub's config.
 pub(super) fn gateway_config(gateway: &Gateway, private_key: &[u8; 32]) -> io::Result<WgConfig> {
+    let fields = [&gateway.client_address, &gateway.endpoint];
+    let key_ok = STANDARD
+        .decode(&gateway.server_public_key)
+        .is_ok_and(|bytes| bytes.len() == 32);
+    if !key_ok || !fields.into_iter().chain(&gateway.allowed_ips).all(|value| plain_field(value)) {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "a tunnel field is not valid"));
+    }
     let text = Zeroizing::new(format!(
         "[Interface]\nPrivateKey = {}\nAddress = {}\nMTU = {TUNNEL_MTU}\n\n[Peer]\nPublicKey = {}\nAllowedIPs = {}\nEndpoint = {}\nPersistentKeepalive = 25\n",
         Zeroizing::new(STANDARD.encode(private_key)).as_str(),
@@ -130,8 +143,17 @@ mod tests {
         assert_eq!(config.mtu, TUNNEL_MTU);
         assert_eq!(config.peer_public_key, [2u8; 32]);
         assert_eq!(config.allowed_ips.len(), 1);
-        let mut broken = gateway;
+        let mut broken = gateway.clone();
         broken.server_public_key = "not a key".into();
         assert!(gateway_config(&broken, &[3u8; 32]).is_err());
+        // A field cannot add lines (a second key, another MTU) to the config.
+        for injected in ["100.64.0.9/32\nPrivateKey = AAAA", "100.64.0.9/32 # x", "[Peer]"] {
+            let mut bad = gateway.clone();
+            bad.client_address = injected.into();
+            assert!(gateway_config(&bad, &[3u8; 32]).is_err(), "{injected:?}");
+        }
+        let mut bad = gateway;
+        bad.allowed_ips.push("fd00::/64\nMTU = 9000".into());
+        assert!(gateway_config(&bad, &[3u8; 32]).is_err());
     }
 }

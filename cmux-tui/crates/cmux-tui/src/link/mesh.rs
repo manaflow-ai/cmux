@@ -31,8 +31,10 @@ pub(super) struct MeshOverlay {
     /// Cloud VM endpoints by host id (connect_info), apart from the paired
     /// peers so a pairing reload never removes them.
     cloud: Mutex<HashMap<String, ([u8; 32], CloudShape)>>,
-    /// This install's Freestyle tunnels by tunnel id, attached as gateways.
-    gateways: tokio::sync::Mutex<HashMap<String, (GatewayId, WgNet)>>,
+    /// This install's Freestyle tunnels, attached as gateways.
+    gateways: Mutex<HashMap<Gateway, (GatewayId, WgNet)>>,
+    /// Serializes Cloud peer changes (dials and events).
+    cloud_ops: tokio::sync::Mutex<()>,
     /// The link's WireGuard key, for its own tunnels.
     private_key: Zeroizing<[u8; 32]>,
 }
@@ -46,7 +48,8 @@ impl MeshOverlay {
             mesh,
             peers: Mutex::new(HashMap::new()),
             cloud: Mutex::new(HashMap::new()),
-            gateways: tokio::sync::Mutex::new(HashMap::new()),
+            gateways: Mutex::new(HashMap::new()),
+            cloud_ops: tokio::sync::Mutex::new(()),
             private_key,
         }
     }
@@ -92,7 +95,7 @@ impl Overlay for MeshOverlay {
             }
         }
         for (key, shape) in wanted {
-            if self.peers.lock().unwrap().get(&key) == Some(&shape) {
+            if self.peers.lock().unwrap().get(&key) == Some(&shape) || self.is_cloud_key(&key) {
                 continue;
             }
             let peer = WgPeer {
@@ -114,6 +117,15 @@ impl Overlay for MeshOverlay {
         key: [u8; 32],
         info: &ConnectInfo,
     ) -> io::Result<()> {
+        // One change at a time, so two dials or a dial and an event never
+        // interleave their remove and add steps.
+        let _change = self.cloud_ops.lock().await;
+        if self.peers.lock().unwrap().contains_key(&key) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "a Cloud host names the key of a paired peer",
+            ));
+        }
         let route = match choose_route(info) {
             CloudRoute::Tunnel { gateway, vpc } => {
                 Some(PeerRoute::Gateway { gateway: self.gateway(&gateway).await?, address: vpc })
@@ -141,14 +153,17 @@ impl Overlay for MeshOverlay {
         };
         self.mesh.add_peer(peer).await.map_err(io::Error::other)?;
         self.cloud.lock().unwrap().insert(host.to_string(), (key, shape));
+        self.drop_unused_gateways().await;
         Ok(())
     }
 
     async fn forget_cloud_peer(&self, host: &str) -> io::Result<()> {
+        let _change = self.cloud_ops.lock().await;
         let removed = self.cloud.lock().unwrap().remove(host);
         if let Some((key, _)) = removed {
             self.mesh.remove_peer(key).await.map_err(io::Error::other)?;
         }
+        self.drop_unused_gateways().await;
         Ok(())
     }
 
@@ -162,19 +177,60 @@ impl Overlay for MeshOverlay {
 }
 
 impl MeshOverlay {
-    /// The mesh gateway for this install's tunnel `gateway`, started on
-    /// first use and kept for the link's life.
+    fn is_cloud_key(&self, key: &[u8; 32]) -> bool {
+        self.cloud.lock().unwrap().values().any(|(cloud_key, _)| cloud_key == key)
+    }
+
+    /// The mesh gateway for this install's tunnel `gateway` (keyed by its
+    /// full value, so a changed endpoint or server key starts a new tunnel).
+    /// Called with `cloud_ops` held.
     async fn gateway(&self, gateway: &Gateway) -> io::Result<GatewayId> {
-        let mut gateways = self.gateways.lock().await;
-        if let Some((id, _)) = gateways.get(&gateway.tunnel_id) {
+        if let Some((id, _)) = self.gateways.lock().unwrap().get(gateway) {
             return Ok(*id);
         }
-        let (net, socket) = start_gateway(gateway, &self.private_key).await?;
+        let started = tokio::time::timeout(GATEWAY_START_TIMEOUT, start_gateway(gateway, &self.private_key))
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "the tunnel did not start"))??;
+        let (net, socket) = started;
         let id = self.mesh.add_gateway(socket).await.map_err(io::Error::other)?;
-        gateways.insert(gateway.tunnel_id.clone(), (id, net));
+        self.gateways.lock().unwrap().insert(gateway.clone(), (id, net));
         Ok(id)
     }
+
+    /// Detach and stop every tunnel that no Cloud peer routes through.
+    /// Called with `cloud_ops` held.
+    async fn drop_unused_gateways(&self) {
+        let used: Vec<GatewayId> = self
+            .cloud
+            .lock()
+            .unwrap()
+            .values()
+            .filter_map(|(_, (_, route))| match route {
+                Some(PeerRoute::Gateway { gateway, .. }) => Some(*gateway),
+                _ => None,
+            })
+            .collect();
+        let unused: Vec<(Gateway, GatewayId)> = self
+            .gateways
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, (id, _))| !used.contains(id))
+            .map(|(gateway, (id, _))| (gateway.clone(), *id))
+            .collect();
+        for (gateway, id) in unused {
+            let _ = self.mesh.remove_gateway(id).await;
+            let tunnel = self.gateways.lock().unwrap().remove(&gateway);
+            if let Some((_, net)) = tunnel {
+                net.shutdown().await;
+            }
+        }
+    }
 }
+
+/// How long this install's tunnel may take to start (endpoint lookup,
+/// socket); a dial then reports `unreachable`.
+const GATEWAY_START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl OverlayListener for WgMeshListener {
     type Stream = WgStream;

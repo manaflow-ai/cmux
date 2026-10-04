@@ -43,7 +43,7 @@ pub struct PeerData {
 }
 
 /// This install's Freestyle tunnel, when it may reach the VM's VPC.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Gateway {
     pub tunnel_id: String,
     pub endpoint: String,
@@ -202,14 +202,17 @@ impl ConnectInfoCache {
         (now.saturating_duration_since(entry.fetched_at) <= CACHE_TTL).then_some(&entry.info)
     }
 
-    /// Store `info` (fetched at `now`). An older revision than the cached
-    /// one keeps the cached peer data.
-    pub fn insert(&mut self, info: ConnectInfo, now: Instant) {
-        let keep_cached =
-            self.entries.get(&info.host).is_some_and(|cached| cached.info.revision > info.revision);
-        if !keep_cached {
-            self.entries.insert(info.host.clone(), Entry { info, fetched_at: now });
+    /// Store `info`, freshly fetched at `now`, and return the record to use:
+    /// the cached one when it has a newer revision, else `info`. Call it only
+    /// after a real fetch, so a record never lives past [`CACHE_TTL`].
+    pub fn insert(&mut self, info: ConnectInfo, now: Instant) -> ConnectInfo {
+        if let Some(cached) = self.entries.get(&info.host)
+            && cached.info.revision > info.revision
+        {
+            return cached.info.clone();
         }
+        self.entries.insert(info.host.clone(), Entry { info: info.clone(), fetched_at: now });
+        info
     }
 
     /// A `cloud.machine.upsert` announced `revision` for `host`: a cached

@@ -15,7 +15,7 @@ use crate::stamp::LinkPeer;
 pub struct Expected<'a> {
     /// This host's id.
     pub host: &'a str,
-    /// This host's current epoch; a token for a lower one is refused.
+    /// This host's current epoch; the hello and the token must name it.
     pub epoch: u64,
     /// The service the hello asks for.
     pub service: Service,

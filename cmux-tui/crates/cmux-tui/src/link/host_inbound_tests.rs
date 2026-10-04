@@ -86,6 +86,11 @@ async fn a_hello_without_a_token_with_an_old_epoch_or_from_another_install_is_re
             HostRefused::StaleEpoch,
         ),
         (
+            "{\"service\":\"daemon\",\"link_token\":\"good\",\"epoch\":5}\n",
+            from("inst_mac"),
+            HostRefused::StaleEpoch,
+        ),
+        (
             "{\"service\":\"daemon\",\"link_token\":\"bad\",\"epoch\":4}\n",
             from("inst_mac"),
             HostRefused::Token,
