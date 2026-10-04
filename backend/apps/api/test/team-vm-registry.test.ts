@@ -29,7 +29,7 @@ interface Report {
 }
 interface Stub {
   ensureAwake(entity: string, principal: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "cli" }): Promise<SubmitResult>
-  fakeControl(cmd: { delete_all?: boolean; slug_prefix?: string; seed_vm?: { slug: string; id: string }; drop_ledger?: boolean }): Promise<{ creates: number; starts: number }>
+  fakeControl(cmd: { delete_all?: boolean; slug_prefix?: string; seed_vm?: { slug: string; id: string }; drop_ledger?: boolean; drop_registry?: boolean; reset_registry_seed?: boolean }): Promise<{ creates: number; starts: number }>
   fakeVms(): Promise<string[]>
   ledger(entity: string): Promise<{ rows: Array<{ provider_id: string | null; state: string }> }>
   deleteVm(entity: string, providerId: string, by: string): Promise<{ ok: boolean }>
@@ -98,17 +98,35 @@ describe("team VM registry", { timeout: 30_000 }, () => {
     const vm = vmOf((await stubFor(T).ensureAwake(T, principal(T), op("team_vm.ensure_awake", { reason: "ssh" }))).frames)
     // The registry object's fake provider stands for the shared provider account.
     const r = registry()
+    // The report filters on the deployment's configured team VM prefix (here the fake's).
+    await r.fakeControl({ slug_prefix: PREFIX })
     await r.fakeControl({ seed_vm: { slug: teamVmSlug(PREFIX, T, 1), id: vm } })
+    await r.fakeControl({ seed_vm: { slug: "cmuxnp-stg-tvm-other-env", id: "fakevm-other-env" } })
     await r.fakeControl({ seed_vm: { slug: `${PREFIX}stranger`, id: "fakevm-stranger" } })
     await r.fakeControl({ seed_vm: { slug: "classic-customer-vm", id: "fakevm-classic" } })
     const vmsBefore = await r.fakeVms()
     const countsBefore = await r.registryCounts()
     const report = await r.prefixReport()
-    expect(report).toMatchObject({ prefix: PREFIX, listed: 3, matched: 2, in_registry: 1, not_in_registry: [`${PREFIX}stranger`], truncated: false })
+    expect(report).toMatchObject({ prefix: PREFIX, listed: 4, matched: 2, in_registry: 1, not_in_registry: [`${PREFIX}stranger`], truncated: false })
     expect(JSON.stringify(report)).not.toContain("classic")
     expect(await r.fakeVms()).toEqual(vmsBefore)
     expect(await r.registryCounts()).toEqual(countsBefore)
     expect((await stubFor(T).ledger(T)).rows).toHaveLength(1)
+  })
+
+  it("ledger rows from before the registry reach it once (one-time seed)", async () => {
+    const T = "team_00000000000000000276"
+    const s = stubFor(T)
+    await s.fakeControl({ slug_prefix: PREFIX })
+    const vm = vmOf((await s.ensureAwake(T, principal(T), op("team_vm.ensure_awake", { reason: "ssh" }))).frames)
+    // Stand for a ledger that existed before the registry: the registry never saw this VM.
+    await registry().fakeControl({ drop_registry: true })
+    await s.fakeControl({ reset_registry_seed: true })
+    expect((await registry().registryCounts()).live).toBe(0)
+    await s.ledger(T)
+    await s.ledger(T)
+    expect(await registry().registryCounts()).toMatchObject({ teams: 1, created: 1, live: 1 })
+    expect(vm).toContain("fakevm-")
   })
 
   it("the operator route needs its key and only reads", async () => {
