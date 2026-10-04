@@ -1968,6 +1968,9 @@ Errors:
 | --- | --- |
 | `unknown workspace <id>` | Supplied workspace id does not exist |
 | `workspace disappeared while creating screen` | Target workspace vanished after validation |
+| `bad request: terminal_id must be a 32-character lowercase UUIDv4 hex value` | `terminal_id` is malformed (`screen-terminal-env-v1`) |
+| `terminal_id_exists: <id>` | `terminal_id` names an existing terminal |
+| invalid `env` error | `env` breaks the per-terminal environment limits, as on `new-pane` |
 | spawn or PTY error string | PTY creation or child spawn fails |
 | `bad request: ...` | Wrong JSON type |
 
