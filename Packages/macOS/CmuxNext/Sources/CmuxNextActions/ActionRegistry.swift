@@ -84,8 +84,8 @@ public final class ActionRegistry {
     /// Old IDs folded into canonical IDs on register and lookup.
     @ObservationIgnored public private(set) var aliases: [ActionID: ActionID] = [:]
 
-    /// Sees every `refuse(_:)` reason (the App logs it and beeps).
-    @ObservationIgnored public var refusalObserver: (@MainActor (String) -> Void)?
+    /// Sees every `refuse(_:quiet:)` reason and whether it is quiet (the App logs it; a loud one shows the HUD).
+    @ObservationIgnored public var refusalObserver: (@MainActor (_ reason: String, _ quiet: Bool) -> Void)?
 
     /// Confirms destructive actions run from the keyboard, menu, or palette
     /// (`ActionRegistry+Confirmation`). Nil refuses them.

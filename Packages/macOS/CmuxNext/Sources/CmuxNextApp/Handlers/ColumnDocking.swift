@@ -64,7 +64,7 @@ enum ColumnDocking {
         case .unknownColumn: throw ActionFailure.invalidTarget(RefusalStrings.noColumnShown(column.id.rawValue))
         case .lastScrollingColumn: throw ActionFailure.invalidTarget(RefusalStrings.lastScrollingColumn)
         case .unchanged:
-            throw ActionFailure.invalidTarget(dock == nil ? RefusalStrings.columnNotDocked : RefusalStrings.columnAlreadyDocked)
+            throw ActionFailure.noTarget(dock == nil ? RefusalStrings.columnNotDocked : RefusalStrings.columnAlreadyDocked)
         }
     }
 }

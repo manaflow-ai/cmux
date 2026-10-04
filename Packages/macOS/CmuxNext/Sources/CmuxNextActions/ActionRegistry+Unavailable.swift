@@ -40,10 +40,15 @@ extension ActionRegistry {
     /// Called by a handler that cannot act on this invocation. The reason
     /// is returned to a capturing caller (the control socket) and passed to
     /// `refusalObserver` (logging, a beep for keyboard and menu runs).
-    public func refuse(_ reason: String) {
+    ///
+    /// `quiet` (R136): a navigation or focus move that has no target (no
+    /// pane to the right, already at the edge, nothing was closed). Callers
+    /// (CLI, MCP, socket, palette) still get the reason; the App shows no
+    /// notice for a keyboard or menu run.
+    public func refuse(_ reason: String, quiet: Bool = false) {
         if isCapturingRefusal { capturedRefusal = capturedRefusal ?? reason }
         if isReportingRefusal { reportedRefusal = reportedRefusal ?? reason }
-        refusalObserver?(reason)
+        refusalObserver?(reason, quiet)
     }
 
     /// Like ``refuse(_:)`` for an explicit target that names nothing: the
