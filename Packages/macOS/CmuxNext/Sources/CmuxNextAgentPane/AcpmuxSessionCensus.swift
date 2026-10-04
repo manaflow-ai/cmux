@@ -78,14 +78,19 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
 /// The local acpmux daemon at quit: one census when the dialog opens, and
 /// ending its agents for Quit Everything.
 public nonisolated enum AcpmuxQuit {
-    /// Nil when acpmux has a socket but did not answer within `deadline`
-    /// (unknown, not zero). No daemon (no socket, nothing listening) is zero.
+    /// Nil when acpmux did not answer within `deadline`, or when it is
+    /// shutting down (no usable socket, daemon.lock held): unknown, not
+    /// zero. With no daemon, the agent hosts that still hold their lock.
     @concurrent public static func census(_ environment: AcpmuxEnvironment?, deadline: Duration = .seconds(1)) async -> AcpmuxSessionCensus? {
-        guard let socket = environment?.socketPath, FileManager.default.fileExists(atPath: socket) else { return AcpmuxSessionCensus() }
+        guard let environment else { return AcpmuxSessionCensus() }
+        let socket = environment.socketPath
+        guard FileManager.default.fileExists(atPath: socket) else { return await censusWithoutSocket(environment.home) }
         do {
-            return AcpmuxSessionCensus.parse(try await AcpmuxStatusClient.sessions(socketPath: socket, deadline: deadline).value)
+            let sessions = try await AcpmuxStatusClient.sessions(socketPath: socket, deadline: deadline).value
+            AcpmuxQuitProof.knownChief.withLock { $0 = Set(AcpmuxSessionCensus.chiefSessionIDs(sessions)) }
+            return AcpmuxSessionCensus.parse(sessions)
         } catch AcpmuxStatusClient.Failure.unreachable {
-            return AcpmuxSessionCensus()
+            return await censusWithoutSocket(environment.home)
         } catch {
             return nil
         }
@@ -98,31 +103,65 @@ public nonisolated enum AcpmuxQuit {
         case ended
         /// It did not answer or did not exit in time; the reason says why.
         case failed(String)
-        /// A shutdown already started (no usable socket, daemon.lock held).
+        /// A shutdown already started (no usable socket, daemon.lock held):
+        /// the agents may still be running until it ends.
         case shutdownInProgress(pid: Int32?)
-        /// No daemon, but these agent hosts (not the Chief's) are alive.
+        /// No daemon, but these agent hosts (not the Chief's) hold their
+        /// lock, or their lock cannot be probed.
         case agentsStillRunning([String])
     }
 
     /// Quit Everything: ends every agent except the Home Chief's
     /// (`_acpmux/shutdown endAgents keepSessions`) and waits for the daemon
-    /// to exit (kernel exit event, bounded).
-    /// RED STUB (R96 late endAgents): `waitForShutdown` is ignored; the old behavior stays.
+    /// to exit (kernel exit event, bounded). With no usable socket the
+    /// result comes from `AcpmuxQuitProof`, never from the missing socket
+    /// alone: a shutdown that already started is `shutdownInProgress`
+    /// unless `waitForShutdown` (Retry) sees it end with no agent left.
     @concurrent public static func endAgents(_ environment: AcpmuxEnvironment?, waitForShutdown: Bool = false,
                                              within: Duration = .seconds(10)) async -> EndResult {
-        guard let socket = environment?.socketPath, FileManager.default.fileExists(atPath: socket) else { return .noDaemon }
+        guard let environment else { return .noDaemon }
+        let socket = environment.socketPath
+        guard FileManager.default.fileExists(atPath: socket) else {
+            return await withoutSocket(environment.home, waitForShutdown: waitForShutdown, within: within)
+        }
         let status: AcpmuxStatus
         let chief: [String]
         do {
             status = try await AcpmuxStatusClient.status(socketPath: socket)
             chief = AcpmuxSessionCensus.chiefSessionIDs(try await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(2)).value)
+            AcpmuxQuitProof.knownChief.withLock { $0 = Set(chief) }
             try await AcpmuxStatusClient.shutdown(socketPath: socket, endAgents: true, keepSessions: chief)
         } catch AcpmuxStatusClient.Failure.unreachable {
-            return .noDaemon
+            return await withoutSocket(environment.home, waitForShutdown: waitForShutdown, within: within)
         } catch {
             return .failed(String(describing: error))
         }
-        guard let pid = status.pid else { return .ended }
-        return await AgentPaneProcessExit.exitEvent(pid: pid, within: within) ? .ended : .failed("acpmux \(pid) did not exit")
+        // The daemon accepted the end: it ended its agents when daemon.lock
+        // is free and no non-Chief host lock is held.
+        guard await AcpmuxQuitProof.waitForDaemonExit(home: environment.home, within: within) else {
+            return .failed("acpmux \(status.pid.map(String.init) ?? "") did not exit")
+        }
+        return AcpmuxQuitProof.decide(AcpmuxQuitProof.read(home: environment.home), chief: Set(chief), daemonExited: true)
+    }
+
+    /// No usable socket: the locks decide (`AcpmuxQuitProof`). A Retry
+    /// waits (bounded) for a shutdown in progress before it decides.
+    @concurrent static func withoutSocket(_ home: URL, waitForShutdown: Bool, within: Duration) async -> EndResult {
+        var exited = false
+        if waitForShutdown, AcpmuxQuitProof.read(home: home).daemon != .free {
+            exited = await AcpmuxQuitProof.waitForDaemonExit(home: home, within: within)
+        }
+        return AcpmuxQuitProof.decide(AcpmuxQuitProof.read(home: home), chief: AcpmuxQuitProof.knownChief.withLock { $0 },
+                                      daemonExited: exited)
+    }
+
+    /// The census without a usable socket: unknown (nil) while daemon.lock
+    /// is held (a shutdown in progress), else the non-Chief hosts whose lock
+    /// is held or unknown.
+    @concurrent static func censusWithoutSocket(_ home: URL) async -> AcpmuxSessionCensus? {
+        let facts = AcpmuxQuitProof.read(home: home)
+        guard facts.daemon == .free else { return nil }
+        let chief = AcpmuxQuitProof.knownChief.withLock { $0 }
+        return AcpmuxSessionCensus(live: Set(facts.liveHostSessions + facts.unknownHostSessions).subtracting(chief).count)
     }
 }
