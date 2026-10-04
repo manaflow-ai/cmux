@@ -169,9 +169,20 @@ final class HomeCloudLink {
     }
 
     /// A reply or a live socket came through the current lease: the Worker
-    /// takes its token, so a later forced renewal need not wait.
+    /// takes its token, so no forced renewal waits any more. The cooldown
+    /// ends and a renewal that waited for it goes now.
     private func leaseProven() {
         forcedWait = .zero
+        cooldown.cancel()
+        sendPendingForced()
+    }
+
+    /// The forced renewal that waited for the cooldown, once no cooldown
+    /// runs and no lease work is in flight; otherwise it stays for later.
+    private func sendPendingForced() {
+        guard let reason = pendingForced, leasing == 0, !cooldown.isScheduled else { return }
+        pendingForced = nil
+        renew(reason: reason)
     }
 
     /// `missing` takes the current token; the others refresh it.
@@ -192,6 +203,7 @@ final class HomeCloudLink {
             leasing -= 1
             if case .leased = outcome, Self.isForced(reason) { startCooldown() }
             settled(outcome, reason: reason)
+            sendPendingForced()
         }
     }
 
@@ -200,10 +212,8 @@ final class HomeCloudLink {
     private func startCooldown() {
         forcedWait = forcedWait == .zero ? Self.firstRetry : min(forcedWait * 2, Self.maxRetry)
         cooldown.schedule(after: forcedWait) { @MainActor [weak self] in
-            guard let self, let reason = pendingForced else { return }
-            pendingForced = nil
-            guard leasing == 0 else { return }
-            renew(reason: reason)
+            // Lease work running now keeps it; it goes when that work ends.
+            self?.sendPendingForced()
         }
     }
 
