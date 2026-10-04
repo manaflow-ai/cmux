@@ -21,6 +21,15 @@ struct TerminalCopyModeBindingTests {
     }
 }
 
+@MainActor
+private final class QuitMenuProbe: NSObject {
+    var invocations = 0
+
+    @objc func quit(_ sender: Any?) {
+        invocations += 1
+    }
+}
+
 /// Copy mode on a live surface: the action toggles it on the targeted
 /// terminal, plain keys stay in it before the shell sees them, Command
 /// chords pass through to app shortcuts, and q or Esc leaves. Needs
@@ -90,6 +99,36 @@ struct TerminalCopyModeTests {
         #expect(view.isCopyModeActive)
         #expect(view.copyMode.session?.input == CopyModeInputState())
         view.exitCopyMode()
+    }
+
+    @Test func commandQIsClaimedByTheAppBeforeTerminalForwarding() throws {
+        #expect(KeyRouter.menuKeyEquivalentAllowedAfterDispatch(.system, eventWasDecided: true))
+        let (services, _, view) = try Self.terminal()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                              styleMask: [.titled], backing: .buffered, defer: true)
+        window.contentView = view
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.makeFirstResponder(view))
+        defer { window.close() }
+
+        let probe = QuitMenuProbe()
+        services.registry.unbind("quit")
+        services.registry.bind("quit") { probe.invocations += 1 }
+        services.registry.menuKeyEquivalentGate = { [weak services] id in
+            services?.keyRouter.allowsMenuKeyEquivalent(id) ?? false
+        }
+        let menu = MainMenu.make(registry: services.registry)
+        let previousMenu = NSApp.mainMenu
+        NSApp.mainMenu = menu
+        defer { NSApp.mainMenu = previousMenu }
+
+        let event = try Self.key("q", keyCode: 12, flags: [.command])
+        // A real app dispatch marks the event before the terminal's
+        // key-equivalent hook gets it. System actions must still be allowed
+        // through the menu gate in that fallback path.
+        services.keyRouter.decided.add(event)
+        NSApp.sendEvent(event)
+        #expect(probe.invocations == 1)
     }
 }
 
