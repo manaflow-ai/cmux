@@ -2077,25 +2077,29 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // after the wait for WebKit's editor state, during which the page
         // can move focus. What remains is the cross-process gap between the
         // check's last reply and the insert reaching the web process.
+        let sessionID = self.sessionID
         let checkTarget: @MainActor @Sendable () async throws -> Void = {
             guard let name = params["secretName"] as? String else { return }
             let frames = await BrowserReplFrameTree.frames(of: panel.webView)
+            let rawDomains = params["secretDomains"] as? [[String: Any]] ?? []
             try await BrowserReplSecretGuard.checkSecretTarget(
                 name: name,
-                domains: params["secretDomains"] as? [[String: Any]] ?? [],
+                domains: rawDomains,
                 webView: panel.webView,
                 frames: frames
             )
-        }
-        // Recorded before typing: other sessions that read the tab do not
-        // hold the secret, so the tab keeps it masked for them, also when
-        // typing fails partway and part of the value is already in the page.
-        // A value refused by the domain check is masked without being typed,
-        // which hides nothing a reader needs.
-        if let name = params["secretName"] as? String {
-            let domains = (params["secretDomains"] as? [[String: Any]] ?? []).compactMap(BrowserReplDomainPattern.from(json:))
+            // Recorded once the domain check passes and before typing, on
+            // the same main-actor turn as the commit: other sessions that
+            // read the tab do not hold the secret, so the tab keeps it
+            // masked for them, also when typing fails partway and part of
+            // the value is already in the page. A refused value is never
+            // recorded, so it never becomes a mask other sessions see.
             BrowserReplTabAttachments.shared.typedSecrets.record(
-                tab: panel.id.uuidString, name: name, value: text, domains: domains, typist: sessionID
+                tab: panel.id.uuidString,
+                name: name,
+                value: text,
+                domains: rawDomains.compactMap(BrowserReplDomainPattern.from(json:)),
+                typist: sessionID
             )
         }
         try await withWindow(panel) { webView, _ in
