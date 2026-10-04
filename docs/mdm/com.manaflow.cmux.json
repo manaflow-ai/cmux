@@ -205,6 +205,18 @@
       "title" : "Browser Toolbar Opacity",
       "type" : "number"
     },
+    "appearance.surfaces.diff.color" : {
+      "description" : "appearance.surfaces.diff.color",
+      "title" : "Diff Viewer Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.diff.opacity" : {
+      "description" : "appearance.surfaces.diff.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Diff Viewer Opacity",
+      "type" : "number"
+    },
     "appearance.surfaces.docks.color" : {
       "description" : "appearance.surfaces.docks.color",
       "title" : "Docked Columns Color",

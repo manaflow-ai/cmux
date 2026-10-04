@@ -15,10 +15,10 @@ on its own.
 
 ## Schema rows (cmux.json)
 
-18 leaf rows, `appearance.surfaces.<surface>.color` and
+20 leaf rows, `appearance.surfaces.<surface>.color` and
 `appearance.surfaces.<surface>.opacity`, for `sidebar`, `tabBar`,
 `terminal`, `agentPane`, `settings`, `newTabPage`, `home`,
-`browserChrome`, `docks` (`SettingsSchema+Surfaces.swift`). An absent key
+`browserChrome`, `docks`, `diff` (`SettingsSchema+Surfaces.swift`). An absent key
 is the default. Section appearance, group `settings.group.surfaces`
 ("Surfaces"), titles `settings.appearance.surfaces.<surface>.color|opacity`,
 agent-settable, not kept on Reset All.
@@ -57,7 +57,9 @@ The CLI, MCP and palette need no new code:
   colors are clear so nothing stacks), Settings (`SettingsPaneHostingView`),
   Home (`HomeThemePalette`), browser chrome (`BrowserChromeView` toolbar),
   docks (sticky column panes, `PaneHostView.isDocked`, and the overlay
-  backdrop's opaque fill).
+  backdrop's opaque fill), diff viewer (its host passes
+  `WebTheme(surface: .diff)`; the viewer reads `--cmux-surface-background`,
+  webviews/src/backdrop.ts, so it has its own override, not its host's).
 
 ## Limits
 
@@ -82,6 +84,11 @@ The CLI, MCP and palette need no new code:
   opacity 1.0/0.8/0.5.
 - Live: `background-match-e2e.py --overrides` sets each override and checks
   the overridden region alone changed.
+
+- Diff viewer: cmux-next has no native host for the diff viewer yet
+  (BrowserHandlers marks the diff actions unavailable). The row, the
+  resolver and `WebTheme(surface: .diff)` are ready; the host that lands
+  must pass `surface: .diff`.
 
 ## Decisions
 
