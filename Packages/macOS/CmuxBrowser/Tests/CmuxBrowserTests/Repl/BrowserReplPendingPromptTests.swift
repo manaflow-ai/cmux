@@ -19,8 +19,10 @@ struct BrowserReplPendingPromptTests {
     func cancellingTheWaitingCallEndsThePrompt() async {
         var ended = 0
         let prompt = BrowserReplPendingPrompt<Answer> { ended += 1 }
+        // The timeout is far away, so only the cancel can end the wait,
+        // also on a loaded machine.
         let waiting = Task { @MainActor in
-            await prompt.wait(timeout: .seconds(2), expired: .expired, cancelled: .cancelled)
+            await prompt.wait(timeout: .seconds(3600), expired: .expired, cancelled: .cancelled)
         }
         // The prompt is up; then the call is cancelled.
         await Task.yield()
