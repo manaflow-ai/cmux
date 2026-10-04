@@ -166,6 +166,25 @@ fn an_ending_terminal_takes_out_credit_for_its_last_output() {
 }
 
 #[test]
+fn a_violation_while_ending_gives_one_end_only() {
+    // The far end exited while output waits for credit; then the host breaks
+    // the credit rule. The terminal ends once, with lost, never also exit.
+    let transport = FakeTransport::default();
+    let (_backend, terminal) = open(&transport);
+    let mut host = Host::new(terminal);
+    let window = host.terminal.window_bytes() as usize;
+    host.grant = false;
+    transport.emit(1, TransportEvent::Output(vec![b'x'; window + 10]));
+    transport.emit(1, TransportEvent::Closed(ExitStatus::default()));
+    let _ = host.take();
+    let _ = host.terminal.push(FrameBody::Credit { direction: Direction::In, bytes: 1 });
+    let frames = host.take();
+    let ends: Vec<_> = frames.iter().filter(|f| matches!(f, FrameBody::End(_))).collect();
+    assert_eq!(ends.len(), 1, "exactly one end: {frames:?}");
+    assert!(!ends.contains(&&exit(ExitStatus::default())), "no exit after the lost: {frames:?}");
+}
+
+#[test]
 fn a_violation_closes_the_transport_stream_once() {
     let transport = FakeTransport::default();
     let (_backend, mut terminal) = open(&transport);

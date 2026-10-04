@@ -8,6 +8,12 @@ use std::collections::VecDeque;
 /// Largest output data frame (the session host splits input the same way).
 const MAX_FRAME_BYTES: usize = 64 * 1024;
 
+/// The most output one terminal holds while it waits for `out` credit.
+/// Past it the terminal ends with a retryable `lost` ("output_overflow"):
+/// memory never grows without a bound when a session host grants no
+/// credit (the transport has no backpressure to stop the far shell).
+pub(super) const MAX_HELD_BYTES: usize = 4 * 1024 * 1024;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Status {
     Open,
@@ -26,13 +32,10 @@ pub(super) struct Stream {
     pub(super) input: ReceiveWindow,
     /// Output to the session host (direction `out`).
     output: SendWindow,
-    /// Output chunks that wait for `out` credit, in order.
-    ///
-    /// TODO(credit): the transport has no backpressure, so a host that
-    /// grants no credit lets this grow (as the old drained event list did).
-    /// It is bounded when the `cloud.shell.open` stream (transport.rs) can
-    /// stop reading.
+    /// Output chunks that wait for `out` credit, in order, at most
+    /// [`MAX_HELD_BYTES`] in all (`held_bytes`).
     held: VecDeque<Vec<u8>>,
+    held_bytes: usize,
     /// Frames for the session host, not taken yet.
     frames: Vec<FrameBody>,
     /// The `end` that follows the held output (status `Ending`).
@@ -48,6 +51,7 @@ impl Stream {
             input: ReceiveWindow::new(window_bytes),
             output: SendWindow::new(window_bytes),
             held: VecDeque::new(),
+            held_bytes: 0,
             frames: Vec::new(),
             end: None,
             released: false,
@@ -56,9 +60,16 @@ impl Stream {
 
     /// Output from the far end (open streams only; no empty data frames).
     pub(super) fn output(&mut self, bytes: Vec<u8>) {
-        if self.status == Status::Open && !bytes.is_empty() {
-            self.held.push_back(bytes);
+        if self.status != Status::Open || bytes.is_empty() {
+            return;
         }
+        self.held_bytes = self.held_bytes.saturating_add(bytes.len());
+        if self.held_bytes > MAX_HELD_BYTES {
+            // A retryable end: the session host can open the terminal again.
+            self.violate(Lost::new("output_overflow", true));
+            return;
+        }
+        self.held.push_back(bytes);
     }
 
     /// The far end ended: the one `end` follows the output already received.
@@ -74,6 +85,7 @@ impl Stream {
     /// at once with `lost`; held output is dropped.
     pub(super) fn violate(&mut self, lost: Lost) {
         self.held.clear();
+        self.held_bytes = 0;
         self.end = None;
         self.status = Status::Ended;
         self.frames.push(FrameBody::End(End::Lost(lost)));
@@ -106,6 +118,7 @@ impl Stream {
             if chunk.is_empty() {
                 self.held.pop_front();
             }
+            self.held_bytes = self.held_bytes.saturating_sub(n);
             // `n` is within the credit, so the send is never refused.
             let Ok(frame) = self.output.send(bytes) else { break };
             self.frames.push(frame);
@@ -128,7 +141,36 @@ impl Stream {
     pub(super) fn close(&mut self) {
         self.status = Status::Closed;
         self.held.clear();
+        self.held_bytes = 0;
         self.frames.clear();
         self.end = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A session host that grants no `out` credit cannot make the server
+    /// hold unbounded output: past [`MAX_HELD_BYTES`] the terminal ends with
+    /// a retryable `lost` and the held bytes are dropped.
+    #[test]
+    fn held_output_is_bounded_without_credit() {
+        let mut stream = Stream::new(64 * 1024);
+        let chunk = vec![b'x'; 64 * 1024];
+        let mut ended = None;
+        for _ in 0..(64 * 1024 * 1024 / chunk.len()) {
+            stream.output(chunk.clone());
+            if let Some(FrameBody::End(End::Lost(lost))) = stream.take().into_iter().last() {
+                ended = Some(lost);
+                break;
+            }
+        }
+        let lost = ended.expect("the terminal ended before 64 MiB were held");
+        assert_eq!(lost.reason, "output_overflow");
+        assert!(lost.retryable, "a new open may work");
+        assert_eq!(stream.status, Status::Ended);
+        stream.output(chunk);
+        assert!(stream.take().is_empty(), "nothing after the end");
     }
 }
