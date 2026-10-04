@@ -16,7 +16,9 @@ import {
 
 export interface MockCall {
   op: string;
+  /** The params without `idempotency_key`, which is recorded in `key`. */
   params: Record<string, unknown>;
+  key?: string;
 }
 
 const ICON =
@@ -31,6 +33,8 @@ export class MockAppsProvider implements PageClient {
   installed: Record<string, InstalledApp>;
   grants: Record<string, Grants>;
   offline = false;
+  /** Errors the next call of an op throws once (a timeout, a refusal). */
+  private readonly failures = new Map<string, Error>();
   /** The host's page streams (connection, dispatcher commands). */
   readonly page = new MockPageStreams();
   private revision = 1;
@@ -46,9 +50,14 @@ export class MockAppsProvider implements PageClient {
   }
 
   async call<R>(op: string, rawParams: unknown): Promise<R> {
-    const params = (rawParams ?? {}) as Record<string, unknown>;
-    this.calls.push({ op, params });
+    const { idempotency_key: key, ...params } = (rawParams ?? {}) as Record<string, unknown>;
+    this.calls.push(typeof key === "string" ? { op, params, key } : { op, params });
     if (this.offline) throw pageError(LINK_CLOSED, "disconnected", true);
+    const failure = this.failures.get(op);
+    if (failure) {
+      this.failures.delete(op);
+      throw failure;
+    }
     const app = typeof params.app === "string" ? params.app : "";
     switch (op) {
       case AppsOps.catalogList:
@@ -148,6 +157,11 @@ export class MockAppsProvider implements PageClient {
       return () => undefined;
     }
     throw pageError("cmux.protocol.unknown_op", stream);
+  }
+
+  /** The next call of `op` throws `error` once. */
+  failNext(op: string, error: Error): void {
+    this.failures.set(op, error);
   }
 
   handle(op: string, handler: PageHandler): () => void {
