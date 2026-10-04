@@ -24,6 +24,16 @@ pub(crate) const FRAME_TYPES: [&str; 3] = ["data", "credit", "end"];
 
 /// The host op that opens a connector link.
 pub(crate) const CONNECTOR_OPEN: &str = "cmux.terminal.connector.open";
+/// The host op that opens a byte-backend terminal.
+pub(crate) const BACKEND_OPEN: &str = "cmux.terminal.backend.open";
+/// The host op that resumes one.
+pub(crate) const BACKEND_RESUME: &str = "cmux.terminal.backend.resume";
+/// The host op that opens a host-owned SSH channel for a terminal.
+pub(crate) const CHANNEL_OPEN: &str = "cmux.terminal.channel.open";
+/// Host events to a backend: the session host's grid changed, or it closed
+/// the terminal.
+pub(crate) const BACKEND_RESIZE: &str = "cmux.terminal.backend.resize";
+pub(crate) const BACKEND_CLOSE: &str = "cmux.terminal.backend.close";
 /// The host event that asks an app to close a link.
 pub(crate) const CONNECTOR_CLOSE: &str = "cmux.terminal.connector.close";
 
@@ -127,12 +137,24 @@ pub(crate) fn link_open_from_params(params: &Value) -> LinkOpen {
     LinkOpen { kind: get("kind"), target: get("target"), open_token: OpenToken(get("open_token")) }
 }
 
-/// The `host.result` of `cmux.terminal.connector.open`.
-pub(crate) fn link_answer_reply(id: &Value, answer: &LinkAnswer) -> Value {
-    json!({
-        "t": "host.result", "id": id,
-        "value": { "channel": answer.channel, "window_bytes": answer.window_bytes },
-    })
+/// The params of `cmux.terminal.backend.open` (lenient, like links).
+pub(crate) fn terminal_open_from_params(params: &Value) -> super::terminals::TerminalOpen {
+    let get = |key: &str| params.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
+    super::terminals::TerminalOpen {
+        kind: get("kind"),
+        target: get("target"),
+        open_token: OpenToken(get("open_token")),
+    }
+}
+
+/// A `host.result` with `value`.
+pub(crate) fn result_reply(id: &Value, value: Value) -> Value {
+    json!({ "t": "host.result", "id": id, "value": value })
+}
+
+/// The `host.result` value of `cmux.terminal.connector.open`.
+pub(crate) fn link_answer_value(answer: &LinkAnswer) -> Value {
+    json!({ "channel": answer.channel, "window_bytes": answer.window_bytes })
 }
 
 /// A `host.error` for an interface error.

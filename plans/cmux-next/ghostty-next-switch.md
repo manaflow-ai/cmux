@@ -292,6 +292,22 @@ so its own user run. Two relay threads wait on the registry's condition
 variable: bytes become credit for the app only after the client has them,
 and client bytes go to the app only within its credit.
 
+Backend terminals (decided 2026-10-04, P1 to P3 and placement): the app
+calls `cmux.terminal.backend.open {kind, target, open_token}` -> `{terminal,
+window_bytes}` after a user run (same checks as the connector). The session
+host creates the terminal with no tab: its local runtime is a portable_pty
+`MasterPty`/`ChildKiller` over the terminal's channel
+(`terminal_backend/pty.rs`, spawned through `surface/spawn.rs`, the spawn
+path shared with PTY children), so parsing, journal, snapshots and attach
+are unchanged. An exit status ends the process (`TerminalEnd::ProcessEnded`);
+a lost channel is a host loss. Resize and close go to the app as host events.
+The host broadcasts `apps-terminal {terminal, id, app, target, run_key}`; the
+client whose user run has that idempotency key places it in its own focused
+workspace with the workspace-store op `tab adopt {terminal, pane, index}`
+(`mux/app_terminals.rs`); a terminal no client placed within 60 s is closed.
+`connection.channel.open` takes the terminal instead of a second token
+(P2). `resume` is a host op after a user run (P3); v1 answers unsupported.
+
 Host-owned SSH transport (open decision, its own owner): `connection.channel.open`
 runs its checks in the daemon behind an `SshTransport` trait; production
 answers `unavailable {retryable: false}` until this is decided. Options:

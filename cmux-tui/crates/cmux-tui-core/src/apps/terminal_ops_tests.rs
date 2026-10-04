@@ -298,3 +298,49 @@ fn an_app_end_shuts_the_client_and_removes_the_socket() {
     assert!(!socket.exists());
     assert_eq!(c.f.supervisor.terminal_links_list()["links"], json!([]));
 }
+
+#[test]
+fn backend_open_without_a_session_host_is_unavailable_and_leaves_nothing() {
+    let c = connectors(&["cloudy"]);
+    // The fixture app implements the connector only; give it the backend too.
+    let token = &c.tokens(0, "cloudy", 1)[0];
+    let request = json!({
+        "t": "host.request", "id": 9, "op": "cmux.terminal.backend.open",
+        "params": { "kind": "cloud-vm", "target": "vm-1", "open_token": token },
+    });
+    let reply = c.f.supervisor.terminal_line("cmux/cloudy", &request).remove(0);
+    // The app does not implement cmux.terminal.backend/1: denied, token burned.
+    assert_denied(&reply);
+    let replay = c.f.supervisor.terminal_line("cmux/cloudy", &request).remove(0);
+    assert_denied(&replay);
+}
+
+#[test]
+fn a_channel_open_needs_an_open_terminal_of_the_same_app() {
+    let c = connectors(&["cloudy"]);
+    let request = json!({
+        "t": "host.request", "id": 9, "op": "cmux.terminal.channel.open",
+        "params": { "terminal": "term-1", "connection": "conn_1", "pty": { "cols": 80, "rows": 24 } },
+    });
+    assert_denied(&c.f.supervisor.terminal_line("cmux/cloudy", &request).remove(0));
+}
+
+#[test]
+fn an_unplaced_terminal_closes_after_60_seconds_and_a_placed_one_stays() {
+    use crate::apps::terminal_backends::{PLACEMENT, Placement};
+    let c = connectors(&["cloudy"]);
+    let sup = &c.f.supervisor;
+    let now = Instant::now();
+    {
+        let mut placements = sup.terminals.backend.placements.lock().unwrap();
+        for (terminal, surface) in [("term-1", 1), ("term-2", 2)] {
+            let placement = Placement { surface, deadline: now + PLACEMENT, placed: false };
+            placements.insert(terminal.into(), placement);
+        }
+    }
+    assert_eq!(sup.place_backend_terminal("term-2"), Some(2));
+    assert_eq!(sup.place_backend_terminal("term-2"), None, "placed once");
+    assert!(sup.close_unplaced_terminals_at(now + Duration::from_secs(59)).is_empty());
+    assert_eq!(sup.close_unplaced_terminals_at(now + Duration::from_secs(61)), vec!["term-1"]);
+    assert!(sup.terminals.backend.placements.lock().unwrap().contains_key("term-2"));
+}

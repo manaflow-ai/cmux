@@ -3,7 +3,8 @@ use std::collections::HashMap;
 
 use serde_json::json;
 
-use super::links::{FrameOutcome, MAX_LINKS_PER_APP};
+use super::channel::FrameOutcome;
+use super::links::MAX_LINKS_PER_APP;
 use super::wire::{error_reply, frame_from_json, frame_to_json, link_open_from_params};
 use super::*;
 
@@ -19,9 +20,9 @@ impl Tokens {
 }
 
 impl OpenTokenGate for Tokens {
-    fn consume(&self, token: &str, app: &str) -> Option<String> {
+    fn consume(&self, token: &str, app: &str) -> Option<TokenUse> {
         let (minted, op) = self.0.borrow_mut().remove(token)?;
-        (minted == app).then_some(op)
+        (minted == app).then_some(TokenUse { op, run_key: Some(format!("key-{token}")) })
     }
 }
 

@@ -18,14 +18,17 @@
 //!
 //! The app supervisor wires these to its servers (`apps/terminal_ops.rs`).
 
+pub(crate) mod channel;
 mod declaration;
 mod links;
+pub(crate) mod pty;
 pub(crate) mod relay;
+pub(crate) mod terminals;
 pub(crate) mod wire;
 
 pub(crate) use cmux_terminal_iface::*;
 pub(crate) use declaration::Declaration;
-pub(crate) use links::{LinkAnswer, LinkEvent, LinkOpen, LinkRegistry, OpenTokenGate};
+pub(crate) use links::{LinkAnswer, LinkEvent, LinkOpen, LinkRegistry, OpenTokenGate, TokenUse};
 pub(crate) use relay::RelaySet;
 
 #[cfg(test)]

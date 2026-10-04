@@ -2,6 +2,7 @@
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
 mod agent_hook_errors;
+mod app_terminals;
 mod conversations;
 mod exit_settle;
 mod host_close;

@@ -163,11 +163,11 @@ impl Accept {
     fn serve(&self, mut reader: UnixStream, mut writer: UnixStream) {
         let (links, channel, emit) = (self.links.clone(), self.channel.clone(), self.emit.clone());
         let _ = std::thread::Builder::new().name("cmux-link-out".into()).spawn(move || {
-            while let Ok(bytes) = links.wait_received(&channel, CHUNK) {
+            while let Ok(bytes) = links.channels().wait_received(&channel, CHUNK) {
                 if writer.write_all(&bytes).is_err() {
                     break;
                 }
-                match links.consumed(&channel, bytes.len() as u64) {
+                match links.channels().consumed(&channel, bytes.len() as u64) {
                     Ok(Some(credit)) => emit(credit),
                     Ok(None) => {}
                     Err(_) => break,
@@ -184,7 +184,7 @@ impl Accept {
                     Ok(0) | Err(_) => break,
                     Ok(n) => n,
                 };
-                if links.send_all(&channel, &buf[..n], &*emit).is_err() {
+                if links.channels().send_all(&channel, &buf[..n], &*emit).is_err() {
                     break;
                 }
             }

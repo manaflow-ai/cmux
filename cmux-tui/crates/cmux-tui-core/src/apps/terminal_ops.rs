@@ -21,15 +21,16 @@ use serde_json::{Value, json};
 use super::supervisor::{HostKey, Inner, Out, Supervisor};
 use crate::terminal_backend::{
     BackendError, CONNECTOR_INTERFACE, Declaration, FrameBody, LinkAnswer, LinkEvent, LinkRegistry,
-    Lost, OpenTokenGate, wire,
+    Lost, OpenTokenGate, TokenUse, wire,
 };
 
 /// The restricted scope both terminal interfaces need.
 pub(super) const TERMINAL_SCOPE: &str = "terminal:backend";
 
 impl OpenTokenGate for Supervisor {
-    fn consume(&self, token: &str, app: &str) -> Option<String> {
-        self.consume_open_token(token, app).map(|used| used.op)
+    fn consume(&self, token: &str, app: &str) -> Option<TokenUse> {
+        let used = self.consume_open_token(token, app)?;
+        Some(TokenUse { op: used.op, run_key: used.idempotency_key })
     }
 }
 
@@ -41,8 +42,9 @@ pub(super) struct GateAt<'a> {
 }
 
 impl OpenTokenGate for GateAt<'_> {
-    fn consume(&self, token: &str, app: &str) -> Option<String> {
-        self.supervisor.consume_open_token_at(token, app, self.now).map(|used| used.op)
+    fn consume(&self, token: &str, app: &str) -> Option<TokenUse> {
+        let used = self.supervisor.consume_open_token_at(token, app, self.now)?;
+        Some(TokenUse { op: used.op, run_key: used.idempotency_key })
     }
 }
 
@@ -76,12 +78,17 @@ impl Supervisor {
     ) -> Vec<Value> {
         if value["t"] == "host.request" {
             let id = value.get("id").cloned().unwrap_or(Value::Null);
-            let reply = match value["op"].as_str().unwrap_or_default() {
-                wire::CONNECTOR_OPEN => match self.connector_open(app, &value["params"], gate) {
-                    Ok(answer) => wire::link_answer_reply(&id, &answer),
-                    Err(error) => wire::error_reply(&id, &error),
-                },
-                op => json!({
+            let op = value["op"].as_str().unwrap_or_default();
+            let params = &value["params"];
+            let result = if op == wire::CONNECTOR_OPEN {
+                Some(self.connector_open(app, params, gate).map(|a| wire::link_answer_value(&a)))
+            } else {
+                self.backend_host_request(app, op, params, gate)
+            };
+            let reply = match result {
+                Some(Ok(value)) => wire::result_reply(&id, value),
+                Some(Err(error)) => wire::error_reply(&id, &error),
+                None => json!({
                     "t": "host.error", "id": id, "code": "apps.op.unknown",
                     "message": format!("the host has no op {op}"), "retryable": false,
                 }),
@@ -96,11 +103,22 @@ impl Supervisor {
             }
         };
         let is_end = matches!(frame.body, FrameBody::End(_));
-        match self.terminals.links.receive_from_app(app, frame) {
+        let terminal = frame.channel.starts_with("term-");
+        let outcome = if terminal {
+            self.terminals.backends.receive_from_app(app, frame)
+        } else {
+            self.terminals.links.receive_from_app(app, frame)
+        };
+        match outcome {
             Ok(outcome) => {
                 if let Some(ended) = &outcome.ended {
                     self.log_terminal(app, "info", link_end_message(ended));
-                    self.emit(vec![self.link_ended(ended)]);
+                    let out = if terminal {
+                        self.backend_terminal_ended(ended)
+                    } else {
+                        self.link_ended(ended)
+                    };
+                    self.emit(vec![out]);
                 }
                 outcome.to_app.iter().map(wire::frame_to_json).collect()
             }
@@ -128,7 +146,7 @@ impl Supervisor {
 
     /// What `app` declares for `interface`, when it may serve it at all: an
     /// installed app whose grant holds `terminal:backend`.
-    fn terminal_declaration(
+    pub(super) fn terminal_declaration(
         &self,
         app: &str,
         interface: &str,
@@ -168,8 +186,11 @@ impl Supervisor {
     /// `app`'s server stopped or exited: every link it held ends, and the
     /// far ends see `lost` (a new user run reconnects).
     pub(super) fn terminal_server_gone_locked(&self, inner: &mut Inner, app: &str) -> Vec<Out> {
-        let ended = self.terminals.links.end_app(app, &Lost::new("the app server stopped", true));
-        self.links_ended_locked(inner, app, &ended)
+        let lost = Lost::new("the app server stopped", true);
+        let ended = self.terminals.links.end_app(app, &lost);
+        let mut outs = self.links_ended_locked(inner, app, &ended);
+        outs.extend(self.terminals_ended_locked(inner, app, &lost));
+        outs
     }
 
     /// After a disable, uninstall or grant change: when `app` may no longer
@@ -181,8 +202,31 @@ impl Supervisor {
         if enabled && Self::grant_for(inner, &key).scopes.contains(TERMINAL_SCOPE) {
             return vec![];
         }
-        let ended = self.terminals.links.end_app(app, &Lost::new("access to the app ended", false));
-        self.links_ended_locked(inner, app, &ended)
+        let lost = Lost::new("access to the app ended", false);
+        let ended = self.terminals.links.end_app(app, &lost);
+        let mut outs = self.links_ended_locked(inner, app, &ended);
+        outs.extend(self.terminals_ended_locked(inner, app, &lost));
+        outs
+    }
+
+    /// Ends `app`'s backend terminals under the supervisor lock; the session
+    /// host side (the mux) runs on the timer thread, outside the lock.
+    fn terminals_ended_locked(&self, inner: &mut Inner, app: &str, lost: &Lost) -> Vec<Out> {
+        let ended = self.terminals.backends.end_app(app, lost);
+        let mut outs = Vec::new();
+        for event in &ended {
+            outs.extend(self.log_locked(inner, app, "info", link_end_message(event)));
+        }
+        if !ended.is_empty() {
+            let me = self.me.clone();
+            self.timers.schedule(std::time::Duration::ZERO, move || {
+                if let Some(me) = me.upgrade() {
+                    let outs = ended.iter().map(|e| me.backend_terminal_ended(e)).collect();
+                    me.emit(outs);
+                }
+            });
+        }
+        outs
     }
 
     fn links_ended_locked(&self, inner: &mut Inner, app: &str, ended: &[LinkEvent]) -> Vec<Out> {

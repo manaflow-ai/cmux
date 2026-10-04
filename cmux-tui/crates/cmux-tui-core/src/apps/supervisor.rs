@@ -63,6 +63,18 @@ pub trait OpRouter: Send + Sync {
     /// True when the daemon's own dispatcher owns `op`; other ops go to a
     /// provider.
     fn owns(&self, op: &str) -> bool;
+    /// Creates the tab-less session-host terminal of an app's byte-backend
+    /// terminal; answers its surface id. Without a session host: an error.
+    fn spawn_backend_terminal(
+        &self,
+        side: crate::terminal_backend::pty::BackendSide,
+    ) -> anyhow::Result<crate::SurfaceId> {
+        anyhow::bail!("no session host for {}", side.terminal)
+    }
+    /// Removes and stops a tab-less backend terminal surface.
+    fn close_backend_terminal(&self, surface: crate::SurfaceId) {
+        let _ = surface;
+    }
 }
 
 pub struct Config {

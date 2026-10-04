@@ -17,6 +17,8 @@ use crate::terminal_backend::{End, LinkAnswer, LinkEvent, LinkRegistry, RelaySet
 pub(crate) struct Terminals {
     pub links: Arc<LinkRegistry>,
     pub relays: RelaySet,
+    pub backends: crate::terminal_backend::terminals::TerminalRegistry,
+    pub backend: super::terminal_backends::Backends,
 }
 
 impl Supervisor {
@@ -67,7 +69,7 @@ impl Supervisor {
     }
 
     /// One line to `app`'s running server, if any.
-    fn send_to_server(&self, app: &str, value: &Value) {
+    pub(super) fn send_to_server(&self, app: &str, value: &Value) {
         let inner = self.inner.lock().unwrap();
         if let Some(server) = inner.servers.get(app) {
             let mut line = value.to_string().into_bytes();
