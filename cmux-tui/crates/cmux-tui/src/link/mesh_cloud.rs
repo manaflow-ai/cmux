@@ -114,7 +114,10 @@ mod tests {
             CloudRoute::None,
             "a gateway without a VPC endpoint is no route"
         );
-        assert_eq!(choose_route(&info(false, true, false)), CloudRoute::Udp("[fd00::7]:4101".parse().unwrap()));
+        assert_eq!(
+            choose_route(&info(false, true, false)),
+            CloudRoute::Udp("[fd00::7]:4101".parse().unwrap())
+        );
         assert_eq!(choose_route(&info(false, false, false)), CloudRoute::None);
     }
 
