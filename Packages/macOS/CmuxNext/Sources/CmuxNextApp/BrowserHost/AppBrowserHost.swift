@@ -40,16 +40,19 @@ final class AppBrowserHost {
     }
 
     /// Starts the provider (idle until step c2) and feeds it a person's key
-    /// downs: before dispatch, when focus already names the page that gets
-    /// them. Clicks come from the app's mouse-down observer, after dispatch
-    /// (focus has moved to the clicked page).
+    /// downs and scroll starts: before dispatch, when focus already names the
+    /// page that gets them. A key down is reported before the key router
+    /// runs, so an app shortcut pressed on a leased page also pauses the
+    /// lease (accepted). A scroll counts only on the focused page. Clicks come
+    /// from the app's mouse-down observer, after dispatch (focus has moved
+    /// to the clicked page).
     func start() {
         provider.start()
         let application = NSApp as? CmuxApplication
         let earlier = application?.inputObserver
         application?.inputObserver = { [weak self] event in
             earlier?(event)
-            if event.type == .keyDown { self?.noteInput(event) }
+            if event.type == .keyDown || event.type == .scrollWheel { self?.noteInput(event) }
         }
     }
 
@@ -58,11 +61,12 @@ final class AppBrowserHost {
     /// web view directly and CDP input stays inside Chromium, so agent input
     /// never pauses a lease.
     func noteInput(_ event: NSEvent) {
-        guard ProviderUserInput.pausesLease(event),
+        let synthetic = (NSApp as? CmuxApplication)?.currentEventIsSynthetic ?? false
+        guard ProviderUserInput.pausesLease(event, synthetic: synthetic),
               let window = CmuxApplication.accessibilityWindow(for: event.window ?? NSApp.keyWindow),
               let controller = services.windows.controllers.first(where: { $0.window === window }),
               case .browserPage(_, let tab) = controller.focus.state.resolved else { return }
-        provider.reportUserInput(event: event, targetID: tab)
+        provider.reportUserInput(event: event, synthetic: synthetic, targetID: tab)
     }
 
     /// One provider per install: a random id kept in the app's defaults.

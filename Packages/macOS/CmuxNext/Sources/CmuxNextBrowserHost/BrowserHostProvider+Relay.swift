@@ -139,7 +139,7 @@ extension BrowserHostProvider {
         relays[targetID] = nil
         session.deadline?.cancel()
         // Every command still waiting is answered before the host hears the close.
-        for message in session.map.drainPending() { replyError(targetID, to: message, "the tab's page closed") }
+        for waiting in session.map.drainPending() { replyError(targetID, waiting, "the tab's page closed") }
         send(.event(name: "tab.relay.closed", payload: .object(["targetId": .string(targetID)])))
     }
 
@@ -158,11 +158,17 @@ extension BrowserHostProvider {
         session.preparing?.cancel()
         if case .relaying = session.phase { relay?.stopRelay(targetID: targetID) }
         guard answering else { return }
-        for message in session.queued + session.map.drainPending() { replyError(targetID, to: message, "the tab closed") }
+        for message in session.queued { replyError(targetID, to: message, "the tab closed") }
+        for waiting in session.map.drainPending() { replyError(targetID, waiting, "the tab closed") }
     }
 
     private func replyError(_ targetID: String, to message: String, _ text: String) {
         guard let reply = CDPRawIDMap.errorReply(to: message, text: text) else { return }
+        send(.cdp(targetID: targetID, message: reply))
+    }
+
+    private func replyError(_ targetID: String, _ waiting: (hostID: Int, sessionID: String?), _ text: String) {
+        guard let reply = CDPRawIDMap.errorReply(hostID: waiting.hostID, sessionID: waiting.sessionID, text: text) else { return }
         send(.cdp(targetID: targetID, message: reply))
     }
 }

@@ -61,6 +61,7 @@ public final class CEFAgentRelay {
         if tab.browserID != nil { return true }
         if tab.isClosed { return false }
         let waiter = OneShot<Bool>()
+        waiters.removeAll { $0.isResolved }
         waiters.append(waiter)
         // concurrency-allow: OneShot.wait is an async suspension, not a blocking wait
         return await waiter.wait(cancelled: false)

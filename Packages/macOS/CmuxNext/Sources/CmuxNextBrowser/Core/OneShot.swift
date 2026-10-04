@@ -31,6 +31,9 @@ public nonisolated final class OneShot<Value: Sendable>: Sendable {
         }
     }
 
+    /// True once a value (or the cancel value) was delivered.
+    public var isResolved: Bool { state.withLock { $0.resolved } }
+
     /// Delivers `value`; later calls do nothing.
     public func resolve(_ value: Value) {
         let waiting = state.withLock { state -> CheckedContinuation<Value, Never>? in

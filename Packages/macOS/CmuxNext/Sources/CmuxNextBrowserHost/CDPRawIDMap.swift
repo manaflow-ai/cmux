@@ -10,8 +10,9 @@ import Foundation
 public nonisolated struct CDPRawIDMap: Sendable {
     /// Raw id -> host id of commands sent and not answered yet.
     public private(set) var pending: [Int: Int] = [:]
-    /// The host's command per raw id, to answer it when the relay closes.
-    private var originals: [Int: String] = [:]
+    /// The "sessionId" of each pending command (nil: browser session), to
+    /// answer it when the relay closes. Only the id and session are kept.
+    private var sessions: [Int: String?] = [:]
     private var next: Int
 
     /// `firstRawID` continues an earlier relay's ids for the same tab.
@@ -29,23 +30,32 @@ public nonisolated struct CDPRawIDMap: Sendable {
         let raw = allocate()
         guard let rewritten = CEFDevToolsRawMessage.replacingTopLevelID(in: message, with: raw) else { return nil }
         pending[raw] = hostID
-        originals[raw] = message
+        sessions[raw] = Self.sessionID(of: message)
         return (rewritten, raw, hostID)
     }
 
     /// Drops a command the shim did not send.
     public mutating func forget(rawID: Int) {
         pending[rawID] = nil
-        originals[rawID] = nil
+        sessions[rawID] = nil
     }
 
-    /// The host's commands still waiting for a reply, oldest first; the map
-    /// forgets them (the relay closed: each gets an error reply instead).
-    public mutating func drainPending() -> [String] {
-        let waiting = originals.sorted { $0.key < $1.key }.map(\.value)
+    /// The host's commands still waiting for a reply (host id and
+    /// "sessionId"), oldest first; the map forgets them (the relay closed:
+    /// each gets an error reply instead).
+    public mutating func drainPending() -> [(hostID: Int, sessionID: String?)] {
+        let waiting = pending.sorted { $0.key < $1.key }.map { (hostID: $0.value, sessionID: sessions[$0.key] ?? nil) }
         pending = [:]
-        originals = [:]
+        sessions = [:]
         return waiting
+    }
+
+    /// The top-level "sessionId" of a host command; parsed only when the
+    /// command names one (most go to the page session's own flat session).
+    static func sessionID(of message: String) -> String? {
+        guard message.contains("\"sessionId\""),
+              let object = (try? JSONSerialization.jsonObject(with: Data(message.utf8))) as? [String: Any] else { return nil }
+        return object["sessionId"] as? String
     }
 
     /// A message from the browser for the host: an event as it is, a reply
@@ -54,7 +64,7 @@ public nonisolated struct CDPRawIDMap: Sendable {
     public mutating func inbound(_ message: String) -> String? {
         guard let id = CEFDevToolsRawMessage.topLevelID(in: message) else { return message }
         guard CEFDevToolsRawMessage.isRawID(id), let hostID = pending.removeValue(forKey: id) else { return nil }
-        originals[id] = nil
+        sessions[id] = nil
         return CEFDevToolsRawMessage.replacingTopLevelID(in: message, with: hostID)
     }
 
@@ -73,11 +83,13 @@ public nonisolated struct CDPRawIDMap: Sendable {
     /// "sessionId"), for a command the app could not relay.
     public static func errorReply(to message: String, text: String) -> String? {
         guard let id = CEFDevToolsRawMessage.topLevelID(in: message) else { return nil }
-        var reply: [String: Any] = ["id": id, "error": ["code": -32000, "message": text]]
-        if let object = (try? JSONSerialization.jsonObject(with: Data(message.utf8))) as? [String: Any],
-           let session = object["sessionId"] as? String {
-            reply["sessionId"] = session
-        }
+        return errorReply(hostID: id, sessionID: sessionID(of: message), text: text)
+    }
+
+    /// A CDP error reply with host id `hostID` in session `sessionID`.
+    public static func errorReply(hostID: Int, sessionID: String?, text: String) -> String? {
+        var reply: [String: Any] = ["id": hostID, "error": ["code": -32000, "message": text]]
+        if let sessionID { reply["sessionId"] = sessionID }
         guard let data = try? JSONSerialization.data(withJSONObject: reply, options: [.sortedKeys]) else { return nil }
         return String(decoding: data, as: UTF8.self)
     }
