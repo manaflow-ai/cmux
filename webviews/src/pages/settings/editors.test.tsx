@@ -178,6 +178,14 @@ describe("editors", () => {
     expect(rowElement(page.container, "browser.hibernation").querySelector(".row-error")).toBeNull();
   });
 
+  test("another client's change to a key clears that row's earlier error", async () => {
+    page = await renderPage({ path: "/settings/browser" });
+    await run(() => page!.store.set("browser.hibernation", -5));
+    expect(rowElement(page.container, "browser.hibernation").querySelector(".row-error")).not.toBeNull();
+    await run(() => page!.provider.externalSet("browser.hibernation", "off"));
+    expect(rowElement(page.container, "browser.hibernation").querySelector(".row-error")).toBeNull();
+  });
+
   test("with no published domains, theme and font rows are text fields", async () => {
     page = await renderPage({ path: "/settings/appearance", mock: { domains: null } });
     const theme = rowElement(page.container, "appearance.theme");

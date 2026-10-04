@@ -75,7 +75,15 @@ export class SettingsStore {
     await Promise.all([
       // Every change re-reads: rows and revision may come from different moments, so a
       // revision comparison could skip a newer change. refreshSequence keeps the newest read.
-      this.listen("cmux.settings.changed", () => void this.refresh()),
+      this.listen("cmux.settings.changed", (event) => {
+        // Another writer changed these keys: an older refusal no longer applies.
+        if (event.keys.some((key) => this.state.errors.has(key))) {
+          const errors = new Map(this.state.errors);
+          for (const key of event.keys) errors.delete(key);
+          this.update({ errors });
+        }
+        void this.refresh();
+      }),
       this.listen("cmux.page.connection", (event) => {
         this.update(event.connected ? { connected: true, errors: new Map() } : { connected: false });
         if (event.connected) void this.refresh();
