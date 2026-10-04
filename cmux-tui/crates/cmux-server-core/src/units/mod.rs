@@ -8,7 +8,9 @@ mod launchd;
 mod systemd;
 mod windows;
 
-pub use launchd::{launch_agent_plist, launch_daemon_plist};
+pub use launchd::{
+    APP_BUNDLE_PROGRAM, app_service_agent_plist, launch_agent_plist, launch_daemon_plist,
+};
 pub use systemd::{
     systemd_app_server_template, systemd_system_unit, systemd_update_path_unit,
     systemd_update_service_unit, systemd_user_unit,
@@ -29,6 +31,9 @@ pub enum UnitError {
     /// A path holds a character the unit syntax cannot carry safely.
     UnsafePath(&'static str),
     BadUser,
+    /// The bundle id is not a plain reverse-DNS name
+    /// (`^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$`).
+    BadBundleId,
 }
 
 /// The full frozen command line as argv.
