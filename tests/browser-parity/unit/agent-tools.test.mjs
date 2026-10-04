@@ -768,3 +768,46 @@ test("reference-c-parity.md: verdicts and proofs resolve", () => {
     }
   }
 });
+
+// A window a user's page opens while it handles the session's input becomes
+// a background tab the session gets as a popup (`tab.created` with
+// `userOwned: true`), but the tab stays the user's: the runtime never closes
+// it for the session's domain policy. A popup of a tab the session created
+// whose URL the policy blocks is closed.
+test("popups: the runtime closes a session popup the policy blocks, never a user-owned one", async () => {
+  const dir = makeTestDir("cmux-repl-popup-");
+  const lines = [];
+  const host = createNodeHost({ workDir: dir, sessionId: `popup-${process.pid}`, print: (level, text) => lines.push(text) });
+  const handlers = new Map();
+  const closed = [];
+  const driver = {
+    name: "fake",
+    async call(method, params) {
+      if (method === "tabs.close") closed.push(params.targetId);
+      if (method === "tabs.list") return [];
+      return null;
+    },
+    on: (event, handler) => handlers.set(event, handler),
+    capabilities: () => [],
+    detach() {},
+    setDomainPolicy() {},
+  };
+  const repl = createDevRepl({ host, driver });
+  try {
+    const r = await repl.evaluate(`session.allowedDomains(["example.com"]); console.log("set");`);
+    assert.equal(r.ok, true, r.error);
+    const emit = (event, payload) => {
+      const handler = handlers.get(event) || handlers.get("*");
+      assert.ok(handler, `the runtime listens for ${event}: ${[...handlers.keys()]}`);
+      handler(payload);
+    };
+    emit("tab.created", { targetId: "user-popup", openerTargetId: "user-tab", url: "https://blocked.test/", userOwned: true });
+    emit("tab.created", { targetId: "session-popup", openerTargetId: "session-tab", url: "https://blocked.test/" });
+    await repl.evaluate(`await Promise.resolve();`);
+    assert.deepEqual(closed, ["session-popup"], `closed: ${closed}; output: ${lines.join("\n")}`);
+  } finally {
+    repl.dispose();
+    removeTestDir(dir);
+    removeTestDir(host.tmpdir);
+  }
+});

@@ -8,8 +8,10 @@ import WebKit
 /// Shows a sheet on the browser pane's window that names the origin of the
 /// frame that holds the fields (WebKit's record of it, not the main frame's
 /// and not anything the REPL sent) and asks for the fields the agent
-/// described. On Fill it runs the bundle's `sites/auth-fill.js` in the
-/// driver's own content world of that frame, which fills only password,
+/// described. Before the sheet it binds the request to the frame's document
+/// and the marked elements, and on Fill it runs the bundle's
+/// `sites/auth-fill.js` in the driver's own content world of that frame,
+/// which fills only those elements of that document, and only password,
 /// username and one-time-code inputs, passing the typed values as call
 /// arguments. The REPL receives a status and never a value. The REPL is
 /// untrusted, so every parameter is validated here again. The page itself,
@@ -56,6 +58,18 @@ enum BrowserReplCredentialRequest {
         let requested = (params["timeoutMs"] as? NSNumber)?.intValue ?? defaultTimeoutMilliseconds
         let timeout = Duration.milliseconds(min(max(requested, 1_000), maxTimeoutMilliseconds))
 
+        // The fill is bound now, before the sheet: auth-fill.js keeps the one
+        // element that holds each field's marker, and the document, in the
+        // driver's world under this request's token, and the fill writes
+        // only into those elements while the frame still shows that
+        // document. Another session driving the tab, or the page, cannot
+        // redirect the fill by moving or copying a marker, or by loading
+        // another document of the same origin, while the user types.
+        let binding = UUID().uuidString
+        let fieldArguments = fields.map { ["id": $0.id, "type": $0.type, "marker": $0.marker] }
+        let bound = await runFill(fillSource, phase: "bind", binding: binding, fields: fieldArguments, values: [:], origin: fieldsOrigin, webView: webView, frameInfo: frameInfo)
+        guard bound == "bound" else { return ["status": bound] }
+
         let sheet = BrowserReplCredentialSheet(origin: fieldsOrigin, pageOrigin: origin, fields: fields, requester: requester)
         let answer = await sheet.present(on: window, timeout: timeout)
         guard case .filled(let values) = answer else {
@@ -68,24 +82,43 @@ enum BrowserReplCredentialRequest {
         // `frameInfo` records the frame as it was before the sheet opened, so
         // its origin cannot show a navigation since. auth-fill.js compares
         // the origin the sheet named with the frame's document as it runs,
-        // in the driver's world, and fills nothing on a mismatch.
+        // in the driver's world, and the document and elements with the ones
+        // it bound, and fills nothing on a mismatch.
+        let status = await runFill(fillSource, phase: "fill", binding: binding, fields: fieldArguments, values: values, origin: fieldsOrigin, webView: webView, frameInfo: frameInfo)
+        return ["status": status]
+    }
+
+    /// Runs one phase of `sites/auth-fill.js` in the driver's world of the
+    /// frame that holds the fields and returns its status (`page_changed`
+    /// when the script did not answer: its document was replaced).
+    private static func runFill(
+        _ source: String,
+        phase: String,
+        binding: String,
+        fields: [[String: String]],
+        values: [String: String],
+        origin: String,
+        webView: WKWebView,
+        frameInfo: WKFrameInfo?
+    ) async -> String {
         let arguments: [String: Any] = [
-            "__fields": fields.map { ["id": $0.id, "type": $0.type, "marker": $0.marker] },
+            "__phase": phase,
+            "__binding": binding,
+            "__fields": fields,
             "__values": values,
-            "__origin": fieldsOrigin,
+            "__origin": origin,
         ]
         do {
             let result = try await webView.browserReplCallAsyncJavaScript(
-                fillSource,
+                source,
                 arguments: arguments,
                 in: frameInfo,
                 contentWorld: BrowserReplDriverWorld.world,
                 userGesture: false
             )
-            let status = (result as? [String: Any])?["status"] as? String ?? "page_changed"
-            return ["status": status]
+            return (result as? [String: Any])?["status"] as? String ?? "page_changed"
         } catch {
-            return ["status": "page_changed"]
+            return "page_changed"
         }
     }
 

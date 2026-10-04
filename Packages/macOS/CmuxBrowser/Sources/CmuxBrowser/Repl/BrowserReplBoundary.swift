@@ -72,7 +72,7 @@ final class BrowserReplBoundary: @unchecked Sendable {
     /// masked by the driver instead.
     static let binaryMethods: Set<String> = ["tab.screenshot", "tab.pdf"]
     /// Parameters only the session may set on a driver call.
-    static let reservedParameters = ["secretName", "secretDomains", "secretMasks"]
+    static let reservedParameters = ["secretName", "secretDomains", "secretMasks", "secretMasksTakenAt"]
 
     var domainPolicy: BrowserReplDomainPolicy { lock.withLock { policy } }
 
@@ -239,14 +239,57 @@ final class BrowserReplBoundary: @unchecked Sendable {
                 ))
             }
         case "tab.screenshot", "tab.pdf":
-            let masks = secrets.captureMasks
+            // The time goes with the masks, for the check after the capture
+            // (``checkCaptureMasks(method:paramsJSON:_:)``).
+            let takenAt = Date()
+            let masks = secrets.captureMasks(at: takenAt)
             if !masks.isEmpty {
                 params["secretMasks"] = masks.map { ["value": $0.value, "domains": $0.domains.map(\.json)] as [String: Any] }
             }
+            params["secretMasksTakenAt"] = takenAt.timeIntervalSince1970
         default:
             break
         }
         return .success(JSONSerialization.browserReplString(params) ?? "{}")
+    }
+
+    /// A capture's result, refused (`stale`) when the session could have
+    /// typed a secret value its masks lack while it was taken: the masks
+    /// are the values the session held when the call was made (`prepare`),
+    /// and calls run concurrently, so the session can set a new secret, or
+    /// add a domain to one, and type it meanwhile, or a TOTP secret's code
+    /// can move past the windows the masks hold. Every value, and every
+    /// TOTP code of a window between the masks and now, must be among the
+    /// masks with each of its domains.
+    func checkCaptureMasks(method: String, paramsJSON: String, _ result: Result<String, BrowserReplDriverError>) -> Result<String, BrowserReplDriverError> {
+        guard Self.binaryMethods.contains(method), case .success = result else { return result }
+        let params = JSONSerialization.browserReplObject(paramsJSON)
+        let takenAt = (params["secretMasksTakenAt"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) } ?? .distantPast
+        var masked = Set<String>()
+        for mask in params["secretMasks"] as? [[String: Any]] ?? [] {
+            guard let value = mask["value"] as? String else { continue }
+            for domain in mask["domains"] as? [Any] ?? [] {
+                masked.insert(value + "\u{0}" + Self.canonicalJSON(domain))
+            }
+        }
+        let typeable = secrets.typeableValues(from: takenAt, to: Date())
+        let covered = typeable.allSatisfy { entry in
+            entry.domains.allSatisfy { masked.contains(entry.value + "\u{0}" + Self.canonicalJSON($0.json)) }
+        }
+        guard covered else {
+            return .failure(BrowserReplDriverError(
+                code: "stale",
+                message: "The session set a secret while the capture was taken, so it may show the value unmasked; try again"
+            ))
+        }
+        return result
+    }
+
+    /// `value` as JSON with sorted keys, so a domain pattern compares equal
+    /// after a round trip through a driver call's parameters.
+    private static func canonicalJSON(_ value: Any) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .sortedKeys]) else { return "" }
+        return String(decoding: data, as: UTF8.self)
     }
 
     /// A driver result as JavaScript may see it.

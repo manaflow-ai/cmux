@@ -114,3 +114,27 @@ struct BrowserReplMouseStateTests {
         #expect(zoomed == CGPoint(x: 200, y: 520))
     }
 }
+
+/// The REPL is untrusted, so a wheel call's deltas are whatever it sends:
+/// any finite number (the runtime's own check is not a guard), or not a
+/// number at all. Building the event must never trap the app.
+@Suite("Browser REPL wheel deltas")
+struct BrowserReplWheelDeltaTests {
+    @Test func ordinaryDeltasBecomeWheelCountsInTheFingersDirection() {
+        #expect(BrowserReplWheelDelta(deltaX: 10.4, deltaY: -120.6) == BrowserReplWheelDelta(vertical: 121, horizontal: -10))
+    }
+
+    @Test(arguments: [1e300, -1e300, 9.3e18, -9.3e18, Double(Int32.max) * 4])
+    func outOfRangeDeltasClampInsteadOfTrapping(_ delta: Double) {
+        let wheel = BrowserReplWheelDelta(deltaX: delta, deltaY: delta)
+        let expected: Int32 = delta > 0 ? .min : .max
+        #expect(wheel.vertical == expected)
+        #expect(wheel.horizontal == expected)
+    }
+
+    @Test(arguments: [Double.nan, .infinity, -.infinity])
+    func nonFiniteDeltasAreRefused(_ delta: Double) {
+        #expect(BrowserReplWheelDelta(validatingDeltaX: delta, deltaY: 0) == nil)
+        #expect(BrowserReplWheelDelta(validatingDeltaX: 0, deltaY: delta) == nil)
+    }
+}

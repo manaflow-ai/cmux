@@ -782,7 +782,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         // The task finishes itself; it waits for the lock held here, so the
         // entry exists before the removal runs.
         let task = Task { [weak self] in
-            let result = boundary.redact(method: call.method, await driver.call(method: call.method, paramsJSON: call.paramsJSON))
+            let answer = await driver.call(method: call.method, paramsJSON: call.paramsJSON)
+            let result = boundary.redact(method: call.method, boundary.checkCaptureMasks(method: call.method, paramsJSON: call.paramsJSON, answer))
             guard let self else { return }
             // Behind the events the driver sent before it returned.
             self.eventQueue.async { [weak self] in
@@ -1293,6 +1294,19 @@ public final class BrowserReplSession: @unchecked Sendable {
             case .failure(let error):
                 self.resolveCall(Int(callID), .failure(boundary.redact(error)))
                 return
+            }
+            // A file chooser answer's files are staged on disk until the
+            // session ends, so they count against its write budget.
+            if methodName == "filechooser.respond" {
+                do {
+                    try self.writeBudget.takeFileChooserAnswer(JSONSerialization.browserReplObject(paramsJSON))
+                } catch let error as BrowserReplFileSystemError {
+                    self.resolveCall(Int(callID), .failure(BrowserReplDriverError(code: "invalid", message: "filechooser: \(error.message)")))
+                    return
+                } catch {
+                    self.resolveCall(Int(callID), .failure(BrowserReplDriverError(code: "invalid", message: "filechooser: \(error)")))
+                    return
+                }
             }
             if let refusal = self.startOrQueueDriverCall(callID: Int(callID), method: methodName, paramsJSON: paramsJSON) {
                 self.resolveCall(Int(callID), .failure(refusal))

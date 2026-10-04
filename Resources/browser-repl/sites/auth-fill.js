@@ -1,15 +1,27 @@
 // Credential fill for sites.browserAuth.request, run by the app (not the
-// REPL) after the user types into cmux's credential sheet: the body of an
-// async function evaluated with WKWebView.callAsyncJavaScript in the app's
-// own content world (not the agent world agent code can script) of the
-// frame that holds the fields. Arguments: __fields ([{ id, type, marker }]),
-// __values ({ id: value }) and __origin, the origin the sheet showed the
-// user. WebKit's frame record is taken before the sheet opens, and the frame
-// may load another origin's document while the user types, so the document
-// that receives the values is checked here, at fill time: a different origin
-// gets nothing (origin_changed). Only password, username and one-time-code
-// inputs are filled, by the same rule as sites/browser-auth.js, and a
-// password only into a password input. The result carries no value.
+// REPL): the body of an async function evaluated with
+// WKWebView.callAsyncJavaScript in the app's own content world (not the
+// agent world agent code can script) of the frame that holds the fields.
+// Arguments: __phase ("bind" | "fill"), __binding (a token the app made for
+// this request), __fields ([{ id, type, marker }]), __values ({ id: value })
+// and __origin, the origin the sheet showed the user.
+//
+// "bind" runs when the sheet is requested, before the user types: it takes
+// the one element that holds each field's marker, and the document, and
+// keeps them under __binding in this world's global, which no page or agent
+// script reaches (and which a new document does not have). "fill" runs after
+// the user presses Fill and writes only into those elements, and only when
+// the frame still shows that document, each element is still in it and is
+// still the only one with its marker: another session driving the tab, or
+// the page, can move a marker, copy it to another element or load another
+// same-origin document while the sheet is up, and any of that fills nothing
+// (page_changed). WebKit's frame record is taken before the sheet opens, and
+// the frame may load another origin's document while the user types, so the
+// document that receives the values is checked here, at fill time: a
+// different origin gets nothing (origin_changed). Only password, username
+// and one-time-code inputs are filled, by the same rule as
+// sites/browser-auth.js, and a password only into a password input. The
+// result carries no value.
 if (typeof __origin !== "string" || location.origin !== __origin) return { status: "origin_changed" };
 const kindOf = (el) => {
   if (!(el instanceof HTMLInputElement)) return null;
@@ -24,13 +36,37 @@ const kindOf = (el) => {
   if (/user|login|e-?mail|account/i.test(hint)) return "username";
   return null;
 };
-const found = [];
-for (const f of __fields) {
-  const el = document.querySelector('[data-cmux-auth="' + String(f.marker).replace(/["\\]/g, "") + '"]');
-  if (!el) return { status: "page_changed", field: f.id };
-  if (!(el instanceof HTMLInputElement) || el.disabled || el.readOnly) return { status: "locator_invalid", field: f.id };
+const markedWith = (marker) => document.querySelectorAll('[data-cmux-auth="' + String(marker).replace(/["\\]/g, "") + '"]');
+const usable = (f, el) => {
+  if (!(el instanceof HTMLInputElement) || el.disabled || el.readOnly) return false;
   const kind = kindOf(el);
-  if (!kind || (f.type === "password") !== (kind === "password")) return { status: "locator_invalid", field: f.id };
+  return !!kind && (f.type === "password") === (kind === "password");
+};
+if (typeof __binding !== "string" || !__binding) return { status: "page_changed" };
+const bindings = Object.prototype.hasOwnProperty.call(globalThis, "__cmuxAuthBindings")
+  ? globalThis.__cmuxAuthBindings
+  : Object.defineProperty(globalThis, "__cmuxAuthBindings", { value: new Map() }).__cmuxAuthBindings;
+if (__phase === "bind") {
+  const elements = [];
+  for (const f of __fields) {
+    const all = markedWith(f.marker);
+    if (all.length !== 1) return { status: "page_changed", field: f.id };
+    if (!usable(f, all[0])) return { status: "locator_invalid", field: f.id };
+    elements.push(all[0]);
+  }
+  bindings.set(__binding, { document, origin: location.origin, elements });
+  return { status: "bound" };
+}
+if (__phase !== "fill") return { status: "page_changed" };
+const bound = bindings.get(__binding);
+bindings.delete(__binding);
+if (!bound || bound.document !== document || bound.origin !== location.origin || bound.elements.length !== __fields.length) return { status: "page_changed" };
+const found = [];
+for (const [index, f] of __fields.entries()) {
+  const el = bound.elements[index];
+  const all = markedWith(f.marker);
+  if (!el.isConnected || el.ownerDocument !== document || all.length !== 1 || all[0] !== el) return { status: "page_changed", field: f.id };
+  if (!usable(f, el)) return { status: "locator_invalid", field: f.id };
   found.push([f, el]);
 }
 for (const [f, el] of found) {

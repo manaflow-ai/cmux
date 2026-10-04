@@ -81,20 +81,17 @@ enum BrowserReplNativeInput {
         webView: WKWebView,
         window: NSWindow,
         cssPoint: CGPoint,
-        deltaX: Double,
-        deltaY: Double,
+        delta: BrowserReplWheelDelta,
         modifierFlags: NSEvent.ModifierFlags
     ) -> NSEvent? {
         let location = windowPoint(webView: webView, cssPoint: cssPoint)
-        // Page-space deltas scroll content down/right; wheel deltas are the
-        // finger direction, so they flip sign.
         return aligned(window: window, location: location) { point in
             guard let event = CGEvent(
                 scrollWheelEvent2Source: nil,
                 units: .pixel,
                 wheelCount: 2,
-                wheel1: Int32(clamping: Int(-deltaY.rounded())),
-                wheel2: Int32(clamping: Int(-deltaX.rounded())),
+                wheel1: delta.vertical,
+                wheel2: delta.horizontal,
                 wheel3: 0
             ) else { return nil }
             event.location = point

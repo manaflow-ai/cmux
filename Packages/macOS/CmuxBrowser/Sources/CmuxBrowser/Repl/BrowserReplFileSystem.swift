@@ -884,6 +884,26 @@ final class BrowserReplWriteBudget: @unchecked Sendable {
         }
     }
 
+    /// Takes a file chooser answer's files (`filechooser.respond`
+    /// `files: [{ name, base64 }]`) from the budget: the driver stages them
+    /// on disk for the page until the session ends.
+    /// Each answer is one call (at most `perCall`, as a `writeFile`), each
+    /// file one entry change, and the decoded bytes count toward the
+    /// session's total. A cancel stages nothing.
+    func takeFileChooserAnswer(_ params: [String: Any]) throws {
+        guard params["cancel"] as? Bool != true, let files = params["files"] as? [[String: Any]], !files.isEmpty else { return }
+        // Decoded size from the Base64 length, without decoding.
+        let bytes = files.reduce(0) { total, file in
+            let raw = (file["base64"] as? String ?? "").utf8
+            let padding = raw.reversed().prefix(2).filter { $0 == UInt8(ascii: "=") }.count
+            return total + max(0, raw.count / 4 * 3 - padding)
+        }
+        let display = "file chooser \(params["chooserId"] as? String ?? "")"
+        try checkCall(bytes, syscall: "write", display: display)
+        for _ in files { try takeEntryChange(syscall: "write", display: display) }
+        try take(bytes, syscall: "write", display: display)
+    }
+
     /// Throws `EFBIG` when one call of `count` bytes is past `perCall`.
     func checkCall(_ count: Int, syscall: String, display: String) throws {
         guard count <= perCall else {

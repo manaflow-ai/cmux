@@ -198,6 +198,48 @@ struct BrowserReplSecretRedactionTests {
         #expect(written == "<secret:password>", "\(written)")
     }
 
+    /// A capture's masks are the session's secret values when the call is
+    /// made; the same session can meanwhile set a new secret and type it
+    /// while the capture is taken (calls run concurrently), and that value
+    /// is not among the masks. The capture is refused (`stale`) instead of
+    /// returning pixels that may show it.
+    @Test("A capture taken while the session sets and types a new secret is refused")
+    func aCaptureDuringANewOwnSecretIsRefused() async throws {
+        let driver = HeldCaptureDriver()
+        let session = try #require(makeSession(driver))
+        defer { session.close() }
+        // The driver holds the capture, and says so to page reads, until
+        // the new secret is typed.
+        let result = await run(session, """
+        secrets.set("a", "\(Self.value)", { domains: ["example.com"] });
+        await page.goto("https://example.com/login");
+        const shot = page.screenshot().then(() => "captured", (e) => "refused " + (e.code || e.message));
+        while ((await page.evaluate(() => 0)) !== "capturing") {}
+        secrets.set("b", "n3w-value-5521", { domains: ["example.com"] });
+        await page.locator("#f").fill(secret("b"), { timeout: 2000 });
+        console.log(await shot);
+        """)
+        let output = result?.lines.map(\.text).joined(separator: "\n") ?? ""
+        #expect(result?.error == nil, "\(result?.error ?? "")")
+        #expect(driver.page.typedInto.contains { $0.text == "n3w-value-5521" }, "the new secret was not typed, so this tests nothing")
+        #expect(output.hasPrefix("refused stale"), "the capture returned pixels taken while a secret its masks lacked was typed: \(output)")
+    }
+
+    @Test("A capture taken while the session's secrets stay as they were returns its pixels")
+    func aCaptureWithTheSameSecretsReturnsItsPixels() async throws {
+        let driver = ScriptedPageDriver()
+        let session = try #require(makeSession(driver))
+        defer { session.close() }
+        let result = await run(session, """
+        secrets.set("a", "\(Self.value)", { domains: ["example.com", "*.example.org", "https://login.example.net:8443"] });
+        secrets.set("otp", "\(Self.totpSeed)", { domains: ["example.com"], totp: true });
+        await page.goto("https://example.com/login");
+        console.log(await page.screenshot().then(() => "captured", (e) => "refused " + (e.code || e.message)));
+        """)
+        let output = result?.lines.map(\.text).joined(separator: "\n") ?? ""
+        #expect(output == "captured", "\(output)")
+    }
+
     private func currentCode() -> String {
         BrowserReplSecretStore.totp(key: BrowserReplSecretStore.base32Decode(Self.totpSeed) ?? Data(), time: Date().timeIntervalSince1970)
     }
@@ -223,4 +265,51 @@ private final class TypedSecretsPageDriver: BrowserReplDriver, @unchecked Sendab
     func detach() {}
 
     func typedSecretRedaction() -> BrowserReplSecretStore? { typed }
+}
+
+/// A page driver that holds `tab.screenshot` until a secret is typed;
+/// meanwhile page reads answer "capturing".
+private final class HeldCaptureDriver: BrowserReplDriver, @unchecked Sendable {
+    let page = ScriptedPageDriver()
+    private let lock = NSLock()
+    private var released = false
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    var capabilities: [String] { page.capabilities }
+
+    func call(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
+        switch method {
+        case "tab.screenshot":
+            page.pageValue = "capturing"
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                lock.lock()
+                if released {
+                    lock.unlock()
+                    continuation.resume()
+                } else {
+                    releaseWaiters.append(continuation)
+                    lock.unlock()
+                }
+            }
+            return await page.call(method: method, paramsJSON: paramsJSON)
+        case "input.insertText":
+            let result = await page.call(method: method, paramsJSON: paramsJSON)
+            if JSONSerialization.browserReplObject(paramsJSON)["secretName"] != nil { release() }
+            return result
+        default:
+            return await page.call(method: method, paramsJSON: paramsJSON)
+        }
+    }
+
+    private func release() {
+        let waiters: [CheckedContinuation<Void, Never>] = lock.withLock {
+            released = true
+            defer { releaseWaiters.removeAll() }
+            return releaseWaiters
+        }
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func attach(eventSink: @escaping BrowserReplDriverEventSink) {}
+    func detach() {}
 }

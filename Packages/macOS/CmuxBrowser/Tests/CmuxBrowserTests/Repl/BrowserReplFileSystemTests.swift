@@ -512,6 +512,38 @@ struct BrowserReplFileSystemSpecialFileTests {
         #expect(!FileManager.default.fileExists(atPath: scratch.root + "/d.bin"))
     }
 
+    /// A file chooser answer's files are written to disk too (staged for
+    /// the page until the session ends), so they count against the same
+    /// budget as the session's own writes: answers past it are refused.
+    @Test("File chooser answers count against the session's write budget")
+    func fileChooserAnswersAreBudgeted() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let budget = BrowserReplWriteBudget(perCall: 2000, perSession: 4000)
+        let fs = makeFileSystem(scratch, budget: budget)
+        let answer: [String: Any] = ["chooserId": "c1", "files": [
+            ["name": "a.bin", "base64": Data(count: 1000).base64EncodedString()],
+            ["name": "b.bin", "base64": Data(count: 500).base64EncodedString()],
+        ]]
+        var refusals: [String] = []
+        for _ in 0..<3 {
+            do {
+                try budget.takeFileChooserAnswer(answer)
+            } catch let error as BrowserReplFileSystemError {
+                refusals.append(error.code)
+            }
+        }
+        // 3,000 bytes staged; the next 1,500 are past the 4,000 the session may write.
+        #expect(refusals == ["EDQUOT"])
+        let past = fs.perform("writeFile", arguments: ["path": "c.bin", "base64": Data(count: 1500).base64EncodedString()])
+        #expect(past.failureCode == "EDQUOT", "the session's fs did not count what its file chooser answers staged")
+        // One answer past one call's 2,000 bytes.
+        let large: [String: Any] = ["files": [["name": "big.bin", "base64": Data(count: 2500).base64EncodedString()]]]
+        #expect(throws: BrowserReplFileSystemError.self) { try BrowserReplWriteBudget(perCall: 2000, perSession: 1 << 20).takeFileChooserAnswer(large) }
+        // A cancel stages nothing.
+        #expect(throws: Never.self) { try budget.takeFileChooserAnswer(["chooserId": "c1", "cancel": true]) }
+    }
+
     /// Empty files, directories, renames and removals write no bytes, but
     /// each changes the file system: a session makes at most 100,000 such
     /// changes, so a loop of them cannot exhaust the volume's entries.

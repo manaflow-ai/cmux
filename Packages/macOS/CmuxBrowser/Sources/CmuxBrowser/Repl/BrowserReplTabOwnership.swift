@@ -38,6 +38,96 @@ public struct BrowserReplNetworkRecipient: Sendable, Equatable {
     }
 }
 
+extension Dictionary where Key == String, Value == Any {
+    /// A network event's payload as a session that did not create the tab
+    /// gets it: without the request's and response's credential headers,
+    /// and with the credential values in its URL, and in the URL-valued
+    /// headers it keeps (`location`, `referer` and the like), replaced
+    /// (``Swift/String/redactingBrowserReplURLCredentials()``).
+    public func redactingBrowserReplCredentials() -> [String: Any] {
+        var payload = self
+        if let url = payload["url"] as? String {
+            payload["url"] = url.redactingBrowserReplURLCredentials()
+        }
+        if let headers = payload["headers"] as? [String: String] {
+            var kept = headers.removingBrowserReplCredentialHeaders()
+            for (name, value) in kept where Self.urlValuedHeaderNames.contains(name.lowercased()) {
+                kept[name] = value.redactingBrowserReplURLCredentials()
+            }
+            payload["headers"] = kept
+        }
+        return payload
+    }
+
+    /// Headers whose value is, or holds, a URL.
+    private static var urlValuedHeaderNames: Set<String> {
+        ["location", "content-location", "referer", "refresh", "link"]
+    }
+}
+
+extension String {
+    /// This URL with its credential values replaced by `redacted`: the
+    /// userinfo (`user:password@`), and every query or fragment parameter
+    /// whose name carries one, by the rule for credential headers
+    /// (``BrowserReplFetcher/isCredentialHeader(_:)``: `token`, `auth`,
+    /// `secret`, `session`, `password`, `signature`, `credential` and the
+    /// like, so `access_token`, `id_token` and `X-Amz-Signature`) and the
+    /// short names URLs use for one (`code`, `sig`, `key`, `otp` and the
+    /// like). Other parameters, and the rest of the URL, stay as written.
+    public func redactingBrowserReplURLCredentials() -> String {
+        var rest = Substring(self)
+        var result = ""
+        // The scheme and authority: drop a userinfo.
+        if let schemeEnd = rest.range(of: "://") {
+            result += rest[..<schemeEnd.upperBound]
+            rest = rest[schemeEnd.upperBound...]
+            let authorityEnd = rest.firstIndex { $0 == "/" || $0 == "?" || $0 == "#" } ?? rest.endIndex
+            let authority = rest[..<authorityEnd]
+            if let at = authority.lastIndex(of: "@") {
+                result += "redacted@"
+                result += authority[authority.index(after: at)...]
+            } else {
+                result += authority
+            }
+            rest = rest[authorityEnd...]
+        }
+        // The path as written, then the query and the fragment parameter by
+        // parameter (any text before the first `?` or `#` in a header value
+        // such as `refresh` stays as it is).
+        guard let start = rest.firstIndex(where: { $0 == "?" || $0 == "#" }) else { return result + rest }
+        result += rest[..<start]
+        rest = rest[start...]
+        var parameter = ""
+        for character in rest {
+            if character == "?" || character == "#" || character == "&" || character == ";" {
+                result += Self.redactingBrowserReplCredentialParameter(parameter)
+                result.append(character)
+                parameter = ""
+            } else {
+                parameter.append(character)
+            }
+        }
+        return result + Self.redactingBrowserReplCredentialParameter(parameter)
+    }
+
+    /// `name=value` with `value` replaced when `name` carries a credential.
+    private static func redactingBrowserReplCredentialParameter(_ parameter: String) -> String {
+        guard let equals = parameter.firstIndex(of: "=") else { return parameter }
+        let rawName = String(parameter[..<equals])
+        let name = (rawName.replacingOccurrences(of: "+", with: " ").removingPercentEncoding ?? rawName).lowercased()
+        guard BrowserReplFetcher.isCredentialHeader(name) || browserReplCredentialParameterNames.contains(name) else {
+            return parameter
+        }
+        return rawName + "=redacted"
+    }
+
+    /// Short query names that carry a credential without saying so in the
+    /// header rule's words.
+    private static var browserReplCredentialParameterNames: Set<String> {
+        ["code", "sig", "key", "jwt", "otp", "pass", "pwd", "sid", "ticket", "assertion", "samlresponse", "samlrequest"]
+    }
+}
+
 extension Dictionary where Key == String, Value == String {
     /// Header names whose values sign the user in: never shown to a session
     /// that did not create the tab.

@@ -1076,7 +1076,13 @@
           print("warn", `# ${blockedMessage(p)}; the tab stayed on its page`);
         } else if (event === "tab.created" && p.url && p.openerTargetId) {
           const reason = urlReason(p.url);
-          if (reason) {
+          if (reason && p.userOwned) {
+            // A window a user's page opened while it handled the session's
+            // input: the tab is the user's, and the policy only keeps the
+            // session's reads and input out of it; it is never closed.
+            policyLog.push({ url: p.url, reason, at: new Date(session.now()).toISOString(), blocked: "popup" });
+            print("warn", `# a new tab for ${p.url} is the user's and stays open, but the session may not use it: ${reason}`);
+          } else if (reason) {
             policyLog.push({ url: p.url, reason, at: new Date(session.now()).toISOString(), blocked: "popup" });
             print("warn", `# a new tab for ${p.url} was closed: ${reason}`);
             session.call("tabs.close", { targetId: p.targetId }).catch(() => {});

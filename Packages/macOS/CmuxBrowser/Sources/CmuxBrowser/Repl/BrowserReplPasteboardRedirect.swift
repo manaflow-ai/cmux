@@ -88,7 +88,17 @@ public import WebKit
 /// tab's pasteboard (and does not reach the system clipboard); the command
 /// then fails. A web content process the app granted read access on its own turn
 /// without a `+generalPasteboard` read first would read the tab's pasteboard;
-/// WebKit 26 has no such grant. A paste in another web view that starts
+/// WebKit 26 has no such grant; a page's script paste
+/// (`execCommand("paste")`) asks for its grant through WebKit's DOM paste
+/// access, which reads `+generalPasteboard` before it grants a page its own
+/// origin's data without asking (a diversion) and otherwise shows a callout
+/// only the person answers. WebKit keeps one grant per pasteboard name, the
+/// processes granted at one change count, and extends it to a process
+/// granted at an equal count: a process granted during an earlier command
+/// or quarantine at a private pasteboard whose count equals this command's
+/// keeps that grant, and could read the tab's pasteboard without asking
+/// again within a gesture it already holds access in. So can another page
+/// in the commanded tab's own process. A paste in another web view that starts
 /// during the command reads nothing. The same holds after a
 /// `timedOutStillRunning` until WebKit finishes, at most one more timeout.
 /// The caller test errs toward WebKit: should WebKit's pasteboard code move,
@@ -158,6 +168,10 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
     private var quarantineHolders = 0
     private var quarantineUntil: ContinuousClock.Instant?
     private var quarantineSink: NSPasteboard?
+    /// Reads the system pasteboard's change count past the hooks (set at
+    /// install), or a test's stand-in. Guarded by `lock`.
+    private var systemChangeCountReader: (@Sendable () -> Int)?
+    private var standInChangeCountReader: (@Sendable () -> Int)?
     /// The command WebKit has not reported done, within or past its timeout.
     @MainActor private var unfinished: Command?
     /// The automated drag whose window is open.
@@ -183,6 +197,9 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         if let generalMethod = class_getClassMethod(NSPasteboard.self, generalSelector) {
             typealias General = @convention(c) (AnyObject, Selector) -> NSPasteboard
             let originalGeneral = unsafeBitCast(method_getImplementation(generalMethod), to: General.self)
+            lock.lock()
+            systemChangeCountReader = { originalGeneral(NSPasteboard.self, generalSelector).changeCount }
+            lock.unlock()
             let generalReplacement: @convention(block) @Sendable (AnyObject) -> NSPasteboard = { cls in
                 self.noteSystemPasteboardRead()
                 return self.quarantinedLookup() ?? originalGeneral(cls, generalSelector)
@@ -591,11 +608,24 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
     /// the system pasteboard. A command (``perform(_:in:pasteboard:tab:timeout:grace:systemChangeCount:mayEndWebContent:whenWebKitFinishes:)``)
     /// in flight keeps its own pasteboard for lookups by name.
     ///
+    /// A write the page starts in the quarantine stays there however late
+    /// it lands: the asynchronous Clipboard API writes a `ClipboardItem`
+    /// whose data is a promise once the data settles, which a page can hold
+    /// past the quarantine, but WebKit writes only when the general
+    /// pasteboard's change count is still the one it read when the page
+    /// called `write`. In the quarantine that count is the private
+    /// pasteboard's, which is kept below the system pasteboard's at every
+    /// lookup (a fresh private pasteboard replaces one whose count caught
+    /// up). The system's count only grows, so it never again shows a count
+    /// the page read in the quarantine, and WebKit refuses the late write
+    /// (`NotAllowedError`). With the system's count below 2 no private
+    /// pasteboard can stay below it, so no quarantine begins.
+    ///
     /// The cost: WebKit cannot tell pages apart here, so a copy or paste the
     /// person makes in another web view during the quarantine does nothing.
     @MainActor
     public func beginQuarantine() -> Bool {
-        guard install() else { return false }
+        guard install(), systemChangeCount() >= 2 else { return false }
         lock.lock()
         let needsSink = quarantineSink == nil
         lock.unlock()
@@ -635,7 +665,7 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
     @MainActor
     public func withAgentGesture<T>(lingering: Duration, _ body: () async throws -> T) async throws -> T {
         guard beginQuarantine() else {
-            throw BrowserReplDriverError(code: "unsupported", message: "This call would give the page a user gesture, and the system clipboard cannot be kept from it on this system")
+            throw BrowserReplDriverError(code: "unsupported", message: "This call would give the page a user gesture, and the system clipboard cannot be kept from it now: the pasteboard hooks are missing on this system, or nothing was copied yet in this login session (copy anything once to fix that)")
         }
         defer { endQuarantine(lingering: lingering) }
         return try await body()
@@ -657,16 +687,53 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Makes `read` stand in for the system pasteboard's change count, or
+    /// restores the real one when `nil` (tests that stand in for the
+    /// system pasteboard).
+    func standInSystemChangeCount(_ read: (@Sendable () -> Int)?) {
+        lock.lock()
+        standInChangeCountReader = read
+        lock.unlock()
+    }
+
+    /// The system pasteboard's change count, read past the hooks.
+    private func systemChangeCount() -> Int {
+        lock.lock()
+        let read = standInChangeCountReader ?? systemChangeCountReader
+        lock.unlock()
+        return read?() ?? 0
+    }
+
     /// The emptied private pasteboard a lookup of the general pasteboard
-    /// gets during a quarantine when WebKit makes it, or nil.
+    /// gets during a quarantine when WebKit makes it, or nil. Its change
+    /// count is below the system pasteboard's (see ``beginQuarantine()``).
     private func quarantinedLookup() -> NSPasteboard? {
         lock.lock()
         let active = quarantineHolders > 0 || quarantineUntil.map { ContinuousClock.now < $0 } == true
-        let sink = active ? quarantineSink : nil
+        var sink = active ? quarantineSink : nil
         lock.unlock()
-        guard let sink, Self.lookupOrigin() != .notWebKit else { return nil }
-        sink.clearContents()
-        return sink
+        guard sink != nil, Self.lookupOrigin() != .notWebKit else { return nil }
+        let system = systemChangeCount()
+        while let current = sink {
+            current.clearContents()
+            if current.changeCount < system { return current }
+            // Its count caught up with the system's: a fresh one starts at
+            // 0, and holds nothing. Created outside the lock: making a
+            // pasteboard looks one up by name, which comes back through the
+            // hook.
+            let fresh = NSPasteboard.withUniqueName()
+            lock.lock()
+            let replaced = quarantineSink === current
+            if replaced { quarantineSink = fresh }
+            sink = replaced ? nil : quarantineSink
+            lock.unlock()
+            if replaced {
+                current.releaseGlobally()
+                return fresh
+            }
+            fresh.releaseGlobally()
+        }
+        return nil
     }
 
     // MARK: - Automated drags

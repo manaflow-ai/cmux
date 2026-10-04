@@ -284,9 +284,16 @@ all are in one frame, marks them with a random attribute, and calls the
 driver's `auth.request`. The app shows a sheet on the browser pane's window
 naming the origin of the frame that holds the fields, from WebKit's record of
 it (and the page's origin when the frame is embedded from another), with one
-field per request (secure text for passwords). On Fill, the app runs
-`sites/auth-fill.js` in its own content world of that frame, which agent
-code cannot script: it checks the credential rule again, sets each value
+field per request (secure text for passwords). Before the sheet shows, the
+app runs `sites/auth-fill.js` in its own content world of that frame, which
+agent code cannot script, to bind the request: it keeps the one element
+that holds each marker, and the frame's document, there. On Fill the same
+script writes only into those elements, and only while the frame still
+shows that document, each element is still in it and still the only one
+with its marker (otherwise `page_changed`, nothing filled), so another
+session driving the tab, or the page, cannot move the fill to another
+element or another document of the same origin while the user types. It
+checks the credential rule again, sets each value
 with the native setter and dispatches `input` and `change`, so
 framework-controlled fields see it. The REPL receives only a status:
 `submitted`, `cancelled`, `unavailable`, `expired`, `origin_changed`,
