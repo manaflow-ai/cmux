@@ -172,7 +172,7 @@ final class InputInvariantMonitor {
         if reports.count > Self.reportsKept { reports.removeFirst(reports.count - Self.reportsKept) }
         // The UI snapshots are read here (main actor); encoding and pretty-printing them (about
         // 30 ms per report, R81 trace) run off the main actor with the write.
-        let extras: [String: JSONValue] = [
+        let extras: [String: CmuxNextSettings.JSONValue] = [
             "debug_focus": DebugFocus.report(services: services),
             "debug_surfaces": SurfaceDiagnosticsReport.make(services),
             "debug_layers": DebugLayers.report(services: services),
@@ -192,10 +192,10 @@ final class InputInvariantMonitor {
     }
 
     /// The report plus `debug.focus`, `debug.surfaces` and `debug.layers` captured with it.
-    nonisolated private static func fileData(_ report: DesyncReport, extras: [String: JSONValue]) -> Data? {
-        guard let encoded = try? DesyncReport.encoder.encode(report), case .object(var object)? = try? JSONValue.parse(encoded) else { return nil }
+    nonisolated private static func fileData(_ report: DesyncReport, extras: [String: CmuxNextSettings.JSONValue]) -> Data? {
+        guard let encoded = try? DesyncReport.encoder.encode(report), case .object(var object)? = try? CmuxNextSettings.JSONValue.parse(encoded) else { return nil }
         object.merge(extras) { _, extra in extra }
-        return Data(JSONValue.object(object).prettyText().utf8)
+        return Data(CmuxNextSettings.JSONValue.object(object).prettyText().utf8)
     }
 
     func clear() {
