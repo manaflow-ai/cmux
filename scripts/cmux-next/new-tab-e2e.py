@@ -220,6 +220,8 @@ def run_bench():
         sys.exit(f"FAIL bench errors: {bad[:3]}")
     summarize("Cmd-W on the new tab page", closes)
     summarize("! on the new tab page", bangs)
+    desync = rpc("debug.desync") or {}
+    print(f"desync reports: {json.dumps(desync)[:2500]}", flush=True)
     if recorder:
         recorder.wait(timeout=120)
         main_thread_profile(trace)
