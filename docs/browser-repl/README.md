@@ -390,7 +390,11 @@ rest. Measurements: [performance.md](performance.md).
   started, and never carry the page's credential headers (`Cookie`,
   `Authorization`, and any header whose name says it carries one:
   `auth`, `token`, `secret`, `session`, `password`, `signature`, `csrf`
-  and the like, the rule `fetch` uses across origins).
+  and the like, the rule `fetch` uses across origins), nor the credential
+  values in their URLs and URL-valued headers (`location`, `referer`): a
+  userinfo, and each query or fragment parameter named by that rule or by
+  a short name URLs use for one (`code`, `sig`, `key`, `otp` and the like)
+  reads `redacted`.
 - Session behaviors apply only to tabs the session created: tabs from
   `tabs.open()` (and `tabs.content`), and popups of those tabs, while the
   session lasts. In them dialogs and file choosers wait for the agent,

@@ -255,7 +255,7 @@ Every event carries `targetId`.
 | `download.finished` | `{ downloadId, path?, error? }` |
 | `console` | `{ type, text, args?, location? }` |
 | `pageerror` | `{ message, stack }` |
-| `request` / `response` / `requestfailed` / `requestfinished` | `{ requestId, url, method, resourceType, status?, headers? }`. Sent only to the tab's creating session, to a session whose last `tab.handleEvents` for the tab names `network`, and to the session whose call the page was handling when the request started (the rest of that request's events follow it). Only the creating session gets the credential headers (`cookie`, `set-cookie`, `authorization`, `proxy-authorization`, `x-api-key`, `x-auth-token`, `x-csrf-token`, `x-xsrf-token`); the others get the headers without them |
+| `request` / `response` / `requestfailed` / `requestfinished` | `{ requestId, url, method, resourceType, status?, headers? }`. Sent only to the tab's creating session, to a session whose last `tab.handleEvents` for the tab names `network`, and to the session whose call the page was handling when the request started (the rest of that request's events follow it). Only the creating session gets the credential headers (`cookie`, `set-cookie`, `authorization`, `proxy-authorization`, `x-api-key`, `x-auth-token`, `x-csrf-token`, `x-xsrf-token`, and any whose name says it carries one); the others get the headers without them, and the `url` and URL-valued headers (`location`, `content-location`, `referer`, `refresh`, `link`) with the userinfo and each credential-named query or fragment parameter (that name rule, or `code`, `sig`, `key`, `jwt`, `otp`, `pass`, `pwd`, `sid`, `ticket`, `assertion`, `SAMLResponse`, `SAMLRequest`) reading `redacted` |
 
 ## Browser state
 
