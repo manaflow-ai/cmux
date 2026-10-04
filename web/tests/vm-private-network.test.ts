@@ -1276,3 +1276,84 @@ describe("firewall VM endpoints on team-owned VMs", () => {
     expect(created).toEqual([]);
   });
 });
+
+describe("firewall rule ownership on the shared provider account", () => {
+  // Staging rehearsal 2026-10-04: a rule from the caller's VM to a CIDR was created (201) but get and
+  // delete answered 404, because they searched only the network listing, so the rule was orphaned.
+  // The provider account is shared by every cmux user: a rule is the caller's only when its
+  // destination names a caller resource and every resource it names is the caller's.
+  const mine = { id: "fw-mine", action: "allow", source: { vmId: "fs-1" }, destination: { cidr: "10.250.0.0/24", port: 8080, protocol: "tcp" } };
+  const intoMine = { id: "fw-into-mine", action: "allow", source: { public: true }, destination: { vmId: "fs-1", port: 443, protocol: "tcp" } };
+  const foreign = { id: "fw-foreign", action: "allow", source: { public: true }, destination: { vmId: "fs-other", port: 22, protocol: "tcp" } };
+  const base = { id: "fw-base", action: "allow", source: { vpcId: NETWORK.id }, destination: { vpcId: NETWORK.id } };
+  const all = [mine, intoMine, foreign, base];
+  const vm = (providerVmId: string, userId = "user-1") => ({ id: `row-${providerVmId}`, userId, ownerTeamId: "team-1", billingTeamId: "team-1", provider: "freestyle", providerVmId, status: "running" });
+  const repo = () => ({
+    ...testRepo({ network: networkRow() }),
+    findUserVm: (input: { billingTeamId?: string | null; providerVmId: string }) => Effect.succeed(input.billingTeamId === "team-1" && input.providerVmId === "fs-1" ? vm("fs-1") : null),
+    listUserVms: () => Effect.succeed([vm("fs-1"), vm("fs-teammate", "user-2")]),
+  }) as unknown as VmRepositoryShape;
+  type ListOptions = { vmId?: string; vpcId?: string; tunnelId?: string };
+  const gateway = (log: { lists: ListOptions[]; created: unknown[]; deleted: string[] }) => ({
+    ...testGateway(),
+    listFirewallRules: (_p: string, options: ListOptions = {}) => Effect.sync(() => {
+      log.lists.push(options);
+      if (options.vmId) return all.filter((r) => r.source.vmId === options.vmId || r.destination.vmId === options.vmId || r === base);
+      if (options.vpcId) return [base];
+      return all;
+    }),
+    getFirewallRule: (_p: string, ruleId: string) => {
+      const rule = all.find((r) => r.id === ruleId);
+      return rule ? Effect.succeed(rule) : Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "getFirewallRule", cause: Object.assign(new Error("rule not found"), { status: 404 }) }));
+    },
+    createFirewallRule: (_p: string, rule: unknown) => Effect.sync(() => { log.created.push(rule); return { id: "fw-new", action: "allow" }; }),
+    deleteFirewallRule: (_p: string, ruleId: string) => Effect.sync(() => void log.deleted.push(ruleId)),
+  }) as unknown as VmProviderGatewayShape;
+  const newLog = () => ({ lists: [] as ListOptions[], created: [] as unknown[], deleted: [] as string[] });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const run = async (program: Effect.Effect<unknown, unknown, any>, log = newLog()) => {
+    const exit = await Effect.runPromiseExit(program.pipe(Effect.provide(layerFor(repo(), gateway(log)))) as Effect.Effect<unknown, unknown>);
+    if (Exit.isSuccess(exit)) return { tag: null as string | null, value: exit.value, log };
+    const f = Cause.failureOption(exit.cause);
+    return { tag: f._tag === "Some" ? ((f.value as { _tag?: string })._tag ?? "unknown") : "die", value: undefined, log };
+  };
+  const input = { userId: "user-1", provider: "freestyle" as const, billingTeamId: "team-1" };
+
+  test("a rule that names no caller resource as its destination is refused and not created", async () => {
+    for (const rule of [
+      { source: { cidr: "10.0.0.0/8" }, destination: { cidr: "10.0.0.0/8", port: 22, protocol: "tcp" as const } },
+      { source: { public: true as const }, destination: { cidr: "10.0.0.0/8", port: 22, protocol: "tcp" as const } },
+      { source: { vmId: "fs-1" }, destination: { public: true as const } },
+    ]) {
+      const result = await run(createVmFirewallRule({ ...input, ...rule }));
+      expect([JSON.stringify(rule.destination), result.tag]).toEqual([JSON.stringify(rule.destination), "VmFirewallRuleInvalidError"]);
+      expect(result.log.created).toEqual([]);
+    }
+  });
+
+  test("get and delete find a rule that names the caller's VM but not the network", async () => {
+    expect((await run(getVmFirewallRule({ ...input, ruleId: "fw-mine" }))).tag).toBeNull();
+    const deleted = await run(deleteVmFirewallRule({ ...input, ruleId: "fw-mine" }));
+    expect(deleted.tag).toBeNull();
+    expect(deleted.log.deleted).toEqual(["fw-mine"]);
+  });
+
+  test("another tenant's rule is not found by get or delete, and nothing is deleted", async () => {
+    expect((await run(getVmFirewallRule({ ...input, ruleId: "fw-foreign" }))).tag).toBe("VmFirewallRuleNotFoundError");
+    const deleted = await run(deleteVmFirewallRule({ ...input, ruleId: "fw-foreign" }));
+    expect(deleted.tag).toBe("VmFirewallRuleNotFoundError");
+    expect(deleted.log.deleted).toEqual([]);
+  });
+
+  test("the list holds the caller's rules on the network and on the caller's own VMs only", async () => {
+    const listed = await run(listVmFirewallRules(input));
+    expect(listed.tag).toBeNull();
+    expect((listed.value as Array<{ id: string }>).map((r) => r.id).sort()).toEqual(["fw-base", "fw-into-mine", "fw-mine"]);
+    expect(listed.log.lists).not.toContainEqual({ vmId: "fs-teammate" });
+  });
+
+  test("a vmId filter lists that VM's rules without narrowing to the network", async () => {
+    const listed = await run(listVmFirewallRules({ ...input, vmId: "fs-1" }));
+    expect((listed.value as Array<{ id: string }>).map((r) => r.id).sort()).toEqual(["fw-base", "fw-into-mine", "fw-mine"]);
+  });
+});
