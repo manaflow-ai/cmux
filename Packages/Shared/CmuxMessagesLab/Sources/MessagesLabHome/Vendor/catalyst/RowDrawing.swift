@@ -225,7 +225,7 @@ enum PartRenderer {
             drawSaveButton(ctx, body: body, outgoing: p.outgoing)
         case "voiceMemo":
             fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
-            let fg: UIColor = p.outgoing ? .white : Fixture.incomingText
+            let fg: UIColor = p.outgoing ? Fixture.outgoingText : Fixture.incomingText  // cmux: themed (white by default)
             fg.setFill()
             UIBezierPath(ovalIn: CGRect(x: body.minX + 8, y: body.midY - 11, width: 22, height: 22)).fill()
             let tri = UIBezierPath()
@@ -247,7 +247,7 @@ enum PartRenderer {
                           baseline: body.midY + 4, in: ctx)
         default:
             fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
-            let fg: UIColor = p.outgoing ? .white : Fixture.incomingText
+            let fg: UIColor = p.outgoing ? Fixture.outgoingText : Fixture.incomingText  // cmux: themed (white by default)
             let icon = CGRect(x: body.minX + 10, y: body.minY + 10, width: 28, height: 36)
             if a.kind == "contact" {
                 UIColor(white: 0.55, alpha: 1).setFill()
