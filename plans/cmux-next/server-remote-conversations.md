@@ -1,6 +1,6 @@
 # cmux next: remote conversations on a paired server (relay analysis)
 
-Status: revision 10 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
+Status: revision 11 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
 5 P2), with the coordinator's decisions D-A and D-B of 2026-10-04. No code yet; the review agent
 re-checks this revision before any code. Decisions D1 and D2 of 2026-10-04: the MacBook opens the daemon
 conversations of a paired Mac mini over lane 12's `cmux link` overlay; the server is a
@@ -113,7 +113,7 @@ kinds for owned conversations leave it (section 8). Nothing reaches the remote w
 - Owned conversation: `remote_<install>` is a participant and the stamp's `user_id` is the server
   owner. The gate checks this for list, snapshot, history, typing and ops.
 
-## 6. Remote prompts to agents (D-A no waiver; D-E to D-J; rev 10)
+## 6. Remote prompts to agents (D-A no waiver; D-E to D-J; rev 11)
 
 A `message.send` from a remote principal into a conversation with an agent starts a
 **remote-origin prompt chain**. Every rule fails closed: when any part of the gate is missing,
@@ -131,7 +131,11 @@ crashed, slow or unsure, the tool does not run.
    cursors and non-owned conversations) and contains no deny path (for another agent: its session's
    workspace root, under the same rules). Reads without an approval are allowed only there. The
    deny list is a second layer: `state/`, `*.token`, `.claude/`, `.env*`, `~/.ssh`, the
-   `MUX_AGENT_TOKEN_FILE` path, the pairing record and install keys always ask approval. For
+   `MUX_AGENT_TOKEN_FILE` path, the pairing record and install keys always ask approval.
+   **Memory files (P2-3, D-M decided: reads ask).** In a remote chain, reads of the Chief's memory
+   files (`LOG.txt`, `TREE/`) ask the human with a presence proof, because they can hold
+   non-owned conversation content and local tool output. Follow-up: a memory projection in the
+   read root (owned, remote-safe entries only) if these approvals turn out to be too frequent. For
    agents other than the Chief, dotfile reads (`.npmrc`, `.netrc`, credential JSON files and other
    dotfiles) ask too, except a reviewed list.
    - The daemon decides on the **real path**: `realpath`, then `F_GETPATH` on an opened descriptor
@@ -161,7 +165,8 @@ crashed, slow or unsure, the tool does not run.
    `--setting-sources ""`, `--settings` and `--mcp-config` passed as **inline JSON** (never as
    files a same-uid tool could rewrite), and `--strict-mcp-config`. The settings carry only:
    bypass disabled per session (`permissions.disableBypassPermissionsMode: "disable"`,
-   `permissions.defaultMode: "default"`, `permissions.ask: ["*"]`) and the cmux-tui status hooks.
+   `permissions.defaultMode: "default"`, `permissions.ask: ["*"]`), the cmux-tui status hooks and
+   the remote-log hooks (rule 11).
    There is no fast-allow hook (probe, Claude Code 2.1.289: `ask` beats a hook allow, so such a hook
    is dead code); the daemon auto-answers reads through the permission step. They set no `enabledPlugins` and no MCP-enable keys. The MCP config names only the
    daemon's servers. **Every tool goes through the daemon (P1-M, D-K decided):** the daemon auto-answers reads inside
@@ -221,7 +226,13 @@ crashed, slow or unsure, the tool does not run.
      permission requests to the daemon; `--setting-sources ""` hides user and project agent types.
    - no user or project `CLAUDE.md` loads (its `@` imports would pull files with no tool call).
    - a **closed `--tools` list** per pinned Claude version, with `permissions.ask: ["*"]`; new tools
-     are not offered until vetted (Claude Code 2.1.289 has no Glob, Grep, TodoWrite or Task tool).
+     are not offered until vetted. For Claude Code 2.1.289 the probe found `Agent` (not `Task`) and
+     no `Glob`, `Grep` or `TodoWrite`; the exact table is copied from the probe's `system/init`
+     output into code with the first code PR (proposed v1 set: `Read`, `Edit`, `Write`, `Bash`,
+     `WebFetch`, `WebSearch`, `Agent`, `AskUserQuestion`, `ExitPlanMode` and the daemon's MCP
+     tools; `Skill` and `SlashCommand` are not offered). The adapter is acpmux's `claude_stdio`
+     (Claude stream-json, not an ACP adapter); if an ACP adapter is used later, its `fs/read` and
+     `fs/write` also go to the daemon.
      As a backstop, at spawn the daemon reads the `tools` list from Claude's `system/init` and
      refuses the chain if any tool is not in its classified table (P2-R: this catches version drift and tools such as
      `ListMcpResources` and `ReadMcpResource`). Every MCP call (cmux screen reads, terminal and
@@ -258,7 +269,13 @@ crashed, slow or unsure, the tool does not run.
 10. **Remote text is data (P2-E, P2-M; probe results).** Remote text never goes as prompt text and
     never as an ACP embedded resource (acpmux's `claude_stdio` inlines resources as text, and `@path`
     in text is read with no tool call). It goes as a Claude **`document` content block** with a text
-    source, next to a fixed instruction text written by the agent host. The fixed prefix stays (a
+    source, next to a fixed instruction text written by the agent host. **Carrier (P2-1):** acpmux's
+    `SESSION_PROMPT` mapping in `outbound.rs` knows only text, image and resource blocks, so the
+    daemon sends an ACP block `{"type": "document", "_meta": {"cmux": {"conversation", "message",
+    "install"}}, "text": ...}`, accepted only on the daemon socket; a new `outbound.rs` case emits
+    the Claude block `{"type": "document", "source": {"type": "text", "media_type": "text/plain",
+    "data": ...}, "title": "<conversation>/<message>"}` (ids only). An unknown block type in a
+    tainted session refuses the prompt. The fixed prefix stays (a
     bare `/clear` as text runs as a command). The document title is built from ids only
     (conversation, message, install), never names. A probe on the pinned version shows that `/cmd`,
     `!x`, `@path`, a fake `[mux-event]` line and a fake "Message from user_local:" line inside a
@@ -287,14 +304,26 @@ crashed, slow or unsure, the tool does not run.
     peers), and `claude_stdio/outbound.rs` accepts `allow_always` when it was not offered and
     forwards `result._meta.updatedInput` to Claude. For a remote-tainted session (12b):
     - acpmux accepts an answer only on its daemon-only socket, and only with a daemon approval id
-      that binds `(session, tool_use_id, sha256(rawInput))` to the presence proof;
+      that binds `(session, tool_use_id, sha256(rawInput))` to the presence proof (the hash over the
+      exact `rawInput` bytes acpmux forwarded, echoed by the daemon in the answer);
     - `allow_always` is refused;
     - `updatedInput` is stripped, except the schema-checked answer field of interactive tools
       (`AskUserQuestion`); an `updatedInput` that differs from the shown input is refused.
+12c. **No grouped or chat answers (P1, rev 11).** Code facts: `server/requests.rs` sends
+    `MUX_PERMISSION_GROUP_RESPOND` to `hub/permission_groups.rs`, which answers every pending item
+    with `allow_once` from any client, and its `allow_chat` choice sets `state.chat_allowed`, after
+    which `hub/permissions.rs` `handle_permission` answers later read, edit, execute and fetch
+    requests itself. For a tainted session: `MUX_PERMISSION_GROUP_RESPOND` (every choice) and
+    `allow_chat` are refused from every client; `chat_allowed` stays false; `handle_permission`
+    skips `rules::decide`, `policy_for` and `chat_option` and sends each request to the daemon.
+    `allow_always` is not offered (`inbound.rs`). `ExitPlanMode`'s `updatedPermissions` (`setMode`)
+    is never forwarded.
 12b. **Remote taint (P1-b, decided: permanent).** A session started for a remote chain is
     **remote-tainted for its whole life**, and the taint is stored durably (acpmux session metadata
     and the daemon store) and survives restarts; an agent-host adopt keeps it: every prompt into it, or into any fork, handoff, transfer or adopt of it, is
-    remote, whatever its origin field says. acpmux refuses a fork or handoff of a tainted session
+    remote, whatever its origin field says. Derivatives include **child sessions** that a remote
+    chain spawns (P2-2). The taint is set at `session/new` on the daemon socket; a remote prompt into
+    an untainted session is refused. acpmux refuses a fork or handoff of a tainted session
     into a local one (the copy of policy, argv, modes and transcript in `hub/turns.rs` `fork()`
     would make a local approve-all session with a remote transcript). "Absent `_meta.origin` means
     remote" applies to tainted sessions and their descendants; local sessions keep their own
@@ -329,6 +358,15 @@ Tests for this section (the acpmux owner adds fake-model probes on a Testbox):
 - `session/set_model` is refused; a non-Chief agent's read of `.npmrc` asks.
 - no env value appears in a remote hook command (the existing no-env-in-JSON test covers the
   inline settings; this one covers hook commands).
+- `MUX_PERMISSION_GROUP_RESPOND` (any choice) for a tainted session is refused; `allow_chat` is
+  refused; after a refused `allow_chat`, Bash still asks the daemon.
+- the daemon's ACP `document` block becomes exactly the Claude JSON above; an unknown block type in
+  a tainted session refuses the prompt; a `document` block from a non-daemon client is refused.
+- a local prompt into a child session that a remote chain spawned still asks the daemon; a remote
+  prompt into an untainted session is refused.
+- `allow_always` is not offered on a tainted session; `ExitPlanMode` `updatedPermissions` is never
+  forwarded; the approval hash equals sha256 of the forwarded `rawInput` bytes.
+- a remote Read of `LOG.txt` (or a file under `TREE/`) asks the human.
 - the remote projection arrives as the first stdin prompt (not on argv), and an earlier remote
   message with a fake delimiter in it stays inside its block.
 - remote text in a `document` block with `</resource>`, a fake `[mux-event]` line, `@/etc/hosts`
