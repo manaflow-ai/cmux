@@ -167,3 +167,46 @@ fn a_manifest_without_an_image_icon_warns() {
     none.as_object_mut().expect("object").remove("icon");
     assert_eq!(codes(&validate_manifest(&none)), vec![("icon.noImage", Severity::Warning)]);
 }
+
+#[test]
+fn presentation_rules() {
+    let page = json!({ "runtime": { "main": "m.js" }, "implements": { "cmux.pane/1": { "export": "p" } } });
+    let mut both = manifest(page.clone());
+    both["presentation"] = json!({ "screen": "app", "web": { "url": "https://example.com" } });
+    assert_eq!(
+        codes(&validate_manifest(&both)),
+        vec![("presentation.twoContents", Severity::Error)]
+    );
+    let mut first = manifest(page);
+    first["id"] = json!("cmux/x");
+    first["repository"] = json!("https://github.com/manaflow-ai/cmux");
+    first["presentation"] = json!({ "sidebarItem": { "section": "top", "order": 0 }, "screen": "appColumn", "tab": true });
+    assert!(validate_manifest(&first).is_empty());
+}
+
+#[test]
+fn home_app_store_and_coderouter_use_the_same_presentation_fields() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../first-party-apps");
+    let mut orders = Vec::new();
+    for (name, screen) in [("home", "appColumn"), ("app-store", "app"), ("coderouter", "app")] {
+        let m: Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join(name).join("cmux-app.v2.json")).expect("read"),
+        )
+        .expect("json");
+        assert_eq!(
+            m.pointer("/presentation/screen").and_then(Value::as_str),
+            Some(screen),
+            "{name}"
+        );
+        assert_eq!(m.pointer("/presentation/tab").and_then(Value::as_bool), Some(true), "{name}");
+        assert_eq!(
+            m.pointer("/presentation/sidebarItem/section").and_then(Value::as_str),
+            Some("top"),
+            "{name}"
+        );
+        orders.push(
+            m.pointer("/presentation/sidebarItem/order").and_then(Value::as_i64).expect("order"),
+        );
+    }
+    assert_eq!(orders, vec![0, 10, 20], "Home first, then App Store, then CodeRouter");
+}

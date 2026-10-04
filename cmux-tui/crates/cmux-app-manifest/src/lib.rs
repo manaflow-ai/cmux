@@ -12,6 +12,7 @@ mod catalog;
 mod interfaces;
 mod issue;
 mod package;
+mod presentation;
 mod rules;
 mod scopes;
 
