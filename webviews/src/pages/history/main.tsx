@@ -8,6 +8,7 @@ import { HistoryPage } from "./HistoryPage";
 import { MockHistoryProvider } from "./mockProvider";
 import { HistoryStore } from "./store";
 import { PAGE_COMMAND } from "./types";
+import "../shared/pageBase.css";
 import "./styles.css";
 
 export function mountHistoryPage(root: HTMLElement, client: PageClient | null = defaultClient()): HistoryStore {

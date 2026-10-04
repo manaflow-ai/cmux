@@ -54,7 +54,7 @@ public final class PageRouter {
         case "sub":
             guard let stream = message["stream"]?.stringValue else { return Self.error(id: id, .invalidParams("missing stream")) }
             do {
-                let sub = try await subscribe(stream)
+                let sub = try await subscribe(stream, filter: message["filter"] ?? .object([:]))
                 return ["t": "ok", "id": .number(Double(id)), "value": ["sub": .number(Double(sub))]]
             } catch let error as PageError {
                 return Self.error(id: id, error)
@@ -77,11 +77,11 @@ public final class PageRouter {
         return try await provider.call(op, params: params, context: PageCallContext(page: descriptor.id))
     }
 
-    private func subscribe(_ stream: String) async throws -> UInt64 {
-        let (provider, _) = try admit(stream, params: .object([:]))
+    private func subscribe(_ stream: String, filter: JSONValue) async throws -> UInt64 {
+        let (provider, filter) = try admit(stream, params: filter)
         let sub = nextSubscription
         nextSubscription += 1
-        let subscription = try await provider.subscribe(stream, context: PageCallContext(page: descriptor.id)) { [weak self] data in
+        let subscription = try await provider.subscribe(stream, filter: filter, context: PageCallContext(page: descriptor.id)) { [weak self] data in
             self?.deliver(sub: sub, data)
         }
         guard !closed else {

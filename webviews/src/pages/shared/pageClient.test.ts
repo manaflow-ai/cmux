@@ -70,6 +70,12 @@ describe("BridgePageClient", () => {
     expect(posted.at(-1)).toEqual({ t: "unsub", sub: 7 });
   });
 
+  test("a subscription filter travels in the sub envelope", async () => {
+    const { client, posted } = host((m) => ({ t: "ok", id: m.id, value: { sub: 3 } }));
+    await client.subscribe("cmux.apps.logs", () => undefined, { app: "cmux.git", follow: true });
+    expect(posted[0]).toEqual({ t: "sub", id: 1, stream: "cmux.apps.logs", filter: { app: "cmux.git", follow: true } });
+  });
+
   test("host calls run the page handler and post the reply envelope", async () => {
     const { client, target, posted } = host(() => undefined);
     client.handle("cmux.page.command", (params: any) => ({ handled: params.command }));

@@ -28,8 +28,12 @@ export type PageHandler = (params: unknown) => unknown | Promise<unknown>;
 export interface PageClient {
   /** One op call; rejects with a `PageError`. */
   call<R>(op: string, params: unknown): Promise<R>;
-  /** Subscribes to an event stream; resolves to the unsubscribe function. */
-  subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void>;
+  /** Subscribes to an event stream (with an optional filter); resolves to the unsubscribe function. */
+  subscribe<E>(
+    stream: string,
+    onEvent: (data: E, seq: number) => void,
+    filter?: Record<string, unknown>,
+  ): Promise<() => void>;
   /** Serves an op the host calls on the page (both peers may call). Returns the unregister function. */
   handle(op: string, handler: PageHandler): () => void;
 }
@@ -38,7 +42,7 @@ type Envelope =
   | { t: "call"; id: number; op: string; params?: unknown }
   | { t: "ok"; id: number; value?: unknown }
   | { t: "err"; id: number; code: string; message: string; retryable?: boolean }
-  | { t: "sub"; id: number; stream: string }
+  | { t: "sub"; id: number; stream: string; filter?: Record<string, unknown> }
   | { t: "ev"; sub: number; seq: number; data: unknown }
   | { t: "unsub"; sub: number };
 
@@ -71,8 +75,15 @@ export class BridgePageClient implements PageClient {
     return reply as R;
   }
 
-  async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
-    const value = (await this.post({ t: "sub", id: this.nextId++, stream })) as { sub?: unknown } | undefined;
+  async subscribe<E>(
+    stream: string,
+    onEvent: (data: E, seq: number) => void,
+    filter?: Record<string, unknown>,
+  ): Promise<() => void> {
+    const envelope: Envelope & { id: number } = filter
+      ? { t: "sub", id: this.nextId++, stream, filter }
+      : { t: "sub", id: this.nextId++, stream };
+    const value = (await this.post(envelope)) as { sub?: unknown } | undefined;
     const sub = value?.sub;
     if (typeof sub !== "number") throw pageError("cmux.protocol.invalid_result", `subscribe ${stream}: no sub id`);
     this.listeners.set(sub, onEvent as (data: unknown, seq: number) => void);

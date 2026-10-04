@@ -11,6 +11,7 @@ import Testing
     final class Recorder: PageProvider {
         var calls: [(op: String, params: JSONValue, context: PageCallContext)] = []
         var emit: (@MainActor (JSONValue) -> Void)?
+        var filters: [JSONValue] = []
         var cancelled = 0
         var failure: PageError?
 
@@ -20,8 +21,9 @@ import Testing
             return ["echo": .string(op)]
         }
 
-        func subscribe(_ stream: String, context: PageCallContext,
+        func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                        onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
+            filters.append(filter)
             emit = onEvent
             return PageSubscription { [weak self] in self?.cancelled += 1 }
         }
@@ -96,6 +98,15 @@ import Testing
         #expect(daemon.cancelled == 1)
         daemon.emit?(["revision": 4])
         #expect(sent.items.count == 2)
+    }
+
+    @Test func subscriptionFiltersReachTheProviderAndAPageOriginIsRefused() async {
+        let (router, daemon, _, _) = router()
+        _ = await router.handle(["t": "sub", "id": 11, "stream": "cmux.settings.changed", "filter": ["keys": ["a"]]])
+        #expect(daemon.filters == [["keys": ["a"]]])
+        let refused = await router.handle(["t": "sub", "id": 12, "stream": "cmux.settings.changed", "filter": ["origin": "mcp"]])
+        #expect(refused["code"] == "cmux.protocol.invalid_params")
+        #expect(daemon.filters.count == 1)
     }
 
     @Test func closeCancelsSubscriptionsAndRefusesLaterCalls() async {
