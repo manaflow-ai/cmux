@@ -86,10 +86,9 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return this.engine
   }
 
-  /** The entity this object is bound to, or null for an object that was never created (no write). */
-  protected boundEntity(): string | null {
-    return boundEntityOf(this.store)
-  }
+  /** The bound entity, or null for an object never created (no write). Memoized: an object never unbinds, so a warm check reads no SQLite. */
+  protected boundEntity = (): string | null => (this.boundMemo ??= boundEntityOf(this.store))
+  private boundMemo: string | null = null
 
   /** `{entity}` of a bound object, or undefined (the shape subclasses read before). Never writes. */
   protected boundRow(): { entity: string } | undefined {
@@ -104,7 +103,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
 
   /** Binds this object to its entity on first use (creates its storage); refuses any other entity. */
   protected bind(entity: string): OwnerEngine<S> {
-    if (!this.isBound(entity)) createBinding(this.store, entity)
+    if (!this.isBound(entity)) [createBinding(this.store, entity), (this.boundMemo = entity)]
     return this.open(entity)
   }
 

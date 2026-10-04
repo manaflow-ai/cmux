@@ -42,8 +42,8 @@ const installFor = async (sub: string) => {
 describe("chief tokens", { timeout: 60_000 }, () => {
   it("carry the owner and the chief, and stop at once when the chief is archived", async () => {
     const a = await installFor("chief-tok-a")
-    const chief = (await op(a.session, "chief.create", { display_name: "Helper" })).json.value
     await op(a.session, "chief.create", {})
+    const chief = (await op(a.session, "chief.create", { display_name: "Helper" })).json.value
     const tok = await a.mint(chief.id)
     expect(tok.status).toBe(200)
     expect(decodeJwt(tok.json.access_token)).toMatchObject({ sub: a.user, inst: a.install, agt: chief.id })
