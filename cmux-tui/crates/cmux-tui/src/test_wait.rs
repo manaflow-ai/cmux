@@ -1,6 +1,7 @@
 //! Bounded waits for tests that block on an event the code under test sends.
 
-use std::time::Duration;
+use crossbeam_channel::Receiver;
+use std::time::{Duration, Instant};
 
 /// How long a test waits for one awaited app event before it fails. The
 /// wait is event-driven, so a passing run never sleeps; the bound only has
@@ -18,5 +19,34 @@ pub(crate) fn quiet_surface() -> cmux_tui_core::SurfaceOptions {
     cmux_tui_core::SurfaceOptions {
         command: Some(vec!["/bin/sh".into(), "-c".into(), "IFS= read -r line".into()]),
         ..Default::default()
+    }
+}
+
+/// Hands each received event to `handle` until it returns true, under ONE
+/// total deadline of [`EVENT`]. A per-event timeout is not enough: a stream of
+/// unrelated events (a live shell's output) restarts it forever, so a lost
+/// awaited event hung the test past 60 s instead of failing
+/// (size_menu_commands_reach_the_shared_sizing_host, R102 rebased head, twice).
+///
+/// The deadline is checked between events: a `handle` call that itself blocks
+/// still hangs the test. No evidence points there yet, so there is no watchdog
+/// thread; add one if a hang shows `handle` on the stack.
+pub(crate) fn recv_until<T>(
+    events: &Receiver<T>,
+    awaited: &str,
+    mut handle: impl FnMut(T) -> bool,
+) {
+    let deadline = Instant::now() + EVENT;
+    let mut seen = 0_usize;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let event = events.recv_timeout(remaining).unwrap_or_else(|error| {
+            // crash-allow: test-only module (#[cfg(test)] mod test_wait); a bounded wait must fail loudly.
+            panic!("no {awaited} within {EVENT:?} ({error}) after {seen} other events")
+        });
+        if handle(event) {
+            return;
+        }
+        seen += 1;
     }
 }
