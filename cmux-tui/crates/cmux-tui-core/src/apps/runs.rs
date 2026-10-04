@@ -128,6 +128,9 @@ impl Supervisor {
         let export = package
             .export_for_op(op)
             .ok_or_else(|| ApiError::new("apps.op.unknown", format!("{app} has no op {op}")))?;
+        if !package.has_runtime() {
+            return Err(ApiError::new("apps.native", format!("{app} has no script to run {op}")));
+        }
         let record = inner.mirror.apps.get(app);
         let Some(record) = record.filter(|r| r.installed) else {
             return Err(ApiError::new("apps.notInstalled", "the app is not installed"));

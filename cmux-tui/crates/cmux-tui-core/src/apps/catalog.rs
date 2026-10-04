@@ -97,6 +97,13 @@ impl Package {
             .collect()
     }
 
+    /// Whether the app has a script (`runtime.main`). A native-pane app
+    /// (`cmux.pane/1` with `native`) has none: it installs and lists like
+    /// any app, and the supervisor never spawns a host for it.
+    pub fn has_runtime(&self) -> bool {
+        self.manifest.pointer("/runtime/main").and_then(Value::as_str).is_some()
+    }
+
     /// The app's main script, read when its host starts.
     pub fn main_source(&self) -> Option<String> {
         let main = self.manifest.pointer("/runtime/main")?.as_str()?;
@@ -243,9 +250,16 @@ pub fn load(sources: &Sources) -> Catalog {
 /// in-app prototype still reads; the supervisor prefers it.
 pub const V2_MANIFEST: &str = "cmux-app.v2.json";
 
-/// The manifest file the supervisor reads in `dir`.
+/// The manifest file the supervisor reads in `dir`: the v2 file in the
+/// first-party directory, else `cmux-app.json`, else a v2-only package's
+/// `cmux-app.v2.json` (native-pane apps such as Home ship only that).
 pub fn manifest_file(dir: &Path, first_party_dir: bool) -> &'static str {
-    if first_party_dir && dir.join(V2_MANIFEST).is_file() { V2_MANIFEST } else { "cmux-app.json" }
+    let v2 = dir.join(V2_MANIFEST).is_file();
+    if v2 && (first_party_dir || !dir.join("cmux-app.json").is_file()) {
+        V2_MANIFEST
+    } else {
+        "cmux-app.json"
+    }
 }
 
 fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
