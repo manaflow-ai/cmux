@@ -58,7 +58,7 @@ public nonisolated struct CmuxToastStack: Equatable, Sendable {
     /// the oldest over the limit).
     public mutating func push(serial: Int, id: String, undo isUndo: Bool) -> [Int] {
         var removed = serials.filter { ids[$0] == id }
-        for serial in removed { remove(serial) }
+        for old in removed { remove(old) }
         serials.append(serial)
         ids[serial] = id
         if isUndo { undo.insert(serial) }
