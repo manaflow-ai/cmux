@@ -93,7 +93,7 @@ fn open_with_names_an_implemented_interface() {
 }
 
 fn op(extra: Value) -> Value {
-    let mut o = json!({ "name": "demo.save", "owner": "app:local/x", "class": "mutation", "risk": "mutate-own",
+    let mut o = json!({ "name": "local.x.save", "owner": "app:local/x", "class": "mutation", "risk": "mutate-own",
         "idempotency": "required", "input": { "type": "object" }, "docs": "Save.", "since": "demo/1" });
     for (k, v) in extra.as_object().expect("object") {
         o[k] = v.clone();
@@ -104,7 +104,7 @@ fn op(extra: Value) -> Value {
 #[test]
 fn catalog_ops_carry_keyboard_gesture_and_presets() {
     let m = manifest(json!({ "runtime": { "main": "m.js" } }));
-    let catalog = json!({ "family": "demo", "operations": [
+    let catalog = json!({ "family": "local.x", "operations": [
         op(json!({ "export": "save", "keyboard": [{ "key": "cmd+s", "when": "paneFocused:editor && !readOnly" }],
             "gesture": "required",
             "palette": { "title": "Save", "presets": [{ "id": "hour", "title": "Save for an hour", "args": { "minutes": 60 }, "when": "paneFocused:editor" }] } })),
@@ -115,7 +115,7 @@ fn catalog_ops_carry_keyboard_gesture_and_presets() {
 #[test]
 fn catalog_rules_tie_ops_to_the_manifest() {
     let m = manifest(json!({}));
-    let catalog = json!({ "family": "demo", "operations": [
+    let catalog = json!({ "family": "local.x", "operations": [
         op(json!({ "export": "save", "keyboard": [{ "key": "cmd+s" }] })),
         op(json!({ "owner": "app:local/y", "keyboard": [{ "key": "cmd+s" }] })),
         op(json!({ "name": "other.thing" })),
@@ -137,7 +137,7 @@ fn catalog_rules_tie_ops_to_the_manifest() {
 #[test]
 fn catalog_structure_is_checked() {
     let m = manifest(json!({}));
-    let bad = json!({ "family": "demo", "operations": [op(json!({ "keyboard": [{ "key": "hyper+s" }], "gesture": "always" }))] });
+    let bad = json!({ "family": "local.x", "operations": [op(json!({ "keyboard": [{ "key": "hyper+s" }], "gesture": "always" }))] });
     let issues = validate_catalog(&m, &bad);
     assert!(!issues.is_empty() && issues.iter().all(|i| i.code == "catalog.schema"), "{issues:?}");
 }

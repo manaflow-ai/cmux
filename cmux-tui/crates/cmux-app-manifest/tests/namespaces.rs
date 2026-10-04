@@ -2,7 +2,9 @@
 //! (`<publisher>.<name>`, '-' -> '_'; app-platform.md 18): two apps cannot
 //! collide on `hello:read`, and no third party defines `git:*`.
 
-use cmux_app_manifest::{ScopeClass, app_namespace, scope_info, validate_catalog, validate_manifest};
+use cmux_app_manifest::{
+    ScopeClass, app_namespace, scope_info, validate_catalog, validate_manifest,
+};
 use serde_json::{Value, json};
 
 fn third_party() -> Value {
@@ -29,7 +31,10 @@ fn third_party_catalogs_use_their_own_namespace() {
     assert!(validate_catalog(&m, &own).is_empty(), "{:?}", validate_catalog(&m, &own));
     for family in ["git", "hello", "other.app"] {
         let bad = json!({ "family": family, "operations": [op(&format!("{family}.list"), owner)] });
-        assert!(validate_catalog(&m, &bad).iter().any(|i| i.code == "catalog.namespace"), "{family}");
+        assert!(
+            validate_catalog(&m, &bad).iter().any(|i| i.code == "catalog.namespace"),
+            "{family}"
+        );
     }
 }
 
@@ -38,6 +43,11 @@ fn namespaced_scopes_parse_and_classify() {
     assert_eq!(scope_info("octo.ssh_terminal:read").map(|i| i.class), Some(ScopeClass::Standard));
     assert_eq!(scope_info("octo.ssh_terminal:write").map(|i| i.class), Some(ScopeClass::Sensitive));
     let mut m = third_party();
-    m["scopes"] = json!({ "octo.ssh_terminal:read": "List your saved hosts.", "git:read": "Read diffs." });
-    assert!(validate_manifest(&m).iter().all(|i| i.code != "schema"), "{:?}", validate_manifest(&m));
+    m["scopes"] =
+        json!({ "octo.ssh_terminal:read": "List your saved hosts.", "git:read": "Read diffs." });
+    assert!(
+        validate_manifest(&m).iter().all(|i| i.code != "schema"),
+        "{:?}",
+        validate_manifest(&m)
+    );
 }

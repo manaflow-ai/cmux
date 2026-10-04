@@ -8,11 +8,16 @@ use serde_json::Value;
 /// Publishers reserved for first-party apps.
 const FIRST_PARTY: &[&str] = &["cmux", "manaflow-ai"];
 
+/// Whether `publisher` is reserved for first-party apps.
+pub(crate) fn is_first_party(publisher: &str) -> bool {
+    FIRST_PARTY.contains(&publisher)
+}
+
 pub(crate) fn check(m: &Value) -> Vec<Issue> {
     let mut out = crate::cli::check_manifest(m);
     let id = m["id"].as_str().unwrap_or_default();
     let publisher = id.split('/').next().unwrap_or_default();
-    let first_party = FIRST_PARTY.contains(&publisher);
+    let first_party = is_first_party(publisher);
     let repository = m["repository"].as_str();
 
     match (publisher, repository) {
