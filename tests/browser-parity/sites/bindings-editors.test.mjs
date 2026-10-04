@@ -113,3 +113,48 @@ test("googleSlides.setNotes: the draft names the slide by its object id; reorder
     deck.shared = false;
   }
 });
+
+test("googleDocs.replace: the draft states the match count and positions; a new match or another change since the preview edits nothing", async () => {
+  const doc = files.get(DOC_ID);
+  doc.shared = true;
+  const original = doc.blocks.map((b) => ({ ...b }));
+  try {
+    await s.run(`var repD = await sites.googleDocs.replace(${JSON.stringify(DOC)}, "Intro", "Opening")`);
+    // A collaborator adds another match after the preview.
+    doc.blocks.push({ type: "paragraph", text: "Intro, part two." });
+    const before = JSON.stringify(doc.blocks);
+    assert.match(await s.error("sites.googleDocs.replace(repD.id, { confirm: true })"), /document_changed|document changed/);
+    assert.equal(JSON.stringify(doc.blocks), before, "Replace all edited a match the preview did not count");
+    const p = await s.value("repD.preview");
+    assert.equal(p.matches, 1);
+    assert.equal(p.at.length, 1);
+    assert.equal(typeof p.at[0], "number");
+    // Docs' Find and replace ignores case by default: the count does too.
+    await s.run(`var repD2 = await sites.googleDocs.replace(${JSON.stringify(DOC)}, "closing", "Final")`);
+    assert.equal((await s.value("repD2.preview")).matches, 1);
+  } finally {
+    doc.blocks = original;
+    doc.shared = false;
+  }
+});
+
+test("googleSlides.replace: the draft states the match count per slide; a new match since the preview edits nothing", async () => {
+  const DECK_ID = "1deckPRIVATE00000000000000000000x";
+  const DECK = `https://docs.google.com/presentation/d/${DECK_ID}/edit`;
+  const deck = files.get(DECK_ID);
+  const original = deck.slides.map((x) => ({ ...x, body: [...x.body] }));
+  deck.shared = true;
+  try {
+    await s.run(`var srD = await sites.googleSlides.replace(${JSON.stringify(DECK)}, "Time", "Budget")`);
+    deck.slides[0].body.push("Time to ship");
+    const before = JSON.stringify(deck.slides);
+    assert.match(await s.error("sites.googleSlides.replace(srD.id, { confirm: true })"), /document_changed|deck changed/);
+    assert.equal(JSON.stringify(deck.slides), before, "Replace all edited a match the preview did not count");
+    const p = await s.value("srD.preview");
+    assert.equal(p.matches, 1);
+    assert.deepEqual(p.at, [{ slide: 2, matches: 1 }]);
+  } finally {
+    deck.slides = original;
+    deck.shared = false;
+  }
+});
