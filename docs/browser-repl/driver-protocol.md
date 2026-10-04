@@ -277,7 +277,10 @@ native (`BrowserReplBoundary` in the session, and the driver):
   a public suffix of the system's Public Suffix List (`*.com`, `*.co.uk`,
   `*.github.io`) fail with `invalid`; a wildcard over a site
   (`*.example.co.uk`) and a public suffix named alone (`com`, one host)
-  are accepted. Agent code chooses them, and each costs every navigation
+  are accepted. Where the system's list cannot be read (CFNetwork does
+  not export it), every wildcard pattern (`*.example.com` too) fails with
+  `invalid`, since none can be told from one over a public suffix; exact
+  hosts and `*` are still accepted. Agent code chooses them, and each costs every navigation
   check and the content rules WebKit compiles, so they are bounded before
   they are parsed: at most 1,024 patterns in `allowed` and in
   `prohibited`, a pattern of at most 1,024 bytes, a host of at most 253

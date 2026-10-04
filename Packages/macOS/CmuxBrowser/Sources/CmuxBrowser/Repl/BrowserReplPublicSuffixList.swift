@@ -10,11 +10,26 @@ public import Foundation
 public final class BrowserReplPublicSuffixList: Sendable {
     private let lookup: @Sendable (String) -> Bool
 
+    /// Whether the list could be read. Without it no name counts as a
+    /// public suffix, so sites are hosts (narrower, never wider), but a
+    /// wildcard pattern cannot be told from one over a public suffix and is
+    /// refused (``BrowserReplDomainPattern/parse(_:title:publicSuffixes:)``).
+    public let isAvailable: Bool
+
     /// - Parameter isPublicSuffix: Whether a normalized name (`co.uk`) is a
     ///   public suffix.
     public init(isPublicSuffix: @escaping @Sendable (String) -> Bool) {
         self.lookup = isPublicSuffix
+        self.isAvailable = true
     }
+
+    private init(unavailable: Void) {
+        self.lookup = { _ in false }
+        self.isAvailable = false
+    }
+
+    /// A list that could not be read.
+    public static let unavailable = BrowserReplPublicSuffixList(unavailable: ())
 
     /// Whether `name` (`com`, `co.uk`, `github.io`) is itself a public
     /// suffix, so a wildcard over it would name every site under it.
@@ -26,10 +41,12 @@ public final class BrowserReplPublicSuffixList: Sendable {
         return lookup(normalized)
     }
 
-    /// The system's list. Where CFNetwork does not export it, no name is a
-    /// public suffix, so every host is its own site: a narrower scope, never
-    /// a wider one.
-    public static let system = BrowserReplPublicSuffixList(isPublicSuffix: SystemPublicSuffixes.contains)
+    /// The system's list. Where CFNetwork does not export it, the list is
+    /// ``unavailable``: every host is its own site (a narrower scope, never
+    /// a wider one) and wildcard patterns are refused.
+    public static let system = SystemPublicSuffixes.isAvailable
+        ? BrowserReplPublicSuffixList(isPublicSuffix: SystemPublicSuffixes.contains)
+        : .unavailable
 
     /// The site of `host`: its registrable domain (`x.co.at` for
     /// `a.x.co.at`), or the host itself when it has none: an IP address, a
@@ -59,6 +76,8 @@ private enum SystemPublicSuffixes {
               let symbol = dlsym(handle, "_CFHostIsDomainTopLevel") else { return nil }
         return unsafeBitCast(symbol, to: Lookup.self)
     }()
+
+    static var isAvailable: Bool { lookup != nil }
 
     static func contains(_ name: String) -> Bool {
         lookup?(name as CFString).boolValue ?? false

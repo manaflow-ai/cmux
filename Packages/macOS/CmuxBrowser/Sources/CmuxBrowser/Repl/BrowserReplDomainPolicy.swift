@@ -209,6 +209,12 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
                     message: "\(title): \(quoted): a domain is at most \(maximumHostBytes) characters (\(named.utf8.count) as written for DNS)"
                 )
             }
+            if host.hasPrefix("*."), !publicSuffixes.isAvailable {
+                throw BrowserReplDriverError(
+                    code: "invalid",
+                    message: "\(title): \(quoted): the system's Public Suffix List could not be read, so a wildcard cannot be told from one over a public suffix such as *.com; name each host instead"
+                )
+            }
             if host.hasPrefix("*."), publicSuffixes.isPublicSuffix(String(host.dropFirst(2))) {
                 let base = String(host.dropFirst(2))
                 throw BrowserReplDriverError(
