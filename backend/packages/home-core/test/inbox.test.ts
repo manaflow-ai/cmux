@@ -162,7 +162,7 @@ describe("inbox Domain (rows)", () => {
     expect(host.run(SYSTEM, "inbox.bump", asParams(bump("conv_a", 1, 1)), "bump:conv_a:1")).toMatchObject({ ok: true, changed: false })
     expect(host.run(SYSTEM, "inbox.pin", { conversation: "conv_a", pinned: true }, "p0")).toMatchObject({ ok: false, code: "forbidden" })
     expect(host.run(USER, "inbox.pin", { conversation: "conv_a", pinned: true }, "p1")).toMatchObject({ ok: true })
-    expect(host.state).toEqual({ user: "user_alice", next_pin: 1 })
+    expect(host.state).toMatchObject({ user: "user_alice", next_pin: 1, totals: { mentions: 0 } })
     // Nothing changes: no event.
     expect(host.run(USER, "inbox.pin", { conversation: "conv_a", pinned: true }, "p2")).toMatchObject({ ok: true, changed: false })
     const MALLORY: Principal = { identity: "user_mallory", user: "user_mallory", kind: "session" }
