@@ -13,7 +13,8 @@
 //!   `{"type":"event","event":"cloud.port.changed","machine","kind":"forward"|"browser",
 //!   "port"?,"host","localPort","generation","state":"down","reason"}` when a link change
 //!   closed a forward or a browser route. Link and port lines go out as soon as the
-//!   change happens, also with no op after it.
+//!   loop is free (with no op after the change); while an op runs (a relay call, or a
+//!   connect waiting for the link's ready line) they wait for the end of that op.
 //! - server -> host: `{"type":"relay.request","id","op","method","path","body","idempotency_key"}`
 //! - host -> server: `{"type":"relay.response","id","status","body","error_code"}`
 //!   or `{"type":"relay.error","id","code":"not_signed_in"|"unavailable","message"}`
@@ -36,7 +37,7 @@ use std::collections::VecDeque;
 use std::io::{BufRead, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 
 /// One item of the serve loop's inbox.
 enum Inbound {
@@ -53,28 +54,54 @@ pub(crate) enum Next {
     Wake,
 }
 
+/// Host lines the inbox holds before the reader thread waits (the stdin
+/// pipe then pushes back on the host, as before the reader thread).
+const INBOX_LINES: usize = 64;
+
 /// Wakes the serve loop. Wakes coalesce: at most one is in the inbox until
 /// the loop takes the events ([`Waker::taken`]), so a busy link never grows
 /// the inbox.
 #[derive(Clone)]
 pub(crate) struct Waker {
     pending: Arc<AtomicBool>,
-    inbox: Sender<Inbound>,
+    inbox: SyncSender<Inbound>,
 }
 
 impl Waker {
     /// Called after an event was queued, on the thread that queued it.
+    /// Never blocks: a full inbox holds host lines, and the loop takes the
+    /// events after each of them anyway (`pending` stays set until then).
     pub(crate) fn wake(&self) {
-        if !self.pending.swap(true, Ordering::SeqCst) {
-            // A closed inbox means the loop ended; nothing waits for the wake.
-            let _ = self.inbox.send(Inbound::Wake);
+        if !self.pending.swap(true, Ordering::AcqRel) {
+            match self.inbox.try_send(Inbound::Wake) {
+                // Full: the loop drains after the next host line. Closed:
+                // the loop ended; nothing waits for the wake.
+                Ok(()) | Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {}
+            }
         }
     }
 
     /// The loop calls this BEFORE it takes the events: an event queued after
-    /// this sends a new wake, so none is left behind.
+    /// this sends a new wake, so none is left behind. A swap (not a store)
+    /// so this read synchronizes with the sender's release.
     pub(crate) fn taken(&self) {
-        self.pending.store(false, Ordering::SeqCst);
+        self.pending.swap(false, Ordering::AcqRel);
+    }
+}
+
+/// Sends a last read error if the reader thread ends by a panic, so the
+/// loop never waits on an inbox whose other senders (the wakers) stay open.
+struct ReaderGuard {
+    inbox: SyncSender<Inbound>,
+    done: bool,
+}
+
+impl Drop for ReaderGuard {
+    fn drop(&mut self) {
+        if !self.done {
+            let error = std::io::Error::other("the host reader thread stopped");
+            let _ = self.inbox.send(Inbound::Host(Err(error)));
+        }
     }
 }
 
@@ -191,20 +218,24 @@ impl<R: BufRead + Send + 'static, W: Write> HostRelay<R, W> {
         if matches!(self.input, Input::Inbox(_)) {
             return Err(std::io::Error::other("the host reader thread already runs"));
         }
-        let (sender, inbox) = channel();
+        let (sender, inbox) = sync_channel(INBOX_LINES);
         let waker = Waker { pending: Arc::new(AtomicBool::new(false)), inbox: sender.clone() };
         let Input::Direct(mut reader) = std::mem::replace(&mut self.input, Input::Inbox(inbox))
         else {
             unreachable!("checked above");
         };
         std::thread::Builder::new().name("cmux-cloud-host-reader".into()).spawn(move || {
+            let mut guard = ReaderGuard { inbox: sender, done: false };
             loop {
                 let line = read_json_line(&mut reader);
                 let more = matches!(line, Ok(Some(_)));
-                if sender.send(Inbound::Host(line)).is_err() || !more {
+                // Each sent item ends the wait of the loop: the end of input
+                // and a read error are sent too, then the thread ends.
+                if guard.inbox.send(Inbound::Host(line)).is_err() || !more {
                     break;
                 }
             }
+            guard.done = true;
         })?;
         Ok((self, waker))
     }

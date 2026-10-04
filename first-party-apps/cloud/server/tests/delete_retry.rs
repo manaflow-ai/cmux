@@ -160,6 +160,22 @@ fn a_404_with_another_kinds_code_after_a_lost_answer_stays_an_error() {
 }
 
 #[test]
+fn the_error_header_decides_before_the_body() {
+    // The Cloud API sets `x-cmux-vm-error` to the same code as the body; when
+    // they differ, the header is the code the server reads.
+    for case in cases() {
+        let mut s = lost_then_404(&case, "h-1", json!({ "error": case.other }));
+        s.control_plane_mut().error_header = Some(case.gone.to_owned());
+        assert_eq!(s.handle(&delete(&case, "h-1")), Ok(case.answer.clone()), "{}", case.op);
+
+        let mut s = lost_then_404(&case, "h-2", json!({ "error": case.gone }));
+        s.control_plane_mut().error_header = Some(case.other.to_owned());
+        let retry = s.handle(&delete(&case, "h-2"));
+        assert!(matches!(&retry, Err(e) if e.code == "cmux.cloud.not_found"), "{}", case.op);
+    }
+}
+
+#[test]
 fn a_retry_after_a_lost_answer_is_ok_when_the_resource_is_gone() {
     for case in cases() {
         let mut s = Server::new(FakeControlPlane::with(&[case.fixture]));

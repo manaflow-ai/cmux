@@ -17,6 +17,10 @@
 //! - Synchronous. The Cloud server is a single-threaded op loop with no async
 //!   runtime. The real traits are `async fn`; each method here maps 1:1.
 //! - Events are drained with `take_events` instead of a `BoxStream`.
+//! - GAP(one queue): `take_events` and the serve loop's `cloud.link.changed`
+//!   drain the same supervisor queue. Today only tests call the connector;
+//!   when a host-facing connector runs beside the serve loop, the
+//!   supervisor must fan each event out to both.
 //! - GAP(data plane): the landed channel is a viewer-protocol byte stream
 //!   on the app host's stream (`data`/`credit`/`end` frames with offsets).
 //!   The app host has no stream for native servers yet, so [`HostLink`] also

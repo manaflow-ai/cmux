@@ -22,7 +22,7 @@ use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// The bound on each wait for a server line in these tests.
 const WAIT: Duration = Duration::from_secs(5);
@@ -164,19 +164,6 @@ impl Host {
         assert_eq!(result["ok"], true, "{op}: {result}");
         result["result"].clone()
     }
-
-    /// Every line that arrives within `window`, with no op sent.
-    fn lines_within(&mut self, window: Duration) -> Vec<Value> {
-        let deadline = Instant::now() + window;
-        let mut lines = Vec::new();
-        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
-            match self.output.recv_timeout(left) {
-                Ok(line) => lines.push(serde_json::from_str(&line).expect("JSON line")),
-                Err(_) => break,
-            }
-        }
-        lines
-    }
 }
 
 impl Drop for Host {
@@ -211,12 +198,16 @@ fn a_link_exit_reaches_the_host_with_no_op_after_it() {
     let mut host = Host::start(FIXTURES);
     let carrier = host.op("1", "cloud.machine.connect", json!({"machine": "vm-alpha01"}), "c-1");
     assert_eq!(carrier["state"], "up");
-    // The op's own lines (the up event) are read; nothing else is pending.
-    let quiet = host.lines_within(Duration::from_millis(200));
-    assert!(quiet.iter().all(|l| !link_changed(l) || l["state"] == "up"), "{quiet:?}");
-
     host.spawner.exit("vm-alpha01", 1);
-    let line = host.next().expect("a cloud.link.changed line with no op after the link exit");
+    // Skip the op's own lines (machine watch, link up), however late they
+    // arrive; the next line after them must be the down line.
+    let line = loop {
+        let line = host.next().expect("a cloud.link.changed line with no op after the link exit");
+        let own = !link_changed(&line) || line["state"] == "up";
+        if !own {
+            break line;
+        }
+    };
     assert!(link_changed(&line), "{line}");
     assert_eq!(line["machine"], "vm-alpha01");
     assert_eq!(line["state"], "down");
