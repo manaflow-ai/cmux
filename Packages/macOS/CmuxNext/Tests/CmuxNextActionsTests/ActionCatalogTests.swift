@@ -120,6 +120,43 @@ import Testing
         #expect(registry.shortcutConflicts().isEmpty, "\(registry.shortcutConflicts())")
     }
 
+    /// Navigation defaults run ahead of a focused terminal. Keep the
+    /// terminal's readline, TUI and editor controls available by never
+    /// taking plain Control-letter, Control-Shift-letter or Option-letter
+    /// bindings in that tier. Numbered Control shortcuts and the approved
+    /// Control-Command pane resize family are intentionally outside this
+    /// list.
+    @Test func navigationDefaultsDoNotTakeTerminalEditingKeys() {
+        let violations = ActionCatalog.all.compactMap { descriptor -> String? in
+            guard let shortcut = descriptor.defaultShortcut,
+                  ActionKeyTier.defaultTier(for: descriptor) == .navigation,
+                  shortcut.key.rangeOfCharacter(from: .letters) != nil,
+                  shortcut.key.count == 1 else { return nil }
+            let terminalKey = shortcut.modifiers == [.control]
+                || shortcut.modifiers == [.control, .shift]
+                || shortcut.modifiers == [.option]
+            return terminalKey ? "\(descriptor.id): \(shortcut.displayString)" : nil
+        }
+        #expect(violations.isEmpty, "navigation defaults take terminal keys: \(violations)")
+    }
+
+    /// Clipboard and clear-screen actions remain terminal-scoped content
+    /// actions, so their Cmd-C, Cmd-V and Cmd-Shift-K ownership wins only
+    /// while a terminal has the keyboard.
+    @Test func terminalEditingDefaultsStayContentScoped() throws {
+        let expected: [ActionID: Shortcut] = [
+            "terminalCopy": Shortcut("c", modifiers: [.command]),
+            "terminalPaste": Shortcut("v", modifiers: [.command]),
+            "clearScreenKeepScrollback": Shortcut("k", modifiers: [.command, .shift]),
+        ]
+        for (id, shortcut) in expected {
+            let descriptor = try #require(ActionCatalog.all.first { $0.id == id })
+            #expect(descriptor.requires.contains(.terminalFocused), "\(id) must require terminal focus")
+            #expect(ActionKeyTier.defaultTier(for: descriptor) == .content, "\(id) must be content-tier")
+            #expect(descriptor.defaultShortcut == shortcut, "\(id) shortcut")
+        }
+    }
+
     @Test func legacyAliasesPointAtCatalogIDs() {
         let ids = Set(ActionCatalog.all.map(\.id))
         for (legacy, canonical) in ActionCatalog.legacyAliases {
