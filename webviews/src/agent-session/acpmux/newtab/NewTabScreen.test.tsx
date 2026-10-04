@@ -52,6 +52,7 @@ const snapshot = {
 
 async function mount(extra: Record<string, unknown> = {}) {
   const calls: string[] = [];
+  const touches: string[] = [];
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
   const record =
@@ -71,6 +72,7 @@ async function mount(extra: Record<string, unknown> = {}) {
         onJump: record("jump"),
         onOpenSession: record("session"),
         onShowAll: record("all"),
+        onTouched: () => touches.push("touched"),
         ...extra,
       }),
     ),
@@ -86,7 +88,7 @@ async function mount(extra: Record<string, unknown> = {}) {
     act(async () => {
       field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, ...init }));
     });
-  return { container, root, field, type, key, calls };
+  return { container, root, field, type, key, calls, touches };
 }
 
 test("the field has the keyboard when the screen appears, and the cards show recent chats", async () => {
@@ -161,6 +163,16 @@ test("the remembered agent comes from the host and leads the rows", async () => 
   await type("hello");
   await key("Enter");
   expect(calls).toEqual(["ask:codex:hello"]);
+  await act(async () => root.unmount());
+});
+
+// R81: the host recycles only a strictly untouched page, so the first input reports itself once.
+test("the first user input reports the page as touched, once", async () => {
+  const { root, type, key, touches } = await mount();
+  await key("ArrowDown");
+  await type("h");
+  await type("he");
+  expect(touches).toEqual(["touched"]);
   await act(async () => root.unmount());
 });
 

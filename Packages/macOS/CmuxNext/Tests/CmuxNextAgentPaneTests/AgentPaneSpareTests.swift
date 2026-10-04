@@ -49,3 +49,27 @@ import Testing
         #expect(value["prompt"] as? String == "fix it")
     }
 }
+
+/// R81 recycle: only a strictly untouched new tab page goes back to the
+/// pool; boot traffic does not touch it, user input and any other op do.
+@Suite struct AgentPaneTouchedTests {
+    @Test func bootTrafficKeepsThePageUntouched() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: AgentPaneNewTab(kind: .agent))
+        _ = await model.respond(to: .ready)
+        _ = await model.respond(to: .framePacing([16.7]))
+        _ = await model.respond(to: .renderRate(true))
+        _ = await model.respond(to: .checkpointAvailability(false))
+        #expect(model.userTouched == false)
+        _ = await model.respond(to: .touched)
+        #expect(model.userTouched == true)
+    }
+
+    @Test func anyOtherOpTouchesThePage() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: AgentPaneNewTab(kind: .agent))
+        model.onTypeAhead = { _ in }
+        _ = await model.respond(to: .typeAhead("ls"))
+        #expect(model.userTouched == true)
+        let request = AgentPaneRequest(body: ["method": "newTab.touched", "params": [:]] as [String: Any])
+        #expect(request == .touched)
+    }
+}
