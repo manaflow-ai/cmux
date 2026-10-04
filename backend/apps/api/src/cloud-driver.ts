@@ -24,6 +24,8 @@ export interface RawCloudDriver {
   /** `tag` null: this call made the VM; else the VM already under the name (checked by the guard). */
   create(name: string, tag: VmTag, opts: CreateOptions): Promise<{ readonly id: string; readonly tag: Record<string, unknown> | null }>
   delete(id: string): Promise<void>
+  /** Writes one small file into the VM (atomic, verified by sha256; Freestyle `PUT /v5/vms/{id}/fs/write`). */
+  writeFile(id: string, path: string, content: string, mode: number): Promise<void>
   /** One page (100) of VMs whose metadata has `filter` (`key:value`). Used only to report, never to delete. */
   list(filter: string, offset: number): Promise<{ readonly vms: ReadonlyArray<ListedVm>; readonly total: number }>
 }
@@ -44,6 +46,25 @@ export interface ListedVm {
  * VMs, vmimg = image bakes; no lane owns the bare env prefix). A configured prefix that differs from
  * this environment's disables the provider.
  */
+/** The short environment tag in names, the link token's iss and the bind file (dev, stg, prod; test in tests). */
+export const cloudEnvTag = (environment: string | undefined): string | null =>
+  ({ development: "dev", staging: "stg", production: "prod", test: "test" } as Record<string, string>)[environment ?? ""] ?? null
+
+/**
+ * The API origin the VM's bind agent calls, from CLOUD_API_ORIGIN: https only, no path. The image
+ * also refuses an origin that is not on its per-environment allowlist (a9's bind-file contract).
+ */
+export const cloudApiOrigin = (env: { CLOUD_API_ORIGIN?: string }): string | null => {
+  const raw = env.CLOUD_API_ORIGIN?.trim()
+  if (!raw) return null
+  try {
+    const u = new URL(raw)
+    return u.protocol === "https:" && (u.pathname === "/" || u.pathname === "") && !u.search && !u.hash && !u.username && !u.password ? u.origin : null
+  } catch {
+    return null
+  }
+}
+
 export const ENV_PREFIX: Readonly<Record<string, string>> = { development: "cmuxnp-dev-cld-", staging: "cmuxnp-stg-cld-", production: "cmuxnp-prod-cld-", test: "cmuxnp-test-cld-" }
 /** The image lane's snapshot prefix per environment (CLOUD-DEV-SNAPSHOT): not the machine prefix. */
 export const ENV_IMAGE_PREFIX: Readonly<Record<string, string>> = { development: "cmuxnp-dev-vmimg-", staging: "cmuxnp-stg-vmimg-", production: "cmuxnp-prod-vmimg-", test: "cmuxnp-test-vmimg-" }
@@ -78,6 +99,19 @@ export class GuardedCloudDriver {
     const created = await this.raw.create(name, tag, opts)
     if (created.tag !== null && !ours(created.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
     return { id: created.id }
+  }
+
+  /**
+   * 5.8 item 1: writes the bind file into our VM (found by its recorded name, metadata checked).
+   * Freestyle has no create-time file option, so this is a second call right after the create; a
+   * retry overwrites it with a fresh token.
+   */
+  async writeBindFile(name: string, tag: VmTag, content: string): Promise<void> {
+    this.guard(name)
+    const found = await this.raw.find(name)
+    if (!found) throw new DriverError("cloud.provider.unavailable", "write bind file: the VM is not there yet", false)
+    if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
+    await this.raw.writeFile(found.id, BIND_FILE_PATH, content, 0o600)
   }
 
   /** P1-2: the VM a cancelled create may have made, found by its recorded name; never creates. */
@@ -119,6 +153,9 @@ export class GuardedCloudDriver {
     await this.raw.delete(found.id)
   }
 }
+
+/** Where the image's bind agent reads {team, machine, bind_token} (decision for the image lane: path and mode 0600). */
+export const BIND_FILE_PATH = "/var/lib/cmux/bind.json"
 
 const REQUEST_TIMEOUT_MS = 20_000
 const CREATE_TIMEOUT_MS = 120_000
@@ -196,6 +233,27 @@ export class FreestyleCloudDriver implements RawCloudDriver {
     this.fail(created.status, created.json, "create VM")
   }
 
+  async writeFile(id: string, path: string, content: string, mode: number) {
+    const bytes = new TextEncoder().encode(content)
+    const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((b) => b.toString(16).padStart(2, "0")).join("")
+    const q = new URLSearchParams({ path, mode: String(mode), sha256: digest })
+    let status = 0
+    try {
+      const res = await this.fetchFn(`${this.baseUrl.replace(/\/+$/, "")}/v5/vms/${encodeURIComponent(id)}/fs/write?${q}`, {
+        method: "PUT",
+        headers: { authorization: `Bearer ${this.apiKey}`, "content-type": "application/octet-stream" },
+        body: bytes,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+      })
+      status = res.status
+      await res.body?.cancel()
+    } catch {
+      status = 0
+    }
+    // Never echo the body (it holds the bind token): only the step and status.
+    if (status < 200 || status >= 300) this.fail(status, {}, "write bind file")
+  }
+
   async list(filter: string, offset: number) {
     const q = new URLSearchParams({ metadata: filter, limit: String(LIST_PAGE), offset: String(offset) })
     const got = await this.call("GET", `/v5/vms?${q}`)
@@ -223,6 +281,7 @@ export class FakeCloudDriver implements RawCloudDriver {
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_vm (name TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, tag TEXT NOT NULL, idle INTEGER)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, deletes INTEGER NOT NULL DEFAULT 0, fail_list INTEGER NOT NULL DEFAULT 0)`)
     sql.exec(`INSERT OR IGNORE INTO cloud_fake_ctl (id) VALUES (1)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_file (vm TEXT NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL, mode INTEGER NOT NULL, PRIMARY KEY (vm, path))`)
   }
 
   private maybeFail() {
@@ -245,6 +304,11 @@ export class FakeCloudDriver implements RawCloudDriver {
     this.sql.exec(`INSERT INTO cloud_fake_vm (name, id, tag, idle) VALUES (?, ?, ?, ?)`, name, `fs-${name}`, JSON.stringify(body.metadata), body.idleTimeoutSeconds)
     this.sql.exec(`UPDATE cloud_fake_ctl SET creates = creates + 1 WHERE id = 1`)
     return { id: `fs-${name}`, tag: null }
+  }
+
+  async writeFile(id: string, path: string, content: string, mode: number) {
+    this.maybeFail()
+    this.sql.exec(`INSERT INTO cloud_fake_file (vm, path, content, mode) VALUES (?, ?, ?, ?) ON CONFLICT (vm, path) DO UPDATE SET content = excluded.content, mode = excluded.mode`, id, path, content, mode)
   }
 
   /** Report-only path: never fails on purpose, so a background sweep cannot eat a test's fail_next. */

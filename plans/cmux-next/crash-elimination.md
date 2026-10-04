@@ -41,15 +41,26 @@ Fix:
 | Step | State |
 | --- | --- |
 | Red test: embedder case `opaque-webauthn` (manaflow-ai/cef, sandboxed srcdoc iframe calls isUVPAA) | red on cmux.15 and cmux.16 (exit 134, same FATAL line) |
-| CEF cmux.17 = cmux.16 + `dcheck_always_on=false` + GN args in archive.json (`gn_args`), [cef PR 8](https://github.com/manaflow-ai/cef/pull/8) | approved; build on cmux-lawrence-2 (the last CEF build there) |
+| CEF cmux.17 = cmux.16 + `dcheck_always_on=false` + GN args in archive.json (`gn_args`), [cef PR 8](https://github.com/manaflow-ai/cef/pull/8) | published: [cef-154.0.28-cmux.17](https://github.com/manaflow-ai/cef/releases/tag/cef-154.0.28-cmux.17), R2 write-once with read-back, pinned; arm64 embedder cases 10/10; x86_64 built and packaged, cases not run (no Rosetta host); about_credits is still Chromium's placeholder (cmux.18) |
 | Linux and Windows build scripts get the same flag, [cef PR 9](https://github.com/manaflow-ai/cef/pull/9) | merged |
 | One shared args.gn check for the macOS, Linux and Windows scripts: record `gn_args`, refuse a build without `dcheck_always_on=false` (macOS has it since PR 8) | before any Linux or Windows build ships |
-| Interim renderer guard (`CEFShim/src/opaque_origin_webauthn_guard.h`): in opaque-origin contexts, the three PublicKeyCredential methods that reach the DCHECK without an RP ID check answer in the renderer | red e2e `scripts/cmux-next/webauthn-opaque-e2e.py`; lands before cmux.17 |
-| ensure-cef.sh refuses a framework whose `archive.json` lacks `gn_args.dcheck_always_on == false` | lands with the cmux.17 pin (a warning before) |
-| Remove the interim guard | when cef-manifest.json pins cmux.17 or later |
+| Interim renderer guard (a stand-in PublicKeyCredential in secure opaque-origin contexts, defined in OnContextCreated before Blink installs the real one) | landed in cc284fc6ea1, removed with the cmux.17 pin; `scripts/cmux-next/webauthn-opaque-e2e.py` stays (it accepts native methods) |
+| ensure-cef.sh refuses a framework whose `archive.json` lacks `gn_args.dcheck_always_on == false` | on: the manifest sets `"require_dcheck_off": true` (warning before the pin) |
 
 All CEF builds after cmux.17 (cmux.18, any rebuild) run on the fleet CEF
-worker, not on cmux-lawrence-2 (coordinator decision, 2026-10-04).
+workers (`cmux-ci build cef --arch ...`), not on cmux-lawrence-2
+(coordinator decision, 2026-10-04): the x86_64 half of cmux.17 took 3.7 h at
+nice 19 there and held the GUI host at load 60-90.
+
+Next CEF releases (coordinator plan, 2026-10-04):
+
+- cmux.18: the passkeys fork branch (`cmux/8037-api18-pw`), real credits
+  (`generate_about_credits=true`, `CREDITS.html` in the framework's
+  Resources, the build refuses the placeholder), one shared args.gn check for
+  the macOS, Linux and Windows build scripts, one API bump (17 to 18), the
+  remote-tab patches and the password-core API if they are ready by the cut.
+- cmux.19: `symbol_level=1` + dsymutil; the dSYM archived per release in R2,
+  so the crash pipeline gives file:line for CEF frames.
 
 ## 2. Inventory of crash classes
 
@@ -119,18 +130,18 @@ aborts), plus a gate that forbids `shim.` calls outside it.
 | Step | State |
 | --- | --- |
 | At launch, `CrashRecoveryService` finds the previous run's `.ips` and writes cmux's own report | done |
-| Help > Show Crash Logs (palette, `cmux action run help.showCrashLogs`, restart notice): the newest log in TextEdit | this change |
+| Help > Show Crash Logs (palette, `cmux settings show-crash-logs`, restart notice): the newest log in TextEdit | done (94319dabd02, d20af6c17df) |
 | CEF `cef.log` is overwritten at each launch: keep the previous one (`cef.previous.log`) so the FATAL line survives a relaunch | next |
 | Consent: the restart notice asks once to send crash reports (off by default, setting `crashReports.send`) | proposed |
 | Upload: the report, the `.ips` (paths under the home folder replaced by `~`), the previous `cef.log` tail (FATAL lines only) to a crash endpoint (R2 write-only key, per-install id) | proposed |
 | CI symbolication: a workflow matches `usedImages` UUIDs to the cmux dSYM (Sentry debug files, uploaded by nightly.yml) and the CEF `-debug` archive (unstripped binary, function names only while symbol_level=0), then dedupes by the top 5 symbolicated frames and files or updates one GitHub issue per signature | proposed |
 | Release check: a nightly fails when the Sentry dSYM upload is skipped or when the arm64 cmux UUID is not in its upload list | proposed |
-| CEF symbols: the `-debug` release asset holds the unstripped framework (function names, no file:line). cmux.18 builds with `symbol_level=1`, runs dsymutil and archives the dSYM per release in R2, so the pipeline gives file:line | cmux.18 candidate |
+| CEF symbols: the `-debug` release asset holds the unstripped framework (function names only, symbol_level=0, no file:line). cmux.19 builds with `symbol_level=1`, runs dsymutil and archives the dSYM per release in R2, so the pipeline gives file:line | cmux.19 |
 
 ## 5. Proposed lanes (larger fixes)
 
-1. CEF-OOP: design study for an out-of-process CEF browser process (remote
-   layers or IOSurface, input, IME, accessibility, DevTools, passkeys).
+1. CEF-OOP: design study for an out-of-process CEF browser process
+   (plans/cmux-next/cef-out-of-process.md).
 2. CEF-OWNER: the owner type and gate in section 3.
 3. RUST-PANIC: daemon crates to clippy deny lints, crate by crate, with a
    panic-catching boundary per worker thread (needs cmux-tui windows).

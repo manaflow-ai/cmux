@@ -191,6 +191,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugPopups.report(call.params, services: services))
             },
+            // Scripted input into the real agent cursor stacks (visual checks).
+            .mainActor("debug.agent_cursor.demo") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugAgentCursorDemo.handle(call.params, services: services))
+            },
             .mainActor("debug.key") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))

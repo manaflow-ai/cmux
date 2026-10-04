@@ -387,9 +387,10 @@ export class MockCloudProvider implements PageClient {
         if (!size || typeof size !== "object") throw pageError("cmux.cloud.invalid_args", "size is required");
         if (typeof p.from_snapshot === "string" && !this.snapshots.some((s) => s.id === p.from_snapshot))
           throw notFound(`no snapshot ${p.from_snapshot}`);
+        // The backend's order: the plan checks first, then the image.
+        this.checkPlan(size.memory_mb, 1);
         if (this.noSnapshotConfigured)
           throw pageError(CloudErrors.noSnapshotConfigured, "no machine image is configured yet", false);
-        this.checkPlan(size.memory_mb, 1);
         return this.create(p.name, size.memory_mb);
       }
       case CloudOps.machineRename:
@@ -461,9 +462,9 @@ export class MockCloudProvider implements PageClient {
         // A new machine from the snapshot; the source machine does not change.
         const snapshot = this.snapshots.find((s) => s.id === p.snapshot);
         if (!snapshot) throw notFound(`no snapshot ${String(p.snapshot)}`);
+        this.checkPlan(undefined, 1);
         if (this.noSnapshotConfigured)
           throw pageError(CloudErrors.noSnapshotConfigured, "no machine image is configured yet", false);
-        this.checkPlan(undefined, 1);
         return this.create(typeof p.name === "string" ? p.name : (snapshot.name ?? null), undefined);
       }
       case CloudOps.snapshotDelete:

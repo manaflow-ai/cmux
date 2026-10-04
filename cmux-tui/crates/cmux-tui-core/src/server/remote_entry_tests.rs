@@ -31,7 +31,7 @@ fn entry(verifier_accepts: bool, gate: Arc<dyn RemoteGate>) -> Entry {
     let mux = Mux::new_for_test("remote-entry", crate::SurfaceOptions::default());
     // The control plane confirmed the install (section 10: an install that
     // was never checked opens no stream).
-    mux.record_remote_check("inst_1");
+    mux.record_remote_check("inst_1").unwrap();
     let verifier: LinkVerifier = Arc::new(move |_stream: &UnixStream| {
         if verifier_accepts {
             Ok(())
