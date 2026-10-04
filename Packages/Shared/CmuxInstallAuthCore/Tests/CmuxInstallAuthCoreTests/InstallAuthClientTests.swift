@@ -56,12 +56,13 @@ actor FakeOwner: InstallAuthTransport {
         try await handle(path, json, bearer, headers)
     }
 
-    /// The owner's version gate (policy-gate.ts): major.minor.patch, a
-    /// missing or unparsable version is too old.
+    /// The owner's version gate (policy-gate.ts): a leading major.minor.patch
+    /// (a pre-release suffix is ignored); a missing or unparsable version is too old.
     static func versionAtLeast(_ client: String?, _ minimum: String) -> Bool {
         func parse(_ value: String) -> [Int]? {
-            let parts = value.split(separator: ".").prefix(3).compactMap { Int($0) }
-            return parts.count == 3 ? parts : nil
+            guard let match = value.trimmingCharacters(in: .whitespaces).prefixMatch(of: /(\d+)\.(\d+)\.(\d+)/),
+                  let major = Int(match.1), let minor = Int(match.2), let patch = Int(match.3) else { return nil }
+            return [major, minor, patch]
         }
         guard let floor = parse(minimum) else { return true }
         guard let client, let have = parse(client) else { return false }
