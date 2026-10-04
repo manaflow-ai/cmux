@@ -145,7 +145,8 @@ struct CloudMachinesEnablementView: View {
     /// A computed view, not its own type, so changing it stays a body-only edit.
     private var banner: some View {
         ZStack(alignment: .bottomTrailing) {
-            Image(nsImage: NSApp.applicationIconImage)
+            // The dark icon in both appearances (the lab has no asset catalog, so it falls back).
+            Image(nsImage: NSImage(named: "AppIconDark") ?? NSApp.applicationIconImage)
                 .resizable()
                 .frame(width: 60, height: 60)
             Image(systemName: isProGated ? "lock.fill" : "cloud.fill")
