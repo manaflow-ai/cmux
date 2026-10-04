@@ -135,6 +135,23 @@ const SHAPING_FIELDS: &[&str] = &[
     "harnessCommand",
 ];
 
+/// Whether a `session/new` names a preset.
+pub(super) fn names_preset(params: &serde_json::Value, meta: Option<&serde_json::Value>) -> bool {
+    meta.and_then(|m| m.get("preset"))
+        .or_else(|| params.get("preset"))
+        .is_some_and(|p| !p.is_null())
+}
+
+/// The cwd a LocalApp preset session runs in: the caller's path must be
+/// absolute and resolve to an existing directory; the harness gets the
+/// canonical path (symlinks resolved, no `..`), never the caller's string.
+pub(super) async fn canonical_cwd(
+    given: &std::path::Path,
+) -> Result<std::path::PathBuf, crate::rpc::RpcError> {
+    // RED stub: the caller's string, unchecked.
+    Ok(given.to_path_buf())
+}
+
 pub(super) fn preset_by_id_only(
     params: &serde_json::Value,
     meta: Option<&serde_json::Value>,
