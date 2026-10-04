@@ -19,7 +19,13 @@ public final class HomeNativeFixture {
     // task-owner: kept and cancelled in `close()`
     private var loading: Task<Void, Never>?
 
-    public init() {
+    /// With `attachments`, the conversation also gets a photo, a video and a
+    /// PDF from me, served by a local fake loader, and the composer takes
+    /// drops, pastes and picked files through a local fake preparer.
+    private let attachments: Bool
+
+    public init(attachments: Bool = false) {
+        self.attachments = attachments
         store = HomeStore(source: source)
         store.start()
         loading = Task { [weak self] in await self?.load() }
@@ -42,6 +48,19 @@ public final class HomeNativeFixture {
         container.addSubview(view)
         self.view = view
         binding = HomeStoreBinding(store: store, controller: view.controller)
+        if attachments { await addAttachments(to: view, in: id) }
+    }
+
+    private func addAttachments(to view: HomeNativeTranscriptView, in id: ConversationID) async {
+        view.attachmentPreparer = store
+        binding?.onAttachmentRefusal = { [weak view] _, refusal in view?.showAttachmentRefusal(refusal) }
+        binding?.onRefusal = { [weak view] _, rejection in view?.showRefusal(rejection) }
+        view.onCancelSend = { [weak b = binding] key in b?.cancelSend(key) ?? false }
+        guard let files = try? await HomeFixtureMedia.make(), !Task.isCancelled else { return }
+        for file in files {
+            guard let prepared = try? await store.prepareAttachment(fileURL: file, keepLocation: false) else { continue }
+            try? await store.send(conversation: id, text: "", attachments: [prepared])
+        }
     }
 }
 #endif

@@ -44,6 +44,10 @@ enum DebugQuit {
             "remote_sessions": .bool(prompt.remoteSessions),
             "offers_session_choice": .bool(prompt.offersSessionChoice),
             "default": .string(prompt.defaultChoice.rawValue),
+            "agents": prompt.agents.map { .number(Double($0)) } ?? .null,
+            "agents_in_turn": .number(Double(prompt.agentsInTurn)),
+            "busy_agents": .array(prompt.busyAgents.map { .string($0) }),
+            "chief_keeps_running": .bool(prompt.chiefKeepsRunning),
         ])
         result["lines"] = .array(sheet.lines.map { .string($0) })
         result["buttons"] = .array(sheet.buttons.map { entry in

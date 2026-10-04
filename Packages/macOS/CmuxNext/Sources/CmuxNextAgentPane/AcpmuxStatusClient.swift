@@ -27,28 +27,37 @@ nonisolated enum AcpmuxStatusClient {
     }
 
     /// `_acpmux/shutdown`: the daemon stops; agents under agent hosts keep
-    /// running for the next daemon.
-    @concurrent static func shutdown(socketPath: String, deadline: Duration = .seconds(2)) async throws {
-        _ = try await call(socketPath: socketPath, method: "_acpmux/shutdown", deadline: deadline)
+    /// running for the next daemon. With `endAgents` (Quit Everything) they
+    /// end, except the agents of `keepSessions`.
+    @concurrent static func shutdown(socketPath: String, endAgents: Bool = false, keepSessions: [String] = [],
+                                     deadline: Duration = .seconds(2)) async throws {
+        let params: [String: any Sendable] = endAgents ? ["endAgents": true, "keepSessions": keepSessions] : [:]
+        _ = try await call(socketPath: socketPath, method: "_acpmux/shutdown", params: params, deadline: deadline)
     }
 
-    private static func call(socketPath: String, method: String, deadline: Duration) async throws -> [String: Any] {
+    /// `_acpmux/sessions`: every session's summary.
+    @concurrent static func sessions(socketPath: String, deadline: Duration) async throws -> ResultBox {
+        ResultBox(try await call(socketPath: socketPath, method: "_acpmux/sessions", deadline: deadline))
+    }
+
+    private static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
+                             deadline: Duration) async throws -> [String: Any] {
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
         defer { connection.cancel() }
         let box = try await withAgentPaneDeadline(deadline, label: "acpmux \(method)", onTimeout: { connection.cancel() }) {
-            ResultBox(try await exchange(method, on: connection))
+            ResultBox(try await exchange(method, params: params, on: connection))
         }
         return box.value
     }
 
     /// `initialize`, then `method`; returns its result.
-    private static func exchange(_ method: String, on connection: NWConnection) async throws -> [String: Any] {
+    private static func exchange(_ method: String, params: [String: any Sendable], on connection: NWConnection) async throws -> [String: Any] {
         try await start(connection)
         let initialize: [String: Any] = [
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": ["protocolVersion": 1, "clientInfo": ["name": "cmux-next-agent-pane", "version": "1"], "clientCapabilities": [:]],
         ]
-        let status: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": method, "params": [:]]
+        let status: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": method, "params": params]
         var payload = Data()
         for request in [initialize, status] {
             payload += try JSONSerialization.data(withJSONObject: request)

@@ -44,16 +44,29 @@ fn wait_for_spare(harness: &RecoveryHarness, daemon: libc::pid_t) -> u32 {
 }
 
 fn new_tab(harness: &RecoveryHarness, id: u64, pane: u64, value: &str) -> (u64, String) {
-    let reply = request(
-        &harness.socket,
-        serde_json::json!({
-            "id": id,
-            "cmd": "new-tab",
-            "pane": pane,
-            "env": {"CMUX_R81": value, "SHELL": "/bin/sh"},
-            "shell_args": ["-c", "printf 'R81=[%s]\\n' \"$CMUX_R81\"; exec /bin/cat"],
-        }),
-    );
+    new_tab_with_id(harness, id, pane, value, None)
+}
+
+/// `terminal_id`: a caller-chosen id (`terminal-placement-env-v1`), as the
+/// app sends on every new tab.
+fn new_tab_with_id(
+    harness: &RecoveryHarness,
+    id: u64,
+    pane: u64,
+    value: &str,
+    terminal_id: Option<String>,
+) -> (u64, String) {
+    let mut command = serde_json::json!({
+        "id": id,
+        "cmd": "new-tab",
+        "pane": pane,
+        "env": {"CMUX_R81": value, "SHELL": "/bin/sh"},
+        "shell_args": ["-c", "printf 'R81=[%s]\\n' \"$CMUX_R81\"; exec /bin/cat"],
+    });
+    if let Some(terminal_id) = terminal_id {
+        command["terminal_id"] = serde_json::Value::String(terminal_id);
+    }
+    let reply = request(&harness.socket, command);
     let surface = reply["surface"].as_u64().unwrap_or_else(|| panic!("new-tab failed: {reply}"));
     let terminal = reply["terminal_id"].as_str().unwrap().to_string();
     (surface, terminal)
@@ -138,4 +151,34 @@ fn a_spare_killed_before_adoption_leaves_the_next_tab_launching_as_before() {
     let screen = wait_for_screen(&harness.socket, second, "R81=[second]");
     assert!(screen.contains("R81=[second]"), "{screen}");
     assert_ne!(host_pid_of(&harness, &terminal), spare);
+}
+
+/// The app always names the new terminal (`terminal-placement-env-v1`);
+/// such a tab must adopt the spare too.
+#[test]
+fn a_new_tab_with_a_caller_chosen_terminal_id_adopts_the_spare() {
+    let harness = RecoveryHarness::start("standby-host-caller-id");
+    let daemon = harness.child.as_ref().unwrap().id() as libc::pid_t;
+    run_cat_workspace(&harness.socket, 1, "standby");
+    let tree = request(&harness.socket, serde_json::json!({"id": 2, "cmd": "list-workspaces"}));
+    let pane = tree["workspaces"][0]["screens"][0]["panes"][0]["id"].as_u64().unwrap();
+    let first_id = TerminalId::random().unwrap().to_hex();
+    let (first, _) = new_tab_with_id(&harness, 3, pane, "first", Some(first_id));
+    assert!(wait_for_screen(&harness.socket, first, "R81=[first]").contains("R81=[first]"));
+    let mut adopted = false;
+    for (index, value) in ["second", "third", "fourth"].into_iter().enumerate() {
+        let spare = wait_for_spare(&harness, daemon);
+        std::thread::sleep(Duration::from_millis(100)); // harness: the slot takes the spare
+        let chosen = TerminalId::random().unwrap().to_hex();
+        let (surface, terminal) =
+            new_tab_with_id(&harness, 4 + index as u64, pane, value, Some(chosen.clone()));
+        assert_eq!(terminal, chosen, "the tab keeps the caller's terminal id");
+        let marker = format!("R81=[{value}]");
+        assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+        if host_pid_of(&harness, &terminal) == spare {
+            adopted = true;
+            break;
+        }
+    }
+    assert!(adopted, "a new tab with a caller-chosen id adopted the spare host process");
 }

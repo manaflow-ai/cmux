@@ -1,10 +1,9 @@
 import type React from "react";
 import { useId, useLayoutEffect, useState } from "react";
-import { AgentMark } from "../shared/AgentMark";
 import { SearchIcon } from "./ComposerPickers";
 import { useT } from "./i18n";
 import { MenuLevel, rowId } from "./MenuLevel";
-import { menuNodes, pickerData, recentKey, typeKey } from "./modelMenuNodes";
+import { harnessNode, menuNodes, pickerData, recentKey, typeKey } from "./modelMenuNodes";
 import type { TaxModel } from "./modelTaxonomy";
 import { useMenuHandle, type ModelMenuProps } from "./modelPickerLayout";
 import { useMenuTree, type MenuNode } from "./useMenuTree";
@@ -55,17 +54,7 @@ export function ModelPickerDrill(props: ModelMenuProps) {
   ];
   const harnessRows: MenuNode[] =
     data.harnesses.length > 1
-      ? data.harnesses.map((harness) => ({
-          key: `harness:${harness.id}`,
-          label: harness.name,
-          icon: <AgentMark agent={harness.id} size={14} />,
-          detail: harness.id === props.harness ? undefined : t("picker.newChat"),
-          section: t("picker.harness"),
-          checked: harness.id === props.harness,
-          run: () => {
-            if (harness.id !== props.harness) props.onHarness?.(harness.id);
-          },
-        }))
+      ? data.harnesses.map((harness) => harnessNode(harness, props, t, t("picker.harness")))
       : [];
   const browse: MenuNode[] = [...harnessRows, ...build.upperLayer()];
   // The breadcrumb follows the rows opened under the harness; a query filters what they hold.

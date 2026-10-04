@@ -5,6 +5,14 @@ import Foundation
 enum Strings {
     /// The update badge on the Settings item (tooltip, VoiceOver action).
     static var updateAvailable: String { String(localized: "sidebar.updateAvailable", defaultValue: "Update Available", bundle: .module) }
+    static func tabDropRefusal(_ reason: SidebarTabDropRefusal) -> String {
+        switch reason {
+        case .otherMachine:
+            String(localized: "sidebar.tabDrop.otherMachine", defaultValue: "Tabs stay on their machine.", bundle: .module)
+        case .pinnedArea:
+            String(localized: "sidebar.tabDrop.pinnedArea", defaultValue: "The pinned area holds no new workspace.", bundle: .module)
+        }
+    }
     static var newWorkspace: String { String(localized: "sidebar.newWorkspace", defaultValue: "New Workspace", bundle: .module) }
     static var rename: String { String(localized: "sidebar.rename", defaultValue: "Rename", bundle: .module) }
     static var pinned: String { String(localized: "sidebar.section.pinned", defaultValue: "Pinned", bundle: .module) }

@@ -869,6 +869,65 @@ describe("direct client session state", () => {
     expect(texts()).toEqual(["b one"]);
   });
 
+  // bench-switch-race.mjs (plans/cmux-next/acp-usability.md, blocker 3): a prompt sent while a
+  // harness switch's session/new is out went to the OLD session, and the pane then moved to the
+  // new chat, so its reply landed out of view.
+  test("a prompt sent while a new chat's session starts goes to that session, not the one on screen", async () => {
+    const client = await connect();
+    ScriptedSocket.held.add("session/new");
+    const switching = client.create("codex");
+    await settle();
+    ScriptedSocket.held.add("session/prompt");
+    const sent = client.send("which harness?").catch(() => undefined);
+    await settle();
+    expect(ScriptedSocket.current.waiting.some((request) => request.method === "session/prompt")).toBe(false);
+    ScriptedSocket.current.release("session/new", { sessionId: "b" });
+    expect(await switching).toBe("b");
+    await settle();
+    const prompt = ScriptedSocket.current.waiting.find((request) => request.method === "session/prompt");
+    expect(prompt?.params.sessionId).toBe("b");
+    expect(texts()).toContain("which harness?");
+    ScriptedSocket.current.release("session/prompt", {});
+    expect(await sent).toBe("b");
+  });
+
+  test("a prewarm hint goes out only to an acpmux that lists _acpmux/prewarm", async () => {
+    const client = await connect();
+    client.prewarm("codex");
+    await settle();
+    expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/prewarm")).toBe(false);
+    client.close();
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "initialize") return { _meta: { acpmux: { extensions: ["_acpmux/prewarm"] } } };
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b" }] };
+      if (method === "_acpmux/attach") return attachReply(params.sessionId);
+      return {};
+    };
+    const warm = await connect();
+    warm.prewarm("codex");
+    await settle();
+    expect(ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/prewarm")?.params).toEqual({
+      harness: "codex",
+    });
+    warm.close();
+  });
+
+  test("leaving the shown session detaches it and draws no session; a started one is not shown", async () => {
+    const client = await connect();
+    expect(client.shownSession()).toMatchObject({ sessionId: "a", empty: false });
+    client.leave();
+    expect(latest().sessionId).toBeUndefined();
+    expect(latest().rows).toEqual([]);
+    await settle();
+    expect(ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/detach")?.params).toEqual({
+      sessionId: "a",
+    });
+    ScriptedSocket.respond = ({ method }) => (method === "session/new" ? { sessionId: "c" } : {});
+    expect(await client.startSession("codex")).toBe("c");
+    expect(client.selectedSession).toBeUndefined();
+    client.close();
+  });
+
   test("lag recovery keeps the live summary, queue and permission", async () => {
     await connect();
     ScriptedSocket.current.notify("_acpmux/permission_pending", {
@@ -1424,6 +1483,50 @@ describe("direct client session state", () => {
     } finally {
       AcpmuxDirectClient.scheduleFrame = previous;
     }
+  });
+
+  // A harness switch leaves the shown session and attaches the new one; with snapshots coalesced
+  // per display frame, the old session's last deltas and the new chat's first snapshot can land
+  // in the same frame. The frame must draw only the new chat.
+  test("leave() and the new chat's first snapshot in one frame draw only the new chat", async () => {
+    const frames: (() => void)[] = [];
+    const previous = AcpmuxDirectClient.scheduleFrame;
+    AcpmuxDirectClient.scheduleFrame = (run) => void frames.push(run);
+    try {
+      const client = await connect();
+      await settle();
+      for (const run of frames.splice(0)) run();
+      ScriptedSocket.current.notify("_acpmux/event", chunkEvent(7, "old reply "));
+      client.leave();
+      expect(latest().sessionId).toBeUndefined();
+      expect(latest().rows).toEqual([]);
+      const opened = client.select("b");
+      ScriptedSocket.current.notify("_acpmux/event", chunkEvent(8, "late old delta"));
+      expect(await opened).toBe("b");
+      const fromLeave = snapshots.length;
+      for (const run of frames.splice(0)) run();
+      for (const snapshot of snapshots.slice(fromLeave))
+        expect(snapshot.rows.map((row) => row.text)).not.toContain("old reply late old delta");
+      expect(latest().sessionId).toBe("b");
+      expect(texts()).toEqual(["b one"]);
+      client.close();
+    } finally {
+      AcpmuxDirectClient.scheduleFrame = previous;
+    }
+  });
+
+  test("two notices in the same millisecond are two rows", async () => {
+    const client = await connect();
+    const realNow = Date.now;
+    Date.now = () => 1_000;
+    try {
+      client.notice("first");
+      client.notice("second");
+    } finally {
+      Date.now = realNow;
+    }
+    expect(texts().filter((text) => text === "first" || text === "second")).toEqual(["first", "second"]);
+    client.close();
   });
 
   test("a streamed thought is one item that grows, not one item per chunk", async () => {

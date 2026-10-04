@@ -161,15 +161,17 @@ enum AttachmentMedia {
         return (try jpeg(image), "jpg")
     }
 
-    /// True when the image may show through: ImageIO reports
-    /// `kCGImagePropertyHasAlpha`, or `sample` (a decoded copy) has an
-    /// alpha channel with a pixel that is not fully opaque.
+    /// True when the image really shows through: `sample` (a decoded copy,
+    /// at most 512 px for a preview) has a pixel that is not fully opaque.
+    /// `kCGImagePropertyHasAlpha` only says an alpha channel exists; many
+    /// opaque PNGs have one, so the pixels decide. Without a sample, or when
+    /// the decoder dropped the channel, the flag decides.
     static func isTransparent(_ source: CGImageSource, sample: CGImage?) -> Bool {
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
-        if (properties?[kCGImagePropertyHasAlpha] as? Bool) == true { return true }
-        guard let sample else { return false }
+        let hasAlpha = (properties?[kCGImagePropertyHasAlpha] as? Bool) == true
+        guard let sample else { return hasAlpha }
         switch sample.alphaInfo {
-        case .none, .noneSkipFirst, .noneSkipLast: return false
+        case .none, .noneSkipFirst, .noneSkipLast: return hasAlpha
         default: return !isOpaque(sample)
         }
     }
@@ -193,9 +195,11 @@ enum AttachmentMedia {
     /// An image's preview: a JPEG at most `previewMaxPixel` on its long edge
     /// and `previewMaxBytes`, trying lower quality and size before giving
     /// up. Nil when the image is small enough to show itself (and not HEIC,
-    /// which some readers cannot decode), when it is transparent (a JPEG
-    /// has no alpha, and the owner keeps the first preview of a hash for
-    /// good; readers load the original), or when no attempt fits.
+    /// which some readers cannot decode), when a pixel of its 512 px sample
+    /// is transparent (Lawrence's rule: transparent images get no preview;
+    /// a JPEG has no alpha, and the owner keeps the first preview of a hash
+    /// for good; readers load the original), or when no attempt fits. An
+    /// opaque image with an alpha channel gets a preview.
     static func previewJPEG(of url: URL, mimeType: String, byteCount: Int, displaySize: (width: Int, height: Int)) -> Data? {
         let maxPixel = HomeAttachmentPolicy.previewMaxPixel
         let maxBytes = HomeAttachmentPolicy.previewMaxBytes
@@ -318,7 +322,7 @@ enum AttachmentMedia {
         try HomeAttachmentPolicy.check(mimeType: mime, byteCount: size, name: name)
         if !keepLocation {
             if mime.hasPrefix("image/"), let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
-               let clean = try imageWithoutLocation(source, name: name) {
+               let clean = try imageWithoutLocation(source, name: name, bytes: { try Data(contentsOf: fileURL) }) {
                 return try await prepare(data: clean.data, typeIdentifier: clean.type.identifier, root: root,
                                          name: renamed(name, mimeType: mime, as: clean.type), keepLocation: true)
             }
@@ -369,7 +373,7 @@ enum AttachmentMedia {
         try HomeAttachmentPolicy.check(mimeType: mime, byteCount: data.count, name: name)
         if !keepLocation {
             if mime.hasPrefix("image/"), let source = CGImageSourceCreateWithData(data as CFData, nil),
-               let clean = try imageWithoutLocation(source, name: name) {
+               let clean = try imageWithoutLocation(source, name: name, bytes: { data }) {
                 let typeIdentifier = clean.type.identifier == UTType(mimeType: mime)?.identifier ? typeIdentifier : clean.type.identifier
                 return try await prepare(data: clean.data, typeIdentifier: typeIdentifier, root: root,
                                          name: renamed(name, mimeType: mime, as: clean.type), keepLocation: true)
@@ -442,14 +446,24 @@ enum AttachmentMedia {
     }
 
     /// The image without location metadata (EXIF GPS, IPTC place text,
-    /// XMP location tags), orientation and all other metadata kept. It is
-    /// copied without re-encoding when ImageIO can, else re-encoded in its
-    /// own type, else (a type ImageIO cannot write, such as WebP, or a
-    /// HEIC encode that fails) converted to PNG when it has alpha, else
-    /// JPEG. Nil when the image has no location. Throws
+    /// XMP location tags). A type ImageIO can write keeps its orientation
+    /// and all other metadata: it is copied without re-encoding when
+    /// ImageIO can, else re-encoded in its own type. A WebP (ImageIO cannot
+    /// write it) keeps its own bytes minus its whole EXIF and XMP chunks
+    /// (`webPWithoutMetadataChunks`), so it loses all EXIF and XMP metadata
+    /// (camera, date and the rest, not only location) but an animated WebP
+    /// keeps its frames and its size; that fails verification when the
+    /// EXIF held a rotation, which would be lost. Else (that WebP,
+    /// another type ImageIO cannot write, or a HEIC encode that fails) the
+    /// first frame is converted to PNG when it has alpha, else JPEG: an
+    /// animation keeps only its first frame, and a PNG can be larger than
+    /// the original, up to the size limit (then `prepare` refuses it as too
+    /// large). Nil when the image has no location. `bytes` reads the
+    /// original (only for a WebP). Throws
     /// `HomeAttachmentError.locationNotRemoved` rather than send a
     /// location it could not remove.
-    static func imageWithoutLocation(_ source: CGImageSource, name: String) throws -> (data: Data, type: UTType)? {
+    static func imageWithoutLocation(_ source: CGImageSource, name: String,
+                                     bytes: () throws -> Data? = { nil }) throws -> (data: Data, type: UTType)? {
         let count = CGImageSourceGetCount(source)
         guard count > 0, (0..<count).contains(where: { hasLocation(source, at: $0) }) else { return nil }
         let orientations = (0..<count).map { index -> Int in
@@ -482,10 +496,49 @@ enum AttachmentMedia {
             }
             if let data = reencoded(source, as: type, frames: count, verified: verified) { return (data, utType) }
         }
+        if CGImageSourceGetType(source) as String? == UTType.webP.identifier, let original = try bytes(),
+           let stripped = webPWithoutMetadataChunks(original),
+           let data = verified(NSMutableData(data: stripped), frames: count) {
+            return (data, .webP)
+        }
         let hasAlpha = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])?[kCGImagePropertyHasAlpha] as? Bool ?? false
         let target: UTType = hasAlpha ? .png : .jpeg
         if let data = reencoded(source, as: target.identifier as CFString, frames: 1, verified: verified) { return (data, target) }
         throw HomeAttachmentError.locationNotRemoved(name: name)
+    }
+
+    /// A WebP without its `EXIF` and `XMP ` chunks, the VP8X flags for them
+    /// cleared and every other chunk (frames, animation, ICC profile) kept
+    /// byte for byte. Only the bytes the RIFF size covers are read: bytes
+    /// after them are dropped, never sent. Nil when the bytes are not a
+    /// well-formed WebP RIFF (a RIFF size below 4, or a chunk that runs
+    /// past the RIFF data).
+    static func webPWithoutMetadataChunks(_ data: Data) -> Data? {
+        let bytes = [UInt8](data)
+        func le32(_ at: Int) -> Int { (0..<4).reduce(0) { $0 | Int(bytes[at + $1]) << (8 * $1) } }
+        func le32Bytes(_ value: Int) -> [UInt8] { (0..<4).map { UInt8(value >> (8 * $0) & 0xff) } }
+        guard bytes.count >= 12, bytes[0..<4].elementsEqual("RIFF".utf8), bytes[8..<12].elementsEqual("WEBP".utf8) else {
+            return nil
+        }
+        let riffSize = le32(4)
+        guard riffSize >= 4 else { return nil }
+        // A truncated file ends early; a chunk that runs past it is refused below.
+        let limit = min(bytes.count, 8 + riffSize)
+        var body = Array("WEBP".utf8)
+        var index = 12
+        while index < limit {
+            guard index + 8 <= limit else { return nil }
+            let size = le32(index + 4)
+            guard size >= 0, index + 8 + size <= limit else { return nil }
+            let end = min(limit, index + 8 + size + (size & 1))
+            let tag = bytes[index..<(index + 4)]
+            defer { index = end }
+            if tag.elementsEqual("EXIF".utf8) || tag.elementsEqual("XMP ".utf8) { continue }
+            var chunk = Array(bytes[index..<end])
+            if tag.elementsEqual("VP8X".utf8), chunk.count > 8 { chunk[8] &= ~UInt8(0x0C) } // EXIF and XMP flags
+            body += chunk
+        }
+        return Data(Array("RIFF".utf8) + le32Bytes(body.count) + body)
     }
 
     /// The first `frames` images encoded as `type` with their metadata
@@ -514,29 +567,65 @@ enum AttachmentMedia {
     static func isLocation(_ item: AVMetadataItem) -> Bool {
         if item.commonKey == .commonKeyLocation { return true }
         guard let raw = item.identifier?.rawValue else { return false }
-        return raw.hasPrefix("mdta/com.apple.quicktime.location.") || raw == AVMetadataIdentifier.commonIdentifierLocation.rawValue
+        return isLocationIdentifier(raw)
+    }
+
+    /// The same test for a metadata identifier (`mdta/...`, `udta/...`).
+    static func isLocationIdentifier(_ raw: String) -> Bool {
+        raw.hasPrefix("mdta/com.apple.quicktime.location.") || raw == AVMetadataIdentifier.commonIdentifierLocation.rawValue
             || raw == AVMetadataIdentifier.quickTimeUserDataLocationISO6709.rawValue || raw == "udta/loci"
     }
 
+    /// Track types that can carry positions as samples: timed metadata,
+    /// and text or subtitles (a drone writes its GPS as subtitles).
+    static var locationTrackTypes: Set<AVMediaType> { [.metadata, .text, .subtitle] }
+
+    /// True when a track's samples may hold positions. A text or subtitle
+    /// track always may. A timed metadata track may when one of its formats
+    /// names a location identifier, or when its format lists no
+    /// identifiers to check (GoPro GPMF, camera motion `camm`: these carry
+    /// GPS). A boxed track that names only other keys (an iPhone's
+    /// orientation, still-image-time or face tracks) holds no location.
+    static func trackMayHoldLocation(_ track: AVAssetTrack) async -> Bool {
+        switch track.mediaType {
+        case .text, .subtitle:
+            return true
+        case .metadata:
+            let formats = (try? await track.load(.formatDescriptions)) ?? []
+            guard !formats.isEmpty else { return true }
+            for format in formats {
+                guard CMFormatDescriptionGetMediaSubType(format) == kCMMetadataFormatType_Boxed,
+                      let identifiers = CMMetadataFormatDescriptionGetIdentifiers(format) as? [String] else { return true }
+                if identifiers.contains(where: isLocationIdentifier) { return true }
+            }
+            return false
+        default:
+            return false
+        }
+    }
+
     /// Location anywhere in a movie or M4A: asset or track metadata items,
-    /// or a timed metadata track (a GoPro or drone GPS track).
+    /// or a track whose samples may hold positions (`trackMayHoldLocation`).
     static func movieHasLocation(_ asset: AVAsset) async -> Bool {
         if ((try? await asset.load(.metadata)) ?? []).contains(where: isLocation) { return true }
         for track in (try? await asset.load(.tracks)) ?? [] {
-            if track.mediaType == .metadata { return true }
+            if await trackMayHoldLocation(track) { return true }
             if ((try? await track.load(.metadata)) ?? []).contains(where: isLocation) { return true }
         }
         return false
     }
 
     /// A copy of the movie (or M4A) without location, written to a temp
-    /// file under `root` by a passthrough export (no re-encode) of every
-    /// track except timed metadata tracks, with each track's transform and
-    /// the asset metadata that is not location (as
+    /// file under `root` by a passthrough export (no re-encode), with each
+    /// track's transform and the asset metadata that is not location (as
     /// `AVMetadataItemFilter.forSharing` allows); track metadata is not
-    /// copied. Nil when the file has no location. The caller deletes it.
-    /// Throws `HomeAttachmentError.locationNotRemoved` when the export
-    /// fails or its result still holds a location.
+    /// copied. Timed metadata, text and subtitle tracks are left out
+    /// (`locationTrackTypes`). Another track the composition cannot take
+    /// (a timecode track, a Cinematic disparity track) is left out too; an
+    /// audio or video track it cannot take refuses the file, since the
+    /// message would lose its content. Nil when the file has no location.
+    /// The caller deletes it. Throws `HomeAttachmentError.locationNotRemoved`
+    /// when the export fails or its result still holds a location.
     @concurrent
     static func movieWithoutLocation(_ url: URL, mimeType: String, name: String, root: URL) async throws -> URL? {
         let asset = AVURLAsset(url: url)
@@ -544,11 +633,21 @@ enum AttachmentMedia {
         let refused = HomeAttachmentError.locationNotRemoved(name: name)
         let composition = AVMutableComposition()
         do {
-            for track in try await asset.load(.tracks) where track.mediaType != .metadata {
+            for track in try await asset.load(.tracks) where !locationTrackTypes.contains(track.mediaType) {
+                let essential = track.mediaType == .video || track.mediaType == .audio
                 let (range, transform) = try await track.load(.timeRange, .preferredTransform)
                 guard let copy = composition.addMutableTrack(withMediaType: track.mediaType,
-                                                             preferredTrackID: kCMPersistentTrackID_Invalid) else { throw refused }
-                try copy.insertTimeRange(range, of: track, at: range.start)
+                                                             preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                    if essential { throw refused }
+                    continue
+                }
+                do {
+                    try copy.insertTimeRange(range, of: track, at: range.start)
+                } catch {
+                    if essential { throw refused }
+                    composition.removeTrack(copy)
+                    continue
+                }
                 copy.preferredTransform = transform
             }
         } catch {
@@ -612,8 +711,10 @@ enum AttachmentMedia {
                                previewURL: previewURL)
     }
 
-    /// A cached thumbnail next to the blob (`thumb-<maxPixel>.jpg`, or
-    /// `.png` for a transparent image).
+    /// A cached thumbnail next to the blob (`thumb-v2-<maxPixel>.jpg`, or
+    /// `.png` for a transparent image). Builds before v2 drew transparent
+    /// images on black into `thumb-<maxPixel>.jpg`: such a file is deleted,
+    /// never reused.
     static func localThumbnail(of files: LocalAttachmentFiles, ref: AttachmentRef, maxPixel: Int) throws -> URL {
         let sourceURL: URL
         if let poster = files.posterURL {
@@ -627,12 +728,13 @@ enum AttachmentMedia {
         }
         let directory = files.fileURL.deletingLastPathComponent()
         for fileExtension in ["jpg", "png"] {
-            let cached = directory.appendingPathComponent("thumb-\(maxPixel).\(fileExtension)")
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent("thumb-\(maxPixel).\(fileExtension)"))
+            let cached = directory.appendingPathComponent("thumb-v2-\(maxPixel).\(fileExtension)")
             if FileManager.default.fileExists(atPath: cached.path) { return cached }
         }
         let thumb = try thumbnail(of: sourceURL, maxPixel: maxPixel)
         try Task.checkCancellation()
-        let target = directory.appendingPathComponent("thumb-\(maxPixel).\(thumb.fileExtension)")
+        let target = directory.appendingPathComponent("thumb-v2-\(maxPixel).\(thumb.fileExtension)")
         try thumb.data.write(to: target, options: .atomic)
         return target
     }

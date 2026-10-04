@@ -31,3 +31,13 @@ extension SidebarListView {
         return window.convertToScreen(convert(frame(for: row), to: nil))
     }
 }
+
+extension SidebarView {
+    /// Workspace `id`'s row on screen, scrolled into view first; nil when the
+    /// row is not shown (the icon picker anchors its popover here).
+    public func rowFrameOnScreen(for id: WorkspaceID) -> CGRect? {
+        guard let row = list.displayed.row(for: .workspace(id)) else { return nil }
+        list.scrollToVisible(list.frame(for: row))
+        return list.hoverCardAnchor(for: id)
+    }
+}

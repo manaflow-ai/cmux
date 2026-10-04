@@ -147,8 +147,8 @@ func makeJPEGWithXMPLocation() throws -> Data {
 /// A 1x1 lossless WebP (with an alpha channel) whose EXIF holds a GPS
 /// position. ImageIO reads WebP but cannot write it, so the EXIF block is
 /// taken from a JPEG and wrapped in RIFF chunks by hand.
-func makeWebPWithLocation() throws -> Data {
-    let jpeg = [UInt8](try makeJPEGWithLocation(width: 4, height: 4))
+func makeWebPWithLocation(orientation: Int = 6) throws -> Data {
+    let jpeg = [UInt8](try makeJPEGWithLocation(width: 4, height: 4, orientation: orientation))
     var index = 2
     var tiff: [UInt8] = []
     while index + 4 < jpeg.count {

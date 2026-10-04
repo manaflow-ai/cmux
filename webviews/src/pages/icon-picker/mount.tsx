@@ -47,7 +47,7 @@ export function mountIconPicker(
         onCancel={() => finish({ cancel: true })}
         onClear={session.canClear ? () => finish({ clear: true }) : undefined}
         assets={client && session.assets ? hostAssets(client) : undefined}
-        symbolImageURL={(name) => `./symbol/${encodeURIComponent(name)}.png`}
+        symbolImageURL={(name) => `./__symbol/${encodeURIComponent(name)}.png`}
       />,
     );
   const open = (next: PickerSession) => {

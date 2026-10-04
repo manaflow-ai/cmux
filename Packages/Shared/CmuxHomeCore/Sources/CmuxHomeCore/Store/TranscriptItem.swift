@@ -33,6 +33,13 @@ public struct TranscriptItem: Hashable, Sendable, Identifiable {
     /// Upload progress (0...1) by content hash while this send uploads its
     /// attachments. Empty once the uploads end (done or failed).
     public var attachmentProgress: [String: Double]
+    /// A "Not Delivered" send that reached the owner and got no answer
+    /// after every resend: the owner may have committed it. The host says
+    /// "may not have been delivered" instead of "Not Delivered". Retry
+    /// sends it again under the same key (the owner applies it once), and
+    /// if it was committed the echo turns the row into the message, also
+    /// after the user discards it.
+    public var mayHaveBeenDelivered = false
 
     public init(key: IdempotencyKey, seq: Seq?, author: ParticipantID, parts: [MessagePart], createdAt: Date,
                 delivery: Delivery, reactions: [Reaction] = [], isRetracted: Bool = false,
@@ -91,7 +98,7 @@ extension TranscriptWindow {
             } else {
                 .sending
             }
-            items.append(TranscriptItem(
+            var item = TranscriptItem(
                 key: entry.intent.key,
                 seq: nil,
                 author: me,
@@ -100,7 +107,9 @@ extension TranscriptWindow {
                 delivery: delivery,
                 reactions: [],
                 isRetracted: false
-            ))
+            )
+            item.mayHaveBeenDelivered = delivery != .sending && entry.mayHaveBeenDelivered
+            items.append(item)
         }
         return items
     }

@@ -24,6 +24,8 @@ export type MenuNode = {
   panel?: React.ReactNode;
   step?(delta: number): void;
   run?(): void | "keep";
+  /// The pointer or the arrows came to rest on the row (a harness row's prewarm hint).
+  rest?(): void;
 };
 
 export type MenuTree = ReturnType<typeof useMenuTree>;
@@ -67,12 +69,16 @@ export function useMenuTree(
     if (at > 0) return undefined;
     return ([...nodes].reverse().find((node) => node.checked) ?? (rootEntry === "last" ? nodes.at(-1) : nodes[0]))?.key;
   };
-  const setActiveAt = (at: number, key: string | undefined) =>
+  const setActiveAt = (at: number, key: string | undefined) => {
+    nodesAt(at)
+      .find((node) => node.key === key)
+      ?.rest?.();
     setActive((list) => {
       const next = list.slice(0, at + 1);
       next[at] = key;
       return next;
     });
+  };
   const openAt = (at: number, node: MenuNode, focus: boolean) => {
     setPath((list) => [...list.slice(0, at), node.key]);
     if (!focus) return;
