@@ -112,6 +112,9 @@ final class LineTransport: Sendable {
         writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
     }
 
+    /// The socket descriptor (tests: close-on-exec).
+    var descriptorForTesting: Int32 { socket.withLock { $0.fd } }
+
     deinit {
         writer.close()
         socket.withLock { socket in
