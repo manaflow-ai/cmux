@@ -23,7 +23,8 @@ public nonisolated struct HistoryQuery: Hashable, Sendable {
         let tokens = Self.tokens(text)
         let interval = range.interval(now: now, calendar: calendar)
         var matched = entries.filter { entry in
-            (kinds.isEmpty || kinds.contains(entry.kind))
+            Self.isDisplayable(entry)
+                && (kinds.isEmpty || kinds.contains(entry.kind))
                 && (interval.map { $0.contains(entry.time) } ?? true)
                 && Self.matches(entry.searchText, tokens)
         }
@@ -44,6 +45,39 @@ public nonisolated struct HistoryQuery: Hashable, Sendable {
 
     static func fold(_ text: String) -> String {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+    }
+
+    /// Removes implementation locations and placeholder pages from the user
+    /// history. App pages, blank tabs, and directory URLs are navigation
+    /// machinery rather than destinations a person can return to.
+    private static func isDisplayable(_ entry: HistoryEntry) -> Bool {
+        switch entry.payload {
+        case .page(let text, _):
+            guard let url = URL(string: text), let scheme = url.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https" || scheme == "file" else { return false }
+            if url.isFileURL {
+                var isDirectory: ObjCBool = false
+                if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                    return false
+                }
+            }
+            return true
+        case .location(let location, _):
+            if let url = location.url, let parsed = URL(string: url) {
+                if parsed.scheme?.lowercased() == "cmux" || parsed.absoluteString.lowercased() == "about:blank" {
+                    return false
+                }
+                if parsed.isFileURL {
+                    var isDirectory: ObjCBool = false
+                    if FileManager.default.fileExists(atPath: parsed.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                        return false
+                    }
+                }
+            }
+            return location.title != "~"
+        default:
+            return true
+        }
     }
 }
 
