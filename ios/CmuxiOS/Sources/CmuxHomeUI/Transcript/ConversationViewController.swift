@@ -212,6 +212,9 @@ final class ConversationViewController: UIViewController {
     /// real path and waits for the store's update, so the picker opens over
     /// the drawn badge with the choice selected.
     func debugTapback(choose: Reaction.Tapback?) async {
+        // A pushed screen loads its view during the transition; load it now
+        // so `openTask` exists before `rendered()` waits on it.
+        loadViewIfNeeded()
         await rendered()
         guard let transcript else { return }
         let controller = transcript.controller
