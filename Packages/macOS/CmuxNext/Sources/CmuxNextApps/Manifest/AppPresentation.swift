@@ -6,10 +6,8 @@ public import Foundation
 public nonisolated struct AppPresentation: Sendable, Hashable {
     /// Where the app's screen opens.
     public enum Screen: String, Sendable, Hashable {
-        /// The app fills the screen.
+        /// The app fills the screen (Home included; there is no app column).
         case app
-        /// A docked app column next to the normal columns (Home).
-        case appColumn
     }
 
     /// The sidebar item that opens the app.
@@ -40,6 +38,9 @@ public nonisolated struct AppPresentation: Sendable, Hashable {
     /// Where typing goes when nothing has focus: a CSS selector or a scene node id.
     public var primaryInput: String?
     public var web: Web?
+    /// Installed but hidden until the user shows it (still in the palette,
+    /// CLI and App Store). The supervisor reads the same field.
+    public var hiddenByDefault: Bool
 
     init?(json: AppJSON?) {
         guard let json, case .object = json else { return nil }
@@ -50,6 +51,7 @@ public nonisolated struct AppPresentation: Sendable, Hashable {
         screen = json["screen"]?.stringValue.flatMap(Screen.init(rawValue:))
         tab = json["tab"]?.boolValue ?? false
         primaryInput = json["primaryInput"]?.stringValue
+        hiddenByDefault = json["hiddenByDefault"]?.boolValue ?? false
         if let web = json["web"], let url = web["url"]?.stringValue.flatMap(URL.init(string:)) {
             self.web = Web(url: url, profile: web["profile"]?.stringValue ?? "app",
                            origins: web["origins"]?.arrayValue?.compactMap(\.stringValue) ?? [])

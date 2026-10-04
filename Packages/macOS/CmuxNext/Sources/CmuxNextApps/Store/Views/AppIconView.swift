@@ -52,7 +52,8 @@ struct AppStoreBadge: View {
     }
 }
 
-/// Install or Remove for a listing (user gesture; never automation).
+/// Install or Remove for a listing, Hide or Show for a first-party app
+/// (user gesture; never automation).
 struct AppInstallButton: View {
     let model: AppStoreModel
     let id: String
@@ -60,18 +61,22 @@ struct AppInstallButton: View {
     @Environment(\.appSceneColors) private var colors
 
     var body: some View {
-        let installed = model.state(of: id)?.isInstalled == true
+        let state = model.state(of: id)
+        let installed = state?.isInstalled == true
+        // First-party apps are hide-only: Hide or Show, never Remove.
+        let hideOnly = state?.bundle.source == .firstParty
         Button {
             busy = true
-            // task-owner: one install/remove from a button press
+            // task-owner: one install/remove (or hide/show) from a button press
             Task {
-                if installed { try? await model.remove(id) } else { try? await model.install(id) }
+                if hideOnly { try? await model.setHidden(id, !(state?.isHidden ?? false)) }
+                else if installed { try? await model.remove(id) } else { try? await model.install(id) }
                 busy = false
             }
         } label: {
-            Text(installed ? AppsStrings.remove : AppsStrings.install)
+            Text(hideOnly ? (state?.isHidden == true ? AppsStrings.show : AppsStrings.hide) : installed ? AppsStrings.remove : AppsStrings.install)
                 .font(Font(Typography.bodyEmphasized))
-                .foregroundStyle(installed ? colors.danger : colors.primary)
+                .foregroundStyle(installed && !hideOnly ? colors.danger : colors.primary)
                 .padding(.horizontal, Metrics.space4)
                 .padding(.vertical, Metrics.space1 + 1)
                 .background(Capsule().fill(installed ? colors.hover : colors.selection))

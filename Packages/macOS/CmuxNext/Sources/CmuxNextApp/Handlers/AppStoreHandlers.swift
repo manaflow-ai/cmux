@@ -18,8 +18,13 @@ enum AppStoreHandlers {
         })
         // Hide and unhide (V9): view preference only; the app keeps running and answering granted calls.
         func bindHidden(_ id: ActionID, _ hidden: Bool) {
+            // Without an app (palette "Hide App" / "Show Hidden Apps"): the picker.
+            services.palette.sources.actionPages[id] = { [weak services] in services.map { AppVisibilityPalette.page($0, hiding: hidden) } }
             registry.bind(id, run: { invocation in
                 let appID = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
+                guard !appID.isEmpty else {
+                    return services.palette.show(page: AppVisibilityPalette.page(services, hiding: hidden), relativeTo: context.activeWindow?.window)
+                }
                 guard services.apps.registry.app(appID)?.isInstalled == true else {
                     throw ActionFailure(message: RefusalStrings.text("refusal.app.unknown", "No installed app with that id."))
                 }
@@ -50,7 +55,7 @@ enum AppStoreHandlers {
         // The root palette lists "Open <App>" and the commands of visible apps.
         services.palette.sources.extraProviders.append(AsyncPaletteProvider(id: "apps", showsItemsForEmptyQuery: false) { [weak services] in
             guard let services, !services.registry.disabledFeatures.contains(.apps) else { return [] }
-            return AppCommandPalette.rootItems(services)
+            return AppCommandPalette.rootItems(services) + AppVisibilityPalette.rootItems(services)
         })
         services.palette.sources.actionPages["app.command.run"] = { [weak services] in services.map(AppCommandPalette.page) }
         registry.bind("app.command.run", run: { invocation in

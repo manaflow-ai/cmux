@@ -26,17 +26,13 @@ import { OP } from "../ops.ts"
 import { isBusy } from "../store.ts"
 import { bar, caption, choice, dot, header, loaded, noticeLine, small } from "./common.ts"
 import { setupPending } from "./onboarding.ts"
-import { addKeyMenu, createdKeyLine, line, testBody } from "./steps.ts"
+import { addKeyMenu, createdKeyLine, detectBody, line, testBody } from "./steps.ts"
 
 export type Tab = "overview" | "accounts" | "keys" | "usage" | "routing"
 
 export function statusSection(d: Core) {
   return loaded(d.status, OP.status, (s) => {
-    if (!s.signed_in)
-      return VStack({ spacing: 6 }, [
-        EmptyState({ title: t("problem.signedOut", "Sign in to cmux"), message: t("problem.signedOut.body", "CodeRouter acts as your cmux account and team."), symbol: "person.crop.circle" }),
-        HStack([Spacer(), Button(t("action.signIn", "Sign In"), act.signIn), Spacer()])
-      ])
+    if (!s.signed_in) return localStatus()
     const scope = s.scope?.kind === "team" ? s.scope.team_name : t("scope.personal", "Personal")
     return VStack({ spacing: 4 }, [
       HStack({ spacing: 8 }, [
@@ -52,6 +48,32 @@ export function statusSection(d: Core) {
       () => (setupPending(d) ? HStack([Spacer(), small(t("action.finishSetup", "Finish Setup"), () => act.openPane("onboarding"))]) : null)
     ])
   })
+}
+
+/** Signed out: CodeRouter works on this Mac; only team features ask for a cmux sign-in, inline. */
+function localStatus() {
+  return VStack({ spacing: 4 }, [
+    HStack({ spacing: 8 }, [
+      Text(t("status.title", "CodeRouter")).font("title3").weight("semibold"),
+      Badge(t("scope.local", "This Mac"), "secondary"),
+      Spacer()
+    ]),
+    signInInline()
+  ])
+}
+
+/** The one place a signed-out user is asked to sign in: next to the team features. */
+export function signInInline() {
+  return HStack({ spacing: 6 }, [
+    caption(t("local.signInForTeam", "Sign in to cmux to share accounts with your team")),
+    Spacer(),
+    small(t("action.signIn", "Sign In"), act.signIn)
+  ])
+}
+
+/** The local page: status, the sign-ins on this Mac. Cloud sections need an account. */
+function localLayout(d: Core) {
+  return VStack({ spacing: 8 }, [statusSection(d), header(t("section.thisMac", "On this Mac")), detectBody(d)])
 }
 
 function accountRow(a: Account) {
@@ -200,7 +222,7 @@ export function testSection() {
   return VStack({ spacing: 2 }, [header(t("section.test", "Test request")), testBody()])
 }
 
-/** One problem view instead of the same failure in every section; signed out shows only sign-in. */
+/** One problem view instead of the same failure in every section; signed out shows the local page. */
 function whenReachable(d: Core, body: () => CmuxView): () => CmuxView | null {
   const mode = computed(() => {
     const s = d.status()
@@ -213,6 +235,8 @@ function whenReachable(d: Core, body: () => CmuxView): () => CmuxView | null {
         return body()
       case "loading":
         return caption(t("state.loading", "Loading…"))
+      case "signedOut":
+        return localLayout(d)
       default:
         return statusSection(d)()
     }

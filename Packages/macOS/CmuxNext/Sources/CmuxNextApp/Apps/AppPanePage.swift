@@ -30,7 +30,10 @@ final class AppPanePage: InternalPageProvider {
     private var pane: AppContribution? { app?.manifest.contributes.of(.paneKind).first }
 
     /// Whether this app has a page to open (installed, visible, with a pane).
-    static func opens(_ app: InstalledApp) -> Bool { app.isVisible && app.manifest.contributes.of(.paneKind).first?.export != nil }
+    /// An installed, enabled app with a page opens, hidden or not: hiding only
+    /// removes its sidebar and menu presence, and the palette and CLI still
+    /// open it (FIRST-PARTY-APPS).
+    static func opens(_ app: InstalledApp) -> Bool { app.isActive && app.manifest.contributes.of(.paneKind).first?.export != nil }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let app, let pane else { return NSView() }

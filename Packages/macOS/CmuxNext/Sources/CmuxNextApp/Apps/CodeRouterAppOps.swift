@@ -25,12 +25,18 @@ nonisolated struct CodeRouterAppOps: AppHostCapabilityHandler {
         case "coderouter.status":
             let accounts = try await control("accounts.list", params)
             let signedIn = accounts["signed_in"]?.boolValue ?? false
+            // Signed out is CodeRouter's local mode (the sign-ins on this
+            // Mac), not an error; team features ask for a sign-in inline.
             return [
                 "signed_in": .bool(signedIn),
+                "mode": signedIn ? "account" : "local",
                 "refreshing": .bool(accounts["refreshing"]?.boolValue ?? false),
                 "scope": signedIn ? "personal" : .null,
-                "health": signedIn ? "ok" : "signed_out",
+                "health": "ok",
             ]
+        case "coderouter.detect":
+            let accounts = try await control("accounts.list", params)
+            return .array((accounts["providers"]?.arrayValue ?? []).map(Self.detected))
         case "coderouter.accounts.list":
             return Self.redact(AppJSON(try await control("coderouter.accounts.list", params)))
         case "coderouter.usage.get":
@@ -38,6 +44,23 @@ nonisolated struct CodeRouterAppOps: AppHostCapabilityHandler {
         default:
             throw .unsupported(request.op)
         }
+    }
+
+    /// One `coderouter.detect` row (presence only, never a secret) from a local
+    /// accounts row: handle and redacted label, the first source label.
+    static func detected(_ row: JSONValue) -> AppJSON {
+        let status = row["status"]?.stringValue ?? "missing"
+        let text = { (key: String) -> AppJSON in row[key]?.stringValue.map { .string($0.redactingEmails()) } ?? .null }
+        return [
+            "provider": .string(row["provider"]?.stringValue ?? ""),
+            "name": .string(row["name"]?.stringValue ?? ""),
+            "status": .string(status),
+            "account": text("account"),
+            "label": text("label"),
+            "plan": text("plan"),
+            "linkable": .bool(row["linkable"]?.boolValue ?? false),
+            "source": row["sources"]?.arrayValue?.first?.stringValue.map { .string($0.redactingEmails()) } ?? .null,
+        ]
     }
 
     /// Shortens every email-like string, keys included, with the shared

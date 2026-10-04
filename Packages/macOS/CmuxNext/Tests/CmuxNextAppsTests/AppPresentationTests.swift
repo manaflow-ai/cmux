@@ -15,10 +15,10 @@ import Testing
         return registry
     }
 
-    @Test func homeResolvesWithTheAppColumnScreen() async throws {
+    @Test func homeResolvesWithTheAppScreen() async throws {
         let home = try #require(try await registry().app("cmux/home"))
         let presentation = try #require(home.manifest.presentation)
-        #expect(presentation.screen == .appColumn)
+        #expect(presentation.screen == .app)
         #expect(presentation.tab)
         #expect(presentation.primaryInput == "home.composer")
         #expect(presentation.sidebarItem?.section == "top" && presentation.sidebarItem?.order == 0)

@@ -93,7 +93,8 @@ function busyOr(key: string, view: () => CmuxView | null): () => CmuxView | null
   return () => (isBusy(key) ? ProgressView().frame({ width: 16, height: 16 }) : view())
 }
 
-function detectBody(d: Core) {
+/** The sign-ins and keys found on this Mac: works without a cmux sign-in. */
+export function detectBody(d: Core) {
   return VStack({ spacing: 4 }, [
     loaded(d.detected, OP.detect, (all) => {
       const found = all.filter((x) => x.status !== "missing")

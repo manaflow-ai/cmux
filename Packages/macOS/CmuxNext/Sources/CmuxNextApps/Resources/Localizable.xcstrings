@@ -132,6 +132,23 @@
         }
       }
     },
+    "store.action.hide" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "非表示"
+          }
+        }
+      }
+    },
     "store.action.hideLogs" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1045,6 +1062,23 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "已停用"
+          }
+        }
+      }
+    },
+    "store.action.show" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示"
           }
         }
       }

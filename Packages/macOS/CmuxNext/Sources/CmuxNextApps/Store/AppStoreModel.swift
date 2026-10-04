@@ -99,6 +99,11 @@ public final class AppStoreModel {
         await onRemoved?(id)
     }
 
+    /// Hide or show an installed app (first-party apps offer only this).
+    public func setHidden(_ id: String, _ hidden: Bool) async throws {
+        try await registry.setHidden(id, hidden)
+    }
+
     public func setEnabled(_ id: String, _ enabled: Bool) async throws {
         if !enabled { await host.stop(id, reason: "disabled") }
         try await registry.setEnabled(id, enabled)

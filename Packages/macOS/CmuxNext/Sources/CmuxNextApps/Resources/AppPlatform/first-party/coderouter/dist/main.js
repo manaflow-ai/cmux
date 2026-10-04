@@ -144,6 +144,11 @@
     "status.agentsOff": "エージェントはそれぞれのサインインを使用",
     "status.agentsOn": "エージェントは CodeRouter を使用",
     "status.signedOut": "サインアウト中",
+    "scope.local": "この Mac",
+    "local.signInForTeam": "チームとアカウントを共有するには cmux にサインインしてください",
+    "local.signInSub": "チームとアカウントを共有するために",
+    "local.foundCount": "{n} 件のサインインが見つかりました",
+    "section.thisMac": "この Mac",
     "status.title": "CodeRouter",
     "step.connect": "アカウントを接続",
     "step.connect.body": "CodeRouter は接続したアカウント間でフェイルオーバーします。各アカウントは cmux が CodeRouter に送り、このアプリには見えません。",
@@ -1099,10 +1104,7 @@
   function statusSection(d) {
     return loaded(d.status, OP.status, (s) => {
       if (!s.signed_in)
-        return VStack({ spacing: 6 }, [
-          EmptyState({ title: t("problem.signedOut", "Sign in to cmux"), message: t("problem.signedOut.body", "CodeRouter acts as your cmux account and team."), symbol: "person.crop.circle" }),
-          HStack([Spacer(), Button(t("action.signIn", "Sign In"), signIn), Spacer()])
-        ]);
+        return localStatus();
       const scope = s.scope?.kind === "team" ? s.scope.team_name : t("scope.personal", "Personal");
       return VStack({ spacing: 4 }, [
         HStack({ spacing: 8 }, [
@@ -1116,6 +1118,26 @@
         () => setupPending(d) ? HStack([Spacer(), small(t("action.finishSetup", "Finish Setup"), () => openPane("onboarding"))]) : null
       ]);
     });
+  }
+  function localStatus() {
+    return VStack({ spacing: 4 }, [
+      HStack({ spacing: 8 }, [
+        Text(t("status.title", "CodeRouter")).font("title3").weight("semibold"),
+        Badge(t("scope.local", "This Mac"), "secondary"),
+        Spacer()
+      ]),
+      signInInline()
+    ]);
+  }
+  function signInInline() {
+    return HStack({ spacing: 6 }, [
+      caption(t("local.signInForTeam", "Sign in to cmux to share accounts with your team")),
+      Spacer(),
+      small(t("action.signIn", "Sign In"), signIn)
+    ]);
+  }
+  function localLayout(d) {
+    return VStack({ spacing: 8 }, [statusSection(d), header(t("section.thisMac", "On this Mac")), detectBody(d)]);
   }
   function accountRow(a) {
     const now = Date.now();
@@ -1239,6 +1261,8 @@
           return body();
         case "loading":
           return caption(t("state.loading", "Loading…"));
+        case "signedOut":
+          return localLayout(d);
         default:
           return statusSection(d)();
       }
@@ -1282,8 +1306,13 @@
   }
   function summary(d) {
     return loaded(d.status, OP.status, (s) => {
-      if (!s.signed_in)
-        return Row({ title: t("problem.signedOut", "Sign in to cmux"), subtitle: t("section.signIn.sub", "to use CodeRouter"), symbol: "person.crop.circle", tint: "secondary" }).onTap(signIn);
+      if (!s.signed_in) {
+        const found = (d.detected() ?? []).filter((x) => x.status === "signed_in").length;
+        return VStack({ spacing: 0 }, [
+          Row({ title: t("scope.local", "This Mac"), subtitle: t("local.foundCount", "{n} sign-ins found", { n: found }), symbol: "arrow.triangle.branch", tint: "secondary" }).onTap(() => openPane("dashboard")),
+          Row({ title: t("problem.signedOut", "Sign in to cmux"), subtitle: t("local.signInSub", "to share accounts with your team"), symbol: "person.crop.circle", tint: "secondary" }).onTap(signIn)
+        ]);
+      }
       const accounts = d.accounts() ?? [];
       const healthy = accounts.filter(isHealthyAccount).length;
       const shared = accounts.filter((a) => a.visibility === "team").length;
@@ -1326,7 +1355,7 @@
       if (d.status.problem() || !s)
         return "";
       if (!s.signed_in)
-        return t("status.signedOut", "Signed out");
+        return "";
       if (s.health === "down")
         return t("health.down", "Down");
       return cmux.app.settings().statusShowsUsage === false ? "" : usageSummary(s.usage_today);

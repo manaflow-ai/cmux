@@ -13,8 +13,13 @@ import { checklist, setupPending } from "./onboarding.ts"
 
 function summary(d: Core) {
   return loaded(d.status, OP.status, (s) => {
-    if (!s.signed_in)
-      return Row({ title: t("problem.signedOut", "Sign in to cmux"), subtitle: t("section.signIn.sub", "to use CodeRouter"), symbol: "person.crop.circle", tint: "secondary" }).onTap(act.signIn)
+    if (!s.signed_in) {
+      const found = (d.detected() ?? []).filter((x) => x.status === "signed_in").length
+      return VStack({ spacing: 0 }, [
+        Row({ title: t("scope.local", "This Mac"), subtitle: t("local.foundCount", "{n} sign-ins found", { n: found }), symbol: "arrow.triangle.branch", tint: "secondary" }).onTap(() => act.openPane("dashboard")),
+        Row({ title: t("problem.signedOut", "Sign in to cmux"), subtitle: t("local.signInSub", "to share accounts with your team"), symbol: "person.crop.circle", tint: "secondary" }).onTap(act.signIn)
+      ])
+    }
     const accounts = d.accounts() ?? []
     const healthy = accounts.filter(isHealthyAccount).length
     const shared = accounts.filter((a) => a.visibility === "team").length
@@ -59,7 +64,8 @@ export function statusItem(d: Core) {
   const text = () => {
     const s = d.status()
     if (d.status.problem() || !s) return ""
-    if (!s.signed_in) return t("status.signedOut", "Signed out")
+    // Signed out is a normal local state, not an error: show nothing extra.
+    if (!s.signed_in) return ""
     if (s.health === "down") return t("health.down", "Down")
     return cmux.app.settings().statusShowsUsage === false ? "" : usageSummary(s.usage_today)
   }

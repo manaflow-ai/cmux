@@ -22,6 +22,8 @@ nonisolated enum AppsStrings {
 
     static var install: String { t("store.action.install", "Install") }
     static var remove: String { t("store.action.remove", "Remove") }
+    static var hide: String { t("store.action.hide", "Hide") }
+    static var show: String { t("store.action.show", "Show") }
     static var enabled: String { t("store.action.enabled", "Enabled") }
     static var reload: String { t("store.action.reload", "Reload") }
     static var logs: String { t("store.action.logs", "Logs") }

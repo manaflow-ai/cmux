@@ -12,8 +12,11 @@ public nonisolated protocol AppStoreCatalog: Sendable {
 public nonisolated struct BundledAppStoreCatalog: AppStoreCatalog {
     public let listings: [AppStoreListing]
 
+    /// The App Store itself is an app but never lists itself.
+    public static let selfID = "cmux/app-store"
+
     public init(bundles: [AppBundle]) {
-        listings = bundles.filter { $0.source != .local }.map { AppStoreListing(bundle: $0, tier: .firstParty) }
+        listings = bundles.filter { $0.source != .local && $0.id != Self.selfID }.map { AppStoreListing(bundle: $0, tier: .firstParty) }
     }
 
 

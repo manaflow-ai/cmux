@@ -98,7 +98,7 @@ public final class AppRegistry {
         self.file = file
         self.problems = problems
         var seen = Set<String>()
-        apps = bundles.filter { seen.insert($0.id).inserted }.map { InstalledApp(bundle: $0, entry: file.entry($0.id, installedByDefault: Self.installedByDefault($0))) }
+        apps = bundles.filter { seen.insert($0.id).inserted }.map { InstalledApp(bundle: $0, entry: Self.entry(for: $0, in: file)) }
         isLoaded = true
     }
 
@@ -106,12 +106,34 @@ public final class AppRegistry {
     public var active: [InstalledApp] { apps.filter(\.isActive) }
 
     public func install(_ id: String) async throws { try await update(id) { $0.installed = true; $0.enabled = true } }
-    public func remove(_ id: String) async throws { try await update(id) { $0.installed = false } }
+    /// First-party apps can only be hidden, never removed (Lawrence,
+    /// FIRST-PARTY-APPS); `remove` refuses them.
+    public func remove(_ id: String) async throws {
+        if app(id)?.bundle.source == .firstParty { throw AppRegistryError.firstPartyHideOnly(id) }
+        try await update(id) { $0.installed = false }
+    }
     public func setEnabled(_ id: String, _ enabled: Bool) async throws { try await update(id) { $0.enabled = enabled } }
     public func setHidden(_ id: String, _ hidden: Bool) async throws { try await update(id) { $0.hidden = hidden } }
 
     /// Development apps are installed as soon as they are in the local directory; bundled samples are opt-in.
     nonisolated static func installedByDefault(_ bundle: AppBundle) -> Bool { bundle.source == .local || bundle.source == .firstParty }
+
+    /// The record of `bundle`, with the shipped defaults when none exists. A
+    /// first-party app is always installed: a record that removed one (the
+    /// earlier removable behavior) reads as hidden instead.
+    nonisolated static func entry(for bundle: AppBundle, in file: AppRegistryFile) -> AppRegistryFile.Entry {
+        var entry = file.entry(bundle.id, installedByDefault: installedByDefault(bundle))
+        guard bundle.source == .firstParty else { return entry }
+        // Shipped hidden (manifest presentation.hiddenByDefault, the field the
+        // supervisor reads too): installed, reachable from the palette and
+        // the App Store, not in the sidebar until shown.
+        if file.apps[bundle.id] == nil, bundle.manifest.presentation?.hiddenByDefault == true { entry.hidden = true }
+        if !entry.installed {
+            entry.installed = true
+            entry.hidden = true
+        }
+        return entry
+    }
 
     /// Grants or revokes one scope (takes effect on the app's next call).
     public func setGranted(_ id: String, scope: String, _ granted: Bool) async throws {
@@ -135,7 +157,7 @@ public final class AppRegistry {
 
     private func update(_ id: String, _ change: (inout AppRegistryFile.Entry) -> Void) async throws {
         guard let index = apps.firstIndex(where: { $0.id == id }) else { return }
-        var entry = file.entry(id, installedByDefault: Self.installedByDefault(apps[index].bundle))
+        var entry = Self.entry(for: apps[index].bundle, in: file)
         change(&entry)
         entry.changedAt = Date()
         var next = file
