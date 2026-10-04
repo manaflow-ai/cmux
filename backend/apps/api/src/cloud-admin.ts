@@ -6,7 +6,8 @@ import { timingSafeEqual } from "./ingress/verify.ts"
  * Operator route: POST /v1/admin/cloud/abandoned/clear {team, machine, reason}.
  * Two credentials: `authorization: Bearer <CLOUD_ADMIN_KEY>` (the operator tool) AND
  * `x-cmux-person-token: <the person's own session token>`. The token must authenticate as a
- * session, never an install or an agent, so every clear names a person. CloudDO refuses unless a
+ * session (never an install or an agent) of a user on CLOUD_ADMIN_USERS (comma-separated user ids)
+ * with a verified email, so every clear names an admin person, not any sign-up. CloudDO refuses unless a
  * provider lookup of the recorded name finds no VM, and audits who, when and why. Absent (404)
  * without CLOUD_ADMIN_KEY.
  */
@@ -20,8 +21,11 @@ export const handleCloudAbandonedClear = async (request: Request, env: Env): Pro
   if (request.method !== "POST") return json({ error: "method not allowed" }, 405)
   const presented = (request.headers.get("authorization") ?? "").replace(/^Bearer /, "")
   if (!timingSafeEqual(presented, key)) return json({ error: "unauthorized" }, 401)
+  if (Number(request.headers.get("content-length") ?? "0") > 8 * 1024) return json({ error: "body too large" }, 413)
   const person = await authenticate(env, request.headers.get("x-cmux-person-token") ?? undefined).catch(() => undefined)
   if (!person || person.kind !== "session" || person.agent !== undefined || !person.user) return json({ error: "a person's session token is required (never an install or an agent)" }, 403)
+  const admins = new Set((env.CLOUD_ADMIN_USERS ?? "").split(",").map((u) => u.trim()).filter(Boolean))
+  if (!admins.has(person.user) || person.email_verified !== true || !person.email) return json({ error: "this person is not a Cloud admin (CLOUD_ADMIN_USERS, verified email)" }, 403)
   const raw = await request.text()
   if (raw.length > 8 * 1024) return json({ error: "body too large" }, 413)
   const body = (() => {
@@ -38,7 +42,7 @@ export const handleCloudAbandonedClear = async (request: Request, env: Env): Pro
   const ns = env.CLOUD_DO
   if (!ns) return json({ error: "no CloudDO binding" }, 503)
   const stub = ns.get(ns.idFromName(team)) as unknown as { clearAbandoned(entity: string, machine: string, who: { user: string; email: string | null }, reason: string): Promise<{ ok: boolean; code?: string; message?: string; audit?: unknown }> }
-  const r = await stub.clearAbandoned(team, machine, { user: person.user, email: person.email ?? null }, reason)
+  const r = await stub.clearAbandoned(team, machine, { user: person.user, email: person.email }, reason)
   if (r.ok) return json({ cleared: true, audit: r.audit })
   const status = r.code === "vm_present" ? 409 : r.code === "provider_unavailable" ? 503 : 404
   return json({ error: r.code, message: r.message }, status)

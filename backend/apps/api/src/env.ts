@@ -67,6 +67,8 @@ export interface Env {
   readonly CLOUD_FREESTYLE_API_KEY?: string
   /** Secret: the operator key for /v1/admin/cloud/abandoned/clear (also needs a person's session token). */
   readonly CLOUD_ADMIN_KEY?: string
+  /** Comma-separated user ids who may use the Cloud admin routes (with CLOUD_ADMIN_KEY and their own verified session). */
+  readonly CLOUD_ADMIN_USERS?: string
   readonly CLOUD_FREESTYLE_API_URL?: string
   /** Var: the image every Cloud machine boots from; must start with cmuxnp-<env>-vmimg- (CLOUD-DEV-SNAPSHOT). */
   readonly CLOUD_FREESTYLE_SNAPSHOT?: string
