@@ -168,7 +168,9 @@ public final class HomeStore {
     /// Sends an intent to its owner. Refused at once unless online (nothing
     /// queues). Throws `HomeRejection` when refused, and
     /// `HomeSendState.pendingResend` when the answer was lost and the store
-    /// resends it with the same key.
+    /// resends it with the same key. A `sendMessage` goes to the owner only
+    /// after every earlier send in its conversation was decided (see
+    /// `sendQueue`), so a burst of sends commits in the order made.
     @discardableResult
     public func perform(_ op: HomeOp, key: IdempotencyKey = .make()) async throws -> HomeOpResult {
         guard isOnline else { throw HomeRejection.ownerUnreachable }
@@ -288,10 +290,15 @@ public final class HomeStore {
     /// `key`, whose parts are the attachments in order, then the text when
     /// it is not blank. The row shows at once with `attachmentProgress`;
     /// the store uploads every attachment through the source, then submits
-    /// `message.send` with the same key. An upload failure leaves the row
-    /// "Not Delivered" (retry uploads only what is missing). Throws like
-    /// `perform`, and `HomeAttachmentError` (nothing logged) for a file the
-    /// owner would refuse.
+    /// `message.send` with the same key, after every earlier send in the
+    /// conversation. Each part takes the owner's stored mime type, byte
+    /// count and poster first (the first upload of a hash wins). An upload
+    /// failure leaves the row "Not Delivered" (retry uploads only what is
+    /// missing); a disconnect keeps it sending and resumes on reconnect
+    /// (`HomeSendState.pendingResend`); `cancelSend` stops it
+    /// (`CancellationError`). Throws like `perform`, and
+    /// `HomeAttachmentError` (nothing logged) for a file the owner would
+    /// refuse.
     public func send(conversation: ConversationID, text: String, attachments: [LocalAttachment],
                      key: IdempotencyKey = .make()) async throws {
         guard isOnline else { throw HomeRejection.ownerUnreachable }
