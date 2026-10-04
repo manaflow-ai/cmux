@@ -152,6 +152,9 @@ import Testing
         #expect(ownership.inputSessionID == nil, "no single acting session")
         #expect(ownership.recipient(for: .dialog) == nil)
         #expect(ownership.recipient(for: .fileChooser) == nil)
+        // Answered as unhandled, not shown to the user.
+        #expect(ownership.route(for: .dialog) == .refused)
+        #expect(ownership.route(for: .fileChooser) == .refused)
         // A request either input may have started reaches only the sessions
         // that listen for network events, never the other acting session.
         let request = ownership.networkRecipients(event: "request", requestID: "1")
@@ -161,7 +164,7 @@ import Testing
         #expect(ownership.recipient(for: .dialog) == "a")
         ownership.endInput(sessionID: "a")
         #expect(ownership.recipient(for: .dialog) == "b")
-        #expect(ownership.recipient(for: .fileChooser) == nil)
+        #expect(ownership.route(for: .fileChooser) == .user)
     }
 
     @Test func eventNamesParseStrictly() {

@@ -311,7 +311,9 @@ final class BrowserReplTabAttachment {
         return false
     }
 
-    /// The attached session whose input the page is handling now, if any.
+    /// The attached session whose input the page is handling now, if
+    /// exactly one session's input is in flight
+    /// (``BrowserReplTabOwnership/inputSessionID``).
     var inputSessionID: String? {
         guard let sessionID = ownership.inputSessionID, sinks[sessionID] != nil else { return nil }
         return sessionID
@@ -322,11 +324,20 @@ final class BrowserReplTabAttachment {
         recipient(for: event) != nil
     }
 
-    /// The one attached session `event` goes to (``BrowserReplTabOwnership/recipient(for:)``).
+    /// The one attached session `event` goes to (``BrowserReplTabOwnership/route(for:)``).
     /// Only it receives the event and may answer it.
     private func recipient(for event: BrowserReplTabEvent) -> String? {
-        guard isAttached, let sessionID = ownership.recipient(for: event), sinks[sessionID] != nil else { return nil }
-        return sessionID
+        if case .session(let sessionID) = route(for: event) { return sessionID }
+        return nil
+    }
+
+    /// Where `event` goes; ``BrowserReplEventRoute/user`` when the tab has
+    /// no attached session or the chosen one has no sink.
+    private func route(for event: BrowserReplTabEvent) -> BrowserReplEventRoute {
+        guard isAttached else { return .user }
+        let route = ownership.route(for: event)
+        if case .session(let sessionID) = route, sinks[sessionID] == nil { return .user }
+        return route
     }
 
     /// Whether a session created this tab, so permission requests answer
@@ -829,7 +840,18 @@ final class BrowserReplTabAttachment {
         defaultValue: String?,
         respond: @escaping (Bool, String?) -> Void
     ) -> Bool {
-        guard let owner = recipient(for: .dialog) else { return false }
+        let owner: String
+        switch route(for: .dialog) {
+        case .user:
+            return false
+        case .refused:
+            // Inputs of two sessions were in flight: the dialog may be
+            // either's, so neither answers it, and the user is not asked.
+            respond(false, nil)
+            return true
+        case .session(let sessionID):
+            owner = sessionID
+        }
         let id = makeID("d")
         if let command = clipboardCommandsInFlight.last {
             // Held, the dialog would keep WebKit's Copy, Cut or Paste open.
@@ -889,7 +911,17 @@ final class BrowserReplTabAttachment {
         frame: WKFrameInfo,
         respond: @escaping ([URL]?) -> Void
     ) -> Bool {
-        guard let owner = recipient(for: .fileChooser) else { return false }
+        let owner: String
+        switch route(for: .fileChooser) {
+        case .user:
+            return false
+        case .refused:
+            // As for a dialog: no session may pick files for another's input.
+            respond(nil)
+            return true
+        case .session(let sessionID):
+            owner = sessionID
+        }
         let id = makeID("c")
         fileChoosers.add(id: id, owner: owner, respond: (respond, frame))
         let frameID = frame.isMainFrame ? nil : BrowserReplFrameTree.frameID(of: frame)

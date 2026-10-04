@@ -11,6 +11,20 @@ public enum BrowserReplTabEvent: String, CaseIterable, Sendable {
     case network
 }
 
+/// Where a dialog, file chooser or download of one tab goes
+/// (``BrowserReplTabOwnership/route(for:)``).
+public enum BrowserReplEventRoute: Sendable, Equatable {
+    /// cmux's own UI: no session takes the event.
+    case user
+    /// The one session that receives the event and may answer it.
+    case session(String)
+    /// Inputs of several sessions are in flight on the tab, so the page
+    /// may have opened the event for any of them: no session gets it, and
+    /// it is answered as an unhandled one (a dialog dismissed, a file
+    /// chooser cancelled), never put in front of the user.
+    case refused
+}
+
 /// A session a network event goes to, and whether it gets the request's
 /// and response's credential headers (``Swift/Dictionary/removingBrowserReplCredentialHeaders()``).
 public struct BrowserReplNetworkRecipient: Sendable, Equatable {
@@ -55,9 +69,13 @@ extension Dictionary where Key == String, Value == String {
 /// must neither come up in front of the user nor leave the agent waiting
 /// for an answer only the user can give. Downloads keep the user's location.
 ///
-/// A routed event goes to one session (``recipient(for:)``), and only that
+/// A routed event goes to one session (``route(for:)``), and only that
 /// session may answer it: a second session driving the same tab never sees
-/// or answers a dialog, file chooser or download routed to another.
+/// or answers a dialog, file chooser or download routed to another. What
+/// the page opens while it handles one session's input is that session's,
+/// also when another session has a handler for it. WebKit does not say
+/// which input an event came from, so while inputs of two sessions are in
+/// flight at once no event, popup or request goes to either of them.
 ///
 /// A tab a session created is that session's alone while it lives: no other
 /// session may drive it (``ownerRefusing(_:)``). Network events go only to
@@ -131,7 +149,9 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         if let creator { sessions.insert(creator) }
         let tracked = requestRecipients.firstIndex { $0.requestID == requestID }
         if event == "request" {
-            let started = sessions.union(inputSessionIDs.filter { attachedSessionIDs.contains($0) })
+            // Only a request one session's input alone may have started
+            // follows that session; with two sessions acting, neither.
+            let started = sessions.union(inputSessionID.map { [$0] } ?? [])
             if let tracked { requestRecipients.remove(at: tracked) }
             requestRecipients.append(TrackedRequest(requestID: requestID, sessionIDs: started))
             if requestRecipients.count > Self.maximumTrackedRequests { requestRecipients.removeFirst() }
@@ -153,9 +173,19 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         inputSessionIDs.append(sessionID)
     }
 
-    /// The session whose input the page is handling now, if any.
+    /// The session whose input the page is handling now, if exactly one
+    /// session's input is in flight. `nil` when none is, and when inputs of
+    /// several sessions are (``isInputAmbiguous``): an event the page opens
+    /// then cannot be told to be one session's.
     public var inputSessionID: String? {
-        inputSessionIDs.last
+        guard let first = inputSessionIDs.first, inputSessionIDs.allSatisfy({ $0 == first }) else { return nil }
+        return first
+    }
+
+    /// Whether inputs of more than one session are in flight on the tab.
+    public var isInputAmbiguous: Bool {
+        guard let first = inputSessionIDs.first else { return false }
+        return inputSessionIDs.contains { $0 != first }
     }
 
     /// Ends one ``beginInput(sessionID:)``.
@@ -190,20 +220,31 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         recipient(for: event) != nil
     }
 
-    /// The one session `event` goes to, or `nil` when it keeps the user's
-    /// UI: a session with a handler for it (the creator's first, then the
-    /// session that registered its handler first), else the attached
-    /// creator of a tab a session created, else, for a dialog or file
-    /// chooser, the session whose input the page is handling.
-    public func recipient(for event: BrowserReplTabEvent) -> String? {
+    /// Where `event` goes. In a tab a session created, the attached
+    /// creator (only it drives the tab). Else a dialog or file chooser the
+    /// page opens while it handles one session's input goes to that
+    /// session, and to none while inputs of several sessions are in flight
+    /// (``BrowserReplEventRoute/refused``); any other event goes to the
+    /// session that registered a handler for it first, else to the user.
+    public func route(for event: BrowserReplTabEvent) -> BrowserReplEventRoute {
         let creator = isSessionOwned ? creatorSessionID : nil
-        if let creator, handledEvents[creator]?.contains(event) == true { return creator }
-        if let handler = handlerOrder.first(where: { handledEvents[$0]?.contains(event) == true }) {
-            return handler
+        if let creator, handledEvents[creator]?.contains(event) == true { return .session(creator) }
+        if event != .download {
+            if isInputAmbiguous { return .refused }
+            if let acting = inputSessionID, attachedSessionIDs.contains(acting) { return .session(acting) }
         }
-        if let creator { return creator }
-        guard event != .download else { return nil }
-        return inputSessionIDs.last
+        if let handler = handlerOrder.first(where: { handledEvents[$0]?.contains(event) == true }) {
+            return .session(handler)
+        }
+        if let creator { return .session(creator) }
+        return .user
+    }
+
+    /// The one session `event` goes to (``route(for:)``), or `nil` when no
+    /// session gets it.
+    public func recipient(for event: BrowserReplTabEvent) -> String? {
+        if case .session(let sessionID) = route(for: event) { return sessionID }
+        return nil
     }
 
     /// Parses `tab.handleEvents` names.
