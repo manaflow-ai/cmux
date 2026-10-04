@@ -366,8 +366,11 @@ export type FreshTail = { steps: Reveal[]; text: string; now: number };
 /// and a negative animation delay, so a re-render never restarts its fade. Only plain trailing
 /// text fades by step; a suffix with Markdown syntax or a line break draws as usual.
 function renderFresh(text: string, tail: FreshTail, opts: InlineOptions): ReactNode[] {
+  // The live edge: a soft bar after the newest character, out of the text's layout (no reflow
+  // when it leaves); it pulses only while the reveal waits for more (`.cv-md.is-waiting`).
+  const caret = <span key="caret" className="cv-caret" aria-hidden="true" />;
   const fresh = tail.text.trimEnd();
-  if (!fresh || !text.endsWith(fresh) || /[*`_~[\]()$\\\n]/.test(fresh)) return renderInline(text, opts);
+  if (!fresh || !text.endsWith(fresh) || /[*`_~[\]()$\\\n]/.test(fresh)) return [...renderInline(text, opts), caret];
   const out = renderInline(text.slice(0, text.length - fresh.length), opts);
   let end = fresh.length;
   const spans: ReactNode[] = [];
@@ -382,7 +385,7 @@ function renderFresh(text: string, tail: FreshTail, opts: InlineOptions): ReactN
     end = start;
   }
   if (end > 0) out.push(fresh.slice(0, end));
-  return [...out, ...spans];
+  return [...out, ...spans, caret];
 }
 
 /// A top-level block that renders again only when its parsed block changes: a streaming reply's
@@ -398,10 +401,20 @@ export type MarkdownProps = InlineOptions & {
   /** The newest revealed steps (RevealedMarkdown), which fade in at the end of the last block. */
   fresh?: Reveal[];
   now?: number;
+  /** The reveal has shown everything so far and waits for more: the live edge pulses. */
+  waiting?: boolean;
 };
 
 /** Assistant-message Markdown. A growing source (a streaming reply) is parsed incrementally. */
-export function Markdown({ children, className = "", linkIcon, streaming = false, fresh, now = 0 }: MarkdownProps) {
+export function Markdown({
+  children,
+  className = "",
+  linkIcon,
+  streaming = false,
+  fresh,
+  now = 0,
+  waiting = false,
+}: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
   const blocks = parser.current.update(children, { streaming });
@@ -412,12 +425,15 @@ export function Markdown({ children, className = "", linkIcon, streaming = false
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
   const freshChars = fresh?.reduce((sum, step) => sum + step.count, 0) ?? 0;
+  // Only a revealed reply (RevealedMarkdown passes `fresh`) draws the live edge.
   const freshTail: FreshTail | undefined =
-    streaming && fresh?.length ? { steps: fresh, text: children.slice(children.length - freshChars), now } : undefined;
+    streaming && fresh
+      ? { steps: fresh, text: freshChars ? children.slice(children.length - freshChars) : "", now }
+      : undefined;
   // An odd number of fence lines: the last block is a fence still arriving.
   const openFence = streaming && (children.match(/^\s*```/gm)?.length ?? 0) % 2 === 1;
   return (
-    <div className={`cv-md ${className}`}>
+    <div className={`cv-md ${className}${streaming && waiting ? " is-waiting" : ""}`}>
       {blocks.map((entry, index) => {
         const live = !atMount.current!.has(entry.key);
         const open = openFence && index === blocks.length - 1;

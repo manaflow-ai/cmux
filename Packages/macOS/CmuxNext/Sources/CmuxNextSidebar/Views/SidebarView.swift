@@ -54,7 +54,7 @@ public final class SidebarView: NSView {
     /// Bands minimal mode hides right now (the fade's target, R54).
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     private var accessories: [SidebarAccessorySlot: NSView] = [:]
-    private let footer = NSView()
+    let footer = NSView()
     private var observation: Task<Void, Never>?
     private var lastState: RenderState?
 
@@ -85,6 +85,9 @@ public final class SidebarView: NSView {
         get { list.inlineRename.onEnded }
         set { list.inlineRename.onEnded = newValue }
     }
+
+    /// The update and announcement cards above the spaces dots (R114; the updates lead fills it).
+    public var footerCards: NSView?
 
     /// A small view in the titlebar row, after the traffic lights (an
     /// incognito window's badge). Nil removes it.
@@ -257,12 +260,14 @@ public final class SidebarView: NSView {
         let showsProfiles = ProfileBarLogic.isVisible(profileCount: model.profiles.count)
         profileBar.isHidden = !showsProfiles
         let footerHeight: CGFloat = visibleSlots.isEmpty && !showsProfiles ? 0 : SidebarStyle.footerHeight
-        footer.frame = NSRect(x: 0, y: b.height - footerHeight, width: b.width, height: footerHeight)
+        let cardsHeight = attachFooterCards()
+        // From the bottom up (R112/R114): the Settings band, the dots, the cards.
+        let listFrame = layoutBands(top: y, footerHeight: footerHeight + cardsHeight)
+        footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
+        footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - cardsHeight, width: b.width, height: cardsHeight)
         layoutFooter(visibleSlots)
         profileBar.frame = footer.bounds
         profileBar.refresh()
-
-        let listFrame = layoutBands(top: y, footerHeight: footerHeight)
         edgeFade.frame = listFrame
         scrollView.tile()
         syncListWidth()
@@ -291,22 +296,6 @@ public final class SidebarView: NSView {
 
     override public func mouseEntered(with event: NSEvent) { setChromeRevealed(true) }
     override public func mouseExited(with event: NSEvent) { setChromeRevealed(false) }
-
-    private func layoutFooter(_ slots: [(SidebarAccessorySlot, NSView)]) {
-        let f = footer.bounds
-        // account leading, cloud next to it, status fills the trailing space.
-        let side = Metrics.sidebarRowHeight
-        var x = Metrics.space4
-        for (slot, view) in slots {
-            let width: CGFloat
-            switch slot {
-            case .account, .cloud: width = side
-            case .status: width = max(0, f.width - x - Metrics.space4)
-            }
-            view.frame = NSRect(x: x, y: (f.height - side) / 2, width: width, height: side)
-            x += width + Metrics.space2
-        }
-    }
 
     // MARK: Observation
 

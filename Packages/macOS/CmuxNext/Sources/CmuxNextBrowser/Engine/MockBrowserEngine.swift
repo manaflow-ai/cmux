@@ -70,6 +70,7 @@ public final class MockBrowserTab: BrowserTab {
         case hideExtensionPopups
         case showExtensionActionMenu(String)
         case markAgentDriven
+        case applyColorScheme(BrowserColorScheme)
     }
 
     public let id: BrowserTabID

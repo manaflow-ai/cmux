@@ -13,11 +13,12 @@ use crate::resource_router::{
     ParsedResourceRequest, expected_revision, mutation_result, operation_name,
     resource_operation_error, validation_error,
 };
+use crate::state::closed_history::ReopenRequest;
 use crate::state::store::StateCommit;
 use crate::state::tab_state_store::TabStateUpdate;
 use crate::state::window_records::WindowRecordChange;
 use crate::state::{
-    closed_history_store, personal_state_store, screen_state_store, tab_state_store,
+    closed_history_query, personal_state_store, screen_state_store, tab_state_store,
     window_record_store,
 };
 use crate::workspace_registry::{ResourcePatchCommit, WorkspacePresentationUpdate};
@@ -453,13 +454,27 @@ pub(crate) fn dispatch(
         // B2: closed history
         Op::ClosedList => {
             ensure_session(mux, selectors)?;
-            read(mux, closed_history_store::closed_items).map(Value::Array)
+            let window = string(fields, "window");
+            let limit = index(fields, "limit").unwrap_or(closed_history_query::DEFAULT_LIST_LIMIT);
+            read(mux, |connection| {
+                closed_history_query::closed_items_in(connection, window.as_deref(), limit)
+            })
+            .map(Value::Array)
         }
         Op::ClosedReopen => {
             ensure_session(mux, selectors)?;
-            let closed = string(fields, "closed").unwrap_or_default();
+            let reopen = ReopenRequest {
+                closed: string(fields, "closed"),
+                window: string(fields, "window"),
+                members: fields.get("members").and_then(Value::as_array).map(|members| {
+                    members
+                        .iter()
+                        .filter_map(|member| member.as_u64().and_then(|m| usize::try_from(m).ok()))
+                        .collect()
+                }),
+            };
             let commit = mux
-                .state_reopen_closed(&mutation(&request)?, expected_revision(fields)?, &closed)
+                .state_reopen_closed(&mutation(&request)?, expected_revision(fields)?, &reopen)
                 .map_err(state_error)?;
             state_result(mux, commit)
         }

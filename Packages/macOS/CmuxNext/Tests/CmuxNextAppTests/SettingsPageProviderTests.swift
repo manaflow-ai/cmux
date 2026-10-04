@@ -104,4 +104,21 @@ import Testing
         for _ in 0..<200 where events.isEmpty { await Task.yield() }
         #expect(events.first?["keys"] == ["appearance.density"])
     }
+
+    /// R82 commit 2: the host lists op answers the app's lists, and without a host it is
+    /// unavailable (the page then shows no lists, never an error banner).
+    @Test func hostListsComeFromTheHost() async throws {
+        let (_, settings, directory) = try await make()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let provider = SettingsPageProvider(settings: settings, hostLists: { ["machines": [["id": "m1"]]] })
+        let lists = try await provider.call("cmux.settings.host.lists", params: [:], context: context)
+        #expect(lists["machines"]?.arrayValue?.count == 1)
+        let bare = SettingsPageProvider(settings: settings)
+        do {
+            _ = try await bare.call("cmux.settings.host.lists", params: [:], context: context)
+            Issue.record("a provider without a host answered lists")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.page.unavailable")
+        }
+    }
 }

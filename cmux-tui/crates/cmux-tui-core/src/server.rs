@@ -100,6 +100,9 @@ mod loopback_forward;
 pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
+mod admission;
+mod line_connection;
+use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod bookmarks;
 mod browser_profiles;
 mod conversation_tabs_wire;
@@ -109,6 +112,8 @@ mod home;
 mod launch_snapshot;
 mod personal;
 mod raw_tab;
+#[cfg(unix)]
+mod remote_entry;
 mod responses;
 mod rows;
 mod screen_json;
@@ -119,6 +124,10 @@ mod websocket_listener;
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
     start_launch_snapshot_writer_with,
+};
+#[cfg(unix)]
+pub use remote_entry::{
+    DenyAllGate, LinkVerifier, RemoteEntryServer, RemoteGate, RemotePeer, serve_remote_entry,
 };
 use responses::{
     response_error_code, send_bad_request, send_request_error, send_request_error_with_delivery,
@@ -5029,6 +5038,8 @@ const RETIRED_VIEW_LEASE_CAPACITY: usize = 1024;
 enum ClientTransport {
     Unix,
     WebSocket,
+    /// A `cmux link` peer stream through the remote entry (remote_entry.rs).
+    Remote,
 }
 
 impl ClientTransport {
@@ -5036,6 +5047,7 @@ impl ClientTransport {
         match self {
             Self::Unix => "unix",
             Self::WebSocket => "ws",
+            Self::Remote => "remote",
         }
     }
 }
@@ -5728,6 +5740,7 @@ impl ClientRegistry {
                 transport: match record.transport {
                     ClientTransport::Unix => "unix",
                     ClientTransport::WebSocket => "websocket",
+                    ClientTransport::Remote => "remote",
                 },
                 connected_seconds: record.connected_at.elapsed().as_secs(),
                 name: record.name.clone(),
@@ -6829,87 +6842,6 @@ pub use websocket_listener::{
 #[cfg(test)]
 fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
     handle_connection_with_permit(mux, stream, Arc::new(RenderService::new()), None);
-}
-
-fn handle_connection_with_permit(
-    mux: Arc<Mux>,
-    stream: Box<dyn transport::Stream>,
-    render_service: Arc<RenderService>,
-    connection_permit: Option<ConnectionPermit>,
-) {
-    let Ok(mut write_half) = stream.try_clone_box() else { return };
-    let Ok(control) = write_half.try_clone_box() else { return };
-    if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
-        return;
-    }
-    let outbound = Arc::new(BoundedOutbound::default());
-    let writer = MessageWriter::new_with_render_service(
-        QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },
-        render_service,
-    );
-    let writer_outbound = outbound;
-    let writer_close = writer.clone();
-    let Ok(writer_thread) =
-        std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
-            while let Some(item) = writer_outbound.recv() {
-                if write_line_outbound_item(&mut *write_half, item).is_err() {
-                    writer_outbound.close();
-                    let _ = write_half.shutdown(Shutdown::Both);
-                    break;
-                }
-            }
-            writer_close.close();
-            let _ = write_half.shutdown(Shutdown::Both);
-        })
-    else {
-        writer.close();
-        return;
-    };
-    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-    let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
-        mux.surface_operation_admission.clone(),
-        connection_permit.clone(),
-    ));
-    let mut reader = BufReader::new(stream);
-    let mut drain_accepted = true;
-    loop {
-        let mut line = String::new();
-        // read_line includes the trailing LF. Read one byte beyond the largest
-        // valid payload plus its delimiter so an oversized payload is visible.
-        let read = match reader.by_ref().take((MAX_JSON_LINE_BYTES + 2) as u64).read_line(&mut line)
-        {
-            Ok(read) => read,
-            Err(_) => {
-                drain_accepted = false;
-                break;
-            }
-        };
-        if read == 0 {
-            break;
-        }
-        if json_line_payload_len(&line) > MAX_JSON_LINE_BYTES {
-            drain_accepted = false;
-            break;
-        }
-        if line.trim().is_empty() {
-            zeroize_string(&mut line);
-            continue;
-        }
-        let keep_open = handle_connection_message(&mux, client, &line, &writer, &surface_scheduler);
-        zeroize_string(&mut line);
-        if !keep_open {
-            drain_accepted = false;
-            break;
-        }
-    }
-    if drain_accepted {
-        surface_scheduler.finish_and_wait();
-    } else {
-        let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
-    }
-    disconnect_client(&mux, client, false);
-    let _ = writer_thread.join();
-    drop(connection_permit);
 }
 
 fn json_line_payload_len(line: &str) -> usize {

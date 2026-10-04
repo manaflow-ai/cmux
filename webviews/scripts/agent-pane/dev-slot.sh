@@ -47,6 +47,9 @@ done
 home="/tmp/acpdev-$slot"
 daemon_port=$((47900 + slot))
 vite_port=$((4180 + slot))
+# 4190 is on the WHATWG fetch "bad ports" list, so browsers (WebKit, Chromium) and Node refuse it.
+# Slot 10 moves outside the 4180-4279 range instead of shifting every later slot.
+[[ "$vite_port" == 4190 ]] && vite_port=4280
 vite_origin="http://127.0.0.1:$vite_port"
 
 stop_pid() {

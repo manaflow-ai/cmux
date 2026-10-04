@@ -1,4 +1,5 @@
 import AppKit
+import Observation
 import CmuxAgentBrands
 import CmuxNextDesign
 import QuartzCore
@@ -13,6 +14,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
     private let agentMark = NSImageView()
     private var agentMarkVariant = SidebarAgentMarkVariant.off
+    /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
+    private var lastConfiguration: (SidebarWorkspace, SidebarRow)?
     private var activityState = StatusIndicatorState.idle
     private let badge = UnreadBadgeView()
     /// A single colored segment connects grouped workspace rows.
@@ -60,6 +63,18 @@ final class WorkspaceRowView: SidebarRowView {
 
     override var interactiveSubviews: [NSView] { [closeButton] }
 
+    /// Reads the agent mark setting and redraws the row once when it changes (no polling).
+    private func observedAgentMarkVariant() -> SidebarAgentMarkVariant {
+        withObservationTracking {
+            SidebarTunables.agentMark.value
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, let last = self.lastConfiguration else { return }
+                self.configure(last.0, row: last.1)
+            }
+        }
+    }
+
     override func prepareForReuse(key: SidebarRowKey) {
         super.prepareForReuse(key: key)
         isSecondarySelected = false
@@ -78,10 +93,11 @@ final class WorkspaceRowView: SidebarRowView {
     }
 
     func configure(_ ws: SidebarWorkspace, row: SidebarRow) {
+        lastConfiguration = (ws, row)
         let content = Content(
             ws: ws, group: row.group, groupColor: row.groupColor,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
-            agentMark: SidebarTunables.agentMark.value
+            agentMark: observedAgentMarkVariant()
         )
         guard needsConfigure(content) else { return }
         grouped = row.group != nil

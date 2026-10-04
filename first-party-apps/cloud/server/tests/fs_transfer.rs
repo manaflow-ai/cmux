@@ -206,7 +206,7 @@ fn local_paths_are_checked_and_pull_never_overwrites() {
     .origin(Origin::User);
     assert_eq!(rig.server.handle(&glob).unwrap_err().code, "cmux.cloud.invalid_args");
     assert!(rig.transfer.log().jobs.is_empty());
-    assert!(rig.server.control_plane().calls.is_empty(), "refused before any Cloud API call");
+    assert!(rig.server.control_plane().no_calls(), "refused before any Cloud API call");
 }
 
 #[test]
@@ -224,7 +224,7 @@ fn only_a_person_may_transfer_because_the_local_path_reaches_any_file() {
         .origin(origin);
         assert_eq!(rig.server.handle(&pull).unwrap_err().code, "cmux.cloud.origin_refused");
     }
-    assert!(rig.server.control_plane().calls.is_empty());
+    assert!(rig.server.control_plane().no_calls());
 }
 
 #[test]

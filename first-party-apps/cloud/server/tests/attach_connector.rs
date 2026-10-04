@@ -39,7 +39,7 @@ fn the_connector_denies_kind_ssh() {
     let err = s.connector().connect(request("ssh", "vm-alpha01")).err().expect("refused");
     assert!(matches!(err, BackendError::Denied { .. }), "a kind not in options.kinds: {err:?}");
     assert_eq!(spawner.spawns(), 0);
-    assert!(s.control_plane().calls.is_empty(), "nothing reached the Cloud API");
+    assert!(s.control_plane().no_calls(), "nothing reached the Cloud API");
 }
 
 #[test]
@@ -145,7 +145,7 @@ fn a_target_that_is_not_a_machine_id_is_refused_before_any_call() {
         let err = s.connector().connect(request("cloud-vm", target)).err().expect("refused");
         assert!(matches!(err, BackendError::Invalid { .. }), "{target}: {err:?}");
     }
-    assert!(s.control_plane().calls.is_empty());
+    assert!(s.control_plane().no_calls());
     assert_eq!(spawner.spawns(), 0);
 }
 
@@ -160,5 +160,5 @@ fn a_missing_or_empty_open_token_is_refused_before_any_call_or_spawn() {
         assert!(matches!(answer, Err(BackendError::Invalid { .. })), "{token:?}: {answer:?}");
     }
     assert_eq!(spawner.spawns(), 0, "no link process");
-    assert!(s.control_plane().calls.is_empty(), "nothing reached the Cloud API");
+    assert!(s.control_plane().no_calls(), "nothing reached the Cloud API");
 }

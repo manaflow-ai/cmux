@@ -13,6 +13,7 @@ Read the lane file before changing a shared surface. Newest entries remain first
 - [backend](backend.md)
 - [browser](browser.md)
 - [build-ci](build-ci.md)
+- [cloud](cloud.md)
 - [daemon-protocol](daemon-protocol.md)
 - [durable-sessions](durable-sessions.md)
 - [feed](feed.md)
