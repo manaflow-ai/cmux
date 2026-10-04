@@ -54,10 +54,13 @@ fn each_connect_attempt_starts_a_paused_machine_with_its_own_key() {
         attach(&spawner, &FakeTransport::default()),
     );
     s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
-    let connect = Request::new("cloud.machine.connect", json!({ "machine": "vm-beta02" })).key("c-1");
+    let connect =
+        Request::new("cloud.machine.connect", json!({ "machine": "vm-beta02" })).key("c-1");
     s.handle(&connect).expect("first connect");
-    s.handle(&Request::new("cloud.machine.disconnect", json!({ "machine": "vm-beta02" })).key("d-1"))
-        .expect("disconnect");
+    s.handle(
+        &Request::new("cloud.machine.disconnect", json!({ "machine": "vm-beta02" })).key("d-1"),
+    )
+    .expect("disconnect");
     // The machine paused again (a team event), and the user retries with
     // the same intent key.
     let mut paused = link_machine("vm-beta02", "paused");
