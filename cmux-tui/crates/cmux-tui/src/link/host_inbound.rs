@@ -13,6 +13,7 @@ use std::path::Path;
 
 use cmux_link::dial::{MAX_LINE_BYTES, Service, ServiceHello, parse_line};
 use cmux_link::overlay_addr::overlay_address;
+use cmux_link::stamp::StampCheck;
 use cmux_link::token::{Expected, TokenVerifier};
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -75,8 +76,9 @@ where
     }
     match hello.service {
         Service::Daemon => {
-            // RED: the accepted token is not stamped yet.
-            hand_to_entry(stream, &peer, None, me.session_socket)
+            // The verifier accepted a control-plane token for this stream:
+            // the entry records it as the install's good check.
+            hand_to_entry(stream, &peer, Some(StampCheck::LinkToken), me.session_socket)
                 .await
                 .map_err(HostRefused::Inbound)
         }
