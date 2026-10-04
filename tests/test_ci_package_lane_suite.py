@@ -41,6 +41,10 @@ def main() -> int:
         repo = scratch / "cmux"
         (repo / "scripts").mkdir(parents=True)
         shutil.copytree(ROOT / "scripts/ci", repo / "scripts/ci")
+        (repo / "scripts/cmux-next").mkdir()
+        catalogs = repo / "scripts/cmux-next/compile-string-catalogs.sh"
+        catalogs.write_text(f"#!/bin/bash\necho \"compile-string-catalogs cwd=$(pwd)\" >> {scratch / 'catalogs.log'}\n")
+        catalogs.chmod(0o755)
         pkg = repo / "Packages/macOS/Pkg"
         pkg.mkdir(parents=True)
         (pkg / "Package.swift").write_text("// swift-tools-version: 6.0\n")
@@ -63,6 +67,14 @@ def main() -> int:
             failures.append(f"no build of the package: {calls!r}")
         if "swift test --package-path Packages/macOS/Pkg --skip-build --filter FooTests" not in calls:
             failures.append(f"no filtered test run: {calls!r}")
+        # swift build copies String Catalogs uncompiled; the lane compiles them into
+        # <lang>.lproj tables before the tests, as cmux-next.yml does
+        # (RefusalLocalizationTests and friends failed only on fleet workers).
+        catalogs = (scratch / "catalogs.log").read_text() if (scratch / "catalogs.log").exists() else ""
+        if "compile-string-catalogs cwd=" + str(pkg.resolve()) not in catalogs and "compile-string-catalogs cwd=" + str(pkg) not in catalogs:
+            failures.append(f"string catalogs were not compiled in the package: {catalogs!r}")
+        elif calls.index("--build-tests") > calls.index("--filter FooTests"):
+            failures.append("the build ran after the tests")
 
         # A filter that runs no test fails: an empty match is not a pass.
         log.write_text("")

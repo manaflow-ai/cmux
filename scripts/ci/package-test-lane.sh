@@ -407,6 +407,11 @@ run_suite() {
   echo "::group::swift build --build-tests $suite_package"
   swift build --build-tests --package-path "$suite_package" < /dev/null
   echo "::endgroup::"
+  # swift build copies String Catalogs into the resource bundles uncompiled; without the
+  # compiled <lang>.lproj tables, localization suites fail (cmux-next.yml runs the same step).
+  if [ -x scripts/cmux-next/compile-string-catalogs.sh ]; then
+    (cd "$suite_package" && "$OLDPWD/scripts/cmux-next/compile-string-catalogs.sh")
+  fi
   local log
   log="$(mktemp -t swift-suite-test.XXXXXX)"
   python3 scripts/ci/hung_test_watchdog.py \
