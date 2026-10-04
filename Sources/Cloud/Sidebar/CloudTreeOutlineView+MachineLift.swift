@@ -67,7 +67,7 @@ extension CloudTreeOutlineView.Coordinator {
                         outline.expandItem(machine)
                     }
                 }
-                restoreSelection(in: outline)
+                self.restoreSelection(in: outline)
             }
         }, mutate: commit)
     }
