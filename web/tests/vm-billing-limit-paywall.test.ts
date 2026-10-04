@@ -77,22 +77,24 @@ describe("free plan VM allowance", () => {
 });
 
 describe("Cloud VM memory allowance", () => {
-  test("plans default to 8 GB; Pro-tier plans stop at 4 vCPU / 8 GB and Max at 16 vCPU / 32 GB", () => {
+  test("plans default to 8 GB; Pro-tier plans stop at 16 vCPU / 32 GB and Max at 32 vCPU / 64 GB", () => {
     expect(PLAN_MACHINE_MEMORY_MB).toBe(8192);
-    expect(VM_MEMORY_OPTIONS_MB).toEqual([4096, 8192, 16384, 24576, 32768]);
-    for (const planId of ["free", "pro", "team", "founders"]) {
+    expect(VM_MEMORY_OPTIONS_MB).toEqual([4096, 8192, 16384, 24576, 32768, 65536]);
+    for (const planId of ["pro", "team", "founders"]) {
       expect(defaultMemoryMbForPlan(planId, {})).toBe(8192);
-      expect(maxMemoryMbForPlan(planId, {})).toBe(8192);
-      expect(maxVcpusForPlan(planId, {})).toBe(4);
+      expect(maxMemoryMbForPlan(planId, {})).toBe(32768);
+      expect(maxVcpusForPlan(planId, {})).toBe(16);
       expect(lockedMemoryOptionsMbForPlan(planId, {})).toEqual({
-        memoryOptionsMb: [16384, 24576, 32768],
+        memoryOptionsMb: [65536],
         upgradePlanId: "max",
       });
     }
+    // Free machines exist only where an operator opens free provisioning.
+    expect(maxMemoryMbForPlan("free", {})).toBe(8192);
     expect(defaultMemoryMbForPlan("max", {})).toBe(8192);
-    expect(maxMemoryMbForPlan("max", {})).toBe(32768);
-    expect(maxVcpusForPlan("max", {})).toBe(16);
-    expect(memoryOptionsMbForPlan("max", {})).toEqual([4096, 8192, 16384, 24576, 32768]);
+    expect(maxMemoryMbForPlan("max", {})).toBe(65536);
+    expect(maxVcpusForPlan("max", {})).toBe(32);
+    expect(memoryOptionsMbForPlan("max", {})).toEqual([4096, 8192, 16384, 24576, 32768, 65536]);
     expect(lockedMemoryOptionsMbForPlan("max", {})).toEqual({ memoryOptionsMb: [], upgradePlanId: null });
   });
 
@@ -102,29 +104,30 @@ describe("Cloud VM memory allowance", () => {
     expect(maxVcpusForPlan("go", {})).toBe(2);
     expect(memoryOptionsMbForPlan("go", {})).toEqual([4096]);
     expect(lockedMemoryOptionsMbForPlan("go", {})).toEqual({
-      memoryOptionsMb: [8192, 16384, 24576, 32768],
+      memoryOptionsMb: [8192, 16384, 24576, 32768, 65536],
       upgradePlanId: "pro",
     });
   });
 
   test("an operator ceiling on Max leaves nothing to upgrade to", () => {
     // A lower Max ceiling can still advertise Max as the next tier for Pro.
-    const env = { CMUX_VM_PLAN_MAX_MAX_MEMORY_MB: "16384" };
+    const env = { CMUX_VM_PLAN_PRO_MAX_MEMORY_MB: "8192", CMUX_VM_PLAN_MAX_MAX_MEMORY_MB: "16384" };
     expect(lockedMemoryOptionsMbForPlan("pro", env)).toEqual({
-      memoryOptionsMb: [16384, 24576, 32768],
+      memoryOptionsMb: [16384, 24576, 32768, 65536],
       upgradePlanId: "max",
     });
     expect(lockedMemoryOptionsMbForPlan("max", env)).toEqual({
-      memoryOptionsMb: [24576, 32768],
+      memoryOptionsMb: [24576, 32768, 65536],
       upgradePlanId: null,
     });
   });
 
-  test("vCPUs follow memory at one per 4 GB", () => {
-    expect(vcpusForMemoryMb(8192)).toBe(2);
-    expect(vcpusForMemoryMb(16384)).toBe(4);
+  test("vCPUs follow memory at one per 2 GB, matching the image ladder", () => {
+    expect(vcpusForMemoryMb(8192)).toBe(4);
+    expect(vcpusForMemoryMb(16384)).toBe(8);
+    expect(vcpusForMemoryMb(65536)).toBe(32);
     expect(vcpusForMemoryMb(2048)).toBe(1);
-    expect(vcpusForMemoryMb(5000)).toBe(2);
+    expect(vcpusForMemoryMb(5000)).toBe(3);
   });
 
   test("every machine starts with a 32 GB disk unless an operator overrides it", () => {
@@ -134,11 +137,11 @@ describe("Cloud VM memory allowance", () => {
   });
 
   test("accepted sizes follow the plan ceiling and always include the configured default", () => {
-    expect(memoryOptionsMbForPlan("pro", {})).toEqual([4096, 8192]);
+    expect(memoryOptionsMbForPlan("pro", {})).toEqual([4096, 8192, 16384, 24576, 32768]);
     // A default above the ceiling is clamped, so an omitted size never 400s.
     expect(memoryOptionsMbForPlan("free", { CMUX_VM_FREE_DEFAULT_MEMORY_MB: "16384" })).toEqual([4096, 8192]);
     // A raised paid ceiling cannot sell Max sizes to Pro.
-    expect(memoryOptionsMbForPlan("pro", { CMUX_VM_PAID_MAX_MEMORY_MB: "65536" })).toEqual([4096, 8192]);
+    expect(memoryOptionsMbForPlan("pro", { CMUX_VM_PAID_MAX_MEMORY_MB: "65536" })).toEqual([4096, 8192, 16384, 24576, 32768]);
     // A lower ceiling trims the catalog and keeps the (clamped) default.
     expect(memoryOptionsMbForPlan("pro", { CMUX_VM_PLAN_PRO_MAX_MEMORY_MB: "4096" })).toEqual([4096]);
   });
