@@ -9,18 +9,33 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   virtualConsole: new VirtualConsole(),
 });
 const globals = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "Node", "MutationObserver", "IS_REACT_ACT_ENVIRONMENT"];
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "customElements",
+  "Node",
+  "MutationObserver",
+  "IS_REACT_ACT_ENVIRONMENT",
+];
 const saved = Object.fromEntries(keys.map((key) => [key, globals[key]]));
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  // Code cards load @pierre/diffs, which defines its web component at import.
+  customElements: dom.window.customElements,
   Node: dom.window.Node,
   MutationObserver: dom.window.MutationObserver,
   IS_REACT_ACT_ENVIRONMENT: true,
 });
-afterAll(() => Object.assign(globals, saved));
+afterAll(async () => {
+  // React finishes scheduled work on a timer; let it run before the DOM globals go away.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  Object.assign(globals, saved);
+});
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -46,7 +61,7 @@ function mount() {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  return { host, render: (node: ReturnType<typeof createElement>) => act(() => root.render(node)), root };
+  return { host, render: (node: React.ReactElement) => act(() => root.render(node)), root };
 }
 
 describe("streaming Markdown", () => {
@@ -62,9 +77,9 @@ describe("streaming Markdown", () => {
 
   test("blocks there at mount do not animate; blocks that appear while streaming do", () => {
     const view = mount();
-    view.render(createElement(Markdown, { streaming: true }, "Already here.\n\nTail"));
+    view.render(<Markdown streaming>{"Already here.\n\nTail"}</Markdown>);
     expect(view.host.querySelectorAll(".cv-enter")).toHaveLength(0);
-    view.render(createElement(Markdown, { streaming: true }, "Already here.\n\nTail\n\n# New heading"));
+    view.render(<Markdown streaming>{"Already here.\n\nTail\n\n# New heading"}</Markdown>);
     const entered = [...view.host.querySelectorAll(".cv-enter")].map((node) => node.textContent);
     expect(entered).toEqual(["New heading"]);
     view.root.unmount();
