@@ -323,40 +323,57 @@ impl Hub {
 
     /// Make sure a live child process exists for the session. Spawns, runs
     /// `initialize`, and either creates or loads the agent session.
-    pub(super) async fn ensure_child(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
-        profile: &HarnessProfile,
-    ) -> Result<Arc<ChildAgent>, RpcError> {
-        // One spawn at a time per session; a caller that waited here finds
-        // the child the previous holder started.
-        let _spawning = session.spawn_lock.lock().await;
-        if let Some(child) = session.child.lock().await.as_ref()
-            && child.is_alive().await
-        {
-            return Ok(child.clone());
-        }
-        // A stopped session reopens on demand. Only a purge is final.
-        if session.status() == SessionStatus::Closed {
-            self.append(session, "mux", "reopened", json!({}));
-            self.set_status(session, SessionStatus::Idle);
-        }
-        let meta = session.meta();
+    /// The tap that logs one session's wire traffic (and the agent host
+    /// entry each record logs, `hostSeq`).
+    pub(super) fn session_tap(self: &Arc<Self>, session: &Arc<Session>) -> crate::agent::Tap {
         let tap_session = session.clone();
         let tap_hub = self.clone();
-        let tap: crate::agent::Tap = Arc::new(move |dir: Direction, msg: &Message| {
+        Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
+            let errors = tap_session.append_errors.load(Ordering::SeqCst);
+            let stored = |s: &Session| s.append_errors.load(Ordering::SeqCst) == errors;
             let (d, kind) = match (dir, msg) {
+                // Agent host stderr and exit entries: logged here, in entry
+                // order, before the entry is acknowledged.
+                (Direction::In, Message::Notification { method, params })
+                    if method == crate::agent::HOST_STDERR =>
+                {
+                    let text = params.as_ref().and_then(|p| p.get("text")).cloned();
+                    tap_hub.append_with_host_seq(
+                        &tap_session,
+                        "mux",
+                        "stderr",
+                        json!({"text": text}),
+                        host_seq,
+                    );
+                    return stored(&tap_session);
+                }
+                (Direction::In, Message::Notification { method, params })
+                    if method == crate::agent::HOST_EXIT =>
+                {
+                    let code = params.as_ref().and_then(|p| p.get("code")).cloned();
+                    let intentional =
+                        matches!(tap_session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    tap_hub.append_with_host_seq(
+                        &tap_session,
+                        "mux",
+                        if intentional { "stopped" } else { "exited" },
+                        json!({"code": code}),
+                        host_seq,
+                    );
+                    return stored(&tap_session);
+                }
                 (Direction::In, Message::Notification { method, params }) => {
                     let mut kind = method.clone();
                     if method.starts_with("claude.") {
                         // Raw stream-json line; translated messages follow.
-                        tap_hub.append(
+                        tap_hub.append_with_host_seq(
                             &tap_session,
                             "in",
                             &kind,
                             params.clone().unwrap_or(Value::Null),
+                            host_seq,
                         );
-                        return;
+                        return stored(&tap_session);
                     }
                     if method == crate::rpc::method::SESSION_UPDATE {
                         if let Some(su) = params
@@ -379,13 +396,14 @@ impl Hub {
                 (Direction::Out, Message::Notification { method, params })
                     if method == "claude.stdin" =>
                 {
-                    tap_hub.append(
+                    tap_hub.append_with_host_seq(
                         &tap_session,
                         "out",
                         "claude.stdin",
                         params.clone().unwrap_or(Value::Null),
+                        host_seq,
                     );
-                    return;
+                    return stored(&tap_session);
                 }
                 (Direction::Out, Message::Notification { method, .. }) => ("out", method.clone()),
                 (Direction::Out, Message::Response { .. }) => ("out", "response".to_owned()),
@@ -398,11 +416,50 @@ impl Hub {
             if live_update {
                 tap_hub.before_agent_update(&tap_session, msg.params());
             }
-            let rec = tap_hub.append(&tap_session, d, &kind, msg.to_value());
+            let rec =
+                tap_hub.append_with_host_seq(&tap_session, d, &kind, msg.to_value(), host_seq);
             if live_update {
                 tap_hub.after_agent_update(&tap_session, &rec);
             }
-        });
+            stored(&tap_session)
+        })
+    }
+
+    pub(super) async fn ensure_child(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        profile: &HarnessProfile,
+    ) -> Result<Arc<ChildAgent>, RpcError> {
+        // One spawn at a time per session; a caller that waited here finds
+        // the child the previous holder started.
+        let _spawning = session.spawn_lock.lock().await;
+        if let Some(child) = session.child.lock().await.as_ref()
+            && child.is_alive().await
+        {
+            return Ok(child.clone());
+        }
+        // A running agent host for this session is reached again, never
+        // started or initialized a second time.
+        if Self::host_record_live(&session.id) {
+            match self.readopt(session).await {
+                Some(child) if child.is_alive().await => return Ok(child),
+                // The host ended meanwhile: start a fresh agent below.
+                _ if !Self::host_record_live(&session.id) => {}
+                _ => {
+                    return Err(RpcError::internal(
+                        "this session's agent host is still running but cannot be reached; close the session to end it",
+                    ));
+                }
+            }
+        }
+
+        // A stopped session reopens on demand. Only a purge is final.
+        if session.status() == SessionStatus::Closed {
+            self.append(session, "mux", "reopened", json!({}));
+            self.set_status(session, SessionStatus::Idle);
+        }
+        let meta = session.meta();
+        let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         let existing_sid = session.meta().agent_session_id.clone();
         // Cleared only once the fork has started; a failed start retries it.
@@ -435,27 +492,50 @@ impl Hub {
                 &mode,
                 Some(&model),
             );
-            let tr =
-                crate::claude_stdio::Translator::new(session.id.clone(), &mode, &model, &effort);
-            if !fork {
-                // A fresh process was given its id; a resumed one already has it.
-                let known = fresh_id.clone().or_else(|| existing_sid.clone());
+            // A fresh process was given its id; a resumed one already has it.
+            let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
+            if self.agent_hosts_enabled() {
+                let translator = crate::agent_host::TranslatorSpec {
+                    acp_session_id: session.id.clone(),
+                    mode: mode.clone(),
+                    model: model.clone(),
+                    effort: effort.clone(),
+                    claude_session_id: known.clone(),
+                };
+                self.spawn_hosted_child(
+                    session,
+                    profile,
+                    &meta,
+                    Some((plan.program.clone(), plan.args.clone())),
+                    Some(translator),
+                    tap,
+                )
+                .await?
+            } else {
+                let tr = crate::claude_stdio::Translator::new(
+                    session.id.clone(),
+                    &mode,
+                    &model,
+                    &effort,
+                );
                 if let Some(sid) = known {
                     *tr.session_id.lock().await = Some(sid);
                 }
+                ChildAgent::spawn_with(
+                    &meta.harness,
+                    profile,
+                    &meta.cwd,
+                    session.inbound_tx.clone(),
+                    tap,
+                    Some((plan.program, plan.args)),
+                    Some(tr),
+                    Some((&session.id, &meta.name)),
+                )
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))?
             }
-            ChildAgent::spawn_with(
-                &meta.harness,
-                profile,
-                &meta.cwd,
-                session.inbound_tx.clone(),
-                tap,
-                Some((plan.program, plan.args)),
-                Some(tr),
-                Some((&session.id, &meta.name)),
-            )
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()))?
+        } else if self.agent_hosts_enabled() {
+            self.spawn_hosted_child(session, profile, &meta, None, None, tap).await?
         } else {
             ChildAgent::spawn_with(
                 &meta.harness,
@@ -516,7 +596,7 @@ impl Hub {
         if is_claude {
             // A forked process only learns its new id from system/init on the
             // first turn. Prime it then; fresh and resumed ids are known already.
-            let known = child.translator.as_ref().unwrap().session_id.lock().await.clone();
+            let known = child.claude_state().await.and_then(|state| state.session_id);
             if known.is_none() {
                 session.loading.store(true, Ordering::SeqCst);
                 let primed = child
@@ -527,9 +607,8 @@ impl Hub {
                     return Err(RpcError::internal(format!("claude did not start: {}", e.message)));
                 }
             }
-            let sid = child.translator.as_ref().unwrap().session_id.lock().await.clone();
-            let modes = child.translator.as_ref().unwrap().modes_value().await;
-            let opts = child.translator.as_ref().unwrap().config_options_value().await;
+            let state = child.claude_state().await.unwrap_or_default();
+            let (sid, modes, opts) = (state.session_id, state.modes, state.config_options);
             {
                 let mut m = session.meta.lock().unwrap();
                 let level = if fork_from.is_some() {
@@ -783,7 +862,7 @@ impl Hub {
         profile: &HarnessProfile,
     ) -> anyhow::Result<usize> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-        let tap: crate::agent::Tap = Arc::new(|_, _| {});
+        let tap: crate::agent::Tap = Arc::new(|_, _, _| true);
         let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"));
         let child = crate::agent::ChildAgent::spawn(name, profile, &cwd, tx, tap).await?;
         // Drain anything the agent sends so its writer never blocks.
@@ -887,6 +966,75 @@ impl Hub {
         };
         let spawn = self.spawn_profile(session, &profile, &defaults.env).await;
         self.ensure_child(session, &spawn).await
+    }
+
+    /// New agents run under an `__agent-host` process, so they outlive this
+    /// daemon (durable sessions). Off by default until the hub recovers every
+    /// turn state after an adopt; `ACPMUX_AGENT_HOSTS=1` turns it on. Memory
+    /// stores keep no log to resume from, so they never use hosts.
+    pub(super) fn agent_hosts_enabled(&self) -> bool {
+        self.store.session_dir("probe").is_some()
+            && std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "1")
+    }
+
+    async fn spawn_hosted_child(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        profile: &HarnessProfile,
+        meta: &SessionMeta,
+        command_line: Option<(String, Vec<String>)>,
+        translator: Option<crate::agent_host::TranslatorSpec>,
+        tap: crate::agent::Tap,
+    ) -> Result<Arc<ChildAgent>, RpcError> {
+        let internal = |e: anyhow::Error| RpcError::internal(format!("{e:#}"));
+        let cmd = crate::agent::harness_command(
+            &meta.harness,
+            profile,
+            &meta.cwd,
+            command_line,
+            Some((&session.id, &meta.name)),
+        )
+        .map_err(internal)?;
+        let std_cmd = cmd.as_std();
+        let hosts = crate::agent_host::hosts_dir();
+        let spec = crate::agent_host::SpawnSpec {
+            session_id: session.id.clone(),
+            program: std_cmd.get_program().to_string_lossy().into_owned(),
+            args: std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect(),
+            env: crate::agent::command_env(&cmd),
+            cwd: meta.cwd.clone(),
+            translator,
+            socket: crate::agent_host::socket_path(&hosts, &session.id),
+            hosts_dir: hosts,
+            buffer_cap: crate::agent_host::DEFAULT_BUFFER_CAP,
+        };
+        let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
+        let record = crate::agent_host::link::spawn(&launcher, &spec).await.map_err(internal)?;
+        // Logged before the first entry, so a later controller counts every
+        // entry of this incarnation.
+        self.append(
+            session,
+            "mux",
+            "host_started",
+            json!({"incarnation": record.incarnation, "hostPid": record.host_pid, "hostBuild": record.host_build}),
+        );
+        let attached = ChildAgent::attach_hosted(
+            &meta.harness,
+            record,
+            0,
+            Vec::new(),
+            session.inbound_tx.clone(),
+            tap,
+        )
+        .await
+        .map_err(internal)?;
+        let child = match attached {
+            crate::agent::Attached::Ready(child, _, _) => child,
+            crate::agent::Attached::Incompatible { .. } => {
+                return Err(RpcError::internal("a host of this build refused its controller"));
+            }
+        };
+        Ok(child)
     }
 
     /// The profile as it is spawned for this session: family and profile

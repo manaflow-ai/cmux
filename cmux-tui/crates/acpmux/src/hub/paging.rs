@@ -168,7 +168,7 @@ mod tests {
     use super::*;
 
     fn rec(seq: u64, dir: &str, kind: &str, msg: Value) -> EventRecord {
-        EventRecord { seq, at: 0, dir: dir.into(), kind: kind.into(), msg }
+        EventRecord { seq, at: 0, dir: dir.into(), kind: kind.into(), msg, host_seq: None }
     }
 
     #[test]

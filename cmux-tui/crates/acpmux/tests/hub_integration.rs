@@ -630,6 +630,7 @@ async fn restart_marks_unknown_outcome() {
                 dir: "mux".into(),
                 kind: "turn_started".into(),
                 msg: json!({"prompt": "lost"}),
+                host_seq: None,
             },
         )
         .unwrap();
