@@ -18,6 +18,8 @@ public final class BrowserChromeView: NSView {
     /// Empty container at the trailing end of the toolbar for extension
     /// action buttons (CEF) or other per-pane controls.
     public let extensionSlot = NSStackView()
+    /// Design mode, profile, theme, DevTools and More, after the extension slot.
+    public let toolbarButtons = BrowserToolbarButtonsView()
 
     public let addressBar: AddressBarView
     public private(set) lazy var pageInfo = makePageInfoController()
@@ -115,25 +117,6 @@ public final class BrowserChromeView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    // MARK: Commands
-
-    public func perform(_ command: BrowserChromeCommand) {
-        switch command {
-        case .focusAddressBar: addressBar.focus()
-        case .findInPage: showFindBar()
-        case .findNext: findBar.isHidden ? showFindBar() : findBar.findNext()
-        case .findPrevious: findBar.isHidden ? showFindBar() : findBar.findPrevious()
-        case .reload: tab.reload()
-        case .stop: tab.stop()
-        case .goBack: tab.goBack()
-        case .goForward: tab.goForward()
-        case .zoomIn: tab.zoomIn()
-        case .zoomOut: tab.zoomOut()
-        case .resetZoom: tab.resetZoom()
-        case .showDevTools: tab.showDevTools()
-        }
-    }
-
     public func showFindBar() {
         if findBar.isHidden {
             findBar.isHidden = false
@@ -191,6 +174,7 @@ public final class BrowserChromeView: NSView {
         toolbar.addSubview(navigation)
         toolbar.addSubview(addressBar)
         toolbar.addSubview(extensionSlot)
+        toolbar.addSubview(toolbarButtons)
 
         addSubview(contentContainer)
         addSubview(toolbar)
@@ -204,8 +188,9 @@ public final class BrowserChromeView: NSView {
         toolbarHeight = density.bind(toolbar.heightAnchor.constraint(equalToConstant: 0)) { [unowned self] in
             isToolbarHidden ? 0 : Self.toolbarHeight
         }
-        density.update { [extensionSlot] in
+        density.update { [extensionSlot, toolbarButtons] in
             extensionSlot.spacing = BrowserMetrics.buttonSpacing
+            toolbarButtons.spacing = BrowserMetrics.buttonSpacing
             navigation.spacing = OmnibarStyle.buttonSpacing
         }
         NSLayoutConstraint.activate([
@@ -218,7 +203,9 @@ public final class BrowserChromeView: NSView {
             density.bind(addressBar.leadingAnchor.constraint(equalTo: navigation.trailingAnchor)) { OmnibarStyle.barMargin },
             addressBar.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
             density.bind(extensionSlot.leadingAnchor.constraint(equalTo: addressBar.trailingAnchor)) { OmnibarStyle.barMargin },
-            density.bind(extensionSlot.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor)) { -OmnibarStyle.toolbarInset },
+            density.bind(toolbarButtons.leadingAnchor.constraint(equalTo: extensionSlot.trailingAnchor)) { BrowserMetrics.buttonSpacing },
+            density.bind(toolbarButtons.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor)) { -OmnibarStyle.toolbarInset },
+            toolbarButtons.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
             extensionSlot.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
             density.bind(extensionSlot.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize },
             // Soft minimums below the window's stay-put priority (500): the
@@ -304,6 +291,7 @@ public final class BrowserChromeView: NSView {
         findBar.tab = tab
         addressBar.allowsChromiumSchemes = tab.engineKind == .cef
         extensionToolbar.bind(tab)
+        toolbarButtons.bind(tab)
         bindOmniboxKeywords(tab)
         if !findBar.isHidden {
             old?.clearFind()
