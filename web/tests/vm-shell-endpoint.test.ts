@@ -12,7 +12,6 @@ import {
   shellKeyCapCheck,
   sshKeyFingerprint,
   shellAuthorizedKeyLine,
-  shellAuthorizeCommand,
 } from "../services/vms/drivers/scp";
 
 const blob = Buffer.concat([Buffer.from("0000000b7373682d6564323535313900000020", "hex"), Buffer.alloc(32, 9)]);
@@ -57,9 +56,9 @@ describe("rescue shell endpoint", () => {
     const file = join(dir, "keys");
     const live = (count: number) => Array.from({ length: count }, (_, i) => `restrict,pty ssh-ed25519 AAAA${i} cmux-shell:${2_000_000_000 + i}`).join("\n") + "\n";
     writeFileSync(file, live(SHELL_KEY_LIVE_MAX - 1) + "ssh-ed25519 AAAAuser cmux-scp:2000000000\n");
-    expect(spawnSync("sh", ["-c", shellKeyCapCheck(file)]).status).toBe(0);
+    expect(spawnSync("sh", ["-c", shellKeyCapCheck(`'${file}'`)]).status).toBe(0);
     writeFileSync(file, live(SHELL_KEY_LIVE_MAX));
-    expect(spawnSync("sh", ["-c", shellKeyCapCheck(file)]).status).not.toBe(0);
+    expect(spawnSync("sh", ["-c", shellKeyCapCheck(`'${file}'`)]).status).not.toBe(0);
   });
 
   test("the audit fingerprint is the OpenSSH SHA256 form and never the key", () => {
@@ -79,7 +78,7 @@ describe("rescue shell endpoint", () => {
     }) } } as unknown as Freestyle;
     const provider = new FreestyleProvider({ client: () => client });
     const before = Math.floor(Date.now() / 1000);
-    const endpoint = await provider.prepareShell(vmId, key);
+    const endpoint = await provider.prepareShell(vmId, key, new Date((before + SHELL_KEY_TTL_SECONDS) * 1000));
     expect(endpoint).toMatchObject({ host: "10.4.0.9", port: 22, username: "cmux", hostPublicKey: key });
     expect(endpoint.expiresAtUnix).toBeGreaterThanOrEqual(before + SHELL_KEY_TTL_SECONDS);
     expect(endpoint.expiresAtUnix).toBeLessThanOrEqual(before + SHELL_KEY_TTL_SECONDS + 5);
@@ -96,7 +95,7 @@ describe("rescue shell endpoint", () => {
       exec: async () => { execs++; return { statusCode: 0, stdout: key, stderr: "" }; },
     }) } } as unknown as Freestyle;
     const provider = new FreestyleProvider({ client: () => client });
-    await expect(provider.prepareShell(vmId, key)).rejects.toThrow("private network");
+    await expect(provider.prepareShell(vmId, key, new Date(Date.now() + 300_000))).rejects.toThrow("private network");
     expect(execs).toBe(0);
   });
 });

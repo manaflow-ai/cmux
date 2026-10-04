@@ -5,6 +5,25 @@ export const SCP_KEY_TTL_SECONDS = 15 * 60;
 /** A rescue shell key only has to last until the client authenticates once. */
 export const SHELL_KEY_TTL_SECONDS = 5 * 60;
 
+/** At most this many unexpired rescue shell keys may sit on one machine. */
+export const SHELL_KEY_LIVE_MAX = 8;
+
+/**
+ * Drops only our expired markers (`cmux-scp:<unix>`, `cmux-shell:<unix>`);
+ * user and provider keys are preserved. Run with `awk -v now=<unix>`.
+ */
+export const GUEST_KEY_CLEANUP_AWK =
+  '{ if ($NF ~ /^cmux-(scp|shell):[0-9]+$/) { split($NF,a,":"); if (a[2] <= now) next } print }';
+
+/**
+ * Shell text that fails when the file already holds SHELL_KEY_LIVE_MAX shell
+ * keys. `fileWord` is a shell word (already quoted), for example `"$tmp"`.
+ */
+export function shellKeyCapCheck(fileWord: string): string {
+  return `live=$(grep -c ' cmux-shell:[0-9][0-9]*$' ${fileWord} || true); ` +
+    `if [ "$live" -ge ${SHELL_KEY_LIVE_MAX} ]; then echo "too many live cmux shell keys" >&2; exit 3; fi`;
+}
+
 type GuestKeyKind = "scp" | "shell";
 
 /** Accept one Ed25519 key, not an authorized_keys options line or shell text. */
@@ -42,20 +61,20 @@ export function shellAuthorizedKeyLine(publicKey: string, expires: Date): string
 
 /** Run as cmux. Preserve unrelated keys and concurrent transfers under flock. */
 export function scpAuthorizeCommand(publicKey: string, expires: Date): string {
-  return guestKeyAuthorizeCommand(scpAuthorizedKeyLine(publicKey, expires));
+  return guestKeyAuthorizeCommand(scpAuthorizedKeyLine(publicKey, expires), false);
 }
 
 export function shellAuthorizeCommand(publicKey: string, expires: Date): string {
-  return guestKeyAuthorizeCommand(shellAuthorizedKeyLine(publicKey, expires));
+  return guestKeyAuthorizeCommand(shellAuthorizedKeyLine(publicKey, expires), true);
 }
 
-function guestKeyAuthorizeCommand(line: string): string {
+function guestKeyAuthorizeCommand(line: string, capShellKeys: boolean): string {
   return [
     "set -eu", "umask 077", 'mkdir -p "$HOME/.ssh"', 'cd "$HOME/.ssh"',
     "exec 9>.cmux-scp.lock", "flock -x 9", 'touch authorized_keys',
     'tmp=$(mktemp .cmux-scp.XXXXXXXXXX)', `trap 'rm -f -- "$tmp"' EXIT`,
-    // Only our expired markers are removed. User and provider keys are preserved.
-    `awk -v now="$(date +%s)" '{ if ($NF ~ /^cmux-(scp|shell):[0-9]+$/) { split($NF,a,":"); if (a[2] <= now) next } print }' authorized_keys > "$tmp"`,
+    `awk -v now="$(date +%s)" ${shellQuote(GUEST_KEY_CLEANUP_AWK)} authorized_keys > "$tmp"`,
+    ...(capShellKeys ? [shellKeyCapCheck('"$tmp"')] : []),
     `printf '%s\\n' ${shellQuote(line)} >> "$tmp"`,
     'chmod 600 "$tmp"', 'mv -f -- "$tmp" authorized_keys',
   ].join("; ");

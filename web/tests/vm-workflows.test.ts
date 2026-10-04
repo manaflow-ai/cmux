@@ -9161,7 +9161,8 @@ describe("Cloud rescue shell endpoint", () => {
     }).pipe(Effect.provide(workflowLayer(repo, shellProvider(order)))));
     expect(order).toEqual(["audit:vm.shell_endpoint", "prepareShell"]);
     const audit = usageEvents.find((event) => event.eventType === "vm.shell_endpoint");
-    expect(audit?.metadata).toMatchObject({ keyFingerprint: expect.stringMatching(/^SHA256:/), expiresAtUnix: endpoint.expiresAtUnix });
+    expect(audit?.metadata).toMatchObject({ expiresAtUnix: endpoint.expiresAtUnix });
+    expect(String((audit?.metadata as { keyFingerprint?: unknown } | undefined)?.keyFingerprint)).toMatch(/^SHA256:/);
     expect(JSON.stringify(audit)).not.toContain(shellKey.split(" ")[1]);
   });
 

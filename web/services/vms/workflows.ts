@@ -31,7 +31,7 @@ import type {
   VMStatus,
 } from "./drivers";
 import { isProviderId, vmCapabilitiesFor } from "./drivers";
-import { sshKeyFingerprint } from "./drivers/scp";
+import { SHELL_KEY_TTL_SECONDS, sshKeyFingerprint } from "./drivers/scp";
 import {
   VmBillingGateway,
   VmBillingGatewayLive,
@@ -4515,21 +4515,17 @@ export function prepareShellEndpoint(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
-    if (!providers.prepareShell) return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "prepareShell" }));
+    const prepareShell = providers.prepareShell;
+    if (!prepareShell) return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "prepareShell" }));
     if (vm.status === "destroyed") return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    // A resumed machine draws from the caller's current plan pool (#17238).
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh", {
-      forceProviderProbe: true, maxActiveVms: input.maxActiveVms, modelPlane: input.modelPlane,
+      forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane,
     });
-    const endpoint = yield* withResumeOnSuspendedAfterFailure(
-      repo,
-      providers,
-      vm,
-      input.providerVmId,
-      "ssh",
-      providers.prepareShell(vm.provider, input.providerVmId, input.publicKey),
-      input.maxActiveVms,
-    );
-    // The audit record must exist for every granted shell key: a failed write fails the grant.
+    const expires = new Date(Date.now() + SHELL_KEY_TTL_SECONDS * 1000);
+    // Audit first: every key the guest may accept has a record. A failed audit
+    // write grants nothing; a guest failure after it leaves a record for a key
+    // that may or may not have been written (it expires with `expires`).
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
@@ -4541,10 +4537,19 @@ export function prepareShellEndpoint(input: {
       metadata: {
         transport: "wireguard-ssh",
         keyFingerprint: sshKeyFingerprint(input.publicKey),
-        expiresAtUnix: endpoint.expiresAtUnix,
+        expiresAtUnix: Math.floor(expires.getTime() / 1000),
       },
     });
-    return endpoint;
+    return yield* withResumeOnSuspendedAfterFailure(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      "ssh",
+      prepareShell(vm.provider, input.providerVmId, input.publicKey, expires),
+      input.maxActiveVms,
+      input.callerPlanId,
+    );
   });
 }
 

@@ -583,7 +583,7 @@ export interface VMProvider {
   openSSH?(vmId: string): Promise<SSHEndpoint>;
   prepareSCP?(vmId: string, publicKey: string): Promise<SCPEndpoint>;
   /** Authorizes a short-lived key for one PTY as cmux (rescue shell); same endpoint shape as SCP. */
-  prepareShell?(vmId: string, publicKey: string): Promise<SCPEndpoint>;
+  prepareShell?(vmId: string, publicKey: string, expires: Date): Promise<SCPEndpoint>;
 
   // Best-effort revocation of an identity handle that `openSSH` previously returned. No-op
   // if the driver doesn't mint revocable credentials, must not throw on unknown
