@@ -123,8 +123,12 @@ once WebKit has sent the key back (no page handled it; a page that cancels
 the keydown gets no command as well), on the web view itself. In a tab a
 session created and is attached to, `cmux browser press` Meta+C, Meta+X
 and Meta+V run on the tab's clipboard as the REPL's do, never the system
-pasteboard; in any other tab they run the web view's own Copy, Cut and
-Paste. A key whose outcome WebKit has not reported within 5 s runs nothing.
+pasteboard, under the same guards: the creating session's domain policy
+refuses them while a frame it blocks holds the focus, before and after the
+command (`BrowserReplFrameGate.guardingFocus`), and what Copy or Cut took
+lands only while that session still holds the tab; a refused one changes
+nothing (the press has already returned). In any other tab they run the
+web view's own Copy, Cut and Paste. A key whose outcome WebKit has not reported within 5 s runs nothing.
 
 ## Hibernated and crashed tabs
 

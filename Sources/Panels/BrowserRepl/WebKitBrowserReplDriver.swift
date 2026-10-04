@@ -2171,7 +2171,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// `cmux browser press` Meta+C, Meta+X or Meta+V that no page handled
     /// (``WKWebView/automationEditingCommandRoute``), in a tab a session
     /// created and is attached to: runs on the tab's clipboard as the REPL's
-    /// own shortcut does, never on the system pasteboard. What it took lands
+    /// own shortcut does, never on the system pasteboard, under the same
+    /// guards: the creating session's domain policy keeps a frame it blocks
+    /// from holding the focus before and after the command
+    /// (``BrowserReplFrameGate/guardingFocus(in:frames:_:)``), so a blocked
+    /// frame's selection never reaches the session's clipboard and the
+    /// clipboard is never pasted into one, and what the command took lands
     /// only while that creator still holds the tab. Returns `false` for any
     /// other command or tab, whose web view runs its own action.
     @MainActor
@@ -2179,15 +2184,21 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         guard clipboardCommandNames[command] != nil,
               let entry = browserPanelEntries().first(where: { $0.panel.webView === webView }),
               let attachment = BrowserReplTabAttachments.shared.attachment(for: entry.panel.id),
-              attachment.creatorSessionID != nil,
-              let tenure = attachment.clipboard.tenure,
+              let creator = attachment.creatorSessionID,
+              let tenure = attachment.clipboard.tenure, tenure.owner == creator,
               let tabWebView = entry.panel.webView as? CmuxWebView
         else { return false }
         let panel = entry.panel
+        let gate = BrowserReplFrameGate(world: BrowserReplDriverWorld.world)
+        gate.policy = BrowserReplPolicyBoard.shared.policy(for: creator) ?? BrowserReplDomainPolicy()
         Task { @MainActor in
-            // The press already returned; a failure (another command in
-            // flight, a timeout) leaves the tab's clipboard unchanged.
-            if let taken = try? await performClipboardCommand(command, panel: panel, webView: tabWebView, attachment: attachment) {
+            // The press already returned; a failure (a blocked frame holds
+            // the focus, another command in flight, a timeout) leaves the
+            // tab's clipboard unchanged.
+            let taken = try? await gate.guardingFocus(in: tabWebView, frames: { await BrowserReplFrameTree.frames(of: tabWebView) }) {
+                try await performClipboardCommand(command, panel: panel, webView: tabWebView, attachment: attachment)
+            }
+            if let taken {
                 attachment.clipboard.store(taken, during: tenure)
             }
         }
