@@ -47,7 +47,8 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.machine.idle_policy.set", Kind::Mutation),
     ("cloud.machine.connect_info", Kind::Read),
     ("cloud.snapshot.list", Kind::Read),
-    ("cloud.snapshot.create", Kind::Mutation),
+    // A snapshot counts against the plan's saved limit: a money op.
+    ("cloud.snapshot.create", Kind::UserOnly),
     // A restore makes a new machine: it costs money like create.
     ("cloud.snapshot.restore", Kind::UserOnly),
     ("cloud.snapshot.delete", Kind::UserOnly),

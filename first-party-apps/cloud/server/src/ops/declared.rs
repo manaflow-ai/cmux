@@ -30,6 +30,17 @@ const MUTATION: &[&str] = &[
     "validation.invalid",
 ];
 
+/// `cloud.machine.link_token`: a mutation with no revision input.
+const LINK_TOKEN: &[&str] = &[
+    "auth.forbidden",
+    "auth.sso_required",
+    "auth.unauthenticated",
+    "client.too_old",
+    "idempotency.conflict",
+    "owner.unreachable",
+    "validation.invalid",
+];
+
 /// Codes a provider call can add: it may fail for now or be cut off.
 const PROVIDER: &[&str] = &["cloud.provider.unavailable", "mutation.indeterminate"];
 
@@ -60,7 +71,7 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
     ("cloud.machine.connect_info", READ, &["cloud.machine.not_bound", "cloud.machine.not_found"]),
     // Only `cmux link` calls it; this server never does (listed so the table
     // is the whole CloudDO catalog).
-    ("cloud.machine.link_token", MUTATION, &["cloud.machine.not_bound", "cloud.machine.not_found"]),
+    ("cloud.machine.link_token", LINK_TOKEN, &["cloud.machine.not_bound", "cloud.machine.not_found"]),
     (
         "cloud.machine.upgrade",
         MUTATION,

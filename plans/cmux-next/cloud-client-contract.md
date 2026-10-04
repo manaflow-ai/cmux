@@ -163,22 +163,24 @@ Errors: `cloud.machine.not_found`; `cloud.machine.not_bound` (still provisioning
 state is paused; the caller runs `cloud.machine.start` with an idempotency key, waits for the
 `running` upsert, and dials again.
 
-`cloud.machine.link_token` (the dial credential; accepted 2026-10-04, CLOUD-ROUTE): class
-`mutation`, idempotency required, principals `install` only, owner `cloud:CloudDO`, off MCP,
-hidden on the CLI, never in an app's `consumes.ops`. Request `{host, services}` (`services`: 1 or
-2 unique of `daemon`, `ssh`, a subset of what `connect_info` lists). Result `{token, expires_at,
-host, epoch, services}`: `token` is a secret for one `hello` (the VM daemon checks it; a link with
-no valid token is closed after `hello`), single host, single install, these services, this
-`epoch`; `expires_at` at most 5 minutes after the mint. A same-key replay while the token is valid
-returns the same token. Errors: `cloud.machine.not_found`, `cloud.machine.not_bound`,
+`cloud.machine.link_token` (the dial credential; CLOUD-ROUTE and LINK-TOKEN-OP, 2026-10-04): class
+`mutation` with NO idempotency key (`idempotency: "none"`): each call mints a fresh token and
+nothing replays, so a stored answer can never hand a credential out twice; a retry mints another.
+Risk `execute`. Principals `install` only (no session), owner `cloud:CloudDO`, off MCP, hidden on
+the CLI, never in an app's `consumes.ops`. CloudDO audits every mint; a mint commits no stream event and
+the token is never cached, logged or kept in a ledger row. Request `{host, services}` (`services`: 1 or 2 unique of `daemon`, `ssh`, a subset of
+what `connect_info` lists). Result `{token, expires_at, host, epoch, services}`: `token` is a
+secret for one `hello` (the VM daemon checks it; a link with no valid token is closed after
+`hello`), single host, single install, these services, this `epoch`; `expires_at` at most 5
+minutes after the mint. Errors: `cloud.machine.not_found`, `cloud.machine.not_bound`,
 `auth.forbidden`, plus the standard mutation and Worker gate codes.
 
 Cache rules for `cmux link`:
 1. Cache the `connect_info` result by host id for at most 300 s or until a
    `cloud.machine.upsert` with a higher `revision` arrives (key rotation, epoch change, VPC change,
    policy change all raise it). Pause and resume do not change peer data.
-2. A `cloud.machine.link_token` token is used for one `hello` and never cached past `expires_at`;
-   a reconnect mints a new one (a new idempotency key).
+2. A `cloud.machine.link_token` token is used for one `hello` and never cached; a reconnect
+   mints a new one.
 3. On a handshake failure with a cached entry, fetch once more before reporting `unreachable`.
 4. `cloud.machine.removed` drops the entry at once and closes open links to that host.
 
@@ -207,7 +209,10 @@ straight to the backend, so the projection, the ledger, the origin rules and the
 always run. The app types (`cmux-app.d.ts`) must come from `cmux-cloud`'s own schemas (what it
 answers: `{machine, revision}`, no `expected_revision`, no credential), not from the backend rows.
 OPEN: `gen-cmux-global.ts` types every backend row from the backend catalog and reads no
-`consumes`, so this needs a generator change (owner: app platform).
+`consumes`, so this needs a generator change (owner: app platform). The same generator gives
+`cloud.machine.link_token` the app scope `cloud:execute` (its `scopeFor` reads only the risk, not
+`mcp.expose`, `principals` or "never consumed by an app"); it must be in the app global's `never`
+list before any route sends app `cloud.*` calls to the backend.
 
 ### 2.2 What of today's server code survives (9.1k lines)
 
@@ -366,7 +371,8 @@ and for classic VMs before upgrade.
   idle close 10 min, max 4 per machine).
 
 - OPEN ITEM (a9, D-MONEY accepted): ops with risk `money` (`cloud.machine.create`,
-  `cloud.machine.resize`, `cloud.snapshot.restore`, `cloud.billing.checkout`) get no app scope and
+  `cloud.machine.resize`, `cloud.snapshot.create` (it counts against `max_saved`),
+  `cloud.snapshot.restore`, `cloud.billing.checkout`) get no app scope and
   are in the app global's `never` list. The first-party Cloud page reaches them only through its own
   page path with a native confirm (origin `user`). Later, agents and mux principals that need to
   create or resize machines (cloud browser and CUA work) get a user-granted spend budget (per
