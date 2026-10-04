@@ -1,19 +1,247 @@
 {
   "description": "Shared vectors for automation.input (event.schema.json). Every driver's encoder and the cmux app's decoder accept every `valid` event and reject every `invalid` one.",
   "valid": [
-    {"v": 1, "session_id": "s1", "target_id": "tab_7", "seq": 0, "kind": "click", "space": "viewport", "point": {"x": 120.5, "y": 48}, "rect": {"x": 100, "y": 40, "w": 60, "h": 18}, "t_ms": 1000},
-    {"v": 1, "session_id": "s1", "target_id": "tab_7", "seq": 1, "kind": "type", "space": "viewport", "rect": {"x": 100, "y": 80, "w": 200, "h": 24}, "t_ms": 1100},
-    {"v": 1, "session_id": "s1", "target_id": "tab_7", "seq": 2, "kind": "key", "space": "viewport", "t_ms": 1150},
-    {"v": 1, "session_id": "s1", "target_id": "tab_7", "seq": 3, "kind": "scroll", "space": "viewport", "point": {"x": 300, "y": 400}, "to": {"x": 0, "y": 480}, "t_ms": 1200},
-    {"v": 1, "session_id": "s2", "target_id": "cua:24954:25760", "seq": 0, "kind": "drag", "space": "window", "point": {"x": 10, "y": 10}, "to": {"x": 90, "y": 10}, "t_ms": 2000}
+    {
+      "v": 1,
+      "session_id": "s1",
+      "target_id": "tab_7",
+      "seq": 0,
+      "kind": "click",
+      "space": "viewport",
+      "point": {
+        "x": 120.5,
+        "y": 48
+      },
+      "rect": {
+        "x": 100,
+        "y": 40,
+        "w": 60,
+        "h": 18
+      },
+      "t_ms": 1000
+    },
+    {
+      "v": 1,
+      "session_id": "s1",
+      "target_id": "tab_7",
+      "seq": 1,
+      "kind": "type",
+      "space": "viewport",
+      "rect": {
+        "x": 100,
+        "y": 80,
+        "w": 200,
+        "h": 24
+      },
+      "t_ms": 1100
+    },
+    {
+      "v": 1,
+      "session_id": "s1",
+      "target_id": "tab_7",
+      "seq": 2,
+      "kind": "key",
+      "space": "viewport",
+      "t_ms": 1150
+    },
+    {
+      "v": 1,
+      "session_id": "s1",
+      "target_id": "tab_7",
+      "seq": 3,
+      "kind": "scroll",
+      "space": "viewport",
+      "point": {
+        "x": 300,
+        "y": 400
+      },
+      "to": {
+        "x": 0,
+        "y": 480
+      },
+      "t_ms": 1200
+    },
+    {
+      "v": 1,
+      "session_id": "s2",
+      "target_id": "cua:24954:25760",
+      "seq": 0,
+      "kind": "drag",
+      "space": "window",
+      "point": {
+        "x": 10,
+        "y": 10
+      },
+      "to": {
+        "x": 90,
+        "y": 10
+      },
+      "t_ms": 2000
+    },
+    {
+      "v": 1,
+      "session_id": "s3",
+      "target_id": "tab_9",
+      "seq": 0,
+      "kind": "click",
+      "space": "viewport",
+      "point": {
+        "x": 40,
+        "y": 12
+      },
+      "zoom": 1.25,
+      "t_ms": 3000
+    },
+    {
+      "v": 1,
+      "session_id": "s3",
+      "target_id": "tab_9",
+      "seq": 1,
+      "kind": "type",
+      "space": "viewport",
+      "t_ms": 3050
+    }
   ],
   "invalid": [
-    {"why": "screen coordinates are not a space", "event": {"v": 1, "session_id": "s1", "target_id": "tab_7", "seq": 0, "kind": "click", "space": "screen", "point": {"x": 1, "y": 1}, "t_ms": 1}},
-    {"why": "click needs a point", "event": {"v": 1, "session_id": "s1", "target_id": "tab_7", "seq": 0, "kind": "click", "space": "viewport", "t_ms": 1}},
-    {"why": "drag needs an end point", "event": {"v": 1, "session_id": "s1", "target_id": "tab_7", "seq": 0, "kind": "drag", "space": "viewport", "point": {"x": 1, "y": 1}, "t_ms": 1}},
-    {"why": "desktop targets use window space", "event": {"v": 1, "session_id": "s1", "target_id": "cua:1:2", "seq": 0, "kind": "click", "space": "viewport", "point": {"x": 1, "y": 1}, "t_ms": 1}},
-    {"why": "tabs use viewport space", "event": {"v": 1, "session_id": "s1", "target_id": "tab_7", "seq": 0, "kind": "click", "space": "window", "point": {"x": 1, "y": 1}, "t_ms": 1}},
-    {"why": "unknown version", "event": {"v": 2, "session_id": "s1", "target_id": "tab_7", "seq": 0, "kind": "key", "space": "viewport", "t_ms": 1}},
-    {"why": "unknown field", "event": {"v": 1, "session_id": "s1", "target_id": "tab_7", "seq": 0, "kind": "key", "space": "viewport", "t_ms": 1, "screen_x": 5}}
+    {
+      "why": "screen coordinates are not a space",
+      "event": {
+        "v": 1,
+        "session_id": "s1",
+        "target_id": "tab_7",
+        "seq": 0,
+        "kind": "click",
+        "space": "screen",
+        "point": {
+          "x": 1,
+          "y": 1
+        },
+        "t_ms": 1
+      }
+    },
+    {
+      "why": "click needs a point",
+      "event": {
+        "v": 1,
+        "session_id": "s1",
+        "target_id": "tab_7",
+        "seq": 0,
+        "kind": "click",
+        "space": "viewport",
+        "t_ms": 1
+      }
+    },
+    {
+      "why": "drag needs an end point",
+      "event": {
+        "v": 1,
+        "session_id": "s1",
+        "target_id": "tab_7",
+        "seq": 0,
+        "kind": "drag",
+        "space": "viewport",
+        "point": {
+          "x": 1,
+          "y": 1
+        },
+        "t_ms": 1
+      }
+    },
+    {
+      "why": "desktop targets use window space",
+      "event": {
+        "v": 1,
+        "session_id": "s1",
+        "target_id": "cua:1:2",
+        "seq": 0,
+        "kind": "click",
+        "space": "viewport",
+        "point": {
+          "x": 1,
+          "y": 1
+        },
+        "t_ms": 1
+      }
+    },
+    {
+      "why": "tabs use viewport space",
+      "event": {
+        "v": 1,
+        "session_id": "s1",
+        "target_id": "tab_7",
+        "seq": 0,
+        "kind": "click",
+        "space": "window",
+        "point": {
+          "x": 1,
+          "y": 1
+        },
+        "t_ms": 1
+      }
+    },
+    {
+      "why": "unknown version",
+      "event": {
+        "v": 2,
+        "session_id": "s1",
+        "target_id": "tab_7",
+        "seq": 0,
+        "kind": "key",
+        "space": "viewport",
+        "t_ms": 1
+      }
+    },
+    {
+      "why": "unknown field",
+      "event": {
+        "v": 1,
+        "session_id": "s1",
+        "target_id": "tab_7",
+        "seq": 0,
+        "kind": "key",
+        "space": "viewport",
+        "t_ms": 1,
+        "screen_x": 5
+      }
+    },
+    {
+      "why": "zoom must be positive",
+      "event": {
+        "v": 1,
+        "session_id": "s1",
+        "target_id": "tab_7",
+        "seq": 0,
+        "kind": "key",
+        "space": "viewport",
+        "zoom": 0,
+        "t_ms": 1
+      }
+    },
+    {
+      "why": "zoom applies only to viewport space",
+      "event": {
+        "v": 1,
+        "session_id": "s1",
+        "target_id": "cua:1:2",
+        "seq": 0,
+        "kind": "key",
+        "space": "window",
+        "zoom": 2,
+        "t_ms": 1
+      }
+    },
+    {
+      "why": "type and key carry no text",
+      "event": {
+        "v": 1,
+        "session_id": "s1",
+        "target_id": "tab_7",
+        "seq": 0,
+        "kind": "type",
+        "space": "viewport",
+        "text": "hunter2",
+        "t_ms": 1
+      }
+    }
   ]
 }

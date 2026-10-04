@@ -2,29 +2,200 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cmux.com/schemas/automation-input/v1",
   "title": "automation.input",
-  "description": "One agent input, published by a driver (browser host CDP/WebKit drivers, CUA host) before it dispatches the input. The cmux app draws the agent cursor from these events (plans/cmux-next/agent-cursor.md section 2). Coordinates are never screen points.",
+  "description": "One agent input, published by a driver (browser host CDP/WebKit drivers, CUA host, classic in-process driver) after its policy and frame checks, right before it dispatches the input. Refused inputs emit nothing. The cmux app draws the agent cursor from these events through one entry point, AgentCursorPublisher.publish(_:) (plans/cmux-next/agent-cursor.md section 2). Coordinates are never screen points.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["v", "session_id", "target_id", "seq", "kind", "space", "t_ms"],
+  "required": [
+    "v",
+    "session_id",
+    "target_id",
+    "seq",
+    "kind",
+    "space",
+    "t_ms"
+  ],
   "properties": {
-    "v": { "const": 1 },
-    "session_id": { "type": "string", "minLength": 1, "description": "The lease session (automation-lease.md)." },
-    "target_id": { "type": "string", "minLength": 1, "description": "Browser tab id, or cua:<pid>:<window_id> for a desktop window." },
-    "seq": { "type": "integer", "minimum": 0, "description": "Per session, gap-free, starts at 0." },
-    "kind": { "enum": ["move", "click", "double_click", "right_click", "drag", "type", "key", "scroll"] },
-    "space": { "enum": ["viewport", "window"], "description": "viewport: CSS px of the top-level document viewport (after scroll, iframe offsets resolved). window: window-local points of the desktop target window." },
-    "point": { "$ref": "#/$defs/point", "description": "Where the input lands. Required for move, click, double_click, right_click, drag (start) and scroll (wheel position)." },
-    "rect": { "$ref": "#/$defs/rect", "description": "Target element rect in the same space, when known." },
-    "to": { "$ref": "#/$defs/point", "description": "drag: end point. scroll: wheel delta {x, y}." },
-    "t_ms": { "type": "number", "minimum": 0, "description": "Host monotonic time in ms." }
+    "v": {
+      "const": 1
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The lease session (automation-lease.md)."
+    },
+    "target_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Browser tab id, or cua:<pid>:<window_id> for a desktop window."
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Per lease session, gap-free over published events, starts at 0."
+    },
+    "kind": {
+      "enum": [
+        "move",
+        "click",
+        "double_click",
+        "right_click",
+        "drag",
+        "type",
+        "key",
+        "scroll"
+      ]
+    },
+    "space": {
+      "enum": [
+        "viewport",
+        "window"
+      ],
+      "description": "viewport: unzoomed CSS px of the top-level document viewport (after scroll; iframe and shadow-root offsets resolved by the runtime). The app multiplies by zoom * magnification to get view points. window: window-local points of the desktop target window."
+    },
+    "point": {
+      "$ref": "#/$defs/point",
+      "description": "Where the input lands. Required for move, click, double_click, right_click, drag (start) and scroll (wheel position). Optional for type and key: absent when the focused element cannot be measured (for example a cross-origin iframe), never guessed."
+    },
+    "rect": {
+      "$ref": "#/$defs/rect",
+      "description": "Target element rect in the same space, when known."
+    },
+    "to": {
+      "$ref": "#/$defs/point",
+      "description": "drag: end point. scroll: wheel delta {x, y}."
+    },
+    "zoom": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "Page zoom factor at emit time (viewport space only), so the app does not race a later zoom change. Absent means 1."
+    },
+    "t_ms": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Host monotonic time in ms."
+    }
   },
   "allOf": [
-    { "if": { "properties": { "kind": { "enum": ["move", "click", "double_click", "right_click", "drag", "scroll"] } } }, "then": { "required": ["point"] } },
-    { "if": { "properties": { "kind": { "enum": ["drag", "scroll"] } } }, "then": { "required": ["to"] } },
-    { "if": { "properties": { "target_id": { "pattern": "^cua:" } } }, "then": { "properties": { "space": { "const": "window" } } }, "else": { "properties": { "space": { "const": "viewport" } } } }
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "move",
+              "click",
+              "double_click",
+              "right_click",
+              "drag",
+              "scroll"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "point"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "drag",
+              "scroll"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "to"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "target_id": {
+            "pattern": "^cua:"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "space": {
+            "const": "window"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "space": {
+            "const": "viewport"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "space": {
+            "const": "window"
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": [
+            "zoom"
+          ]
+        }
+      }
+    }
   ],
   "$defs": {
-    "point": { "type": "object", "additionalProperties": false, "required": ["x", "y"], "properties": { "x": { "type": "number" }, "y": { "type": "number" } } },
-    "rect": { "type": "object", "additionalProperties": false, "required": ["x", "y", "w", "h"], "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "w": { "type": "number", "minimum": 0 }, "h": { "type": "number", "minimum": 0 } } }
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y"
+      ],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      }
+    },
+    "rect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y",
+        "w",
+        "h"
+      ],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "w": {
+          "type": "number",
+          "minimum": 0
+        },
+        "h": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    }
   }
 }
