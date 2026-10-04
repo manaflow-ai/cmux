@@ -107,7 +107,10 @@ impl Role for ProcessRoles {
 
     fn start(&mut self, ctx: &RoleContext) -> Result<(), RoleError> {
         if self.supervisor.is_none() {
-            let paths = RolePaths { work_user: self.work_user.clone(), ..RolePaths::from_layout(&ctx.layout) };
+            let paths = RolePaths {
+                work_user: self.work_user.clone(),
+                ..RolePaths::from_layout(&ctx.layout)
+            };
             self.supervisor =
                 Some(Supervisor::start(paths).map_err(|e| RoleError(format!("supervisor: {e}")))?);
         }
