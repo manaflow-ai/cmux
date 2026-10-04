@@ -151,7 +151,8 @@ declare namespace Cmux {
   type JournalSubjectFilter = { kind?: string; id?: string }
   type JournalUnsupportedReplayRecord = { sequence: string; event_id: string; kind: string }
   type JsonValue = string
-  type LayoutColumn = { column_id: string /* split_… */; width: number; root: Cmux.LayoutNode }
+  type LayoutColumn = { column_id: string /* split_… */; width: number; root: Cmux.LayoutNode; sticky?: Cmux.LayoutColumnSticky | null }
+  type LayoutColumnSticky = { edge: "left" | "right"; mode: "docked" | "overlay" }
   type LayoutDocument = { version: number; screen_id: string /* screen_… */; active_pane_id: string /* pane_… */; zoomed_pane_id: string /* pane_… */ | null; root: Cmux.LayoutNode; extra?: Record<string, Cmux.JsonValue> }
   type LayoutLeaf = { kind: "leaf"; pane_id: string /* pane_… */; tab_ids: Array<string /* tab_… */>; active_tab_id?: string /* tab_… */ }
   type LayoutNode = unknown
@@ -437,6 +438,52 @@ interface CmuxGlobal {
     list: CmuxOp<{ machine?: string; session?: string }, Array<Cmux.ClosedItemSnapshot>>
     /** `closed.reopen` (mutation, scope `closed:write`) */
     reopen: CmuxOp<{ machine?: string; session?: string; closed: Cmux.StateId; expected_revision?: string }, Cmux.MutationResult<Cmux.ClosedReopenResult>>
+  }
+  cloud: {
+    auth: {
+      /** `cloud.auth.status` (read, scope `cloud:read`, owner `app:cmux/cloud`): Whether cmux is signed in to cmux Cloud and which team requests use. cmux answers from its own sign-in; the app server never sees a token. */
+      status: CmuxOp<Record<string, never>, { signedIn: boolean; team?: string | null }>
+    }
+    machine: {
+      /** `cloud.machine.create` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Create a machine. Needs an idempotency key: a retry with the same key returns the same machine and never creates a second one. Uses your plan quota. Alias: vm.create. */
+      create: CmuxOp<{ displayName?: string; memoryMb?: number; kind?: string }, { id: string; provider?: string; status: "provisioning" | "running" | "failed" | "paused" | "destroyed" | "unknown"; displayName?: string | null; slug?: string | null; kind?: string | null; image?: string | null; imageVersion?: string | null; createdAt?: number | null; address?: { ipv4?: string | null; ipv6?: string | null } | null; createdBy?: { userId?: string; displayName?: string | null } | null; freeAccessExpiresAt?: number | null }>
+      /** `cloud.machine.get` (read, scope `cloud:read`, owner `app:cmux/cloud`): Read one machine and update it in the projection. Alias: vm.get. */
+      get: CmuxOp<{ machine: string }, { id: string; provider?: string; status: "provisioning" | "running" | "failed" | "paused" | "destroyed" | "unknown"; displayName?: string | null; slug?: string | null; kind?: string | null; image?: string | null; imageVersion?: string | null; createdAt?: number | null; address?: { ipv4?: string | null; ipv6?: string | null } | null; createdBy?: { userId?: string; displayName?: string | null } | null; freeAccessExpiresAt?: number | null }>
+      idle_policy: {
+        /** `cloud.machine.idle_policy.set` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Set when an idle machine pauses (seconds of idle time, 0 = never). Not served yet: the cmux Cloud API has no idle policy route, so the server answers cmux.cloud.unsupported. */
+        set: CmuxOp<{ machine: string; idleTimeoutSeconds: number }, { ok: true }>
+      }
+      /** `cloud.machine.list` (read, scope `cloud:read`, owner `app:cmux/cloud`): List your Cloud machines and refresh the machine projection on this Mac. Read on page open, app activation and after every change; there is no polling. Alias: vm.list. */
+      list: CmuxOp<Record<string, never>, { machines: Array<{ id: string; provider?: string; status: "provisioning" | "running" | "failed" | "paused" | "destroyed" | "unknown"; displayName?: string | null; slug?: string | null; kind?: string | null; image?: string | null; imageVersion?: string | null; createdAt?: number | null; address?: { ipv4?: string | null; ipv6?: string | null } | null; createdBy?: { userId?: string; displayName?: string | null } | null; freeAccessExpiresAt?: number | null }>; revision: number }>
+      /** `cloud.machine.pause` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Pause a machine. Its disk and sessions are kept. Alias: vm.pause. */
+      pause: CmuxOp<{ machine: string }, { id: string; provider?: string; status: "provisioning" | "running" | "failed" | "paused" | "destroyed" | "unknown"; displayName?: string | null; slug?: string | null; kind?: string | null; image?: string | null; imageVersion?: string | null; createdAt?: number | null; address?: { ipv4?: string | null; ipv6?: string | null } | null; createdBy?: { userId?: string; displayName?: string | null } | null; freeAccessExpiresAt?: number | null }>
+      /** `cloud.machine.rename` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Rename a machine; an empty name clears it. Alias: vm.update. */
+      rename: CmuxOp<{ machine: string; displayName: string | null }, { id: string; provider?: string; status: "provisioning" | "running" | "failed" | "paused" | "destroyed" | "unknown"; displayName?: string | null; slug?: string | null; kind?: string | null; image?: string | null; imageVersion?: string | null; createdAt?: number | null; address?: { ipv4?: string | null; ipv6?: string | null } | null; createdBy?: { userId?: string; displayName?: string | null } | null; freeAccessExpiresAt?: number | null }>
+      /** `cloud.machine.resize` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Resize a machine: cpu 1-32, memoryMb 4096-65536 in whole GiB, storageMb in 4 GiB steps up to 256 GiB. The result shows the plan limits. Alias: vm.resize. */
+      resize: CmuxOp<{ machine: string; cpu?: number; memoryMb?: number; storageMb?: number }, { cpus?: number | null; cpuPercent?: number | null; loadAverage1m?: number | null; memoryTotalMb?: number | null; memoryUsedMb?: number | null; diskTotalMb?: number | null; diskUsedMb?: number | null; maxDiskMb?: number | null; maxMemoryMb?: number | null; maxVcpus?: number | null; state: string }>
+      /** `cloud.machine.start` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Start (resume) a paused machine. The server also accepts cloud.machine.resume, vm.start and vm.resume. */
+      start: CmuxOp<{ machine: string }, { id: string; provider?: string; status: "provisioning" | "running" | "failed" | "paused" | "destroyed" | "unknown"; displayName?: string | null; slug?: string | null; kind?: string | null; image?: string | null; imageVersion?: string | null; createdAt?: number | null; address?: { ipv4?: string | null; ipv6?: string | null } | null; createdBy?: { userId?: string; displayName?: string | null } | null; freeAccessExpiresAt?: number | null }>
+      /** `cloud.machine.stats` (read, scope `cloud:read`, owner `app:cmux/cloud`): Live CPU, memory and disk of a machine. A sleeping machine answers without being woken. */
+      stats: CmuxOp<{ machine: string }, { cpus?: number | null; cpuPercent?: number | null; loadAverage1m?: number | null; memoryTotalMb?: number | null; memoryUsedMb?: number | null; diskTotalMb?: number | null; diskUsedMb?: number | null; maxDiskMb?: number | null; maxMemoryMb?: number | null; maxVcpus?: number | null; state: string }>
+    }
+    plan: {
+      /** `cloud.plan.get` (read, scope `cloud:read`, owner `app:cmux/cloud`): Your plan: machine limit, active machines, memory sizes the plan includes and the plan that adds larger ones. Read from the cmux Cloud API; cmux keeps no plan logic. */
+      get: CmuxOp<Record<string, never>, { planId?: string | null; maxActiveVms?: number | null; activeVmCount?: number | null; memoryOptionsMb?: Array<number>; lockedMemoryOptionsMb?: Array<number>; memoryUpgradePlanId?: string | null; freeAccessWindowDays?: number | null; freeAccessExpiresAt?: number | null }>
+    }
+    snapshot: {
+      /** `cloud.snapshot.create` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Take a snapshot of a machine. Alias: vm.snapshot.create. */
+      create: CmuxOp<{ machine: string; name?: string }, { id: string; name?: string | null; createdAt?: string | number | null }>
+      /** `cloud.snapshot.fork` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Fork a machine: snapshot it and start a copy. A retry with the same idempotency key returns the same copy. */
+      fork: CmuxOp<{ machine: string; name?: string }, { id: string; provider?: string; status: "provisioning" | "running" | "failed" | "paused" | "destroyed" | "unknown"; displayName?: string | null; slug?: string | null; kind?: string | null; image?: string | null; imageVersion?: string | null; createdAt?: number | null; address?: { ipv4?: string | null; ipv6?: string | null } | null; createdBy?: { userId?: string; displayName?: string | null } | null; freeAccessExpiresAt?: number | null }>
+      /** `cloud.snapshot.list` (read, scope `cloud:read`, owner `app:cmux/cloud`): Snapshots of a machine, newest first. Alias: vm.snapshot.list. */
+      list: CmuxOp<{ machine: string }, { snapshots: Array<{ id: string; name?: string | null; createdAt?: string | number | null }> }>
+      /** `cloud.snapshot.restore` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Create a new machine from a snapshot. A retry with the same idempotency key returns the same machine. Alias: vm.snapshot.restore. */
+      restore: CmuxOp<{ snapshot: string }, { id: string; provider?: string; status: "provisioning" | "running" | "failed" | "paused" | "destroyed" | "unknown"; displayName?: string | null; slug?: string | null; kind?: string | null; image?: string | null; imageVersion?: string | null; createdAt?: number | null; address?: { ipv4?: string | null; ipv6?: string | null } | null; createdBy?: { userId?: string; displayName?: string | null } | null; freeAccessExpiresAt?: number | null }>
+    }
+    usage: {
+      /** `cloud.usage.get` (read, scope `cloud:read`, owner `app:cmux/cloud`): Machine hours used and included in this period (plans with an hour allowance) and the saved machine limit. */
+      get: CmuxOp<Record<string, never>, { vmHoursUsed?: number | null; vmHoursIncluded?: number | null; savedVmLimit?: number | null; activeVmCount?: number | null }>
+    }
   }
   codemirror: {
     /** `codemirror.cycle_variant` (mutation, scope `codemirror:write`, owner `app:cmux/codemirror`): Switch to the next CodeMirror design variant (DEV and NIGHTLY). */
