@@ -274,3 +274,17 @@ fn an_sr_without_claude_proxy_routes_claude_sr_through_the_subrouter_server() {
     assert_eq!(cfg.harnesses["claude"].fallback.as_deref(), Some("claude-sr"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn codex_without_its_acp_adapter_runs_through_the_pinned_adapter_package() {
+    let profile =
+        codex_through_adapter_package(Some("/u/.local/bin/codex"), Some("/opt/bin/npx")).unwrap();
+    assert_eq!(profile.kind, HarnessKind::Acp);
+    assert_eq!(profile.argv[0], "/opt/bin/npx");
+    assert_eq!(profile.argv[1], "-y");
+    assert!(profile.argv[2].starts_with("@agentclientprotocol/codex-acp@"));
+    // The adapter finds the installed codex binary through CODEX_PATH.
+    assert_eq!(profile.env["CODEX_PATH"], "/u/.local/bin/codex");
+    assert!(codex_through_adapter_package(None, Some("/opt/bin/npx")).is_none());
+    assert!(codex_through_adapter_package(Some("/u/.local/bin/codex"), None).is_none());
+}
