@@ -101,7 +101,7 @@
         "visible": true
       },
       "mcp": {
-        "expose": "default"
+        "expose": "never"
       },
       "palette": {
         "title": "Revert to Saved"

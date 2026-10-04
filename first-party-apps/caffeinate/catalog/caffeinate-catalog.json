@@ -21,7 +21,7 @@
         "visible": true
       },
       "mcp": {
-        "expose": "default"
+        "expose": "never"
       },
       "palette": {
         "title": "Keep Awake Until Stopped"
@@ -203,7 +203,7 @@
         "visible": true
       },
       "mcp": {
-        "expose": "default"
+        "expose": "never"
       },
       "docs": "Stop one keep-awake assertion (pwr_ id from list). Stopping one that someone else started needs a person.",
       "since": "caffeinate/1",
@@ -230,7 +230,7 @@
         "visible": true
       },
       "mcp": {
-        "expose": "default"
+        "expose": "never"
       },
       "palette": {
         "title": "Stop Keeping the Mac Awake"
