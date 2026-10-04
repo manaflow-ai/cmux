@@ -1,13 +1,20 @@
 // This Mac's port forwards to the selected machine (`cloud.port.*`) and "Open in browser"
 // (`cloud.browser.open`). A forward shows the 127.0.0.1 port the owner answered. The browser route
-// answers a URL and a proxy; the browser host owns tabs, so the page asks the host to open the URL
-// through the proxy (`HostActions.browserTabOpen`). Until the host serves that, the URL shows with
-// "Not available yet".
+// answers a URL and a proxy; the browser host owns tabs, so the page asks the host for a CEF tab
+// whose machine store carries the proxy (`HostActions.browserTabOpen`). Until the host serves that,
+// the URL shows with "Not available yet"; a typed refusal shows a message and nothing opens.
 import { HostActions } from "./ops";
 import { isUnavailable, PortField, Unavailable, type SectionProps } from "./sectionParts";
 import { format, L } from "./strings";
 
-export function PortsSection({ store, machine, detail, unavailable, strings }: SectionProps) {
+export function PortsSection({
+  store,
+  machine,
+  title,
+  detail,
+  unavailable,
+  strings,
+}: SectionProps & { title: string }) {
   const { t } = strings;
   const browser = detail.browser?.machine === machine ? detail.browser : undefined;
   return (
@@ -41,7 +48,7 @@ export function PortsSection({ store, machine, detail, unavailable, strings }: S
                 <button
                   type="button"
                   className="cloud-link-button cloud-forward-browser"
-                  onClick={() => void store.detail.openBrowser(machine, forward.port)}
+                  onClick={() => void store.detail.openBrowser(machine, forward.port, title)}
                 >
                   {t(L.openBrowser)}
                 </button>
@@ -65,8 +72,12 @@ export function PortsSection({ store, machine, detail, unavailable, strings }: S
           <span className="cloud-muted">
             {format(t(L.browserProxy), { address: `${browser.proxy.host}:${browser.proxy.port}` })}
           </span>
-          {unavailable.includes(HostActions.browserTabOpen) && (
-            <span className="cloud-muted cloud-unavailable">{t(L.browserTabUnavailable)}</span>
+          {detail.browserRefused ? (
+            <output className="cloud-browser-refused">{t(L.browserTabRefused)}</output>
+          ) : (
+            unavailable.includes(HostActions.browserTabOpen) && (
+              <span className="cloud-muted cloud-unavailable">{t(L.browserTabUnavailable)}</span>
+            )
           )}
         </div>
       )}

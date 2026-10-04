@@ -4,7 +4,7 @@
 // stats refresh only on selection or the Refresh button. A reply for an older selection is dropped.
 // A section whose op the owner does not serve yet is reported to the host (`unsupported`), which
 // shows "Not available yet" for it.
-import type { PageClient } from "../shared/pageClient";
+import { isPageError, type PageClient } from "../shared/pageClient";
 import type { FilesView } from "./files";
 import {
   ACTION_RUN,
@@ -13,6 +13,7 @@ import {
   type AccessMode,
   type ActionRunResult,
   type BrowserRoute,
+  type BrowserTabOpenArgs,
   type CloudDomain,
   type CloudNetwork,
   type CloudPublication,
@@ -43,6 +44,8 @@ export interface MachineDetail {
   ports?: PortForward[];
   /** The last `cloud.browser.open` answer: its URL shows even when the host cannot open a tab. */
   browser?: BrowserRoute;
+  /** The host refused the proxied tab for `browser` (typed error); nothing was opened. */
+  browserRefused?: boolean;
   /** The Files section; read on demand (files.ts), never on selection. */
   files?: FilesView;
 }
@@ -188,22 +191,31 @@ export class DetailReader {
   }
 
   /**
-   * Asks the server for a proxy route to the machine's localhost and shows its URL. Opening a tab
-   * through the proxy belongs to the browser host (HostActions.browserTabOpen); a host that does not
-   * serve it yet shows "Not available yet", and the URL stays.
+   * Asks the server for a proxy route to the machine's localhost and shows its URL, then asks the
+   * browser host for a CEF tab whose machine store carries the proxy (HostActions.browserTabOpen).
+   * A host that does not serve the action yet shows "Not available yet". A typed refusal (CEF
+   * unavailable, or WebKit refused the proxied configuration) shows `browserRefused`: the page never
+   * retries in WebKit and never opens the URL without the proxy, which would load this Mac's
+   * localhost. The URL stays visible in both cases.
    */
-  async openBrowser(machine: string, port: number): Promise<void> {
+  async openBrowser(machine: string, port: number, machineName: string): Promise<void> {
     const route = await this.change<BrowserRoute>(CloudOps.browserOpen, { machine, port });
     const latest = this.host.get();
     if (!route || latest?.machine !== machine) return;
-    this.host.set({ ...latest, browser: route });
+    this.host.set({ ...latest, browser: route, browserRefused: undefined });
+    const args: BrowserTabOpenArgs = {
+      url: route.url,
+      machineStore: { machine: route.machine, machineName, proxy: route.proxy },
+      engine: "cef",
+    };
     try {
-      await this.client!.call<ActionRunResult | null>(ACTION_RUN, {
-        action: HostActions.browserTabOpen,
-        args: { url: route.url, proxy: route.proxy },
-      });
+      await this.client!.call<ActionRunResult | null>(ACTION_RUN, { action: HostActions.browserTabOpen, args });
     } catch (error) {
-      this.reject(HostActions.browserTabOpen, error);
+      if (isUnsupported(error) || (isPageError(error) && error.code === "cmux.protocol.transport"))
+        return this.reject(HostActions.browserTabOpen, error);
+      const current = this.host.get();
+      if (current?.machine === machine && current.browser === route)
+        this.host.set({ ...current, browserRefused: true });
     }
   }
 
