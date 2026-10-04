@@ -165,8 +165,7 @@ export class UserDO extends OwnerDO<UserState> {
    * answers the default without binding.
    */
   async homeAllowDmFrom(entity: string): Promise<homeConversation.AllowDmFrom> {
-    const row = this.sqlStore.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`)[0]
-    if (!row || row.entity !== entity) return homeUser.DEFAULT_HOME_SETTINGS.allow_dm_from
+    if (this.boundEntity() !== entity) return homeUser.DEFAULT_HOME_SETTINGS.allow_dm_from
     return (this.bind(entity).currentState.home_settings ?? homeUser.DEFAULT_HOME_SETTINGS).allow_dm_from
   }
 

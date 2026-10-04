@@ -468,8 +468,7 @@ export class TeamDO extends OwnerDO<TeamState> {
    * people. Never binds or creates storage for a team this object does not serve.
    */
   async homeCoMembers(entity: string, adder: string, targets: ReadonlyArray<string>): Promise<Array<{ user: string; display_name: string }>> {
-    const row = this.sqlStore.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`)[0]
-    if (!row || row.entity !== entity) return []
+    if (this.boundEntity() !== entity) return []
     const members = this.bind(entity).currentState.members
     if (!["owner", "admin", "member"].includes(members[adder]?.role ?? "")) return []
     return targets.flatMap((user) => (user !== adder && members[user] ? [{ user, display_name: members[user].display_name }] : []))

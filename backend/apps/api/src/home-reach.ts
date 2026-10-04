@@ -36,7 +36,7 @@ interface UserReachStub {
 }
 interface ConversationReachStub {
   homeDmLink(entity: string, adder: string, target: string): Promise<{ peer: string | null; consented: boolean } | null>
-  homeIsParticipant(entity: string, actor: string): Promise<boolean>
+  mayInvite(entity: string, principal: Principal): Promise<boolean>
 }
 
 const teamStub = (env: Env, team: string) => env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as TeamReachStub
@@ -68,8 +68,7 @@ const existingDm = async (env: Env, principal: Principal, adder: string, target:
 }
 
 /** Whether the caller is a current participant of `conversation` (participants.add resolves reach only then). */
-export const isParticipant = async (env: Env, conversation: string, actor: string | null): Promise<boolean> =>
-  actor !== null && (await conversationStub(env, conversation).homeIsParticipant(conversation, actor))
+export const isParticipant = (env: Env, conversation: string, principal: Principal): Promise<boolean> => conversationStub(env, conversation).mayInvite(conversation, principal)
 
 /** Resolves the reach facts for `targets` (already filtered by `humanTargets`). */
 export const resolveHumanReach = async (env: Env, principal: Principal, targets: ReadonlyArray<string>): Promise<ReachResolution> => {
