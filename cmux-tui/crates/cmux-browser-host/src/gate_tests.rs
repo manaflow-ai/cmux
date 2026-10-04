@@ -536,3 +536,43 @@ fn cookie_calls_follow_the_domain_policy() {
     assert!(!methods(&driver).contains(&"cookies.set".to_owned()));
     assert!(!methods(&driver).contains(&"cookies.clear".to_owned()));
 }
+
+#[test]
+fn inputs_are_published_after_the_checks_right_before_dispatch() {
+    let (gate, driver) = make_gate(json!("https://login.example.com/form"), false);
+    let seen: Arc<Mutex<Vec<(Value, usize)>>> = Arc::default();
+    let (sink_seen, sink_driver) = (seen.clone(), driver);
+    let sink: crate::driver::EventSink = Arc::new(move |event: crate::protocol::DriverEvent| {
+        assert_eq!(event.name, "automation.input");
+        // How many inputs the driver had received when the event left.
+        let dispatched = sink_driver
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(m, _)| m.starts_with("input."))
+            .count();
+        sink_seen.lock().unwrap().push((event.payload, dispatched));
+    });
+    let gate = gate.with_input_events("lease-s", sink);
+    agent_secret(&gate, "*.example.com");
+    gate.driver_call("input.mouse", json!({"targetId": "T", "type": "move", "x": 1, "y": 2}))
+        .unwrap();
+    // Refused inputs emit nothing and take no seq.
+    gate.driver_call("input.insertText", json!({"targetId": "T", "secret": "pw", "text": "x"}))
+        .unwrap_err();
+    gate.driver_call("input.insertText", json!({"targetId": "T", "secret": "missing"}))
+        .unwrap_err();
+    gate.driver_call("input.insertText", json!({"targetId": "T", "secret": "pw"})).unwrap();
+    let seen = seen.lock().unwrap();
+    let summary: Vec<(u64, &str, usize)> = seen
+        .iter()
+        .map(|(e, n)| (e["seq"].as_u64().unwrap(), e["kind"].as_str().unwrap(), *n))
+        .collect();
+    assert_eq!(summary, vec![(0, "move", 0), (1, "type", 1)], "published right before dispatch");
+    for (event, _) in seen.iter() {
+        assert_eq!(event["session_id"], "lease-s");
+        assert_eq!(event["target_id"], "T");
+        assert!(!event.to_string().contains("s3cret"), "{event}");
+    }
+}

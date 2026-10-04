@@ -37,6 +37,8 @@ pub struct Gate {
     filter_enforced: std::sync::atomic::AtomicBool,
     /// Secrets typed into tabs by any session of the host.
     tab_secrets: Arc<TabSecrets>,
+    /// `automation.input` events for this lease session, if published.
+    inputs: Option<crate::automation_input::InputEmitter>,
 }
 
 /// Finds the URL of the frame that holds keyboard focus. Same-origin child
@@ -56,7 +58,15 @@ impl Gate {
             log: Mutex::new(Vec::new()),
             filter_enforced: std::sync::atomic::AtomicBool::new(true),
             tab_secrets: Arc::default(),
+            inputs: None,
         }
+    }
+
+    /// Publishes `automation.input` for the inputs this session dispatches,
+    /// on the session's own event sink, as lease session `session`.
+    pub fn with_input_events(mut self, session: &str, sink: crate::driver::EventSink) -> Gate {
+        self.inputs = Some(crate::automation_input::InputEmitter::new(session, sink));
+        self
     }
 
     /// Shares the host's record of secrets typed into tabs, so this session
