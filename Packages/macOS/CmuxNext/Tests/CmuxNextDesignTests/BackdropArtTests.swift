@@ -41,6 +41,19 @@ struct BackdropArtTests {
         #expect(crop.midY < 0.65)
     }
 
+    @Test func windowMaterialUsesThePaintingFocalCrop() throws {
+        let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 2_000, height: 800))
+        var backdrop = WindowBackdrop(backgroundOpacity: 0, backgroundBlur: 0)
+        backdrop.art = .wheatField
+        view.apply(backdrop, tint: .white)
+        view.layoutSubtreeIfNeeded()
+        let artLayer = try #require(view.subviews.first?.layer)
+        let image = try #require(BackdropArt.wheatField.image())
+        let expected = BackdropArt.wheatField.metadata.cropRect(forViewSize: view.bounds.size,
+                                                                 imageSize: image.size)
+        #expect(artLayer.contentsRect == expected)
+    }
+
     @Test func catalogContainsBundledCC0PaintingsAndEnumeratesSystemFiles() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
