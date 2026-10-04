@@ -35,6 +35,8 @@ const MAX_BACKOFF_MS = 5 * 60_000
 const RESYNC_BATCH_MS = 250
 /** How long a socket's install status from UserDO is trusted before its events wait for a new check. */
 const INSTALL_CHECK_MS = 60_000
+/** Frames one socket may have waiting behind a revocation check. */
+const MAX_QUEUED_FRAMES = 256
 
 const closeQuietly = (ws: WebSocket, code: number, reason: string) => {
   try {
@@ -556,10 +558,18 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
 
   /** One promise chain per socket: frames are gated and routed strictly in arrival order. */
   private readonly frameChains = new Map<WebSocket, Promise<void>>()
+  private readonly frameDepth = new Map<WebSocket, number>()
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    const depth = (this.frameDepth.get(ws) ?? 0) + 1
+    // A client that floods frames while a check is pending is closed instead of queued without bound.
+    if (depth > MAX_QUEUED_FRAMES) return closeQuietly(ws, 1008, "too many frames")
+    this.frameDepth.set(ws, depth)
     const prev = this.frameChains.get(ws) ?? Promise.resolve()
-    const next = prev.then(() => this.handleFrame(ws, message)).catch(() => undefined)
+    const next = prev
+      .then(() => this.handleFrame(ws, message))
+      .catch((e: unknown) => console.error(JSON.stringify({ msg: "socket frame failed", stream: this.engine?.stream, error: String(e) })))
+      .finally(() => this.frameDepth.set(ws, (this.frameDepth.get(ws) ?? 1) - 1))
     this.frameChains.set(ws, next)
     await next
     if (this.frameChains.get(ws) === next) this.frameChains.delete(ws)
@@ -578,7 +588,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
       }
       return
     }
-    // Read after the await: another frame of this socket may have changed it.
+    // Read after the await: another frame of this socket may have changed it, or closed it.
+    if (ws.readyState !== WebSocket.READY_STATE_OPEN) return
     const a = ws.deserializeAttachment() as Attachment
     const row = this.boundEntity()
     if (row === null) return ws.close(1011, "unbound")
@@ -630,6 +641,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   override async webSocketClose(ws: WebSocket, code: number) {
     this.heldForCheck.delete(ws)
     this.frameChains.delete(ws)
+    this.frameDepth.delete(ws)
     // 1005/1006 are reserved: they report "no code" and "abnormal" and cannot be sent.
     try {
       ws.close(code === 1005 || code === 1006 ? 1000 : code, "closing")
