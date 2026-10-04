@@ -271,17 +271,26 @@ public final class HomeStore {
     /// reads its display size, duration and poster frame. Runs off the main
     /// actor (`@concurrent`). Opens a security-scoped URL itself. An image
     /// type the owner refuses (TIFF, HEIF) is converted to PNG or JPEG.
-    public func prepareAttachment(fileURL: URL) async throws -> LocalAttachment {
+    ///
+    /// Location metadata (photo GPS, a video's ISO 6709 location) is removed
+    /// before hashing unless `keepLocation`; orientation stays. The host
+    /// passes the user's Settings > Home toggle, key
+    /// `home.attachments.keepLocation` (default off: strip), owned by the
+    /// Home UI lane.
+    public func prepareAttachment(fileURL: URL, keepLocation: Bool = false) async throws -> LocalAttachment {
         let root = blobCacheDirectory
-        let prepared = try await AttachmentMedia.prepare(fileURL: fileURL, root: root)
+        let prepared = try await AttachmentMedia.prepare(fileURL: fileURL, root: root, keepLocation: keepLocation)
         localFiles[prepared.ref.hash] = prepared.files
         return prepared
     }
 
-    /// The same for in-memory bytes (a paste or a drop) of a UTType identifier.
-    public func prepareAttachment(data: Data, typeIdentifier: String) async throws -> LocalAttachment {
+    /// The same for in-memory bytes (a paste or a drop) of a UTType
+    /// identifier, with the same `keepLocation`
+    /// (`home.attachments.keepLocation`).
+    public func prepareAttachment(data: Data, typeIdentifier: String, keepLocation: Bool = false) async throws -> LocalAttachment {
         let root = blobCacheDirectory
-        let prepared = try await AttachmentMedia.prepare(data: data, typeIdentifier: typeIdentifier, root: root)
+        let prepared = try await AttachmentMedia.prepare(data: data, typeIdentifier: typeIdentifier, root: root,
+                                                         keepLocation: keepLocation)
         localFiles[prepared.ref.hash] = prepared.files
         return prepared
     }

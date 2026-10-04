@@ -222,12 +222,14 @@ enum AttachmentMedia {
 
     /// Checks the policy, then copies the bytes into the cache and fills the
     /// ref. Opens a security-scoped URL (the iOS file importer's) for the
-    /// copy. `@concurrent`: hashing 100 MB never runs on the caller's actor.
+    /// copy. Removes location metadata unless `keepLocation`. `name`
+    /// defaults to the file's own name. `@concurrent`: hashing 100 MB never
+    /// runs on the caller's actor.
     @concurrent
-    static func prepare(fileURL: URL, root: URL) async throws -> LocalAttachment {
+    static func prepare(fileURL: URL, root: URL, name: String? = nil, keepLocation: Bool = false) async throws -> LocalAttachment {
         let scoped = fileURL.startAccessingSecurityScopedResource()
         defer { if scoped { fileURL.stopAccessingSecurityScopedResource() } }
-        let name = HomeAttachmentPolicy.sendableName(fileURL.lastPathComponent)
+        let name = HomeAttachmentPolicy.sendableName(name ?? fileURL.lastPathComponent)
         let mime: String
         switch HomeAttachmentPolicy.decision(forFileExtension: fileURL.pathExtension) {
         case .send(let owned):
@@ -236,21 +238,34 @@ enum AttachmentMedia {
             guard let converted = try convertedImage({ CGImageSourceCreateWithURL(fileURL as CFURL, nil) }) else {
                 throw HomeAttachmentError.typeRefused(mimeType: mimeType(forExtension: fileURL.pathExtension), name: name)
             }
-            let base = fileURL.deletingPathExtension().lastPathComponent
+            let base = (name as NSString).deletingPathExtension
             return try await prepare(data: converted.data, typeIdentifier: converted.type.identifier, root: root,
-                                     name: HomeAttachmentPolicy.sendableName("\(base).\(converted.fileExtension)"))
+                                     name: "\(base).\(converted.fileExtension)", keepLocation: keepLocation)
         case .refuse:
             mime = mimeType(forExtension: fileURL.pathExtension)
         }
         let size = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         try HomeAttachmentPolicy.check(mimeType: mime, byteCount: size, name: name)
+        if !keepLocation {
+            if mime.hasPrefix("image/"), let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
+               let clean = try imageWithoutLocation(source) {
+                return try await prepare(data: clean, typeIdentifier: UTType(mimeType: mime)?.identifier ?? UTType.image.identifier,
+                                         root: root, name: name, keepLocation: true)
+            }
+            if mime.hasPrefix("video/"), let clean = try await movieWithoutLocation(fileURL, mimeType: mime, root: root) {
+                defer { try? FileManager.default.removeItem(at: clean) }
+                return try await prepare(fileURL: clean, root: root, name: name, keepLocation: true)
+            }
+        }
         let (hash, cached, byteCount) = try ingest(fileURL: fileURL, root: root)
         return try await describe(cached: cached, hash: hash, byteCount: byteCount, name: name, mimeType: mime, root: root)
     }
 
-    /// `name` defaults to `attachment.<ext>`.
+    /// `name` defaults to `attachment.<ext>`. Removes location metadata
+    /// unless `keepLocation`.
     @concurrent
-    static func prepare(data: Data, typeIdentifier: String, root: URL, name: String? = nil) async throws -> LocalAttachment {
+    static func prepare(data: Data, typeIdentifier: String, root: URL, name: String? = nil,
+                        keepLocation: Bool = false) async throws -> LocalAttachment {
         let type = UTType(typeIdentifier)
         let fileExtension = type?.preferredFilenameExtension ?? ""
         let mime: String
@@ -260,7 +275,7 @@ enum AttachmentMedia {
         case .convert:
             if let converted = try convertedImage({ CGImageSourceCreateWithData(data as CFData, nil) }) {
                 return try await prepare(data: converted.data, typeIdentifier: converted.type.identifier, root: root,
-                                         name: name ?? "attachment.\(converted.fileExtension)")
+                                         name: name ?? "attachment.\(converted.fileExtension)", keepLocation: keepLocation)
             }
             mime = HomeAttachmentPolicy.canonicalMimeType(mimeType(for: type)) // unreadable bytes: refused below
         case .refuse:
@@ -268,8 +283,111 @@ enum AttachmentMedia {
         }
         let name = HomeAttachmentPolicy.sendableName(name ?? (fileExtension.isEmpty ? "attachment" : "attachment.\(fileExtension)"))
         try HomeAttachmentPolicy.check(mimeType: mime, byteCount: data.count, name: name)
+        if !keepLocation {
+            if mime.hasPrefix("image/"), let source = CGImageSourceCreateWithData(data as CFData, nil),
+               let clean = try imageWithoutLocation(source) {
+                return try await prepare(data: clean, typeIdentifier: typeIdentifier, root: root, name: name, keepLocation: true)
+            }
+            if mime.hasPrefix("video/") {
+                // AVFoundation reads files: inspect the bytes through a temp file.
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                let temp = root.appendingPathComponent(".incoming-\(UUID().uuidString).\(fileExtension.isEmpty ? "mp4" : fileExtension)")
+                try data.write(to: temp)
+                defer { try? FileManager.default.removeItem(at: temp) }
+                return try await prepare(fileURL: temp, root: root, name: name, keepLocation: false)
+            }
+        }
         let (hash, cached) = try ingest(data: data, fileExtension: fileExtension, root: root)
         return try await describe(cached: cached, hash: hash, byteCount: data.count, name: name, mimeType: mime, root: root)
+    }
+
+    // MARK: Location
+
+    /// The image with its location metadata (EXIF GPS and its XMP copy)
+    /// removed, orientation and all other metadata kept, copied without
+    /// re-encoding when ImageIO can (JPEG, PNG, HEIC, TIFF). Nil when the
+    /// image has no location. Throws rather than send a location it could
+    /// not remove.
+    static func imageWithoutLocation(_ source: CGImageSource) throws -> Data? {
+        let count = CGImageSourceGetCount(source)
+        let properties = (0..<count).map { CGImageSourceCopyPropertiesAtIndex(source, $0, nil) as? [CFString: Any] ?? [:] }
+        guard properties.contains(where: { $0[kCGImagePropertyGPSDictionary] != nil }),
+              let type = CGImageSourceGetType(source) else { return nil }
+        let orientation = (properties.first?[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+        // The result must have no GPS and the same orientation; else the next way.
+        func verified(_ data: NSMutableData) -> Data? {
+            guard let result = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetCount(result) == count else { return nil }
+            for index in 0..<count {
+                let after = CGImageSourceCopyPropertiesAtIndex(result, index, nil) as? [CFString: Any] ?? [:]
+                let kept = (after[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+                let wanted = (properties[index][kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+                guard after[kCGImagePropertyGPSDictionary] == nil, kept == wanted else { return nil }
+            }
+            return data as Data
+        }
+        let copied = NSMutableData()
+        if let destination = CGImageDestinationCreateWithData(copied as CFMutableData, type, count, nil) {
+            let options: [CFString: Any] = [kCGImageMetadataShouldExcludeGPS: true, kCGImageDestinationOrientation: orientation]
+            if CGImageDestinationCopyImageSource(destination, source, options as CFDictionary, nil), let data = verified(copied) {
+                return data
+            }
+        }
+        // No lossless copy for this format: re-encode each image without GPS.
+        let encoded = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(encoded as CFMutableData, type, count, nil) else {
+            throw HomeRejection.invalid("location_not_removed")
+        }
+        for index in 0..<count {
+            var frame = properties[index]
+            frame[kCGImagePropertyGPSDictionary] = nil
+            frame[kCGImageDestinationLossyCompressionQuality] = 0.95
+            frame[kCGImageMetadataShouldExcludeGPS] = true
+            if let image = CGImageSourceCreateImageAtIndex(source, index, nil) {
+                CGImageDestinationAddImage(destination, image, frame as CFDictionary)
+            }
+        }
+        guard CGImageDestinationFinalize(destination), let data = verified(encoded) else {
+            throw HomeRejection.invalid("location_not_removed")
+        }
+        return data
+    }
+
+    static func isLocation(_ item: AVMetadataItem) -> Bool {
+        item.identifier == .quickTimeMetadataLocationISO6709 || item.identifier == .quickTimeUserDataLocationISO6709
+            || item.identifier == .commonIdentifierLocation
+    }
+
+    /// A copy of the movie without location metadata, written to a temp
+    /// file under `root` by a passthrough export (no re-encode; tracks,
+    /// transform and other metadata kept, as `AVMetadataItemFilter.forSharing`
+    /// allows). Nil when the movie has no location. The caller deletes it.
+    @concurrent
+    static func movieWithoutLocation(_ url: URL, mimeType: String, root: URL) async throws -> URL? {
+        let asset = AVURLAsset(url: url)
+        let items = (try? await asset.load(.metadata)) ?? []
+        guard items.contains(where: isLocation) else { return nil }
+        guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
+            throw HomeRejection.invalid("location_not_removed")
+        }
+        session.metadataItemFilter = .forSharing()
+        let quickTime = mimeType == "video/quicktime"
+        let fileType: AVFileType = quickTime ? .mov : .mp4
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let output = root.appendingPathComponent(".incoming-\(UUID().uuidString).\(quickTime ? "mov" : "mp4")")
+        do {
+            if #available(macOS 15, iOS 18, *) {
+                try await session.export(to: output, as: fileType)
+            } else {
+                session.outputURL = output
+                session.outputFileType = fileType
+                await session.export()
+                guard session.status == .completed else { throw session.error ?? HomeRejection.invalid("location_not_removed") }
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: output)
+            throw error
+        }
+        return output
     }
 
     /// Media facts are best effort: a file whose media cannot be read still
