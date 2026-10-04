@@ -570,10 +570,17 @@ jobs:
           # admission uses, so it can adopt the DerivedData seeds main
           # publishes for admission (see "Adopt the DerivedData seed").
           workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
+          if [ -x scripts/ci/canonical-build-root.sh ]; then
+            root="$(scripts/ci/canonical-build-root.sh --print-root)"
+          else
+            root="${CMUX_CI_CANONICAL_ROOT:?canonical root resolver is unavailable}"
+          fi
+          export CMUX_CI_CANONICAL_ROOT="$root"
+          echo "CMUX_CI_CANONICAL_ROOT=$root" >> "$GITHUB_ENV"
           # The CAS path is a compiler argument, so it must match admission's
           # too: any other value invalidates every compile the seed carries.
-          DERIVED_DATA_PATH="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission"
-          CACHE_PATH="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas"
+          DERIVED_DATA_PATH="$root/derived-data-compile-admission"
+          CACHE_PATH="$root/compile-admission-cas"
           # A leftover indexer can refill the tree while `rm -rf` walks it
           # ("Directory not empty", run 36317930241). Rename first, as
           # scripts/ci/clear-dirs.sh does; inline, because the tested tree
@@ -691,10 +698,10 @@ jobs:
           # build-slot lays it out; packages hold no build paths, so every
           # root shares the Mac's.
           packages=/Users/Shared/cmux-build-fleet/ci
-          root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+          root="$CMUX_CI_CANONICAL_ROOT"
           case "$root" in
             /private/tmp/cmux-ci) store="$packages" ;;
-            /private/tmp/cmux-ci-[0-9]|/private/tmp/cmux-ci-[0-9][0-9]) store="$packages/${root##*/}" ;;
+            /private/tmp/cmux-ci-*) store="$packages/${root##*/}" ;;
             *) echo "::error::unexpected CMUX_CI_CANONICAL_ROOT $root"; exit 1 ;;
           esac
           tools="$RUNNER_TEMP/owned-state-tools"
@@ -745,7 +752,7 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.compilation-cache-restore.outcome == 'failure' }}
         run: |
           set -euo pipefail
-          if [ "$CMUX_E2E_COMPILATION_CACHE" != "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas" ]; then
+          if [ "$CMUX_E2E_COMPILATION_CACHE" != "$CMUX_CI_CANONICAL_ROOT/compile-admission-cas" ]; then
             echo "::error::refusing to clear an unowned compilation cache"
             exit 1
           fi
@@ -885,7 +892,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$CMUX_DERIVED_DATA_PATH" in
-            /private/tmp/cmux-ci/derived-data-compile-admission|/private/tmp/cmux-ci-[0-9]/derived-data-compile-admission|/private/tmp/cmux-ci-[0-9][0-9]/derived-data-compile-admission) ;;
+            /private/tmp/cmux-ci/derived-data-compile-admission|/private/tmp/cmux-ci-*/derived-data-compile-admission) ;;
             *) echo "::error::refusing to clear an unowned DerivedData path: $CMUX_DERIVED_DATA_PATH"; exit 1 ;;
           esac
           rm -rf -- "$CMUX_DERIVED_DATA_PATH"
@@ -925,7 +932,7 @@ jobs:
           # ci-macos.yml compile admission. Stamp that producer before
           # relocating into this job's workspace for consumers.
           if [ "${{ steps.reuse.outputs.hit }}" != true ]; then
-            (cd "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src" && python3 scripts/ci/app_host_test_products.py stamp "$CMUX_DERIVED_DATA_PATH")
+            (cd "$CMUX_CI_CANONICAL_ROOT/src" && python3 scripts/ci/app_host_test_products.py stamp "$CMUX_DERIVED_DATA_PATH")
             python3 scripts/ci/app_host_test_products.py restore "$CMUX_DERIVED_DATA_PATH"
           fi
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_DERIVED_DATA_PATH"
@@ -1078,12 +1085,13 @@ jobs:
           set -euo pipefail
           derived_data_path="${CMUX_DERIVED_DATA_PATH:-}"
           cache_path="${CMUX_E2E_COMPILATION_CACHE:-}"
+          root="${CMUX_CI_CANONICAL_ROOT:-}"
           case "$cache_path" in
-            "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas"|"") ;;
+            "$root/compile-admission-cas"|"") ;;
             *) echo "::error::refusing to remove unowned compilation cache: $cache_path"; exit 1 ;;
           esac
           case "$derived_data_path" in
-            "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission")
+            "$root/derived-data-compile-admission")
               # Rename first, like the prepare step, so a leftover indexer
               # cannot turn a finished run red with "Directory not empty".
               for dir in "$derived_data_path" ${cache_path:+"$cache_path"}; do

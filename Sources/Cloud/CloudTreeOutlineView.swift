@@ -125,7 +125,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             self?.pendingDragWriterDidDeallocate(tokenID: tokenID)
         }
         private(set) var isDragging = false
-        /// Machine drags lift the real row; proposal-level tests turn it off.
+        /// Machine and workspace drags lift the real row; proposal-level tests turn it off.
         var machineLiftEnabled = true
         var deferredNodes: [CloudTreeNode]?
         private var deferredReload = false
