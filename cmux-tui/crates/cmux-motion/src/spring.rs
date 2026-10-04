@@ -369,10 +369,70 @@ impl Spring {
 // ---------------------------------------------------------------------------
 // Timed fades
 
-/// Ease-out (cubic) used by every timed fade.
+/// Control points of Core Animation's `easeOut`
+/// (`CAMediaTimingFunction(name: .easeOut)`, the curve of cmux-next's
+/// `Motion.fadeCurve`): a cubic Bezier from (0, 0) to (1, 1) through
+/// (0, 0) and (0.58, 1).
+pub const EASE_OUT_CONTROL_POINTS: [f64; 4] = [0., 0., 0.58, 1.];
+
+/// Core Animation's `easeOut`, used by every timed fade: the progress at
+/// time fraction `t` (0..=1). Solves the curve's x for `t` (Newton, then
+/// bisection), then evaluates its y; within 1e-5 of `CAMediaTimingFunction`
+/// (whose own solver stops at a coarser tolerance: 7e-6 at most here).
 pub fn ease_out(t: f32) -> f32 {
-    let t = t.clamp(0., 1.);
-    1. - (1. - t).powi(3)
+    let [x1, y1, x2, y2] = EASE_OUT_CONTROL_POINTS;
+    cubic_bezier(f64::from(t.clamp(0., 1.)), x1, y1, x2, y2) as f32
+}
+
+/// A CSS / Core Animation timing curve through (0, 0), (x1, y1), (x2, y2),
+/// (1, 1) at time fraction `t` (0..=1; x1 and x2 within 0..=1).
+fn cubic_bezier(t: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
+    if t <= 0. {
+        return 0.;
+    }
+    if t >= 1. {
+        return 1.;
+    }
+    // B(s) = 3(1-s)^2 s p1 + 3(1-s) s^2 p2 + s^3, as a polynomial in s.
+    let coefficients = |p1: f64, p2: f64| {
+        let c = 3. * p1;
+        let b = 3. * (p2 - p1) - c;
+        (1. - c - b, b, c)
+    };
+    let (ax, bx, cx) = coefficients(x1, x2);
+    let (ay, by, cy) = coefficients(y1, y2);
+    let x = |s: f64| ((ax * s + bx) * s + cx) * s;
+    let dx = |s: f64| (3. * ax * s + 2. * bx) * s + cx;
+    let y = |s: f64| ((ay * s + by) * s + cy) * s;
+    const EPSILON: f64 = 1e-9;
+    let mut s = t;
+    for _ in 0..8 {
+        let error = x(s) - t;
+        if error.abs() < EPSILON {
+            return y(s);
+        }
+        let slope = dx(s);
+        if slope.abs() < 1e-12 {
+            break;
+        }
+        s -= error / slope;
+    }
+    // x is monotonic in s on 0..=1: bisection always converges.
+    let (mut lo, mut hi) = (0., 1.);
+    s = t;
+    for _ in 0..64 {
+        let v = x(s);
+        if (v - t).abs() < EPSILON {
+            break;
+        }
+        if v < t {
+            lo = s;
+        } else {
+            hi = s;
+        }
+        s = (lo + hi) / 2.;
+    }
+    y(s)
 }
 
 /// A timed opacity or color change with ease-out. Retargeting restarts the
