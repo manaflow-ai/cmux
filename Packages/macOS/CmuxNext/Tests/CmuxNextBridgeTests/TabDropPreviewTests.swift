@@ -68,6 +68,16 @@ struct TabDropPreviewTests {
         }
     }
 
+    /// A surface that refuses at a point (a sidebar row of another
+    /// machine) still previews there, with its own reason.
+    @Test func aSurfaceRefusalPreviewsWithItsReason() {
+        let proposal = TabDropProposal(kind: .newWorkspace(groupID: nil, index: -1), highlightFrame: frame,
+                                       refusedReason: "Tabs stay on their machine.")
+        let resolution = TabDragResolver.resolve(proposal, insideWindow: true, screenPoint: .zero, context: context())
+        #expect(resolution.preview == .refused(proposal, .surface("Tabs stay on their machine.")))
+        #expect(resolution.outcome == .cancel)
+    }
+
     @Test func outsideEveryWindowThePreviewIsANewWindow() {
         let point = CGPoint(x: 900, y: 40)
         let tearOff = TabDragResolver.resolve(nil, insideWindow: false, screenPoint: point, context: context())
