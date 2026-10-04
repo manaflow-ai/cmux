@@ -10,6 +10,10 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     static let seenDefaultsKey = "cmux.cloud.welcome.seen"
 
     private var window: NSWindow?
+    /// Debug (Help menu): hides the "new" badge in every layout.
+    private(set) var hidesNewBadge = false
+    private var lastSliderShowsFeatureList = false
+    private weak var lastParent: NSWindow?
     /// Launch presentation is considered once, at the first main window. A
     /// window opened later (Cmd+N an hour in) must not pop the welcome up just
     /// because remote flags arrived since; an unseen welcome waits for next launch.
@@ -41,6 +45,8 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     /// The slider layout is a debug choice while it is designed; launch uses the default.
     func present(over parent: NSWindow?, sliderShowsFeatureList: Bool = false) {
         window?.close()
+        lastSliderShowsFeatureList = sliderShowsFeatureList
+        lastParent = parent
         let window = makeWindow(sliderShowsFeatureList: sliderShowsFeatureList)
         self.window = window
         position(window, over: parent)
@@ -48,10 +54,17 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
+    /// Debug: flips the badge and reopens the welcome in the layout last shown.
+    func toggleNewBadge() {
+        hidesNewBadge.toggle()
+        present(over: lastParent ?? NSApp.mainWindow, sliderShowsFeatureList: lastSliderShowsFeatureList)
+    }
+
     private func makeWindow(sliderShowsFeatureList: Bool) -> NSWindow {
         let rootView = CloudWelcomeAccountView(
             accountFlow: AppDelegate.shared?.auth?.accountFlow,
             sliderShowsFeatureList: sliderShowsFeatureList,
+            showsNewBadge: !hidesNewBadge,
             onNotNow: { [weak self] in self?.dismiss() },
             onNext: { [weak self] step in self?.perform(step) }
         )
@@ -142,6 +155,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
 private struct CloudWelcomeAccountView: View {
     let accountFlow: HostAccountFlow?
     let sliderShowsFeatureList: Bool
+    let showsNewBadge: Bool
     let onNotNow: () -> Void
     let onNext: (CloudWelcomeNextStep) -> Void
 
@@ -154,7 +168,8 @@ private struct CloudWelcomeAccountView: View {
             ),
             onNotNow: onNotNow,
             onNext: onNext,
-            sliderShowsFeatureList: sliderShowsFeatureList
+            sliderShowsFeatureList: sliderShowsFeatureList,
+            showsNewBadge: showsNewBadge
         )
         .task {
             // The plan decides between Upgrade and Enable; ask once on show.

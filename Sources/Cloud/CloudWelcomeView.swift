@@ -36,6 +36,7 @@ struct CloudWelcomeView: View {
     var showsReasons = true
     var sliderAutoplays = true
     var sliderShowsFeatureList = false
+    var showsNewBadge = true
 
     static let windowWidth: CGFloat = 580
     /// The list layouts put the features beside the clip, so they need more room.
@@ -143,12 +144,14 @@ struct CloudWelcomeView: View {
             HStack(alignment: .center, spacing: 10) {
                 Text(verbatim: "cmux cloud")
                     .cmuxFont(size: 30, weight: .bold)
+                if showsNewBadge {
                 Text(String(localized: "cloud.welcome.newBadge", defaultValue: "New").lowercased(with: .current))
                     .cmuxFont(size: 12, weight: .medium)
                     .foregroundStyle(Color.accentColor)
                     .padding(.horizontal, 8)
                     .frame(height: 20)
                     .background(Capsule(style: .continuous).fill(Color.accentColor.opacity(0.18)))
+                }
             }
         }
         .accessibilityElement(children: .combine)
