@@ -1,6 +1,8 @@
 import Testing
 @testable import CmuxCloud
 
+/// `CloudGuestDisplayScript` is main-actor isolated, so its tests run there too.
+@MainActor
 @Suite("Cloud guest display helper")
 struct CloudGuestDisplayScriptTests {
     @Test("refreshes an already-installed helper before creating a display")
