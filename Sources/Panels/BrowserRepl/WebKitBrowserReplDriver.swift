@@ -2281,10 +2281,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let policy = currentPolicy
         let frameGate = self.frameGate
         let image: CGImage = try await withWindow(panel) { webView, _ in
-            try await Self.withSecretMasks(masks, policy: policy, webView: webView) {
+            try await Self.withSecretMasks(masks, policy: policy, blockedChildFrames: .handToCapture, webView: webView) { blockedChildFrames in
                 // Frames the domain policy blocks (an ad or tracker under
-                // allowedDomains) are blanked, not the whole capture refused.
-                try await frameGate.coverBlockedFrames(in: webView, frames: { await BrowserReplFrameTree.frames(of: webView) }) {
+                // allowedDomains) are blanked, not the whole capture refused:
+                // those of the tree, and those whose document the mask found
+                // blocked (a frame that navigated after the tree was read).
+                try await frameGate.coverBlockedFrames(
+                    in: webView,
+                    frames: { await BrowserReplFrameTree.frames(of: webView) },
+                    blockedChildFrames: blockedChildFrames
+                ) {
                     try await BrowserReplCapture.snapshotWithRegion(webView: webView, clip: clip, fullPage: fullPage)
                 }
             }
@@ -2299,7 +2305,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let masks = typedSecretMasks(params)
         let policy = currentPolicy
         let data: Data = try await withWindow(panel) { [self] webView, _ in
-            try await Self.withSecretMasks(masks, policy: policy, webView: webView) {
+            // A PDF cannot blank a frame: any frame whose marked document
+            // the policy blocks refuses it, also one that navigated after
+            // checkFramePolicy read the tree.
+            try await Self.withSecretMasks(masks, policy: policy, blockedChildFrames: .refuse, webView: webView) { _ in
                 try await self.printPDF(webView: webView, params: params)
             }
         }
@@ -2308,15 +2317,18 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     /// Runs `capture` with registered secrets masked in frames on their
     /// domains, bound to the documents the frames show, and refuses it when
-    /// a frame shows a page the policy blocks (BrowserReplCaptureMask).
+    /// the main frame, or with `.refuse` any frame, shows a page the policy
+    /// blocks; with `.handToCapture` `capture` gets the blocked child frames
+    /// to blank (BrowserReplCaptureMask).
     @MainActor
     private static func withSecretMasks<T>(
         _ masks: [[String: Any]],
         policy: BrowserReplDomainPolicy,
+        blockedChildFrames: BrowserReplCaptureMask.BlockedChildFrames,
         webView: WKWebView,
-        _ capture: () async throws -> T
+        _ capture: (_ blockedChildFrames: [String: String]) async throws -> T
     ) async throws -> T {
-        try await BrowserReplCaptureMask(secretMasks: masks, policy: policy).run(
+        try await BrowserReplCaptureMask(secretMasks: masks, policy: policy, blockedChildFrames: blockedChildFrames).run(
             in: webView,
             frames: { await BrowserReplFrameTree.frames(of: webView).map(\.info) },
             capture

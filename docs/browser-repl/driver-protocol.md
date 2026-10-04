@@ -281,7 +281,15 @@ native (`BrowserReplBoundary` in the session, and the driver):
   the main frame is blocked or a blocked frame's content cannot be hidden
   that way (its box is unknown, its frame element or an ancestor has
   `-webkit-box-reflect` or `filter`, or an element of the page has
-  `backdrop-filter`). Frame documents are judged again when the capture is prepared, and the capture is refused when a frame shows another document after it. Child frames are matched to their elements through
+  `backdrop-filter`). When a capture is prepared, the driver marks each
+  frame's document in its own content world and judges the document it
+  marked, the one the capture shows (a frame can navigate after the tree
+  read): a PDF is refused while any marked document is blocked; a
+  screenshot is refused while the main frame's is, and blanks every child
+  frame whose marked document is blocked like the tree's blocked frames
+  (it is refused when such a frame is missing from the tree read before
+  the capture). The capture is refused when a frame shows another
+  document after it. Child frames are matched to their elements through
   `window.frames`, which leaves out frames in shadow trees, so while the
   main frame has a frame in a shadow tree every box counts as unknown. In tabs the session created the content rules keep a
   blocked frame from loading at all; its empty frame belongs to the parent

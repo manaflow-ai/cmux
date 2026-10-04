@@ -61,9 +61,15 @@ extension WKContentWorld {
 /// marked document, so none showed another page meanwhile (a navigation
 /// gives the frame a new global object, without the mark).
 ///
+/// The domain policy judges the document each frame shows when it is
+/// marked, the one the capture shows. A blocked main frame refuses the
+/// capture. A blocked child frame refuses a capture that cannot hide it (a
+/// PDF, ``BlockedChildFrames/refuse``); a screenshot is handed those
+/// frames and blanks them (``BlockedChildFrames/handToCapture``).
+///
 /// It fails closed. The capture is refused when a frame does not answer,
-/// shows a page the domain policy blocks, shows a document it did not
-/// show when the capture was prepared, or when the mask step fails, or
+/// shows a page the domain policy blocks (as above), shows a document it
+/// did not show when the capture was prepared, or when the mask step fails, or
 /// when, after the capture, a scan finds an element holding a value that
 /// does not render masked (the page dropped the mask or added the value
 /// while the capture ran). The page owns its DOM, so a value it changes
@@ -101,8 +107,10 @@ public struct BrowserReplCaptureMask {
 
     /// - Parameters:
     ///   - secretMasks: The `secretMasks` the session added to the call.
-    ///   - policy: The session's domain policy; a capture while a frame
-    ///     shows a page it blocks is refused.
+    ///   - policy: The session's domain policy; a capture while the main
+    ///     frame shows a page it blocks is refused.
+    ///   - blockedChildFrames: What a child frame that shows a page the
+    ///     policy blocks does to the capture.
     public init(
         secretMasks: [[String: Any]],
         policy: BrowserReplDomainPolicy = BrowserReplDomainPolicy(),
@@ -126,32 +134,35 @@ public struct BrowserReplCaptureMask {
     /// - Parameters:
     ///   - frames: Reads the tab's frames as they are now; `nil` stands for
     ///     the main frame when WebKit gives no frame info for it.
+    ///   - capture: Takes the capture. With
+    ///     ``BlockedChildFrames/handToCapture`` it gets the child frames
+    ///     (`BrowserReplFrame.frameID` to the policy's reason) whose marked
+    ///     document the policy blocks, and must blank each or throw; with
+    ///     ``BlockedChildFrames/refuse`` that is always empty.
     public func run<T>(
         in webView: WKWebView,
         frames: () async -> [WKFrameInfo?],
         _ capture: (_ blockedChildFrames: [String: String]) async throws -> T
     ) async throws -> T {
-        try await run(in: webView, frames: frames) { try await capture([:]) }
-    }
-
-    public func run<T>(
-        in webView: WKWebView,
-        frames: () async -> [WKFrameInfo?],
-        _ capture: () async throws -> T
-    ) async throws -> T {
-        guard !isEmpty || policy.isActive else { return try await capture() }
+        guard !isEmpty || policy.isActive else { return try await capture([:]) }
         var marked: [WKFrameInfo?] = []
+        var blockedChildren: [String: String] = [:]
         do {
             for frame in await frames() {
                 marked.append(frame)
                 let document = try await mark(frame, in: webView)
-                // A child frame the policy blocks is blanked by the driver's
-                // frame gate; only a blocked main frame refuses the capture.
-                if frame?.isMainFrame ?? true, let reason = policy.blockReason(document: document.policyDocument) {
-                    throw BrowserReplDriverError(
-                        code: "blocked",
-                        message: "The tab shows frame \(document.shown), which the domain policy blocks: \(reason); a capture would show it"
-                    )
+                // Judged on the document the mark step marked, the one the
+                // capture shows (the after-capture check refuses another).
+                if let reason = policy.blockReason(document: document.policyDocument) {
+                    let isMain = frame?.isMainFrame ?? true
+                    guard !isMain, blockedChildFrames == .handToCapture,
+                          let id = frame.flatMap(BrowserReplFrame.frameID(of:)) else {
+                        throw BrowserReplDriverError(
+                            code: "blocked",
+                            message: "The tab shows frame \(document.shown), which the domain policy blocks: \(reason); a capture would show it"
+                        )
+                    }
+                    blockedChildren[id] = reason
                 }
                 let values = values(forOrigin: document.origin)
                 if !values.isEmpty {
@@ -164,7 +175,7 @@ public struct BrowserReplCaptureMask {
         }
         let value: T
         do {
-            value = try await capture()
+            value = try await capture(blockedChildren)
         } catch {
             await unmark(marked, in: webView)
             throw error
@@ -179,6 +190,16 @@ public struct BrowserReplCaptureMask {
         }
         await unmark(marked, in: webView)
         return value
+    }
+
+    /// ``run(in:frames:_:)`` for a capture that is never handed blocked
+    /// child frames (with ``BlockedChildFrames/refuse``, any refuses it).
+    public func run<T>(
+        in webView: WKWebView,
+        frames: () async -> [WKFrameInfo?],
+        _ capture: () async throws -> T
+    ) async throws -> T {
+        try await run(in: webView, frames: frames) { (_: [String: String]) in try await capture() }
     }
 
     /// The values to mask in a frame with `origin`.
