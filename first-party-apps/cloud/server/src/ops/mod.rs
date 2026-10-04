@@ -323,15 +323,14 @@ impl<C: ControlPlane> Server<C> {
             return Ok(done);
         }
         // A delete retried after an attempt whose outcome is unknown: a 404
-        // now means that attempt (or another) deleted it (delete_retry.rs).
+        // with the kind's own not-found code now means that attempt (or
+        // another) deleted it (delete_retry.rs).
         let gone_is_done =
             delete_retry::is_delete(name) && self.ledger.outcome_unknown(key, name, &args);
         self.ledger.attempt(key, name, &args);
         let upstream = upstream_key(name, &args, key);
         let outcome = match self.run(name, &args, request.origin, Some(&upstream)) {
-            Err(error)
-                if gone_is_done && error.code == codes::NOT_FOUND && error.status == Some(404) =>
-            {
+            Err(error) if gone_is_done && delete_retry::is_gone(name, &error) => {
                 delete_retry::gone_answer(name, &args).ok_or(error)
             }
             other => other,
