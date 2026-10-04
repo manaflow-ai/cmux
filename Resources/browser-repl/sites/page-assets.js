@@ -91,8 +91,21 @@
     "pageAssets",
     (t) => {
       const inventories = new Map();
-      // The tab each inventory was listed in: bundle() fetches through it.
+      // The tab each inventory was listed in, and that tab's origin as the
+      // browser reported it then (page.url(), never the page's own answer
+      // or the returned inventory, which page data or agent code can
+      // change): bundle() fetches through that tab, with cookies only for
+      // that origin.
       const listedIn = new Map();
+      const listedOrigin = new Map();
+      const originOf = (href) => {
+        try {
+          const o = new URL(href).origin;
+          return /^https?:\/\//.test(o) ? o : null;
+        } catch (e) {
+          return null;
+        }
+      };
       let n = 0;
       return {
         // { id, pageUrl, assets: [{ id, kind, name, url, sources }], inlineSvgs: [{ id, name, markup }], summary }.
@@ -100,14 +113,16 @@
         async list(page, options = {}) {
           const p = page || t.currentPage();
           const raw = await p.evaluate(inventory, { maxElements: options.maxElements || 5000, maxSvgs: options.maxSvgs || 200, maxSvgChars: options.maxSvgChars || 20000 });
+          const nativeUrl = p.url();
           const id = `inv-${++n}`;
           const assets = raw.assets.map((a, i) => ({ id: `a${i + 1}`, ...a }));
           const inlineSvgs = raw.inlineSvgs.map((s, i) => ({ id: `svg${i + 1}`, ...s }));
           const byKind = {};
           for (const a of assets) byKind[a.kind] = (byKind[a.kind] || 0) + 1;
-          const inv = { id, pageUrl: raw.pageUrl, assets, inlineSvgs, summary: { byKind, inlineSvgCount: inlineSvgs.length, totalCount: assets.length } };
+          const inv = { id, pageUrl: nativeUrl, assets, inlineSvgs, summary: { byKind, inlineSvgCount: inlineSvgs.length, totalCount: assets.length } };
           inventories.set(id, inv);
           listedIn.set(id, p);
+          listedOrigin.set(id, originOf(nativeUrl));
           return inv;
         },
         // Downloads assets of a list() inventory into a directory through
@@ -138,17 +153,17 @@
           const assets = [];
           const failures = [];
           // An inventory's URLs come from the page, so a cross-origin asset is
-          // fetched with no cookies. An asset on the page's own origin uses
-          // "same-origin" through the tab the inventory was listed in: that
-          // tab's cookies go to that origin, whichever tab is current, and to
-          // no redirect hop elsewhere. An inventory list() did not make here
-          // (a copy) has no tab and sends no cookies. The native fetch checks
-          // the domain policy on the URL and every redirect hop.
-          let pageOrigin = null;
-          try {
-            pageOrigin = new URL(inventory_.pageUrl).origin;
-          } catch (e) {}
-          const fetchAsset = listed ? t.fetchFrom(listed, pageOrigin) : t.fetch;
+          // fetched with no cookies. An asset on the origin the browser
+          // showed in the inventory's tab when list() ran uses "same-origin"
+          // through that tab: its cookies go to that origin, whichever tab is
+          // current, and to no redirect hop elsewhere (the native fetch drops
+          // them once a redirect leaves the origin). The inventory's pageUrl
+          // and assets are plain data that agent code can change, so neither
+          // picks the origin. An inventory list() did not make here (a copy)
+          // has no tab and sends no cookies. The native fetch checks the
+          // domain policy on the URL and every redirect hop.
+          const pageOrigin = listed ? listedOrigin.get(inventory_.id) : null;
+          const fetchAsset = listed && pageOrigin ? t.fetchFrom(listed, pageOrigin) : t.fetch;
           const credentialsFor = (url) => {
             try {
               return listed && pageOrigin && pageOrigin !== "null" && new URL(url).origin === pageOrigin ? "same-origin" : "omit";
