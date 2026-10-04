@@ -13,6 +13,8 @@ mod command;
 mod docs;
 mod federation;
 mod lifecycle;
+mod host_mount;
+pub(crate) use host_mount::{requested as host_requested, run as run_host};
 mod machine_server;
 pub(crate) use machine_server::is_lifecycle_scope;
 #[cfg(unix)]

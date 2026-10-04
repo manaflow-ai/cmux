@@ -1086,6 +1086,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cmux-host",
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",

@@ -31,6 +31,8 @@ cmux-tui-machine-protocol.workspace = true
 # `cmux server …`, the machine server verbs (plans/cmux-next/server.md).
 cmux-server.workspace = true
 cmux-server-core.workspace = true
+# `cmux host …`, the machine supervisor and process roles (server.md 5.1).
+cmux-host.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
 crossbeam-channel.workspace = true

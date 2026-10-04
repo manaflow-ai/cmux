@@ -125,6 +125,19 @@ User mode on Linux needs `loginctl enable-linger` to run without a login session
 
 `cmux server roles set apps,postgres,...` and Settings > Server toggle them. A role that is off costs disk, not memory or CPU.
 
+### 5.1 Role contract: process roles (lane 10, framework)
+
+Built-in roles (the table above) are Rust code inside `cmux host run`. A **process role** is a named program that `cmux host run` starts, restarts and stops beside them. The OptChat Chief is the first one (`optchat-chief host`, owned by the chief session); the framework does not know what a role does.
+
+- **Config**: `server.json` key `roles`, an object keyed by role name (`[a-z][a-z0-9-]{0,31}`; the built-in names are reserved). Each entry: `program` (a bare file name resolved in `<current>/bin/` of the store profile, never `PATH`; or an absolute path, accepted only when the file and its directory belong to the user or root and no one else can write them), `args` (strings), `env` (names `[A-Z_][A-Z0-9_]*`; `CMUX_ROLE_*`, `LD_*` and `DYLD_*` are refused; no secrets: a role reads its secrets from its own state folder), `restart` (`always` default, `on-failure`, `never`), `ready` (`started` default, or `notify`), `stopGraceSeconds` (default 10, at most 60), `enabled` (default true). An invalid entry is refused alone: the other roles still run and `status` shows the reason.
+- **Process**: no shell; environment is cleared, then `HOME`, `USER`, `LOGNAME`, `LANG`, `TMPDIR`, a fixed `PATH`, the entry's `env`, and `CMUX_ROLE_NAME`, `CMUX_ROLE_STATE_DIR` (`<state>/roles/<name>`, 0700, made by the supervisor), `CMUX_ROLE_LOG_DIR`. Its own process group; stdin is `/dev/null`.
+- **Lifecycle**: start in name order after the built-in roles (`server.json` objects carry no order); stop in reverse order: SIGTERM to the process group, SIGKILL after `stopGraceSeconds`. `Parked` (VM snapshot) and `Shutdown` stop process roles; `Bound` after a rebind restarts them so a clone never runs with the source machine's role state in memory. `ConfigChanged` (the app or `cmux server roles …` rewrote `server.json`, then SIGHUP to the supervisor) reconciles: removed or disabled roles stop, new ones start, a changed entry restarts.
+- **Restarts**: `Backoff` 1 s doubling to 5 min, counted over the failures of the last 10 minutes; 5 failures in 10 minutes is a crash loop: the role stays down with state `crash-loop` until its config changes or `cmux host run` restarts. With `restart: on-failure` a clean exit (code 0) ends the role (`exited`); with `never` any exit does.
+- **Health**: with `ready: notify` the role is `starting` until it writes the line `READY=1` to the descriptor named by `CMUX_ROLE_NOTIFY_FD`; a later `STATUS=<text>` line sets its status text (shown, never parsed). With `ready: started` it is `ready` once spawned. There is no periodic probe: liveness is the process. States in `cmux host status --json` `roles[]`: `stopped`, `starting`, `ready`, `stopping`, `backoff`, `crash-loop`, `exited`, `invalid`, with `pid`, `restarts`, `last_exit`, `last_error`, `status_text`; the server panel and `server.status` project them.
+- **Logs**: stdout and stderr go to `<state>/logs/roles/<name>.log`, a bounded ring of 4 files of 16 MiB (the same bound as app servers, 7.6). `cmux host logs <role>` and the panel read them.
+- **Platforms**: the supervisor is one portable loop for process roles. On a Linux VM the bind agent runs it inside its event loop (clone and park events above); on macOS and on a plain Linux server without a metadata service `cmux host run` runs only the role loop (no bind, no park, no session host: the app or `cmux daemon` owns the session there).
+- **Who writes what**: the chief session owns the `chief` entry's values and the `optchat-chief` program; this lane owns the contract, the loop, status and logs.
+
 ## 6. Pairing and trust model
 
 ### 6.1 Principals
