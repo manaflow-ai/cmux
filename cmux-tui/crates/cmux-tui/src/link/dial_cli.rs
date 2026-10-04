@@ -35,8 +35,14 @@ pub(super) enum Failure {
 
 impl Failure {
     pub(super) fn exit_code(self) -> i32 {
-        // RED stub: every failure exits 1.
-        1
+        match self {
+            Self::Refused(Some(DialError::UnknownHost)) => 2,
+            Self::Refused(Some(DialError::NotAuthorized)) => 3,
+            Self::Refused(Some(DialError::HostPaused)) => 4,
+            Self::Refused(Some(DialError::Unreachable) | None) => 5,
+            Self::LinkUnavailable => 6,
+            Self::Refused(Some(DialError::BadRequest)) | Self::BadUsage => 64,
+        }
     }
 
     fn error_code(self) -> serde_json::Value {
@@ -102,9 +108,8 @@ pub(super) async fn connect(
     match dial_link(socket, host, service).await {
         Ok(stream) => Ok(stream),
         Err(OverlayDialError::Refused { error, .. }) => Err(Failure::Refused(error)),
-        // RED stub: a missing link is reported like a refusal.
         Err(OverlayDialError::LinkUnavailable(_) | OverlayDialError::Protocol) => {
-            Err(Failure::Refused(None))
+            Err(Failure::LinkUnavailable)
         }
     }
 }
