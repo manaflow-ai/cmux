@@ -324,6 +324,9 @@ public final class CmuxWebView: CmuxUndoableWebView {
     /// Called when "Open Link in New Tab" context menu is selected.
     /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
     public var onContextMenuOpenLinkInNewTab: ((URL) -> Void)?
+    /// Called when a link takes keyboard focus, and with `nil` when it loses
+    /// it, so the pane can show the link's URL as it does on hover.
+    public var onKeyboardFocusedLinkChanged: ((URL?) -> Void)?
     /// Called for physical mouse back/forward buttons so BrowserPanel can use
     /// its restored-session history fallback instead of raw WKWebView history.
     public var onMouseBackButton: (() -> Void)?
@@ -371,6 +374,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
         installPasteAsPlainTextFocusTracking()
         installScriptedDownloadInterception()
         installContextMenuLinkCapture()
+        installLinkFocusCapture()
         installDiffViewerEditableFocusTracking()
     }
     public required init?(coder: NSCoder) {
@@ -379,6 +383,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
         installPasteAsPlainTextFocusTracking()
         installScriptedDownloadInterception()
         installContextMenuLinkCapture()
+        installLinkFocusCapture()
         installDiffViewerEditableFocusTracking()
     }
 

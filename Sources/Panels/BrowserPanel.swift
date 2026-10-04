@@ -3204,6 +3204,11 @@ final class BrowserPanel: Panel, ObservableObject {
             self.scheduleBrowserViewportHostRestoration(reason: "webViewHierarchyChanged")
         }
         DiffCommentsBridge.associate(panelId: id, workspaceId: workspaceId, with: webView)
+        webView.onKeyboardFocusedLinkChanged = { [weak webView] url in
+            guard let webView else { return }
+            let hover = BrowserLinkHoverURL.isEnabled() ? BrowserLinkHoverURL(url: url) : nil
+            WindowBrowserSlotView.hosting(webView)?.setLinkHoverURL(hover?.displayString)
+        }
         webView.onMouseBackButton = { [weak self] in
             self?.goBack()
         }
