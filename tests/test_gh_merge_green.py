@@ -264,6 +264,7 @@ class InstalledHelperRegression(unittest.TestCase):
                     **os.environ,
                     "PATH": str(directory) + os.pathsep + os.environ["PATH"],
                     "VALIDATOR_MARKER": str(marker),
+                    "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1",
                 },
                 capture_output=True,
                 text=True,
@@ -288,7 +289,7 @@ class InstalledHelperRegression(unittest.TestCase):
         gh.chmod(0o755)
         return subprocess.run(
             [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", *extra_args, "--squash"],
-            env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events")},
+            env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"},
             capture_output=True,
             text=True,
         )
@@ -351,7 +352,7 @@ class InstalledHelperRegression(unittest.TestCase):
             marker = Path(directory) / "merged"
             gh.write_text("#!/bin/sh\ncase \"$*\" in\n*'pr view'*) echo '" + HEAD + " feat-cmux-next';;\n*'pulls/42') echo '{\"state\":\"open\",\"head\":{\"sha\":\"" + HEAD + "\"},\"base\":{\"sha\":\"" + BASE + "\",\"ref\":\"feat-cmux-next\"}}';;\n*'pr merge'*) touch \"$MERGE_MARKER\";;\n*) echo '[]';;\nesac\n")
             gh.chmod(0o755)
-            result = subprocess.run([str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", "--main-fix", "--squash"], env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker)}, capture_output=True, text=True)
+            result = subprocess.run([str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", "--main-fix", "--squash"], env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"}, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists(), "the helper merged without any compile evidence")
 
@@ -391,7 +392,7 @@ class InstalledHelperRegression(unittest.TestCase):
             gh.chmod(0o755)
             result = subprocess.run(
                 [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", "--squash"],
-                env={**os.environ, "PATH": str(directory) + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "INCLUDE_CONFLICT": "0"},
+                env={**os.environ, "PATH": str(directory) + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "INCLUDE_CONFLICT": "0", "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"},
                 capture_output=True,
                 text=True,
             )
@@ -401,7 +402,7 @@ class InstalledHelperRegression(unittest.TestCase):
             marker.unlink()
             result = subprocess.run(
                 [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", "--squash"],
-                env={**os.environ, "PATH": str(directory) + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "INCLUDE_CONFLICT": "1"},
+                env={**os.environ, "PATH": str(directory) + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "INCLUDE_CONFLICT": "1", "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"},
                 capture_output=True,
                 text=True,
             )
@@ -452,7 +453,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
                 """))
             gh.chmod(0o755)
             result = subprocess.run([str(ROOT / 'scripts/gh-merge-green'), 'manaflow-ai/cmuxterm-hq#1254', '--squash'],
-                env={**os.environ, 'PATH': str(directory) + os.pathsep + os.environ['PATH'], 'FIXTURE': str(fixture), 'MERGE_MARKER': str(marker), 'QUERIES': str(queries)}, capture_output=True, text=True)
+                env={**os.environ, 'PATH': str(directory) + os.pathsep + os.environ['PATH'], 'FIXTURE': str(fixture), 'MERGE_MARKER': str(marker), 'QUERIES': str(queries), 'GH_MERGE_GREEN_NO_AUTO_UPDATE': '1'}, capture_output=True, text=True)
             return result, marker.exists(), queries.read_text()
 
     def test_no_ci_workflow_merges_all_green_checks(self):
@@ -461,6 +462,13 @@ class WorkflowPresenceRegression(unittest.TestCase):
         self.assertTrue(merged)
         self.assertIn('ref=main', queries)
         self.assertIn('/commits/' + HEAD + '/check-runs', queries)
+
+    def test_no_ci_workflow_accepts_neutral_and_skipped_checks(self):
+        for conclusion in ("neutral", "skipped"):
+            with self.subTest(conclusion=conclusion):
+                result, merged, _ = self.run_case(checks=[{"id": 1, "name": "Vercel Agent Review", "status": "completed", "conclusion": conclusion}])
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(merged)
 
     def test_no_ci_workflow_refuses_pending_failed_and_empty_checks(self):
         for checks in ([], [{'id': 1, 'name': 'tests', 'status': 'in_progress'}],
@@ -492,6 +500,88 @@ class WorkflowPresenceRegression(unittest.TestCase):
         result, merged, _ = self.run_case(workflow=True, files=['Sources/App.swift'], checks=[{'id': 1, 'name': 'ci-status', 'status': 'completed', 'conclusion': 'success'}])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(merged)
+
+
+class HelperCheckoutUpdateRegression(unittest.TestCase):
+    """The symlinked helper refreshes only a clean main checkout."""
+
+    def invoke(self, mode):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            checkout = directory / "checkout"
+            updated = checkout / "scripts" / "gh-merge-green"
+            updated.parent.mkdir(parents=True)
+            updated.write_text(f"#!/bin/sh\nprintf updated > {directory / 'updated'}\n")
+            updated.chmod(0o755)
+            log = directory / "git.log"
+            fake_git = directory / "git"
+            fake_git.write_text(textwrap.dedent(f"""\
+                #!/usr/bin/env python3
+                import os, sys
+                from pathlib import Path
+                a = sys.argv[1:]
+                log = Path(os.environ['GIT_LOG'])
+                with log.open('a') as stream:
+                    stream.write(' '.join(a) + '\\n')
+                if a[-2:] == ['rev-parse', '--show-toplevel']:
+                    print(os.environ['CHECKOUT'])
+                elif a[-2:] == ['status', '--porcelain'] or a[-3:] == ['status', '--porcelain', '--untracked-files=all']:
+                    if os.environ['MODE'] == 'dirty':
+                        print(' M scripts/gh-merge-green')
+                elif a[-2:] == ['branch', '--show-current']:
+                    print('main')
+                elif a[-2:] == ['rev-parse', 'refs/remotes/origin/main']:
+                    print('b' * 40)
+                elif a[-2:] == ['rev-parse', 'HEAD']:
+                    print('a' * 40)
+                elif 'merge-base' in a and '--is-ancestor' in a:
+                    if os.environ['MODE'] == 'behind' and a[-2:] == ['a' * 40, 'b' * 40]:
+                        sys.exit(0)
+                    sys.exit(1)
+                elif 'merge' in a and '--ff-only' in a:
+                    print('fast-forward')
+                elif 'fetch' in a:
+                    pass
+                else:
+                    sys.exit(2)
+            """))
+            fake_git.chmod(0o755)
+            fake_gh = directory / "gh"
+            fake_gh.write_text("#!/bin/sh\nexit 2\n")
+            fake_gh.chmod(0o755)
+            result = subprocess.run(
+                [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42"],
+                env={**os.environ, "PATH": str(directory) + os.pathsep + os.environ["PATH"],
+                     "CHECKOUT": str(checkout), "GIT_LOG": str(log), "MODE": mode,
+                     "UPDATE_MARKER": str(directory / "updated")},
+                capture_output=True, text=True,
+            )
+            marker = directory / "updated"
+            diagnostics = (result, marker.exists(), marker.read_text() if marker.exists() else "", log.read_text(), result.stderr)
+            return diagnostics
+
+    def test_clean_main_checkout_fast_forwards_and_reexecutes(self):
+        result, marker_exists, marker_content, log, stderr = self.invoke("behind")
+        self.assertEqual(result.returncode, 0, stderr + "\n" + log)
+        self.assertTrue(marker_exists, stderr + "\n" + log)
+        self.assertEqual(marker_content, "updated")
+        self.assertIn("fetch --quiet origin main", log)
+        self.assertIn("merge --ff-only", log)
+
+    def test_dirty_checkout_warns_and_does_not_update(self):
+        result, marker_exists, marker_content, log, stderr = self.invoke("dirty")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(marker_exists)
+        self.assertIn("checkout", stderr)
+        self.assertIn("dirty", stderr)
+        self.assertIn("REPAIR.md#merging", stderr)
+
+    def test_diverged_checkout_warns_and_does_not_update(self):
+        result, marker_exists, marker_content, log, stderr = self.invoke("diverged")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(marker_exists)
+        self.assertIn("diverged", stderr)
+        self.assertIn("REPAIR.md#merging", stderr)
 
 
 if __name__ == "__main__":
