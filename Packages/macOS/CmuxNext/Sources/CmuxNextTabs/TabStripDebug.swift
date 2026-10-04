@@ -3,7 +3,9 @@ public import AppKit
 /// Benchmarks (`debug.hover_sweep`, R131): drive a strip's hover path
 /// without a real pointer.
 @MainActor
-public enum TabStripDebug {
+public struct TabStripDebug {
+    public init() {}
+
     /// The center of the visible tab at `index` in `strip`'s coordinates.
     public static func tabCenter(in strip: TabStripView, at index: Int) -> CGPoint? {
         let tabs = strip.model.orderedTabs
