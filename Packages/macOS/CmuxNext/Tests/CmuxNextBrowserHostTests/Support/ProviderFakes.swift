@@ -98,7 +98,8 @@ final class FakeDialer {
 }
 
 final class FakeCredentials: ProviderCredentialsSource {
-    var value: ProviderCredentials? = ProviderCredentials(socketPath: "/unused", secret: ProviderSecret("s3cret-value"))
+    /// The fake host runs in this process, so its peer pid is ours.
+    var value: ProviderCredentials? = ProviderCredentials(socketPath: "/unused", secret: ProviderSecret("s3cret-value"), hostPID: getpid())
     func providerCredentials() async -> ProviderCredentials? { value }
 }
 
@@ -140,8 +141,10 @@ final class FakeRelay: ProviderDevToolsRelay {
     var onEnd: (() -> Void)?
     var sent: [String] = []
     var stopped: [String] = []
-    /// Answers each sent command from the "browser" with `{"id":raw,"result":{}}` plus its sessionId.
+    /// Answers each sent command from the "browser" with `{"id":raw,"result":{"ok":true}}`
+    /// plus its sessionId; only commands whose method contains `echoOnly`, when set.
     var echoes = true
+    var echoOnly: String?
 
     func prepareRelay(targetID: String) async -> Bool {
         guard holdsPrepare else { return prepareResult }
@@ -162,7 +165,7 @@ final class FakeRelay: ProviderDevToolsRelay {
 
     func send(targetID: String, message: String) -> CEFDevToolsRawSend {
         sent.append(message)
-        if echoes, let id = CEFDevToolsRawMessage.topLevelID(in: message) {
+        if echoes, echoOnly.map({ message.contains($0) }) ?? true, let id = CEFDevToolsRawMessage.topLevelID(in: message) {
             let session = message.contains(#""sessionId":"S""#) ? #","sessionId":"S""# : ""
             let reply = #"{"id":\#(id),"result":{"ok":true}\#(session)}"#
             Task { @MainActor [weak self] in self?.onMessage?(reply) }

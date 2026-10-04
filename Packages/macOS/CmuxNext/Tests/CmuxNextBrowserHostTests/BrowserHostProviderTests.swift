@@ -131,6 +131,18 @@ struct BrowserHostProviderTests {
         #expect(h.dialer.count == 2)
     }
 
+    @Test func aListenerThatIsNotTheHostNeverGetsTheSecret() async throws {
+        let h = ProviderHarness()
+        // The daemon started the host as another process: our socket peer is not it.
+        h.credentials.value = ProviderCredentials(socketPath: "/unused", secret: ProviderSecret("s3cret-value"), hostPID: getpid() + 1)
+        h.provider.start()
+        let host = try #require(await h.nextHost())
+        // Closed before any byte: no hello, so no secret.
+        #expect(await host.next() == nil)
+        await h.clock.sleepers(atLeast: 1)
+        #expect(h.provider.status == .waitingToRetry)
+    }
+
     @Test func aFirstFrameOtherThanTheAckDropsTheLink() async throws {
         let h = ProviderHarness()
         let (host, _) = await h.connected()
@@ -147,7 +159,7 @@ struct BrowserHostProviderTests {
         h.provider.start()
         // Nothing to dial: idle, no timer, no dial.
         h.provider.credentialsChanged()
-        h.credentials.value = ProviderCredentials(socketPath: "/next", secret: ProviderSecret("new-secret"))
+        h.credentials.value = ProviderCredentials(socketPath: "/next", secret: ProviderSecret("new-secret"), hostPID: getpid())
         h.provider.credentialsChanged()
         let host = await h.nextHost()
         guard case .hello(_, _, _, let secret, _, _)? = await host?.next() else {

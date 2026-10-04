@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Where and how to reach the browser host's provider listener. The daemon
 /// mints the secret and gives it to the app over its own daemon connection
@@ -7,10 +7,14 @@ import Foundation
 public nonisolated struct ProviderCredentials: Hashable, Sendable {
     public var socketPath: String
     public var secret: ProviderSecret
+    /// The host's pid (the daemon started it): the socket's peer must be
+    /// this process before the app sends the secret.
+    public var hostPID: pid_t
 
-    public init(socketPath: String, secret: ProviderSecret) {
+    public init(socketPath: String, secret: ProviderSecret, hostPID: pid_t) {
         self.socketPath = socketPath
         self.secret = secret
+        self.hostPID = hostPID
     }
 }
 

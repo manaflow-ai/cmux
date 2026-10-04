@@ -103,6 +103,23 @@ struct BrowserHostProviderRelayTests {
         #expect(h.relay.stopped == ["c1"])
     }
 
+    @Test func rawIDsStayMonotonicAcrossRelaysAndLateRepliesDrop() async throws {
+        let (h, host) = await attached()
+        h.relay.echoOnly = #""method":"B""#
+        host.send(.cdp(targetID: "c1", message: #"{"id":1,"method":"A"}"#))
+        host.send(.cdpDetach(targetID: "c1"))
+        host.send(.cdpAttach(targetID: "c1"))
+        // The host's ids start at 1 again for the new relay.
+        host.send(.cdp(targetID: "c1", message: #"{"id":1,"method":"B"}"#))
+        #expect(await host.next() == .cdp(targetID: "c1", message: #"{"id":1,"result":{"ok":true}}"#))
+        #expect(h.relay.sent == [#"{"id":1073741824,"method":"A"}"#, #"{"id":1073741825,"method":"B"}"#])
+        // The old relay's late reply has no live mapping: dropped.
+        h.relay.onMessage?(#"{"id":1073741824,"result":{"old":true}}"#)
+        let event = #"{"method":"Page.loadEventFired","params":{}}"#
+        h.relay.onMessage?(event)
+        #expect(await host.next() == .cdp(targetID: "c1", message: event))
+    }
+
     @Test func aClosedTabEndsItsRelayAndTheHostHearsTabGone() async throws {
         let (h, host) = await attached()
         host.send(.cdp(targetID: "c1", message: #"{"id":1,"method":"M"}"#))
