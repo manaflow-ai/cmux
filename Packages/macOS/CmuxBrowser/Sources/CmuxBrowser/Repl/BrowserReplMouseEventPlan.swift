@@ -86,3 +86,29 @@ extension CGPoint {
         return CGPoint(x: x, y: viewIsFlipped ? y : viewHeight - y)
     }
 }
+
+/// One `input.mouse` wheel call's deltas as the scroll-wheel event's pixel
+/// counts. Page-space deltas scroll content down and right; wheel counts are
+/// the finger's direction, so they flip sign.
+public struct BrowserReplWheelDelta: Sendable, Equatable {
+    /// The vertical count (`wheel1` of a scroll-wheel CGEvent).
+    public let vertical: Int32
+    /// The horizontal count (`wheel2`).
+    public let horizontal: Int32
+
+    public init(vertical: Int32, horizontal: Int32) {
+        self.vertical = vertical
+        self.horizontal = horizontal
+    }
+
+    /// The counts for page-space deltas `deltaX` and `deltaY`.
+    public init(deltaX: Double, deltaY: Double) {
+        vertical = Int32(clamping: Int(-deltaY.rounded()))
+        horizontal = Int32(clamping: Int(-deltaX.rounded()))
+    }
+
+    /// The counts for page-space deltas `deltaX` and `deltaY`.
+    public init?(validatingDeltaX deltaX: Double, deltaY: Double) {
+        self.init(deltaX: deltaX, deltaY: deltaY)
+    }
+}
